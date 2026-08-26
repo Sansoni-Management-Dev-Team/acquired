@@ -10,6 +10,12 @@ export const auth = betterAuth({
   baseURL: process.env.APP_URL ?? "http://localhost:3000",
   secret: process.env.BETTER_AUTH_SECRET,
   database: drizzleAdapter(requireDb(), { provider: "pg", schema }),
+  socialProviders: {
+    google: {
+      clientId: process.env.GOOGLE_GMAIL_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_GMAIL_CLIENT_SECRET!,
+    },
+  },
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 8,

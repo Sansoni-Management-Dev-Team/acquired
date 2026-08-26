@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { organizationSlug } from "@/lib/organization-slug";
+import { GoogleSignInButton } from "@/components/google-sign-in-button";
 
 export function SignUpForm() {
   const router = useRouter();
@@ -48,6 +49,7 @@ export function SignUpForm() {
 
   return (
     <form onSubmit={submit} className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--panel)] p-7">
+      <GoogleSignInButton />
       <label className="text-sm" htmlFor="name">Your name</label>
       <input required id="name" name="name" autoComplete="name" className="mb-4 mt-2 w-full rounded-md border border-[var(--border)] bg-black/20 px-3 py-2.5 outline-none focus:border-[var(--accent)]" />
       <label className="text-sm" htmlFor="organizationName">Organisation</label>

@@ -17,7 +17,7 @@ const nav = [
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  if (["/sign-in", "/sign-up", "/forgot-password", "/reset-password", "/onboarding"].includes(pathname)) return <main>{children}</main>;
+  if (["/sign-in", "/sign-up", "/forgot-password", "/reset-password", "/onboarding", "/auth/complete"].includes(pathname)) return <main>{children}</main>;
 
   async function signOut() {
     await authClient.signOut();

@@ -42,4 +42,4 @@ The schema lives in `src/db/schema.ts`. Migrations `drizzle/0000_initial.sql`, `
 
 ## Authentication
 
-Email/password registration, login, and one-hour password reset tokens are backed by Better Auth tables in Neon Postgres. Registration creates an organisation and makes it active for the new session. Password resets revoke existing sessions and use Resend when `RESEND_API_KEY` and `AUTH_EMAIL_FROM` are configured. Dashboard routes require a session; the delegated Gmail OAuth grant remains separate and can be connected from Settings after login.
+Email/password and Google registration/login plus one-hour password reset tokens are backed by Better Auth tables in Neon Postgres. Registration creates an organisation and makes it active for the new session. Password resets revoke existing sessions and use Resend when `RESEND_API_KEY` and `AUTH_EMAIL_FROM` are configured. Product Google sign-in uses `/api/auth/callback/google`; the delegated Gmail grant remains separate at `/api/mailbox/google/callback` and can be connected from Settings after login.
