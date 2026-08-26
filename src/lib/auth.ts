@@ -11,5 +11,5 @@ export const auth = betterAuth({
   database: drizzleAdapter(requireDb(), { provider: "pg", schema }),
   emailAndPassword: { enabled: true, minPasswordLength: 12 },
   advanced: { database: { joins: true } },
-  plugins: [organization({ allowUserToCreateOrganization: false, requireEmailVerificationOnInvitation: true })],
+  plugins: [organization({ allowUserToCreateOrganization: true, requireEmailVerificationOnInvitation: true })],
 });

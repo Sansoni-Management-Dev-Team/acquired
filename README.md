@@ -38,4 +38,8 @@ Copy `.env.example` to `.env.local` only when connecting external services. `TAR
 
 ## Database safety
 
-The schema lives in `src/db/schema.ts`, and the reviewed candidate SQL is `drizzle/0000_initial.sql`. It has **not** been applied. Never apply a migration without explicit approval for that specific migration.
+The schema lives in `src/db/schema.ts`. Migrations `drizzle/0000_initial.sql` and `drizzle/0001_opportunity_qualification.sql` were explicitly approved and applied to the configured Neon database on 2026-08-26. Never apply a future migration without explicit approval for that specific migration.
+
+## Authentication
+
+Email/password registration and login are backed by Better Auth tables in Neon Postgres. Registration creates an organisation and makes it active for the new session. Dashboard routes require a session; the delegated Gmail OAuth grant remains separate and can be connected from Settings after login.
