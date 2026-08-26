@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+:root {
+  --background: #000000;
+  --panel: #0d0d0d;
+  --panel-raised: #191919;
+  --border: #2b2b2b;
+  --muted: #a1a1a1;
+  --foreground: #ffffff;
+  --accent: #ffffff;
+  --accent-soft: #202020;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--background); }
+body {
+  margin: 0;
+  color: var(--foreground);
+  background: var(--background);
+  font-family: var(--font-body), sans-serif;
+  font-weight: 400;
+  line-height: 1.5;
+}
+h1, h2, h3, h4, h5, h6, strong, button, nav { font-family: var(--font-display), sans-serif; }
+h1, h2, h3 { letter-spacing: -.025em; }
+button, input, select { font: inherit; }
+a { color: inherit; text-decoration: none; }
+::selection { background: var(--accent); color: #111; }

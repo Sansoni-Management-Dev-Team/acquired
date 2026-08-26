@@ -208,3 +208,134 @@ guardrail we can leave to the API to enforce.
   — Limited Use, human review, AI/ML training restrictions
 - [Avoid sending spam — ACMA](https://www.acma.gov.au/avoid-sending-spam) and
   [Consent expectations for businesses using direct marketing — ACMA](https://www.acma.gov.au/articles/2024-06/consent-expectations-businesses-using-direct-marketing)
+
+---
+
+## Appendix A — Google Cloud Console setup, send-only
+
+Exact settings for the `gmail.send` configuration recommended above. The OAuth consent screen now
+lives under **Google Auth Platform** in the console, not under APIs & Services where older guides
+put it.
+
+### 1. Project and API
+
+Create (or select) a project — one per environment is cleanest: `acquired-dev`, `acquired-prod`.
+Then **APIs & Services → Library → Gmail API → Enable**. Nothing else needs enabling; identity
+comes from the OAuth endpoints, not from a separate API.
+
+### 2. Google Auth Platform → Branding
+
+Everything here is what the verification reviewer grades, and every URL must be live and on a
+domain you control before you submit.
+
+| Field | Value |
+|---|---|
+| App name | `Acquired` — must match the product name on the site, no "Google" in it, nothing generic |
+| User support email | A monitored address, not a personal one |
+| App logo | 120×120 PNG. Uploading a logo triggers brand verification; it is required for a public app anyway |
+| Application home page | `https://<domain>/` |
+| Privacy policy | `https://<domain>/privacy` |
+| Terms of service | `https://<domain>/terms` |
+| Authorised domains | `<domain>` — the registrable domain only, no scheme, no subdomain |
+| Developer contact | Where Google sends verification correspondence. Monitor it |
+
+The privacy policy has to be reachable from the home page, has to describe what Gmail data the app
+touches, and has to state compliance with the Google API Services User Data Policy including
+Limited Use. Reviewers check for that sentence specifically.
+
+### 3. Audience
+
+**External.** (Internal is only available inside a Workspace organisation and would restrict the
+app to your own domain — wrong for design partners on their own accounts.)
+
+Publishing status starts at **Testing**. In Testing you add up to 100 named test users, the
+consent screen shows the unverified-app warning, and — the trap noted above — refresh tokens
+expire after seven days. Add the design-partner addresses here. Flip to **In production** only
+after verification is granted.
+
+### 4. Data Access → scopes
+
+Add exactly three, and resist adding a fourth:
+
+```
+openid
+https://www.googleapis.com/auth/userinfo.email
+https://www.googleapis.com/auth/gmail.send
+```
+
+`gmail.send` will be flagged as sensitive and will require a justification. Write it as the
+product sentence, not a technical one — something like: *"Acquired drafts acquisition outreach
+emails that the user reviews and approves in-app. On approval the user sends the message from
+their own Gmail account. The app requires no read access to the mailbox and requests no other
+Gmail scope."* Narrowness is the argument.
+
+### 5. Clients → Create OAuth client ID
+
+Type **Web application**.
+
+- **Authorised JavaScript origins** — leave empty for this flow. Origins are only consulted when
+  a *browser* calls Google's token endpoint directly over CORS: Google Identity Services sign-in
+  buttons, One Tap, `gapi.client`, or a public-client PKCE exchange run in the page. Our connect
+  flow redirects to Google and exchanges the code on the server with the client secret, so no
+  browser origin is ever checked. Adding origins we do not use is extra surface and one more thing
+  the verification reviewer asks about.
+
+  Two things to know for later. If we add a "Sign in with Google" button for *login* — a separate
+  concern from mailbox connect — that is a GIS client-side flow and it will need
+  `https://<domain>` and `http://localhost:3000` listed here. And origins can never substitute for
+  the server-side flow on the mailbox side: a browser cannot hold the client secret, so a public
+  client cannot safely obtain the long-lived refresh token that sending on the user's behalf
+  depends on. Format is scheme, host and port only — `https://app.example.com`, no path, no
+  trailing slash, no wildcards, no bare IPs — and changes can take a few minutes to propagate.
+- **Authorised redirect URIs** — exact string match, including trailing slash behaviour:
+  - `https://<domain>/api/auth/google/callback`
+  - `http://localhost:3000/api/auth/google/callback` (plain HTTP is permitted for localhost only)
+
+Keep separate clients per environment. The secret goes in the secret manager, never in the repo.
+
+```
+GOOGLE_CLIENT_ID=...apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=...
+GOOGLE_REDIRECT_URI=https://<domain>/api/auth/google/callback
+```
+
+### 6. The authorisation request
+
+```
+https://accounts.google.com/o/oauth2/v2/auth
+  ?client_id=<GOOGLE_CLIENT_ID>
+  &redirect_uri=<GOOGLE_REDIRECT_URI>
+  &response_type=code
+  &scope=openid%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email%20https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fgmail.send
+  &access_type=offline
+  &prompt=consent
+  &include_granted_scopes=true
+  &state=<signed nonce bound to the session>
+  &code_challenge=<S256 of verifier>
+  &code_challenge_method=S256
+  &login_hint=<user's known address>
+```
+
+`access_type=offline` plus `prompt=consent` is what actually returns a refresh token — without
+`prompt=consent`, Google issues one on the first grant only and silently omits it on every
+reconnect, which is the single most common cause of "it worked yesterday" bugs in this flow.
+
+Exchange the code at `https://oauth2.googleapis.com/token`, server-side, with the client secret
+and the PKCE verifier. Revoke at `https://oauth2.googleapis.com/revoke` when a user disconnects —
+disconnecting must actually revoke, not just delete our row.
+
+### 7. Sending
+
+`POST https://gmail.googleapis.com/gmail/v1/users/me/messages/send` with a base64url-encoded
+RFC 2822 message in `raw`. The `From` header must be the authenticated account or one of its
+verified send-as aliases; anything else is rejected. The response returns `id` and `threadId` —
+persist both as the provenance record. Note that with this scope you cannot call `drafts.create`,
+by design.
+
+### 8. Verification Center
+
+Submit once branding, scopes and client are final. You will need an unlisted YouTube demo video
+showing: the OAuth consent screen with the requested scopes legible, the client ID visible in the
+URL bar, and the in-app flow that uses the scope end to end — draft, human approval, send. Budget
+weeks, not days, and expect at least one round of reviewer questions. Submit early; the
+implementation can proceed against `MockMailbox` while the queue moves.
