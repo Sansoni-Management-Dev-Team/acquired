@@ -5,26 +5,27 @@ filter and rank it into cold/warm/hot with reasons, generate a seven-message out
 ending in a break-up, and send it through the user's own Gmail. Plus auth. Plus shadcn.
 
 This document is the plan for that. It assumes no application code exists yet — because it
-doesn't — and it is written against `01-understanding.md` (M0 criteria), `04-prototype-teardown.md`
-(the spec worth harvesting) and `20-gmail-oauth.md` (the sending constraint).
+doesn't — and it is written against `01-understanding.md` (the journey and the constraints),
+`04-prototype-teardown.md` (the spec worth harvesting) and `20-gmail-oauth.md` (the sending
+constraint).
 
 ---
 
-## 0. The two constraints that decide the sequencing
+## 0. The dependency that shapes the ordering
 
-**M0 is Friday 28 August — two days away.** Seven acceptance criteria, and criterion 6 is
-explicitly *"outreach drafting works; nothing sends"*. So sending is not in M0 by the client's own
-definition, which is fortunate, because:
+**Gmail sending is gated on Google app verification, which is weeks of calendar time.**
+`gmail.send` is a *sensitive* scope: brand review, published privacy policy on a verified domain,
+demo video, narrowest-scope justification. Nothing about how we write the code makes that queue
+shorter. The only lever is submitting early.
 
-**Gmail sending is gated on Google app verification, which is weeks not days.** `gmail.send` is a
-*sensitive* scope: brand review, published privacy policy on a verified domain, demo video, scope
-justification. Nothing in the build makes that queue shorter. The only lever is submitting early.
+So the shape of the build is: **construct the entire pipeline against a `MockMailbox`, and swap in
+Gmail when verification lands.** The seam is the deliverable, not the Gmail client. The Google
+Cloud project, consent screen and verification submission should be started immediately, in
+parallel with everything else, by whoever owns the domain — it is the long pole and it blocks
+nothing else.
 
-These two facts set the shape of the whole plan: **build the entire pipeline against a
-`MockMailbox` and swap in Gmail when verification lands.** The seam is the deliverable, not the
-Gmail client. Concretely, the Google Cloud project, consent screen and verification submission
-should be started this week, in parallel with M0, by whoever owns the domain — it is the long pole
-and it blocks nothing else.
+The second ordering constraint is internal and is covered in §5: automated multi-step sending
+depends on reply capture, so those two ship together.
 
 Everything below is ordered accordingly.
 
@@ -39,8 +40,8 @@ Everything below is ordered accordingly.
 | Database | Postgres in `ap-southeast-2` (Sydney) | Data sovereignty is a stated constraint and a bank-review question. Neon and Supabase both offer Sydney. Supabase if we want storage + row-level security for the data room later; Neon if we want plain Postgres and branching |
 | ORM | Drizzle | Migrations as SQL we can read, which is what an auditor wants. Prisma is fine; Drizzle is lighter and the schema is the source of truth |
 | Auth | Better Auth, self-hosted, Postgres-backed | See §7 — the deciding factor is that identity data stays in our AU database rather than a US identity vendor |
-| Background work | `pg-boss` on Postgres for M0; a dedicated worker (Fly.io Sydney) when sequences go live | Sequences need durable, delayed, retryable jobs. Inngest and Trigger.dev are better tools and are US-hosted — flag before adopting |
-| Hosting | Vercel for M0, functions pinned to `syd1` | Fastest path to criterion 1 (deployed, not localhost). D4 says own AWS tenant later; the adapter and worker boundaries are what make that a migration rather than a rewrite |
+| Background work | `pg-boss` on Postgres to start; a dedicated worker (Fly.io Sydney) when sequences go live | Sequences need durable, delayed, retryable jobs. Inngest and Trigger.dev are better tools and are US-hosted — flag before adopting |
+| Hosting | Vercel initially, functions pinned to `syd1` | Fastest path to something deployed. D4 says own AWS tenant later; the adapter and worker boundaries are what make that a migration rather than a rewrite |
 | Models | Claude only, no-training terms | Stated constraint, and a prerequisite for the Google verification submission |
 
 Two things to hold fixed from day one because they are brutal to retrofit, per the brief:
@@ -91,7 +92,7 @@ Non-negotiable field-level rules, taken from the prototype's best instinct:
 
 The **D1 decision** (lean four-record pipeline vs full six-record platform) is still formally open.
 The shape above is the lean pipeline with tenancy and evidence added, which is where I think it
-should land — but it is Mark's call and it should be made explicitly this week, not by drift.
+should land — but it is Mark's call and it should be made explicitly and early, not by drift.
 
 ---
 
@@ -117,10 +118,10 @@ TargetSource
 | **Apollo** | Discovery via `mixed_companies/search` + `people/search`, wide filters, good tooling | AU SME coverage is materially thinner than Firmable's, contact reveal burns credits, and the terms restrict export and retention in some tiers. Check the contract before it becomes the sourcing spine |
 | **Registers** (ASIC, industry associations) | The actual quality source for a defined sector lane, and the only source of succession signal | ASIC director records — appointment date, tenure, sole-director structure — are what make the ripeness score real. Access path and cost need confirming |
 
-Recommended M0 posture: **Firmable live for enrichment** (criterion 4 satisfied, one live connector
-against real data), **register/seed for discovery**, Apollo behind the same interface but not on
-the M0 path. If Firmable search turns out to exist, it slots into `search()` without touching
-anything downstream — which is the entire point of the interface.
+Recommended posture for the first live pass: **Firmable live for enrichment**, **register/seed for
+discovery**, Apollo behind the same interface but off the critical path. If Firmable search turns
+out to exist, it slots into `search()` without touching anything downstream — which is the entire
+point of the interface.
 
 One constraint to honour at ingest, per the brief: **no real personal data in dev/test.**
 Fictionalise personal fields at the ingest boundary so real company data flows through real
@@ -172,8 +173,8 @@ COLD   everything else that clears the mandate floor
 EXCLUDED  fails a hard mandate constraint, or is suppressed
 ```
 
-Thresholds are configuration, not code — they will be tuned against Mark's judgement in week one,
-and the tuning history is itself worth keeping.
+Thresholds are configuration, not code — they will be tuned against Mark's judgement in the first
+weeks, and the tuning history is itself worth keeping.
 
 ### The rule that matters most
 
@@ -275,9 +276,10 @@ MailboxAdapter
   disconnect(userId)
 ```
 
-`MockMailbox` writes to a table and returns a fake id — this is what M0 and every test run on.
-`GmailMailbox` calls `users.messages.send`. A future `OutlookMailbox` hits Graph `Mail.Send`, which
-is worth designing for now because a meaningful share of AU SME buyers are on Microsoft 365.
+`MockMailbox` writes to a table and returns a fake id — this is what the build and every test run
+on until verification lands. `GmailMailbox` calls `users.messages.send`. A future `OutlookMailbox`
+hits Graph `Mail.Send`, which is worth designing for now because a meaningful share of AU SME
+buyers are on Microsoft 365.
 
 **Flow:** authorisation code with PKCE, `access_type=offline`, `prompt=consent` on first connect so
 a refresh token is actually issued, signed short-lived `state` nonce bound to the session,
@@ -290,8 +292,8 @@ API. Access tokens cached with short TTL, not persisted. Treat `invalid_grant` a
 product state — "reconnect Gmail" in the UI, never a silent send failure.
 
 **The trap to write down now:** while the app is in Testing, pre-verification, refresh tokens
-expire after **seven days** and the app is capped at 100 test users. That is fine for two accounts,
-and it looks exactly like a bug to anyone who does not know.
+expire after **seven days** and the app is capped at 100 test users. That is fine for a couple of
+accounts and a design partner, and it looks exactly like a bug to anyone who does not know.
 
 ---
 
@@ -315,7 +317,7 @@ to log in.
   the bank and once for the privacy assessment.
 - The organisation plugin gives us multi-tenancy on the roles/membership side without building it,
   which satisfies D5's real requirement: few named users now, must not block multi-tenant later.
-- Email + password with a strong policy for M0's two accounts; magic link or Google SSO as a later
+- Email + password with a strong policy for the first accounts; magic link or Google SSO as a later
   login option, independent of the Gmail grant.
 
 **Tenancy from the first migration.** `organisationId` on every domain table, enforced in a query
@@ -359,49 +361,53 @@ Two UI conventions worth making rules:
 
 ## 9. Sequenced plan
 
-**M0 — by Friday 28 August (two days).** The seven criteria, nothing else.
+**Phase 1 — foundations and the ranked list.** The thing that has to exist before anything else is
+worth building.
 
-- Next.js + shadcn + Drizzle + Postgres in Sydney, deployed to Vercel
-- Better Auth, two accounts, organisation scoping in the schema
+- Next.js + shadcn + Drizzle + Postgres in Sydney, deployed
+- Better Auth, organisation scoping in the schema from the first migration
 - Mandate parse (harvest the prototype's prompt), persisted
 - `TargetSource` interface; Firmable enrichment live against real records; register/seed discovery
-- Signal extraction and the deterministic scoring function; cold/warm/hot on the target list
-- Outreach step-1 drafting, `MockMailbox`, nothing sends
-- Audit trail visible in the UI — criterion 7 is "they can inspect what the system did and why",
-  which means a screen, not a log file
+- Signal extraction, and the deterministic scoring function behind it
+- `/targets` with cold/warm/hot, filters, and the score-breakdown sheet
+- Audit trail visible as a screen, not a log file
 
-*Parallel, blocking nothing:* Google Cloud project, consent screen, privacy policy page, demo
-video, `gmail.send` verification submitted. The queue is the long pole; start it now.
+*Parallel from day one, blocking nothing:* Google Cloud project, consent screen, privacy policy
+page, demo video, `gmail.send` verification submitted.
 
-**M1 — sequence engine.** All seven steps, `pg-boss` scheduling with business-day delays and
-jitter, per-message and block approval, suppression list, unsubscribe, per-account send caps.
-Still on `MockMailbox`.
+**Phase 2 — drafting and the sequence engine.** Step-1 drafting first, then all seven steps:
+`pg-boss` scheduling with business-day delays and jitter, per-message and block approval,
+suppression list, unsubscribe, per-account send caps. Still on `MockMailbox` — every stop
+condition, cap and gate is exercised before a real message can leave.
 
-**M2 — inbound reply capture.** Inbound domain and MX, Reply-To routing, parse endpoint, thread
-reconstruction, auto-stop-on-reply, deal ladder advancing on real evidence. **This gates automated
-sending.**
+**Phase 3 — inbound reply capture.** Inbound domain and MX, Reply-To routing, parse endpoint,
+thread reconstruction, auto-stop-on-reply, deal ladder advancing on real evidence. **This gates
+automated sending**, per §5.
 
-**M3 — Gmail live.** On verification granted: `GmailMailbox`, connect/disconnect UI, encrypted
+**Phase 4 — Gmail live.** On verification granted: `GmailMailbox`, connect/disconnect UI, encrypted
 token store, reconnect flow, real caps. Sequences move from manual-confirm to automatic.
 
-**M4 — hardening.** AU tenancy decision (D4), bank security review prep, full audit export,
-document storage and the finance agent per the original brief.
+**Phase 5 — hardening and the rest of the brief.** AU tenancy decision (D4), bank security review
+prep, full audit export, document storage, and the finance agent.
+
+Phases 3 and 4 are independent of each other and both are independent of Phase 2's tail — the
+verification queue and the inbound MX setup can run concurrently with sequence-engine work.
 
 ---
 
 ## 10. Decisions needed, and from whom
 
-| | Decision | Owner | Blocking |
+| | Decision | Owner | Blocks |
 |---|---|---|---|
-| D1 | Data model shape — lean pipeline vs full platform | Mark | This week, or it gets made by drift |
+| D1 | Data model shape — lean pipeline vs full platform | Mark | Phase 1, and it gets made by drift if left |
 | A1 | Does the Firmable plan expose search, or is it enrichment-only? | Mark / Firmable | The whole discovery path |
-| — | Apollo: is it in scope, and do the terms permit storing and sending to what we pull? | Mark | M1 |
+| — | Apollo: is it in scope, and do the terms permit storing and sending to what we pull? | Mark | Phase 2 |
 | — | Sender of record — buyer's own mailbox or a platform domain? | Mark | Spam Act analysis, and whether Gmail OAuth is needed at all |
 | C4 | Do in-app drafts satisfy "drafting works", or must they land in Gmail Drafts? | Mark | If the latter, that is a restricted scope and a CASA budget line — price it, do not absorb it |
-| — | Approval granularity: per message, or per sequence at enrolment? | Mark | M1 |
-| — | Domain for sending and inbound MX | Mark | Verification submission and M2 |
-| — | Real personal data in M0, or fictionalised at ingest? | Mark | Ingest adapter, this week |
-| D5 | Better Auth self-hosted — confirm the AU-residency reasoning holds | Me, with Mark | M0 |
+| — | Approval granularity: per message, or per sequence at enrolment? | Mark | Phase 2 |
+| — | Domain for sending and inbound MX | Mark | Verification submission and Phase 3 |
+| — | Real personal data, or fictionalised at ingest? | Mark | The ingest adapter, in Phase 1 |
+| D5 | Better Auth self-hosted — confirm the AU-residency reasoning holds | Me, with Mark | Phase 1 |
 
 ---
 
@@ -413,8 +419,8 @@ Mitigation: the `TargetSource` interface makes register-led discovery a first-cl
 than a fallback, and for a defined sector lane an association member register is arguably the
 *better* universe — licensed, verifiable, complete.
 
-**Gmail verification takes longer than expected.** Mitigation: submit this week, single narrow
-scope, clean demo video. `MockMailbox` means nothing downstream waits.
+**Gmail verification takes longer than expected.** Mitigation: submit at the very start, single
+narrow scope, clean demo video. `MockMailbox` means nothing downstream waits on it.
 
 **A sequence sends after a reply.** Mitigation: the ordering rule in §5 — reply capture before
 automated multi-step sending, manual-confirm mode until then.
