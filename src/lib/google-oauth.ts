@@ -1,4 +1,5 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { z } from "zod";
 
 export const GOOGLE_MAIL_SCOPES = ["openid", "email", "https://www.googleapis.com/auth/gmail.send"];
 type OAuthState = { userId: string; organizationId: string; nonce: string; verifier: string; expiresAt: number };
@@ -38,4 +39,14 @@ export async function exchangeGoogleCode(code: string, verifier: string, fetcher
   const response = await fetcher("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code, client_id: googleClientId(), client_secret: process.env.GOOGLE_GMAIL_CLIENT_SECRET || "", redirect_uri: redirectUri(), grant_type: "authorization_code", code_verifier: verifier }) });
   if (!response.ok) throw new Error(`Google token exchange failed (${response.status})`);
   return response.json() as Promise<{ access_token: string; refresh_token?: string; expires_in: number; scope: string; id_token?: string }>;
+}
+
+const googleUserInfoSchema = z.object({ email: z.string().email(), email_verified: z.boolean().optional() });
+
+export async function fetchGoogleUserInfo(accessToken: string, fetcher: typeof fetch = fetch) {
+  const response = await fetcher("https://openidconnect.googleapis.com/v1/userinfo", { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!response.ok) throw new Error(`Google user info failed (${response.status})`);
+  const profile = googleUserInfoSchema.parse(await response.json());
+  if (profile.email_verified === false) throw new Error("Google account email is not verified");
+  return profile;
 }

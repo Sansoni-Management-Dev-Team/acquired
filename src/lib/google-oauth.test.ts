@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createGoogleAuthorization, verifyGoogleState } from "./google-oauth";
+import { createGoogleAuthorization, fetchGoogleUserInfo, verifyGoogleState } from "./google-oauth";
 
 describe("Google mailbox OAuth", () => {
   beforeEach(() => { process.env.BETTER_AUTH_SECRET = "test-secret-that-is-long-enough"; process.env.APP_URL = "http://localhost:3000"; });
@@ -15,5 +15,9 @@ describe("Google mailbox OAuth", () => {
     const auth = createGoogleAuthorization({ userId: "u1", organizationId: "o1", now: 1000 });
     expect(() => verifyGoogleState(`${auth.state}x`, 1001)).toThrow("Invalid");
     expect(() => verifyGoogleState(auth.state, 1_000_000)).toThrow("expired");
+  });
+  it("reads the verified mailbox address from Google user info", async () => {
+    const fetcher = async () => new Response(JSON.stringify({ email: "owner@example.com", email_verified: true }));
+    await expect(fetchGoogleUserInfo("access-token", fetcher as typeof fetch)).resolves.toMatchObject({ email: "owner@example.com" });
   });
 });

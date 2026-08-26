@@ -3,7 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { requireDb } from "@/db/client";
 import { mailboxConnections } from "@/db/schema";
 import { encryptToken } from "@/lib/token-crypto";
-import { exchangeGoogleCode, verifyGoogleState } from "@/lib/google-oauth";
+import { exchangeGoogleCode, fetchGoogleUserInfo, verifyGoogleState } from "@/lib/google-oauth";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -14,10 +14,11 @@ export async function GET(request: Request) {
     const state = verifyGoogleState(stateValue);
     const token = await exchangeGoogleCode(code, state.verifier);
     if (!token.refresh_token) throw new Error("Google did not issue a refresh token; reconnect with consent");
+    const profile = await fetchGoogleUserInfo(token.access_token);
     const database = requireDb();
     const scopes = token.scope.split(" ");
     const existing = await database.select({ id: mailboxConnections.id }).from(mailboxConnections).where(and(eq(mailboxConnections.userId, state.userId), eq(mailboxConnections.provider, "gmail"))).limit(1);
-    const values = { organizationId: state.organizationId, userId: state.userId, provider: "gmail" as const, encryptedRefreshToken: encryptToken(token.refresh_token), keyVersion: "v1", scopes, expiresAt: new Date(Date.now() + token.expires_in * 1000), reconnectRequired: false };
+    const values = { organizationId: state.organizationId, userId: state.userId, provider: "gmail" as const, address: profile.email, encryptedRefreshToken: encryptToken(token.refresh_token), keyVersion: "v1", scopes, expiresAt: new Date(Date.now() + token.expires_in * 1000), reconnectRequired: false };
     if (existing[0]) await database.update(mailboxConnections).set(values).where(eq(mailboxConnections.id, existing[0].id));
     else await database.insert(mailboxConnections).values(values);
     return NextResponse.redirect(new URL("/settings?gmail=connected", request.url));
