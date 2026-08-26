@@ -1,0 +1,57 @@
+infra preferences? 
+
+model pref? think i saw claude in there.
+do we already have a Firmable account?
+firmable is a lead database enrichment source right?
+
+"Drafts personalised outreach to business owners": is this email? of linkedin etc? pref? -> currently email, whatsapp and linkedin
+
+get the financial data from the business owner to try and value the business based on cashflow.
+eg a gym that does 10m$ and a $1m of net profit, this builds a dataroom of the deal.
+
+judo bank funds the deal if it fits their credit criteria, aka can the profit from the business service the debt.
+can the quality of earnings sustain the debt load.
+
+we then package the deal that says this is the business, this is the person, judo credit team says yes or no.
+
+
+
+
+whats the most important part of this build? aka what would make it a successful build. -> starting w Aarons students that want to buy, starting w a user that goes through. 
+
+
+firmable is quite good, can get better data from creditorwatch -> i suspect that creditorwatch is overkill and too expensive for now.
+
+
+linkedin scan: is that connected?
+
+data soverenty question? yes important. 
+
+are there specific industry verticals that the buyer (aarons students) are reaching out to? or just all verticals?
+do aarons students already use firmable? no, but its good.
+
+
+
+students current process is random in nature
+are there no other solutions at the moment on the market?
+
+
+instead of Xero integration you can ask for a "general ledger" from the seller
+
+
+
+
+does Judo care about the buyer personal details? KYC etc?
+
+
+
+__________
+
+Actions:
+look into the firmable api.
+
+Mark:
+need to talk to judo
+need to talk to users
+
+
