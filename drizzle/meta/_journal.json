@@ -15,6 +15,13 @@
       "when": 1787723834328,
       "tag": "0001_opportunity_qualification",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1787727898456,
+      "tag": "0002_auth_issuer_compatibility",
+      "breakpoints": true
     }
   ]
 }
