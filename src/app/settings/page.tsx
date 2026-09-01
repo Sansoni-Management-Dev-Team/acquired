@@ -24,12 +24,18 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   )).limit(1);
 
   const notice = await searchParams;
+  const fixtureMode = process.env.TARGET_DATA_PROVIDER === "fixture";
+  const fixtureDrafting = process.env.OUTREACH_DRAFTING_PROVIDER === "fixture";
+  const outreachModels = process.env.OUTREACH_AI_MODELS || process.env.OUTREACH_AI_MODEL || "";
+  const aiConfigured = process.env.AI_PROVIDER === "openrouter" && Boolean(process.env.OPENROUTER_API_KEY && outreachModels);
+  const localDatabase = process.env.DATABASE_DRIVER === "postgres";
   const connections = [
-    { name: "Neon Postgres", state: "Connected", detail: "Sydney · schema current", tone: "text-[var(--accent)]" },
-    { name: "Firmable", state: process.env.FIRMABLE_API_KEY ? "Key configured" : "Not configured", detail: "Company enrichment and in-company people search", tone: process.env.FIRMABLE_API_KEY ? "text-[var(--accent)]" : "text-[var(--muted)]" },
-    { name: "Apollo", state: process.env.APOLLO_API_KEY ? "Key configured" : "Not configured", detail: "Company discovery · calls consume credits", tone: process.env.APOLLO_API_KEY ? "text-[var(--accent)]" : "text-[var(--muted)]" },
+    { name: localDatabase ? "OrbStack PostgreSQL" : "Neon Postgres", state: "Connected", detail: localDatabase ? "Local project_acquire database" : "Deployed database", tone: "text-[var(--accent)]" },
+    { name: "Google Places", state: fixtureMode ? "Fixture mode" : process.env.GOOGLE_PLACES_API_KEY ? "Key configured" : "Not configured", detail: fixtureMode ? "No external discovery requests" : "Company discovery", tone: fixtureMode || process.env.GOOGLE_PLACES_API_KEY ? "text-[var(--accent)]" : "text-[var(--muted)]" },
+    { name: "Firmable", state: fixtureMode ? "Fixture mode" : process.env.FIRMABLE_API_KEY ? "Key configured" : "Not configured", detail: fixtureMode ? "No external enrichment requests" : "Company enrichment and in-company people search", tone: fixtureMode || process.env.FIRMABLE_API_KEY ? "text-[var(--accent)]" : "text-[var(--muted)]" },
+    { name: "Outreach drafting", state: fixtureDrafting ? "Fixture mode" : aiConfigured ? "OpenRouter configured" : "Not configured", detail: fixtureDrafting ? "Deterministic seven-message generation" : `${process.env.AI_PROVIDER || "No AI provider"} · ${outreachModels || "No model"}`, tone: fixtureDrafting || aiConfigured ? "text-[var(--accent)]" : "text-[var(--muted)]" },
   ];
-  const gmailConnected = Boolean(gmail && !gmail.reconnectRequired);
+  const gmailConnected = Boolean(gmail && !gmail.reconnectRequired && gmail.scopes?.some((scope) => scope.endsWith("/gmail.compose")));
 
   return <div className="p-6 md:p-8">
     <p className="text-xs uppercase tracking-[.18em] text-[var(--accent)]">Connections and controls</p>
@@ -40,11 +46,11 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     <div className="grid gap-5 xl:grid-cols-2">
       <section className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-6"><h2 className="text-lg font-semibold">Data providers</h2><div className="mt-4 divide-y divide-[var(--border)]">{connections.map((connection) => <div key={connection.name} className="flex items-start justify-between gap-4 py-4"><div><h3 className="text-sm font-medium">{connection.name}</h3><p className="mt-1 text-xs text-[var(--muted)]">{connection.detail}</p></div><span className={`shrink-0 text-xs ${connection.tone}`}>{connection.state}</span></div>)}</div></section>
       <section className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-6">
-        <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">Sending mailbox</h2><p className="mt-2 text-sm text-[var(--muted)]">Gmail uses a separate delegated grant with the narrow <code>gmail.send</code> scope.</p></div><span className={`mt-1 shrink-0 text-xs ${gmailConnected ? "text-emerald-300" : "text-amber-300"}`}>{gmailConnected ? "Connected" : gmail ? "Reconnect required" : "Not connected"}</span></div>
+        <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">Sending mailbox</h2><p className="mt-2 text-sm text-[var(--muted)]">Gmail uses a separate delegated grant with the <code>gmail.compose</code> scope so approved outreach can be saved as Gmail drafts.</p></div><span className={`mt-1 shrink-0 text-xs ${gmailConnected ? "text-emerald-300" : "text-amber-300"}`}>{gmailConnected ? "Connected" : gmail ? "Reconnect required" : "Not connected"}</span></div>
         <dl className="my-5 space-y-3 text-sm">
           <div className="flex justify-between gap-4"><dt className="text-[var(--muted)]">Gmail account</dt><dd className="max-w-72 truncate font-medium">{gmail?.address || (gmail ? "Connected address unavailable" : "—")}</dd></div>
           <div className="flex justify-between"><dt className="text-[var(--muted)]">Daily cap</dt><dd>{gmail?.dailyCap ?? 100}</dd></div>
-          <div className="flex justify-between"><dt className="text-[var(--muted)]">Permission</dt><dd className={gmail?.scopes?.some((scope) => scope.endsWith("/gmail.send")) ? "text-emerald-300" : "text-[var(--muted)]"}>gmail.send</dd></div>
+          <div className="flex justify-between"><dt className="text-[var(--muted)]">Permission</dt><dd className={gmail?.scopes?.some((scope) => scope.endsWith("/gmail.compose")) ? "text-emerald-300" : "text-[var(--muted)]"}>gmail.compose</dd></div>
           <div className="flex justify-between"><dt className="text-[var(--muted)]">Live sends</dt><dd className="text-amber-300">Disabled</dd></div>
           {gmail?.updatedAt && <div className="flex justify-between"><dt className="text-[var(--muted)]">Connected</dt><dd>{gmail.updatedAt.toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short", timeZone: "Australia/Melbourne" })}</dd></div>}
         </dl>

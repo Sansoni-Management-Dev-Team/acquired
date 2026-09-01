@@ -4,6 +4,8 @@ export type CompanyIdentifier = { id?: string; abn?: string; fqdn?: string; link
 export type PersonIdentifier = { id?: string; linkedinUrl?: string; workEmail?: string; personalEmail?: string };
 export type PersonCandidate = { id: string; position?: string; seniority?: string; department?: string; emailAvailable: boolean; phoneAvailable: boolean };
 export type PersonDetail = PersonCandidate & { name?: string; email?: string; phone?: string; fictionalised: boolean; doNotContact: boolean };
+export type DecisionMakerSearchAttempt = { label: string; returnedCount: number; addedCount: number };
+export type DecisionMakerSearchOptions = { max?: number; onAttempt?: (attempt: DecisionMakerSearchAttempt) => void };
 
 export interface CompanyDiscoverySource {
   search(mandate: Mandate): Promise<TargetCandidate[]>;
@@ -15,5 +17,6 @@ export interface CompanyEnrichmentProvider {
 
 export interface ContactProvider {
   searchPeople(companyId: string, filters?: { position?: string; seniority?: string; department?: string; max?: number }): Promise<PersonCandidate[]>;
+  searchDecisionMakers(companyId: string, options?: DecisionMakerSearchOptions): Promise<PersonCandidate[]>;
   enrichPerson(identifier: PersonIdentifier): Promise<PersonDetail>;
 }

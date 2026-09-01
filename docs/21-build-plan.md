@@ -1,5 +1,7 @@
 # Build plan — sourcing, ranking, sequenced outreach, sending
 
+> **Decision update — 1 September 2026:** The user selected Gmail-native drafts. Approval now uses `gmail.compose` to create a Gmail draft while automatic delivery remains disabled. This supersedes the earlier `gmail.send`-only recommendation below and carries the restricted-scope verification/CASA implications already documented.
+
 26 Aug 2026. The application shape as now stated: pull business data from Firmable and/or Apollo,
 filter and rank it into cold/warm/hot with reasons, generate a seven-message outreach sequence
 ending in a break-up, and send it through the user's own Gmail. Plus auth. Plus shadcn.

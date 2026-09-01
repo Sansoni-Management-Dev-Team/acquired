@@ -10,4 +10,13 @@ describe("parseMandate", () => {
     expect(result.headcount).toEqual({ min: 20, max: 180 });
     expect(mandateConfirmation(result)).toContain("$10m–$50m");
   });
+
+  it("understands a natural-language acquisition query with city and minimum EBITDA", () => {
+    const result = parseMandate("I'm looking to buy an industrials or building-services business in Melbourne doing $2–20m revenue with at least $1m EBITDA.");
+    expect(result.sectors).toEqual(["industrials", "building services"]);
+    expect(result.locations).toEqual(["Melbourne"]);
+    expect(result.states).toEqual(["VIC"]);
+    expect(result.revenue).toEqual({ min: 2_000_000, max: 20_000_000 });
+    expect(result.ebitda).toEqual({ min: 1_000_000, max: null });
+  });
 });

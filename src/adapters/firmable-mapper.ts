@@ -1,7 +1,150 @@
-import type { DerivedValue, FinancialValue } from "@/domain/models";
+import type { GooglePlaceCandidate } from "./google-places-client";
+import type { DerivedValue, FinancialValue, Mandate, TargetCandidate } from "@/domain/models";
 
 export function mapFirmableRevenue(value: unknown, capturedAt = new Date().toISOString()): DerivedValue<FinancialValue> {
   const provenance = { source: "Firmable", capturedAt, confidence: 70 };
   if (typeof value !== "string" || !value.trim()) return { value: null, missingReason: "Not provided by Firmable", provenance };
   return { value: { kind: "band", label: value.trim() }, provenance };
+}
+
+const stateNames: Record<string, string> = {
+  "australian capital territory": "ACT", "new south wales": "NSW", "northern territory": "NT", queensland: "QLD",
+  "south australia": "SA", tasmania: "TAS", victoria: "VIC", "western australia": "WA",
+};
+
+function value<T>(input: T, source: string, capturedAt: string, confidence: number, sourceUrl?: string): DerivedValue<T> {
+  return { value: input, provenance: { source, capturedAt, confidence, sourceUrl } };
+}
+
+function missing<T>(reason: string, source: string, capturedAt: string): DerivedValue<T> {
+  return { value: null, missingReason: reason, provenance: { source, capturedAt, confidence: 100 } };
+}
+
+function stringValue(input: unknown) {
+  return typeof input === "string" && input.trim() ? input.trim() : undefined;
+}
+
+function numberValue(input: unknown) {
+  if (typeof input === "number" && Number.isFinite(input)) return input;
+  if (typeof input === "string" && /^\d+$/.test(input.trim())) return Number(input);
+  return undefined;
+}
+
+function strings(input: unknown) {
+  return Array.isArray(input) ? input.filter((item): item is string => typeof item === "string" && Boolean(item.trim())) : [];
+}
+
+function domainFrom(website?: string) {
+  if (!website) return "";
+  try { return new URL(website).hostname.replace(/^www\./, ""); } catch { return website.replace(/^https?:\/\//, "").replace(/^www\./, "").split("/")[0]; }
+}
+
+function locationFrom(address: string, rawState?: string) {
+  const state = rawState && (/^(ACT|NSW|NT|QLD|SA|TAS|VIC|WA)$/.test(rawState.toUpperCase())
+    ? rawState.toUpperCase()
+    : stateNames[rawState.toLowerCase()]);
+  const match = address.match(/(?:,\s*)?([^,]+?)\s+(ACT|NSW|NT|QLD|SA|TAS|VIC|WA)\s+\d{4}/i);
+  return { state: state || match?.[2]?.toUpperCase() || "VIC", suburb: match?.[1]?.trim() || address.split(",")[0] || "Unknown" };
+}
+
+function bestSector(raw: Record<string, unknown>, mandate: Mandate) {
+  const industries = strings(raw.industries);
+  const match = industries.find((industry) => mandate.sectors.some((sector) => {
+    const left = industry.toLowerCase(); const right = sector.toLowerCase();
+    return left.includes(right) || right.includes(left);
+  }));
+  return match || industries[0] || mandate.sectors[0];
+}
+
+function googleSourceData(place: GooglePlaceCandidate) {
+  return { placeId: place.id, name: place.name, formattedAddress: place.formattedAddress, website: place.website, primaryType: place.primaryType, types: place.types || [] };
+}
+
+function sectorEvidence(raw: Record<string, unknown>, place: GooglePlaceCandidate, mandate: Mandate, capturedAt: string, website?: string) {
+  const industries = strings(raw.industries);
+  const exact = industries.find((industry) => mandate.sectors.some((sector) => {
+    const left = industry.toLowerCase(); const right = sector.toLowerCase();
+    return left.includes(right) || right.includes(left);
+  }));
+  if (exact) return value(exact, "Firmable", capturedAt, 75, website);
+  const searchable = `${place.name} ${place.primaryType || ""} ${(place.types || []).join(" ")}`.toLowerCase().replace(/_/g, " ");
+  const queryMatch = mandate.sectors.find((sector) => sector.toLowerCase().split(/\s+/).some((token) => searchable.includes(token.replace(/s$/, ""))));
+  return value(queryMatch || bestSector(raw, mandate), queryMatch ? "Google Places query match" : "Firmable", capturedAt, queryMatch ? 65 : 60, website);
+}
+
+function firmableSourceData(raw: Record<string, unknown>, fallbackId: string) {
+  const industryCodes = raw.industry_codes && typeof raw.industry_codes === "object" && !Array.isArray(raw.industry_codes)
+    ? raw.industry_codes as Record<string, unknown>
+    : {};
+  return {
+    firmableId: stringValue(raw.id) || fallbackId,
+    name: stringValue(raw.name),
+    website: stringValue(raw.website),
+    domain: stringValue(raw.fqdn),
+    description: stringValue(raw.description),
+    tagline: stringValue(raw.tagline),
+    companyType: stringValue(raw.company_type),
+    companySize: stringValue(raw.company_size),
+    revenueBand: stringValue(raw.revenue),
+    employeeCount: numberValue(raw.au_employee_count) ?? numberValue(raw.employee_count),
+    yearFounded: numberValue(raw.year_founded),
+    industries: strings(raw.industries),
+    keywords: strings(raw.keywords),
+    headquarters: stringValue(raw.hq_location),
+    states: strings(raw.states),
+    locations: strings(raw.locations),
+    abn: stringValue(industryCodes.abn),
+    acn: stringValue(industryCodes.acn),
+    anzsic: stringValue(industryCodes.anzsic),
+    abnStatus: stringValue(raw.abn_operation_status),
+    linkedin: stringValue(raw.linkedin),
+  };
+}
+
+export function mapGooglePlace(place: GooglePlaceCandidate, mandate: Mandate, organisationId: string, enrichmentReason = "Firmable enrichment not attempted") : TargetCandidate {
+  const capturedAt = new Date().toISOString();
+  const location = place.locality && place.state ? { suburb: place.locality, state: place.state } : locationFrom(place.formattedAddress);
+  return {
+    id: `google-${place.id}`,
+    organisationId,
+    companyName: place.name,
+    domain: domainFrom(place.website),
+    suburb: location.suburb,
+    state: location.state,
+    sector: value(mandate.sectors[0], "Google Places query match", capturedAt, 65, place.website),
+    revenue: missing(enrichmentReason, "Firmable", capturedAt),
+    ebitda: missing("Firmable does not provide EBITDA", "Firmable", capturedAt),
+    headcount: missing(enrichmentReason, "Firmable", capturedAt),
+    establishedYear: missing(enrichmentReason, "Firmable", capturedAt),
+    signals: [],
+    status: "identified",
+    sourceData: { googlePlaces: googleSourceData(place) },
+  };
+}
+
+export function mapFirmableCompany(raw: Record<string, unknown>, place: GooglePlaceCandidate, mandate: Mandate, organisationId: string): TargetCandidate {
+  const capturedAt = new Date().toISOString();
+  const states = strings(raw.states);
+  const hq = stringValue(raw.hq_location) || place.formattedAddress;
+  const location = place.locality && place.state ? { suburb: place.locality, state: place.state } : locationFrom(place.formattedAddress, states[0]) || locationFrom(hq, states[0]);
+  const website = stringValue(raw.website) || place.website;
+  const headcount = numberValue(raw.au_employee_count) ?? numberValue(raw.employee_count);
+  const establishedYear = numberValue(raw.year_founded);
+  const firmableId = stringValue(raw.id) || place.id;
+  return {
+    id: `firmable-${firmableId}`,
+    organisationId,
+    companyName: stringValue(raw.name) || place.name,
+    domain: stringValue(raw.fqdn) || domainFrom(website),
+    suburb: location.suburb,
+    state: location.state,
+    sector: sectorEvidence(raw, place, mandate, capturedAt, website),
+    revenue: mapFirmableRevenue(raw.revenue, capturedAt),
+    ebitda: missing("Firmable does not provide EBITDA", "Firmable", capturedAt),
+    headcount: headcount === undefined ? missing("Not provided by Firmable", "Firmable", capturedAt) : value(headcount, "Firmable", capturedAt, 75, website),
+    establishedYear: establishedYear === undefined ? missing("Not provided by Firmable", "Firmable", capturedAt) : value(establishedYear, "Firmable", capturedAt, 75, website),
+    signals: [],
+    status: "enriched",
+    sourceData: { googlePlaces: googleSourceData(place), firmable: firmableSourceData(raw, firmableId) },
+  };
 }

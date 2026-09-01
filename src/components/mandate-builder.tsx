@@ -13,7 +13,7 @@ export function MandateBuilder() {
   function parse() {
     try { setMandate(parseMandate(text)); setError(""); } catch (caught) { setError(caught instanceof Error ? caught.message : "Could not parse mandate"); }
   }
-  const format = (value: number) => `$${value / 1_000_000}m`;
+  const format = (value: number | null) => value === null ? "No maximum" : `$${value / 1_000_000}m`;
   return <div className="grid gap-6 xl:grid-cols-[1.2fr_.8fr]">
     <section className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-6">
       <label htmlFor="mandate" className="text-sm font-medium">Describe the acquisition mandate</label>
@@ -27,7 +27,7 @@ export function MandateBuilder() {
       <p className="mt-3 text-lg leading-7">{mandateConfirmation(mandate)}</p>
       <dl className="mt-6 grid grid-cols-2 gap-4 text-sm">
         <div><dt className="text-[var(--muted)]">Revenue</dt><dd>{format(mandate.revenue.min)}–{format(mandate.revenue.max)}</dd></div>
-        <div><dt className="text-[var(--muted)]">EBITDA</dt><dd>{format(mandate.ebitda.min)}–{format(mandate.ebitda.max)}</dd></div>
+        <div><dt className="text-[var(--muted)]">EBITDA</dt><dd>{mandate.ebitda.max === null ? `${format(mandate.ebitda.min)}+` : `${format(mandate.ebitda.min)}–${format(mandate.ebitda.max)}`}</dd></div>
         <div><dt className="text-[var(--muted)]">States</dt><dd>{mandate.states.join(", ")}</dd></div>
         <div><dt className="text-[var(--muted)]">Headcount</dt><dd>{mandate.headcount ? `${mandate.headcount.min}–${mandate.headcount.max}` : "Not specified"}</dd></div>
       </dl>

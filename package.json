@@ -6,6 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "db:local:start": "docker compose -f compose.local.yml up -d postgres",
+    "db:local:stop": "docker compose -f compose.local.yml stop postgres",
+    "db:local:status": "docker compose -f compose.local.yml ps postgres",
+    "db:local:logs": "docker compose -f compose.local.yml logs -f postgres",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -25,6 +29,7 @@
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^26.3.0",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "drizzle-kit": "^0.31.10",

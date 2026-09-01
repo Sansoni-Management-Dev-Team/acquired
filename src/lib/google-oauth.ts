@@ -1,7 +1,7 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 
-export const GOOGLE_MAIL_SCOPES = ["openid", "email", "https://www.googleapis.com/auth/gmail.send"];
+export const GOOGLE_MAIL_SCOPES = ["openid", "email", "https://www.googleapis.com/auth/gmail.compose"];
 type OAuthState = { userId: string; organizationId: string; nonce: string; verifier: string; expiresAt: number };
 
 function secret() {
@@ -39,6 +39,23 @@ export async function exchangeGoogleCode(code: string, verifier: string, fetcher
   const response = await fetcher("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ code, client_id: googleClientId(), client_secret: process.env.GOOGLE_GMAIL_CLIENT_SECRET || "", redirect_uri: redirectUri(), grant_type: "authorization_code", code_verifier: verifier }) });
   if (!response.ok) throw new Error(`Google token exchange failed (${response.status})`);
   return response.json() as Promise<{ access_token: string; refresh_token?: string; expires_in: number; scope: string; id_token?: string }>;
+}
+
+const refreshedTokenSchema = z.object({ access_token: z.string().min(1), expires_in: z.number().positive().optional(), scope: z.string().optional(), token_type: z.string().optional() });
+
+export async function refreshGoogleAccessToken(refreshToken: string, fetcher: typeof fetch = fetch) {
+  const response = await fetcher("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      refresh_token: refreshToken,
+      client_id: googleClientId(),
+      client_secret: process.env.GOOGLE_GMAIL_CLIENT_SECRET || "",
+      grant_type: "refresh_token",
+    }),
+  });
+  if (!response.ok) throw new Error(`Google token refresh failed (${response.status})`);
+  return refreshedTokenSchema.parse(await response.json()).access_token;
 }
 
 const googleUserInfoSchema = z.object({ email: z.string().email(), email_verified: z.boolean().optional() });

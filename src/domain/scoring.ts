@@ -7,13 +7,13 @@ export const DEFAULT_BAND_THRESHOLDS = {
 
 const signalPoints = { low: 6, medium: 12, high: 22, "very-high": 35 } as const;
 
-function inRange(value: number, range: { min: number; max: number }) {
-  return value >= range.min && value <= range.max;
+function inRange(value: number, range: { min: number; max: number | null }) {
+  return value >= range.min && (range.max === null || value <= range.max);
 }
 
-function financialMatch(value: FinancialValue, mandate: { min: number; max: number }) {
+function financialMatch(value: FinancialValue, mandate: { min: number; max: number | null }) {
   if (typeof value === "number") return inRange(value, mandate);
-  if (value.kind === "range") return value.min <= mandate.max && value.max >= mandate.min;
+  if (value.kind === "range") return (mandate.max === null || value.min <= mandate.max) && value.max >= mandate.min;
   return undefined;
 }
 
@@ -30,7 +30,10 @@ function calculateFit(target: TargetCandidate, mandate: Mandate) {
   }
 
   const checks: Array<{ field: DerivedValue<unknown>; weight: number; label: string; match: (value: unknown) => boolean | undefined }> = [
-    { field: target.sector, weight: 30, label: "Sector matches mandate", match: (value) => typeof value === "string" && mandate.sectors.includes(value) },
+    { field: target.sector, weight: 30, label: "Sector matches mandate", match: (value) => typeof value === "string" && mandate.sectors.some((sector) => {
+      const actual = value.toLowerCase(); const requested = sector.toLowerCase();
+      return actual.includes(requested) || requested.includes(actual);
+    }) },
     { field: target.revenue, weight: 25, label: "Revenue within mandate", match: (value) => financialMatch(value as FinancialValue, mandate.revenue) },
     { field: target.ebitda, weight: 25, label: "EBITDA within mandate", match: (value) => financialMatch(value as FinancialValue, mandate.ebitda) },
     {

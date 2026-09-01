@@ -11,6 +11,10 @@ describe("refresh token encryption", () => {
   });
   it("rejects tampering", () => {
     const encrypted = encryptToken("refresh-secret");
-    expect(() => decryptToken(`${encrypted.slice(0, -1)}x`)).toThrow();
+    const parts = encrypted.split(".");
+    const ciphertext = Buffer.from(parts[3], "base64url");
+    ciphertext[0] ^= 1;
+    parts[3] = ciphertext.toString("base64url");
+    expect(() => decryptToken(parts.join("."))).toThrow();
   });
 });

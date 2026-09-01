@@ -1,11 +1,16 @@
-import { SeedTargetSource } from "@/adapters/seed-target-source";
-import type { TargetSource } from "@/adapters/target-source";
+import { headers } from "next/headers";
+import { redirect } from "next/navigation";
 import { TargetsDashboard } from "@/components/targets-dashboard";
-import { defaultMandate } from "@/data/seed-targets";
-import { rankTargets } from "@/domain/scoring";
+import { requireDb } from "@/db/client";
+import { OrganizationRepository } from "@/db/repositories";
+import { auth } from "@/lib/auth";
 
 export default async function TargetsPage() {
-  const source: TargetSource = new SeedTargetSource();
-  const candidates = await source.search(defaultMandate);
-  return <TargetsDashboard targets={rankTargets(candidates, defaultMandate)} />;
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session) redirect("/sign-in?next=/targets");
+  const organizationId = session.session.activeOrganizationId;
+  if (!organizationId) redirect("/onboarding");
+
+  const targets = await new OrganizationRepository(requireDb(), organizationId).listRankedTargets();
+  return <TargetsDashboard initialTargets={targets} providerMode={process.env.TARGET_DATA_PROVIDER === "fixture" ? "fixture" : "live"} />;
 }
