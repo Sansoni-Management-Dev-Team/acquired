@@ -19,16 +19,18 @@ describe("mailboxes", () => {
   });
 
   it("creates a Gmail draft without sending it", async () => {
+    const subject = "ARK Industrial – Facilities Management";
     const fetcher = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       expect(String(url)).toBe("https://gmail.googleapis.com/gmail/v1/users/me/drafts");
       expect(init?.method).toBe("POST");
       expect(init?.headers).toMatchObject({ Authorization: "Bearer access" });
       const body = JSON.parse(String(init?.body));
       expect(Buffer.from(body.message.raw, "base64url").toString()).toContain("To: owner@example.com");
-      expect(Buffer.from(body.message.raw, "base64url").toString()).toContain("Subject: Hello");
+      expect(Buffer.from(body.message.raw, "base64url").toString()).toContain(`Subject: =?UTF-8?B?${Buffer.from(subject).toString("base64")}?=`);
+      expect(Buffer.from(body.message.raw, "base64url").toString()).toContain("Content-Transfer-Encoding: 8bit");
       return new Response(JSON.stringify({ id: "d1", message: { id: "g1", threadId: "t1" } }), { status: 200 });
     });
-    const result = await new GmailMailbox(async () => "access", fetcher).createDraft("u1", { to: "owner@example.com", subject: "Hello", text: "Body" });
+    const result = await new GmailMailbox(async () => "access", fetcher).createDraft("u1", { to: "owner@example.com", subject, text: "Body" });
     expect(result).toEqual({ providerDraftId: "d1", providerMessageId: "g1", providerThreadId: "t1" });
     expect(fetcher).toHaveBeenCalledOnce();
   });

@@ -6,6 +6,15 @@ export interface MailboxAdapter {
   send(userId: string, message: OutboundMessage): Promise<Delivery>;
 }
 
+function safeHeader(value: string) {
+  return value.replace(/[\r\n]+/g, " ").trim();
+}
+
+function encodedSubject(value: string) {
+  const subject = safeHeader(value);
+  return /^[\x20-\x7E]*$/.test(subject) ? subject : `=?UTF-8?B?${Buffer.from(subject, "utf8").toString("base64")}?=`;
+}
+
 export class MockMailbox implements MailboxAdapter {
   deliveries: Array<{ userId: string; message: OutboundMessage; delivery: Delivery }> = [];
   async send(userId: string, message: OutboundMessage) {
@@ -19,7 +28,7 @@ export class MockMailbox implements MailboxAdapter {
 export class GmailMailbox implements MailboxAdapter {
   constructor(private accessToken: () => Promise<string>, private fetcher: typeof fetch = fetch) {}
   private encode(message: OutboundMessage) {
-    const mime = [`To: ${message.to}`, `Subject: ${message.subject}`, ...(message.replyTo ? [`Reply-To: ${message.replyTo}`] : []), "Content-Type: text/plain; charset=utf-8", "", message.text].join("\r\n");
+    const mime = [`To: ${safeHeader(message.to)}`, `Subject: ${encodedSubject(message.subject)}`, ...(message.replyTo ? [`Reply-To: ${safeHeader(message.replyTo)}`] : []), "Content-Type: text/plain; charset=utf-8", "Content-Transfer-Encoding: 8bit", "", message.text].join("\r\n");
     return Buffer.from(mime).toString("base64url");
   }
 
