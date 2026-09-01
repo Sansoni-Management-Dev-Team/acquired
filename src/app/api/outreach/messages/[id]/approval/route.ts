@@ -10,6 +10,11 @@ import { connectionCanCompose, mailboxForConnection } from "@/lib/gmail-connecti
 
 const requestSchema = z.object({ approved: z.boolean() });
 
+function approvalConflict(messageId: string, reason: string, error: string) {
+  console.warn("[outreach-approval] request.rejected", JSON.stringify({ messageId, reason }));
+  return Response.json({ error }, { status: 409 });
+}
+
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return Response.json({ error: "You must be signed in." }, { status: 401 });
@@ -24,14 +29,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   let recipient = "";
   if (parsed.data.approved) {
     const [enrolment] = await database.select().from(sequenceEnrolments).where(and(eq(sequenceEnrolments.id, message.enrolmentId), eq(sequenceEnrolments.organizationId, organizationId))).limit(1);
-    if (!enrolment?.contactId) return Response.json({ error: "The outreach sequence has no selected contact." }, { status: 409 });
+    if (!enrolment?.contactId) return approvalConflict(id, "missing_contact", "The outreach sequence has no selected contact.");
     const [contact] = await database.select().from(contacts).where(and(eq(contacts.id, enrolment.contactId), eq(contacts.organizationId, organizationId))).limit(1);
-    if (!contact) return Response.json({ error: "The selected contact was not found." }, { status: 409 });
+    if (!contact) return approvalConflict(id, "contact_not_found", "The selected contact was not found.");
     const personalData = contact.personalData as Record<string, unknown>;
     recipient = typeof personalData.email === "string" ? personalData.email : "";
-    if (!recipient || personalData.doNotContact === true || contact.fictionalised) {
-      return Response.json({ error: "A real, contactable recipient with an email is required." }, { status: 409 });
-    }
+    if (contact.fictionalised) return approvalConflict(id, "fictionalised_contact", "Select and enrich a real Firmable contact before Gmail approval.");
+    if (!recipient) return approvalConflict(id, "missing_contact_email", "A verified contact email is required before Gmail approval.");
+    if (personalData.doNotContact === true) return approvalConflict(id, "do_not_contact", "This contact is marked do-not-contact.");
   }
 
   let providerDraftId: string | null = message.providerMessageId;
@@ -42,8 +47,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     eq(mailboxConnections.organizationId, organizationId),
     eq(mailboxConnections.provider, "gmail"),
   )).limit(1) : [];
-  if (requiresGmail && !connection) return Response.json({ error: "Connect Gmail in Settings before approving outreach." }, { status: 409 });
-  if (connection && !connectionCanCompose(connection)) return Response.json({ error: "Reconnect Gmail in Settings to grant draft permission." }, { status: 409 });
+  if (requiresGmail && !connection) return approvalConflict(id, "gmail_not_connected", "Connect Gmail in Settings before approving outreach.");
+  if (connection && !connectionCanCompose(connection)) return approvalConflict(id, "gmail_compose_scope_missing", "Reconnect Gmail in Settings to grant draft permission.");
   try {
     const mailbox = connection ? mailboxForConnection(connection) : null;
     const synced = await syncGmailDraftApproval({ approved: parsed.data.approved, mailbox, userId: session.user.id, recipient, subject: message.subject, body: message.body, providerDraftId, providerThreadId });
