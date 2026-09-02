@@ -15,16 +15,6 @@ function encodedSubject(value: string) {
   return /^[\x20-\x7E]*$/.test(subject) ? subject : `=?UTF-8?B?${Buffer.from(subject, "utf8").toString("base64")}?=`;
 }
 
-export class MockMailbox implements MailboxAdapter {
-  deliveries: Array<{ userId: string; message: OutboundMessage; delivery: Delivery }> = [];
-  async send(userId: string, message: OutboundMessage) {
-    const id = `mock-${this.deliveries.length + 1}`;
-    const delivery = { providerMessageId: id, providerThreadId: message.threadId || id, sentAt: new Date() };
-    this.deliveries.push({ userId, message, delivery });
-    return delivery;
-  }
-}
-
 export class GmailMailbox implements MailboxAdapter {
   constructor(private accessToken: () => Promise<string>, private fetcher: typeof fetch = fetch) {}
   private encode(message: OutboundMessage) {

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApolloClient } from "./apollo-client";
-import { defaultMandate } from "@/data/seed-targets";
+import { defaultMandate } from "@/test/fixtures/scoring-targets";
 
 describe("ApolloClient", () => {
   it("maps a company search without exposing credentials", async () => {

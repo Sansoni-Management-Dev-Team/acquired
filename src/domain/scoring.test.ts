@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultMandate, seedTargets } from "@/data/seed-targets";
+import { defaultMandate, seedTargets } from "@/test/fixtures/scoring-targets";
 import { determineBand, rankTarget, rankTargets } from "./scoring";
 
 describe("deterministic target scoring", () => {

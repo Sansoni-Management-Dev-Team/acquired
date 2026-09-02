@@ -1,5 +1,8 @@
 import type { DerivedValue, Signal, TargetCandidate } from "@/domain/models";
 
+// Test-only scoring scenarios. Runtime target discovery is provided by the
+// explicit fixture/live provider boundary in src/adapters/provider-mode.ts.
+
 const capturedAt = "2026-08-26T00:00:00.000Z";
 const orgId = "org-demo";
 

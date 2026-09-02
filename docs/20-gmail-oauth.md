@@ -1,6 +1,6 @@
 # Gmail via Google OAuth — draft and send from the user's own mailbox
 
-> **Decision update — 1 September 2026:** Gmail-native drafts are now an explicit product requirement. The implementation requests the restricted `gmail.compose` scope, saves an approved message to Gmail Drafts, and removes it when approval is revoked. Automatic sending remains disabled. The verification and CASA implications described below still apply.
+> **Historical design note — superseded 1 September 2026:** Gmail-native drafts are now implemented with the restricted `gmail.compose` scope. Approval creates or updates a Gmail draft, revocation removes it, and automatic sending remains disabled. References below to a runtime mock mailbox and `gmail.send` describe the original proposal, not the current application. See `24-architecture.md` for the as-built system.
 
 Written 26 Aug 2026, against the brief in `01-understanding.md` and the Gmail question left open
 at C4/D7 in `02-questions-for-mark.md`. No application code exists in this repo yet, so this is

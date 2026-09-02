@@ -1,9 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
-import { GmailMailbox, MockMailbox } from "./mailbox";
+import { GmailMailbox, type MailboxAdapter, type OutboundMessage } from "./mailbox";
+
+class TestMailbox implements MailboxAdapter {
+  deliveries: Array<{ userId: string; message: OutboundMessage }> = [];
+
+  async send(userId: string, message: OutboundMessage) {
+    this.deliveries.push({ userId, message });
+    return { providerMessageId: "test-1", providerThreadId: message.threadId || "test-1", sentAt: new Date() };
+  }
+}
 
 describe("mailboxes", () => {
-  it("captures mock deliveries without an external send", async () => {
-    const mailbox = new MockMailbox();
+  it("captures test deliveries without an external send", async () => {
+    const mailbox = new TestMailbox();
     await mailbox.send("u1", { to: "owner@example.invalid", subject: "Hello", text: "Body" });
     expect(mailbox.deliveries).toHaveLength(1);
   });
