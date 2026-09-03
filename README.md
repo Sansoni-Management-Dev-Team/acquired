@@ -14,7 +14,7 @@ Evidence-led SME acquisition sourcing, ranking, and outreach. This repository is
 - Google Places natural-language company discovery followed by bounded, sequential Firmable website enrichment
 - ranked `/targets` table with saved-target hydration, search limits, band filters, provenance, and evidence breakdown
 - persisted Firmable company profiles, outreach context, decision-maker contacts, evidence signals, and seven-step draft sequences using the existing database schema
-- mandate, targets, outreach, audit, settings, and sign-in screens
+- targets, outreach, audit, settings, and sign-in screens
 - organisation-scoped Drizzle repository and an initial SQL migration artifact
 
 ## Run locally

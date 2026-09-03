@@ -3,11 +3,10 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Activity, Building2, LogOut, Mail, Search, Settings } from "lucide-react";
+import { Activity, Building2, LogOut, Mail, Settings } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 
 const nav = [
-  ["Mandate", "/mandate", Search],
   ["Targets", "/targets", Building2],
   ["Outreach", "/outreach", Mail],
   ["Audit", "/audit", Activity],
