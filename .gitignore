@@ -6,3 +6,5 @@ node_modules/
 coverage/
 *.tsbuildinfo
 .vercel
+/.local-data/*
+!/.local-data/manufacturer-web-discovery.json
