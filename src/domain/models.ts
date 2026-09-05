@@ -78,8 +78,34 @@ export type FirmableSourceData = {
   linkedin?: string;
 };
 
+export type ManufacturingDirectorySourceData = {
+  recordId: string;
+  name: string;
+  website?: string;
+  abn?: string;
+  identifierEvidence?: {
+    sourceUrl: string;
+    confidence: number;
+  };
+  phone?: string;
+  email?: string;
+  address?: string;
+  state?: string;
+  postcode?: string;
+  description?: string;
+  categories: string[];
+  keywords: string[];
+  capabilities: string[];
+  manufacturingConfidence?: "low" | "medium" | "high";
+  manufacturingScore?: number;
+  australianConfidence?: "low" | "medium" | "high";
+  australianScore?: number;
+  sourceRecords: Array<{ source: string; sourceId: string; sourceUrl: string }>;
+};
+
 export type TargetSourceData = {
-  googlePlaces: GooglePlacesSourceData;
+  googlePlaces?: GooglePlacesSourceData;
+  manufacturingDirectory?: ManufacturingDirectorySourceData;
   firmable?: FirmableSourceData;
 };
 

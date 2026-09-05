@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { ManufacturingDirectorySourceData } from "@/domain/models";
 
 export const MAX_BUSINESS_RESULTS = 20;
 export const businessResultLimitSchema = z.union([
@@ -31,6 +32,8 @@ export type GooglePlaceCandidate = {
   types?: string[];
   locality?: string;
   state?: string;
+  discoverySource?: "google-places" | "manufacturing-directory";
+  manufacturingDirectory?: ManufacturingDirectorySourceData;
 };
 
 export class GooglePlacesError extends Error {
@@ -91,6 +94,7 @@ export class GooglePlacesClient {
         types: place.types || [],
         locality: locality?.longText,
         state: state?.shortText,
+        discoverySource: "google-places",
       };
     });
   }

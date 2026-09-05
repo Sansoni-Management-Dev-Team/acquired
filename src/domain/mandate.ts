@@ -59,10 +59,17 @@ export function parseMandate(text: string): Mandate {
     }
   }
 
-  const sectorMatch = text.match(/(?:looking\s+to\s+buy|buy|find|seeking|targeting)\s+(?:an?\s+)?([a-z][a-z &/-]+?)\s+(?:business(?:es)?|compan(?:y|ies))\b/i)
-    || text.match(/(?:in|across|sectors?[: ])\s+([a-z][a-z &/-]+?)(?=\s+(?:businesses|companies|in|across|with)|[,.]|$)/i);
-  const sectors = sectorMatch
+  const manufacturerMatch = text.match(/(?:looking\s+(?:to\s+buy|for)|searching\s+for|buy|find|seeking|targeting|acquir(?:e|ing))\s+(?:an?\s+)?([a-z][a-z &/-]*?)\s+manufacturers?\b/i);
+  const sectorMatch = text.match(/(?:looking\s+(?:to\s+buy|for)|searching\s+for|buy|find|seeking|targeting|acquir(?:e|ing))\s+(?:an?\s+)?([a-z][a-z &/-]+?)\s+(?:business(?:es)?|compan(?:y|ies))\b/i);
+  const contextualSectorMatch = text.match(/(?:in|across|sectors?[: ])\s+([a-z][a-z &/-]+?)(?=\s+(?:businesses|companies|in|across|with)|[,.]|$)/i);
+  const sectors = manufacturerMatch
+    ? [`${manufacturerMatch[1].trim()} manufacturing`.trim()]
+    : sectorMatch
     ? sectorMatch[1].split(/\s*(?:\/|,|\bor\b|\band\b)\s*/i).map((value) => value.replace(/-/g, " ").trim()).filter(Boolean)
+    : /\bmanufactur(?:e|er|ers|ing)\b/i.test(text)
+    ? ["Manufacturing"]
+    : contextualSectorMatch
+    ? contextualSectorMatch[1].split(/\s*(?:\/|,|\bor\b|\band\b)\s*/i).map((value) => value.replace(/-/g, " ").trim()).filter(Boolean)
     : ["Mechanical services"];
   const headcountMatch = text.match(/headcount[^\d]{0,10}(\d+)\s*(?:-|to|and)\s*(\d+)/i);
 

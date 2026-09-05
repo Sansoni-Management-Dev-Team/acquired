@@ -57,7 +57,17 @@ function bestSector(raw: Record<string, unknown>, mandate: Mandate) {
 }
 
 function googleSourceData(place: GooglePlaceCandidate) {
+  if (place.discoverySource === "manufacturing-directory") return undefined;
   return { placeId: place.id, name: place.name, formattedAddress: place.formattedAddress, website: place.website, primaryType: place.primaryType, types: place.types || [] };
+}
+
+function sourceData(place: GooglePlaceCandidate, firmable?: ReturnType<typeof firmableSourceData>) {
+  const googlePlaces = googleSourceData(place);
+  return {
+    ...(googlePlaces ? { googlePlaces } : {}),
+    ...(place.manufacturingDirectory ? { manufacturingDirectory: place.manufacturingDirectory } : {}),
+    ...(firmable ? { firmable } : {}),
+  };
 }
 
 function sectorEvidence(raw: Record<string, unknown>, place: GooglePlaceCandidate, mandate: Mandate, capturedAt: string, website?: string) {
@@ -111,14 +121,14 @@ export function mapGooglePlace(place: GooglePlaceCandidate, mandate: Mandate, or
     domain: domainFrom(place.website),
     suburb: location.suburb,
     state: location.state,
-    sector: value(mandate.sectors[0], "Google Places query match", capturedAt, 65, place.website),
+    sector: value(mandate.sectors[0], place.discoverySource === "manufacturing-directory" ? "Manufacturing directories" : "Google Places query match", capturedAt, 65, place.website),
     revenue: missing(enrichmentReason, "Firmable", capturedAt),
     ebitda: missing("Firmable does not provide EBITDA", "Firmable", capturedAt),
     headcount: missing(enrichmentReason, "Firmable", capturedAt),
     establishedYear: missing(enrichmentReason, "Firmable", capturedAt),
     signals: [],
     status: "identified",
-    sourceData: { googlePlaces: googleSourceData(place) },
+    sourceData: sourceData(place),
   };
 }
 
@@ -145,6 +155,6 @@ export function mapFirmableCompany(raw: Record<string, unknown>, place: GooglePl
     establishedYear: establishedYear === undefined ? missing("Not provided by Firmable", "Firmable", capturedAt) : value(establishedYear, "Firmable", capturedAt, 75, website),
     signals: [],
     status: "enriched",
-    sourceData: { googlePlaces: googleSourceData(place), firmable: firmableSourceData(raw, firmableId) },
+    sourceData: sourceData(place, firmableSourceData(raw, firmableId)),
   };
 }

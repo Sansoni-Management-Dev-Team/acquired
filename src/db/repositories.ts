@@ -44,8 +44,9 @@ export class OrganizationRepository {
     const firmable = target.sourceData?.firmable;
     if (!firmable || target.status !== "enriched" || !target.domain) return null;
     const identifiers = {
-      googlePlaceId: target.sourceData?.googlePlaces.placeId,
+      googlePlaceId: target.sourceData?.googlePlaces?.placeId,
       firmableId: firmable.firmableId,
+      manufacturingDirectoryRecordId: target.sourceData?.manufacturingDirectory?.recordId,
       abn: firmable.abn,
       acn: firmable.acn,
       anzsic: firmable.anzsic,
@@ -61,6 +62,7 @@ export class OrganizationRepository {
       headcount: target.headcount,
       establishedYear: target.establishedYear,
       firmable,
+      manufacturingDirectory: target.sourceData?.manufacturingDirectory,
       outreachContext: {
         companyName: target.companyName,
         domain: target.domain,
@@ -105,7 +107,15 @@ export class OrganizationRepository {
       entityType: "target",
       entityId: saved.id,
       after: { companyName: target.companyName, domain: target.domain, identifiers, scores: target.scores },
-      metadata: { providers: ["Google Places", "Firmable"], googleContentPersisted: ["placeId"], personalDataPersisted: false },
+      metadata: {
+        providers: [
+          ...(target.sourceData?.googlePlaces ? ["Google Places"] : []),
+          ...(target.sourceData?.manufacturingDirectory ? ["Australian Manufacturing directories"] : []),
+          "Firmable",
+        ],
+        googleContentPersisted: target.sourceData?.googlePlaces ? ["placeId"] : [],
+        personalDataPersisted: false,
+      },
     });
     for (const evidence of targetEvidence(target)) {
       const [existingSignal] = await this.database.select({ id: signals.id }).from(signals).where(and(

@@ -1,5 +1,5 @@
 import type { InferSelectModel } from "drizzle-orm";
-import type { DerivedValue, FinancialValue, FirmableSourceData, RankedTarget, ScoreReason, Signal } from "@/domain/models";
+import type { DerivedValue, FinancialValue, FirmableSourceData, ManufacturingDirectorySourceData, RankedTarget, ScoreReason, Signal } from "@/domain/models";
 import { signals, targets } from "./schema";
 
 type TargetRecord = InferSelectModel<typeof targets>;
@@ -14,6 +14,7 @@ type StoredFirmographics = {
   headcount?: unknown;
   establishedYear?: unknown;
   firmable?: unknown;
+  manufacturingDirectory?: unknown;
   scoreExplanation?: unknown;
 };
 
@@ -67,6 +68,7 @@ export function targetRecordToRankedTarget(row: TargetRecord, signalRows: Signal
   const firmographics = (record(row.firmographics) || {}) as StoredFirmographics;
   const identifiers = record(row.identifiers) || {};
   const firmable = record(firmographics.firmable) as FirmableSourceData | undefined;
+  const manufacturingDirectory = record(firmographics.manufacturingDirectory) as ManufacturingDirectorySourceData | undefined;
   const explanation = scoreExplanation(firmographics.scoreExplanation);
   const placeId = text(identifiers.googlePlaceId);
 
@@ -84,9 +86,10 @@ export function targetRecordToRankedTarget(row: TargetRecord, signalRows: Signal
     establishedYear: derived<number>(firmographics.establishedYear, "Established year was not retained"),
     signals: storedSignals(signalRows),
     status: row.status === "identified" ? "identified" : "enriched",
-    sourceData: placeId ? {
-      googlePlaces: { placeId, types: [] },
-      firmable,
+    sourceData: placeId || firmable || manufacturingDirectory ? {
+      ...(placeId ? { googlePlaces: { placeId, types: [] } } : {}),
+      ...(manufacturingDirectory ? { manufacturingDirectory } : {}),
+      ...(firmable ? { firmable } : {}),
     } : undefined,
     scores: {
       fit: row.fitScore ?? 0,

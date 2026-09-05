@@ -8,3 +8,4 @@ coverage/
 .vercel
 /.local-data/*
 !/.local-data/manufacturer-web-discovery.json
+!/.local-data/manufacturing-search-index.json

@@ -10,6 +10,9 @@
     "db:local:stop": "docker compose -f compose.local.yml stop postgres",
     "db:local:status": "docker compose -f compose.local.yml ps postgres",
     "db:local:logs": "docker compose -f compose.local.yml logs -f postgres",
+    "scrape:manufacturers": "node scripts/scrape-manufacturing-directories.mjs",
+    "discover:manufacturers": "node scripts/discover-manufacturers-web.mjs",
+    "build:manufacturing-index": "node scripts/build-manufacturing-search-index.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"

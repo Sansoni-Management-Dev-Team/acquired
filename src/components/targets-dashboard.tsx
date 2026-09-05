@@ -49,15 +49,36 @@ function SourceList({ label, values }: { label: string; values?: string[] }) {
 
 function SourceData({ target }: { target: RankedTarget }) {
   const google = target.sourceData?.googlePlaces;
+  const directory = target.sourceData?.manufacturingDirectory;
   const firmable = target.sourceData?.firmable;
-  if (!google) return null;
+  if (!google && !directory && !firmable) return null;
   return <>
     <h3 className="mb-3 mt-8 text-xs font-bold uppercase tracking-[.16em] text-[var(--muted)]">Source data</h3>
     <div className="grid gap-3 lg:grid-cols-2">
-      <section className="rounded-lg border border-[var(--border)] bg-black/10 p-4">
+      {google && <section className="rounded-lg border border-[var(--border)] bg-black/10 p-4">
         <div className="mb-2 flex items-center justify-between gap-3"><h4 className="text-sm font-semibold">Google Places</h4><span className="rounded-full border border-sky-400/25 bg-sky-400/5 px-2 py-1 text-[9px] font-bold uppercase tracking-[.14em] text-sky-300">Discovery</span></div>
         <dl><SourceField label="Place ID" value={google.placeId} /><SourceField label="Listed name" value={google.name} /><SourceField label="Formatted address" value={google.formattedAddress} /><SourceField label="Primary type" value={google.primaryType} /><SourceList label="Place types" values={google.types} /><SourceField label="Website" value={google.website} href={google.website} /></dl>
-      </section>
+      </section>}
+      {directory && <section className="rounded-lg border border-[var(--border)] bg-black/10 p-4">
+        <div className="mb-2 flex items-center justify-between gap-3"><h4 className="text-sm font-semibold">Manufacturing sources</h4><span className="rounded-full border border-amber-400/25 bg-amber-400/5 px-2 py-1 text-[9px] font-bold uppercase tracking-[.14em] text-amber-300">Discovery</span></div>
+        <dl>
+          <SourceField label="Directory ID" value={directory.recordId} />
+          <SourceField label="Listed name" value={directory.name} />
+          <SourceField label="Address" value={directory.address} />
+          <SourceField label="Phone" value={directory.phone} />
+          <SourceField label="Email" value={directory.email} />
+          <SourceField label="Website" value={directory.website} href={directory.website} />
+          <SourceField label="ABN" value={directory.abn} />
+          <SourceField label="Identifier evidence" value={directory.identifierEvidence ? `${directory.identifierEvidence.confidence}% confidence` : undefined} href={directory.identifierEvidence?.sourceUrl} />
+          <SourceField label="Description" value={directory.description} />
+          <SourceList label="Categories" values={directory.categories} />
+          <SourceList label="Keywords" values={directory.keywords} />
+          <SourceList label="Capabilities" values={directory.capabilities} />
+          <SourceList label="Sources" values={[...new Set(directory.sourceRecords.map((record) => record.source))]} />
+          <SourceField label="Manufacturing confidence" value={directory.manufacturingConfidence} />
+          <SourceField label="Manufacturing evidence score" value={directory.manufacturingScore} />
+        </dl>
+      </section>}
       <section className="rounded-lg border border-[var(--border)] bg-black/10 p-4">
         <div className="mb-2 flex items-center justify-between gap-3"><h4 className="text-sm font-semibold">Firmable</h4><span className="rounded-full border border-lime-400/25 bg-lime-400/5 px-2 py-1 text-[9px] font-bold uppercase tracking-[.14em] text-lime-300">Enrichment</span></div>
         {firmable ? <dl>
@@ -82,7 +103,7 @@ function SourceData({ target }: { target: RankedTarget }) {
           <SourceList label="States" values={firmable.states} />
           <SourceList label="Locations" values={firmable.locations} />
           <SourceList label="Keywords" values={firmable.keywords} />
-        </dl> : <p className="mt-4 text-sm leading-6 text-[var(--muted)]">Firmable enrichment was unavailable for this website.</p>}
+        </dl> : <p className="mt-4 text-sm leading-6 text-[var(--muted)]">Firmable enrichment was unavailable for this company identifier.</p>}
       </section>
     </div>
   </>;
@@ -153,7 +174,7 @@ export function TargetsDashboard({ initialTargets = [], providerMode = "live" }:
   }
 
   return <>
-    <header className="border-b border-[var(--border)] px-5 py-6 sm:px-8"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[.18em] text-[var(--accent)]">{providerMode === "fixture" ? "Fixture company discovery" : "Live company discovery"}</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Search and enrich targets</h1><p className="mt-2 text-sm text-[var(--muted)]">{providerMode === "fixture" ? "Local fixtures exercise the Google Places and Firmable response pipeline without external requests." : "Google Places discovers businesses; Firmable enriches each returned website."}</p></div><div className="rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-xs text-[var(--muted)]"><span className={`mr-2 inline-block size-2 rounded-full ${summary ? "bg-lime-400" : "bg-zinc-500"}`} />{summary ? `${summary.enriched} enriched · ${summary.discovered} discovered` : providerMode === "fixture" ? "Ready for fixture search" : "Ready for a live search"}</div></div></header>
+    <header className="border-b border-[var(--border)] px-5 py-6 sm:px-8"><div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-bold uppercase tracking-[.18em] text-[var(--accent)]">{providerMode === "fixture" ? "Fixture company discovery" : "Live company discovery"}</p><h1 className="mt-2 text-3xl font-semibold tracking-tight">Search and enrich targets</h1><p className="mt-2 text-sm text-[var(--muted)]">{providerMode === "fixture" ? "Local fixtures exercise the Google Places and Firmable response pipeline without external requests." : "Google Places discovers businesses; manufacturing searches also use Australian Manufacturing, AMTIL and curated web discovery. Firmable enriches each company identifier."}</p></div><div className="rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-xs text-[var(--muted)]"><span className={`mr-2 inline-block size-2 rounded-full ${summary ? "bg-lime-400" : "bg-zinc-500"}`} />{summary ? `${summary.enriched} enriched · ${summary.discovered} discovered` : providerMode === "fixture" ? "Ready for fixture search" : "Ready for a live search"}</div></div></header>
     <div className="p-5 sm:p-8">
       <section className="mb-6 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4 sm:p-5">
         <label htmlFor="target-search" className="text-xs font-bold uppercase tracking-[.15em] text-[var(--muted)]">Describe the businesses you want to find</label>
@@ -164,7 +185,8 @@ export function TargetsDashboard({ initialTargets = [], providerMode = "live" }:
           <p className="max-w-xl text-xs leading-5 text-[var(--muted)]">{providerMode === "fixture" ? "The selected cap exercises the same website filtering and enrichment limits against local fixtures. No Google or Firmable request is made." : "The selected cap controls website-backed results and Firmable calls. One Google request may scan up to 20 candidates to replace listings without websites. Each attempted Firmable enrichment may consume one credit."}</p>
         </div>
         {error && <p role="alert" className="mt-3 rounded-md border border-red-400/20 bg-red-400/5 p-3 text-sm text-red-200">{error}</p>}
-        {summary && (summary.withoutWebsite > 0 || summary.enrichmentFailed > 0) && <p className="mt-3 rounded-md border border-amber-400/20 bg-amber-400/5 p-3 text-xs text-amber-100">{summary.withoutWebsite} result(s) without a website were skipped; {summary.enrichmentFailed} Firmable enrichment(s) failed. Website-backed businesses with failed enrichment remain visible with missing fields clearly marked.</p>}
+        {summary && summary.manufacturingDirectoryDiscovered > 0 && <p className="mt-3 rounded-md border border-amber-400/20 bg-amber-400/5 p-3 text-xs text-amber-100">Manufacturing search used {summary.googlePlacesDiscovered} Google Places candidates and {summary.manufacturingDirectoryDiscovered} directory candidates before deduplication and enrichment.</p>}
+        {summary && (summary.withoutWebsite > 0 || summary.enrichmentFailed > 0) && <p className="mt-3 rounded-md border border-amber-400/20 bg-amber-400/5 p-3 text-xs text-amber-100">{summary.withoutWebsite} result(s) without a website or ABN were skipped; {summary.enrichmentFailed} Firmable enrichment(s) failed. Businesses with failed enrichment remain visible with missing fields clearly marked.</p>}
       </section>
       {targets.length > 0 && <div className="mb-5 flex flex-wrap items-center gap-3"><label className="flex min-w-64 flex-1 items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2.5 text-sm focus-within:border-[var(--accent)]"><Search size={16} className="text-[var(--muted)]" /><input value={filterText} onChange={(event) => setFilterText(event.target.value)} placeholder="Filter returned companies" className="w-full bg-transparent outline-none placeholder:text-[var(--muted)]" /></label><div className="flex gap-1 rounded-md border border-[var(--border)] bg-[var(--panel)] p-1">{bands.map((item) => <button key={item} onClick={() => setBand(item)} className={`rounded px-3 py-1.5 text-xs capitalize ${band === item ? "bg-[var(--panel-raised)] text-white" : "text-[var(--muted)]"}`}>{item}</button>)}</div></div>}
       <div className="overflow-x-auto rounded-lg border border-[var(--border)]"><table className="w-full min-w-[1050px] border-collapse text-left"><thead className="bg-[var(--panel)] text-[10px] uppercase tracking-[.15em] text-[var(--muted)]"><tr><th className="px-4 py-3">Company</th><th className="px-4 py-3">Opportunity</th><th className="px-4 py-3">Fit</th><th className="px-4 py-3">Ripeness</th><th className="px-4 py-3">Finance</th><th className="px-4 py-3">Revenue</th><th className="px-4 py-3">Evidence</th><th /></tr></thead><tbody>{filtered.map((target) => <tr key={target.id} onClick={() => setSelected(target)} className="cursor-pointer border-t border-[var(--border)] bg-black/5 transition hover:bg-[var(--panel)]"><td className="px-4 py-4"><div className="flex items-center gap-3"><span className="grid size-9 place-items-center rounded bg-[var(--panel-raised)] text-[var(--muted)]"><Building2 size={16} /></span><div><strong className="block text-sm">{target.companyName}</strong><small className="text-[var(--muted)]">{target.suburb}, {target.state} · {target.sector.value}</small></div></div></td><td className="px-4 py-4"><Qualification value={target.scores.qualification} /></td><td className="px-4 py-4"><Score label="" value={target.scores.fit} /></td><td className="px-4 py-4"><Score label="" value={target.scores.ripeness} /></td><td className="px-4 py-4">{target.scores.financeability === null ? <MissingValue reason="Needs lender evidence" /> : <Score label="" value={target.scores.financeability} />}</td><td className="px-4 py-4 text-sm">{target.revenue.value === null ? <MissingValue reason={target.revenue.missingReason ?? "Unknown"} /> : financial(target.revenue.value)}</td><td className="px-4 py-4 text-sm"><span className="font-medium">{target.signals.length + target.scores.reasons.filter((reason) => reason.axis === "financeability").length}</span><span className="text-[var(--muted)]"> signals</span></td><td className="px-4 py-4"><ChevronRight size={17} className="text-[var(--muted)]" /></td></tr>)}</tbody></table>{filtered.length === 0 && <div className="p-10 text-center text-sm text-[var(--muted)]">{targets.length === 0 ? "Run a live search to discover businesses." : "No targets match those filters."}</div>}</div>

@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   targetSearchLog("request.received", { query: parsed.data.query, requestedLimit: parsed.data.limit });
 
   const provider = createTargetDataProvider();
-  const { places, firmable } = provider;
+  const { places, firmable, manufacturingDirectory } = provider;
   targetSearchLog("provider.selected", { mode: provider.mode });
   if (provider.mode === "live" && (!places.isConfigured() || !firmable.isConfigured())) {
     targetSearchLog("request.rejected", { reason: "Provider configuration missing", googlePlacesConfigured: places.isConfigured(), firmableConfigured: firmable.isConfigured() });
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
   try {
     const mandate = parseMandate(parsed.data.query);
     targetSearchLog("mandate.parsed", { sectors: mandate.sectors, states: mandate.states, locations: mandate.locations, revenue: mandate.revenue, ebitda: mandate.ebitda, headcount: mandate.headcount });
-    const result = await searchAndEnrichTargets({ places, firmable, mandate, limit: parsed.data.limit, organisationId });
+    const result = await searchAndEnrichTargets({ places, firmable, manufacturingDirectory, mandate, limit: parsed.data.limit, organisationId });
     const rankedTargets = rankTargets(result.targets, mandate);
     const repository = new OrganizationRepository(requireDb(), organisationId);
     const storedMandate = await repository.createMandate({

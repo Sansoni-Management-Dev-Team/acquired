@@ -1,6 +1,7 @@
 import { FirmableClient } from "./firmable-client";
 import { createFixtureProviderClients } from "./fixture-provider";
 import { GooglePlacesClient } from "./google-places-client";
+import { ManufacturingDirectoryClient } from "./manufacturing-directory-client";
 
 export type TargetDataProviderMode = "fixture" | "live";
 
@@ -10,6 +11,7 @@ export function resolveTargetDataProviderMode(value: string | undefined): Target
 }
 
 export function createTargetDataProvider(mode = resolveTargetDataProviderMode(process.env.TARGET_DATA_PROVIDER)) {
-  if (mode === "fixture") return { mode, ...createFixtureProviderClients() };
-  return { mode, places: new GooglePlacesClient(), firmable: new FirmableClient() };
+  const manufacturingDirectory = new ManufacturingDirectoryClient();
+  if (mode === "fixture") return { mode, ...createFixtureProviderClients(), manufacturingDirectory };
+  return { mode, places: new GooglePlacesClient(), firmable: new FirmableClient(), manufacturingDirectory };
 }

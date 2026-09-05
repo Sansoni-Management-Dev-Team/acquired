@@ -1,0 +1,92 @@
+{
+  "manufacturer_a8f591f3f36a7ac0e5e3": {
+    "website": "https://www.russellfinex.com/",
+    "evidenceUrl": "https://www.russellfinex.com/en/local-support/",
+    "confidence": 100
+  },
+  "manufacturer_57d42ec6fd8866c79964": {
+    "website": "https://www.semrad.com.au/",
+    "abn": "34003635176",
+    "evidenceUrl": "https://www.semrad.com.au/contact-us/",
+    "confidence": 100
+  },
+  "manufacturer_bbd93b79d4577866db4e": {
+    "website": "https://www.westernplumbing.com.au/",
+    "evidenceUrl": "https://www.storeboard.com/westernplumbingadelaide",
+    "confidence": 80
+  },
+  "manufacturer_b674a6c220fae8066179": {
+    "website": "https://duroshox.com/",
+    "evidenceUrl": "https://duroshox.com/connect-with-us/",
+    "confidence": 100
+  },
+  "manufacturer_073af6e7c30cca1602c4": {
+    "website": "https://www.perthtreeservice.com.au/",
+    "evidenceUrl": "https://bestinau.com.au/best-tree-services-in-perth/",
+    "confidence": 85
+  },
+  "manufacturer_db1338b051fa70782cb5": {
+    "website": "https://www.dragos.com/",
+    "evidenceUrl": "https://hub.dragos.com/showcase_melbourne",
+    "confidence": 100
+  },
+  "manufacturer_16ea4d74607c7c6159ff": {
+    "website": "https://fusionmetals.com.au/",
+    "evidenceUrl": "https://fusionmetals.com.au/",
+    "confidence": 100
+  },
+  "manufacturer_444193f865873cd2e1c2": {
+    "website": "https://insotec.com.au/",
+    "evidenceUrl": "https://insotec.com.au/",
+    "confidence": 100
+  },
+  "manufacturer_79f0ad0b1eab76ecac1a": {
+    "abn": "87661285409",
+    "evidenceUrl": "https://abr.business.gov.au/ABN/View?id=87661285409",
+    "confidence": 100
+  },
+  "manufacturer_c5b419adf0944eef9ef1": {
+    "website": "https://odeom.com.au/",
+    "abn": "71668046802",
+    "evidenceUrl": "https://odeom.com.au/contact",
+    "confidence": 100
+  },
+  "manufacturer_5e1b783a387159c3b872": {
+    "website": "https://www.pjbowers.com.au/",
+    "abn": "48262646574",
+    "evidenceUrl": "https://www.pjbowers.com.au/about-pj-bowers",
+    "confidence": 100
+  },
+  "manufacturer_2f126cb371aba12d261f": {
+    "website": "https://www.plazmax.com.au/",
+    "evidenceUrl": "https://www.plazmax.com.au/terms-and-conditions/",
+    "confidence": 100
+  },
+  "manufacturer_dbb380e46a9338192a3e": {
+    "website": "https://www.schmalz.com/en-au/",
+    "evidenceUrl": "https://www.schmalz.com/en-au/career-company/contact-locations",
+    "confidence": 100
+  },
+  "manufacturer_ca4f4ee6bc1138a7cdfa": {
+    "website": "https://www.sumitool.com.au/",
+    "abn": "47001145651",
+    "evidenceUrl": "https://abr.business.gov.au/ABN/View/47001145651",
+    "confidence": 100
+  },
+  "manufacturer_b2c130ef1d86ea4a6c24": {
+    "website": "https://sentraxlasers.com/",
+    "evidenceUrl": "https://sentraxlasers.com/about-us/",
+    "confidence": 100
+  },
+  "manufacturer_0215fd9265a05d5526ee": {
+    "abn": "51663899161",
+    "evidenceUrl": "https://abr.business.gov.au/ABN/View?id=51663899161",
+    "confidence": 100
+  },
+  "manufacturer_1e33402b9e50756c1bba": {
+    "website": "https://thynkprocess.com.au/",
+    "abn": "61676397943",
+    "evidenceUrl": "https://thynkprocess.com.au/contact",
+    "confidence": 100
+  }
+}

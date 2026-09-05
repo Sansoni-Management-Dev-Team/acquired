@@ -47,6 +47,21 @@ Successful Firmable enrichments are upserted by organisation and domain. Google 
 
 The schema lives in `src/db/schema.ts`. Migrations `drizzle/0000_initial.sql`, `drizzle/0001_opportunity_qualification.sql`, and `drizzle/0002_auth_issuer_compatibility.sql` were explicitly approved and applied to the configured Neon database on 2026-08-26. Never apply a future migration without explicit approval for that specific migration.
 
+## Manufacturing web discovery
+
+`pnpm discover:manufacturers` runs a resumable web-discovery pipeline through the `crawl4ai` MCP server configured in Claude Code. It builds 3,456 category/state/evidence searches from `src/data/manufacturing-search-taxonomy.json`, deduplicates search results by domain, excludes directories and marketplaces, avoids recrawling domains already present in `.local-data/manufacturing-directories.json`, and crawls likely company websites for manufacturing and Australian-location evidence. Every request is checkpointed in `.local-data/manufacturer-web-discovery-cache.json`; reviewed output is written to `.local-data/manufacturer-web-discovery.json`.
+
+Run discovery and crawling independently so the search yield can be audited before the more expensive browser stage:
+
+```bash
+pnpm discover:manufacturers -- --phase search --search-provider duckduckgo --concurrency 6
+pnpm discover:manufacturers -- --phase crawl --concurrency 3 --max-pages 6
+pnpm discover:manufacturers -- --phase report
+pnpm build:manufacturing-index
+```
+
+Use `--max-queries`, `--max-sites`, `--state`, or `--category` for controlled pilots. A candidate is accepted only when its crawled pages meet both the manufacturing-evidence threshold and the Australian-presence threshold. `pnpm build:manufacturing-index` produces the compact, deduplicated runtime file at `.local-data/manufacturing-search-index.json` from Australian Manufacturing, AMTIL and accepted web-discovery records. Manufacturing and taxonomy-specific target searches merge this index with Google Places before Firmable enrichment. These scripts do not write to the database.
+
 ## Authentication
 
 Email/password and Google registration/login plus one-hour password reset tokens are backed by Better Auth tables in the configured PostgreSQL database—OrbStack locally and Neon when deployed. Registration creates an organisation and makes it active for the new session. Password resets revoke existing sessions and use Resend when `RESEND_API_KEY` and `AUTH_EMAIL_FROM` are configured. Product Google sign-in uses `/api/auth/callback/google`; the delegated Gmail grant remains separate at `/api/mailbox/google/callback` and can be connected from Settings after login.

@@ -19,4 +19,10 @@ describe("parseMandate", () => {
     expect(result.revenue).toEqual({ min: 2_000_000, max: 20_000_000 });
     expect(result.ebitda).toEqual({ min: 1_000_000, max: null });
   });
+
+  it("recognises common manufacturing search phrases", () => {
+    expect(parseMandate("I'm looking for manufacturing businesses in Victoria").sectors).toEqual(["manufacturing"]);
+    expect(parseMandate("Find food manufacturers in NSW").sectors).toEqual(["food manufacturing"]);
+    expect(parseMandate("Manufacturers in Queensland").sectors).toEqual(["Manufacturing"]);
+  });
 });

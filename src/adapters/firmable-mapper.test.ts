@@ -19,7 +19,7 @@ describe("Firmable mapping", () => {
     expect(target.headcount.value).toBe(42);
     expect(target.ebitda.value).toBeNull();
     expect(target.ebitda.missingReason).toContain("does not provide EBITDA");
-    expect(target.sourceData?.googlePlaces.placeId).toBe("p1");
+    expect(target.sourceData?.googlePlaces?.placeId).toBe("p1");
     expect(target.sourceData?.firmable).toEqual(expect.objectContaining({ firmableId: "f1", domain: "example.com", industries: ["Building services"] }));
   });
 
