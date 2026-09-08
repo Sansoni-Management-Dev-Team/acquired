@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   publicResearchUrl,
+  parseResearchExtraction,
   researchStartSchema,
   validateFindings,
   followUpLinks,
@@ -87,4 +88,24 @@ describe("public research boundaries", () => {
       ),
     ).toEqual([]);
   });
+});
+
+describe("Workers AI extraction formats", () => {
+  it("accepts structured JSON mode objects", () => {
+    expect(parseResearchExtraction({ response: { findings: [finding] } })).toEqual([finding]);
+  });
+  it("accepts JSON text and fenced JSON", () => {
+    expect(parseResearchExtraction({ response: JSON.stringify({ findings: [finding] }) })).toEqual([finding]);
+    expect(parseResearchExtraction({ response: "```json\n{\"findings\":[]}\n```" })).toEqual([]);
+  });
+  it("rejects malformed or missing findings", () => {
+    expect(() => parseResearchExtraction({ response: "Here are some findings" })).toThrow();
+    expect(() => parseResearchExtraction({ response: { other: [] } })).toThrow();
+  });
+});
+
+it("bounds excessive model output without discarding valid quoted claims", () => {
+  const records = Array.from({length: 14}, () => finding);
+  expect(validateFindings(records, page, source)).toHaveLength(12);
+  expect(validateFindings([{invalid: true}, finding], page, source)).toEqual([finding]);
 });

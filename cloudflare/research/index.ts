@@ -9,7 +9,7 @@ import {
 } from "../../src/domain/research-runner";
 import {
   publicResearchUrl,
-  type ResearchFinding,
+  parseResearchExtraction,
 } from "../../src/domain/research";
 interface Env {
   RESEARCH: Workflow;
@@ -148,15 +148,10 @@ export class AcquireResearch extends WorkflowEntrypoint<
         },
         extract: async (messages) => {
           const output = await this.env.AI.run(
-            "@cf/meta/llama-3.1-8b-instruct-fp8",
-            { messages, max_tokens: 1200, temperature: 0 },
+            "@cf/meta/llama-3.1-8b-instruct-fast",
+            { messages, max_tokens: 1200, temperature: 0, response_format: { type: "json_object" } },
           );
-          const text = "response" in output ? String(output.response) : "";
-          const cleaned = text
-            .replace(/^```(?:json)?\s*/i, "")
-            .replace(/\s*```$/, "");
-          return (JSON.parse(cleaned) as { findings: ResearchFinding[] })
-            .findings;
+          return parseResearchExtraction(output);
         },
         now: () => Date.now(),
       },
