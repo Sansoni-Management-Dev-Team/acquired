@@ -85,6 +85,7 @@ export async function POST(
       submitted.budget,
       continueFrom,
     );
+    config.strategy = submitted.strategy || "discover";
     if (!config.runtime?.remaining.length)
       return Response.json(
         {

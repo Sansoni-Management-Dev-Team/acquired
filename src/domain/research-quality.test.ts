@@ -18,6 +18,13 @@ const f: ResearchFinding = {
   website: "https://example.com/",
 };
 describe("research quality", () => {
+  it("investigates known domains evenly before discovering new businesses", () => {
+    expect(orderResearchQueue(["https://new.example.com/", "https://optics.example.com/products", "https://optics.example.com/about", "https://sensors.example.com/products"], ["https://optics.example.com/", "https://sensors.example.com/"], "investigate", ["https://optics.example.com/other"])).toEqual(["https://sensors.example.com/products", "https://optics.example.com/products", "https://optics.example.com/about", "https://new.example.com/"]);
+  });
+  it("does not confuse materials and beneficiaries with purchasing customers", () => {
+    expect(normalizeResearchFinding({...f, kind:"customer", value:"metal and plastic samples", quote:"We offer instruments for metal and plastic samples."})).toBeNull();
+    expect(normalizeResearchFinding({...f, kind:"customer", value:"laboratories and hospitals", quote:"We supply instruments to laboratories and hospitals."})?.kind).toBe("customer");
+  });
   it("moves business identifiers out of accreditation", () =>
     expect(
       normalizeResearchFinding({

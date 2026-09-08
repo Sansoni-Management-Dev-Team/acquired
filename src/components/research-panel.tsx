@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   terminalResearchStates,
   groupResearchFindings,
@@ -54,6 +54,7 @@ export function ResearchPanel({
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [setup, setSetup] = useState(false);
+  const [strategy,setStrategy]=useState<"discover"|"investigate">("discover");
   const [terms, setTerms] = useState(
     brief.criteria
       .find((c) => c.key === "subsectors")
@@ -71,6 +72,8 @@ export function ResearchPanel({
     [useAi, setUseAi] = useState(true),
     [discover, setDiscover] = useState(true),
     [continuation, setContinuation] = useState<Job | null>(null);
+  const setupRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (setup && continuation) setupRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [setup, continuation]);
   const refresh = useCallback(async () => {
     try {
       setData(await request(`/api/mandates/${mandateId}/research`));
@@ -138,6 +141,7 @@ export function ResearchPanel({
     setGeography(job.config.geography);
     setSeeds(remainingFor(job).slice(0, 10).join("\n"));
     setDiscover(false);
+    setStrategy("discover");
     setApproved(false);
     setSetup(true);
   }
@@ -169,7 +173,7 @@ export function ResearchPanel({
                 Set up research
               </button>
               {setup && (
-                <div className="space-y-4 rounded-lg border border-[var(--border)] p-4">
+                <div ref={setupRef} className="space-y-4 rounded-lg border border-[var(--border)] p-4">
                   {continuation && (
                     <p className="font-medium">
                       Continue {remainingFor(continuation).length} saved URLs
@@ -247,6 +251,10 @@ export function ResearchPanel({
                       </ul>
                     </details>
                   )}
+                  {continuation && <label className="flex items-center gap-2 text-sm">
+                    <input type="checkbox" checked={strategy === "investigate"} onChange={(e) => { setStrategy(e.target.checked ? "investigate" : "discover"); setApproved(false); }} />
+                    Investigate product pages on known websites first
+                  </label>}
                   <label className="block text-sm">
                     Maximum page attempts
                     <select
@@ -308,6 +316,7 @@ export function ResearchPanel({
                         approved: true,
                         discover,
                         budget,
+                        strategy: continuation ? strategy : "discover",
                       })
                     }
                   >

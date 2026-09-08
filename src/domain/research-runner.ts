@@ -108,10 +108,7 @@ export async function runResearch(
       runtime.remaining.length &&
       runtime.attempts.length < budget.maxPages
     ) {
-      runtime.remaining = orderResearchQueue(
-        runtime.remaining,
-        runtime.visited,
-      );
+      runtime.remaining = orderResearchQueue(runtime.remaining,runtime.visited,initial.config.strategy,runtime.attempts.map(a=>a.url));
       const index = runtime.remaining.findIndex(
         (u) =>
           domains.has(researchDomain(u)) || domains.size < budget.maxDomains,
@@ -156,6 +153,7 @@ export async function runResearch(
           },
           false,
         );
+        entry.crawlId = activeCrawl;
         entry.reason = "Waiting for crawler";
         await publish("crawling", `Waiting for ${new URL(url).hostname}`);
         let result: Awaited<ReturnType<ResearchServices["poll"]>> | undefined;
