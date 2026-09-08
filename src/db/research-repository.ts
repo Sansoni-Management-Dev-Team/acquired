@@ -1,3 +1,4 @@
+import { validatePeopleFindings } from "@/domain/people-research";
 import { createHash } from "node:crypto";
 import { and, desc, eq, lt, notInArray, sql } from "drizzle-orm";
 import { requireDb } from "./client";
@@ -151,7 +152,7 @@ export class ResearchRepository {
       throw new Error("Research budget exceeded");
     if (event.page && publicResearchUrl(event.page.url)) {
       const sourceUrl = publicResearchUrl(event.page.url)!;
-      const findings = validateFindings(
+      const findings = (config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, config) : validateFindings)(
         event.page.findings,
         event.page.markdown,
         sourceUrl,
@@ -191,7 +192,7 @@ export class ResearchRepository {
             jobId: id,
             organizationId: this.org,
             mandateId: job.mandateId,
-            targetId: linked[0]?.id,
+            targetId: config.purpose === "people" ? config.targetId : linked[0]?.id,
             evidenceKey,
             sourceUrl,
             observedAt: new Date(event.page.observedAt),

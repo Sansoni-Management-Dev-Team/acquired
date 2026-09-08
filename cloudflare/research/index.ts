@@ -177,6 +177,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
                               "business_role",
                               "product",
                               "customer",
+                              "person",
                               "capability",
                               "accreditation",
                               "identifier",
@@ -187,6 +188,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
                           quote: { type: "string" },
                           website: { type: "string" },
                           subject: { type: "string" },
+                          email: { type: "string" },
                           relevance: {
                             type: "string",
                             enum: ["relevant", "adjacent", "unclear"],

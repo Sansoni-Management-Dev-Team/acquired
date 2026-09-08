@@ -10,7 +10,7 @@ const dealStages = [
   ["qualified", "Qualified"],
 ] as const;
 
-export function PipelineBoard({ mandateId, memberships }: { mandateId: string; memberships: MembershipView[] }) {
+export function PipelineBoard({ mandateId, memberships, onReview }: { mandateId: string; memberships: MembershipView[]; onReview?: (id: string) => void }) {
   const [query, setQuery] = useState("");
   const active = memberships.filter(member => dealStages.some(([stage]) => member.assessment.stage === stage));
   const archived = memberships.filter(member => ["parked", "excluded"].includes(member.assessment.stage));
@@ -23,19 +23,19 @@ export function PipelineBoard({ mandateId, memberships }: { mandateId: string; m
       <p className="mt-5 text-xs text-[var(--muted)]">Next action</p>
       <p className="mt-1 whitespace-pre-wrap break-words text-sm">{member.assessment.nextAction || "Open the worksheet to set a next action."}</p>
       {member.assessment.reason && <p className="mt-3 whitespace-pre-wrap break-words text-xs text-[var(--muted)]">{member.assessment.reason}</p>}
-      <Link href={`/mandates/${mandateId}/targets/${member.target.id}`} className="mt-4 inline-block text-xs underline underline-offset-4">Review and update stage</Link>
+      {onReview ? <button className="mt-4 min-h-12 text-sm underline" onClick={() => onReview(member.target.id)}>Review company</button> : <Link href={`/mandates/${mandateId}/targets/${member.target.id}`} className="mt-4 inline-block text-xs underline underline-offset-4">Review company</Link>}
     </li>;
   }
 
   return <section aria-labelledby="pipeline-heading" className="space-y-5">
     <div className="flex flex-wrap items-start justify-between gap-4">
-      <div><h2 id="pipeline-heading" className="text-xl font-semibold">Pipeline</h2><p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">Track shortlisted companies through outreach, conversations and qualification. Update stages and next actions in each company’s worksheet.</p></div>
+      <div><h2 id="pipeline-heading" className="text-xl font-semibold">Pipeline</h2><p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">Track shortlisted companies through outreach, conversations and qualification. Open a company to review evidence, contacts and drafts.</p></div>
       <Link href={`/mandates/${mandateId}?tab=targets`} className="rounded-md border border-[var(--border)] px-3 py-2 text-sm">Review targets</Link>
     </div>
     <p className="text-sm text-[var(--muted)]">{active.length} active deals · {archived.length} parked or excluded</p>
     {active.length === 0 ? <div className="rounded-xl border border-dashed border-[var(--border)] p-8">
       <h3 className="font-semibold">No shortlisted deals yet</h3>
-      <p className="mt-2 text-sm text-[var(--muted)]">Open a company in Targets and save its worksheet with the stage set to Shortlisted. It will appear here with its next action.</p>
+      <p className="mt-2 text-sm text-[var(--muted)]">Open a company in Targets and choose Shortlist. It will appear here with its next action.</p>
     </div> : <>
       <label className="block max-w-sm text-xs">Find a deal<input value={query} onChange={event => setQuery(event.target.value)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2 text-sm text-white" /></label>
       {query && !active.some(matches) && <p role="status" className="text-sm text-[var(--muted)]">No active deals match “{query}”.</p>}

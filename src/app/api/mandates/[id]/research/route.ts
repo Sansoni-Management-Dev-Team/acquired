@@ -30,7 +30,7 @@ export async function GET(
     repo.findings(id),
   ]);
   return Response.json(
-    { enabled: true, jobs, findings },
+    { enabled: true, jobs: jobs.filter(j => (j.config as ResearchConfig).purpose !== "people"), findings: findings.filter(f => (f.evidence as { kind?: string }).kind !== "person") },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
@@ -78,6 +78,7 @@ export async function POST(
     const found = (await repo.findings(id))
       .filter((f) => f.jobId === continueFrom)
       .map((f) => f.sourceUrl);
+    if ((prior.config as ResearchConfig).purpose === "people") return Response.json({ error: "Start people research from the company contact panel" }, { status: 409 });
     config = continueResearchConfig(
       prior.config as ResearchConfig,
       prior.seeds as string[],

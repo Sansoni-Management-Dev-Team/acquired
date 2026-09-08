@@ -43,8 +43,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     if (!contact) return approvalConflict(id, "contact_not_found", "The selected contact was not found.");
     const personalData = contact.personalData as Record<string, unknown>;
     recipient = typeof personalData.email === "string" ? personalData.email : "";
-    if (contact.fictionalised) return approvalConflict(id, "fictionalised_contact", "Select and enrich a real Firmable contact before Gmail approval.");
-    if (!recipient) return approvalConflict(id, "missing_contact_email", "A verified contact email is required before Gmail approval.");
+    if (contact.fictionalised) return approvalConflict(id, "fictionalised_contact", "Select a real business contact before Gmail approval.");
+    if (!recipient) return approvalConflict(id, "missing_contact_email", "A work email is required before Gmail approval.");
     if (personalData.doNotContact === true) return approvalConflict(id, "do_not_contact", "This contact is marked do-not-contact.");
   }
 

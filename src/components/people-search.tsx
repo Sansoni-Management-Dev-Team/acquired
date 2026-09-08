@@ -1,0 +1,39 @@
+"use client";
+import { useEffect, useState } from "react";
+import type { ResearchFinding } from "@/domain/research";
+import { terminalResearchStates } from "@/domain/research";
+import { buttonClass, jsonRequest } from "./mandate-workspace";
+type Result = { enabled: boolean; webSearchEnabled: boolean; jobs: { id: string; status: string; message: string; pages: number }[]; findings: { id: string; sourceUrl: string; observedAt: string; confidence: number; evidence: ResearchFinding }[] };
+export function PeopleSearch({ mandateId, targetId, onSaved }: { mandateId: string; targetId: string; onSaved: () => void }) {
+  const [data, setData] = useState<Result>();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const url = `/api/targets/${targetId}/people-research`;
+  const load = () => jsonRequest(`${url}?mandateId=${mandateId}`).then(setData);
+  useEffect(() => {
+    let live = true;
+    const refresh = () => { void jsonRequest(`${url}?mandateId=${mandateId}`).then(d => { if (live) setData(d); }).catch(() => { if (live) setError("Could not refresh public web research. Reopen this company to retry."); }); };
+    refresh(); const timer = setInterval(refresh, 8000);
+    return () => { live = false; clearInterval(timer); };
+  }, [url, mandateId]);
+  async function act(endpoint: string, body: unknown, saved = false) {
+    setBusy(true); setError(""); setNotice("");
+    try { const result = await jsonRequest(endpoint, body); await load(); if (saved) { onSaved(); setNotice(result.message || "Contact saved. Published details still need verification."); } }
+    catch (e) { setError((e as Error).message); } finally { setBusy(false); }
+  }
+  const active = data?.jobs.find(j => !terminalResearchStates.includes(j.status));
+  return <section className="space-y-3 rounded-lg border border-[var(--border)] p-4">
+    <h3 className="font-semibold">Search public web · Cloudflare</h3>
+    <p className="text-xs text-[var(--muted)]">Find owners and directors from public business pages. Review sources before saving a contact. Published emails are not delivery-verified.</p>
+    <p className="text-xs text-[var(--muted)]">One web search, up to 5 pages and 5 AI calls. Runs in the background for up to 10 minutes; provider usage may incur charges.</p>
+    {data && !data.webSearchEnabled && <p className="text-xs text-amber-200">Web search is unavailable. The agent can still follow the company website’s team and contact links.</p>}
+    <button className={`${buttonClass} min-h-12`} disabled={busy || !data?.enabled || Boolean(active)} onClick={() => act(url, { action: "start", mandateId, requestId: crypto.randomUUID(), approved: true })}>{busy ? "Working…" : active ? "Research running…" : "Search public web"}</button>
+    {data && !data.enabled && <p className="text-xs">Cloudflare research is not configured for this environment.</p>}
+    {data?.jobs[0] && <div role="status" className="text-xs"><strong>{data.jobs[0].status}</strong> · {data.jobs[0].pages} pages read<p className="mt-1 text-[var(--muted)]">{data.jobs[0].message}</p></div>}
+    {active && <div className="flex gap-3">{active.status === "queued" && <button className={buttonClass} disabled={busy} onClick={() => act(`/api/research/${active.id}`, { action: "retry-dispatch" })}>Reconnect</button>}<button className={buttonClass} disabled={busy} onClick={() => act(`/api/research/${active.id}`, { action: "cancel" })}>Cancel research</button></div>}
+    {data?.findings.map(f => <article key={f.id} className="space-y-2 border-t border-[var(--border)] pt-3"><p className="font-semibold">{f.evidence.name}</p><p className="text-sm">{f.evidence.value}</p><blockquote className="text-xs text-[var(--muted)]">{f.evidence.quote}</blockquote><a className="block text-xs underline" href={f.sourceUrl} target="_blank" rel="noreferrer">View source · {new Date(f.observedAt).toLocaleDateString("en-AU")}</a><p className="text-xs">Unverified lead · {Math.round(f.confidence * 100)}% confidence · {f.evidence.email ? `Published email: ${f.evidence.email}` : "No published direct work email"}</p><button disabled={busy} className={`${buttonClass} min-h-12`} onClick={() => act(url, { action: "save", mandateId, findingId: f.id }, true)}>Use this contact</button></article>)}
+    {data?.jobs.length && !active && !data.findings.length ? <p className="text-sm">No supported decision-maker found yet. Try Firmable or add a sourced contact after speaking with the company.</p> : null}
+    {notice && <p role="status" className="text-sm text-[var(--accent)]">{notice}</p>}{error && <p role="alert" className="text-sm text-red-200">{error}</p>}
+  </section>;
+}

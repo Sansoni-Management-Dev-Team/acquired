@@ -150,7 +150,7 @@ export function continueResearchConfig(
 export type ResearchConfig = Omit<
   z.infer<typeof researchStartSchema>,
   "requestId" | "continueFrom"
-> & { runtime?: ResearchRuntime; parentJobId?: string };
+> & { runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people"; targetId?: string; companyName?: string; companyDomain?: string };
 export const findingSchema = z.object({
   kind: z.enum([
     "company",
@@ -160,12 +160,14 @@ export const findingSchema = z.object({
     "business_role",
     "product",
     "customer",
+    "person",
   ]),
   name: z.string().trim().min(2).max(200),
   value: z.string().trim().min(2).max(500),
   quote: z.string().trim().min(8).max(800),
   website: z.string().max(2000).default(""),
   subject: z.string().max(200).optional(),
+  email: z.string().email().optional(),
   relevance: z.enum(["relevant", "adjacent", "unclear"]).optional(),
 });
 export type ResearchFinding = z.infer<typeof findingSchema>;
@@ -241,6 +243,7 @@ export function validateFindings(
   allowed.add(source);
   allowed.add(new URL(source).origin + "/");
   return candidates
+    .filter(f => f.kind !== "person")
     .map(normalizeResearchFinding)
     .filter((f): f is ResearchFinding => Boolean(f))
     .filter(

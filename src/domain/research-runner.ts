@@ -1,3 +1,4 @@
+import { peoplePrompt, validatePeopleFindings, peopleFollowUpLinks } from "./people-research";
 import {
   extractionPrompt,
   catalogueProductFindings,
@@ -224,12 +225,12 @@ export async function runResearch(
         runtime.remaining = orderResearchQueue(
           [
             ...runtime.remaining,
-            ...followUpLinks(
+            ...(initial.config.purpose === "people" ? peopleFollowUpLinks(markdown, sourceUrl, runtime.visited) : followUpLinks(
               markdown,
               sourceUrl,
               initial.config.searchTerms,
               runtime.visited,
-            ),
+            )),
           ],
           runtime.visited,
         ).slice(0, 200);
@@ -238,7 +239,7 @@ export async function runResearch(
           modelCalls++;
           await publish(
             "extracting",
-            `Assessing products and business role on website ${domains.size}`,
+            initial.config.purpose === "people" ? `Looking for named decision-makers on website ${domains.size}` : `Assessing products and business role on website ${domains.size}`,
           );
           const extracted = await step.do(
             `extract-${attempt}`,
@@ -251,9 +252,9 @@ export async function runResearch(
                 return { findings: [], warning: "Extraction stopped" };
               try {
                 return {
-                  findings: validateFindings(
+                  findings: (initial.config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, initial.config) : validateFindings)(
                     await service.extract(
-                      extractionPrompt(
+                      initial.config.purpose === "people" ? peoplePrompt(markdown, sourceUrl, initial.config) : extractionPrompt(
                         markdown,
                         initial.config.searchTerms,
                         sourceUrl,
@@ -278,9 +279,9 @@ export async function runResearch(
           if (extracted.warning) warnings.push(extracted.warning);
           entry.reason =
             extracted.warning ||
-            `${findings.length} supported claims; financial fit remains unknown`;
+            (initial.config.purpose === "people" ? `${findings.length} sourced people leads; role currency and email remain unverified` : `${findings.length} supported claims; financial fit remains unknown`);
         } else entry.reason = "Read without AI extraction (model limit)";
-        const catalogue = [...statedSupplyFindings(markdown, sourceUrl, initial.config.searchTerms), ...catalogueProductFindings(markdown, sourceUrl, initial.config.searchTerms)]
+        const catalogue = initial.config.purpose === "people" ? [] : [...statedSupplyFindings(markdown, sourceUrl, initial.config.searchTerms), ...catalogueProductFindings(markdown, sourceUrl, initial.config.searchTerms)]
           .filter(c => !findings.some(f => f.kind === c.kind && f.value === c.value));
         findings = [...findings, ...catalogue].slice(0, 4);
         if (catalogue.length) entry.reason = `${findings.length} supported claims including directly observed website evidence; financial fit remains unknown`;

@@ -198,3 +198,18 @@ it("records provider failure details against the attempted URL", async () => {
     reason: "Crawler disallowed; HTTP 403",
   });
 });
+
+it("runs people research through the bounded worker without producing company claims", async () => {
+  const t = setup();
+  Object.assign(t.config, { purpose: "people", companyName: "Example Instruments", companyDomain: "instruments.example.com", targetId: "target-a" });
+  t.config.budget.maxPages = 1;
+  const quote = "Alex Example is Managing Director of Example Instruments.";
+  vi.mocked(t.service.poll).mockResolvedValue({ status: "completed", page: { url: t.config.seeds[0], markdown: quote + " [Our team](/team) We manufacture precision sensors." } });
+  vi.mocked(t.service.extract).mockResolvedValue([{ kind: "person", name: "Alex Example", value: "Managing Director", quote, website: t.config.seeds[0] }]);
+  await runResearch(t.step, t.service);
+  const event = t.progress.mock.calls.find(([e]) => e.page)?.[0];
+  expect(event?.page?.findings.map(f => f.kind)).toEqual(["person"]);
+  expect(event?.runtime?.remaining).toContain("https://instruments.example.com/team");
+  expect(t.service.extract).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining("named business decision-makers") })]));
+  expect(t.service.submit).toHaveBeenCalledOnce();
+});

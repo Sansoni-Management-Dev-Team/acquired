@@ -1,3 +1,4 @@
+import { peopleWebSeeds } from "@/adapters/people-web-search";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { requireDb } from "@/db/client";
@@ -73,7 +74,10 @@ export async function POST(
       .map(publicResearchUrl)
       .filter((s): s is string => Boolean(s));
     let warning = "";
-    if (config.discover) {
+    if (config.purpose === "people") {
+      try { seeds.push(...await peopleWebSeeds(config.companyName!, config.companyDomain!)); }
+      catch { warning = "Public web search unavailable; company website research continues."; }
+    } else if (config.discover) {
       try {
         const mandate = await new AcquisitionRepository(
           job.organizationId,
