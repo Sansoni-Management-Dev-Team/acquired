@@ -21,7 +21,7 @@ export default async function OutreachPage({ searchParams }: { searchParams: Pro
   const mandates = await acquisition.listMandates();
   if (!mandateId) {
     return <div className="p-6 md:p-8">
-      <h1 className="text-3xl font-semibold">Outreach</h1>
+      <MandateNavigation mandates={mandates} tab="outreach" /><h1 className="text-3xl font-semibold">Outreach</h1>
       <p className="mt-3 text-[var(--muted)]">Choose a mandate to review its contacts and outreach drafts.</p>
       <div className="mt-7 grid gap-4 md:grid-cols-2">
         {mandates.map(m => <Link key={m.id} href={`/outreach?mandateId=${m.id}`} className="rounded-lg border border-[var(--border)] bg-[var(--panel)] p-5 hover:bg-[var(--panel-raised)]">

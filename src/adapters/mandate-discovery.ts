@@ -2,9 +2,11 @@ import type { CoverageSource } from "@/domain/acquisition";
 import type { Mandate, TargetCandidate } from "@/domain/models";
 import { mapGooglePlace } from "./firmable-mapper";
 import type { ManufacturingDirectorySearch } from "./manufacturing-directory-client";
+import type { GooglePlacesClient } from "./google-places-client";
+import { placesQueryForMandate } from "./live-target-search";
 
 // Enumerate the selected register index, independently of any enrichment budget.
-export async function discoverMandate(options: { directory: ManufacturingDirectorySearch; mandate: Mandate; organizationId: string }) {
+export async function discoverMandate(options: { directory: ManufacturingDirectorySearch; places?: Pick<GooglePlacesClient, "isConfigured" | "searchText">; mandate: Mandate; organizationId: string }) {
   const checkedAt = new Date().toISOString();
   const targets: TargetCandidate[] = [];
   let source: CoverageSource;
@@ -41,5 +43,34 @@ export async function discoverMandate(options: { directory: ManufacturingDirecto
   } catch {
     source = { name: "Register and directory index", status: "failed", discovered: 0, unique: 0, overlap: 0, checkedAt, note: "Index unavailable. Import sourced register records or configure the directory index, then retry." };
   }
-  return { targets, sources: [source, ...originSources, ...["Web crawl", "Paid third-party discovery"].map(name => ({ name, status: "not-configured" as const, discovered: 0, unique: 0, overlap: 0, checkedAt, note: "No automated discovery adapter configured. Sourced records can be imported." }))] };
+  const google: CoverageSource = { name: "Google Places", status: "not-configured", discovered: 0, unique: 0, overlap: 0, checkedAt, note: "Google Places is not configured." };
+  if (options.places?.isConfigured()) {
+    // Bound provider calls independently of the downstream enrichment allowance.
+    const sectors = [...new Set(options.mandate.sectors)];
+    const queries = sectors.slice(0, 12).map(sector => placesQueryForMandate({ ...options.mandate, sectors: [sector] }));
+    const results = await Promise.allSettled(queries.map(query => options.places!.searchText(query, "max")));
+    let succeeded = 0;
+    const placesSeen = new Set<string>();
+    for (const result of results) {
+      if (result.status === "rejected") continue;
+      succeeded++;
+      for (const place of result.value) {
+        if (placesSeen.has(place.id)) continue;
+        placesSeen.add(place.id);
+        google.discovered++;
+        const target = mapGooglePlace(place, options.mandate, options.organizationId, "Not enriched — retained for review");
+        const existing = targets.find(t => (target.domain && t.domain === target.domain) || t.sourceData?.googlePlaces?.placeId === place.id);
+        if (existing) {
+          existing.sourceData = { ...existing.sourceData, googlePlaces: target.sourceData?.googlePlaces };
+          google.overlap++;
+        } else {
+          targets.push(target);
+          google.unique++;
+        }
+      }
+    }
+    google.status = succeeded ? "partial" : "failed";
+    google.note = `${succeeded}/${queries.length} sub-sector searches succeeded. Up to 20 results per query, first page only; not exhaustive coverage. ${Math.max(0, sectors.length - queries.length)} sub-sectors not searched due to the 12-query run limit. Unique contribution is counted after directory results; repeated Place IDs are counted once.`;
+  }
+  return { targets, sources: [source, ...originSources, google, ...["Web crawl", "Paid third-party discovery"].map(name => ({ name, status: "not-configured" as const, discovered: 0, unique: 0, overlap: 0, checkedAt, note: "No automated discovery adapter configured. Sourced records can be imported." }))] };
 }

@@ -95,7 +95,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       if (errors.length) return Response.json({ error: errors.join(" ") }, { status: 409 });
       const companyRepo = new OrganizationRepository(requireDb(), org);
       const provider = createTargetDataProvider();
-      const result = await discoverMandate({ directory: provider.manufacturingDirectory, mandate: filters, organizationId: org });
+      const result = await discoverMandate({ directory: provider.manufacturingDirectory, places: provider.places, mandate: filters, organizationId: org });
       for (const target of result.targets) {
         const saved = await companyRepo.upsertEnrichedTarget({ target: rankTarget(target, filters), mandateId: id, actorId: session.user.id });
         if (saved) await repo.attach(id, saved.id);

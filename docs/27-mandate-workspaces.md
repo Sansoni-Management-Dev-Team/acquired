@@ -81,3 +81,21 @@ After migration approval and application, verify database-backed create/edit/rel
 company in two mandates, discovery/import and selective enrichment, stale assessment rejection,
 accreditation persistence, valuation persistence and independently scoped outreach approvals.
 No live outreach or third-party enrichment is needed for fixture verification.
+
+## Sidebar and Google Places discovery
+
+The left sidebar groups the active mandate selector with Brief, Coverage, Targets,
+Pipeline and Outreach. Switching mandates retains the current section. Account
+navigation is separate; the horizontal mandate navigation has been removed.
+
+Coverage combines the prepared directory index with Google Places. It searches each
+alternative sub-sector separately using the mandate geography, up to 12 queries per
+run and 20 first-page results per query. This is partial discovery, not national
+coverage. Only sub-sector/geography terms are submitted; private buyer identity and
+financial criteria are excluded. Calls occur on Build target universe, not page load.
+Places usage may incur charges. Firmable enrichment remains separately selected.
+
+Place IDs are deduplicated across queries, and matching company domains merge with
+directory candidates while retaining both source records. Coverage reports Places
+unique contribution after directory results. A source/query failure preserves other
+successful results. Tests use fictional records and mocked providers.

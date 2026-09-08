@@ -15,7 +15,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en">
       <body className={`${displayFont.variable} ${bodyFont.variable}`}>
-        <AppShell providerMode={process.env.TARGET_DATA_PROVIDER === "fixture" ? "Fixture providers" : "Register-first discovery"}>{children}</AppShell>
+        <AppShell providerMode={process.env.TARGET_DATA_PROVIDER === "fixture" ? "Fixture providers" : "Directory + Google Places"}>{children}</AppShell>
       </body>
     </html>
   );
