@@ -1,3 +1,4 @@
+import { dispatchContinuation } from "@/lib/research-continuation";
 import { cloudflareWebSearch } from "@/adapters/cloudflare-web-search";
 import { businessWebSeeds } from "@/adapters/business-web-search";
 import { dispatchBusinessPeople } from "@/lib/business-research-people";
@@ -93,7 +94,7 @@ export async function POST(
       catch { warning = "Public profile search unavailable; company website research continues."; }
     } else if (config.purpose === "people" && config.discover) {
       try { seeds.push(...await peopleWebSeeds(config.companyName!, config.companyDomain!)); }
-      catch { warning = "Public web search unavailable; company website research continues."; }
+      catch (error) { warning = `${error instanceof Error ? error.message : "Public web search unavailable"}; company website research continues.`; }
     } else if (config.discover) {
       try {
         const mandate = await new AcquisitionRepository(
@@ -163,7 +164,7 @@ export async function POST(
     return Response.json({ error: "Invalid progress event" }, { status: 400 });
   try {
     await repo.progress(jobId, event.data);
-    if (["complete", "partial", "failed"].includes(event.data.status)) await dispatchBusinessPeople(job.organizationId, jobId);
+    if (["complete", "partial", "failed"].includes(event.data.status) && !await dispatchContinuation(job.organizationId, jobId)) await dispatchBusinessPeople(job.organizationId, jobId);
     return Response.json({ ok: true });
   } catch {
     return Response.json(

@@ -31,7 +31,7 @@ it("never creates another child while one is active",async()=>{
   expect(mocks.create).not.toHaveBeenCalled();
 });
 it("stops at the approved company cap including unsuccessful jobs",async()=>{
-  mocks.where.mockReset().mockResolvedValue([{status:"failed"},{status:"partial"}]);
+  mocks.where.mockReset().mockResolvedValue([{id:"a",status:"failed",config:{targetId:"a"}},{id:"b",status:"partial",config:{targetId:"b"}}]);
   await dispatchBusinessPeople("org",parent.id);
   expect(mocks.create).not.toHaveBeenCalled();
 });
@@ -53,7 +53,7 @@ it("runs company facts before the people phase using a separate approved budget"
 });
 it("counts failed company jobs against the cap then advances to people", async () => {
   mocks.get.mockResolvedValue({ ...parent, config: { ...parent.config, companyBudget: { maxCompanies: 1, maxPages: 3 } } });
-  mocks.where.mockReset().mockResolvedValueOnce([{ status: "failed" }]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ targetId: target.id, sourceUrl: "https://instruments.example.com/", evidence: {kind:"company",website:"https://instruments.example.com/"} }, { targetId:target.id,sourceUrl:"https://instruments.example.com/",evidence:{kind:"product",relevance:"relevant"} }]);
+  mocks.where.mockReset().mockResolvedValueOnce([{ id:"facts", status: "failed", config:{targetId:target.id} }]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ targetId: target.id, sourceUrl: "https://instruments.example.com/", evidence: {kind:"company",website:"https://instruments.example.com/"} }, { targetId:target.id,sourceUrl:"https://instruments.example.com/",evidence:{kind:"product",relevance:"relevant"} }]);
   await dispatchBusinessPeople("org", parent.id);
   expect(mocks.create.mock.calls[0][3].purpose).toBe("people");
 });

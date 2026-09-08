@@ -9,7 +9,9 @@ import { researchDomain, terminalResearchStates, type ResearchConfig, type Resea
 import { researchWorker } from "./research-service";
 export async function dispatchBusinessPeople(org: string, completedId: string) {
   const db = requireDb(), repo = new ResearchRepository(org);
-  const completed = await repo.get(completedId);
+  let completed = await repo.get(completedId);
+  const autoRoot = (completed?.config as ResearchConfig | undefined)?.autoRoot;
+  if (autoRoot) completed = await repo.get(autoRoot);
   if (!completed) return;
   const completedConfig = completed.config as ResearchConfig;
   const parent = completedConfig.purpose && completedConfig.parentJobId ? await repo.get(completedConfig.parentJobId) : completed;
@@ -21,8 +23,8 @@ export async function dispatchBusinessPeople(org: string, completedId: string) {
     if (facts.some(j => j.status === "cancelled")) return;
     const active = facts.find(j => !terminalResearchStates.includes(j.status));
     if (active) { if (active.status === "queued") await researchWorker(`/jobs/${active.id}`, "POST"); return; }
-    if (facts.length < config.companyBudget.maxCompanies) {
-      const evidence = await db.select().from(researchFindings).where(and(eq(researchFindings.organizationId, org), eq(researchFindings.jobId, parent.id)));
+    if (new Set(facts.map(j => (j.config as ResearchConfig).targetId || j.id)).size < config.companyBudget.maxCompanies) {
+      const evidence = await db.select().from(researchFindings).where(and(eq(researchFindings.organizationId, org), sql`(${researchFindings.jobId} = ${parent.id}::uuid OR ${researchFindings.jobId} IN (SELECT ${researchJobs.id} FROM ${researchJobs} WHERE ${researchJobs.organizationId} = ${org} AND ${researchJobs.config}->>'autoRoot' = ${parent.id}))`));
       const members = await new AcquisitionRepository(org).memberships(parent.mandateId);
       const next = members.find(m => m.target.domain && m.assessment.stage !== "excluded" && !facts.some(j => (j.config as ResearchConfig).targetId === m.target.id) && evidence.some(f => f.targetId === m.target.id && researchDomain(f.sourceUrl) === m.target.domain));
       if (next) {
@@ -41,8 +43,8 @@ export async function dispatchBusinessPeople(org: string, completedId: string) {
   if (children.some(j => j.status === "cancelled")) return;
   const active = children.find(j => !terminalResearchStates.includes(j.status));
   if (active) { if (active.status === "queued") await researchWorker(`/jobs/${active.id}`, "POST"); return; }
-  if (children.length >= config.peopleBudget.maxCompanies) return;
-  const findings = await db.select().from(researchFindings).where(and(eq(researchFindings.organizationId, org), eq(researchFindings.jobId, parent.id)));
+  if (new Set(children.map(j => (j.config as ResearchConfig).targetId || j.id)).size >= config.peopleBudget.maxCompanies) return;
+  const findings = await db.select().from(researchFindings).where(and(eq(researchFindings.organizationId, org), sql`(${researchFindings.jobId} = ${parent.id}::uuid OR ${researchFindings.jobId} IN (SELECT ${researchJobs.id} FROM ${researchJobs} WHERE ${researchJobs.organizationId} = ${org} AND ${researchJobs.config}->>'autoRoot' = ${parent.id}))`));
   const members = await new AcquisitionRepository(org).memberships(parent.mandateId);
   const next = members.find(member => {
     if (!member.target.domain || ["parked", "excluded"].includes(member.assessment.stage) || children.some(j => (j.config as ResearchConfig).targetId === member.target.id)) return false;

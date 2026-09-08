@@ -110,7 +110,7 @@ export async function runResearch(
       [...runtime.remaining, ...discovered.seeds],
       runtime.visited,
     ).slice(0, 200);
-    const domains = new Set<string>(),
+    const domains = new Set<string>(initial.config.autoDomains || []),
       budget = initial.config.budget;
     while (
       runtime.remaining.length &&

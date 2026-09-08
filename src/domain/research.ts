@@ -153,7 +153,7 @@ export function continueResearchConfig(
 export type ResearchConfig = Omit<
   z.infer<typeof researchStartSchema>,
   "requestId" | "continueFrom"
-> & { runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleLinks?: Record<string, string[]> };
+> & { autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleLinks?: Record<string, string[]> };
 export const findingSchema = z.object({
   kind: z.enum([
     "company",

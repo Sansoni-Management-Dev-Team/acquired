@@ -6,7 +6,7 @@ export async function cloudflareWebSearch(query: string, fetcher: typeof fetch =
     method: "POST", headers: { authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
     body: JSON.stringify({ query: query.slice(0, 500) }), signal: AbortSignal.timeout(50000), cache: "no-store",
   });
-  if (!r.ok) throw new Error("Public web search failed");
+  if (!r.ok) throw new Error(`Public web search failed (HTTP ${r.status})`);
   const data = await r.json() as { seeds?: unknown };
   if (!Array.isArray(data.seeds)) throw new Error("Invalid search response");
   return [...new Set(data.seeds.flatMap(value => { const url = typeof value === "string" && publicResearchUrl(value); return url ? [url] : []; }))].slice(0, 6);
