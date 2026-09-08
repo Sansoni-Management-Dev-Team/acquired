@@ -7,6 +7,7 @@ const candidate = { kind: "person", name: "Alex Example", value: "Managing Direc
 describe("public business contact evidence", () => {
   it("requires literal support for both name and role", () => {
     expect(validatePeopleFindings([candidate], candidate.quote, source, config)).toHaveLength(1);
+    expect(validatePeopleFindings([{ ...candidate, email: "" }], candidate.quote, source, config)).toHaveLength(1);
     expect(validatePeopleFindings([{ ...candidate, name: "Sam Invented" }], candidate.quote, source, config)).toEqual([]);
     expect(validatePeopleFindings([{ ...candidate, value: "Founder" }], candidate.quote, source, config)).toEqual([]);
     expect(validatePeopleFindings([candidate], "No people here", source, config)).toEqual([]);

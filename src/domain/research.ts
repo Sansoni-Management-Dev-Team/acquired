@@ -167,7 +167,7 @@ export const findingSchema = z.object({
   quote: z.string().trim().min(8).max(800),
   website: z.string().max(2000).default(""),
   subject: z.string().max(200).optional(),
-  email: z.string().email().optional(),
+  email: z.preprocess(value => value === "" || value === null ? undefined : value, z.string().email().optional()),
   relevance: z.enum(["relevant", "adjacent", "unclear"]).optional(),
 });
 export type ResearchFinding = z.infer<typeof findingSchema>;
