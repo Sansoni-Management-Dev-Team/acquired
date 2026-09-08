@@ -2,7 +2,12 @@ import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { ResearchRepository } from "@/db/research-repository";
-import { researchStartSchema, terminalResearchStates } from "@/domain/research";
+import {
+  researchStartSchema,
+  terminalResearchStates,
+  continueResearchConfig,
+  type ResearchConfig,
+} from "@/domain/research";
 import { researchEnabled, researchWorker } from "@/lib/research-service";
 export async function GET(
   request: Request,
@@ -55,7 +60,40 @@ export async function POST(
     return Response.json({ error: "Invalid mandate" }, { status: 400 });
   if (!(await new AcquisitionRepository(org).getMandate(id)))
     return Response.json({ error: "Mandate not found" }, { status: 404 });
-  const { requestId, ...config } = parsed.data;
+  const { requestId, continueFrom, ...submitted } = parsed.data;
+  let config: ResearchConfig = submitted;
+  if (continueFrom) {
+    const repo = new ResearchRepository(org);
+    const prior = await repo.get(continueFrom);
+    if (!prior || prior.mandateId !== id)
+      return Response.json(
+        { error: "Previous job not found" },
+        { status: 404 },
+      );
+    if (!terminalResearchStates.includes(prior.status))
+      return Response.json(
+        { error: "Wait for the previous job to finish" },
+        { status: 409 },
+      );
+    const found = (await repo.findings(id))
+      .filter((f) => f.jobId === continueFrom)
+      .map((f) => f.sourceUrl);
+    config = continueResearchConfig(
+      prior.config as ResearchConfig,
+      prior.seeds as string[],
+      found,
+      submitted.budget,
+      continueFrom,
+    );
+    if (!config.runtime?.remaining.length)
+      return Response.json(
+        {
+          error:
+            "No saved URLs remain. Set up a new search or retry a failed URL explicitly.",
+        },
+        { status: 409 },
+      );
+  }
   try {
     const job = await new ResearchRepository(org).create(
       requestId,

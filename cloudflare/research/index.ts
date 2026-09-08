@@ -123,7 +123,12 @@ export class AcquireResearch extends WorkflowEntrypoint<
         poll: async (crawlId) => {
           const data = (await browser(this.env, `/${crawlId}`)) as {
             status: string;
-            records?: { url: string; status: string; markdown?: string }[];
+            records?: {
+              url: string;
+              status: string;
+              markdown?: string;
+              metadata?: { status?: number };
+            }[];
           };
           const record = data.records?.find(
             (r) => r.status === "completed" && r.markdown,
@@ -140,7 +145,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
               : {}),
             warning: record
               ? undefined
-              : "Page failed, disallowed or had no extractable content",
+              : `Crawler ${data.records?.[0]?.status || data.status}; HTTP ${data.records?.[0]?.metadata?.status || "not reported"}${data.records?.[0]?.status === "completed" ? "; no extractable content" : ""}`,
           };
         },
         cancel: async (crawlId) => {
@@ -149,7 +154,60 @@ export class AcquireResearch extends WorkflowEntrypoint<
         extract: async (messages) => {
           const output = await this.env.AI.run(
             "@cf/meta/llama-3.1-8b-instruct-fast",
-            { messages, max_tokens: 1200, temperature: 0, response_format: { type: "json_object" } },
+            {
+              messages,
+              max_tokens: 1200,
+              temperature: 0,
+              response_format: {
+                type: "json_schema",
+                json_schema: {
+                  type: "object",
+                  properties: {
+                    findings: {
+                      type: "array",
+                      maxItems: 4,
+                      items: {
+                        type: "object",
+                        properties: {
+                          kind: {
+                            type: "string",
+                            enum: [
+                              "company",
+                              "business_role",
+                              "product",
+                              "customer",
+                              "capability",
+                              "accreditation",
+                              "identifier",
+                            ],
+                          },
+                          name: { type: "string" },
+                          value: { type: "string" },
+                          quote: { type: "string" },
+                          website: { type: "string" },
+                          subject: { type: "string" },
+                          relevance: {
+                            type: "string",
+                            enum: ["relevant", "adjacent", "unclear"],
+                          },
+                        },
+                        required: [
+                          "kind",
+                          "name",
+                          "value",
+                          "quote",
+                          "website",
+                          "relevance",
+                        ],
+                        additionalProperties: false,
+                      },
+                    },
+                  },
+                  required: ["findings"],
+                  additionalProperties: false,
+                },
+              },
+            },
           );
           return parseResearchExtraction(output);
         },

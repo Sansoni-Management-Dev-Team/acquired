@@ -137,7 +137,12 @@ export class ResearchRepository {
   }
   async progress(id: string, event: z.infer<typeof progressSchema>) {
     const job = await this.get(id);
-    if (!job || terminalResearchStates.includes(job.status)) return;
+    if (
+      !job ||
+      terminalResearchStates.includes(job.status) ||
+      event.revision <= job.revision
+    )
+      return;
     const config = job.config as ResearchConfig;
     if (
       event.pages > config.budget.maxPages ||
@@ -209,6 +214,11 @@ export class ResearchRepository {
         modelCalls: sql`greatest(${researchJobs.modelCalls}, ${event.modelCalls})`,
         message: event.message,
         ...(event.crawlId !== undefined ? { crawlId: event.crawlId } : {}),
+        ...(event.runtime
+          ? {
+              config: sql`jsonb_set(${researchJobs.config}, '{runtime}', ${JSON.stringify(event.runtime)}::jsonb)`,
+            }
+          : {}),
         updatedAt: new Date(),
       })
       .where(

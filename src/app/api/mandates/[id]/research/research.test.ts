@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   org: vi.fn(),
   list: vi.fn(),
   findings: vi.fn(),
+  get: vi.fn(),
 }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: mocks.session } } }));
 vi.mock("@/lib/research-service", () => ({
@@ -27,6 +28,7 @@ vi.mock("@/db/research-repository", () => ({
     constructor(org: string) {
       mocks.org(org);
     }
+    get = mocks.get;
     create = mocks.create;
     list = mocks.list;
     findings = mocks.findings;
@@ -103,4 +105,47 @@ describe("research API isolation and dispatch", () => {
     expect((await POST(request(body), context)).status).toBe(202);
     expect(mocks.worker).not.toHaveBeenCalled();
   });
+});
+
+it("cannot continue a job from another mandate", async () => {
+  mocks.get.mockResolvedValue({ mandateId: "another", status: "partial" });
+  expect(
+    (await POST(request({ ...body, continueFrom: jobId }), context)).status,
+  ).toBe(404);
+  expect(mocks.worker).not.toHaveBeenCalled();
+});
+it("continues server-saved public terms and queue, ignoring client replacements", async () => {
+  mocks.get.mockResolvedValue({
+    mandateId: id,
+    status: "partial",
+    seeds: [],
+    config: {
+      ...body,
+      discover: true,
+      runtime: {
+        remaining: ["https://remaining.example.com/"],
+        visited: ["https://visited.example.com/"],
+        attempts: [],
+      },
+    },
+  });
+  mocks.findings.mockResolvedValue([]);
+  expect(
+    (
+      await POST(
+        request({ ...body, continueFrom: jobId, searchTerms: ["changed"] }),
+        context,
+      )
+    ).status,
+  ).toBe(202);
+  expect(mocks.create).toHaveBeenCalledWith(
+    jobId,
+    id,
+    "user-a",
+    expect.objectContaining({
+      searchTerms: ["sensors"],
+      discover: false,
+      seeds: ["https://remaining.example.com/"],
+    }),
+  );
 });

@@ -11,6 +11,7 @@ import { briefToMandate } from "@/domain/acquisition";
 import { rankTarget } from "@/domain/scoring";
 import {
   progressSchema,
+  researchQueries,
   publicResearchUrl,
   terminalResearchStates,
   type ResearchConfig,
@@ -68,7 +69,7 @@ export async function POST(
         warning: "Discovery already attempted; existing seeds reused.",
       });
     const config = job.config as ResearchConfig;
-    let seeds = config.seeds
+    let seeds = (config.runtime?.remaining || config.seeds)
       .map(publicResearchUrl)
       .filter((s): s is string => Boolean(s));
     let warning = "";
@@ -85,15 +86,19 @@ export async function POST(
           directory: {
             search: () =>
               provider.manufacturingDirectory.search(
-                { ...filters, sectors: config.searchTerms },
+                { ...filters, sectors: researchQueries(config.searchTerms) },
                 Number.MAX_SAFE_INTEGER,
               ),
           },
           places: provider.places,
           mandate: {
             ...filters,
-            sectors: config.searchTerms,
-            locations: [config.geography],
+            sectors: researchQueries(config.searchTerms),
+            locations: [
+              /^national$/i.test(config.geography)
+                ? "Australia"
+                : config.geography,
+            ],
           },
           organizationId: job.organizationId,
         });

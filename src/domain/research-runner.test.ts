@@ -138,6 +138,52 @@ describe("bounded research orchestration", () => {
     vi.mocked(t.service.poll).mockRejectedValue(new Error("provider down"));
     vi.mocked(t.service.cancel).mockRejectedValue(new Error("provider down"));
     await runResearch(t.step, t.service);
-    expect(t.progress.mock.calls.at(-1)?.[0].status).toBe("failed");
+    expect(
+      t.progress.mock.calls.at(-1)?.[0].runtime?.attempts[0],
+    ).toMatchObject({ status: "failed", url: t.config.seeds[0] });
+  });
+});
+
+it("reads new domains before following links and checkpoints pending work", async () => {
+  const t = setup();
+  t.config.budget.maxDomains = 2;
+  t.config.seeds.push("https://second.example.com/");
+  await runResearch(t.step, t.service);
+  expect(vi.mocked(t.service.submit).mock.calls.map((c) => c[0])).toEqual(
+    t.config.seeds,
+  );
+  expect(t.progress.mock.calls.at(-1)?.[0].runtime?.remaining).toContain(
+    "https://instruments.example.com/products",
+  );
+});
+it("preserves URLs beyond the domain limit for continuation", async () => {
+  const t = setup();
+  t.config.seeds.push("https://second.example.com/");
+  await runResearch(t.step, t.service);
+  expect(t.progress.mock.calls.at(-1)?.[0].runtime?.remaining).toContain(
+    "https://second.example.com/",
+  );
+});
+it("sends only approved public research context to extraction", async () => {
+  const t = setup();
+  await runResearch(t.step, t.service);
+  const input = JSON.parse(
+    vi.mocked(t.service.extract).mock.calls[0][0][1].content,
+  );
+  expect(input.publicResearchTerms).toEqual(["sensors"]);
+  expect(input.sourceUrl).toBe(t.config.seeds[0]);
+  expect(input).not.toHaveProperty("budget");
+});
+it("records provider failure details against the attempted URL", async () => {
+  const t = setup();
+  vi.mocked(t.service.poll).mockResolvedValue({
+    status: "completed",
+    warning: "Crawler disallowed; HTTP 403",
+  });
+  await runResearch(t.step, t.service);
+  expect(t.progress.mock.calls.at(-1)?.[0].runtime?.attempts[0]).toMatchObject({
+    url: t.config.seeds[0],
+    status: "failed",
+    reason: "Crawler disallowed; HTTP 403",
   });
 });

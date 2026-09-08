@@ -4,8 +4,12 @@ import {
   publicResearchUrl,
   terminalResearchStates,
   validateFindings,
+  orderResearchQueue,
+  researchDomain,
+  uniqueResearchUrls,
   type ResearchConfig,
   type ResearchPage,
+  type ResearchRuntime,
 } from "./research";
 export interface ResearchSteps {
   do<T>(name: string, run: () => Promise<T>, retry?: boolean): Promise<T>;
@@ -28,6 +32,7 @@ export interface ResearchServices {
     message: string;
     crawlId?: string | null;
     page?: ResearchPage;
+    runtime?: ResearchRuntime;
   }): Promise<void>;
   submit(url: string): Promise<string>;
   poll(
@@ -50,6 +55,7 @@ export async function runResearch(
     modelCalls = 0,
     activeCrawl: string | null = null;
   const warnings: string[] = [];
+  let runtime: ResearchRuntime = { remaining: [], visited: [], attempts: [] };
   const publish = async (
     status: string,
     message: string,
@@ -62,6 +68,7 @@ export async function runResearch(
       modelCalls,
       message: message.slice(0, 1000),
       crawlId: activeCrawl,
+      runtime: structuredClone(runtime),
       ...(page ? { page } : {}),
     };
     await step.do(`progress-${revision}`, () => service.progress(event));
@@ -74,49 +81,70 @@ export async function runResearch(
   try {
     const initial = await check("start");
     if (terminalResearchStates.includes(initial.status)) return;
+    runtime = {
+      remaining: [...(initial.config.runtime?.remaining || initial.seeds)],
+      visited: [...(initial.config.runtime?.visited || [])],
+      attempts: [],
+    };
     if (initial.expired) {
       await publish("partial", "Job time budget elapsed before starting");
       return;
     }
-    await publish("discovering", "Finding starting URLs");
+    await publish(
+      "discovering",
+      initial.config.discover
+        ? "Finding starting websites"
+        : "Resuming approved websites",
+    );
     const discovered = await step.do("discover", () => service.discover());
     if (discovered.warning) warnings.push(discovered.warning);
-    const queue = [
-      ...new Set(
-        [...initial.seeds, ...discovered.seeds]
-          .map(publicResearchUrl)
-          .filter((u): u is string => Boolean(u)),
-      ),
-    ];
-    const visited: string[] = [],
-      domains = new Set<string>();
-    const budget = initial.config.budget;
-    let attempts = 0;
-    while (queue.length && attempts < budget.maxPages) {
-      const url = queue.shift()!;
-      const domain = new URL(url).hostname.replace(/^www\./, "");
-      if (visited.includes(url)) continue;
-      if (!domains.has(domain) && domains.size >= budget.maxDomains) {
+    runtime.remaining = orderResearchQueue(
+      [...runtime.remaining, ...discovered.seeds],
+      runtime.visited,
+    ).slice(0, 200);
+    const domains = new Set<string>(),
+      budget = initial.config.budget;
+    while (
+      runtime.remaining.length &&
+      runtime.attempts.length < budget.maxPages
+    ) {
+      runtime.remaining = orderResearchQueue(
+        runtime.remaining,
+        runtime.visited,
+      );
+      const index = runtime.remaining.findIndex(
+        (u) =>
+          domains.has(researchDomain(u)) || domains.size < budget.maxDomains,
+      );
+      if (index < 0) {
         warnings.push("Domain limit reached");
-        continue;
+        break;
       }
-      const control = await check(`page-${attempts}`);
+      const control = await check(`page-${runtime.attempts.length}`);
       if (terminalResearchStates.includes(control.status)) return;
       if (control.expired) {
         warnings.push("Time limit reached");
         break;
       }
-      visited.push(url);
-      domains.add(domain);
-      attempts++;
+      const url = runtime.remaining.splice(index, 1)[0],
+        attempt = runtime.attempts.length + 1;
+      domains.add(researchDomain(url));
+      runtime.visited = uniqueResearchUrls([...runtime.visited, url]).slice(
+        -1000,
+      );
+      const entry: ResearchRuntime["attempts"][number] = {
+        url,
+        status: "pending",
+        reason: "Submission pending",
+      };
+      runtime.attempts.push(entry);
       await publish(
         "crawling",
-        `Crawling page ${attempts} of ${budget.maxPages}`,
+        `Reading website ${domains.size}, page attempt ${attempt} of ${budget.maxPages}`,
       );
       try {
-        // Submission is not automatically retried: a network timeout may hide an accepted paid job.
         activeCrawl = await step.do(
-          `submit-${attempts}`,
+          `submit-${attempt}`,
           async () => {
             const current = await service.control();
             if (
@@ -128,62 +156,92 @@ export async function runResearch(
           },
           false,
         );
-        await publish("crawling", `Waiting for page ${attempts}`);
+        entry.reason = "Waiting for crawler";
+        await publish("crawling", `Waiting for ${new URL(url).hostname}`);
         let result: Awaited<ReturnType<ResearchServices["poll"]>> | undefined;
         for (let poll = 0; poll < 30; poll++) {
-          await step.sleep(`sleep-${attempts}-${poll}`, 11000);
-          const control = await check(`poll-${attempts}-${poll}`);
+          await step.sleep(`sleep-${attempt}-${poll}`, 11000);
+          const current = await check(`poll-${attempt}-${poll}`);
           if (
-            terminalResearchStates.includes(control.status) ||
-            control.expired
+            terminalResearchStates.includes(current.status) ||
+            current.expired
           ) {
-            await step.do(`cancel-${attempts}`, () =>
+            await step.do(`cancel-${attempt}`, () =>
               service.cancel(activeCrawl!),
             );
             activeCrawl = null;
-            if (!terminalResearchStates.includes(control.status))
+            entry.status = "failed";
+            entry.reason = "Stopped while waiting for crawler";
+            if (!terminalResearchStates.includes(current.status))
               await publish(
                 "partial",
                 "Time limit reached; unfinished crawl cancelled",
               );
             return;
           }
-          result = await step.do(`poll-${attempts}-${poll}`, () =>
+          result = await step.do(`poll-${attempt}-${poll}`, () =>
             service.poll(activeCrawl!),
           );
           if (result.status !== "running") break;
         }
         if (!result || result.status === "running") {
-          await step.do(`cancel-timeout-${attempts}`, () =>
+          await step.do(`cancel-timeout-${attempt}`, () =>
             service.cancel(activeCrawl!),
           );
-          warnings.push("A crawl exceeded the polling limit");
           activeCrawl = null;
+          entry.status = "failed";
+          entry.reason = "Crawler polling timed out";
+          warnings.push(entry.reason);
+          await publish("crawling", entry.reason);
           continue;
         }
         activeCrawl = null;
         if (result.status !== "completed" || !result.page) {
-          warnings.push(
-            result.warning || "A page was unavailable or disallowed",
-          );
+          entry.status = "failed";
+          entry.reason = (
+            result.warning || `Crawler status: ${result.status}`
+          ).slice(0, 300);
+          warnings.push("Some pages could not be read; see page details");
+          await publish("crawling", entry.reason);
+          continue;
+        }
+        const sourceUrl = publicResearchUrl(result.page.url);
+        if (!sourceUrl) {
+          entry.status = "failed";
+          entry.reason = "Unsupported redirect URL";
+          await publish("crawling", entry.reason);
           continue;
         }
         pages++;
-        const sourceUrl = publicResearchUrl(result.page.url);
-        if (!sourceUrl) {
-          warnings.push("Unsupported page URL");
-          continue;
-        }
+        entry.status = "read";
+        entry.finalUrl = sourceUrl;
+        entry.reason = "Read; no supported claims extracted yet";
+        runtime.visited = uniqueResearchUrls([
+          ...runtime.visited,
+          sourceUrl,
+        ]).slice(-1000);
         const markdown = result.page.markdown.slice(0, 24000);
+        runtime.remaining = orderResearchQueue(
+          [
+            ...runtime.remaining,
+            ...followUpLinks(
+              markdown,
+              sourceUrl,
+              initial.config.searchTerms,
+              runtime.visited,
+            ),
+          ],
+          runtime.visited,
+        ).slice(0, 200);
         let findings: ResearchPage["findings"] = [];
         if (modelCalls < budget.maxModelCalls) {
+          modelCalls++;
           await publish(
             "extracting",
-            `Extracting sourced evidence from page ${pages}`,
+            `Assessing products and business role on website ${domains.size}`,
           );
-          modelCalls++;
           const extracted = await step.do(
-            `extract-${attempts}`,
+            `extract-${attempt}`,
             async () => {
               const current = await service.control();
               if (
@@ -194,7 +252,13 @@ export async function runResearch(
               try {
                 return {
                   findings: validateFindings(
-                    await service.extract(extractionPrompt(markdown)),
+                    await service.extract(
+                      extractionPrompt(
+                        markdown,
+                        initial.config.searchTerms,
+                        sourceUrl,
+                      ),
+                    ),
                     markdown,
                     sourceUrl,
                   ),
@@ -203,8 +267,7 @@ export async function runResearch(
               } catch {
                 return {
                   findings: [],
-                  warning:
-                    "Evidence extraction failed; linked pages may still be explored",
+                  warning: "Evidence extraction failed; page read successfully",
                 };
               }
             },
@@ -212,16 +275,16 @@ export async function runResearch(
           );
           findings = extracted.findings;
           if (extracted.warning) warnings.push(extracted.warning);
-        } else
-          warnings.push(
-            "Model-call limit reached; linked pages may still be explored",
-          );
-        const observedAt = await step.do(`observed-${attempts}`, async () =>
+          entry.reason =
+            extracted.warning ||
+            `${findings.length} supported claims; financial fit remains unknown`;
+        } else entry.reason = "Read without AI extraction (model limit)";
+        const observedAt = await step.do(`observed-${attempt}`, async () =>
           new Date(service.now()).toISOString(),
         );
         await publish(
           "crawling",
-          `${pages} pages read; findings require review`,
+          `${pages} pages read across ${domains.size} websites`,
           {
             url: sourceUrl,
             markdown,
@@ -230,35 +293,34 @@ export async function runResearch(
             truncated: result.page.markdown.length > 24000,
           },
         );
-        // Follow linked public pages by relevant capability terms, never model-invented URLs.
-        queue.unshift(
-          ...followUpLinks(
-            markdown,
-            sourceUrl,
-            initial.config.searchTerms,
-            visited,
-          ).filter((u) => !queue.includes(u)),
-        );
       } catch {
-        if (activeCrawl)
-          await step.do(`cancel-error-${attempts}`, () =>
-            service.cancel(activeCrawl!),
-          );
+        if (activeCrawl) {
+          try {
+            await step.do(`cancel-error-${attempt}`, () =>
+              service.cancel(activeCrawl!),
+            );
+          } catch {
+            /* best effort cleanup */
+          }
+        }
         activeCrawl = null;
-        warnings.push(
-          "A crawl failed; submission was not repeated to avoid duplicate charges",
-        );
+        entry.status = "failed";
+        entry.reason =
+          "Provider request failed or timed out; not automatically retried to avoid duplicate charges";
+        warnings.push("Some pages could not be read; see page details");
+        await publish("crawling", entry.reason);
       }
     }
-    if (queue.length)
-      warnings.push("Page budget reached; unvisited URLs remain");
+    if (runtime.remaining.length)
+      warnings.push(
+        `${runtime.remaining.length} URLs remain; continue research with a fresh budget`,
+      );
     if (!pages) warnings.push("No pages could be read");
     await publish(
       warnings.length ? "partial" : "complete",
       [
-        `${pages} pages read.`,
+        `${pages} pages read across ${domains.size} websites.`,
         ...new Set(warnings),
-        "This is bounded research, not complete market coverage.",
       ].join(" "),
     );
   } catch {
@@ -268,12 +330,12 @@ export async function runResearch(
           service.cancel(activeCrawl!),
         );
       } catch {
-        /* Report failure even if the provider cannot acknowledge cancellation. */
+        /* report failure even if provider unavailable */
       }
     }
     await publish(
       pages ? "partial" : "failed",
-      "Research interrupted; saved results retained. Start a new job to continue.",
+      "Research interrupted; saved progress retained. Continue remaining URLs with a fresh budget.",
     );
   }
 }
