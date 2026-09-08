@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { boolean, index, integer, jsonb, pgEnum, pgTable, primaryKey, real, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 export const targetBand = pgEnum("target_band", ["cold", "warm", "hot", "excluded"]);
@@ -148,3 +149,22 @@ export const valuationObservations = pgTable("valuation_observations", {
   mandateId: uuid("mandate_id").notNull().references(() => mandates.id, { onDelete: "cascade" }),
   observation: jsonb("observation").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, table => [index("valuations_mandate_idx").on(table.organizationId, table.mandateId)]);
+
+export const researchJobs = pgTable("research_jobs", {
+  id: uuid("id").primaryKey(), organizationId: text("organization_id").notNull().references(() => organization.id),
+  mandateId: uuid("mandate_id").notNull().references(() => mandates.id, { onDelete: "cascade" }),
+  createdBy: text("created_by").notNull().references(() => user.id),
+  status: text("status").notNull().default("queued"), config: jsonb("config").notNull(),
+  seeds: jsonb("seeds").notNull().default([]), discoveryStarted: boolean("discovery_started").notNull().default(false),
+  revision: integer("revision").notNull().default(0), pages: integer("pages").notNull().default(0), modelCalls: integer("model_calls").notNull().default(0),
+  message: text("message").notNull().default("Queued"), crawlId: text("crawl_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [index("research_jobs_mandate_idx").on(table.organizationId, table.mandateId), uniqueIndex("research_jobs_active_org_idx").on(table.organizationId).where(sql`${table.status} NOT IN ('complete', 'partial', 'failed', 'cancelled')`)]);
+
+export const researchFindings = pgTable("research_findings", {
+  id: uuid("id").primaryKey().defaultRandom(), jobId: uuid("job_id").notNull().references(() => researchJobs.id, { onDelete: "cascade" }),
+  organizationId: text("organization_id").notNull().references(() => organization.id), mandateId: uuid("mandate_id").notNull().references(() => mandates.id, { onDelete: "cascade" }),
+  targetId: uuid("target_id").references(() => targets.id, { onDelete: "set null" }),
+  evidenceKey: text("evidence_key").notNull(), sourceUrl: text("source_url").notNull(), observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+  evidence: jsonb("evidence").notNull(), confidence: real("confidence").notNull().default(0.5),
+}, table => [uniqueIndex("research_findings_evidence_idx").on(table.jobId, table.evidenceKey), index("research_findings_mandate_idx").on(table.organizationId, table.mandateId)]);

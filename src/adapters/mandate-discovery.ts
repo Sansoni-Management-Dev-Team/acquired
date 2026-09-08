@@ -72,5 +72,5 @@ export async function discoverMandate(options: { directory: ManufacturingDirecto
     google.status = succeeded ? "partial" : "failed";
     google.note = `${succeeded}/${queries.length} sub-sector searches succeeded. Up to 20 results per query, first page only; not exhaustive coverage. ${Math.max(0, sectors.length - queries.length)} sub-sectors not searched due to the 12-query run limit. Unique contribution is counted after directory results; repeated Place IDs are counted once.`;
   }
-  return { targets, sources: [source, ...originSources, google, ...["Web crawl", "Paid third-party discovery"].map(name => ({ name, status: "not-configured" as const, discovered: 0, unique: 0, overlap: 0, checkedAt, note: "No automated discovery adapter configured. Sourced records can be imported." }))] };
+  return { targets, sources: [source, ...originSources, google, ...["Paid third-party discovery"].map(name => ({ name, status: "not-configured" as const, discovered: 0, unique: 0, overlap: 0, checkedAt, note: "No automated discovery adapter configured. Sourced records can be imported." }))] };
 }

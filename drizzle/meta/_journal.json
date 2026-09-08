@@ -29,6 +29,13 @@
       "when": 1788777831160,
       "tag": "0003_mandate_workspaces",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788847382044,
+      "tag": "0004_research_jobs",
+      "breakpoints": true
     }
   ]
 }

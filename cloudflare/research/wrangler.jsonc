@@ -1,0 +1,10 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "acquire-research",
+  "main": "index.ts",
+  "compatibility_date": "2026-09-08",
+  "workflows": [{ "name": "acquire-research", "binding": "RESEARCH", "class_name": "AcquireResearch" }],
+  "ai": { "binding": "AI" },
+  "vars": { "APP_ORIGIN": "https://project-acquire.vercel.app" },
+  "observability": { "enabled": true }
+}
