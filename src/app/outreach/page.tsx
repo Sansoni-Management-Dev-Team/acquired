@@ -1,3 +1,4 @@
+import { MandateTabs } from "@/components/mandate-tabs";
 import { loadOutreach } from "@/db/outreach-view";
 import { headers } from "next/headers";
 import Link from "next/link";
@@ -31,5 +32,5 @@ export default async function OutreachPage({ searchParams }: { searchParams: Pro
   const mandate = mandates.find(m => m.id === mandateId);
   if (!mandate) notFound();
   const { views, buyerProfile } = await loadOutreach(organizationId, mandateId);
-  return <><MandateNavigation mandates={mandates} selected={mandateId} tab="outreach" /><div className="p-6 md:p-8"><p className="text-xs uppercase tracking-[.18em] text-[var(--accent)]">Human gate</p><h1 className="mt-2 text-3xl font-semibold">Outreach</h1><p className="mb-7 mt-3 max-w-2xl text-[var(--muted)]">Saved company evidence becomes outreach only after a decision-maker is selected. Approval saves the message to Gmail Drafts for review; live delivery remains off.</p><OutreachQueue key={mandateId} mandateId={mandateId} initialTargetId={targetId} disclosureApproved={mandate.brief.disclosureApproved} initialTargets={views} initialBuyerProfile={buyerProfile} /></div></>;
+  return <><MandateNavigation mandates={mandates} selected={mandateId} tab="outreach" /><div className="p-6 md:p-8"><p className="text-xs uppercase tracking-[.18em] text-[var(--accent)]">Human gate</p><h1 className="mt-2 text-3xl font-semibold">{mandate.brief.name}</h1><h2 className="mt-4 text-xl font-semibold">Outreach</h2><p className="mb-7 mt-3 max-w-2xl text-[var(--muted)]">Saved company evidence becomes outreach only after a decision-maker is selected. Approval saves the message to Gmail Drafts for review; live delivery remains off.</p><div className="mb-6"><MandateTabs mandateId={mandateId} activeTab="outreach" /></div><OutreachQueue key={mandateId} mandateId={mandateId} initialTargetId={targetId} disclosureApproved={mandate.brief.disclosureApproved} initialTargets={views} initialBuyerProfile={buyerProfile} /></div></>;
 }
