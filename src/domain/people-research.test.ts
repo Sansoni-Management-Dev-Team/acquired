@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { peopleFollowUpLinks, validatePeopleFindings } from "./people-research";
+import { peopleFollowUpLinks, validatePeopleFindings, orderPeopleQueue } from "./people-research";
 import type { ResearchConfig } from "./research";
 const config = { companyName: "Example Instruments", companyDomain: "instruments.example.com" } as ResearchConfig;
 const source = "https://instruments.example.com/team";
@@ -30,4 +30,16 @@ describe("public business contact evidence", () => {
   it("follows team and contact links but never login links or already visited pages", () => {
     expect(peopleFollowUpLinks("[Team](/team) [Contact](/contact) [Management login](/login) [Shop](/shop)", source, [source])).toEqual(["https://instruments.example.com/contact"]);
   });
+});
+
+it("prioritises team and profile evidence over delivery and legal boilerplate", () => {
+  expect(orderPeopleQueue(["https://instruments.example.com/delivery", "https://instruments.example.com/privacy", "https://instruments.example.com/team"], ["https://instruments.example.com/"], config.companyDomain!)[0]).toContain("/team");
+});
+it("accepts a first-party operator assertion, not an unrelated supplier", () => {
+  const quote = 'This site is operated by Example Holdings Pty Ltd.';
+  const f = { kind: "identifier", name: "Legal entity", value: "Example Holdings Pty Ltd", quote, website: source };
+  expect(validatePeopleFindings([f], quote, source, config)).toHaveLength(1);
+  expect(validatePeopleFindings([f], quote, "https://directory.example.com", config)).toEqual([]);
+  const other = 'Our supplier is Example Holdings Pty Ltd.';
+  expect(validatePeopleFindings([{ ...f, quote: other }], other, source, config)).toEqual([]);
 });

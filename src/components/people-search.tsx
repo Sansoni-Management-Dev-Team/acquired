@@ -26,7 +26,7 @@ export function PeopleSearch({ mandateId, targetId, onSaved }: { mandateId: stri
   return <section className="space-y-3 rounded-lg border border-[var(--border)] p-4">
     <h3 className="font-semibold">Search public web · Cloudflare</h3>
     <p className="text-xs text-[var(--muted)]">Find owners and directors from public business pages. Review sources before saving a contact. Published emails are not delivery-verified.</p>
-    <p className="text-xs text-[var(--muted)]">One web search, up to 5 pages and 5 AI calls. Runs in the background for up to 10 minutes; provider usage may incur charges.</p>
+    <p className="text-xs text-[var(--muted)]">Up to 2 web searches, 5 pages and 5 AI calls. Runs in the background for up to 10 minutes; provider usage may incur charges.</p>
     {data && !data.webSearchEnabled && <p className="text-xs text-amber-200">Web search is unavailable. The agent can still follow the company website’s team and contact links.</p>}
     <button className={`${buttonClass} min-h-12`} disabled={busy || !data?.enabled || Boolean(active)} onClick={() => act(url, { action: "start", mandateId, requestId: crypto.randomUUID(), approved: true })}>{busy ? "Working…" : active ? "Research running…" : "Search public web"}</button>
     {data && !data.enabled && <p className="text-xs">Cloudflare research is not configured for this environment.</p>}

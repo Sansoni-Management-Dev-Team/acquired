@@ -150,7 +150,7 @@ export function continueResearchConfig(
 export type ResearchConfig = Omit<
   z.infer<typeof researchStartSchema>,
   "requestId" | "continueFrom"
-> & { runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people"; targetId?: string; companyName?: string; companyDomain?: string };
+> & { runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean };
 export const findingSchema = z.object({
   kind: z.enum([
     "company",

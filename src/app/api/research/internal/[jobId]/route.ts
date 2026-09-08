@@ -1,8 +1,8 @@
 import { peopleWebSeeds } from "@/adapters/people-web-search";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq, notInArray, sql } from "drizzle-orm";
 import { requireDb } from "@/db/client";
-import { researchJobs } from "@/db/schema";
+import { researchJobs, researchFindings } from "@/db/schema";
 import { ResearchRepository } from "@/db/research-repository";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { OrganizationRepository } from "@/db/repositories";
@@ -61,6 +61,17 @@ export async function POST(
   if (!job) return Response.json({ error: "Not available" }, { status: 403 });
   const payload = await request.json().catch(() => null);
   const repo = new ResearchRepository(job.organizationId);
+  if (payload?.action === "people-followup") {
+    const config = job.config as ResearchConfig;
+    if (config.purpose !== "people" || config.maxPeopleSearches !== 2 || terminalResearchStates.includes(job.status)) return Response.json({ seeds: [] });
+    const findings = await requireDb().select().from(researchFindings).where(and(eq(researchFindings.jobId, job.id), eq(researchFindings.organizationId, job.organizationId)));
+    const candidate = findings.map(f => f.evidence as { kind?: string; name?: string; value?: string }).find(f => f.kind === "identifier" && f.name === "Legal entity");
+    if (!candidate?.value) return Response.json({ seeds: [] });
+    const claimed = await requireDb().update(researchJobs).set({ config: sql`jsonb_set(jsonb_set(${researchJobs.config}, '{peopleFollowupStarted}', 'true'::jsonb), '{legalEntity}', ${JSON.stringify(candidate.value)}::jsonb)` }).where(and(eq(researchJobs.id, job.id), sql`COALESCE(${researchJobs.config}->>'peopleFollowupStarted', 'false') = 'false'`, notInArray(researchJobs.status, terminalResearchStates))).returning({ id: researchJobs.id });
+    if (!claimed.length) return Response.json({ seeds: [] });
+    try { return Response.json({ seeds: await peopleWebSeeds(config.companyName!, config.companyDomain!, fetch, candidate.value) }); }
+    catch { return Response.json({ seeds: [], warning: "Legal-entity follow-up search unavailable; saved website research retained." }); }
+  }
   if (payload?.action === "discover") {
     if (terminalResearchStates.includes(job.status))
       return Response.json({ seeds: job.seeds, stopped: true });

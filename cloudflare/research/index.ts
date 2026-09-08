@@ -33,9 +33,10 @@ async function authorized(request: Request, secret: string) {
   for (let i = 0; i < x.length; i++) difference |= x[i] ^ y[i];
   return difference === 0;
 }
-async function callback(env: Env, id: string, body?: unknown) {
+async function callback(env: Env, id: string, body?: unknown, budget?: { used: number }) {
   const origin = new URL(env.APP_ORIGIN);
   if (origin.protocol !== "https:") throw new Error("HTTPS callback required");
+  if (budget) budget.used++;
   const r = await fetch(`${origin.origin}/api/research/internal/${id}`, {
     method: body ? "POST" : "GET",
     headers: {
@@ -48,7 +49,8 @@ async function callback(env: Env, id: string, body?: unknown) {
   if (!r.ok) throw new Error(`Callback failed (${r.status})`);
   return r.json();
 }
-async function browser(env: Env, path: string, method = "GET", body?: unknown) {
+async function browser(env: Env, path: string, method = "GET", body?: unknown, budget?: { used: number }) {
+  if (budget) budget.used++;
   const r = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/crawl${path}`,
     {
@@ -72,6 +74,8 @@ export class AcquireResearch extends WorkflowEntrypoint<
 > {
   async run(event: WorkflowEvent<{ jobId: string }>, step: WorkflowStep) {
     const id = event.payload.jobId;
+    // Leave room for cancellation and final progress below the free-plan limit of 50 external requests.
+    const requestBudget = { used: 0 };
     return runResearch(
       {
         // Persist JSON values explicitly across Workflow step checkpoints.
@@ -97,14 +101,17 @@ export class AcquireResearch extends WorkflowEntrypoint<
         sleep: (name, ms) => step.sleep(name, ms),
       },
       {
-        control: () => callback(this.env, id) as Promise<ResearchControl>,
+        control: async () => {
+          const state = await callback(this.env, id, undefined, requestBudget) as ResearchControl;
+          return requestBudget.used >= 38 ? { ...state, deadline: 0, stopReason: "Worker request budget reached; saved evidence retained. Start another research run to continue." } : state;
+        },
         discover: () =>
-          callback(this.env, id, { action: "discover" }) as Promise<{
+          callback(this.env, id, { action: "discover" }, requestBudget) as Promise<{
             seeds: string[];
             warning?: string;
           }>,
         progress: async (event) => {
-          await callback(this.env, id, event);
+          await callback(this.env, id, event, requestBudget);
         },
         submit: async (url) => {
           if (!publicResearchUrl(url)) throw new Error("Unsupported URL");
@@ -118,10 +125,10 @@ export class AcquireResearch extends WorkflowEntrypoint<
             source: "links",
             crawlPurposes: ["search", "ai-input"],
             gotoOptions: { waitUntil: "networkidle2", timeout: 30000 },
-          })) as string;
+          }, requestBudget)) as string;
         },
         poll: async (crawlId) => {
-          const data = (await browser(this.env, `/${crawlId}`)) as {
+          const data = (await browser(this.env, `/${crawlId}`, "GET", undefined, requestBudget)) as {
             status: string;
             records?: {
               url: string;
@@ -150,7 +157,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
           };
         },
         cancel: async (crawlId) => {
-          await browser(this.env, `/${crawlId}`, "DELETE");
+          await browser(this.env, `/${crawlId}`, "DELETE", undefined, requestBudget);
         },
         extract: async (messages) => {
           const output = await this.env.AI.run(
@@ -214,6 +221,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
           );
           return parseResearchExtraction(output);
         },
+        peopleFollowup: () => callback(this.env, id, { action: "people-followup" }, requestBudget) as Promise<{ seeds: string[]; warning?: string }>,
         now: () => Date.now(),
       },
     );

@@ -28,6 +28,16 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     db.select().from(researchJobs).where(and(eq(researchJobs.organizationId, c.org), eq(researchJobs.mandateId, c.mandateId), sql`${researchJobs.config}->>'purpose' = 'people'`, sql`${researchJobs.config}->>'targetId' = ${id}`)).orderBy(desc(researchJobs.createdAt)).limit(20),
     db.select().from(researchFindings).where(and(eq(researchFindings.organizationId, c.org), eq(researchFindings.mandateId, c.mandateId), eq(researchFindings.targetId, id))),
   ]);
+  for (const job of jobs.filter(j => !terminalResearchStates.includes(j.status) && Date.now() - j.updatedAt.getTime() > 90000)) {
+    try {
+      const worker = await researchWorker(`/jobs/${job.id}`) as { status: string };
+      if (["errored", "terminated", "complete"].includes(worker.status)) {
+        await new ResearchRepository(c.org).recoverStopped(job.id, job.revision, job.pages);
+        const current = await new ResearchRepository(c.org).get(job.id);
+        if (current) Object.assign(job, current);
+      }
+    } catch { /* Preserve running state when the status check is unavailable. */ }
+  }
   return Response.json({ enabled: researchEnabled(), webSearchEnabled: Boolean(process.env.TAVILY_API_KEY), jobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).targetId === id), findings: findings.filter(f => (f.evidence as { kind?: string }).kind === "person") }, { headers: { "Cache-Control": "no-store" } });
 }
 const inputSchema = z.discriminatedUnion("action", [
@@ -57,7 +67,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const domain = c.member.target.domain;
   const seed = domain && publicResearchUrl(`https://${domain}/`);
   if (!seed) return Response.json({ error: "Add and review the company website in its worksheet first" }, { status: 409 });
-  const config: ResearchConfig = { purpose: "people", targetId: id, companyName: c.member.target.companyName, companyDomain: new URL(seed).hostname.replace(/^www\./, ""), seeds: [seed], searchTerms: ["owner founder director management team contact"], geography: "Australia", discover: true, approved: true, strategy: "investigate", budget: { maxPages: 5, maxDomains: 3, maxModelCalls: 5, maxMinutes: 10 } };
+  const config: ResearchConfig = { purpose: "people", maxPeopleSearches: 2, targetId: id, companyName: c.member.target.companyName, companyDomain: new URL(seed).hostname.replace(/^www\./, ""), seeds: [seed], searchTerms: ["owner founder director management team contact"], geography: "Australia", discover: true, approved: true, strategy: "investigate", budget: { maxPages: 5, maxDomains: 3, maxModelCalls: 5, maxMinutes: 10 } };
   const repo = new ResearchRepository(c.org);
   const prior = await repo.get(input.data.requestId);
   if (prior && ((prior.config as ResearchConfig).targetId !== id || (prior.config as ResearchConfig).purpose !== "people")) return Response.json({ error: "Request ID belongs to another job" }, { status: 409 });

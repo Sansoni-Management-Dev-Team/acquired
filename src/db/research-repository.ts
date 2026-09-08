@@ -56,6 +56,7 @@ export class ResearchRepository {
         and(
           eq(researchFindings.organizationId, this.org),
           eq(researchFindings.mandateId, mandateId),
+          sql`${researchFindings.jobId} NOT IN (SELECT ${researchJobs.id} FROM ${researchJobs} WHERE ${researchJobs.config}->>'purpose' = 'people')`,
         ),
       )
       .orderBy(desc(researchFindings.observedAt))
@@ -84,6 +85,9 @@ export class ResearchRepository {
         "Another research job is active. Wait for it to finish or cancel it.",
       );
     return job;
+  }
+  async recoverStopped(id: string, revision: number, pages: number) {
+    await this.db.update(researchJobs).set({ status: pages ? "partial" : "failed", message: "Worker stopped unexpectedly; saved evidence retained. Start a new run or continue remaining URLs.", updatedAt: new Date() }).where(and(eq(researchJobs.id, id), eq(researchJobs.organizationId, this.org), eq(researchJobs.revision, revision), notInArray(researchJobs.status, terminalResearchStates)));
   }
   async cancel(id: string) {
     await this.db

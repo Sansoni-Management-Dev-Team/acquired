@@ -213,3 +213,27 @@ it("runs people research through the bounded worker without producing company cl
   expect(t.service.extract).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ content: expect.stringContaining("named business decision-makers") })]));
   expect(t.service.submit).toHaveBeenCalledOnce();
 });
+
+it("can search a supported legal operator while staying within the page budget", async () => {
+  const t = setup();
+  Object.assign(t.config, { purpose: "people", companyName: "Example Instruments", companyDomain: "instruments.example.com", maxPeopleSearches: 2 });
+  const quote = "This site is operated by Example Holdings Pty Ltd.";
+  vi.mocked(t.service.poll).mockResolvedValue({ status: "completed", page: { url: t.config.seeds[0], markdown: quote } });
+  vi.mocked(t.service.extract).mockResolvedValue([{ kind: "identifier", name: "Legal entity", value: "Example Holdings Pty Ltd", quote, website: t.config.seeds[0] }]);
+  t.service.peopleFollowup = vi.fn(async () => ({ seeds: ["https://instruments.example.com/team"] }));
+  await runResearch(t.step, t.service);
+  expect(t.service.peopleFollowup).toHaveBeenCalledOnce();
+  expect(t.service.submit).toHaveBeenCalledTimes(2);
+});
+
+it("stops cleanly with saved evidence when the worker request reserve is reached", async () => {
+  const t = setup();
+  const original = t.service.control;
+  t.service.control = vi.fn(async () => {
+    const state = await original();
+    return t.progress.mock.calls.some(([e]) => e.page) ? { ...state, deadline: 0, stopReason: "Worker request budget reached" } : state;
+  });
+  await runResearch(t.step, t.service);
+  expect(t.service.submit).toHaveBeenCalledOnce();
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: "partial", pages: 1, message: expect.stringContaining("Worker request budget reached") });
+});

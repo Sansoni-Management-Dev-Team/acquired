@@ -1,4 +1,4 @@
-import { peoplePrompt, validatePeopleFindings, peopleFollowUpLinks } from "./people-research";
+import { peoplePrompt, validatePeopleFindings, peopleFollowUpLinks, orderPeopleQueue } from "./people-research";
 import {
   extractionPrompt,
   catalogueProductFindings,
@@ -23,6 +23,7 @@ export type ResearchControl = {
   config: ResearchConfig;
   seeds: string[];
   deadline: number;
+  stopReason?: string;
 };
 export interface ResearchServices {
   control(): Promise<ResearchControl>;
@@ -47,6 +48,7 @@ export interface ResearchServices {
   }>;
   cancel(id: string): Promise<void>;
   extract(messages: ReturnType<typeof extractionPrompt>): Promise<unknown>;
+  peopleFollowup?(): Promise<{ seeds: string[]; legalEntity?: string; warning?: string }>;
   now(): number;
 }
 export async function runResearch(
@@ -112,6 +114,7 @@ export async function runResearch(
       runtime.attempts.length < budget.maxPages
     ) {
       runtime.remaining = orderResearchQueue(runtime.remaining,runtime.visited,initial.config.strategy,runtime.attempts.map(a=>a.url));
+      if (initial.config.purpose === "people") runtime.remaining = orderPeopleQueue(runtime.remaining, runtime.visited, initial.config.companyDomain!);
       const index = runtime.remaining.findIndex(
         (u) =>
           domains.has(researchDomain(u)) || domains.size < budget.maxDomains,
@@ -123,7 +126,7 @@ export async function runResearch(
       const control = await check(`page-${runtime.attempts.length}`);
       if (terminalResearchStates.includes(control.status)) return;
       if (control.expired) {
-        warnings.push("Time limit reached");
+        warnings.push(control.stopReason || "Time limit reached");
         break;
       }
       const url = runtime.remaining.splice(index, 1)[0],
@@ -176,7 +179,7 @@ export async function runResearch(
             if (!terminalResearchStates.includes(current.status))
               await publish(
                 "partial",
-                "Time limit reached; unfinished crawl cancelled",
+                current.stopReason || "Time limit reached; unfinished crawl cancelled",
               );
             return;
           }
@@ -252,9 +255,9 @@ export async function runResearch(
                 return { findings: [], warning: "Extraction stopped" };
               try {
                 return {
-                  findings: (initial.config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, initial.config) : validateFindings)(
+                  findings: (initial.config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, current.config) : validateFindings)(
                     await service.extract(
-                      initial.config.purpose === "people" ? peoplePrompt(markdown, sourceUrl, initial.config) : extractionPrompt(
+                      initial.config.purpose === "people" ? peoplePrompt(markdown, sourceUrl, current.config) : extractionPrompt(
                         markdown,
                         initial.config.searchTerms,
                         sourceUrl,
@@ -299,6 +302,11 @@ export async function runResearch(
             truncated: result.page.markdown.length > 24000,
           },
         );
+        if (initial.config.purpose === "people" && findings.some(f => f.kind === "identifier" && f.name === "Legal entity") && service.peopleFollowup && initial.config.maxPeopleSearches === 2 && runtime.attempts.length < budget.maxPages) {
+          const followup = await step.do(`people-followup-${attempt}`, () => service.peopleFollowup!(), false);
+          if (followup.warning) warnings.push(followup.warning);
+          runtime.remaining = uniqueResearchUrls([...followup.seeds, ...runtime.remaining]).slice(0, 200);
+        }
       } catch {
         if (activeCrawl) {
           try {
