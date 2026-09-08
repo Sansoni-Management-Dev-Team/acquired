@@ -25,12 +25,19 @@ export async function GET(
   if (!(await new AcquisitionRepository(org).getMandate(id)))
     return Response.json({ error: "Mandate not found" }, { status: 404 });
   const repo = new ResearchRepository(org);
-  const [jobs, findings] = await Promise.all([
+  const [initialJobs, findings] = await Promise.all([
     repo.list(id),
     repo.findings(id),
   ]);
+  for (const job of initialJobs.filter(j => !terminalResearchStates.includes(j.status) && Date.now() - j.updatedAt.getTime() > 90000)) {
+    try {
+      const worker = await researchWorker(`/jobs/${job.id}`) as { status: string };
+      if (["errored", "terminated", "complete"].includes(worker.status)) await repo.recoverStopped(job.id, job.revision, job.pages);
+    } catch { /* An unavailable status endpoint does not imply the job stopped. */ }
+  }
+  const jobs = await repo.list(id);
   return Response.json(
-    { enabled: true, jobs: jobs.filter(j => (j.config as ResearchConfig).purpose !== "people"), findings: findings.filter(f => (f.evidence as { kind?: string }).kind !== "person") },
+    { enabled: true, jobs: jobs.filter(j => (j.config as ResearchConfig).purpose !== "people"), peopleJobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).parentJobId), findings: findings.filter(f => (f.evidence as { kind?: string }).kind !== "person") },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
@@ -87,6 +94,10 @@ export async function POST(
       continueFrom,
     );
     config.strategy = submitted.strategy || "discover";
+    if (config.workflow === "business") {
+      config.findPeople = submitted.findPeople === true && submitted.budget.maxModelCalls > 0;
+      config.peopleBudget = config.findPeople ? submitted.peopleBudget : undefined;
+    }
     if (!config.runtime?.remaining.length)
       return Response.json(
         {

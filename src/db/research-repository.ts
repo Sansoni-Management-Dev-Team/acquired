@@ -1,4 +1,10 @@
-import { validatePeopleFindings } from "@/domain/people-research";
+import { ownCompany, validateBusinessFindings } from "@/domain/business-research";
+import { AcquisitionRepository } from "./acquisition-repository";
+import { OrganizationRepository } from "./repositories";
+import { mapGooglePlace } from "@/adapters/firmable-mapper";
+import { briefToMandate } from "@/domain/acquisition";
+import { rankTarget } from "@/domain/scoring";
+import { peopleFollowUpLinks, validatePeopleFindings } from "@/domain/people-research";
 import { createHash } from "node:crypto";
 import { and, desc, eq, lt, notInArray, sql } from "drizzle-orm";
 import { requireDb } from "./client";
@@ -156,7 +162,7 @@ export class ResearchRepository {
       throw new Error("Research budget exceeded");
     if (event.page && publicResearchUrl(event.page.url)) {
       const sourceUrl = publicResearchUrl(event.page.url)!;
-      const findings = (config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, config) : validateFindings)(
+      const findings = (config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, config) : config.workflow === "business" ? (input: unknown, markdown: string, source: string) => validateBusinessFindings(input, markdown, source, config) : validateFindings)(
         event.page.findings,
         event.page.markdown,
         sourceUrl,
@@ -178,6 +184,23 @@ export class ResearchRepository {
           and(eq(targets.organizationId, this.org), eq(targets.domain, domain)),
         )
         .limit(1);
+      // Only a literal first-party company assertion may create a new business.
+      let targetId = config.purpose === "people" ? config.targetId : linked[0]?.id;
+      const company = ownCompany(findings, sourceUrl);
+      if (!targetId && config.workflow === "business" && company) {
+        const acquisition = new AcquisitionRepository(this.org, this.db);
+        const mandate = await acquisition.getMandate(job.mandateId);
+        if (mandate) {
+          const filters = briefToMandate(mandate.brief);
+          const candidate = mapGooglePlace({ id: domain, name: company.name, website: `https://${domain}/`, formattedAddress: "Unknown", discoverySource: "manufacturing-directory", manufacturingDirectory: { recordId: domain, name: company.name, website: `https://${domain}/`, description: company.quote, categories: [], keywords: [], capabilities: [], sourceRecords: [{ source: "Public website research", sourceId: domain, sourceUrl }] } }, filters, this.org, "Website identity observed; review financial fit");
+          const saved = await new OrganizationRepository(this.db, this.org).upsertEnrichedTarget({ target: rankTarget(candidate, filters), mandateId: job.mandateId, actorId: job.createdBy });
+          if (saved) { await acquisition.attach(job.mandateId, saved.id); targetId = saved.id; }
+        }
+      }
+      if (targetId && config.workflow === "business" && config.findPeople) {
+        const links = peopleFollowUpLinks(event.page.markdown, sourceUrl, []).filter(url => new URL(url).hostname.replace(/^www\./, "") === domain).slice(0, 8);
+        if (links.length) await this.db.update(researchJobs).set({ config: sql`jsonb_set(${researchJobs.config}, '{peopleLinks}', COALESCE(${researchJobs.config}->'peopleLinks', '{}'::jsonb) || ${JSON.stringify({ [targetId]: links })}::jsonb)` }).where(eq(researchJobs.id, id));
+      }
       for (const evidence of findings) {
         const evidenceKey = createHash("sha256")
           .update(
@@ -196,7 +219,7 @@ export class ResearchRepository {
             jobId: id,
             organizationId: this.org,
             mandateId: job.mandateId,
-            targetId: config.purpose === "people" ? config.targetId : linked[0]?.id,
+            targetId,
             evidenceKey,
             sourceUrl,
             observedAt: new Date(event.page.observedAt),

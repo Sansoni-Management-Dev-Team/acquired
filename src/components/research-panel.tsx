@@ -24,7 +24,7 @@ type Job = {
   config: ResearchConfig;
   seeds: string[];
 };
-type Data = { enabled: boolean; jobs: Job[]; findings: SavedResearchFinding[] };
+type Data = { enabled: boolean; jobs: Job[]; peopleJobs?: Job[]; findings: SavedResearchFinding[] };
 async function request(url: string, body?: unknown) {
   const r = await fetch(url, {
     method: body ? "POST" : "GET",
@@ -72,11 +72,21 @@ export function ResearchPanel({
     [useAi, setUseAi] = useState(true),
     [discover, setDiscover] = useState(true),
     [continuation, setContinuation] = useState<Job | null>(null);
+  const [findPeople, setFindPeople] = useState(true);
+  const [peopleCompanies, setPeopleCompanies] = useState(2);
+  const [peoplePages, setPeoplePages] = useState(2);
+  const changedRef = useRef(onResultsChanged);
+  useEffect(() => { changedRef.current = onResultsChanged; }, [onResultsChanged]);
+  const signatureRef = useRef("");
   const setupRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (setup && continuation) setupRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [setup, continuation]);
   const refresh = useCallback(async () => {
     try {
-      setData(await request(`/api/mandates/${mandateId}/research`));
+      const next: Data = await request(`/api/mandates/${mandateId}/research`);
+      setData(next);
+      const signature = JSON.stringify([next.jobs.map(j => [j.id, j.status, j.pages, j.message]), next.peopleJobs?.map(j => [j.id, j.status, j.pages]), next.findings.map(f => [f.id, f.targetId])]);
+      if (signatureRef.current && signature !== signatureRef.current) changedRef.current();
+      signatureRef.current = signature;
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -93,7 +103,7 @@ export function ResearchPanel({
       clearInterval(timer);
     };
   }, [refresh]);
-  const active = data.jobs.find(
+  const active = [...data.jobs, ...(data.peopleJobs || [])].find(
     (j) => !terminalResearchStates.includes(j.status),
   );
   const termList = terms
@@ -141,6 +151,9 @@ export function ResearchPanel({
     setGeography(job.config.geography);
     setSeeds(remainingFor(job).slice(0, 10).join("\n"));
     setDiscover(false);
+    setFindPeople(Boolean(job.config.findPeople));
+    setPeopleCompanies(job.config.peopleBudget?.maxCompanies || 2);
+    setPeoplePages(job.config.peopleBudget?.maxPages || 2);
     setStrategy("discover");
     setApproved(false);
     setSetup(true);
@@ -148,10 +161,9 @@ export function ResearchPanel({
   return (
     <section className="space-y-5 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5">
       <div>
-        <h2 className="text-xl font-semibold">Research public websites</h2>
+        <h2 className="text-xl font-semibold">Find &amp; research businesses</h2>
         <p className="mt-2 text-sm text-[var(--muted)]">
-          Assess different businesses first, then investigate their products and
-          supply role. Evidence remains provisional; unknowns stay visible.
+          Find businesses, add them to Targets, and research their websites in one run. Review sourced claims as they arrive; financial and management unknowns remain visible.
         </p>
       </div>
       {loading ? (
@@ -170,7 +182,7 @@ export function ResearchPanel({
                   setApproved(false);
                 }}
               >
-                Set up research
+                {setup ? "Close setup" : "Find & research businesses"}
               </button>
               {setup && (
                 <div ref={setupRef} className="space-y-4 rounded-lg border border-[var(--border)] p-4">
@@ -228,11 +240,11 @@ export function ResearchPanel({
                             setApproved(false);
                           }}
                         />
-                        Find starting websites using directories and Google
-                        Places
+                        Find websites using directories, Google Places and web search
                       </label>
                     </>
                   )}
+                  {discover && !continuation && <p className="text-sm text-[var(--muted)]">Discovery uses the directory index, up to 12 Google Places searches (20 results each), and up to 3 web searches. These calls are additional to the page-research allowance; results are not exhaustive.</p>}
                   {discover && !continuation && (
                     <details>
                       <summary className="cursor-pointer py-2 text-sm">
@@ -281,8 +293,22 @@ export function ResearchPanel({
                     />
                     Assess sourced claims with AI
                   </label>
+                  {!continuation && <label className="flex items-start gap-2 text-sm">
+                    <input type="checkbox" checked={findPeople && useAi} disabled={!useAi} onChange={e => { setFindPeople(e.target.checked); setApproved(false); }} />
+                    Find owners and decision-makers for relevant businesses
+                  </label>}
+                  {findPeople && useAi && <div className="space-y-3 rounded-lg border border-[var(--border)] p-3">
+                    <p className="text-sm">Capture names on pages already read. Then research people for relevant businesses with an established website identity. Contacts remain source leads for your review; no emails are sent.</p>
+                    <label className="block text-sm">Maximum businesses for deeper people research
+                      <select className={input} value={peopleCompanies} disabled={Boolean(continuation)} onChange={e => { setPeopleCompanies(Number(e.target.value)); setApproved(false); }}>{[1,2,3].map(n => <option key={n}>{n}</option>)}</select>
+                    </label>
+                    <label className="block text-sm">Page attempts per business for people research
+                      <select className={input} value={peoplePages} disabled={Boolean(continuation)} onChange={e => { setPeoplePages(Number(e.target.value)); setApproved(false); }}>{[1,2,3].map(n => <option key={n}>{n}</option>)}</select>
+                    </label>
+                    <p className="text-sm text-[var(--muted)]">Separate people allowance: up to {peopleCompanies * peoplePages} additional page attempts and AI calls, {peopleCompanies} web searches, and 5 minutes per business. Missing contacts do not block target review. Paid Firmable enrichment remains a separate action.</p>
+                  </div>}
                   <p className="text-sm text-[var(--muted)]">
-                    This run allows {pages} page attempts, {Math.min(3, pages)}{" "}
+                    Business research allows {pages} page attempts, {Math.min(3, pages)}{" "}
                     domains, {useAi ? pages : 0} AI calls and 10 minutes. Failed
                     attempts count toward the limit. Included allowances are
                     shared across your account; usage may incur charges.
@@ -304,6 +330,9 @@ export function ResearchPanel({
                     onClick={() =>
                       act({
                         requestId: crypto.randomUUID(),
+                        workflow: "business",
+                        findPeople: findPeople && useAi,
+                        ...(findPeople && useAi ? { peopleBudget: { maxCompanies: peopleCompanies, maxPages: peoplePages } } : {}),
                         ...(continuation
                           ? { continueFrom: continuation.id }
                           : {}),
@@ -320,7 +349,7 @@ export function ResearchPanel({
                       })
                     }
                   >
-                    {continuation ? "Continue research" : "Start research"}
+                    {continuation ? "Continue research" : "Find & research businesses"}
                   </button>
                 </div>
               )}
@@ -358,6 +387,7 @@ export function ResearchPanel({
                   <p className="mt-2 text-sm text-[var(--muted)]">
                     {job.message}
                   </p>
+                  {finished && job.config.workflow === "business" && job.config.findPeople && job.status !== "cancelled" && !active && <button className={`${button} mt-3`} disabled={busy} onClick={() => act({action:"resume-people"}, job.id)}>Check remaining people research</button>}
                   {runtime ? (
                     <details className="mt-3">
                       <summary className="cursor-pointer py-2 text-sm">
@@ -438,6 +468,16 @@ export function ResearchPanel({
               );
             })}
           </div>
+          {(data.peopleJobs || []).length > 0 && <div className="space-y-3" aria-live="polite">
+            <h3 className="font-semibold">Decision-maker research</h3>
+            {data.peopleJobs!.slice(0, 6).map(job => <article key={job.id} className="rounded-lg border border-[var(--border)] p-3">
+              <p className="font-medium">{job.config.companyName} · {job.status}</p>
+              <p className="text-sm text-[var(--muted)]">{job.pages}/{job.config.budget.maxPages} pages · {job.message}</p>
+              <a className="mt-2 inline-block text-sm underline" href={`/mandates/${mandateId}?tab=targets`}>Review business and contact leads in Targets</a>
+              {!terminalResearchStates.includes(job.status) && <button className={`${button} ml-3`} disabled={busy} onClick={() => act({action:"cancel"}, job.id)}>Stop people research</button>}
+              {job.status === "queued" && <button className={`${button} ml-3`} disabled={busy} onClick={() => act({action:"retry-dispatch"}, job.id)}>Reconnect</button>}
+            </article>)}
+          </div>}
           <ResearchFindings
             findings={data.findings}
             onChanged={() => {
@@ -575,6 +615,7 @@ function ResearchFindings({
                 assessment.
               </p>
             )}
+            {group.findings.some(f => f.targetId) && <p className="mt-3 text-sm">In Targets · {relevant ? "Ready to review" : "Needs more evidence"}</p>}
             {company && !group.findings.some((f) => f.targetId) && (
               <button
                 className={`${button} mt-3`}

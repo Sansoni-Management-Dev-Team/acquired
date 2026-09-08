@@ -1,3 +1,5 @@
+import { businessWebSeeds } from "@/adapters/business-web-search";
+import { dispatchBusinessPeople } from "@/lib/business-research-people";
 import { peopleWebSeeds } from "@/adapters/people-web-search";
 import { z } from "zod";
 import { and, eq, notInArray, sql } from "drizzle-orm";
@@ -144,6 +146,10 @@ export async function POST(
           "Discovery interrupted; supplied seeds retained. Retry discovery separately if needed.";
       }
     }
+    if (config.workflow === "business" && config.discover) {
+      try { const web = await businessWebSeeds(config.searchTerms, config.geography); seeds = Array.from({ length: Math.max(seeds.length, web.seeds.length) }, (_, i) => [seeds[i], web.seeds[i]].filter((url): url is string => Boolean(url))).flat(); if (web.warning) warning = [warning, web.warning].filter(Boolean).join(" "); }
+      catch { warning = [warning, "Public web discovery unavailable; directory and supplied websites retained."].filter(Boolean).join(" "); }
+    }
     seeds = [...new Set(seeds)].slice(0, 100);
     await repo.seeds(jobId, seeds, warning || "Discovery complete");
     return Response.json({ seeds, warning });
@@ -153,6 +159,7 @@ export async function POST(
     return Response.json({ error: "Invalid progress event" }, { status: 400 });
   try {
     await repo.progress(jobId, event.data);
+    if (["complete", "partial", "failed"].includes(event.data.status)) await dispatchBusinessPeople(job.organizationId, jobId);
     return Response.json({ ok: true });
   } catch {
     return Response.json(

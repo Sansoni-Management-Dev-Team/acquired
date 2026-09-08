@@ -1,3 +1,4 @@
+import { dispatchBusinessPeople } from "@/lib/business-research-people";
 import { and, eq } from "drizzle-orm";
 import { requireDb } from "@/db/client";
 import { researchFindings } from "@/db/schema";
@@ -25,7 +26,7 @@ export async function POST(
     return Response.json({ error: "Invalid job" }, { status: 400 });
   const body = z
     .object({
-      action: z.enum(["cancel", "retry-dispatch", "accept"]),
+      action: z.enum(["cancel", "retry-dispatch", "accept", "resume-people"]),
       findingId: z.string().uuid().optional(),
     })
     .safeParse(await request.json().catch(() => null));
@@ -34,6 +35,10 @@ export async function POST(
   const repo = new ResearchRepository(session.session.activeOrganizationId);
   const job = await repo.get(jobId);
   if (!job) return Response.json({ error: "Job not found" }, { status: 404 });
+  if (body.data.action === "resume-people") {
+    try { await dispatchBusinessPeople(session.session.activeOrganizationId, jobId); return Response.json({ ok: true }); }
+    catch { return Response.json({ error: "People research is waiting for the active research job to finish. Try again afterward." }, { status: 409 }); }
+  }
   if (body.data.action === "accept") {
     if (!body.data.findingId)
       return Response.json({ error: "Finding required" }, { status: 400 });

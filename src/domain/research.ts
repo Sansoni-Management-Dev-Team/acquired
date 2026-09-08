@@ -64,9 +64,12 @@ export const researchStartSchema = z.object({
   geography: z.string().trim().min(2).max(160),
   discover: z.boolean().default(true),
   strategy: z.enum(["discover", "investigate"]).optional(),
+  workflow: z.literal("business").optional(),
+  findPeople: z.boolean().optional(),
+  peopleBudget: z.object({ maxCompanies: z.number().int().min(1).max(3), maxPages: z.number().int().min(1).max(3) }).optional(),
   approved: z.literal(true),
   budget: researchBudgetSchema,
-});
+}).refine(c => !c.findPeople || (c.workflow === "business" && Boolean(c.peopleBudget) && c.budget.maxModelCalls > 0), "People research requires an AI business run and an explicit people budget");
 export const researchRuntimeSchema = z.object({
   remaining: z.array(z.string().url()).max(200),
   visited: z.array(z.string().url()).max(1000),
@@ -150,7 +153,7 @@ export function continueResearchConfig(
 export type ResearchConfig = Omit<
   z.infer<typeof researchStartSchema>,
   "requestId" | "continueFrom"
-> & { runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean };
+> & { runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleLinks?: Record<string, string[]> };
 export const findingSchema = z.object({
   kind: z.enum([
     "company",

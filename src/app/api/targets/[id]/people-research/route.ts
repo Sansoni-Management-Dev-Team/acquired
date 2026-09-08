@@ -55,7 +55,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const [row] = await db.select({ finding: researchFindings, config: researchJobs.config }).from(researchFindings).innerJoin(researchJobs, eq(researchJobs.id, researchFindings.jobId)).where(and(eq(researchFindings.id, input.data.findingId), eq(researchFindings.organizationId, c.org), eq(researchFindings.mandateId, c.mandateId), eq(researchFindings.targetId, id))).limit(1);
     const config = row?.config as ResearchConfig | undefined;
     const f = findingSchema.safeParse(row?.finding.evidence);
-    if (!row || config?.purpose !== "people" || config.targetId !== id || !f.success || f.data.kind !== "person") return Response.json({ error: "Candidate not found" }, { status: 404 });
+    if (!row || !(config?.purpose === "people" && config.targetId === id || config?.workflow === "business" && config.findPeople) || !f.success || f.data.kind !== "person") return Response.json({ error: "Candidate not found" }, { status: 404 });
     const existing = (await db.select().from(contacts).where(and(eq(contacts.organizationId, c.org), eq(contacts.targetId, id)))).find(contact => contact.displayName.toLowerCase() === f.data.name.toLowerCase());
     // Never overwrite an enriched contact or its do-not-contact preference with weaker web evidence.
     if (existing) return Response.json({ contactId: existing.id, message: "Existing contact retained" });

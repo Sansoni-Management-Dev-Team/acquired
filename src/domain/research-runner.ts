@@ -1,3 +1,4 @@
+import { businessPrompt, validateBusinessFindings } from "./business-research";
 import { peoplePrompt, validatePeopleFindings, peopleFollowUpLinks, orderPeopleQueue } from "./people-research";
 import {
   extractionPrompt,
@@ -255,9 +256,9 @@ export async function runResearch(
                 return { findings: [], warning: "Extraction stopped" };
               try {
                 return {
-                  findings: (initial.config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, current.config) : validateFindings)(
+                  findings: (initial.config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, current.config) : initial.config.workflow === "business" ? (input: unknown, markdown: string, source: string) => validateBusinessFindings(input, markdown, source, current.config) : validateFindings)(
                     await service.extract(
-                      initial.config.purpose === "people" ? peoplePrompt(markdown, sourceUrl, current.config) : extractionPrompt(
+                      initial.config.purpose === "people" ? peoplePrompt(markdown, sourceUrl, current.config) : initial.config.workflow === "business" ? businessPrompt(markdown, initial.config.searchTerms, sourceUrl, Boolean(initial.config.findPeople)) : extractionPrompt(
                         markdown,
                         initial.config.searchTerms,
                         sourceUrl,
