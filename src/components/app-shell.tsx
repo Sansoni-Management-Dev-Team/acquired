@@ -15,6 +15,7 @@ const nav = [
 export function AppShell({ children, providerMode }: { children: React.ReactNode; providerMode: string }) {
   const pathname = usePathname();
   const router = useRouter();
+  const mandateId = pathname.match(/^\/mandates\/([0-9a-f-]{36})(?:\/|$)/i)?.[1];
   if (["/sign-in", "/sign-up", "/forgot-password", "/reset-password", "/onboarding", "/auth/complete"].includes(pathname)) return <main>{children}</main>;
 
   async function signOut() {
@@ -32,7 +33,7 @@ export function AppShell({ children, providerMode }: { children: React.ReactNode
         </Link>
         <nav className="flex gap-2 overflow-auto lg:flex-col">
           {nav.map(([label, href, Icon]) => (
-            <Link key={href} href={href} className="flex shrink-0 items-center gap-3 rounded-md px-3 py-2.5 text-xs font-semibold uppercase tracking-[.11em] text-[var(--muted)] transition hover:bg-[var(--panel-raised)] hover:text-white">
+            <Link key={href} href={href === "/outreach" && mandateId ? `/outreach?mandateId=${mandateId}` : href} className="flex shrink-0 items-center gap-3 rounded-md px-3 py-2.5 text-xs font-semibold uppercase tracking-[.11em] text-[var(--muted)] transition hover:bg-[var(--panel-raised)] hover:text-white">
               <Icon size={16} />{label}
             </Link>
           ))}

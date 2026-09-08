@@ -48,6 +48,12 @@ the Drizzle migration ledger. Other databases require their own explicit approva
 All 3 existing target memberships were backfilled; existing target, mandate, contact
 and message counts were unchanged, with no missing memberships or mismatched enrolments.
 
+The same migration was explicitly approved and applied to production on 8 September
+2026. The migration ledger was verified against migrations 0000–0002 before applying
+0003 in one transaction. All 31 target memberships were backfilled with none missing.
+Record counts were unchanged: 10 mandates, 31 targets, 3 contacts and 21 messages.
+Both newly created mandate detail pages rendered successfully after application.
+
 The migration:
 
 - Creates `mandate_targets`, `coverage_runs` and `valuation_observations`.
