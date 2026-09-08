@@ -67,6 +67,17 @@ function setup() {
   };
 }
 describe("bounded research orchestration", () => {
+  it("retains explicit website statements when AI has no supported output", async () => {
+    const t = setup();
+    t.config.budget.maxPages = 1;
+    vi.mocked(t.service.extract).mockResolvedValue([]);
+    vi.mocked(t.service.poll).mockResolvedValue({status:"completed",page:{url:t.config.seeds[0],markdown:"We are a wholesale supplier and only sell to laboratories. We supply precision sensors and test equipment."}});
+    await runResearch(t.step,t.service);
+    const saved=t.progress.mock.calls.find(([e])=>e.page)?.[0].page;
+    expect(saved?.findings.map(f=>f.kind)).toEqual(["business_role","product"]);
+    expect(t.service.extract).toHaveBeenCalledOnce();
+    expect(t.progress.mock.calls.at(-1)?.[0].runtime?.attempts[0].crawlId).toBe("00000000-0000-4000-8000-000000000010");
+  });
   it("caps submissions and model calls while publishing sourced evidence", async () => {
     const t = setup();
     await runResearch(t.step, t.service);

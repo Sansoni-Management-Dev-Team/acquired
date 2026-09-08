@@ -254,6 +254,40 @@ export function validateFindings(
     .map((f) => ({ ...f, website: publicResearchUrl(f.website) || "", ...(f.relevance === "relevant" && searchTerms.length && !focusMatches(f.quote, searchTerms) ? {relevance: "adjacent" as const} : {}) }))
     .filter((f) => !f.website || allowed.has(f.website));
 }
+// Preserve explicit first-person supplier statements when the model returns no
+// supported claims. These remain unverified website assertions.
+export function statedSupplyFindings(markdown: string, source: string, terms: string[]): ResearchFinding[] {
+  const sentences = markdown.match(/\bWe (?:are|manufacture|supply) [^.!?\n]{12,450}[.!?]/g) || [];
+  const role = sentences.find(q => /^We (?:are (?:a|an) (?:wholesale supplier|manufacturer|distributor|retailer)\b|manufacture\b)/i.test(q) && !/\b(?:not|never|if|would|could|hope|aim|plan)\b/i.test(q));
+  const product = sentences.find(q => /^We supply\b/i.test(q) && focusMatches(q, terms) && !/\b(?:not|never|if|would|could|hope|aim|plan)\b/i.test(q));
+  return [
+    ...(role ? [{kind:"business_role" as const,name:"Stated supply activity",value:role,quote:role,website:source,relevance:"unclear" as const}] : []),
+    ...(product ? [{kind:"product" as const,name:"Stated product supply",value:product,quote:product,website:source,relevance:"unclear" as const}] : [])
+  ];
+}
+// A linked product image paired with its matching caption is catalogue evidence,
+// not evidence that the site owner manufactures it.
+function catalogueEntries(markdown: string) {
+  return [...markdown.matchAll(/\[!\[[^\]\n]*\]\([^\s)]+\)\]\((https:\/\/[^\s)]+)\)\s*\[([^\]\n]{3,200})\]\(\1\)/g)]
+    .filter(m => m[0].length <= 800 && m[2].trim().split(/\s+/).length >= 2);
+}
+function isCatalogueFinding(f: ResearchFinding) {
+  return f.kind === "product" && f.name === "Catalogue product listing" &&
+    catalogueEntries(f.quote).some(m => m[0] === f.quote && m[2] === f.value &&
+      publicResearchUrl(m[1]) && publicResearchUrl(f.website) && researchDomain(m[1]) === researchDomain(f.website));
+}
+export function catalogueProductFindings(markdown: string, source: string, terms: string[]): ResearchFinding[] {
+  if (!/\b(?:\d+ Products|Filter Products|Product Categories|Add to cart)\b/i.test(markdown)) return [];
+  const matches = catalogueEntries(markdown);
+  if (matches.length < 3) return [];
+  const seen = new Set<string>();
+  return matches.flatMap(m => {
+    const url = publicResearchUrl(m[1]);
+    if (!url || researchDomain(url) !== researchDomain(source) || !focusMatches(m[2], terms) || seen.has(m[2])) return [];
+    seen.add(m[2]);
+    return [{kind:"product" as const, name:"Catalogue product listing", value:m[2], quote:m[0], website:source, relevance:"unclear" as const}];
+  }).slice(0, 2);
+}
 export function followUpLinks(
   markdown: string,
   source: string,
@@ -367,6 +401,7 @@ export function researchPageExcerpt(markdown: string, terms: string[]) {
 export function normalizeResearchFinding(
   f: ResearchFinding,
 ): ResearchFinding | null {
+  if (f.name === "Catalogue product listing") return isCatalogueFinding(f) ? f : null;
   const combined = `${f.name} ${f.value}`;
   if (/\b(?:ABN|ACN)\b/i.test(combined))
     return { ...f, kind: "identifier", relevance: undefined };

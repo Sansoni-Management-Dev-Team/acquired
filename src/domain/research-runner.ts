@@ -1,5 +1,7 @@
 import {
   extractionPrompt,
+  catalogueProductFindings,
+  statedSupplyFindings,
   followUpLinks,
   publicResearchUrl,
   terminalResearchStates,
@@ -278,6 +280,10 @@ export async function runResearch(
             extracted.warning ||
             `${findings.length} supported claims; financial fit remains unknown`;
         } else entry.reason = "Read without AI extraction (model limit)";
+        const catalogue = [...statedSupplyFindings(markdown, sourceUrl, initial.config.searchTerms), ...catalogueProductFindings(markdown, sourceUrl, initial.config.searchTerms)]
+          .filter(c => !findings.some(f => f.kind === c.kind && f.value === c.value));
+        findings = [...findings, ...catalogue].slice(0, 4);
+        if (catalogue.length) entry.reason = `${findings.length} supported claims including directly observed website evidence; financial fit remains unknown`;
         const observedAt = await step.do(`observed-${attempt}`, async () =>
           new Date(service.now()).toISOString(),
         );

@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   normalizeResearchFinding,
+  catalogueProductFindings,
+  statedSupplyFindings,
   orderResearchQueue,
   continueResearchConfig,
   researchQueries,
@@ -168,4 +170,35 @@ it("downgrades adjacent finished goods when the research specifies parts",()=>{
   expect(validateFindings([product],product.quote,f.website,["Optical components: lenses, filters"])[0].relevance).toBe("adjacent");
   const matching={...product,value:"optical lenses",quote:"We supply optical lenses."};
   expect(validateFindings([matching],matching.quote,f.website,["Optical components: lenses, filters"])[0].relevance).toBe("relevant");
+});
+
+describe("catalogue evidence", () => {
+  const source = "https://optics.example.com/products";
+  const listing = (name:string, id:number) => `[![](https://optics.example.com/images/${id}.jpg)](https://optics.example.com/product/${id})\n\n[${name}](https://optics.example.com/product/${id})`;
+  const markdown = "Filter Products\n3 Products\n" + ["Precision optical sensor", "Digital optical sensor", "Compact optical sensor"].map(listing).join("\n\n");
+  it("retains literal catalogue listings without inferring manufacturer or fit", () => {
+    const findings = catalogueProductFindings(markdown, source, ["optical sensors"]);
+    expect(findings).toHaveLength(2);
+    expect(validateFindings(findings, markdown, source, ["optical sensors"])).toEqual(findings);
+    expect(findings.every(f=>f.kind === "product" && f.relevance === "unclear")).toBe(true);
+  });
+  it("rejects menus, unrelated listings and third-party product links", () => {
+    expect(catalogueProductFindings("[Optical sensors](/products)",source,["optical sensors"])).toEqual([]);
+    expect(catalogueProductFindings(markdown,source,["steel fabrication"])).toEqual([]);
+    expect(catalogueProductFindings(markdown,"https://other.example.com/",["optical sensors"])).toEqual([]);
+    expect(normalizeResearchFinding({ ...f,kind:"product",name:"Catalogue product listing",value:"optical sensors",quote:"[optical sensors](/products)" })).toBeNull();
+  });
+});
+
+describe("explicit website supply statements", () => {
+  it("recovers exact claims without interpreting company identity or financial fit", () => {
+    const page = "We are a wholesale supplier and only sell to laboratories. We supply optical sensors, load cells and test equipment.";
+    const claims = statedSupplyFindings(page, "https://optics.example.com/", ["optical sensors"]);
+    expect(claims.map(f=>f.kind)).toEqual(["business_role","product"]);
+    expect(validateFindings(claims,page,"https://optics.example.com/")).toEqual(claims);
+    expect(claims.every(f=>f.relevance === "unclear")).toBe(true);
+  });
+  it("does not turn planned or negative activity into a role", () => {
+    expect(statedSupplyFindings("We are a manufacturer if funding is approved. We are a wholesale supplier but would never manufacture products.", "https://optics.example.com/", ["optical sensors"])).toEqual([]);
+  });
 });

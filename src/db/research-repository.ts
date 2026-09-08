@@ -197,7 +197,7 @@ export class ResearchRepository {
             observedAt: new Date(event.page.observedAt),
             evidence: {
               ...evidence,
-              source: "Cloudflare Browser Run + Workers AI",
+              source: ["Catalogue product listing", "Stated supply activity", "Stated product supply"].includes(evidence.name) ? "Cloudflare Browser Run — directly observed website evidence" : "Cloudflare Browser Run + Workers AI",
               status: "unverified",
               truncated: event.page.truncated,
             },
