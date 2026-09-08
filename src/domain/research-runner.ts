@@ -1,4 +1,5 @@
 import { businessPrompt, validateBusinessFindings } from "./business-research";
+import { companyHeadcountPrompt, observedCompanyFacts, headcountModelFindings, companyFactLinks, orderCompanyFactQueue } from "./company-facts";
 import { peoplePrompt, validatePeopleFindings, peopleFollowUpLinks, orderPeopleQueue } from "./people-research";
 import {
   extractionPrompt,
@@ -49,6 +50,7 @@ export interface ResearchServices {
   }>;
   cancel(id: string): Promise<void>;
   extract(messages: ReturnType<typeof extractionPrompt>): Promise<unknown>;
+  extractHeadcount?(messages: ReturnType<typeof companyHeadcountPrompt>): Promise<unknown>;
   peopleFollowup?(): Promise<{ seeds: string[]; legalEntity?: string; warning?: string }>;
   now(): number;
 }
@@ -116,6 +118,7 @@ export async function runResearch(
     ) {
       runtime.remaining = orderResearchQueue(runtime.remaining,runtime.visited,initial.config.strategy,runtime.attempts.map(a=>a.url));
       if (initial.config.purpose === "people") runtime.remaining = orderPeopleQueue(runtime.remaining, runtime.visited, initial.config.companyDomain!);
+      if (initial.config.purpose === "firmographics") runtime.remaining = orderCompanyFactQueue(runtime.remaining, initial.config);
       const index = runtime.remaining.findIndex(
         (u) =>
           domains.has(researchDomain(u)) || domains.size < budget.maxDomains,
@@ -229,7 +232,7 @@ export async function runResearch(
         runtime.remaining = orderResearchQueue(
           [
             ...runtime.remaining,
-            ...(initial.config.purpose === "people" ? peopleFollowUpLinks(markdown, sourceUrl, runtime.visited) : followUpLinks(
+            ...(initial.config.purpose === "firmographics" ? companyFactLinks(markdown, sourceUrl, initial.config, runtime.visited) : initial.config.purpose === "people" ? peopleFollowUpLinks(markdown, sourceUrl, runtime.visited) : followUpLinks(
               markdown,
               sourceUrl,
               initial.config.searchTerms,
@@ -243,7 +246,7 @@ export async function runResearch(
           modelCalls++;
           await publish(
             "extracting",
-            initial.config.purpose === "people" ? `Looking for named decision-makers on website ${domains.size}` : `Assessing products and business role on website ${domains.size}`,
+            initial.config.purpose === "firmographics" ? "Checking sourced company headcount" : initial.config.purpose === "people" ? `Looking for named decision-makers on website ${domains.size}` : `Assessing products and business role on website ${domains.size}`,
           );
           const extracted = await step.do(
             `extract-${attempt}`,
@@ -255,6 +258,11 @@ export async function runResearch(
               )
                 return { findings: [], warning: "Extraction stopped" };
               try {
+                if (initial.config.purpose === "firmographics") {
+                  if (!service.extractHeadcount) throw new Error("Headcount extraction unavailable");
+                  const output = await service.extractHeadcount(companyHeadcountPrompt(markdown, sourceUrl, current.config));
+                  return { findings: headcountModelFindings(output, markdown, sourceUrl, current.config), warning: "" };
+                }
                 return {
                   findings: (initial.config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, current.config) : initial.config.workflow === "business" ? (input: unknown, markdown: string, source: string) => validateBusinessFindings(input, markdown, source, current.config) : validateFindings)(
                     await service.extract(
@@ -272,7 +280,7 @@ export async function runResearch(
                 };
               } catch {
                 return {
-                  findings: [],
+                  findings: initial.config.purpose === "firmographics" ? observedCompanyFacts(markdown, sourceUrl, current.config) : [],
                   warning: "Evidence extraction failed; page read successfully",
                 };
               }
@@ -284,10 +292,10 @@ export async function runResearch(
           entry.reason =
             extracted.warning ||
             (initial.config.purpose === "people" ? `${findings.filter(f => f.kind === "person").length} sourced people leads${findings.some(f => f.kind === "identifier") ? "; legal operator identified" : ""}; role currency and email remain unverified` : `${findings.length} supported claims; financial fit remains unknown`);
-        } else entry.reason = "Read without AI extraction (model limit)";
-        const catalogue = initial.config.purpose === "people" ? [] : [...statedSupplyFindings(markdown, sourceUrl, initial.config.searchTerms), ...catalogueProductFindings(markdown, sourceUrl, initial.config.searchTerms)]
+        } else { entry.reason = "Read without AI extraction (model limit)"; if (initial.config.purpose === "firmographics") findings = observedCompanyFacts(markdown, sourceUrl, initial.config); }
+        const catalogue = initial.config.purpose ? [] : [...statedSupplyFindings(markdown, sourceUrl, initial.config.searchTerms), ...catalogueProductFindings(markdown, sourceUrl, initial.config.searchTerms)]
           .filter(c => !findings.some(f => f.kind === c.kind && f.value === c.value));
-        findings = [...findings, ...catalogue].slice(0, 4);
+        findings = [...findings, ...catalogue].slice(0, initial.config.purpose === "firmographics" ? 8 : 4);
         if (catalogue.length) entry.reason = `${findings.length} supported claims including directly observed website evidence; financial fit remains unknown`;
         const observedAt = await step.do(`observed-${attempt}`, async () =>
           new Date(service.now()).toISOString(),

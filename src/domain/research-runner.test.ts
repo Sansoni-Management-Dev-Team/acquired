@@ -237,3 +237,24 @@ it("stops cleanly with saved evidence when the worker request reserve is reached
   expect(t.service.submit).toHaveBeenCalledOnce();
   expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: "partial", pages: 1, message: expect.stringContaining("Worker request budget reached") });
 });
+
+it("runs the dedicated headcount extractor and saves independently validated facts within the page allowance", async () => {
+  const t = setup();
+  Object.assign(t.config, { purpose: "firmographics", companyName: "Example Instruments", companyDomain: "instruments.example.com" });
+  t.config.budget.maxPages = 1;
+  vi.mocked(t.service.poll).mockResolvedValue({ status: "completed", page: { url: t.config.seeds[0], markdown: "We employ 50 employees. [About](/about)" } });
+  t.service.extractHeadcount = vi.fn().mockResolvedValue({ value: "50 employees", quote: "We employ 50 employees" });
+  await runResearch(t.step, t.service);
+  expect(t.service.extract).not.toHaveBeenCalled();
+  expect(t.service.extractHeadcount).toHaveBeenCalledOnce();
+  expect(t.progress.mock.calls.find(([e]) => e.page)?.[0].page?.findings[0]).toMatchObject({ kind: "headcount", value: "50 employees" });
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ pages: 1, modelCalls: 1 });
+});
+it("retains explicit company facts on AI failure and never invents a count", async () => {
+  const t = setup(); Object.assign(t.config, { purpose: "firmographics", companyName: "Example Instruments", companyDomain: "instruments.example.com" });
+  t.service.extractHeadcount = vi.fn().mockRejectedValue(new Error("provider failure"));
+  vi.mocked(t.service.poll).mockResolvedValue({ status: "completed", page: { url: t.config.seeds[0], markdown: "We were founded in 2011. We are a family business." } });
+  await runResearch(t.step, t.service);
+  expect(t.progress.mock.calls.find(([e]) => e.page)?.[0].page?.findings.map(f => f.kind)).toEqual(["founded_year"]);
+  expect(t.progress.mock.calls.at(-1)?.[0].status).toBe("partial");
+});

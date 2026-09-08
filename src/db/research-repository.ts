@@ -1,3 +1,4 @@
+import { validateCompanyFacts } from "@/domain/company-facts";
 import { ownCompany, validateBusinessFindings } from "@/domain/business-research";
 import { AcquisitionRepository } from "./acquisition-repository";
 import { OrganizationRepository } from "./repositories";
@@ -62,7 +63,7 @@ export class ResearchRepository {
         and(
           eq(researchFindings.organizationId, this.org),
           eq(researchFindings.mandateId, mandateId),
-          sql`${researchFindings.jobId} NOT IN (SELECT ${researchJobs.id} FROM ${researchJobs} WHERE ${researchJobs.config}->>'purpose' = 'people')`,
+          sql`${researchFindings.jobId} NOT IN (SELECT ${researchJobs.id} FROM ${researchJobs} WHERE ${researchJobs.config}->>'purpose' IN ('people', 'firmographics'))`,
         ),
       )
       .orderBy(desc(researchFindings.observedAt))
@@ -175,7 +176,7 @@ export class ResearchRepository {
       throw new Error("Research budget exceeded");
     if (event.page && publicResearchUrl(event.page.url)) {
       const sourceUrl = publicResearchUrl(event.page.url)!;
-      const findings = (config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, config) : config.workflow === "business" ? (input: unknown, markdown: string, source: string) => validateBusinessFindings(input, markdown, source, config) : validateFindings)(
+      const findings = (config.purpose === "firmographics" ? (input: unknown, markdown: string, source: string) => validateCompanyFacts(input, markdown, source, config) : config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, config) : config.workflow === "business" ? (input: unknown, markdown: string, source: string) => validateBusinessFindings(input, markdown, source, config) : validateFindings)(
         event.page.findings,
         event.page.markdown,
         sourceUrl,
@@ -194,7 +195,7 @@ export class ResearchRepository {
           ),
         )
         .where(
-          and(eq(targets.organizationId, this.org), eq(targets.domain, domain)),
+          and(eq(targets.organizationId, this.org), eq(targets.domain, config.purpose === "firmographics" ? config.companyDomain! : domain), ...(config.purpose === "firmographics" ? [eq(targets.id, config.targetId!)] : [])),
         )
         .limit(1);
       // Only a literal first-party company assertion may create a new business.
@@ -214,7 +215,7 @@ export class ResearchRepository {
         const links = peopleFollowUpLinks(event.page.markdown, sourceUrl, []).filter(url => new URL(url).hostname.replace(/^www\./, "") === domain).slice(0, 8);
         if (links.length) await this.db.update(researchJobs).set({ config: sql`jsonb_set(${researchJobs.config}, '{peopleLinks}', COALESCE(${researchJobs.config}->'peopleLinks', '{}'::jsonb) || ${JSON.stringify({ [targetId]: links })}::jsonb)` }).where(eq(researchJobs.id, id));
       }
-      for (const evidence of findings) {
+      for (const evidence of (config.purpose === "firmographics" && !targetId ? [] : findings)) {
         const evidenceKey = createHash("sha256")
           .update(
             JSON.stringify([
@@ -238,7 +239,7 @@ export class ResearchRepository {
             observedAt: new Date(event.page.observedAt),
             evidence: {
               ...evidence,
-              source: ["Catalogue product listing", "Stated supply activity", "Stated product supply"].includes(evidence.name) ? "Cloudflare Browser Run — directly observed website evidence" : "Cloudflare Browser Run + Workers AI",
+              source: config.purpose === "firmographics" ? "Cloudflare Browser Run — validated company statement" : ["Catalogue product listing", "Stated supply activity", "Stated product supply"].includes(evidence.name) ? "Cloudflare Browser Run — directly observed website evidence" : "Cloudflare Browser Run + Workers AI",
               status: "unverified",
               truncated: event.page.truncated,
             },

@@ -38,7 +38,7 @@ export async function GET(
   }
   const jobs = await repo.list(id);
   return Response.json(
-    { enabled: true, results, jobs: jobs.filter(j => (j.config as ResearchConfig).purpose !== "people"), peopleJobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).parentJobId), findings: findings.filter(f => (f.evidence as { kind?: string }).kind !== "person") },
+    { enabled: true, results, jobs: jobs.filter(j => !(j.config as ResearchConfig).purpose), companyJobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "firmographics"), peopleJobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).parentJobId), findings: findings.filter(f => (f.evidence as { kind?: string }).kind !== "person") },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
@@ -86,7 +86,7 @@ export async function POST(
     const found = (await repo.findings(id))
       .filter((f) => f.jobId === continueFrom)
       .map((f) => f.sourceUrl);
-    if ((prior.config as ResearchConfig).purpose === "people") return Response.json({ error: "Start people research from the company contact panel" }, { status: 409 });
+    if ((prior.config as ResearchConfig).purpose) return Response.json({ error: "Start people research from the company contact panel" }, { status: 409 });
     config = continueResearchConfig(
       prior.config as ResearchConfig,
       prior.seeds as string[],
@@ -98,6 +98,7 @@ export async function POST(
     if (config.workflow === "business") {
       config.findPeople = submitted.findPeople === true && submitted.budget.maxModelCalls > 0;
       config.peopleBudget = config.findPeople ? submitted.peopleBudget : undefined;
+      config.companyBudget = submitted.companyBudget;
     }
     if (!config.runtime?.remaining.length)
       return Response.json(

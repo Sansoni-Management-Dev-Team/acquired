@@ -164,7 +164,7 @@ function abnFromText(text) {
   return candidate?.length === 11 ? candidate : null;
 }
 
-class McpClient {
+export class McpClient {
   constructor(configPath, serverName = "crawl4ai") {
     this.configPath = configPath;
     this.serverName = serverName;

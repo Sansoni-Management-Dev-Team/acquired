@@ -1,3 +1,4 @@
+import { searchResultUrls } from "../../src/domain/cloudflare-search";
 import {
   WorkflowEntrypoint,
   type WorkflowEvent,
@@ -221,6 +222,17 @@ export class AcquireResearch extends WorkflowEntrypoint<
           );
           return parseResearchExtraction(output);
         },
+        extractHeadcount: async (messages) => {
+          const output = await this.env.AI.run("@cf/meta/llama-3.1-8b-instruct-fast", {
+            messages, max_tokens: 300, temperature: 0,
+            response_format: { type: "json_schema", json_schema: {
+              type: "object", properties: { value: { type: ["string", "null"] }, quote: { type: ["string", "null"] } },
+              required: ["value", "quote"], additionalProperties: false,
+            } },
+          });
+          const result = output as { response?: unknown };
+          return typeof result.response === "string" ? JSON.parse(result.response) : result.response ?? output;
+        },
         peopleFollowup: () => callback(this.env, id, { action: "people-followup" }, requestBudget) as Promise<{ seeds: string[]; warning?: string }>,
         now: () => Date.now(),
       },
@@ -231,6 +243,23 @@ const worker = {
   async fetch(request: Request, env: Env) {
     if (!(await authorized(request, env.SERVICE_SECRET)))
       return Response.json({ error: "Unauthorized" }, { status: 401 });
+    if (new URL(request.url).pathname === "/search" && request.method === "POST") {
+      const body = await request.json().catch(() => null) as { query?: unknown } | null;
+      if (typeof body?.query !== "string" || body.query.trim().length < 2 || body.query.length > 500)
+        return Response.json({ error: "Invalid search" }, { status: 400 });
+      try {
+        const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/markdown`, {
+          method: "POST", headers: { authorization: `Bearer ${env.CF_BROWSER_TOKEN}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ url: `https://html.duckduckgo.com/html/?q=${encodeURIComponent(body.query)}`, gotoOptions: { waitUntil: "domcontentloaded", timeout: 20000 } }),
+          signal: AbortSignal.timeout(40000),
+        });
+        const data = await response.json() as { success?: boolean; result?: unknown };
+        if (!response.ok || !data.success || typeof data.result !== "string") throw new Error("Search unavailable");
+        const seeds = searchResultUrls(data.result);
+        if (!seeds.length && !/no results found|no more results/i.test(data.result)) throw new Error("Search could not be read");
+        return Response.json({ seeds });
+      } catch { return Response.json({ error: "Public search unavailable" }, { status: 502 }); }
+    }
     const match = new URL(request.url).pathname.match(
       /^\/jobs\/([0-9a-f-]{36})$/i,
     );

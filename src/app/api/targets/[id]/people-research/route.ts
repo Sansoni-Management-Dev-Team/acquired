@@ -38,7 +38,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       }
     } catch { /* Preserve running state when the status check is unavailable. */ }
   }
-  return Response.json({ enabled: researchEnabled(), webSearchEnabled: Boolean(process.env.TAVILY_API_KEY), jobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).targetId === id), findings: findings.filter(f => (f.evidence as { kind?: string }).kind === "person") }, { headers: { "Cache-Control": "no-store" } });
+  return Response.json({ enabled: researchEnabled(), webSearchEnabled: researchEnabled(), jobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).targetId === id), findings: findings.filter(f => (f.evidence as { kind?: string }).kind === "person") }, { headers: { "Cache-Control": "no-store" } });
 }
 const inputSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("start"), mandateId: z.string().uuid(), requestId: z.string().uuid(), continueFrom: z.string().uuid().optional(), approved: z.literal(true) }),

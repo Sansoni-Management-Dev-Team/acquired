@@ -24,7 +24,7 @@ type Job = {
   config: ResearchConfig;
   seeds: string[];
 };
-type Data = { results?: { jobId: string; added: number; updated: number; people: number }[]; enabled: boolean; jobs: Job[]; peopleJobs?: Job[]; findings: SavedResearchFinding[] };
+type Data = { results?: { jobId: string; added: number; updated: number; people: number }[]; enabled: boolean; jobs: Job[]; peopleJobs?: Job[]; companyJobs?: Job[]; findings: SavedResearchFinding[] };
 async function request(url: string, body?: unknown) {
   const r = await fetch(url, {
     method: body ? "POST" : "GET",
@@ -73,6 +73,7 @@ export function ResearchPanel({
     [useAi, setUseAi] = useState(true),
     [discover, setDiscover] = useState(true),
     [continuation, setContinuation] = useState<Job | null>(null);
+  const [companyDetails, setCompanyDetails] = useState(true);
   const [findPeople, setFindPeople] = useState(true);
   const [peopleCompanies, setPeopleCompanies] = useState<number | "">(2);
   const [peoplePages, setPeoplePages] = useState<number | "">(2);
@@ -86,7 +87,7 @@ export function ResearchPanel({
     try {
       const next: Data = await request(`/api/mandates/${mandateId}/research`);
       setData(next);
-      const signature = JSON.stringify([next.jobs.map(j => [j.id, j.status, j.pages, j.message]), next.peopleJobs?.map(j => [j.id, j.status, j.pages]), next.findings.map(f => [f.id, f.targetId])]);
+      const signature = JSON.stringify([next.jobs.map(j => [j.id, j.status, j.pages, j.message]), next.peopleJobs?.map(j => [j.id, j.status, j.pages]), next.companyJobs?.map(j => [j.id, j.status, j.pages]), next.findings.map(f => [f.id, f.targetId])]);
       if (signatureRef.current && signature !== signatureRef.current) changedRef.current();
       signatureRef.current = signature;
     } catch (e) {
@@ -105,7 +106,7 @@ export function ResearchPanel({
       clearInterval(timer);
     };
   }, [refresh]);
-  const active = [...data.jobs, ...(data.peopleJobs || [])].find(
+  const active = [...data.jobs, ...(data.peopleJobs || []), ...(data.companyJobs || [])].find(
     (j) => !terminalResearchStates.includes(j.status),
   );
   const currentJob = active || data.jobs[0];
@@ -157,6 +158,7 @@ export function ResearchPanel({
     setSeeds(remainingFor(job).slice(0, 10).join("\n"));
     setDiscover(false);
     setFindPeople(Boolean(job.config.findPeople));
+    setCompanyDetails(Boolean(job.config.companyBudget));
     setPeopleCompanies(job.config.peopleBudget?.maxCompanies || 2);
     setPeoplePages(job.config.peopleBudget?.maxPages || 2);
     setStrategy("discover");
@@ -294,6 +296,8 @@ export function ResearchPanel({
                     />
                     Assess sourced claims with AI
                   </label>
+                  <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={companyDetails && useAi} disabled={!useAi} onChange={e => setCompanyDetails(e.target.checked)} />Research headcount, industry, founding year and headquarters</label>
+                  {companyDetails && useAi && <p className="text-sm text-[var(--muted)]">Follow up up to 2 researched companies, with 3 additional page attempts and AI calls plus one public web search per company (10 minutes each). Review sourced details and an optional industry/headcount EBITDA scenario in each company’s review. Unknowns remain unknown.</p>}
                   {!continuation && <label className="flex items-start gap-2 text-sm">
                     <input type="checkbox" checked={findPeople && useAi} disabled={!useAi} onChange={e => { setFindPeople(e.target.checked); }} />
                     Find owners and decision-makers for relevant businesses
@@ -323,6 +327,7 @@ export function ResearchPanel({
                       act({
                         requestId: crypto.randomUUID(),
                         workflow: "business",
+                        ...(companyDetails && useAi ? { companyBudget: { maxCompanies: 2, maxPages: 3 } } : {}),
                         findPeople: findPeople && useAi,
                         ...(findPeople && useAi ? { peopleBudget: { maxCompanies: peopleCompanies, maxPages: peoplePages } } : {}),
                         ...(continuation
@@ -350,16 +355,16 @@ export function ResearchPanel({
           )}
           {currentJob && <div className="space-y-3" role="status">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="font-semibold">{!terminalResearchStates.includes(currentJob.status) ? (currentJob.config.purpose === "people" ? "Finding decision-makers" : currentJob.status === "discovering" ? "Finding businesses" : "Researching businesses") : currentJob.status === "cancelled" ? "Research cancelled" : "Latest research run"}</h2>
+              <h2 className="font-semibold">{!terminalResearchStates.includes(currentJob.status) ? (currentJob.config.purpose === "firmographics" ? "Researching company details" : currentJob.config.purpose === "people" ? "Finding decision-makers" : currentJob.status === "discovering" ? "Finding businesses" : "Researching businesses") : currentJob.status === "cancelled" ? "Research cancelled" : "Latest research run"}</h2>
               <span className="text-xs text-[var(--muted)]">{new Date(currentJob.createdAt).toLocaleString()}</span>
             </div>
-            <p className="text-sm">{currentJob.config.purpose === "people" ? currentJob.config.companyName : `${currentResults?.added || 0} new businesses researched · ${currentResults?.updated || 0} existing businesses with new evidence`} · {peopleFound} contact leads</p>
+            <p className="text-sm">{currentJob.config.purpose ? currentJob.config.companyName : `${currentResults?.added || 0} new businesses researched · ${currentResults?.updated || 0} existing businesses with new evidence`} · {peopleFound} contact leads</p>
             <p className="text-sm">{currentJob.pages} pages read · {currentJob.config.runtime?.remaining.length || 0} URLs remaining</p>
             <p className="text-xs text-[var(--muted)]">Page attempts: {currentJob.config.runtime?.attempts.length || currentJob.pages}/{currentJob.config.budget.maxPages} · AI calls: {currentJob.modelCalls}/{currentJob.config.budget.maxModelCalls}</p>
             <p className="text-sm text-[var(--muted)]">{currentJob.message}</p>
             {terminalResearchStates.includes(currentJob.status) && Boolean(currentJob.config.runtime?.remaining.length) && <p className="text-sm">This run has stopped; the remaining websites have not all been researched.</p>}
-            {!active && currentJob.config.purpose !== "people" && remainingFor(currentJob).length > 0 && <button className={button} disabled={busy} onClick={() => resume(currentJob)}>Continue research</button>}
-            {!active && currentJob.config.purpose !== "people" && currentJob.config.runtime?.attempts.some(a => a.status === "failed" || /extraction failed/i.test(a.reason)) && <button className={button} disabled={busy} onClick={() => retryFailed(currentJob)}>Retry failed pages</button>}
+            {!active && !currentJob.config.purpose && remainingFor(currentJob).length > 0 && <button className={button} disabled={busy} onClick={() => resume(currentJob)}>Continue research</button>}
+            {!active && !currentJob.config.purpose && currentJob.config.runtime?.attempts.some(a => a.status === "failed" || /extraction failed/i.test(a.reason)) && <button className={button} disabled={busy} onClick={() => retryFailed(currentJob)}>Retry failed pages</button>}
             {active && <button className={button} disabled={busy} onClick={() => act({action:"cancel"}, active.id)}>Stop research</button>}
             {active?.status === "queued" && <button className={button} disabled={busy} onClick={() => act({action:"retry-dispatch"}, active.id)}>Reconnect job</button>}
           </div>}

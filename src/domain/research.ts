@@ -67,9 +67,10 @@ export const researchStartSchema = z.object({
   workflow: z.literal("business").optional(),
   findPeople: z.boolean().optional(),
   peopleBudget: z.object({ maxCompanies: z.number().int().min(1), maxPages: z.number().int().min(1) }).optional(),
+  companyBudget: z.object({ maxCompanies: z.number().int().min(1).max(5), maxPages: z.number().int().min(1).max(5) }).optional(),
   approved: z.literal(true),
   budget: researchBudgetSchema,
-}).refine(c => !c.findPeople || (c.workflow === "business" && Boolean(c.peopleBudget) && c.budget.maxModelCalls > 0), "People research requires an AI business run and an explicit people budget");
+}).refine(c => !c.findPeople || (c.workflow === "business" && Boolean(c.peopleBudget) && c.budget.maxModelCalls > 0), "People research requires an AI business run and an explicit people budget").refine(c => !c.companyBudget || (c.workflow === "business" && c.budget.maxModelCalls > 0), "Company details follow-up requires a business run");
 export const researchRuntimeSchema = z.object({
   remaining: z.array(z.string().url()).max(200),
   visited: z.array(z.string().url()).max(1000),
@@ -152,7 +153,7 @@ export function continueResearchConfig(
 export type ResearchConfig = Omit<
   z.infer<typeof researchStartSchema>,
   "requestId" | "continueFrom"
-> & { runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleLinks?: Record<string, string[]> };
+> & { runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleLinks?: Record<string, string[]> };
 export const findingSchema = z.object({
   kind: z.enum([
     "company",
@@ -163,6 +164,10 @@ export const findingSchema = z.object({
     "product",
     "customer",
     "person",
+    "headcount",
+    "founded_year",
+    "location",
+    "industry",
   ]),
   name: z.string().trim().min(2).max(200),
   value: z.string().trim().min(2).max(500),
@@ -245,7 +250,7 @@ export function validateFindings(
   allowed.add(source);
   allowed.add(new URL(source).origin + "/");
   return candidates
-    .filter(f => f.kind !== "person")
+    .filter(f => !["person", "headcount", "founded_year", "location", "industry"].includes(f.kind))
     .map(normalizeResearchFinding)
     .filter((f): f is ResearchFinding => Boolean(f))
     .filter(

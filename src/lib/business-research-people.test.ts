@@ -45,3 +45,21 @@ it("does not dispatch when people research was not selected",async()=>{
   await dispatchBusinessPeople("org",parent.id);
   expect(mocks.create).not.toHaveBeenCalled();
 });
+
+it("runs company facts before the people phase using a separate approved budget", async () => {
+  mocks.get.mockResolvedValue({ ...parent, config: { ...parent.config, companyBudget: { maxCompanies: 2, maxPages: 3 } } });
+  await dispatchBusinessPeople("org", parent.id);
+  expect(mocks.create.mock.calls[0][3]).toMatchObject({ purpose: "firmographics", parentJobId: parent.id, targetId: target.id, budget: { maxPages: 3, maxModelCalls: 3 } });
+});
+it("counts failed company jobs against the cap then advances to people", async () => {
+  mocks.get.mockResolvedValue({ ...parent, config: { ...parent.config, companyBudget: { maxCompanies: 1, maxPages: 3 } } });
+  mocks.where.mockReset().mockResolvedValueOnce([{ status: "failed" }]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ targetId: target.id, sourceUrl: "https://instruments.example.com/", evidence: {kind:"company",website:"https://instruments.example.com/"} }, { targetId:target.id,sourceUrl:"https://instruments.example.com/",evidence:{kind:"product",relevance:"relevant"} }]);
+  await dispatchBusinessPeople("org", parent.id);
+  expect(mocks.create.mock.calls[0][3].purpose).toBe("people");
+});
+it("stops automatic follow-ups when company research is cancelled", async () => {
+  mocks.get.mockResolvedValue({ ...parent, config: { ...parent.config, companyBudget: { maxCompanies: 2, maxPages: 3 } } });
+  mocks.where.mockReset().mockResolvedValue([{ status: "cancelled" }]);
+  await dispatchBusinessPeople("org", parent.id);
+  expect(mocks.create).not.toHaveBeenCalled();
+});
