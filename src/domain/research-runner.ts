@@ -282,7 +282,7 @@ export async function runResearch(
           if (extracted.warning) warnings.push(extracted.warning);
           entry.reason =
             extracted.warning ||
-            (initial.config.purpose === "people" ? `${findings.length} sourced people leads; role currency and email remain unverified` : `${findings.length} supported claims; financial fit remains unknown`);
+            (initial.config.purpose === "people" ? `${findings.filter(f => f.kind === "person").length} sourced people leads${findings.some(f => f.kind === "identifier") ? "; legal operator identified" : ""}; role currency and email remain unverified` : `${findings.length} supported claims; financial fit remains unknown`);
         } else entry.reason = "Read without AI extraction (model limit)";
         const catalogue = initial.config.purpose === "people" ? [] : [...statedSupplyFindings(markdown, sourceUrl, initial.config.searchTerms), ...catalogueProductFindings(markdown, sourceUrl, initial.config.searchTerms)]
           .filter(c => !findings.some(f => f.kind === c.kind && f.value === c.value));

@@ -7,7 +7,7 @@ import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { ResearchRepository } from "@/db/research-repository";
 import { OrganizationRepository } from "@/db/repositories";
 import { researchEnabled, researchWorker } from "@/lib/research-service";
-import { findingSchema, publicResearchUrl, terminalResearchStates, type ResearchConfig } from "@/domain/research";
+import { findingSchema, publicResearchUrl, researchUrlKey, uniqueResearchUrls, terminalResearchStates, type ResearchConfig } from "@/domain/research";
 async function context(request: Request, id: string, mandateId: unknown) {
   const session = await auth.api.getSession({ headers: request.headers });
   const org = session?.session.activeOrganizationId;
@@ -41,7 +41,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   return Response.json({ enabled: researchEnabled(), webSearchEnabled: Boolean(process.env.TAVILY_API_KEY), jobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).targetId === id), findings: findings.filter(f => (f.evidence as { kind?: string }).kind === "person") }, { headers: { "Cache-Control": "no-store" } });
 }
 const inputSchema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("start"), mandateId: z.string().uuid(), requestId: z.string().uuid(), approved: z.literal(true) }),
+  z.object({ action: z.literal("start"), mandateId: z.string().uuid(), requestId: z.string().uuid(), continueFrom: z.string().uuid().optional(), approved: z.literal(true) }),
   z.object({ action: z.literal("save"), mandateId: z.string().uuid(), findingId: z.string().uuid() }),
 ]);
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -67,8 +67,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const domain = c.member.target.domain;
   const seed = domain && publicResearchUrl(`https://${domain}/`);
   if (!seed) return Response.json({ error: "Add and review the company website in its worksheet first" }, { status: 409 });
-  const config: ResearchConfig = { purpose: "people", maxPeopleSearches: 2, targetId: id, companyName: c.member.target.companyName, companyDomain: new URL(seed).hostname.replace(/^www\./, ""), seeds: [seed], searchTerms: ["owner founder director management team contact"], geography: "Australia", discover: true, approved: true, strategy: "investigate", budget: { maxPages: 5, maxDomains: 3, maxModelCalls: 5, maxMinutes: 10 } };
+  let config: ResearchConfig = { purpose: "people", maxPeopleSearches: 2, targetId: id, companyName: c.member.target.companyName, companyDomain: new URL(seed).hostname.replace(/^www\./, ""), seeds: [seed], searchTerms: ["owner founder director management team contact"], geography: "Australia", discover: true, approved: true, strategy: "investigate", budget: { maxPages: 5, maxDomains: 3, maxModelCalls: 5, maxMinutes: 10 } };
   const repo = new ResearchRepository(c.org);
+  if (input.data.continueFrom) {
+    const previous = await repo.get(input.data.continueFrom);
+    const saved = previous?.config as ResearchConfig | undefined;
+    if (!previous || previous.mandateId !== c.mandateId || saved?.purpose !== "people" || saved.targetId !== id || saved.companyDomain !== config.companyDomain || !terminalResearchStates.includes(previous.status)) return Response.json({ error: "No completed people research to continue for this company" }, { status: 409 });
+    const retry = (saved.runtime?.attempts || []).filter(a => a.status !== "read").map(a => a.url);
+    const remaining = uniqueResearchUrls([...retry, ...(saved.runtime?.remaining || [])]);
+    if (!remaining.length) return Response.json({ error: "No unread pages remain. Start a fresh search instead." }, { status: 409 });
+    config = { ...saved, approved: true, parentJobId: previous.id, discover: false, budget: config.budget, seeds: remaining.slice(0, 10), runtime: { remaining, visited: (saved.runtime?.visited || []).filter(url => !retry.some(r => researchUrlKey(r) === researchUrlKey(url))), attempts: [] } };
+  }
   const prior = await repo.get(input.data.requestId);
   if (prior && ((prior.config as ResearchConfig).targetId !== id || (prior.config as ResearchConfig).purpose !== "people")) return Response.json({ error: "Request ID belongs to another job" }, { status: 409 });
   try {

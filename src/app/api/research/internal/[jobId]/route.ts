@@ -85,7 +85,7 @@ export async function POST(
       .map(publicResearchUrl)
       .filter((s): s is string => Boolean(s));
     let warning = "";
-    if (config.purpose === "people") {
+    if (config.purpose === "people" && config.discover) {
       try { seeds.push(...await peopleWebSeeds(config.companyName!, config.companyDomain!)); }
       catch { warning = "Public web search unavailable; company website research continues."; }
     } else if (config.discover) {

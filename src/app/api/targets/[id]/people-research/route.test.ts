@@ -32,3 +32,13 @@ it("keeps dispatch failures recoverable without creating a replacement job", asy
   m.worker.mockRejectedValue(new Error("timeout")); m.get.mockResolvedValueOnce(undefined).mockResolvedValueOnce({ id: requestId });
   const response = await POST(request(), ctx); expect(response.status).toBe(202); expect(await response.json()).toMatchObject({ jobId: requestId }); expect(m.create).toHaveBeenCalledOnce();
 });
+it("continues server-saved unread pages and legal identity without repeating discovery", async () => {
+  const previousId = "00000000-0000-4000-8000-000000000004";
+  m.get.mockResolvedValueOnce({ id: previousId, mandateId, status: "partial", config: { purpose: "people", targetId: id, companyDomain: "instruments.example.com", companyName: "Example Instruments", legalEntity: "Example Holdings Pty Ltd", runtime: { remaining: ["https://directory.example.com/company-profile"], visited: ["https://instruments.example.com/", "https://instruments.example.com/team"], attempts: [{ url: "https://instruments.example.com/team", status: "failed" }] } } });
+  expect((await POST(request({ ...body, continueFrom: previousId }), ctx)).status).toBe(202);
+  expect(m.create).toHaveBeenCalledWith(requestId, mandateId, "user-a", expect.objectContaining({ discover: false, legalEntity: "Example Holdings Pty Ltd", runtime: expect.objectContaining({ visited: ["https://instruments.example.com/"], remaining: ["https://instruments.example.com/team", "https://directory.example.com/company-profile"] }) }));
+});
+it("refuses to continue research from another mandate or company", async () => {
+  m.get.mockResolvedValueOnce({ mandateId: "foreign", status: "partial", config: { purpose: "people", targetId: id } });
+  expect((await POST(request({ ...body, continueFrom: requestId }), ctx)).status).toBe(409); expect(m.worker).not.toHaveBeenCalled();
+});
