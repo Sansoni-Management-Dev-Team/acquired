@@ -108,7 +108,7 @@ export function OutreachQueue({ initialTargets, initialBuyerProfile, mandateId, 
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Approval could not be saved"); }
     finally { setMessageBusy(null); }
   }
-  if (!selected) return <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-8 text-sm text-[var(--muted)]">No businesses are attached to this mandate yet. Build coverage or import sourced records first.</div>;
+  if (!selected) return <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-8 text-sm text-[var(--muted)]">No businesses are attached to this mandate yet. Find businesses in Targets or import sourced records first.</div>;
 
   return <div className={`grid gap-5 ${embedded ? "" : "xl:grid-cols-[320px_1fr]"}`}>
     <aside className="space-y-4">

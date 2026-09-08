@@ -68,6 +68,18 @@ export class ResearchRepository {
       .orderBy(desc(researchFindings.observedAt))
       .limit(100);
   }
+  resultCounts(mandateId: string) {
+    return this.db.select({
+      jobId: researchFindings.jobId,
+      added: sql<number>`count(distinct case when ${targets.createdAt} >= ${researchJobs.createdAt} then ${targets.id} end)::int`,
+      updated: sql<number>`count(distinct case when ${targets.createdAt} < ${researchJobs.createdAt} then ${targets.id} end)::int`,
+      people: sql<number>`count(distinct case when ${researchFindings.evidence}->>'kind' = 'person' then lower(${researchFindings.evidence}->>'name') end)::int`,
+    }).from(researchFindings)
+      .innerJoin(researchJobs, eq(researchJobs.id, researchFindings.jobId))
+      .leftJoin(targets, and(eq(targets.id, researchFindings.targetId), eq(targets.organizationId, this.org)))
+      .where(and(eq(researchFindings.organizationId, this.org), eq(researchFindings.mandateId, mandateId)))
+      .groupBy(researchFindings.jobId);
+  }
   async create(
     id: string,
     mandateId: string,

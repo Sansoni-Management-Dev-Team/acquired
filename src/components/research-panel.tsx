@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   terminalResearchStates,
   groupResearchFindings,
@@ -24,7 +24,7 @@ type Job = {
   config: ResearchConfig;
   seeds: string[];
 };
-type Data = { enabled: boolean; jobs: Job[]; peopleJobs?: Job[]; findings: SavedResearchFinding[] };
+type Data = { results?: { jobId: string; added: number; updated: number; people: number }[]; enabled: boolean; jobs: Job[]; peopleJobs?: Job[]; findings: SavedResearchFinding[] };
 async function request(url: string, body?: unknown) {
   const r = await fetch(url, {
     method: body ? "POST" : "GET",
@@ -40,10 +40,12 @@ export function ResearchPanel({
   mandateId,
   brief,
   onResultsChanged,
+  historyContent,
 }: {
   mandateId: string;
   brief: AcquisitionBrief;
   onResultsChanged: () => void;
+  historyContent?: ReactNode;
 }) {
   const [data, setData] = useState<Data>({
     enabled: false,
@@ -67,7 +69,6 @@ export function ResearchPanel({
     brief.criteria.find((c) => c.key === "geography")?.value || "",
   );
   const [seeds, setSeeds] = useState(""),
-    [approved, setApproved] = useState(false),
     [pages, setPages] = useState(3),
     [useAi, setUseAi] = useState(true),
     [discover, setDiscover] = useState(true),
@@ -79,8 +80,8 @@ export function ResearchPanel({
   useEffect(() => { changedRef.current = onResultsChanged; }, [onResultsChanged]);
   const signatureRef = useRef("");
   const peopleBudgetValid = Number.isSafeInteger(peopleCompanies) && Number(peopleCompanies) > 0 && Number.isSafeInteger(peoplePages) && Number(peoplePages) > 0;
-  const setupRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (setup && continuation) setupRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [setup, continuation]);
+  const setupRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => { if (setup && setupRef.current && !setupRef.current.open) setupRef.current.showModal(); }, [setup]);
   const refresh = useCallback(async () => {
     try {
       const next: Data = await request(`/api/mandates/${mandateId}/research`);
@@ -107,6 +108,10 @@ export function ResearchPanel({
   const active = [...data.jobs, ...(data.peopleJobs || [])].find(
     (j) => !terminalResearchStates.includes(j.status),
   );
+  const currentJob = active || data.jobs[0];
+  const currentResults = data.results?.find(r => r.jobId === currentJob?.id);
+  const relatedPeople = (data.peopleJobs || []).filter(j => j.config.parentJobId === currentJob?.id);
+  const peopleFound = (currentResults?.people || 0) + (data.results || []).filter(r => relatedPeople.some(j => j.id === r.jobId)).reduce((sum, r) => sum + r.people, 0);
   const termList = terms
     .split("\n")
     .map((s) => s.trim())
@@ -139,7 +144,6 @@ export function ResearchPanel({
       onResultsChanged();
       setSetup(false);
       setContinuation(null);
-      setApproved(false);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -156,21 +160,22 @@ export function ResearchPanel({
     setPeopleCompanies(job.config.peopleBudget?.maxCompanies || 2);
     setPeoplePages(job.config.peopleBudget?.maxPages || 2);
     setStrategy("discover");
-    setApproved(false);
+    setSetup(true);
+  }
+  function retryFailed(job: Job) {
+    setContinuation(null);
+    setTerms(job.config.searchTerms.join("\n"));
+    setGeography(job.config.geography);
+    setSeeds((job.config.runtime?.attempts || []).filter(a => a.status === "failed" || /extraction failed/i.test(a.reason)).map(a => a.finalUrl || a.url).slice(0, 10).join("\n"));
+    setDiscover(false);
     setSetup(true);
   }
   return (
     <section className="space-y-5 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5">
-      <div>
-        <h2 className="text-xl font-semibold">Find &amp; research businesses</h2>
-        <p className="mt-2 text-sm text-[var(--muted)]">
-          Find businesses, add them to Targets, and research their websites in one run. Review sourced claims as they arrive; financial and management unknowns remain visible.
-        </p>
-      </div>
       {loading ? (
         <p role="status">Checking research service…</p>
       ) : !data.enabled ? (
-        <p>Website research is awaiting activation.</p>
+        <div className="space-y-3"><p>Website research is awaiting activation.</p><details><summary className="cursor-pointer py-2">Research history &amp; source details</summary>{historyContent}</details></div>
       ) : (
         <>
           {!active && (
@@ -180,13 +185,14 @@ export function ResearchPanel({
                 onClick={() => {
                   setSetup(!setup);
                   setContinuation(null);
-                  setApproved(false);
                 }}
               >
                 {setup ? "Close setup" : "Find & research businesses"}
               </button>
               {setup && (
-                <div ref={setupRef} className="space-y-4 rounded-lg border border-[var(--border)] p-4">
+                <dialog ref={setupRef} onCancel={() => setSetup(false)} onClose={() => setSetup(false)} aria-labelledby="research-setup-title" className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-dvh w-full max-w-xl overflow-y-auto border-l border-[var(--border)] bg-[var(--panel)] p-6 text-white backdrop:bg-black/70">
+                  <div className="mb-5 flex items-center justify-between gap-4"><h2 id="research-setup-title" className="text-xl font-semibold">{continuation ? "Continue research" : "Find & research businesses"}</h2><button className={button} onClick={() => setSetup(false)} aria-label="Close research settings">Close</button></div>
+                  <div className="space-y-4">
                   {continuation && (
                     <p className="font-medium">
                       Continue {remainingFor(continuation).length} saved URLs
@@ -202,7 +208,6 @@ export function ResearchPanel({
                       value={terms}
                       onChange={(e) => {
                         setTerms(e.target.value);
-                        setApproved(false);
                       }}
                     />
                   </label>
@@ -214,7 +219,6 @@ export function ResearchPanel({
                       value={geography}
                       onChange={(e) => {
                         setGeography(e.target.value);
-                        setApproved(false);
                       }}
                     />
                   </label>
@@ -228,7 +232,6 @@ export function ResearchPanel({
                           value={seeds}
                           onChange={(e) => {
                             setSeeds(e.target.value);
-                            setApproved(false);
                           }}
                         />
                       </label>
@@ -238,7 +241,6 @@ export function ResearchPanel({
                           checked={discover}
                           onChange={(e) => {
                             setDiscover(e.target.checked);
-                            setApproved(false);
                           }}
                         />
                         Find websites using directories, Google Places and web search
@@ -265,7 +267,7 @@ export function ResearchPanel({
                     </details>
                   )}
                   {continuation && <label className="flex items-center gap-2 text-sm">
-                    <input type="checkbox" checked={strategy === "investigate"} onChange={(e) => { setStrategy(e.target.checked ? "investigate" : "discover"); setApproved(false); }} />
+                    <input type="checkbox" checked={strategy === "investigate"} onChange={(e) => { setStrategy(e.target.checked ? "investigate" : "discover"); }} />
                     Investigate product pages on known websites first
                   </label>}
                   <label className="block text-sm">
@@ -275,7 +277,6 @@ export function ResearchPanel({
                       value={pages}
                       onChange={(e) => {
                         setPages(Number(e.target.value));
-                        setApproved(false);
                       }}
                     >
                       {[1, 2, 3, 4, 5].map((n) => (
@@ -289,22 +290,21 @@ export function ResearchPanel({
                       checked={useAi}
                       onChange={(e) => {
                         setUseAi(e.target.checked);
-                        setApproved(false);
                       }}
                     />
                     Assess sourced claims with AI
                   </label>
                   {!continuation && <label className="flex items-start gap-2 text-sm">
-                    <input type="checkbox" checked={findPeople && useAi} disabled={!useAi} onChange={e => { setFindPeople(e.target.checked); setApproved(false); }} />
+                    <input type="checkbox" checked={findPeople && useAi} disabled={!useAi} onChange={e => { setFindPeople(e.target.checked); }} />
                     Find owners and decision-makers for relevant businesses
                   </label>}
                   {findPeople && useAi && <div className="space-y-3 rounded-lg border border-[var(--border)] p-3">
                     <p className="text-sm">Capture names on pages already read. Then research people for relevant businesses with an established website identity. Contacts remain source leads for your review; no emails are sent.</p>
                     <label className="block text-sm">Maximum businesses for deeper people research
-                      <input className={input} type="number" min="1" step="1" required value={peopleCompanies} disabled={Boolean(continuation)} onChange={e => { setPeopleCompanies(e.target.value === "" ? "" : Number(e.target.value)); setApproved(false); }} />
+                      <input className={input} type="number" min="1" step="1" required value={peopleCompanies} disabled={Boolean(continuation)} onChange={e => { setPeopleCompanies(e.target.value === "" ? "" : Number(e.target.value)); }} />
                     </label>
                     <label className="block text-sm">Page attempts per business for people research
-                      <input className={input} type="number" min="1" step="1" required value={peoplePages} disabled={Boolean(continuation)} onChange={e => { setPeoplePages(e.target.value === "" ? "" : Number(e.target.value)); setApproved(false); }} />
+                      <input className={input} type="number" min="1" step="1" required value={peoplePages} disabled={Boolean(continuation)} onChange={e => { setPeoplePages(e.target.value === "" ? "" : Number(e.target.value)); }} />
                     </label>
                     {!peopleBudgetValid && <p role="alert" className="text-sm text-amber-200">Enter a whole number of at least 1 in both fields.</p>}
                     <p className="text-sm text-[var(--muted)]">Separate people allowance: up to {peopleBudgetValid ? Number(peopleCompanies) * Number(peoplePages) : "—"} additional page attempts and AI calls, {peopleCompanies} web searches, and 5 minutes per business. These are maximums; available sources and worker time or request limits may end a run earlier. Missing contacts do not block target review. Paid Firmable enrichment remains a separate action.</p>
@@ -315,20 +315,10 @@ export function ResearchPanel({
                     attempts count toward the limit. Included allowances are
                     shared across your account; usage may incur charges.
                   </p>
-                  <label className="flex items-start gap-3 text-sm">
-                    <input
-                      className="mt-1"
-                      type="checkbox"
-                      checked={approved}
-                      onChange={(e) => setApproved(e.target.checked)}
-                    />
-                    I approve this run and sharing these public research terms,
-                    URLs and page content with the research providers. I have
-                    removed confidential buyer details.
-                  </label>
+                  <p className="text-xs text-[var(--muted)]">Starting research shares these search terms, URLs and page content with the research providers. Keep confidential buyer details out of the search settings.</p>
                   <button
                     className={button}
-                    disabled={busy || !approved || (findPeople && useAi && !peopleBudgetValid)}
+                    disabled={busy || !termList.length || geography.trim().length < 2 || (findPeople && useAi && !peopleBudgetValid)}
                     onClick={() =>
                       act({
                         requestId: crypto.randomUUID(),
@@ -353,10 +343,29 @@ export function ResearchPanel({
                   >
                     {continuation ? "Continue research" : "Find & research businesses"}
                   </button>
-                </div>
+                  </div>
+                </dialog>
               )}
             </>
           )}
+          {currentJob && <div className="space-y-3" role="status">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="font-semibold">{!terminalResearchStates.includes(currentJob.status) ? (currentJob.config.purpose === "people" ? "Finding decision-makers" : currentJob.status === "discovering" ? "Finding businesses" : "Researching businesses") : currentJob.status === "cancelled" ? "Research cancelled" : "Latest research run"}</h2>
+              <span className="text-xs text-[var(--muted)]">{new Date(currentJob.createdAt).toLocaleString()}</span>
+            </div>
+            <p className="text-sm">{currentJob.config.purpose === "people" ? currentJob.config.companyName : `${currentResults?.added || 0} new businesses researched · ${currentResults?.updated || 0} existing businesses with new evidence`} · {peopleFound} contact leads</p>
+            <p className="text-sm">{currentJob.pages} pages read · {currentJob.config.runtime?.remaining.length || 0} URLs remaining</p>
+            <p className="text-xs text-[var(--muted)]">Page attempts: {currentJob.config.runtime?.attempts.length || currentJob.pages}/{currentJob.config.budget.maxPages} · AI calls: {currentJob.modelCalls}/{currentJob.config.budget.maxModelCalls}</p>
+            <p className="text-sm text-[var(--muted)]">{currentJob.message}</p>
+            {terminalResearchStates.includes(currentJob.status) && Boolean(currentJob.config.runtime?.remaining.length) && <p className="text-sm">This run has stopped; the remaining websites have not all been researched.</p>}
+            {!active && currentJob.config.purpose !== "people" && remainingFor(currentJob).length > 0 && <button className={button} disabled={busy} onClick={() => resume(currentJob)}>Continue research</button>}
+            {!active && currentJob.config.purpose !== "people" && currentJob.config.runtime?.attempts.some(a => a.status === "failed" || /extraction failed/i.test(a.reason)) && <button className={button} disabled={busy} onClick={() => retryFailed(currentJob)}>Retry failed pages</button>}
+            {active && <button className={button} disabled={busy} onClick={() => act({action:"cancel"}, active.id)}>Stop research</button>}
+            {active?.status === "queued" && <button className={button} disabled={busy} onClick={() => act({action:"retry-dispatch"}, active.id)}>Reconnect job</button>}
+          </div>}
+          <details className="border-t border-[var(--border)] pt-3">
+            <summary className="cursor-pointer py-2 text-sm font-medium">Research history &amp; source details</summary>
+            <div className="mt-4 space-y-5">
           <div className="space-y-3" aria-live="polite">
             {data.jobs.slice(0, 5).map((job) => {
               const runtime = job.config.runtime;
@@ -481,12 +490,15 @@ export function ResearchPanel({
             </article>)}
           </div>}
           <ResearchFindings
-            findings={data.findings}
+            findings={data.findings.filter(f => !f.targetId)}
             onChanged={() => {
               void refresh();
               onResultsChanged();
             }}
           />
+          {historyContent}
+            </div>
+          </details>
         </>
       )}
       {error && (

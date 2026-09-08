@@ -13,7 +13,8 @@ export default async function MandatePage({ params, searchParams }: { params: Pr
   if (!z.string().uuid().safeParse(id).success) notFound();
   const requested = (await searchParams).tab || "brief";
   if (requested === "outreach") redirect(`/outreach?mandateId=${id}`);
-  const tab = ["brief","coverage","targets","pipeline"].includes(requested) ? requested : "brief";
+  if (requested === "coverage") redirect(`/mandates/${id}?tab=targets`);
+  const tab = ["brief","targets","pipeline"].includes(requested) ? requested : "brief";
   const repo = new AcquisitionRepository(organizationId);
   const mandates = await repo.listMandates();
   const mandate = mandates.find(m => m.id === id);

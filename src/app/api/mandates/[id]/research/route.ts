@@ -25,9 +25,10 @@ export async function GET(
   if (!(await new AcquisitionRepository(org).getMandate(id)))
     return Response.json({ error: "Mandate not found" }, { status: 404 });
   const repo = new ResearchRepository(org);
-  const [initialJobs, findings] = await Promise.all([
+  const [initialJobs, findings, results] = await Promise.all([
     repo.list(id),
     repo.findings(id),
+    repo.resultCounts(id),
   ]);
   for (const job of initialJobs.filter(j => !terminalResearchStates.includes(j.status) && Date.now() - j.updatedAt.getTime() > 90000)) {
     try {
@@ -37,7 +38,7 @@ export async function GET(
   }
   const jobs = await repo.list(id);
   return Response.json(
-    { enabled: true, jobs: jobs.filter(j => (j.config as ResearchConfig).purpose !== "people"), peopleJobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).parentJobId), findings: findings.filter(f => (f.evidence as { kind?: string }).kind !== "person") },
+    { enabled: true, results, jobs: jobs.filter(j => (j.config as ResearchConfig).purpose !== "people"), peopleJobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).parentJobId), findings: findings.filter(f => (f.evidence as { kind?: string }).kind !== "person") },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

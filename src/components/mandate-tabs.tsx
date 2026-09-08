@@ -2,7 +2,6 @@ import Link from "next/link";
 
 const tabs = [
   ["brief", "Brief"],
-  ["coverage", "Coverage"],
   ["targets", "Targets"],
   ["pipeline", "Pipeline"],
   ["outreach", "Outreach"],
