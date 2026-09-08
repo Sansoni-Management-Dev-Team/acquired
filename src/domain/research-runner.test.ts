@@ -258,3 +258,13 @@ it("retains explicit company facts on AI failure and never invents a count", asy
   expect(t.progress.mock.calls.find(([e]) => e.page)?.[0].page?.findings.map(f => f.kind)).toEqual(["founded_year"]);
   expect(t.progress.mock.calls.at(-1)?.[0].status).toBe("partial");
 });
+
+it("saves a request-budget stop even when crawl cancellation fails", async () => {
+  const t = setup();
+  let checks = 0;
+  vi.mocked(t.service.control).mockImplementation(async () => ({ status: "crawling", config: t.config, seeds: t.config.seeds, deadline: ++checks >= 4 ? 0 : 600000, stopReason: "Worker request budget reached" }));
+  vi.mocked(t.service.cancel).mockRejectedValue(new Error("Crawler unavailable (400)"));
+  await runResearch(t.step, t.service);
+  expect(t.service.cancel).toHaveBeenCalledTimes(1);
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({status:"partial",message:"Worker request budget reached"});
+});

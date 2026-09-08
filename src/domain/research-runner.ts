@@ -174,9 +174,9 @@ export async function runResearch(
             terminalResearchStates.includes(current.status) ||
             current.expired
           ) {
-            await step.do(`cancel-${attempt}`, () =>
-              service.cancel(activeCrawl!),
-            );
+            try {
+              await step.do(`cancel-${attempt}`, () => service.cancel(activeCrawl!), false);
+            } catch { /* A completed or unavailable crawl must not prevent saving the continuation. */ }
             activeCrawl = null;
             entry.status = "failed";
             entry.reason = "Stopped while waiting for crawler";

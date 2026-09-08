@@ -104,7 +104,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
       {
         control: async () => {
           const state = await callback(this.env, id, undefined, requestBudget) as ResearchControl;
-          return requestBudget.used >= 38 ? { ...state, deadline: 0, stopReason: "Worker request budget reached; saved evidence retained. Start another research run to continue." } : state;
+          return requestBudget.used >= 32 ? { ...state, deadline: 0, stopReason: "Worker request budget reached; saved evidence retained. Start another research run to continue." } : state;
         },
         discover: () =>
           callback(this.env, id, { action: "discover" }, requestBudget) as Promise<{
