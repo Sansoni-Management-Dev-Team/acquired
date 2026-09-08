@@ -54,3 +54,13 @@ Tests use fictional domains and mocked providers; they do not consume crawl or A
 - [Workers AI pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/)
 
 The earlier local benchmark is retained in ignored `.local-data/crawler-benchmark/REPORT.md`. It compared public directory/static/JavaScript fixtures; it does not establish production throughput or full market coverage.
+
+## People research
+
+Open a company from Targets or Pipeline, select **Contacts & drafts**, then **Search public web**. The same option is available on Outreach, alongside Firmable. Vercel needs `TAVILY_API_KEY` for one bounded public web search; without it, the UI explicitly reports website-only research. Cloudflare Browser Run reads the returned URLs and follows team/contact links; Workers AI extracts named decision-makers. Cloudflare is the execution and crawling layer, not the web search index.
+
+People jobs reuse the existing research tables with `config.purpose = "people"` and a server-derived target ID, company name and domain. They use five page attempts, three domains, five model calls and ten minutes. Only one research job can be active per organisation. No additional migration is required. Search results are discovery URLs, not evidence: a person requires a literal source passage containing their name and role, plus an explicit company association on third-party pages. Jobs and findings are isolated by organisation, mandate and target. Company coverage excludes people findings.
+
+Users choose **Use this contact** to save a sourced lead. Publicly listed roles and business emails remain unverified; emails are never guessed. Saving a web lead does not overwrite existing contact enrichment or do-not-contact preferences. Missing emails remain unknown. Cancellation and reconnect use the existing durable job controls.
+
+The company review panel also keeps worksheet, decision, contacts and drafts together. A shortlist decision admits a company to Pipeline without qualifying it. Reviewed public sub-sector evidence carries into outreach; private financial answers do not. Draft previews can be generated without a contact email, but previews do not write sequences or Gmail drafts. Saving a sequence requires a selected contact with email; existing disclosure and Gmail approval gates remain enforced.
