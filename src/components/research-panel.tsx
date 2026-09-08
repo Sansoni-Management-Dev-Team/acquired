@@ -73,11 +73,12 @@ export function ResearchPanel({
     [discover, setDiscover] = useState(true),
     [continuation, setContinuation] = useState<Job | null>(null);
   const [findPeople, setFindPeople] = useState(true);
-  const [peopleCompanies, setPeopleCompanies] = useState(2);
-  const [peoplePages, setPeoplePages] = useState(2);
+  const [peopleCompanies, setPeopleCompanies] = useState<number | "">(2);
+  const [peoplePages, setPeoplePages] = useState<number | "">(2);
   const changedRef = useRef(onResultsChanged);
   useEffect(() => { changedRef.current = onResultsChanged; }, [onResultsChanged]);
   const signatureRef = useRef("");
+  const peopleBudgetValid = Number.isSafeInteger(peopleCompanies) && Number(peopleCompanies) > 0 && Number.isSafeInteger(peoplePages) && Number(peoplePages) > 0;
   const setupRef = useRef<HTMLDivElement>(null);
   useEffect(() => { if (setup && continuation) setupRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }); }, [setup, continuation]);
   const refresh = useCallback(async () => {
@@ -300,12 +301,13 @@ export function ResearchPanel({
                   {findPeople && useAi && <div className="space-y-3 rounded-lg border border-[var(--border)] p-3">
                     <p className="text-sm">Capture names on pages already read. Then research people for relevant businesses with an established website identity. Contacts remain source leads for your review; no emails are sent.</p>
                     <label className="block text-sm">Maximum businesses for deeper people research
-                      <select className={input} value={peopleCompanies} disabled={Boolean(continuation)} onChange={e => { setPeopleCompanies(Number(e.target.value)); setApproved(false); }}>{[1,2,3].map(n => <option key={n}>{n}</option>)}</select>
+                      <input className={input} type="number" min="1" step="1" required value={peopleCompanies} disabled={Boolean(continuation)} onChange={e => { setPeopleCompanies(e.target.value === "" ? "" : Number(e.target.value)); setApproved(false); }} />
                     </label>
                     <label className="block text-sm">Page attempts per business for people research
-                      <select className={input} value={peoplePages} disabled={Boolean(continuation)} onChange={e => { setPeoplePages(Number(e.target.value)); setApproved(false); }}>{[1,2,3].map(n => <option key={n}>{n}</option>)}</select>
+                      <input className={input} type="number" min="1" step="1" required value={peoplePages} disabled={Boolean(continuation)} onChange={e => { setPeoplePages(e.target.value === "" ? "" : Number(e.target.value)); setApproved(false); }} />
                     </label>
-                    <p className="text-sm text-[var(--muted)]">Separate people allowance: up to {peopleCompanies * peoplePages} additional page attempts and AI calls, {peopleCompanies} web searches, and 5 minutes per business. Missing contacts do not block target review. Paid Firmable enrichment remains a separate action.</p>
+                    {!peopleBudgetValid && <p role="alert" className="text-sm text-amber-200">Enter a whole number of at least 1 in both fields.</p>}
+                    <p className="text-sm text-[var(--muted)]">Separate people allowance: up to {peopleBudgetValid ? Number(peopleCompanies) * Number(peoplePages) : "—"} additional page attempts and AI calls, {peopleCompanies} web searches, and 5 minutes per business. These are maximums; available sources and worker time or request limits may end a run earlier. Missing contacts do not block target review. Paid Firmable enrichment remains a separate action.</p>
                   </div>}
                   <p className="text-sm text-[var(--muted)]">
                     Business research allows {pages} page attempts, {Math.min(3, pages)}{" "}
@@ -326,7 +328,7 @@ export function ResearchPanel({
                   </label>
                   <button
                     className={button}
-                    disabled={busy || !approved}
+                    disabled={busy || !approved || (findPeople && useAi && !peopleBudgetValid)}
                     onClick={() =>
                       act({
                         requestId: crypto.randomUUID(),

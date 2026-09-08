@@ -157,7 +157,8 @@ export class ResearchRepository {
     const config = job.config as ResearchConfig;
     if (
       event.pages > config.budget.maxPages ||
-      event.modelCalls > config.budget.maxModelCalls
+      event.modelCalls > config.budget.maxModelCalls ||
+      (event.runtime?.attempts.length ?? 0) > config.budget.maxPages
     )
       throw new Error("Research budget exceeded");
     if (event.page && publicResearchUrl(event.page.url)) {

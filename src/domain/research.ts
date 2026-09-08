@@ -66,7 +66,7 @@ export const researchStartSchema = z.object({
   strategy: z.enum(["discover", "investigate"]).optional(),
   workflow: z.literal("business").optional(),
   findPeople: z.boolean().optional(),
-  peopleBudget: z.object({ maxCompanies: z.number().int().min(1).max(3), maxPages: z.number().int().min(1).max(3) }).optional(),
+  peopleBudget: z.object({ maxCompanies: z.number().int().min(1), maxPages: z.number().int().min(1) }).optional(),
   approved: z.literal(true),
   budget: researchBudgetSchema,
 }).refine(c => !c.findPeople || (c.workflow === "business" && Boolean(c.peopleBudget) && c.budget.maxModelCalls > 0), "People research requires an AI business run and an explicit people budget");
@@ -82,8 +82,7 @@ export const researchRuntimeSchema = z.object({
         status: z.enum(["pending", "read", "failed"]),
         reason: z.string().max(300),
       }),
-    )
-    .max(5),
+    ),
 });
 export type ResearchRuntime = z.infer<typeof researchRuntimeSchema>;
 export function researchDomain(url: string) {
@@ -184,8 +183,8 @@ export type ResearchPage = {
 export const progressSchema = z.object({
   revision: z.number().int().min(1).max(10000),
   status: z.enum(researchStates),
-  pages: z.number().int().min(0).max(5),
-  modelCalls: z.number().int().min(0).max(5),
+  pages: z.number().int().min(0),
+  modelCalls: z.number().int().min(0),
   message: z.string().max(1000),
   crawlId: z.string().uuid().nullable().optional(),
   runtime: researchRuntimeSchema.optional(),

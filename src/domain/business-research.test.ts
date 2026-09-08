@@ -28,7 +28,11 @@ describe("combined business research", () => {
     const request = {...config,requestId:"00000000-0000-4000-8000-000000000001"};
     expect(researchStartSchema.safeParse(request).success).toBe(true);
     expect(researchStartSchema.safeParse({...request,peopleBudget:undefined}).success).toBe(false);
-    expect(researchStartSchema.safeParse({...request,peopleBudget:{maxCompanies:4,maxPages:2}}).success).toBe(false);
+    expect(researchStartSchema.safeParse({...request,peopleBudget:{maxCompanies:250,maxPages:100}}).success).toBe(true);
+    for (const invalid of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(researchStartSchema.safeParse({...request,peopleBudget:{maxCompanies:invalid,maxPages:2}}).success).toBe(false);
+      expect(researchStartSchema.safeParse({...request,peopleBudget:{maxCompanies:2,maxPages:invalid}}).success).toBe(false);
+    }
     expect(researchStartSchema.safeParse({...request,budget:{...config.budget,maxModelCalls:0}}).success).toBe(false);
   });
   it("only spends deeper people budget after relevance and identity are supported", () => {
