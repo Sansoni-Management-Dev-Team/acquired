@@ -1,3 +1,4 @@
+import { interleaveResearchResults } from "@/domain/research";
 import type { CoverageSource } from "@/domain/acquisition";
 import type { Mandate, TargetCandidate } from "@/domain/models";
 import { mapGooglePlace } from "./firmable-mapper";
@@ -6,7 +7,7 @@ import type { GooglePlacesClient } from "./google-places-client";
 import { placesQueryForMandate } from "./live-target-search";
 
 // Enumerate the selected register index, independently of any enrichment budget.
-export async function discoverMandate(options: { directory: ManufacturingDirectorySearch; places?: Pick<GooglePlacesClient, "isConfigured" | "searchText">; mandate: Mandate; organizationId: string }) {
+export async function discoverMandate(options: { directory: ManufacturingDirectorySearch; places?: Pick<GooglePlacesClient, "isConfigured" | "searchText">; mandate: Mandate; organizationId: string; interleavePlaces?: boolean }) {
   const checkedAt = new Date().toISOString();
   const targets: TargetCandidate[] = [];
   let source: CoverageSource;
@@ -49,12 +50,10 @@ export async function discoverMandate(options: { directory: ManufacturingDirecto
     const sectors = [...new Set(options.mandate.sectors)];
     const queries = sectors.slice(0, 12).map(sector => placesQueryForMandate({ ...options.mandate, sectors: [sector] }));
     const results = await Promise.allSettled(queries.map(query => options.places!.searchText(query, "max")));
-    let succeeded = 0;
+    const successful = results.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
+    const succeeded = successful.length;
     const placesSeen = new Set<string>();
-    for (const result of results) {
-      if (result.status === "rejected") continue;
-      succeeded++;
-      for (const place of result.value) {
+    for (const place of options.interleavePlaces ? interleaveResearchResults(successful) : successful.flat()) {
         if (placesSeen.has(place.id)) continue;
         placesSeen.add(place.id);
         google.discovered++;
@@ -67,7 +66,6 @@ export async function discoverMandate(options: { directory: ManufacturingDirecto
           targets.push(target);
           google.unique++;
         }
-      }
     }
     google.status = succeeded ? "partial" : "failed";
     google.note = `${succeeded}/${queries.length} sub-sector searches succeeded. Up to 20 results per query, first page only; not exhaustive coverage. ${Math.max(0, sectors.length - queries.length)} sub-sectors not searched due to the 12-query run limit. Unique contribution is counted after directory results; repeated Place IDs are counted once.`;

@@ -127,7 +127,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
               url: string;
               status: string;
               markdown?: string;
-              metadata?: { status?: number };
+              metadata?: { status?: number; title?: string };
             }[];
           };
           const record = data.records?.find(
@@ -140,6 +140,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
                   page: {
                     url: record.url,
                     markdown: record.markdown!.slice(0, 30000),
+                    title: record.metadata?.title,
                   },
                 }
               : {}),

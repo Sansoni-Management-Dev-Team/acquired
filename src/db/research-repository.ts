@@ -155,6 +155,7 @@ export class ResearchRepository {
         event.page.findings,
         event.page.markdown,
         sourceUrl,
+        config.searchTerms,
       );
       const domain = new URL(sourceUrl).hostname.replace(/^www\./, "");
       const linked = await this.db

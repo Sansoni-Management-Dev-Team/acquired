@@ -108,8 +108,8 @@ describe("research quality", () => {
     expect(
       researchQueries(["Industrial sensors: load cells, torque sensors"]),
     ).toEqual([
-      "Industrial sensors load cells",
-      "Industrial sensors torque sensors",
+      "Industrial load cells supplier",
+      "Industrial torque sensors supplier",
     ]));
   it("prioritizes supplier pages over consumer articles", () =>
     expect(
@@ -148,4 +148,17 @@ describe("research quality", () => {
     expect(resumed.runtime?.remaining).toEqual(config.runtime?.remaining);
     expect(resumed.budget.maxPages).toBe(1);
   });
+});
+
+it("does not infer manufacturing from a partnership or a product range",()=>{
+  const role={...f,kind:"business_role" as const,name:"Manufacturer",value:"shared passion",quote:"Our partnership is rooted in a shared passion."};
+  expect(normalizeResearchFinding(role)).toBeNull();
+  expect(normalizeResearchFinding({...role,value:"solid timber range",quote:"Our solid timber range is available."})).toBeNull();
+  expect(normalizeResearchFinding({...role,value:"instrument manufacturers",quote:"We are instrument manufacturers."})).not.toBeNull();
+});
+it("downgrades adjacent finished goods when the research specifies parts",()=>{
+  const product={...f,kind:"product" as const,name:"Finished devices",value:"complete devices",quote:"We supply complete devices for the optical industry.",relevance:"relevant" as const};
+  expect(validateFindings([product],product.quote,f.website,["Optical components: lenses, filters"])[0].relevance).toBe("adjacent");
+  const matching={...product,value:"optical lenses",quote:"We supply optical lenses."};
+  expect(validateFindings([matching],matching.quote,f.website,["Optical components: lenses, filters"])[0].relevance).toBe("relevant");
 });

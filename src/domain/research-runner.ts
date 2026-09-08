@@ -39,7 +39,7 @@ export interface ResearchServices {
     id: string,
   ): Promise<{
     status: string;
-    page?: { url: string; markdown: string };
+    page?: { url: string; markdown: string; title?: string };
     warning?: string;
   }>;
   cancel(id: string): Promise<void>;
@@ -220,7 +220,7 @@ export async function runResearch(
           ...runtime.visited,
           sourceUrl,
         ]).slice(-1000);
-        const markdown = result.page.markdown.slice(0, 24000);
+        const markdown = `${result.page.title ? `# ${result.page.title}\n\n` : ""}${result.page.markdown}`.slice(0, 24000);
         runtime.remaining = orderResearchQueue(
           [
             ...runtime.remaining,
@@ -261,6 +261,7 @@ export async function runResearch(
                     ),
                     markdown,
                     sourceUrl,
+                    initial.config.searchTerms,
                   ),
                   warning: "",
                 };

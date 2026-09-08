@@ -83,6 +83,7 @@ export async function POST(
         const provider = createTargetDataProvider();
         // Only explicitly approved search terms/geography reach Google.
         const discovery = await discoverMandate({
+          interleavePlaces: true,
           directory: {
             search: () =>
               provider.manufacturingDirectory.search(
