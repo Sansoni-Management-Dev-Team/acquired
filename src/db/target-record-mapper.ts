@@ -13,6 +13,8 @@ type StoredFirmographics = {
   ebitda?: unknown;
   headcount?: unknown;
   establishedYear?: unknown;
+  accreditations?: unknown;
+  financeability?: unknown;
   firmable?: unknown;
   manufacturingDirectory?: unknown;
   scoreExplanation?: unknown;
@@ -77,6 +79,8 @@ export function targetRecordToRankedTarget(row: TargetRecord, signalRows: Signal
     organisationId: row.organizationId,
     companyName: row.companyName,
     domain: row.domain || "",
+    abn: text(identifiers.abn) || undefined,
+    accreditations: Array.isArray(firmographics.accreditations) ? firmographics.accreditations as RankedTarget["accreditations"] : [],
     suburb: text(firmographics.suburb, "Unknown"),
     state: text(firmographics.state, "Unknown"),
     sector: derived<string>(firmographics.sector, "Sector was not retained"),
@@ -84,6 +88,7 @@ export function targetRecordToRankedTarget(row: TargetRecord, signalRows: Signal
     ebitda: derived<FinancialValue>(firmographics.ebitda, "EBITDA was not retained"),
     headcount: derived<number>(firmographics.headcount, "Headcount was not retained"),
     establishedYear: derived<number>(firmographics.establishedYear, "Established year was not retained"),
+    financeability: firmographics.financeability as RankedTarget["financeability"],
     signals: storedSignals(signalRows),
     status: row.status === "identified" ? "identified" : "enriched",
     sourceData: placeId || firmable || manufacturingDirectory ? {

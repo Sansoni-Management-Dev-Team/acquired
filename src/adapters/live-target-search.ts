@@ -56,8 +56,7 @@ export function mergeDiscoveryCandidates(google: GooglePlaceCandidate[], directo
 
 export function targetSearchLog(event: string, details: Record<string, unknown>) {
   const explicitlyEnabled = process.env.TARGET_SEARCH_VERBOSE_LOGGING === "true";
-  const developmentDefault = process.env.TARGET_SEARCH_VERBOSE_LOGGING === undefined && process.env.NODE_ENV === "development";
-  if (!explicitlyEnabled && !developmentDefault) return;
+  if (!explicitlyEnabled) return;
   console.info(`[target-search] ${event}`, JSON.stringify(details));
 }
 

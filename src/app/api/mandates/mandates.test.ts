@@ -1,0 +1,42 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { emptyBrief, initialAssessment } from "@/domain/acquisition";
+const mocks = vi.hoisted(() => ({ session: vi.fn(), getMandate: vi.fn(), saveAssessment: vi.fn(), saveBrief: vi.fn(), memberships: vi.fn(), provider: vi.fn(), org: vi.fn() }));
+vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: mocks.session } } }));
+vi.mock("@/db/client", () => ({ requireDb: vi.fn(() => { throw new Error("Unexpected database access"); }) }));
+vi.mock("@/db/acquisition-repository", () => ({ AcquisitionRepository: class { constructor(org: string) { mocks.org(org); } getMandate = mocks.getMandate; saveAssessment = mocks.saveAssessment; saveBrief = mocks.saveBrief; memberships = mocks.memberships; } }));
+vi.mock("@/db/repositories", () => ({ OrganizationRepository: class {} }));
+vi.mock("@/adapters/provider-mode", () => ({ createTargetDataProvider: mocks.provider }));
+import { POST as create } from "./route";
+import { POST as update } from "./[id]/route";
+const id = "00000000-0000-4000-8000-000000000001";
+const targetId = "00000000-0000-4000-8000-000000000002";
+const context = { params: Promise.resolve({ id }) };
+const request = (body: unknown) => new Request(`http://localhost/api/mandates/${id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+beforeEach(() => { vi.clearAllMocks(); mocks.session.mockResolvedValue({ user: { id: "user-a" }, session: { activeOrganizationId: "org-a" } }); mocks.getMandate.mockResolvedValue({ id, brief: emptyBrief() }); });
+describe("mandate API boundaries", () => {
+  it("rejects signed-out creation without writing", async () => {
+    mocks.session.mockResolvedValue(null);
+    expect((await create(request(emptyBrief()))).status).toBe(401);
+    expect(mocks.saveBrief).not.toHaveBeenCalled();
+  });
+  it("uses the active organisation and refuses a foreign mandate", async () => {
+    mocks.getMandate.mockResolvedValue(undefined);
+    expect((await update(request({ action: "discover" }), context)).status).toBe(404);
+    expect(mocks.org).toHaveBeenCalledWith("org-a"); expect(mocks.provider).not.toHaveBeenCalled();
+  });
+  it("does not call discovery providers for unreviewed criteria", async () => {
+    expect((await update(request({ action: "discover" }), context)).status).toBe(409);
+    expect(mocks.provider).not.toHaveBeenCalled();
+  });
+  it("refuses duplicate criterion evidence rather than inflating completeness", async () => {
+    const e = { criterionKey: "management", assessment: "unknown", kind: "inferred", value: "", source: "", sourceUrl: "", confidence: 0, capturedAt: "2026-09-01T00:00:00.000Z", nextStep: "Ask owner" };
+    expect((await update(request({ action: "assessment", targetId, version: 1, assessment: { ...initialAssessment, evidence: [e,e] } }),context)).status).toBe(400);
+    expect(mocks.saveAssessment).not.toHaveBeenCalled();
+  });
+  it("permits shortlisting with unknown owner answers and passes the expected version", async () => {
+    const result = await update(request({ action: "assessment", targetId, version: 7, assessment: { ...initialAssessment, stage: "shortlisted" } }),context);
+    // A pure assessment update must not instantiate the company write path / database.
+    expect(mocks.saveAssessment).toHaveBeenCalledWith(id,targetId,expect.objectContaining({ stage: "shortlisted" }),7,"user-a");
+    expect(result.status).toBe(200);
+  });
+});

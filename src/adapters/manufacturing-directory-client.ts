@@ -78,15 +78,6 @@ function specificSectorTerms(mandate: Mandate) {
   return [...new Set(mandate.sectors.flatMap(words).filter((word) => !genericWords.has(word)))];
 }
 
-function hostname(website?: string | null) {
-  if (!website) return "";
-  try {
-    return new URL(website).hostname.replace(/^www\./, "").toLowerCase();
-  } catch {
-    return "";
-  }
-}
-
 function localityFrom(address?: string | null, state?: string | null) {
   if (!address) return undefined;
   const statePattern = state ? new RegExp(`\\b${state}\\b`, "i") : /\b(?:ACT|NSW|NT|QLD|SA|TAS|VIC|WA)\b/i;
@@ -134,7 +125,7 @@ export function searchManufacturingBusinesses(
   limit: number,
   identifiers: ResearchedCompanyIdentifiers = {},
 ) {
-  if (!isManufacturingMandate(mandate)) return [];
+
   const terms = specificSectorTerms(mandate);
   const states = new Set(mandate.states.map((state) => state.toUpperCase()));
 
@@ -142,14 +133,13 @@ export function searchManufacturingBusinesses(
     .flatMap((business) => {
       const identifier = identifiers[business.id];
       const website = business.website || identifier?.website;
-      const abn = (business.abn || identifier?.abn || "").replace(/\D/g, "");
-      const domain = hostname(website);
-      if ((!domain && !/^\d{11}$/.test(abn)) || !business.state || !states.has(business.state.toUpperCase())) return [];
+      if (states.size && business.state && !states.has(business.state.toUpperCase())) return [];
       const capabilities = Object.entries(business.capabilities || {}).flatMap(([category, values]) => [category, ...values]);
       const searchable = [business.name, ...(business.categories || []), ...(business.keywords || []), ...capabilities, business.description || ""]
         .join(" ")
         .toLowerCase();
-      if (terms.length && !terms.every((term) => searchable.includes(term))) return [];
+      const groups = mandate.sectors.map(sector => specificSectorTerms({ ...mandate, sectors: [sector] }));
+      if (terms.length && !groups.some(group => group.length && group.every(term => searchable.includes(term)))) return [];
       if (!terms.length && !credibleManufacturingEvidence(business, searchable)) return [];
       const exactSector = mandate.sectors.some((sector) => searchable.includes(sector.toLowerCase()));
       const termScore = terms.reduce((score, term) => score + (searchable.includes(term) ? 10 : 0), 0);
@@ -189,7 +179,7 @@ export class ManufacturingDirectoryClient implements ManufacturingDirectorySearc
   }
 
   async search(mandate: Mandate, limit: number) {
-    if (!isManufacturingMandate(mandate)) return [];
+
     return searchManufacturingBusinesses(await this.load(), mandate, limit, productionIdentifiers);
   }
 }

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createAiProvider } from "./ai/provider";
 import type { AiProvider } from "./ai/types";
-import type { BuyerProfile } from "@/domain/buyer-profile";
+import { publicBuyerProfile, type BuyerProfile } from "@/domain/buyer-profile";
 import type { DraftMessage } from "@/domain/outreach";
 import { scheduleSequence } from "@/domain/outreach";
 import type { Signal } from "@/domain/models";
@@ -95,6 +95,8 @@ Return exactly seven messages as strict JSON matching the supplied schema. The m
 
 Never invent facts, financial performance, ownership, sale intent, succession intent, customer details, tenure, personal circumstances, or urgency. Company-specific factual claims may only come from the supplied evidence signals. Attach every signal ID used by a message in signalIds. A message with no company-specific factual claim may use an empty signalIds array. Do not mention data providers, evidence IDs, scoring, enrichment, automation, or AI.
 
+For a trade buyer, focus on evidenced operational adjacency, continuity and industry experience using only the approved buyer profile. Do not promise staff retention, funding, certifications or group backing unless explicitly supplied. For a financial buyer, use their approved investment and operating approach. Never infer seller motivation from tenure or age.
+
 Use Australian English. Be concise, natural, private, and non-manipulative. Do not claim the sender represents a fund or broker. Do not imply the recipient is considering a sale. Vary the messages rather than repeating the opener. Do not include a signature; the application appends the exact saved signature.`;
 
 export class AiOutreachDraftingProvider implements OutreachDraftingProvider {
@@ -115,7 +117,7 @@ export class AiOutreachDraftingProvider implements OutreachDraftingProvider {
       user: JSON.stringify({
         company: { name: request.companyName, description: request.companyDescription || null },
         recipient: { firstName: request.contactFirstName },
-        buyer: request.buyerProfile,
+        buyer: publicBuyerProfile(request.buyerProfile),
         evidenceSignals: request.signals.map((signal) => ({ id: signal.id, kind: signal.kind, value: signal.value, direction: signal.direction, source: signal.provenance.source, confidence: signal.provenance.confidence })),
       }),
       schema: outreachResponseSchema,

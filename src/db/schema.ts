@@ -80,6 +80,7 @@ export const sequences = pgTable("sequences", {
 
 export const sequenceEnrolments = pgTable("sequence_enrolments", {
   id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id), sequenceId: uuid("sequence_id").notNull().references(() => sequences.id),
+  mandateId: uuid("mandate_id").references(() => mandates.id),
   targetId: uuid("target_id").notNull().references(() => targets.id), contactId: uuid("contact_id").references(() => contacts.id), state: enrolmentState("state").notNull().default("draft"),
   stopReason: text("stop_reason"), approvedBy: text("approved_by").references(() => user.id), approvedAt: timestamp("approved_at", { withTimezone: true }), nextStepAt: timestamp("next_step_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -125,3 +126,25 @@ export const auditEvents = pgTable("audit_events", {
 export const dailySendCounters = pgTable("daily_send_counters", {
   mailboxConnectionId: uuid("mailbox_connection_id").notNull().references(() => mailboxConnections.id), date: text("date").notNull(), count: integer("count").notNull().default(0),
 }, (table) => [primaryKey({ columns: [table.mailboxConnectionId, table.date] })]);
+
+// A company is shared; all buyer decisions belong to its mandate membership.
+export const mandateTargets = pgTable("mandate_targets", {
+  organizationId: text("organization_id").notNull().references(() => organization.id),
+  mandateId: uuid("mandate_id").notNull().references(() => mandates.id, { onDelete: "cascade" }),
+  targetId: uuid("target_id").notNull().references(() => targets.id, { onDelete: "cascade" }),
+  assessment: jsonb("assessment").notNull().default({}),
+  version: integer("version").notNull().default(1),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [primaryKey({ columns: [table.mandateId, table.targetId] }), index("mandate_targets_org_idx").on(table.organizationId)]);
+
+export const coverageRuns = pgTable("coverage_runs", {
+  id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id),
+  mandateId: uuid("mandate_id").notNull().references(() => mandates.id, { onDelete: "cascade" }),
+  sources: jsonb("sources").notNull().default([]), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [index("coverage_runs_mandate_idx").on(table.organizationId, table.mandateId)]);
+
+export const valuationObservations = pgTable("valuation_observations", {
+  id: uuid("id").primaryKey(), organizationId: text("organization_id").notNull().references(() => organization.id),
+  mandateId: uuid("mandate_id").notNull().references(() => mandates.id, { onDelete: "cascade" }),
+  observation: jsonb("observation").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [index("valuations_mandate_idx").on(table.organizationId, table.mandateId)]);

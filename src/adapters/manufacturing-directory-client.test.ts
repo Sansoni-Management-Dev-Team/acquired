@@ -72,14 +72,14 @@ describe("manufacturing directory search", () => {
     });
   });
 
-  it("loads the production dataset and returns Firmable-eligible candidates", async () => {
+  it("loads the production dataset and retains unresolved candidates for review", async () => {
     const results = await new ManufacturingDirectoryClient().search(
       parseMandate("Find manufacturing businesses in Victoria"),
       20,
     );
     expect(results).toHaveLength(20);
-    expect(results.every((candidate) => (candidate.website || candidate.manufacturingDirectory?.abn) && candidate.manufacturingDirectory)).toBe(true);
-    expect(results.every((candidate) => candidate.state === "VIC")).toBe(true);
+    expect(results.every((candidate) => candidate.manufacturingDirectory)).toBe(true);
+    expect(results.every((candidate) => !candidate.state || candidate.state === "VIC")).toBe(true);
   });
 
   it("returns web-discovery businesses for taxonomy-specific searches", async () => {

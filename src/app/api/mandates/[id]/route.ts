@@ -1,0 +1,142 @@
+import { z } from "zod";
+import { and, eq, sql } from "drizzle-orm";
+import { auth } from "@/lib/auth";
+import { requireDb } from "@/db/client";
+import { contacts, messages, sequenceEnrolments, organization, targets } from "@/db/schema";
+import { buyerProfileFromMetadata } from "@/domain/buyer-profile";
+import { AcquisitionRepository } from "@/db/acquisition-repository";
+import { OrganizationRepository } from "@/db/repositories";
+import { accreditationSchema, assessmentSchema, briefSchema, briefToMandate, searchReadiness, transitionErrors, valuationSchema } from "@/domain/acquisition";
+import { rankTarget } from "@/domain/scoring";
+import { discoverMandate } from "@/adapters/mandate-discovery";
+import { createTargetDataProvider } from "@/adapters/provider-mode";
+import { mapFirmableCompany, mapGooglePlace } from "@/adapters/firmable-mapper";
+import { acquireTargetSearch, TargetSearchRateLimitError } from "@/adapters/target-search-guard";
+
+const importedRecord = z.object({ name: z.string().trim().min(1).max(300), website: z.union([z.string().url(), z.literal("")]), abn: z.string().regex(/^(\d{11})?$/), state: z.string().max(30), description: z.string().max(3000), source: z.string().trim().min(1).max(200), sourceUrl: z.string().url(), sourceId: z.string().trim().min(1).max(200) });
+const actionSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("brief"), brief: briefSchema }),
+  z.object({ action: z.literal("discover") }),
+  z.object({ action: z.literal("import"), records: z.array(importedRecord).min(1).max(1000) }),
+  z.object({ action: z.literal("enrich"), targetIds: z.array(z.string().uuid()).min(1).max(20) }),
+  z.object({ action: z.literal("assessment"), targetId: z.string().uuid(), assessment: assessmentSchema, version: z.number().int().positive() }),
+  z.object({ action: z.literal("accreditations"), targetId: z.string().uuid(), accreditations: z.array(accreditationSchema).max(100) }),
+  z.object({ action: z.literal("valuation"), observation: valuationSchema }),
+  z.object({ action: z.literal("identity"), targetId: z.string().uuid(), website: z.union([z.string().url().refine(url => /^https?:\/\//i.test(url)), z.literal("")]), abn: z.string().regex(/^(\d{11})?$/), source: z.string().trim().min(1).max(500), sourceUrl: z.string().url() }),
+]);
+
+export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
+  const session = await auth.api.getSession({ headers: request.headers });
+  const org = session?.session.activeOrganizationId;
+  if (!org) return Response.json({ error: "Sign in and select an organisation." }, { status: 401 });
+  const { id } = await context.params;
+  if (!z.string().uuid().safeParse(id).success) return Response.json({ error: "Invalid mandate" }, { status: 400 });
+  const repo = new AcquisitionRepository(org);
+  const mandate = await repo.getMandate(id);
+  if (!mandate) return Response.json({ error: "Mandate not found" }, { status: 404 });
+  const [memberships, coverage, valuations, contactRows, orgRows] = await Promise.all([repo.memberships(id), repo.coverage(id), repo.valuations(id), requireDb().select().from(contacts).where(eq(contacts.organizationId, org)), requireDb().select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, org))]);
+  return Response.json({ mandate, memberships, coverage, valuations, buyerProfile: buyerProfileFromMetadata(orgRows[0]?.metadata), contacts: contactRows.filter(c => memberships.some(m => m.target.id === c.targetId)).map(c => ({ targetId: c.targetId, name: c.displayName, role: c.role, reachable: !c.fictionalised && Boolean((c.personalData as Record<string, unknown>).email) && !(c.personalData as Record<string, unknown>).doNotContact })) });
+}
+
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
+  const session = await auth.api.getSession({ headers: request.headers });
+  const org = session?.session.activeOrganizationId;
+  if (!org || !session) return Response.json({ error: "Sign in and select an organisation." }, { status: 401 });
+  const { id } = await context.params;
+  if (!z.string().uuid().safeParse(id).success) return Response.json({ error: "Invalid mandate" }, { status: 400 });
+  const parsed = actionSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return Response.json({ error: parsed.error.issues.map(i => i.message).join("; ") }, { status: 400 });
+  const action = parsed.data;
+  const repo = new AcquisitionRepository(org);
+  const mandate = await repo.getMandate(id);
+  if (!mandate) return Response.json({ error: "Mandate not found" }, { status: 404 });
+  let release: (() => void) | undefined;
+  try {
+    if (action.action === "brief") await repo.saveBrief(action.brief, session.user.id, id);
+    if (action.action === "assessment") {
+      const errors = transitionErrors(mandate.brief, action.assessment);
+      if (action.assessment.stage === "qualified") {
+        const [buyer] = await requireDb().select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, org));
+        if (!buyerProfileFromMetadata(buyer?.metadata)?.capitalConfirmed) errors.push("Confirm buyer capital and funding form before qualification.");
+        if (!action.assessment.financeReview?.structureReviewed) errors.push("Review the proposed deal structure before qualification.");
+      }
+      if (action.assessment.stage === "outreach-approved") {
+        const enrolments = await requireDb().select().from(sequenceEnrolments).where(and(eq(sequenceEnrolments.organizationId, org), eq(sequenceEnrolments.mandateId, id), eq(sequenceEnrolments.targetId, action.targetId)));
+        const drafts = await requireDb().select().from(messages).where(eq(messages.organizationId, org));
+        if (!drafts.some(d => enrolments.some(e => e.id === d.enrolmentId) && d.state === "approved")) errors.push("Approve an outreach draft before selecting this stage.");
+      }
+      if (errors.length) return Response.json({ error: errors.join(" ") }, { status: 409 });
+      await repo.saveAssessment(id, action.targetId, action.assessment, action.version, session.user.id);
+    }
+    if (action.action === "accreditations") {
+      await repo.saveAccreditations(id, action.targetId, action.accreditations);
+      await new OrganizationRepository(requireDb(), org).appendAudit({ actorId: session.user.id, action: "target.accreditations_saved", entityType: "target", entityId: action.targetId, metadata: { mandateId: id, count: action.accreditations.length } });
+    }
+    if (action.action === "identity") {
+      if (!(await repo.memberships(id)).some(m => m.target.id === action.targetId)) return Response.json({ error: "Target not found in mandate" }, { status: 404 });
+      const domain = action.website ? new URL(action.website).hostname.replace(/^www\./, "").toLowerCase() : "";
+      if (domain) {
+        const [existing] = await requireDb().select({ id: targets.id }).from(targets).where(and(eq(targets.organizationId, org), eq(targets.domain, domain)));
+        if (existing && existing.id !== action.targetId) return Response.json({ error: "This website belongs to another saved company. Review the duplicate before changing identity." }, { status: 409 });
+      }
+      const identity = { source: action.source, sourceUrl: action.sourceUrl, capturedAt: new Date().toISOString() };
+      await requireDb().update(targets).set({ domain, identifiers: sql`${targets.identifiers} || ${JSON.stringify({ abn: action.abn, identityEvidence: identity })}::jsonb`, updatedAt: new Date() }).where(and(eq(targets.id, action.targetId), eq(targets.organizationId, org)));
+      await new OrganizationRepository(requireDb(), org).appendAudit({ actorId: session.user.id, action: "target.identity_reviewed", entityType: "target", entityId: action.targetId, metadata: { mandateId: id } });
+    }
+    if (action.action === "valuation") {
+      await repo.saveValuation(id, action.observation);
+      await new OrganizationRepository(requireDb(), org).appendAudit({ actorId: session.user.id, action: "mandate.valuation_recorded", entityType: "mandate", entityId: id, metadata: { observationId: action.observation.id } });
+    }
+    if (["discover", "enrich", "import"].includes(action.action)) release = acquireTargetSearch(org);
+    const filters = briefToMandate(mandate.brief);
+    if (action.action === "discover") {
+      const errors = searchReadiness(mandate.brief);
+      if (!filters.states.length) errors.push("Use Australian state names/codes or National for geography.");
+      if (errors.length) return Response.json({ error: errors.join(" ") }, { status: 409 });
+      const companyRepo = new OrganizationRepository(requireDb(), org);
+      const provider = createTargetDataProvider();
+      const result = await discoverMandate({ directory: provider.manufacturingDirectory, mandate: filters, organizationId: org });
+      for (const target of result.targets) {
+        const saved = await companyRepo.upsertEnrichedTarget({ target: rankTarget(target, filters), mandateId: id, actorId: session.user.id });
+        if (saved) await repo.attach(id, saved.id);
+      }
+      await repo.recordCoverage(id, result.sources);
+    }
+    if (action.action === "import") {
+      const companyRepo = new OrganizationRepository(requireDb(), org);
+      let added = 0;
+      const before = new Set((await repo.memberships(id)).map(m => m.target.id));
+      for (const record of action.records) {
+        const directory = { recordId: `${record.source}:${record.sourceId}`, name: record.name, website: record.website || undefined, abn: record.abn || undefined, state: record.state, description: record.description, categories: [], keywords: [], capabilities: [], sourceRecords: [{ source: record.source, sourceId: record.sourceId, sourceUrl: record.sourceUrl }] };
+        const target = mapGooglePlace({ id: directory.recordId, name: record.name, formattedAddress: record.state, website: record.website || undefined, state: record.state, discoverySource: "manufacturing-directory", manufacturingDirectory: directory }, filters, org, "Imported discovery record — enrichment pending");
+        const saved = await companyRepo.upsertEnrichedTarget({ target: rankTarget(target, filters), mandateId: id, actorId: session.user.id });
+        if (saved) { await repo.attach(id, saved.id); if (!before.has(saved.id)) { added++; before.add(saved.id); } }
+      }
+      await repo.recordCoverage(id, [{ name: "Sourced record import", status: "partial", discovered: action.records.length, unique: added, overlap: action.records.length - added, checkedAt: new Date().toISOString(), note: "User-supplied records; source population completeness has not been established." }]);
+    }
+    if (action.action === "enrich") {
+      const companyRepo = new OrganizationRepository(requireDb(), org);
+      const memberships = await repo.memberships(id);
+      if (action.targetIds.some(targetId => !memberships.some(m => m.target.id === targetId))) return Response.json({ error: "A target does not belong to this mandate" }, { status: 404 });
+      const provider = createTargetDataProvider();
+      const warnings: string[] = [];
+      for (const targetId of [...new Set(action.targetIds)]) {
+        const target = memberships.find(m => m.target.id === targetId)!.target;
+        const abn = target.abn || target.sourceData?.manufacturingDirectory?.abn || target.sourceData?.firmable?.abn;
+        if (!target.domain && !abn) { warnings.push(`${target.companyName}: website or ABN required; candidate retained.`); continue; }
+        try {
+          const company = await provider.firmable.enrichCompany(target.domain ? { fqdn: target.domain } : { abn });
+          const enriched = mapFirmableCompany(company, { id: target.sourceData?.googlePlaces?.placeId || targetId, name: target.companyName, formattedAddress: target.state, website: target.domain ? `https://${target.domain}` : undefined, state: target.state, manufacturingDirectory: target.sourceData?.manufacturingDirectory, discoverySource: target.sourceData?.manufacturingDirectory ? "manufacturing-directory" : "google-places" }, filters, org);
+          // Preserve the selected shared identity even when the enrichment changes the domain.
+          enriched.domain = target.domain || enriched.domain;
+          const saved = await companyRepo.upsertEnrichedTarget({ target: rankTarget(enriched, filters), mandateId: id, actorId: session.user.id, existingTargetId: targetId });
+          if (saved) await repo.attach(id, saved.id);
+        } catch { warnings.push(`${target.companyName}: enrichment failed; candidate retained.`); }
+      }
+      return Response.json({ ok: true, warnings });
+    }
+    return Response.json({ ok: true });
+  } catch (error) {
+    return Response.json({ error: error instanceof Error ? error.message : "Unable to save changes" }, { status: error instanceof TargetSearchRateLimitError ? 429 : 409 });
+  } finally { release?.(); }
+}

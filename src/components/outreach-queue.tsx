@@ -16,9 +16,9 @@ export type OutreachTargetView = {
 
 const emptyProfile: BuyerProfile = { senderName: "", background: "", investmentThesis: "", operatingIntent: "", callToAction: "", signature: "" };
 
-export function OutreachQueue({ initialTargets, initialBuyerProfile }: { initialTargets: OutreachTargetView[]; initialBuyerProfile: BuyerProfile | null }) {
+export function OutreachQueue({ initialTargets, initialBuyerProfile, mandateId, initialTargetId, disclosureApproved = false }: { mandateId: string; initialTargetId?: string; disclosureApproved?: boolean; initialTargets: OutreachTargetView[]; initialBuyerProfile: BuyerProfile | null }) {
   const router = useRouter();
-  const [selectedId, setSelectedId] = useState(initialTargets[0]?.id || "");
+  const [selectedId, setSelectedId] = useState(initialTargetId || initialTargets[0]?.id || "");
   const [busy, setBusy] = useState<"candidates" | "contact" | "drafts" | null>(null);
   const [messageBusy, setMessageBusy] = useState<string | null>(null);
   const [draftEdits, setDraftEdits] = useState<Record<string, { subject: string; body: string }>>({});
@@ -30,7 +30,7 @@ export function OutreachQueue({ initialTargets, initialBuyerProfile }: { initial
   const [savingProfile, setSavingProfile] = useState(false);
   const selected = useMemo(() => initialTargets.find((target) => target.id === selectedId) || initialTargets[0], [initialTargets, selectedId]);
   const contact = selected?.contacts.find((item) => item.id === selectedContacts[selected.id]) || selected?.contacts[0];
-  const readyToDraft = Boolean(selected && contact?.email && !contact.doNotContact && selected.signals.length && profileSaved);
+  const readyToDraft = Boolean(selected && contact?.email && !contact.doNotContact && selected.signals.length && profileSaved && disclosureApproved && buyerProfile.publicProfileApproved);
   const contactNeedsLiveEnrichment = !contact || !contact.email || contact.fictionalised;
   const hasApprovedDraft = Boolean(selected?.drafts.some((draft) => draft.state === "approved"));
 
@@ -47,7 +47,7 @@ export function OutreachQueue({ initialTargets, initialBuyerProfile }: { initial
 
   function regenerateDrafts() {
     if (!window.confirm("Replace all seven saved drafts with a newly generated sequence? Existing draft edits and approvals will be overwritten.")) return;
-    void perform("drafts", "/api/outreach/drafts", { targetId: selected.id, contactId: contact?.id });
+    void perform("drafts", "/api/outreach/drafts", { mandateId, targetId: selected.id, contactId: contact?.id });
   }
 
   async function findCandidates() {
@@ -74,7 +74,7 @@ export function OutreachQueue({ initialTargets, initialBuyerProfile }: { initial
   }
 
   function updateProfile(field: keyof BuyerProfile, value: string) {
-    setBuyerProfile((current) => ({ ...current, [field]: value }));
+    setBuyerProfile((current) => ({ ...current, [field]: value, publicProfileApproved: false }));
     setProfileSaved(false);
   }
 
@@ -102,7 +102,7 @@ export function OutreachQueue({ initialTargets, initialBuyerProfile }: { initial
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Approval could not be saved"); }
     finally { setMessageBusy(null); }
   }
-  if (!selected) return <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-8 text-sm text-[var(--muted)]">No enriched businesses have been saved yet. Run a target search first.</div>;
+  if (!selected) return <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-8 text-sm text-[var(--muted)]">No businesses are attached to this mandate yet. Build coverage or import sourced records first.</div>;
 
   return <div className="grid gap-5 xl:grid-cols-[320px_1fr]">
     <aside className="space-y-4">
@@ -110,7 +110,7 @@ export function OutreachQueue({ initialTargets, initialBuyerProfile }: { initial
         ["senderName", "Sender name", "Alex Buyer"], ["background", "Background", "Your relevant operating and professional background"],
         ["investmentThesis", "Investment thesis", "The kind of company you want to acquire"], ["operatingIntent", "Operating intent", "How you intend to own and operate the business"],
         ["callToAction", "Call to action", "The specific next step you want to request"], ["signature", "Signature", "Name and sign-off"],
-      ] as Array<[keyof BuyerProfile, string, string]>).map(([field, label, placeholder]) => <label key={field} className="block text-[11px] text-[var(--muted)]">{label}{field === "senderName" || field === "signature" ? <input value={buyerProfile[field]} onChange={(event) => updateProfile(field, event.target.value)} placeholder={placeholder} className="mt-1 w-full rounded-md border border-[var(--border)] bg-black/20 px-3 py-2 text-xs text-white" /> : <textarea value={buyerProfile[field]} onChange={(event) => updateProfile(field, event.target.value)} placeholder={placeholder} className="mt-1 min-h-16 w-full resize-y rounded-md border border-[var(--border)] bg-black/20 px-3 py-2 text-xs text-white" />}</label>)}</div><button disabled={savingProfile || profileSaved} onClick={saveBuyerProfile} className="mt-4 rounded-md border border-[var(--border)] px-3 py-2 text-xs font-semibold disabled:opacity-40">{savingProfile ? "Saving…" : profileSaved ? "Profile saved" : "Save buyer profile"}</button></section>
+      ] as Array<["senderName" | "background" | "investmentThesis" | "operatingIntent" | "callToAction" | "signature", string, string]>).map(([field, label, placeholder]) => <label key={field} className="block text-[11px] text-[var(--muted)]">{label}{field === "senderName" || field === "signature" ? <input value={buyerProfile[field]} onChange={(event) => updateProfile(field, event.target.value)} placeholder={placeholder} className="mt-1 w-full rounded-md border border-[var(--border)] bg-black/20 px-3 py-2 text-xs text-white" /> : <textarea value={buyerProfile[field]} onChange={(event) => updateProfile(field, event.target.value)} placeholder={placeholder} className="mt-1 min-h-16 w-full resize-y rounded-md border border-[var(--border)] bg-black/20 px-3 py-2 text-xs text-white" />}</label>)}</div><button disabled={savingProfile || profileSaved} onClick={saveBuyerProfile} className="mt-4 rounded-md border border-[var(--border)] px-3 py-2 text-xs font-semibold disabled:opacity-40">{savingProfile ? "Saving…" : profileSaved ? "Profile saved" : "Save buyer profile"}</button></section>
       <section className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5">
         <label className="text-xs uppercase tracking-[.16em] text-[var(--muted)]">Saved business<select value={selected.id} onChange={(event) => { setSelectedId(event.target.value); setCandidates([]); setError(""); }} className="mt-2 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] px-3 py-2.5 text-sm text-white">{initialTargets.map((target) => <option key={target.id} value={target.id}>{target.companyName}</option>)}</select></label>
         <h2 className="mt-5 text-xl font-semibold">{selected.companyName}</h2><p className="mt-1 text-xs text-[var(--muted)]">{selected.domain || "No domain"}{selected.sector ? ` · ${selected.sector}` : ""}</p>
@@ -127,7 +127,7 @@ export function OutreachQueue({ initialTargets, initialBuyerProfile }: { initial
       {error && <p role="alert" className="rounded-md border border-red-400/20 bg-red-400/5 p-3 text-xs text-red-200">{error}</p>}
     </aside>
     <section className="space-y-3">
-      {selected.drafts.length === 0 ? <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-7"><p className="text-xs uppercase tracking-[.16em] text-[var(--accent)]">Outreach readiness</p><h2 className="mt-2 text-xl font-semibold">Generate seven evidence-grounded drafts</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--muted)]">Drafts use the stored company profile, selected decision-maker, and persisted evidence signals. They remain in draft state and cannot send without human approval.</p><button disabled={!readyToDraft || busy !== null} onClick={() => perform("drafts", "/api/outreach/drafts", { targetId: selected.id, contactId: contact?.id })} className="mt-5 inline-flex items-center gap-2 rounded-md bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-40">{busy === "drafts" && <LoaderCircle size={15} className="animate-spin" />}Generate and save drafts</button>{!readyToDraft && <p className="mt-3 text-xs text-amber-200">Requires a saved buyer profile, a contactable decision-maker with an email, and at least one evidence signal.</p>}</div> : <><div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4"><div><p className="text-xs uppercase tracking-[.16em] text-[var(--accent)]">Saved sequence</p><p className="mt-1 text-xs text-[var(--muted)]">{hasApprovedDraft ? "Revoke approved Gmail drafts before regenerating." : "Regeneration replaces all seven drafts and resets their approvals."}</p></div><button disabled={!readyToDraft || hasApprovedDraft || busy !== null || messageBusy !== null} onClick={regenerateDrafts} className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40">{busy === "drafts" && <LoaderCircle size={14} className="animate-spin" />}Regenerate all drafts</button></div>{selected.drafts.map((draft) => {
+      {selected.drafts.length === 0 ? <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-7"><p className="text-xs uppercase tracking-[.16em] text-[var(--accent)]">Outreach readiness</p><h2 className="mt-2 text-xl font-semibold">Generate seven evidence-grounded drafts</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--muted)]">Drafts use the stored company profile, selected decision-maker, and persisted evidence signals. They remain in draft state and cannot send without human approval.</p><button disabled={!readyToDraft || busy !== null} onClick={() => perform("drafts", "/api/outreach/drafts", { mandateId, targetId: selected.id, contactId: contact?.id })} className="mt-5 inline-flex items-center gap-2 rounded-md bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-40">{busy === "drafts" && <LoaderCircle size={15} className="animate-spin" />}Generate and save drafts</button>{!readyToDraft && <p className="mt-3 text-xs text-amber-200">Requires approved mandate disclosure, an approved public buyer profile, a contactable decision-maker and a positive evidence signal. Review disclosure controls in the Brief tab.</p>}</div> : <><div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4"><div><p className="text-xs uppercase tracking-[.16em] text-[var(--accent)]">Saved sequence</p><p className="mt-1 text-xs text-[var(--muted)]">{hasApprovedDraft ? "Revoke approved Gmail drafts before regenerating." : "Regeneration replaces all seven drafts and resets their approvals."}</p></div><button disabled={!readyToDraft || hasApprovedDraft || busy !== null || messageBusy !== null} onClick={regenerateDrafts} className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40">{busy === "drafts" && <LoaderCircle size={14} className="animate-spin" />}Regenerate all drafts</button></div>{selected.drafts.map((draft) => {
         const edit = editFor(draft); const approved = draft.state === "approved";
         return <article key={draft.id} className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5">
           <div className="flex flex-wrap items-center justify-between gap-3"><span className="text-xs uppercase tracking-[.16em] text-[var(--accent)]">Step {draft.step}</span><button disabled={messageBusy !== null || (!approved && Boolean(contact?.fictionalised || !contact?.email || contact.doNotContact))} onClick={() => setApproval(draft, !approved)} className={`rounded-md border px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${approved ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--muted)]"}`}>{messageBusy === draft.id ? "Syncing Gmail…" : approved ? "Revoke approval" : contact?.fictionalised ? "Real contact required" : "Approve & save to Gmail"}</button></div>

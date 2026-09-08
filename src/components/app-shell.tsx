@@ -7,7 +7,7 @@ import { Building2, LogOut, Mail, Settings } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 
 const nav = [
-  ["Targets", "/targets", Building2],
+  ["Mandates", "/mandates", Building2],
   ["Outreach", "/outreach", Mail],
   ["Settings", "/settings", Settings],
 ] as const;
@@ -26,7 +26,7 @@ export function AppShell({ children, providerMode }: { children: React.ReactNode
   return (
     <div className="min-h-screen lg:grid lg:grid-cols-[244px_1fr]">
       <aside className="border-b border-[var(--border)] bg-black p-6 lg:min-h-screen lg:border-b-0 lg:border-r">
-        <Link href="/targets" className="mb-8 flex items-center gap-3">
+        <Link href="/mandates" className="mb-8 flex items-center gap-3">
           <Image src="/acquired-crown.png" width={42} height={42} alt="Acquired crown" className="size-10 object-contain" priority />
           <span><strong className="block tracking-[.16em]">ACQUIRED</strong><small className="text-[var(--muted)]">Deal intelligence</small></span>
         </Link>

@@ -1,3 +1,4 @@
+import type { Accreditation } from "./acquisition";
 export type Confidence = number;
 export type ScoreBand = "hot" | "warm" | "cold" | "excluded";
 export type OpportunityQualification = "priority" | "develop" | "research" | "excluded";
@@ -19,6 +20,8 @@ export type DerivedValue<T> = {
 export type FinancialValue = number | { kind: "range"; min: number; max: number } | { kind: "band"; label: string };
 
 export type Mandate = {
+  unknownFields?: string[];
+  requirements?: string[];
   sectors: string[];
   states: string[];
   locations?: string[];
@@ -114,6 +117,8 @@ export type TargetCandidate = {
   organisationId: string;
   companyName: string;
   domain: string;
+  abn?: string;
+  accreditations?: Accreditation[];
   suburb: string;
   state: string;
   sector: DerivedValue<string>;
@@ -141,6 +146,8 @@ export type RankedTarget = TargetCandidate & {
     ripeness: number;
     financeability: number | null;
     confidence: number;
+    completeness?: { fit: number; ripeness: number; bankability: number };
+    axisConfidence?: { fit: number; ripeness: number; bankability: number };
     band: ScoreBand;
     qualification: OpportunityQualification;
     tensions: string[];

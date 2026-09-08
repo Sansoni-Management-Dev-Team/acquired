@@ -20,11 +20,12 @@ function financialMatch(value: FinancialValue, mandate: { min: number; max: numb
 function calculateFit(target: TargetCandidate, mandate: Mandate) {
   const reasons: RankedTarget["scores"]["reasons"] = [];
   let score = 0;
-  let knownWeight = 10; // Location is always known at discovery.
-  let confidenceTotal = 1000;
-  let excluded = !mandate.states.includes(target.state);
+  const locationKnown = /^(ACT|NSW|NT|QLD|SA|TAS|VIC|WA)$/.test(target.state) && mandate.states.length > 0;
+  let knownWeight = locationKnown ? 10 : 0;
+  let confidenceTotal = locationKnown ? 1000 : 0;
+  let excluded = mandate.states.length > 0 && !["Unknown", ""].includes(target.state) && !mandate.states.includes(target.state) && (!mandate.requirements || mandate.requirements.includes("geography"));
 
-  if (!excluded) {
+  if (!excluded && locationKnown) {
     score += 10;
     reasons.push({ axis: "fit", label: `Located in ${target.state}`, contribution: 10, source: "Discovery record" });
   }
@@ -45,7 +46,7 @@ function calculateFit(target: TargetCandidate, mandate: Mandate) {
   ];
 
   for (const check of checks) {
-    if (check.field.value === null) continue;
+    if (check.field.value === null || (check.label.startsWith("Revenue") && mandate.unknownFields?.includes("revenue")) || (check.label.startsWith("EBITDA") && mandate.unknownFields?.includes("ebitda"))) continue;
     const matches = check.match(check.field.value);
     if (matches === undefined) continue;
     knownWeight += check.weight;
@@ -59,12 +60,12 @@ function calculateFit(target: TargetCandidate, mandate: Mandate) {
         source: check.field.provenance.source,
         sourceUrl: check.field.provenance.sourceUrl,
       });
-    } else if (check.weight >= 25) {
+    } else if (check.weight >= 25 && check.field.provenance.confidence >= 80 && typeof check.field.value === "number" && (!mandate.requirements || mandate.requirements.includes(check.label.startsWith("Revenue") ? "revenue" : "ebitda"))) {
       excluded = true;
     }
   }
 
-  return { score, evidenceConfidence: Math.round(confidenceTotal / knownWeight), reasons, excluded };
+  return { score, completeness: knownWeight, evidenceConfidence: knownWeight ? Math.round(confidenceTotal / knownWeight) : 0, reasons, excluded };
 }
 
 function calculateRipeness(signals: Signal[]) {
@@ -92,7 +93,7 @@ function calculateRipeness(signals: Signal[]) {
 
 function calculateFinanceability(target: TargetCandidate) {
   const evidence = target.financeability;
-  if (!evidence) return { score: null, confidence: 0, reasons: [] as RankedTarget["scores"]["reasons"] };
+  if (!evidence) return { score: null, completeness: 0, confidence: 0, reasons: [] as RankedTarget["scores"]["reasons"] };
   const reasons: RankedTarget["scores"]["reasons"] = [];
   let earned = 0; let possible = 0; let confidenceTotal = 0;
   const assess = <T>(field: DerivedValue<T> | undefined, weight: number, label: (value: T) => string, pass: (value: T) => boolean) => {
@@ -107,7 +108,7 @@ function calculateFinanceability(target: TargetCandidate) {
   assess(evidence.goodwillType, 20, (value) => `${value[0].toUpperCase()}${value.slice(1)} goodwill profile`, (value) => value === "business");
   assess(evidence.gmInPlace, 15, (value) => value ? "General manager in place" : "No independent general manager", Boolean);
   assess(evidence.addBacksPctOfCashFlow, 10, (value) => `Add-backs ${value}% of cash flow`, (value) => value <= 20);
-  return { score: possible ? Math.round(earned / possible * 100) : null, confidence: possible ? Math.round(confidenceTotal / possible) : 0, reasons };
+  return { score: possible >= 50 ? Math.round(earned / possible * 100) : null, completeness: possible, confidence: possible ? Math.round(confidenceTotal / possible) : 0, reasons };
 }
 
 function qualify(fit: number, ripeness: number, financeability: number | null, confidence: number, excluded: boolean): OpportunityQualification {
@@ -142,6 +143,8 @@ export function rankTarget(target: TargetCandidate, mandate: Mandate): RankedTar
       ripeness: ripeness.score,
       financeability: financeability.score,
       confidence,
+      completeness: { fit: fit.completeness, ripeness: target.signals.length ? Math.min(100, target.signals.length * 20) : 0, bankability: financeability.completeness },
+      axisConfidence: { fit: fit.evidenceConfidence, ripeness: ripeness.confidence, bankability: financeability.confidence },
       band: determineBand(fit.score, ripeness.score, confidence, fit.excluded),
       qualification: qualify(fit.score, ripeness.score, financeability.score, confidence, fit.excluded),
       tensions,

@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, or, sql } from "drizzle-orm";
 import type { db as databaseType } from "./client";
 import { auditEvents, mandates, signals, targets } from "./schema";
 import { targetRecordToRankedTarget } from "./target-record-mapper";
@@ -39,20 +39,22 @@ export class OrganizationRepository {
     return created;
   }
 
-  async upsertEnrichedTarget(input: { target: RankedTarget; mandateId: string; actorId: string }) {
-    const { target, mandateId, actorId } = input;
+  async upsertEnrichedTarget(input: { target: RankedTarget; mandateId: string; actorId: string; existingTargetId?: string }) {
+    const { target, actorId } = input;
     const firmable = target.sourceData?.firmable;
-    if (!firmable || target.status !== "enriched" || !target.domain) return null;
+    const directory = target.sourceData?.manufacturingDirectory;
+    const placeId = target.sourceData?.googlePlaces?.placeId;
+    if (!firmable && !directory) return null;
     const identifiers = {
       googlePlaceId: target.sourceData?.googlePlaces?.placeId,
-      firmableId: firmable.firmableId,
+      firmableId: firmable?.firmableId,
       manufacturingDirectoryRecordId: target.sourceData?.manufacturingDirectory?.recordId,
-      abn: firmable.abn,
-      acn: firmable.acn,
-      anzsic: firmable.anzsic,
+      abn: (firmable?.abn || directory?.abn)?.replace(/\D/g, ""),
+      acn: firmable?.acn,
+      anzsic: firmable?.anzsic,
     };
-    // Google content remains transient except for the storable Place ID. The persisted company
-    // profile and outreach context are derived from Firmable's company-enrichment response.
+    // Google content remains transient except for Place ID. Persisted profiles come from
+    // a sourced register/directory record or the Firmable enrichment response.
     const firmographics = {
       suburb: target.suburb,
       state: target.state,
@@ -66,23 +68,23 @@ export class OrganizationRepository {
       outreachContext: {
         companyName: target.companyName,
         domain: target.domain,
-        description: firmable.description,
-        tagline: firmable.tagline,
-        industries: firmable.industries,
-        keywords: firmable.keywords,
-        headquarters: firmable.headquarters,
-        locations: firmable.locations,
-        yearFounded: firmable.yearFounded,
+        description: firmable?.description,
+        tagline: firmable?.tagline,
+        industries: firmable?.industries,
+        keywords: firmable?.keywords,
+        headquarters: firmable?.headquarters,
+        locations: firmable?.locations,
+        yearFounded: firmable?.yearFounded,
       },
+      financeability: target.financeability,
       scoreExplanation: {
         tensions: target.scores.tensions,
         reasons: target.scores.reasons,
       },
     };
     const values = {
-      mandateId,
       companyName: target.companyName,
-      domain: target.domain,
+      domain: target.domain.toLowerCase(),
       identifiers,
       firmographics,
       fitScore: target.scores.fit,
@@ -94,13 +96,27 @@ export class OrganizationRepository {
       status: target.status,
       updatedAt: new Date(),
     } as const;
-    const [existing] = await this.database.select({ id: targets.id }).from(targets).where(and(
+    const [existing] = await this.database.select({ id: targets.id, firmographics: targets.firmographics, status: targets.status }).from(targets).where(and(
       eq(targets.organizationId, this.organizationId),
-      eq(targets.domain, target.domain),
+      input.existingTargetId ? eq(targets.id, input.existingTargetId) : or(
+        target.domain ? eq(targets.domain, target.domain.toLowerCase()) : undefined,
+        identifiers.abn ? sql`${targets.identifiers}->>'abn' = ${identifiers.abn.replace(/\D/g, "")}` : undefined,
+        directory ? sql`${targets.identifiers}->>'manufacturingDirectoryRecordId' = ${directory.recordId}` : undefined,
+        placeId ? sql`${targets.identifiers}->>'googlePlaceId' = ${placeId}` : undefined,
+      ),
     )).limit(1);
+    if (input.existingTargetId && !existing) throw new Error("Target not found in organisation");
+    const retained = existing?.firmographics as Record<string, unknown> | undefined;
+    const priorDirectory = retained?.manufacturingDirectory as typeof directory;
+    const mergedDirectory = directory && priorDirectory ? { ...priorDirectory, ...directory, sourceRecords: [...new Map([...priorDirectory.sourceRecords, ...directory.sourceRecords].map(record => [`${record.source}:${record.sourceId}`, record])).values()] } : directory || priorDirectory;
+    if (existing && target.status !== "enriched" && existing.status !== "identified") {
+      if (mergedDirectory) await this.database.update(targets).set({ firmographics: { ...retained, manufacturingDirectory: mergedDirectory } }).where(and(eq(targets.id, existing.id), eq(targets.organizationId, this.organizationId)));
+      return { id: existing.id };
+    }
+    const storedValues = { ...values, firmographics: { ...retained, ...values.firmographics, manufacturingDirectory: mergedDirectory, ...(retained?.accreditations ? { accreditations: retained.accreditations } : {}) } };
     const [saved] = existing
-      ? await this.database.update(targets).set(values).where(and(eq(targets.id, existing.id), eq(targets.organizationId, this.organizationId))).returning({ id: targets.id })
-      : await this.database.insert(targets).values({ organizationId: this.organizationId, ...values }).returning({ id: targets.id });
+      ? await this.database.update(targets).set(storedValues).where(and(eq(targets.id, existing.id), eq(targets.organizationId, this.organizationId))).returning({ id: targets.id })
+      : await this.database.insert(targets).values({ organizationId: this.organizationId, ...storedValues }).returning({ id: targets.id });
     await this.appendAudit({
       actorId,
       action: existing ? "target.reenriched" : "target.created",
@@ -108,10 +124,11 @@ export class OrganizationRepository {
       entityId: saved.id,
       after: { companyName: target.companyName, domain: target.domain, identifiers, scores: target.scores },
       metadata: {
+        mandateId: input.mandateId,
         providers: [
           ...(target.sourceData?.googlePlaces ? ["Google Places"] : []),
           ...(target.sourceData?.manufacturingDirectory ? ["Australian Manufacturing directories"] : []),
-          "Firmable",
+          ...(firmable ? ["Firmable"] : []),
         ],
         googleContentPersisted: target.sourceData?.googlePlaces ? ["placeId"] : [],
         personalDataPersisted: false,

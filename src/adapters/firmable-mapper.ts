@@ -44,7 +44,7 @@ function locationFrom(address: string, rawState?: string) {
     ? rawState.toUpperCase()
     : stateNames[rawState.toLowerCase()]);
   const match = address.match(/(?:,\s*)?([^,]+?)\s+(ACT|NSW|NT|QLD|SA|TAS|VIC|WA)\s+\d{4}/i);
-  return { state: state || match?.[2]?.toUpperCase() || "VIC", suburb: match?.[1]?.trim() || address.split(",")[0] || "Unknown" };
+  return { state: state || match?.[2]?.toUpperCase() || "Unknown", suburb: match?.[1]?.trim() || address.split(",")[0] || "Unknown" };
 }
 
 function bestSector(raw: Record<string, unknown>, mandate: Mandate) {
@@ -53,7 +53,7 @@ function bestSector(raw: Record<string, unknown>, mandate: Mandate) {
     const left = industry.toLowerCase(); const right = sector.toLowerCase();
     return left.includes(right) || right.includes(left);
   }));
-  return match || industries[0] || mandate.sectors[0];
+  return match || industries[0] || "Unclassified";
 }
 
 function googleSourceData(place: GooglePlaceCandidate) {
@@ -111,9 +111,9 @@ function firmableSourceData(raw: Record<string, unknown>, fallbackId: string) {
   };
 }
 
-export function mapGooglePlace(place: GooglePlaceCandidate, mandate: Mandate, organisationId: string, enrichmentReason = "Firmable enrichment not attempted") : TargetCandidate {
+export function mapGooglePlace(place: GooglePlaceCandidate, _mandate: Mandate, organisationId: string, enrichmentReason = "Firmable enrichment not attempted") : TargetCandidate {
   const capturedAt = new Date().toISOString();
-  const location = place.locality && place.state ? { suburb: place.locality, state: place.state } : locationFrom(place.formattedAddress);
+  const location = place.locality && place.state ? { suburb: place.locality, state: place.state } : locationFrom(place.formattedAddress, place.state);
   return {
     id: `google-${place.id}`,
     organisationId,
@@ -121,7 +121,7 @@ export function mapGooglePlace(place: GooglePlaceCandidate, mandate: Mandate, or
     domain: domainFrom(place.website),
     suburb: location.suburb,
     state: location.state,
-    sector: value(mandate.sectors[0], place.discoverySource === "manufacturing-directory" ? "Manufacturing directories" : "Google Places query match", capturedAt, 65, place.website),
+    sector: place.manufacturingDirectory?.categories[0] || place.primaryType ? value(place.manufacturingDirectory?.categories[0] || place.primaryType!, place.discoverySource === "manufacturing-directory" ? "Register / directory classification" : "Google Places classification", capturedAt, 60, place.manufacturingDirectory?.sourceRecords[0]?.sourceUrl || place.website) : missing("Sub-sector requires review", "Discovery", capturedAt),
     revenue: missing(enrichmentReason, "Firmable", capturedAt),
     ebitda: missing("Firmable does not provide EBITDA", "Firmable", capturedAt),
     headcount: missing(enrichmentReason, "Firmable", capturedAt),
