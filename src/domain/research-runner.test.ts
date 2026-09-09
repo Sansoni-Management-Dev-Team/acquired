@@ -5,6 +5,7 @@ import {
   type ResearchSteps,
 } from "./research-runner";
 import type { ResearchConfig } from "./research";
+import { ResearchAiError } from "./research-ai-error";
 function setup() {
   const config: ResearchConfig = {
     seeds: ["https://instruments.example.com/"],
@@ -67,6 +68,18 @@ function setup() {
   };
 }
 describe("bounded research orchestration", () => {
+  it.each([
+    [new ResearchAiError("Free research AI reached its output token limit"), "output token limit"],
+    [new Error("private provider response"), "Evidence extraction failed; page read successfully"],
+  ])("persists safe extraction diagnostics while retaining the read page", async (error, expected) => {
+    const t = setup();
+    t.service.extract = vi.fn().mockRejectedValue(error);
+    await runResearch(t.step, t.service);
+    const events = JSON.stringify(t.progress.mock.calls);
+    expect(events).toContain(expected);
+    expect(events).not.toContain("private provider response");
+    expect(t.progress.mock.calls.at(-1)?.[0].pages).toBeGreaterThan(0);
+  });
   it("retains explicit website statements when AI has no supported output", async () => {
     const t = setup();
     t.config.budget.maxPages = 1;

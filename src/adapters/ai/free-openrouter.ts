@@ -1,3 +1,4 @@
+import { ResearchAiError } from "../../domain/research-ai-error";
 import { z } from "zod";
 
 // Explicit candidates, never openrouter/auto or a paid fallback. Update only
@@ -37,17 +38,17 @@ export class FreeOpenRouter {
     this.options = privateOptions;
     this.models = [...new Set(privateOptions.models ?? FREE_RESEARCH_MODELS)];
     if (!this.models.length || this.models.length > 3 || this.models.some(m => !FREE_RESEARCH_MODELS.some(allowed => allowed === m))) {
-      throw new Error("Research requires one to three approved free OpenRouter models");
+      throw new ResearchAiError("Research requires one to three approved free OpenRouter models");
     }
   }
   private readonly options;
 
   async complete(input: FreeResearchRequest): Promise<{ response: unknown }> {
-    if (!this.options.apiKey) throw new Error("Research AI unavailable: OPENROUTER_API_KEY is not configured");
+    if (!this.options.apiKey) throw new ResearchAiError("Research AI unavailable: OPENROUTER_API_KEY is not configured");
     const validator = z.fromJSONSchema(input.response_format.json_schema);
     // NEX supports disabling reasoning; Nemotron's advertised efforts do not.
     const models = input.reasoning_effort === "none" ? this.models.filter(m => m.startsWith("nex-agi/")) : this.models;
-    if (!models.length) throw new Error("No approved free model supports the requested reasoning mode");
+    if (!models.length) throw new ResearchAiError("No approved free model supports the requested reasoning mode");
     const started = Date.now();
     this.options.onRequest?.();
     let response: Response;
@@ -70,12 +71,12 @@ export class FreeOpenRouter {
         signal: AbortSignal.timeout(45000),
       });
     } catch {
-      throw new Error("Free research AI unavailable: request timed out or transport failed");
+      throw new ResearchAiError("Free research AI unavailable: request timed out or transport failed");
     }
     if (!response.ok) {
       // Do not log provider bodies: they can echo page content or credentials.
       const retryAfter = response.headers.get("retry-after");
-      throw new Error(`Free research AI unavailable (HTTP ${response.status})${retryAfter && /^\d+$/.test(retryAfter) ? `; retry after ${retryAfter} seconds` : ""}. No paid or Workers AI fallback was used.`);
+      throw new ResearchAiError(`Free research AI unavailable (HTTP ${response.status})${retryAfter && /^\d+$/.test(retryAfter) ? `; retry after ${retryAfter} seconds` : ""}. No paid or Workers AI fallback was used.`);
     }
     const payload = await response.json() as {
       model?: string;
@@ -83,13 +84,13 @@ export class FreeOpenRouter {
       choices?: { finish_reason?: string; message?: { content?: string } }[];
       usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
     };
-    const choice = payload.choices?.[0];
-    if (payload.error || !choice?.message?.content || choice.finish_reason === "length") throw new Error(choice?.finish_reason === "length" ? "Free research AI reached its output token limit" : "Free research AI returned an incomplete response");
-    let parsed: unknown;
-    try { parsed = JSON.parse(choice.message.content); } catch { throw new Error("Free research AI returned invalid JSON"); }
-    const result = validator.safeParse(parsed);
-    if (!result.success) throw new Error("Free research AI response did not match the research schema");
     this.options.onUsage?.({ model: payload.model ?? "unknown", inputTokens: payload.usage?.prompt_tokens ?? 0, outputTokens: payload.usage?.completion_tokens ?? 0, cost: payload.usage?.cost ?? null, elapsedMs: Date.now() - started });
+    const choice = payload.choices?.[0];
+    if (payload.error || !choice?.message?.content || choice.finish_reason === "length") throw new ResearchAiError(choice?.finish_reason === "length" ? "Free research AI reached its output token limit" : "Free research AI returned an incomplete response");
+    let parsed: unknown;
+    try { parsed = JSON.parse(choice.message.content); } catch { throw new ResearchAiError("Free research AI returned invalid JSON"); }
+    const result = validator.safeParse(parsed);
+    if (!result.success) throw new ResearchAiError("Free research AI response did not match the research schema");
     return { response: result.data };
   }
 }

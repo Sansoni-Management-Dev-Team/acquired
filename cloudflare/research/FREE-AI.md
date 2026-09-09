@@ -34,8 +34,13 @@ research dispatch is configured separately through `RESEARCH_WORKER_URL`.
 [local development](../../docs/27-local-research-and-ai.md). Free drafting uses
 NEX Mini then NEX Pro with reasoning disabled and an additional 2,048 output tokens
 for the seven-message sequence. Nemotron is excluded from drafting because its
-advertised effort levels do not include `none`. Research uses `medium`, which all
-three research candidates support. Model usage logs contain no draft or page text.
+advertised effort levels do not include `none`. Business/people extraction,
+headcount and follow-up planning also disable reasoning and use NEX Pro then NEX
+Mini. This keeps reasoning from consuming the bounded extraction output budget;
+Nemotron is excluded from these requests because it does not support `none`.
+Model usage logs include truncated completions and contain no draft or page text.
+Safe AI error reasons are retained in research page history, including token-limit,
+timeout, schema and HTTP failures; raw provider error bodies are never exposed.
 
 Put the key in `.env.local` or export it, then run:
 

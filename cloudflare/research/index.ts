@@ -1,9 +1,9 @@
+import { researchExtractionRequest } from "../../src/domain/research-extraction-schema";
 import { FreeOpenRouter } from "../../src/adapters/ai/free-openrouter";
 import { callbackOrigin } from "./callback-origin";
 import { cancelCrawl, crawlRetryUrl, CrawlerRequestError, requestBudgetStop } from "./runtime-policy";
 import { targetedPrompt, targetedSchema } from "../../src/domain/targeted-research";
 import { readFallback } from "./fallback";
-import { peopleExtractionSchema } from "../../src/domain/people-research";
 import { searchResults } from "../../src/domain/cloudflare-search";
 import {
   WorkflowEntrypoint,
@@ -203,69 +203,12 @@ export class AcquireResearch extends WorkflowEntrypoint<
           await cancelCrawl(crawlId, (path, method) => browser(this.env, path, method, undefined, requestBudget));
         },
         extract: async (messages) => {
-          const output = await ai.complete(
-            {
-              messages,
-              max_tokens: 1200,
-              temperature: 0,
-              response_format: {
-                type: "json_schema",
-                json_schema: messages[0].content.startsWith("Find named business decision-makers") ? peopleExtractionSchema : {
-                  type: "object",
-                  properties: {
-                    findings: {
-                      type: "array",
-                      maxItems: 4,
-                      items: {
-                        type: "object",
-                        properties: {
-                          kind: {
-                            type: "string",
-                            enum: [
-                              "company",
-                              "business_role",
-                              "product",
-                              "customer",
-                              "person",
-                              "capability",
-                              "accreditation",
-                              "identifier",
-                            ],
-                          },
-                          name: { type: "string" },
-                          value: { type: "string" },
-                          quote: { type: "string" },
-                          website: { type: "string" },
-                          subject: { type: "string" },
-                          email: { type: "string" },
-                          relevance: {
-                            type: "string",
-                            enum: ["relevant", "adjacent", "unclear"],
-                          },
-                        },
-                        required: [
-                          "kind",
-                          "name",
-                          "value",
-                          "quote",
-                          "website",
-                          "relevance",
-                        ],
-                        additionalProperties: false,
-                      },
-                    },
-                  },
-                  required: ["findings"],
-                  additionalProperties: false,
-                },
-              },
-            },
-          );
+          const output = await ai.complete(researchExtractionRequest(messages));
           return parseResearchExtraction(output);
         },
         extractHeadcount: async (messages) => {
           const output = await ai.complete({
-            messages, max_tokens: 300, temperature: 0,
+            messages, max_tokens: 300, reasoning_effort: "none", temperature: 0,
             response_format: { type: "json_schema", json_schema: {
               type: "object", properties: { value: { type: ["string", "null"] }, quote: { type: ["string", "null"] } },
               required: ["value", "quote"], additionalProperties: false,
@@ -276,7 +219,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
         },
         planFollowup: async (plan) => {
           const output = await ai.complete({
-            messages: targetedPrompt(plan), max_tokens: 100, temperature: 0,
+            messages: targetedPrompt(plan), max_tokens: 100, reasoning_effort: "none", temperature: 0,
             response_format: { type: "json_schema", json_schema: targetedSchema(plan) },
           }) as { response?: unknown };
           return typeof output.response === "string" ? JSON.parse(output.response) : output.response;

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { FreeOpenRouter, FREE_RESEARCH_MODELS } from "./free-openrouter";
 import { peopleExtractionSchema } from "../../domain/people-research";
+import { researchExtractionRequest } from "../../domain/research-extraction-schema";
 
 const request = {
   messages: [{ role: "user", content: "Use only supplied public source text" }], max_tokens: 300,
@@ -12,6 +13,17 @@ const request = {
 const completion = (value: unknown, extra = {}) => Response.json({ model: FREE_RESEARCH_MODELS[1], choices: [{ finish_reason: "stop", message: { content: JSON.stringify(value) } }], usage: { cost: 0 }, ...extra });
 
 describe("free research OpenRouter service", () => {
+  it("routes worker extraction without reasoning and records usage even if the output is truncated", async () => {
+    const onUsage = vi.fn();
+    const fetcher = vi.fn().mockResolvedValue(completion({}, { choices: [{ finish_reason: "length", message: { content: "{}" } }] }));
+    const ai = new FreeOpenRouter({ apiKey: "secret", fetch: fetcher, onUsage });
+    await expect(ai.complete(researchExtractionRequest(request.messages))).rejects.toThrow(/output token limit/);
+    const body = JSON.parse(fetcher.mock.calls[0][1].body);
+    expect(body.reasoning.effort).toBe("none");
+    expect(body.models).toEqual(FREE_RESEARCH_MODELS.filter(m => m.startsWith("nex-agi/")));
+    expect(body.max_tokens).toBeGreaterThanOrEqual(2048);
+    expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({ cost: 0 }));
+  });
   it("delegates an ordered free-only waterfall in one request and records the actual answering model", async () => {
     const fetcher = vi.fn().mockResolvedValue(completion({ value: null, quote: null }));
     const onRequest = vi.fn(), onUsage = vi.fn();

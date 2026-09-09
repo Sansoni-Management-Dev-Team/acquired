@@ -1,3 +1,4 @@
+import { ResearchAiError } from "./research-ai-error";
 import { targetedPlan, resolveTargetedChoice, fallbackTargetedChoice, type TargetedPlan } from "./targeted-research";
 import { unusablePage } from "./page-quality";
 import { businessPrompt, validateBusinessFindings } from "./business-research";
@@ -367,10 +368,10 @@ export async function runResearch(
                   ),
                   warning: "",
                 };
-              } catch {
+              } catch (error) {
                 return {
                   findings: [],
-                  warning: "Evidence extraction failed; page read successfully",
+                  warning: error instanceof ResearchAiError ? `Evidence extraction failed: ${error.message}; page read successfully` : "Evidence extraction failed; page read successfully",
                 };
               }
             },
