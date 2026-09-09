@@ -1,3 +1,4 @@
+import { FreeOpenRouter } from "../../src/adapters/ai/free-openrouter";
 import { targetedPrompt, targetedSchema } from "../../src/domain/targeted-research";
 import { readFallback } from "./fallback";
 import { peopleExtractionSchema } from "../../src/domain/people-research";
@@ -17,7 +18,7 @@ import {
 } from "../../src/domain/research";
 interface Env {
   RESEARCH: Workflow;
-  AI: Ai;
+  OPENROUTER_API_KEY: string;
   SERVICE_SECRET: string;
   APP_ORIGIN: string;
   CF_ACCOUNT_ID: string;
@@ -82,6 +83,11 @@ export class AcquireResearch extends WorkflowEntrypoint<
     const id = event.payload.jobId;
     // Leave room for cancellation and final progress below the free-plan limit of 50 external requests.
     const requestBudget = { used: 0 };
+    const ai = new FreeOpenRouter({
+      apiKey: this.env.OPENROUTER_API_KEY,
+      onRequest: () => { requestBudget.used++; },
+      onUsage: usage => console.info("research-ai", JSON.stringify({ jobId: id, ...usage })),
+    });
     return runResearch(
       {
         // Persist JSON values explicitly across Workflow step checkpoints.
@@ -181,8 +187,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
           await browser(this.env, `/${crawlId}`, "DELETE", undefined, requestBudget);
         },
         extract: async (messages) => {
-          const output = await this.env.AI.run(
-            "@cf/meta/llama-3.1-8b-instruct-fast",
+          const output = await ai.complete(
             {
               messages,
               max_tokens: 1200,
@@ -243,7 +248,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
           return parseResearchExtraction(output);
         },
         extractHeadcount: async (messages) => {
-          const output = await this.env.AI.run("@cf/meta/llama-3.1-8b-instruct-fast", {
+          const output = await ai.complete({
             messages, max_tokens: 300, temperature: 0,
             response_format: { type: "json_schema", json_schema: {
               type: "object", properties: { value: { type: ["string", "null"] }, quote: { type: ["string", "null"] } },
@@ -254,7 +259,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
           return typeof result.response === "string" ? JSON.parse(result.response) : result.response ?? output;
         },
         planFollowup: async (plan) => {
-          const output = await this.env.AI.run("@cf/meta/llama-3.3-70b-instruct-fp8-fast", {
+          const output = await ai.complete({
             messages: targetedPrompt(plan), max_tokens: 100, temperature: 0,
             response_format: { type: "json_schema", json_schema: targetedSchema(plan) },
           }) as { response?: unknown };
