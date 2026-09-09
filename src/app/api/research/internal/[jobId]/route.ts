@@ -1,3 +1,4 @@
+import { companyFactSearchQuery } from "@/domain/company-facts";
 import { mergePeopleSearchLeads, peopleFollowupQuery, cleanLegalEntity, type PeopleSearchLead } from "@/domain/people-search-results";
 import { dispatchContinuation } from "@/lib/research-continuation";
 import { cloudflareWebSearch } from "@/adapters/cloudflare-web-search";
@@ -101,7 +102,7 @@ export async function POST(
     let warning = "";
     let peopleLeadCount = config.peopleSearchLeads?.length || 0;
     if (config.purpose === "firmographics" && config.discover) {
-      try { seeds.push(...await cloudflareWebSearch(`"${config.companyName}" ${config.companyDomain} LinkedIn company size employees`)); }
+      try { seeds.push(...await cloudflareWebSearch(companyFactSearchQuery(config.companyName!, config.companyDomain!))); }
       catch { warning = "Public profile search unavailable; company website research continues."; }
     } else if (config.purpose === "people" && config.discover) {
       try {

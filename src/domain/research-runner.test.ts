@@ -238,7 +238,7 @@ it("stops cleanly with saved evidence when the worker request reserve is reached
   expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: "partial", pages: 1, message: expect.stringContaining("Worker request budget reached") });
 });
 
-it("runs the dedicated headcount extractor and saves independently validated facts within the page allowance", async () => {
+it("saves labelled company facts without spending AI calls", async () => {
   const t = setup();
   Object.assign(t.config, { purpose: "firmographics", companyName: "Example Instruments", companyDomain: "instruments.example.com" });
   t.config.budget.maxPages = 1;
@@ -246,17 +246,17 @@ it("runs the dedicated headcount extractor and saves independently validated fac
   t.service.extractHeadcount = vi.fn().mockResolvedValue({ value: "50 employees", quote: "We employ 50 employees" });
   await runResearch(t.step, t.service);
   expect(t.service.extract).not.toHaveBeenCalled();
-  expect(t.service.extractHeadcount).toHaveBeenCalledOnce();
+  expect(t.service.extractHeadcount).not.toHaveBeenCalled();
   expect(t.progress.mock.calls.find(([e]) => e.page)?.[0].page?.findings[0]).toMatchObject({ kind: "headcount", value: "50 employees" });
-  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ pages: 1, modelCalls: 1 });
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ pages: 1, modelCalls: 0 });
 });
-it("retains explicit company facts on AI failure and never invents a count", async () => {
+it("retains company facts when AI is unavailable and never invents a count", async () => {
   const t = setup(); Object.assign(t.config, { purpose: "firmographics", companyName: "Example Instruments", companyDomain: "instruments.example.com" });
   t.service.extractHeadcount = vi.fn().mockRejectedValue(new Error("provider failure"));
   vi.mocked(t.service.poll).mockResolvedValue({ status: "completed", page: { url: t.config.seeds[0], markdown: "We were founded in 2011. We are a family business." } });
   await runResearch(t.step, t.service);
   expect(t.progress.mock.calls.find(([e]) => e.page)?.[0].page?.findings.map(f => f.kind)).toEqual(["founded_year"]);
-  expect(t.progress.mock.calls.at(-1)?.[0].status).toBe("partial");
+  expect(t.progress.mock.calls.at(-1)?.[0].status).toBe("complete");
 });
 
 it("saves a request-budget stop even when crawl cancellation fails", async () => {
@@ -280,7 +280,7 @@ it("searches a discovered name after a blocked profile and continues to alternat
 });
 it("reads individual people pages without spending requests on crawler submission and polling",async()=>{
  const t=setup(); Object.assign(t.config,{purpose:'people',companyName:'Example Instruments',companyDomain:'instruments.example.com'});t.config.budget.maxPages=1;
- t.service.readPeoplePage=vi.fn(async url=>({status:'completed',page:{url,markdown:'No named staff published.'}}));
+ t.service.readPeoplePage=vi.fn(async url=>({status:'completed',page:{url,markdown:'Example Instruments does not publish named staff on this page.'}}));
  await runResearch(t.step,t.service);
  expect(t.service.readPeoplePage).toHaveBeenCalledOnce();
  expect(t.service.submit).not.toHaveBeenCalled(); expect(t.service.poll).not.toHaveBeenCalled();
@@ -298,7 +298,25 @@ it("paces follow-up search and rechecks the deadline after waiting",async()=>{
 it("reserves the second search while website pages may reveal the legal operator",async()=>{
  const t=setup();Object.assign(t.config,{purpose:'people',companyName:'Example Instruments',companyDomain:'instruments.example.com',maxPeopleSearches:2});t.config.budget={maxPages:5,maxDomains:1,maxModelCalls:5,maxMinutes:10};
  vi.mocked(t.service.discover).mockResolvedValue({seeds:['https://instruments.example.com/about','https://instruments.example.com/privacy'],peopleLeadCount:0});
- vi.mocked(t.service.poll).mockImplementation(async()=>({status:'completed',page:{url:t.service.submit && vi.mocked(t.service.submit).mock.calls.at(-1)![0],markdown:'No named staff published.'}}));
+ vi.mocked(t.service.poll).mockImplementation(async()=>({status:'completed',page:{url:t.service.submit && vi.mocked(t.service.submit).mock.calls.at(-1)![0],markdown:'Example Instruments does not publish named staff on this page.'}}));
  t.service.peopleFollowup=vi.fn(async()=>{expect(t.service.submit).toHaveBeenCalledTimes(3);return{seeds:[]};});
  await runResearch(t.step,t.service);expect(t.service.peopleFollowup).toHaveBeenCalledOnce();
+});
+
+it("falls back once on blocked content, validates the result, and respects the original page budget", async () => {
+  const t = setup(); t.config.budget.maxPages = 1;
+  vi.mocked(t.service.poll).mockResolvedValue({ status: "completed", page: { url: t.config.seeds[0], markdown: '---\ntitle: "Access to this page has been denied"\nmeta: px-captcha\n---' } });
+  t.service.readFallbackPage = vi.fn(async () => ({ status: "completed", page: { url: t.config.seeds[0], markdown: "Example Instruments makes sensors. Contact us for our product catalogue." } }));
+  await runResearch(t.step, t.service);
+  expect(t.service.readFallbackPage).toHaveBeenCalledOnce();
+  expect(t.service.extract).toHaveBeenCalledOnce();
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ pages: 1 });
+});
+it("does not extract or count blocked fallback responses as read pages", async () => {
+  const t = setup(); t.config.budget.maxPages = 1;
+  vi.mocked(t.service.poll).mockResolvedValue({ status: "failed" });
+  t.service.readFallbackPage = vi.fn(async () => ({ status: "completed", page: { url: t.config.seeds[0], markdown: "" } }));
+  await runResearch(t.step, t.service);
+  expect(t.service.extract).not.toHaveBeenCalled();
+  expect(t.progress.mock.calls.at(-1)?.[0].pages).toBe(0);
 });

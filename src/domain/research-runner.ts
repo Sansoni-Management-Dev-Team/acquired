@@ -1,5 +1,6 @@
+import { unusablePage } from "./page-quality";
 import { businessPrompt, validateBusinessFindings } from "./business-research";
-import { companyHeadcountPrompt, observedCompanyFacts, headcountModelFindings, companyFactLinks, orderCompanyFactQueue } from "./company-facts";
+import { companyHeadcountPrompt, observedCompanyFacts, companyFactLinks, orderCompanyFactQueue } from "./company-facts";
 import { peoplePrompt, validatePeopleFindings, peopleFollowUpLinks, orderPeopleQueue } from "./people-research";
 import {
   extractionPrompt,
@@ -52,6 +53,7 @@ export interface ResearchServices {
   extract(messages: ReturnType<typeof extractionPrompt>): Promise<unknown>;
   extractHeadcount?(messages: ReturnType<typeof companyHeadcountPrompt>): Promise<unknown>;
   readPeoplePage?(url: string): Promise<{ status: string; page?: { url: string; markdown: string; title?: string }; warning?: string }>;
+  readFallbackPage?(url: string): ReturnType<ResearchServices["poll"]>;
   peopleFollowup?(): Promise<{ seeds: string[]; legalEntity?: string; warning?: string }>;
   now(): number;
 }
@@ -163,12 +165,13 @@ export async function runResearch(
       );
       try {
         let result: Awaited<ReturnType<ResearchServices["poll"]>> | undefined;
-        if (initial.config.purpose === "people" && service.readPeoplePage) {
+        if (["people", "firmographics"].includes(initial.config.purpose || "") && service.readPeoplePage) {
           await step.sleep(`people-reader-spacing-${attempt}`, 21000);
           result = await step.do(`read-people-${attempt}`, async () => {
             const current = await service.control();
             if (terminalResearchStates.includes(current.status) || service.now() >= current.deadline) throw new Error("Stopped before reading");
-            return service.readPeoplePage!(url);
+            try { return await service.readPeoplePage!(url); }
+            catch { return { status: "failed", warning: "Primary page reader unavailable" }; }
           }, false);
         } else {
           activeCrawl = await step.do(
@@ -225,6 +228,16 @@ export async function runResearch(
           continue;
         }
         activeCrawl = null;
+        const quality = result.page ? unusablePage(result.page.markdown) : "No page content";
+        if ((result.status !== "completed" || quality) && service.readFallbackPage) {
+          const current = await check(`fallback-${attempt}`);
+          if (terminalResearchStates.includes(current.status)) return;
+          if (!current.expired) {
+            result = await step.do(`fallback-${attempt}`, () => service.readFallbackPage!(url), false);
+          }
+        }
+        const finalQuality = result.page ? unusablePage(result.page.markdown) : null;
+        if (finalQuality) result = { status: "failed", warning: finalQuality };
         if (result.status !== "completed" || !result.page) {
           entry.status = "failed";
           entry.reason = (
@@ -263,11 +276,14 @@ export async function runResearch(
           runtime.visited,
         ).slice(0, 200);
         let findings: ResearchPage["findings"] = [];
-        if (modelCalls < budget.maxModelCalls) {
+        if (initial.config.purpose === "firmographics") {
+          findings = observedCompanyFacts(markdown, sourceUrl, initial.config);
+          entry.reason = `${findings.length} sourced company facts; estimates and scope require review`;
+        } else if (modelCalls < budget.maxModelCalls) {
           modelCalls++;
           await publish(
             "extracting",
-            initial.config.purpose === "firmographics" ? "Checking sourced company headcount" : initial.config.purpose === "people" ? `Looking for named decision-makers on website ${domains.size}` : `Assessing products and business role on website ${domains.size}`,
+            initial.config.purpose === "people" ? `Looking for named decision-makers on website ${domains.size}` : `Assessing products and business role on website ${domains.size}`,
           );
           const extracted = await step.do(
             `extract-${attempt}`,
@@ -279,11 +295,6 @@ export async function runResearch(
               )
                 return { findings: [], warning: "Extraction stopped" };
               try {
-                if (initial.config.purpose === "firmographics") {
-                  if (!service.extractHeadcount) throw new Error("Headcount extraction unavailable");
-                  const output = await service.extractHeadcount(companyHeadcountPrompt(markdown, sourceUrl, current.config));
-                  return { findings: headcountModelFindings(output, markdown, sourceUrl, current.config), warning: "" };
-                }
                 return {
                   findings: (initial.config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, current.config) : initial.config.workflow === "business" ? (input: unknown, markdown: string, source: string) => validateBusinessFindings(input, markdown, source, current.config) : validateFindings)(
                     await service.extract(
@@ -301,7 +312,7 @@ export async function runResearch(
                 };
               } catch {
                 return {
-                  findings: initial.config.purpose === "firmographics" ? observedCompanyFacts(markdown, sourceUrl, current.config) : [],
+                  findings: [],
                   warning: "Evidence extraction failed; page read successfully",
                 };
               }
@@ -313,7 +324,7 @@ export async function runResearch(
           entry.reason =
             extracted.warning ||
             (initial.config.purpose === "people" ? `${findings.filter(f => f.kind === "person").length} sourced people leads${findings.some(f => f.kind === "identifier") ? "; legal operator identified" : ""}; role currency and email remain unverified` : `${findings.length} supported claims; financial fit remains unknown`);
-        } else { entry.reason = "Read without AI extraction (model limit)"; if (initial.config.purpose === "firmographics") findings = observedCompanyFacts(markdown, sourceUrl, initial.config); }
+        } else { entry.reason = "Read without AI extraction (model limit)"; }
         const catalogue = initial.config.purpose ? [] : [...statedSupplyFindings(markdown, sourceUrl, initial.config.searchTerms), ...catalogueProductFindings(markdown, sourceUrl, initial.config.searchTerms)]
           .filter(c => !findings.some(f => f.kind === c.kind && f.value === c.value));
         findings = [...findings, ...catalogue].slice(0, initial.config.purpose === "firmographics" ? 8 : 4);

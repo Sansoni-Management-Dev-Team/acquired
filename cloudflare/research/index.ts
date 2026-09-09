@@ -1,3 +1,4 @@
+import { readFallback } from "./fallback";
 import { peopleExtractionSchema } from "../../src/domain/people-research";
 import { searchResults } from "../../src/domain/cloudflare-search";
 import {
@@ -20,6 +21,8 @@ interface Env {
   APP_ORIGIN: string;
   CF_ACCOUNT_ID: string;
   CF_BROWSER_TOKEN: string;
+  CRAWL4AI_URL?: string;
+  CRAWL4AI_SECRET?: string;
 }
 async function authorized(request: Request, secret: string) {
   if (!secret) return false;
@@ -126,6 +129,10 @@ export class AcquireResearch extends WorkflowEntrypoint<
           if (!response.ok || !data.success || typeof data.result !== "string") throw new Error(`Page reader unavailable (${response.status})`);
           return { status: "completed", page: { url, markdown: data.result.slice(0, 30000) } };
         },
+        ...(this.env.CRAWL4AI_URL ? { readFallbackPage: async (url: string) => {
+          requestBudget.used++;
+          return readFallback(url, this.env.CRAWL4AI_URL!, this.env.CRAWL4AI_SECRET || "");
+        } } : {}),
         submit: async (url) => {
           if (!publicResearchUrl(url)) throw new Error("Unsupported URL");
           return (await browser(this.env, "", "POST", {

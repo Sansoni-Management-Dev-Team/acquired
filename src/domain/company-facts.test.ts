@@ -50,3 +50,24 @@ it("follows relevant own-company pages and public company profiles", () => {
 it("prevents general business extraction from bypassing company-fact validation", () => {
   expect(validateFindings([{ kind: "headcount", name: "Headcount", value: "299", quote: "299 followers", website: "https://instruments.example.com/" }], "299 followers", "https://instruments.example.com/")).toEqual([]);
 });
+
+it("reads numeric directory fields only after matching the website and preserves unknown currency", () => {
+  const text = "# Example Instruments\nWebsite\n[www.instruments.example.com ![](icon.svg)](//www.instruments.example.com)\n### ![](icon.svg) Revenue\n$190 K\n### ![](/) Employees\n2\n## Top Example Integrations\n### Employees\n900";
+  const url = "https://www.datanyze.com/companies/example-instruments/123";
+  const facts = observedCompanyFacts(text, url, config);
+  expect(facts.map(f => [f.kind, f.value])).toEqual([["headcount", "2"], ["revenue", "$190 K"]]);
+  expect(facts[1].factMetadata).toMatchObject({ basis: "third_party_estimate", currency: null, period: null, scope: "unspecified" });
+  expect(validateCompanyFacts(facts, text, url, config)).toEqual(facts);
+  expect(observedCompanyFacts(text.replaceAll("instruments.example.com", "other.example.com"), url, config)).toEqual([]);
+  expect(observedCompanyFacts(text.replace("### ![](icon.svg) Revenue", "Product price"), url, config).some(f => f.kind === "revenue")).toBe(false);
+});
+it("keeps company group statements separate from numeric scope and captures published company inboxes", () => {
+  const text = "Our trusted brands Alpha and Beta are now united under a new name: Example Group. Contact orders@instruments.example.com. We have 20 employees.";
+  const facts = observedCompanyFacts(text, "https://instruments.example.com/", config);
+  expect(facts.find(f => f.kind === "headcount")?.factMetadata?.scope).toBe("unspecified");
+  expect(facts.find(f => f.kind === "company_relationship")?.factMetadata?.scope).toBe("group");
+  expect(facts.find(f => f.kind === "company_contact")?.value).toBe("orders@instruments.example.com");
+});
+it("does not attach a group profile's headcount to a differently hosted trading brand", () => {
+  expect(observedCompanyFacts(profile.replaceAll("instruments.example.com","group.example.com"), source, config)).toEqual([]);
+});

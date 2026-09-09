@@ -16,6 +16,16 @@ function teamCards(markdown: string, source: string): ResearchFinding[] {
       findings.push({ kind: "person", name, value, quote: card[0], website: source, relevance: "unclear" });
     }
   }
+  // Founder messages have a signed role rather than a team card. Restrict this to
+  // explicit company-founder sections so customer testimonials cannot become staff.
+  for (const section of markdown.matchAll(/^#{1,3} [^\n]*(?:message from (?:the )?founder|founder(?:\/| and )director)[^\n]*$/gim)) {
+    const tail = markdown.slice(section.index! + section[0].length);
+    const next = tail.search(/^#{1,3} /m);
+    const body = next < 0 ? tail : tail.slice(0, next);
+    for (const signature of body.matchAll(/[–—-] ([\p{Lu}][\p{L}'’-]+(?: [\p{Lu}][\p{L}'’-]+){1,3}), (Founder(?: and Director)?|Managing Director|CEO)\b/gu)) {
+      if (personName(signature[1])) findings.push({ kind: "person", name: signature[1], value: signature[2], quote: signature[0], website: source, relevance: "unclear" });
+    }
+  }
   return findings;
 }
 export function validatePeopleFindings(input: unknown, markdown: string, source: string, config: ResearchConfig): ResearchFinding[] {

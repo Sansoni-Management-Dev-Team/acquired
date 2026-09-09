@@ -167,15 +167,25 @@ export const findingSchema = z.object({
     "customer",
     "person",
     "headcount",
+    "revenue",
+    "company_relationship",
+    "company_contact",
     "founded_year",
     "location",
     "industry",
   ]),
   name: z.string().trim().min(2).max(200),
-  value: z.string().trim().min(2).max(500),
+  value: z.string().trim().min(1).max(500),
   quote: z.string().trim().min(8).max(800),
   website: z.string().max(2000).default(""),
   subject: z.string().max(200).optional(),
+  factMetadata: z.object({
+    sourceKind: z.enum(["company_website", "company_profile", "third_party_directory"]),
+    basis: z.enum(["reported", "third_party_estimate"]),
+    scope: z.enum(["unspecified", "group"]).default("unspecified"),
+    period: z.string().max(100).nullable().default(null),
+    currency: z.string().max(10).nullable().default(null),
+  }).optional(),
   email: z.preprocess(value => value === "" || value === null ? undefined : value, z.string().email().optional()),
   relevance: z.enum(["relevant", "adjacent", "unclear"]).optional(),
 });
@@ -252,7 +262,7 @@ export function validateFindings(
   allowed.add(source);
   allowed.add(new URL(source).origin + "/");
   return candidates
-    .filter(f => !["person", "headcount", "founded_year", "location", "industry"].includes(f.kind))
+    .filter(f => !["person", "headcount", "revenue", "company_relationship", "company_contact", "founded_year", "location", "industry"].includes(f.kind))
     .map(normalizeResearchFinding)
     .filter((f): f is ResearchFinding => Boolean(f))
     .filter(

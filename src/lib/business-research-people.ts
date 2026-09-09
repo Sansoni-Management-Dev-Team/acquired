@@ -24,7 +24,7 @@ export async function dispatchBusinessPeople(org: string, completedId: string) {
     const active = facts.find(j => !terminalResearchStates.includes(j.status));
     if (active) { if (active.status === "queued") await researchWorker(`/jobs/${active.id}`, "POST"); return; }
     if (new Set(facts.map(j => (j.config as ResearchConfig).targetId || j.id)).size < config.companyBudget.maxCompanies) {
-      const evidence = await db.select().from(researchFindings).where(and(eq(researchFindings.organizationId, org), sql`(${researchFindings.jobId} = ${parent.id}::uuid OR ${researchFindings.jobId} IN (SELECT ${researchJobs.id} FROM ${researchJobs} WHERE ${researchJobs.organizationId} = ${org} AND ${researchJobs.config}->>'autoRoot' = ${parent.id}))`));
+      const evidence = await db.select().from(researchFindings).where(and(eq(researchFindings.organizationId, org), eq(researchFindings.mandateId, parent.mandateId)));
       const members = await new AcquisitionRepository(org).memberships(parent.mandateId);
       const next = members.find(m => m.target.domain && m.assessment.stage !== "excluded" && !facts.some(j => (j.config as ResearchConfig).targetId === m.target.id) && evidence.some(f => f.targetId === m.target.id && researchDomain(f.sourceUrl) === m.target.domain));
       if (next) {

@@ -71,3 +71,11 @@ it("rejects role labels and companies masquerading as named people",()=>{
   expect(validatePeopleFindings([{...candidate,name,quote}],quote,source,config)).toEqual([]);
  }
 });
+it("reads signed founder messages only inside an explicit first-party founder section", () => {
+  const config = { companyName: "Example Instruments", companyDomain: "instruments.example.com" } as ResearchConfig;
+  const source = "https://instruments.example.com/";
+  const signed = "## About & Message From Founder/Director\nWe founded Example Instruments to make reliable sensors.\n– Alex Example, Founder and Director\n## Customer reviews\n– Casey Customer, Founder";
+  expect(validatePeopleFindings([], signed, source, config).map(f => f.name)).toEqual(["Alex Example"]);
+  expect(validatePeopleFindings([], signed.replace("About & Message From Founder/Director", "Testimonials"), source, config)).toEqual([]);
+  expect(validatePeopleFindings([], signed, "https://directory.example.com/", config)).toEqual([]);
+});

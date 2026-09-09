@@ -37,7 +37,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       }
     } catch { /* Preserve running state when the status check is unavailable. */ }
   }
-  return Response.json({ enabled: researchEnabled(), webSearchEnabled: researchEnabled(), jobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "firmographics" && (j.config as ResearchConfig).targetId === id), findings: findings.filter(f => ["headcount", "founded_year", "location", "industry"].includes((f.evidence as { kind: string }).kind)) }, { headers: { "Cache-Control": "no-store" } });
+  return Response.json({ enabled: researchEnabled(), webSearchEnabled: researchEnabled(), jobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "firmographics" && (j.config as ResearchConfig).targetId === id), findings: findings.filter(f => ["headcount", "revenue", "company_relationship", "company_contact", "founded_year", "location", "industry"].includes((f.evidence as { kind: string }).kind)) }, { headers: { "Cache-Control": "no-store" } });
 }
 const inputSchema = z.object({ action: z.literal("start"), mandateId: z.string().uuid(), requestId: z.string().uuid(), continueFrom: z.string().uuid().optional(), approved: z.literal(true) });
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {

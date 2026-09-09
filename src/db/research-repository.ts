@@ -239,11 +239,11 @@ export class ResearchRepository {
             observedAt: new Date(event.page.observedAt),
             evidence: {
               ...evidence,
-              source: config.purpose === "firmographics" ? "Cloudflare Browser Run — validated company statement" : ["Catalogue product listing", "Stated supply activity", "Stated product supply"].includes(evidence.name) ? "Cloudflare Browser Run — directly observed website evidence" : "Cloudflare Browser Run + Workers AI",
+              source: config.purpose === "firmographics" ? "Public web research — validated source statement" : ["Catalogue product listing", "Stated supply activity", "Stated product supply"].includes(evidence.name) ? "Cloudflare Browser Run — directly observed website evidence" : "Cloudflare Browser Run + Workers AI",
               status: "unverified",
               truncated: event.page.truncated,
             },
-            confidence: 0.5,
+            confidence: evidence.factMetadata?.basis === "third_party_estimate" ? 0.3 : 0.5,
           })
           .onConflictDoNothing();
       }
