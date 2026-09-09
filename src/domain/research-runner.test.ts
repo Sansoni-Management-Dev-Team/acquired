@@ -419,3 +419,30 @@ describe("new business target", () => {
     expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ status: "complete", message: expect.stringContaining("1 of 1 new businesses found") }));
   });
 });
+
+it("explains empty extraction without logging page content or URL query secrets", async () => {
+  const t = setup();
+  t.config.seeds = ["https://instruments.example.com/?token=private"];
+  t.config.budget.maxPages = 1;
+  t.service.diagnostic = vi.fn();
+  vi.mocked(t.service.extract).mockResolvedValue([]);
+  await runResearch(t.step, t.service);
+  expect(t.service.diagnostic).toHaveBeenCalledWith(expect.objectContaining({ event: "extraction_result", candidates: 0, accepted: 0, reason: "model_returned_no_evidence" }));
+  expect(t.service.diagnostic).toHaveBeenCalledWith(expect.objectContaining({ event: "run_finished", reason: "page_budget_reached" }));
+  const log = JSON.stringify(vi.mocked(t.service.diagnostic).mock.calls);
+  expect(log).not.toContain("token=");
+  expect(log).not.toContain("Example Instruments makes sensors");
+});
+
+it("honours the planner stop action and retains unread sources", async () => {
+  const t = setup();
+  Object.assign(t.config, { purpose: "people", targetedFollowup: true, companyName: "Example Instruments", companyDomain: "instruments.example.com", maxPeopleSearches: 2 });
+  t.config.budget.maxPages = 4;
+  t.service.planFollowup = vi.fn(async () => ({ choice: "stop" }));
+  vi.mocked(t.service.extract).mockResolvedValue([]);
+  vi.mocked(t.service.poll).mockResolvedValue({ status: "completed", page: { url: t.config.seeds[0], markdown: "Example Instruments manufactures sensors. [About](/about) [Contact](/contact)" } });
+  await runResearch(t.step, t.service);
+  expect(t.service.poll).toHaveBeenCalledOnce();
+  expect(t.progress.mock.calls.at(-1)?.[0].runtime?.remaining.length).toBeGreaterThan(0);
+  expect(t.progress.mock.calls.at(-1)?.[0].message).toContain("No useful targeted follow-up selected");
+});

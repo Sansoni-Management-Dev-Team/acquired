@@ -28,21 +28,25 @@ function teamCards(markdown: string, source: string): ResearchFinding[] {
   }
   return findings;
 }
-export function validatePeopleFindings(input: unknown, markdown: string, source: string, config: ResearchConfig): ResearchFinding[] {
+export function validatePeopleFindings(input: unknown, markdown: string, source: string, config: ResearchConfig, rejected?: (reason: string) => void): ResearchFinding[] {
+  const reject = (reason: string): ResearchFinding[] => { rejected?.(reason); return []; };
   if (!Array.isArray(input) || !publicResearchUrl(source) || !config.companyDomain || !config.companyName) return [];
   const firstParty = researchDomain(source) === config.companyDomain;
   const observed = firstParty ? teamCards(markdown, source) : [];
   const seen = new Set<string>();
   return [...input.slice(0, 12), ...observed.slice(0, 4)].flatMap(raw => {
     const result = findingSchema.safeParse(raw);
-    if (!result.success) return [];
+    if (!result.success) return reject("invalid_finding_schema");
     const f = result.data;
     if (f.kind === "identifier" && f.name === "Legal entity" && firstParty && /\b(?:pty\.?\s+ltd\.?|limited)\b/i.test(f.value) && norm(markdown).includes(norm(f.quote)) && norm(f.quote).includes(norm(f.value)) && /operated by|operates|operator|trading as|owned by|we are|["“](?:we|us|our)["”]/i.test(f.quote)) return [{ ...f, website: source, email: undefined, subject: undefined, relevance: "unclear" as const }];
-    if (/\b(former|previous|retired|ex-director|stepped down|resigned)\b/i.test(f.quote) || f.kind !== "person" || !role.test(f.value) || !personName(f.name) || !norm(markdown).includes(norm(f.quote)) || !norm(f.quote).includes(norm(f.name)) || !norm(f.quote).includes(norm(f.value))) return [];
+    if (/\b(former|previous|retired|ex-director|stepped down|resigned)\b/i.test(f.quote)) return reject("former_role");
+    if (f.kind !== "person" || !role.test(f.value) || !personName(f.name)) return reject("not_named_decision_maker");
+    if (!norm(markdown).includes(norm(f.quote))) return reject("quote_not_on_page");
+    if (!norm(f.quote).includes(norm(f.name)) || !norm(f.quote).includes(norm(f.value))) return reject("name_or_role_missing_from_quote");
     // External profiles must explicitly connect this person to the target. Never turn search snippets into evidence.
-    if (!firstParty && !(companySearchName(config.companyName!).includes(" ") && companyMentioned(norm(f.quote), norm(config.companyName!))) && !norm(f.quote).includes(config.companyDomain!) && !(config.legalEntity && norm(f.quote).includes(norm(config.legalEntity)))) return [];
+    if (!firstParty && !(companySearchName(config.companyName!).includes(" ") && companyMentioned(norm(f.quote), norm(config.companyName!))) && !norm(f.quote).includes(config.companyDomain!) && !(config.legalEntity && norm(f.quote).includes(norm(config.legalEntity)))) return reject("company_identity_not_in_quote");
     const key = `${norm(f.name)}:${norm(f.value)}`;
-    if (seen.has(key)) return [];
+    if (seen.has(key)) return reject("duplicate");
     seen.add(key);
     const email = f.email && norm(f.quote).includes(f.email.toLowerCase()) && f.email.split("@")[1].toLowerCase() === config.companyDomain && !/^(info|hello|sales|contact|admin|office|support|enquiries|warehouse|wholesale|orders|accounts)@/i.test(f.email) ? f.email.toLowerCase() : undefined;
     return [{ ...f, website: source, subject: undefined, email, relevance: "unclear" as const }];

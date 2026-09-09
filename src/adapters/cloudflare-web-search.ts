@@ -10,6 +10,7 @@ export async function cloudflareSearchResults(query: string, fetcher: typeof fet
     body: JSON.stringify({ query: query.slice(0, 500) }), signal: AbortSignal.timeout(50000), cache: "no-store",
   }, { provider: "research-worker", operation: "web_search", requestId, jobId });
   if (!r.ok) throw new Error(`Public web search failed (HTTP ${r.status})`);
+  console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), jobId, requestId, event: "search_response", results: Array.isArray(data.results) ? data.results.length : null, seeds: Array.isArray(data.seeds) ? data.seeds.length : null }));
   if (!Array.isArray(data.seeds)) throw new Error("Invalid search response");
   if (Array.isArray(data.results)) return data.results.flatMap((value: unknown) => {
     if (!value || typeof value !== "object") return [];

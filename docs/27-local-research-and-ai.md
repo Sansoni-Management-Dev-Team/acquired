@@ -111,3 +111,5 @@ tail -F .local-data/dev-start.log | rg --line-buffered 'research-provider|resear
 
 Provider references: [OpenRouter routing metadata](https://openrouter.ai/docs/guides/features/router-metadata)
 and [Cloudflare Browser Run limits](https://developers.cloudflare.com/browser-run/limits/).
+
+Research diagnostics are written as `research-diagnostic` JSON events in the development log (and worker logs in production). Filter by `jobId` to follow discovery counts, source queue exclusions and ordering, selected pages, page quality, planner choices, and extraction outcomes. People validation reports reason counts such as `quote_not_on_page`, `name_or_role_missing_from_quote`, and `company_identity_not_in_quote`. An empty model response is recorded separately from rejected candidates. Company-fact diagnostics report source eligibility and employment-language presence; they do not imply that a supported headcount exists. Logs omit page text, model output, query strings, and contact details. The existing source evidence remains available in the research record.

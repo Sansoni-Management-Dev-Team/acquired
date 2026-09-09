@@ -2,7 +2,7 @@ import { ResearchAiError } from "./research-ai-error";
 import { targetedPlan, resolveTargetedChoice, fallbackTargetedChoice, type TargetedPlan } from "./targeted-research";
 import { unusablePage } from "./page-quality";
 import { businessPrompt, validateBusinessFindings } from "./business-research";
-import { companyHeadcountPrompt, observedCompanyFacts, companyFactLinks, orderCompanyFactQueue } from "./company-facts";
+import { companyHeadcountPrompt, companyFactDiagnostics, observedCompanyFacts, companyFactLinks, orderCompanyFactQueue } from "./company-facts";
 import { peoplePrompt, validatePeopleFindings, peopleFollowUpLinks, orderPeopleQueue } from "./people-research";
 import {
   extractionPrompt,
@@ -31,6 +31,7 @@ export type ResearchControl = {
   stopReason?: string;
 };
 export interface ResearchServices {
+  diagnostic?(event: Record<string, unknown>): void;
   control(): Promise<ResearchControl>;
   discover(): Promise<{ seeds: string[]; warning?: string; peopleLeadCount?: number }>;
   progress(event: {
@@ -71,6 +72,9 @@ export async function runResearch(
     modelCalls = 0,
     activeCrawl: string | null = null;
   const warnings: string[] = [];
+  // Diagnostics contain source locations and counts, never page text or model output.
+  const source = (value: string) => { try { const url = new URL(value); return `${url.origin}${url.pathname}`; } catch { return "invalid_url"; } };
+  const trace = (event: string, details: Record<string, unknown>) => service.diagnostic?.({ event, ...details });
   let runtime: ResearchRuntime = { remaining: [], visited: [], attempts: [] };
   const publish = async (
     status: string,
@@ -113,6 +117,7 @@ export async function runResearch(
         : "Resuming approved websites",
     );
     const discovered = await step.do("discover", () => service.discover());
+    trace("discovery_result", { purpose: initial.config.purpose || "business", seeds: discovered.seeds.length, warning: Boolean(discovered.warning), budget: initial.config.budget });
     if (discovered.warning) warnings.push(discovered.warning);
     runtime.remaining = orderResearchQueue(
       [...runtime.remaining, ...discovered.seeds],
@@ -155,6 +160,8 @@ export async function runResearch(
             const output = await step.do("targeted-plan", () => service.planFollowup!(plan), false);
             choice = resolveTargetedChoice(output, plan);
           } catch { warnings.push("AI planner unavailable; using a predefined company follow-up"); }
+          trace("followup_choice", { choice: choice.id, actions: plan.actions.map(a => ({ id: a.id, kind: a.kind, ...(a.kind === "read" ? { source: source(a.url) } : {}) })) });
+          if (choice.kind === "stop") { warnings.push("No useful targeted follow-up selected; remaining sources retained"); break; }
           if (choice.kind === "read") priorityUrl = choice.url;
           if (choice.kind === "search" && service.targetedSearch) {
             await step.sleep("targeted-search-spacing", 21000);
@@ -164,6 +171,7 @@ export async function runResearch(
             const field = choice.field;
             try {
               const result = await step.do("targeted-search", () => service.targetedSearch!(field), false);
+              trace("targeted_search_result", { field, seeds: result.seeds.length, sources: result.seeds.slice(0, 20).map(source), warning: Boolean(result.warning) });
               runtime.remaining = uniqueResearchUrls([...result.seeds, ...runtime.remaining]);
               if (result.warning) warnings.push(result.warning);
             } catch { warnings.push("Targeted search unavailable; existing sources retained"); }
@@ -180,9 +188,11 @@ export async function runResearch(
         if (followup.warning) warnings.push(followup.warning);
         runtime.remaining = uniqueResearchUrls([...followup.seeds, ...runtime.remaining]).slice(0, 200);
       }
+      const beforeOrder = [...runtime.remaining];
       runtime.remaining = orderResearchQueue(runtime.remaining,runtime.visited,initial.config.strategy,runtime.attempts.map(a=>a.url));
       if (initial.config.purpose === "people") runtime.remaining = orderPeopleQueue(runtime.remaining, runtime.visited, initial.config.companyDomain!);
       if (initial.config.purpose === "firmographics") runtime.remaining = orderCompanyFactQueue(runtime.remaining, initial.config);
+      trace("source_queue", { before: beforeOrder.length, after: runtime.remaining.length, excluded: beforeOrder.filter(u => !runtime.remaining.includes(u)).slice(0, 20).map(source), next: runtime.remaining.slice(0, 5).map(source), reason: "visited_and_purpose_source_filters" });
       if (priorityUrl) {
         runtime.remaining = [priorityUrl, ...runtime.remaining.filter(u=>u!==priorityUrl)];
         priorityUrl = undefined;
@@ -204,6 +214,7 @@ export async function runResearch(
       }
       const url = runtime.remaining.splice(index, 1)[0],
         attempt = runtime.attempts.length + 1;
+      trace("page_selected", { source: source(url), purpose: initial.config.purpose || "business", attempt, pageLimit: budget.maxPages, remaining: runtime.remaining.length });
       domains.add(researchDomain(url));
       runtime.visited = uniqueResearchUrls([...runtime.visited, url]).slice(
         -1000,
@@ -294,6 +305,7 @@ export async function runResearch(
         }
         const finalQuality = result.page ? unusablePage(result.page.markdown) : null;
         if (finalQuality) result = { status: "failed", warning: finalQuality };
+        trace("page_read", { source: source(url), status: result.status, quality: finalQuality || (result.page ? "usable" : "missing_content"), characters: result.page?.markdown.length || 0 });
         if (result.status !== "completed" || !result.page) {
           entry.status = "failed";
           entry.reason = (
@@ -335,6 +347,7 @@ export async function runResearch(
         const directPeople = initial.config.purpose === "people" ? validatePeopleFindings([], markdown, sourceUrl, initial.config) : [];
         if (initial.config.purpose === "firmographics") {
           findings = observedCompanyFacts(markdown, sourceUrl, initial.config);
+          trace("extraction_result", { source: source(sourceUrl), method: "observed_company_facts", accepted: findings.length, kinds: findings.map(f => f.kind), headcountFound: findings.some(f => f.kind === "headcount"), ...companyFactDiagnostics(markdown, sourceUrl, initial.config), reason: findings.length ? "supported_facts" : "no_supported_company_fact_pattern" });
           entry.reason = `${findings.length} sourced company facts; estimates and scope require review`;
         } else if (directPeople.some(f=>f.kind === "person")) {
           findings = directPeople;
@@ -355,21 +368,13 @@ export async function runResearch(
               )
                 return { findings: [], warning: "Extraction stopped" };
               try {
-                return {
-                  findings: (initial.config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, current.config) : initial.config.workflow === "business" ? (input: unknown, markdown: string, source: string) => validateBusinessFindings(input, markdown, source, current.config) : validateFindings)(
-                    await service.extract(
-                      initial.config.purpose === "people" ? peoplePrompt(markdown, sourceUrl, current.config) : initial.config.workflow === "business" ? businessPrompt(markdown, initial.config.searchTerms, sourceUrl, Boolean(initial.config.findPeople)) : extractionPrompt(
-                        markdown,
-                        initial.config.searchTerms,
-                        sourceUrl,
-                      ),
-                    ),
-                    markdown,
-                    sourceUrl,
-                    initial.config.searchTerms,
-                  ),
-                  warning: "",
-                };
+                const raw = await service.extract(initial.config.purpose === "people" ? peoplePrompt(markdown, sourceUrl, current.config) : initial.config.workflow === "business" ? businessPrompt(markdown, initial.config.searchTerms, sourceUrl, Boolean(initial.config.findPeople)) : extractionPrompt(markdown, initial.config.searchTerms, sourceUrl));
+                const rejected: Record<string, number> = {};
+                const accepted = (initial.config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, current.config, reason => { rejected[reason] = (rejected[reason] || 0) + 1; }) : initial.config.workflow === "business" ? (input: unknown, markdown: string, source: string) => validateBusinessFindings(input, markdown, source, current.config) : validateFindings)(
+                    raw, markdown, sourceUrl, initial.config.searchTerms,
+                  );
+                trace("extraction_result", { source: source(sourceUrl), method: "model", rejected, candidates: Array.isArray(raw) ? raw.length : null, accepted: accepted.length, kinds: accepted.map(f => f.kind), reason: !Array.isArray(raw) ? "invalid_candidate_shape" : !raw.length ? "model_returned_no_evidence" : !accepted.length ? "candidates_failed_evidence_validation" : "supported_facts" });
+                return { findings: accepted, warning: "" };
               } catch (error) {
                 return {
                   findings: [],
@@ -434,6 +439,7 @@ export async function runResearch(
         `${runtime.remaining.length} URLs remain; continue research with a fresh budget`,
       );
     if (initial.config.targetedFollowup && initial.config.purpose && !collected.some(f=>initial.config.purpose === "people" ? f.kind === "person" : f.kind === "headcount")) warnings.push(initial.config.purpose === "people" ? "Named decision-maker remains unknown; available sources retained" : "Headcount remains unknown; available sources retained");
+    trace("run_finished", { pages, attempts: runtime.attempts.length, modelCalls, remaining: runtime.remaining.length, findings: collected.length, kinds: [...new Set(collected.map(f => f.kind))], reason: runtime.attempts.length >= budget.maxPages ? "page_budget_reached" : "sources_exhausted_or_followup_stopped" });
     if (!pages) warnings.push("No pages could be read");
     await publish(
       warnings.length ? "partial" : "complete",

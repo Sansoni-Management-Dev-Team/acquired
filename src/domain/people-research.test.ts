@@ -99,3 +99,10 @@ it("flags competing leadership assertions but not duplicate sources or different
  expect(peopleRoleConflicts([ceo,{...ceo,name:"Casey Example",value:"Chief Executive Officer"}])).toEqual(["ceo"]);
  expect(peopleRoleConflicts([ceo,{...ceo,name:"Casey Example",value:"General Manager"}])).toEqual([]);
 });
+
+it("reports rejected evidence reasons without returning names or quotes to diagnostics", () => {
+  const reasons: string[] = [];
+  const config = { companyName: "Example Instruments", companyDomain: "instruments.example.com" } as ResearchConfig;
+  validatePeopleFindings([{ kind: "person", name: "Alex Example", value: "CEO", quote: "Alex Example is CEO", website: "https://instruments.example.com", relevance: "unclear" }], "Welcome to our sensor catalogue.", "https://instruments.example.com", config, reason => reasons.push(reason));
+  expect(reasons).toEqual(["quote_not_on_page"]);
+});

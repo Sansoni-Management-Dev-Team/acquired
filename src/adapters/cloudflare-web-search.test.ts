@@ -11,6 +11,7 @@ it("correlates app search with worker requests and job IDs without logging query
   const events = log.mock.calls.map(([, value]) => JSON.parse(value));
   expect(events[0].requestId).toBe(headers["x-research-request-id"]);
   expect(events[0].jobId).toBe(headers["x-research-job-id"]);
-  expect(events.at(-1).event).toBe("request_completed");
+  expect(events.some(e => e.event === "request_completed")).toBe(true);
+  expect(events.at(-1)).toMatchObject({ event: "search_response", seeds: 1 });
   expect(JSON.stringify(events)).not.toMatch(/private test query|test-secret/);
 });

@@ -33,6 +33,15 @@ function profileContext(markdown: string, source: string, config: ResearchConfig
   if (firstParty && /\/(?:blog|post|case-stud|news|product\/|media\/)/i.test(new URL(source).pathname)) return null;
   return { text, firstParty, linkedIn, directory };
 }
+export function companyFactDiagnostics(markdown: string, source: string, config: ResearchConfig) {
+  const context = profileContext(markdown, source, config);
+  return {
+    eligibleSource: Boolean(context),
+    sourceType: context?.firstParty ? "company_website" : context?.linkedIn ? "company_profile" : context?.directory ? "third_party_directory" : "unsupported_or_identity_unmatched",
+    excerptCharacters: companyFactExcerpt(markdown).length,
+    employmentLanguage: /employees?|staff|team members?|workforce/i.test(companyFactExcerpt(markdown)),
+  };
+}
 function fact(kind: ResearchFinding["kind"], value: string, quote: string, config: ResearchConfig): ResearchFinding {
   return { kind, name: kind === "founded_year" ? "Founded year" : kind[0].toUpperCase() + kind.slice(1).replaceAll("_", " "), value: value.trim(), quote: quote.trim(), subject: config.companyName, website: `https://${config.companyDomain}/`, relevance: "unclear" };
 }

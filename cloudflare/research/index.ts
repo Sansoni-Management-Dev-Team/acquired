@@ -131,6 +131,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
         sleep: (name, ms) => step.sleep(name, ms),
       },
       {
+        diagnostic: event => console.info("research-diagnostic", JSON.stringify({ ...event, timestamp: new Date().toISOString(), jobId: id })),
         control: async () => {
           const state = await callback(this.env, id, undefined, requestBudget) as ResearchControl;
           const stopReason = requestBudgetStop(requestBudget.used, this.env.LOCAL_DEVELOPMENT === "true");
