@@ -119,6 +119,7 @@ export async function runResearch(
       runtime.attempts.length < budget.maxPages
     ) {
       if (!peopleFollowupAttempted && runtime.attempts.length && initial.config.purpose === "people" && initial.config.maxPeopleSearches === 2 && service.peopleFollowup) {
+        await step.sleep("people-search-spacing", 21000);
         const current = await check(`people-followup-${runtime.attempts.length}`);
         if (terminalResearchStates.includes(current.status)) return;
         if (current.expired) { warnings.push(current.stopReason || "Time limit reached"); break; }

@@ -266,7 +266,8 @@ const worker = {
           signal: AbortSignal.timeout(40000),
         });
         const data = await response.json() as { success?: boolean; result?: unknown };
-        if (!response.ok || !data.success || typeof data.result !== "string") throw new Error("Search unavailable");
+        if (!response.ok || !data.success) return Response.json({ error: "Public search unavailable" }, { status: response.status === 429 ? 429 : 502 });
+        if (typeof data.result !== "string") throw new Error("Search unavailable");
         const results = searchResults(data.result);
         const seeds = results.map(r => r.url).slice(0, 6);
         if (!seeds.length && !/no results found|no more results/i.test(data.result)) throw new Error("Search could not be read");

@@ -83,7 +83,7 @@ export async function POST(
       await saveSearchLeads(job.id, config.peopleSearchLeads || [], result.leads);
       return Response.json({ seeds: result.seeds });
     }
-    catch { return Response.json({ seeds: [], warning: "Targeted people follow-up search unavailable; saved website research retained." }); }
+    catch (error) { return Response.json({ seeds: [], warning: `${error instanceof Error ? error.message : "Targeted people follow-up search unavailable"}; saved website research retained.` }); }
   }
   if (payload?.action === "discover") {
     if (terminalResearchStates.includes(job.status))

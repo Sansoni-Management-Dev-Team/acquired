@@ -286,3 +286,12 @@ it("reads individual people pages without spending requests on crawler submissio
  expect(t.service.submit).not.toHaveBeenCalled(); expect(t.service.poll).not.toHaveBeenCalled();
  expect(t.progress.mock.calls.at(-1)?.[0].pages).toBe(1);
 });
+it("paces follow-up search and rechecks the deadline after waiting",async()=>{
+ const t=setup();Object.assign(t.config,{purpose:'people',companyName:'Example Instruments',companyDomain:'instruments.example.com',maxPeopleSearches:2});
+ t.service.peopleFollowup=vi.fn(async()=>({seeds:[]}));
+ vi.mocked(t.step.sleep).mockImplementation(async name=>{if(name==='people-search-spacing')t.setNow(700000);});
+ await runResearch(t.step,t.service);
+ expect(t.step.sleep).toHaveBeenCalledWith('people-search-spacing',21000);
+ expect(t.service.peopleFollowup).not.toHaveBeenCalled();
+ expect(t.progress.mock.calls.at(-1)?.[0].status).toBe('partial');
+});
