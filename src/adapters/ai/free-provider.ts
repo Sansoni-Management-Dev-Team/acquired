@@ -1,11 +1,11 @@
-import { FreeOpenRouter, type FreeResearchUsage } from "./free-openrouter";
+import { FreeOpenRouter, MERCURY_FALLBACK_MODEL, type FreeResearchUsage } from "./free-openrouter";
 import type { AiProvider, AiStructuredRequest } from "./types";
 export const FREE_DRAFT_MODELS = ["nex-agi/nex-n2.5-mini:free", "nex-agi/nex-n2.5-pro:free"] as const;
 
-/** Local/server application adapter using the same free-only routing as research. */
+/** Local/server application adapter using the same free-first routing as research. */
 export class FreeOpenRouterAiProvider implements AiProvider {
   readonly name = "openrouter-free";
-  readonly model = FREE_DRAFT_MODELS.join(",");
+  readonly model = [...FREE_DRAFT_MODELS, MERCURY_FALLBACK_MODEL].join(",");
   constructor(private readonly apiKey = process.env.OPENROUTER_API_KEY || "", private readonly fetcher = globalThis.fetch) {}
   isConfigured() { return Boolean(this.apiKey); }
   async generateStructured(request: AiStructuredRequest) {

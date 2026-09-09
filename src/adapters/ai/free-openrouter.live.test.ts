@@ -1,3 +1,4 @@
+import { liveFetch, checkLiveUsage } from "./live-inference-checks";
 import { expect, it } from "vitest";
 import { FreeOpenRouter } from "./free-openrouter";
 import { peoplePrompt, validatePeopleFindings } from "../../domain/people-research";
@@ -10,9 +11,9 @@ import { parseResearchExtraction } from "../../domain/research";
 
 // Explicit opt-in: normal unit tests never use external models or credentials.
 it.skipIf(process.env.OPENROUTER_RESEARCH_LIVE !== "1")("extracts sourced facts, preserves unknowns and uses the free waterfall live", async () => {
-  const ai = new FreeOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY || "", onUsage: usage => {
+  const ai = new FreeOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY || "", fetch: liveFetch, onUsage: usage => {
     console.info("free-research-live", JSON.stringify(usage));
-    expect(usage.cost).toBe(0);
+    checkLiveUsage(usage);
   } });
   const source = "https://example.com/about";
   const config: ResearchConfig = { searchTerms: ["instruments"], seeds: [source], companyName: "Example Instruments", companyDomain: "example.com", purpose: "people", geography: "Australia", approved: true, discover: false, budget: { maxPages: 2, maxDomains: 1, maxMinutes: 10, maxModelCalls: 3 } };
@@ -36,9 +37,9 @@ it.skipIf(process.env.OPENROUTER_RESEARCH_LIVE !== "1")("extracts sourced facts,
 }, 240000);
 
 it.skipIf(process.env.OPENROUTER_RESEARCH_LIVE !== "1")("extracts business identity and products using the Worker's exact request", async () => {
-  const ai = new FreeOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY || "", onUsage: usage => {
+  const ai = new FreeOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY || "", fetch: liveFetch, onUsage: usage => {
     console.info("free-business-live", JSON.stringify(usage));
-    expect(usage.cost).toBe(0);
+    checkLiveUsage(usage);
   } });
   const source = "https://example.com/";
   const config = { searchTerms: ["sensors"], findPeople: false } as ResearchConfig;

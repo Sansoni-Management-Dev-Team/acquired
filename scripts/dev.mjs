@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:net";
 import pg from "pg";
-import { localDevConfig } from "./dev-config.mjs";
+import { localDevConfig, localDevEnvironment } from "./dev-config.mjs";
 import { stopPreviousDevServers } from "./dev-processes.mjs";
 import { startDevLog } from "./dev-log.mjs";
 
@@ -25,7 +25,7 @@ mkdirSync(directory, { recursive: true, mode: 0o700 });
 const secretFile = resolve(directory, "service-secret");
 const secret = existsSync(secretFile) ? readFileSync(secretFile, "utf8") : randomBytes(32).toString("hex");
 writeFileSync(secretFile, secret, { mode: 0o600 });
-const config = localDevConfig({ ...fileEnv, ...process.env }, secret, port, workerPort);
+const config = localDevConfig(localDevEnvironment(fileEnv, process.env), secret, port, workerPort);
 await stopPreviousDevServers([port, workerPort]);
 // Old processes may have written shutdown output while we were stopping them.
 log.reset();
@@ -74,7 +74,7 @@ function start(command, arguments_, env) {
   child.on("exit", code => stop(code ?? 1));
   return child;
 }
-console.info(`Local app: http://localhost:${port} · OrbStack Postgres :5434 · research worker :${workerPort} · local Crawl4AI :18083 · free OpenRouter inference`);
+console.info(`Local app: http://localhost:${port} · OrbStack Postgres :5434 · research worker :${workerPort} · local Crawl4AI :18083 · free models → Mercury fallback`);
 start("pnpm", ["exec", "wrangler", "dev", "--local", "--config", resolve(directory, "wrangler.json"), "--ip", "127.0.0.1", "--port", String(workerPort), "--inspector-port", "0", "--persist-to", resolve(directory, "state"), "--show-interactive-dev-session=false"], { ...process.env, WRANGLER_SEND_METRICS: "false" });
 let ready = false;
 for (let i = 0; i < 60 && !stopping; i++) {

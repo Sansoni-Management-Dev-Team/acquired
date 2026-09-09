@@ -1,3 +1,4 @@
+import { MERCURY_FALLBACK_MODEL } from "@/adapters/ai/free-openrouter";
 import { and, eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -28,7 +29,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const fixtureMode = process.env.TARGET_DATA_PROVIDER === "fixture";
   const fixtureDrafting = process.env.OUTREACH_DRAFTING_PROVIDER === "fixture";
   const freeAi = process.env.AI_PROVIDER === "openrouter-free";
-  const outreachModels = freeAi ? FREE_DRAFT_MODELS.join(" → ") : process.env.OUTREACH_AI_MODELS || process.env.OUTREACH_AI_MODEL || "";
+  const outreachModels = freeAi ? [...FREE_DRAFT_MODELS, `${MERCURY_FALLBACK_MODEL} (paid fallback)`].join(" → ") : process.env.OUTREACH_AI_MODELS || process.env.OUTREACH_AI_MODEL || "";
   const aiConfigured = (freeAi || process.env.AI_PROVIDER === "openrouter") && Boolean(process.env.OPENROUTER_API_KEY && outreachModels);
   const localDatabase = process.env.DATABASE_DRIVER === "postgres";
   const connections = [

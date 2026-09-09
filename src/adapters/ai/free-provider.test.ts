@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { createAiProvider } from "./provider";
 import { FreeOpenRouterAiProvider, FREE_DRAFT_MODELS } from "./free-provider";
-import { FREE_RESEARCH_MODELS } from "./free-openrouter";
+import { FREE_RESEARCH_MODELS, MERCURY_FALLBACK_MODEL } from "./free-openrouter";
 
 afterEach(() => vi.unstubAllEnvs());
 it("selects the free provider without inheriting the paid outreach fallback", () => {
@@ -11,7 +11,7 @@ it("selects the free provider without inheriting the paid outreach fallback", ()
   const ai = createAiProvider();
   expect(ai).toBeInstanceOf(FreeOpenRouterAiProvider);
   expect(ai.isConfigured()).toBe(true);
-  expect(ai.model).toBe(FREE_DRAFT_MODELS.join(","));
+  expect(ai.model).toBe([...FREE_DRAFT_MODELS, MERCURY_FALLBACK_MODEL].join(","));
 });
 it("returns the neutral app response with validated content and model usage", async () => {
   const fetcher = vi.fn().mockResolvedValue(Response.json({ model: FREE_RESEARCH_MODELS[1], choices: [{ message: { content: '{"draft":"Example draft"}' } }], usage: { prompt_tokens: 20, completion_tokens: 10, cost: 0 } }));

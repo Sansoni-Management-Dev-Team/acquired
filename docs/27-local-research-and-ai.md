@@ -9,7 +9,7 @@ Run `pnpm dev` and open http://localhost:3010. The launcher:
 3. Starts the research Worker and Workflows locally with Wrangler on port 8787.
 4. Starts Next.js with a local callback origin and a separate local service secret.
 5. Forces `AI_PROVIDER=openrouter-free` for drafting; the Worker uses the same
-   free-only OpenRouter adapter for all research inference.
+   free-first OpenRouter adapter for all research inference.
 
 `pnpm dev --port 3011` changes the app and callback port together. Override
 `LOCAL_RESEARCH_PORT` to change the worker port. Running `pnpm dev` again automatically
@@ -26,7 +26,8 @@ The file is ignored by Git. Follow it from another terminal with:
 tail -F .local-data/dev-start.log
 ```
 
-Required inference credential in `.env.local`: `OPENROUTER_API_KEY`. Cloudflare
+Required inference credential in `.env.local`: `OPENROUTER_API_KEY`. The project
+file takes precedence over a different OpenRouter key inherited from the shell. Cloudflare
 browser credentials are not required or passed to the local Worker. Keys are
 never passed in command-line arguments. Other local authentication and optional
 source-provider keys retain their existing settings. The launcher does not copy
@@ -38,8 +39,10 @@ the same public search engine used in production. Requests never fall back to
 Cloudflare when local browsing fails. The browser still accesses public websites;
 those sites can restrict or rate-limit requests from your network.
 
-**Model inference remains external, using the free OpenRouter waterfall, with no
-Workers AI neurons or paid-model fallback.** Optional data-source APIs such as
+**Model inference remains external. Free OpenRouter models are tried first, then
+`inception/mercury-2.5` as the only paid fallback.** Mercury is capped at $0.04/M
+input and $0.15/M output tokens. Requests fail if pricing rises above those caps.
+No Workers AI neurons are used. Optional data-source APIs such as
 Google Places and Firmable remain external when invoked. Workflow execution,
 database, app and browser run locally. The same workflow, validation, extraction,
 scoring and callback code runs in both environments. The page reader differs:

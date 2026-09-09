@@ -12,3 +12,8 @@ export function localDevConfig(environment, secret, port = 3010, workerPort = 87
     origin: `http://127.0.0.1:${port}`,
   };
 }
+
+// Project credentials take precedence over unrelated keys inherited from the shell.
+export function localDevEnvironment(fileEnv, shellEnv) {
+  return { ...fileEnv, ...shellEnv, OPENROUTER_API_KEY: fileEnv.OPENROUTER_API_KEY || shellEnv.OPENROUTER_API_KEY };
+}

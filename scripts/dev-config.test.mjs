@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { LOCAL_DATABASE_URL, localDevConfig } from "./dev-config.mjs";
+import { LOCAL_DATABASE_URL, localDevConfig, localDevEnvironment } from "./dev-config.mjs";
 const env = { OPENROUTER_API_KEY: "fake", CF_ACCOUNT_ID: "fake", CF_BROWSER_TOKEN: "fake" };
 it("overrides production database, worker, auth origin and paid AI settings for development", () => {
   const config = localDevConfig({ ...env, DATABASE_URL: "postgres://prod.example.com/db", DATABASE_DRIVER: "neon", AI_PROVIDER: "openrouter", RESEARCH_WORKER_URL: "https://production.example.com", APP_URL: "https://production.example.com" }, "local-secret");
@@ -14,4 +14,9 @@ it("rejects missing credentials or conflicting ports instead of using production
   expect(() => localDevConfig({}, "s")).toThrow(/OPENROUTER/);
   expect(localDevConfig({ OPENROUTER_API_KEY: "fake" }, "s").worker.LOCAL_CRAWL4AI_URL).toBe("http://127.0.0.1:18083");
   expect(() => localDevConfig(env, "s", 3010, 3010)).toThrow(/differ/);
+});
+
+it("uses the project's OpenRouter key before an unrelated inherited shell key", () => {
+  expect(localDevEnvironment({ OPENROUTER_API_KEY: "project-key" }, { OPENROUTER_API_KEY: "shell-key" }).OPENROUTER_API_KEY).toBe("project-key");
+  expect(localDevEnvironment({}, { OPENROUTER_API_KEY: "shell-key" }).OPENROUTER_API_KEY).toBe("shell-key");
 });
