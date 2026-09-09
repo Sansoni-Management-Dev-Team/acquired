@@ -6,6 +6,7 @@ node_modules/
 coverage/
 *.tsbuildinfo
 .vercel
+.wrangler/
 /.local-data/*
 !/.local-data/manufacturer-web-discovery.json
 !/.local-data/manufacturing-search-index.json
