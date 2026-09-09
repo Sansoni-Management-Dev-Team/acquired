@@ -71,3 +71,8 @@ it("keeps company group statements separate from numeric scope and captures publ
 it("does not attach a group profile's headcount to a differently hosted trading brand", () => {
   expect(observedCompanyFacts(profile.replaceAll("instruments.example.com","group.example.com"), source, config)).toEqual([]);
 });
+it("does not mistake a customer's group or a product description for the target's group", () => {
+  const text = "Our customer is part of the Example Group. Our sensors are part of the Precision Range.";
+  expect(observedCompanyFacts(text, "https://instruments.example.com/", config).filter(f => f.kind === "company_relationship")).toEqual([]);
+  expect(observedCompanyFacts("Example Instruments is a subsidiary of Example Holdings.", "https://instruments.example.com/", config).some(f => f.kind === "company_relationship")).toBe(true);
+});

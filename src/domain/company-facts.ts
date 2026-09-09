@@ -65,7 +65,7 @@ export function observedCompanyFacts(markdown: string, source: string, config: R
   }
   if (firstParty) {
     // Only literal own-site group statements; preserve ambiguity for review, never merge entities.
-    const relation = text.match(/(?:Our trusted brands[^\n]{5,500}(?:united|under a new name)[^\n]{0,150}|[^\n]{0,120}\b(?:part of the|a subsidiary of)\s+[A-Z][^\n]{5,200})/);
+    const relation = text.match(/Our trusted brands[^\n]{5,500}(?:united|under a new name)[^\n]{0,150}/) || text.match(new RegExp(`\\b(?:We|${escape(config.companyName!)})\\s+(?:are|is)\\s+(?:part of|a subsidiary of)\\s+(?:the\\s+)?[A-Z][^\\n]{5,200}`));
     if (relation) out.push(fact("company_relationship", compact(relation[0]).slice(0,500), relation[0], config));
     const email = new RegExp(`[a-z0-9._%+-]+@${escape(config.companyDomain!)}\\b`, "gi");
     for (const match of text.matchAll(email)) {
