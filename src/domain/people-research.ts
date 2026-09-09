@@ -47,6 +47,7 @@ export function peopleFollowUpLinks(markdown: string, source: string, visited: s
 export function orderPeopleQueue(urls: string[], visited: string[], domain: string) {
   const score = (url: string) => {
     const path = new URL(url).pathname;
+    if (researchDomain(url) === domain && /team|leadership|management|who-we-are/i.test(path)) return 105;
     if (/(^|\.)linkedin\.com$/.test(new URL(url).hostname) && /^\/in\//.test(path)) return 95;
     if (/(^|\.)linkedin\.com$/.test(new URL(url).hostname) && /^\/pub\/dir\//.test(path)) return 85;
     if (/(^|\.)linkedin\.com$/.test(new URL(url).hostname) && /^\/posts\//.test(path)) return 75;

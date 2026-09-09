@@ -58,3 +58,6 @@ it("retains explicit first-party team cards even when the model supplies the wro
  expect(validatePeopleFindings([],markdown,'https://other.example.com/team',config)).toEqual([]);
  expect(validatePeopleFindings([],markdown.replace('# Our team','# Testimonials'),source,config)).toEqual([]);
 });
+it("reads the company's own team page before third-party profiles",()=>{
+ expect(orderPeopleQueue(['https://www.linkedin.com/in/alexexample','https://instruments.example.com/who-we-are/'],['https://instruments.example.com/'],config.companyDomain!)[0]).toContain('/who-we-are/');
+});
