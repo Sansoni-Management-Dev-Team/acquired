@@ -320,3 +320,23 @@ it("does not extract or count blocked fallback responses as read pages", async (
   expect(t.service.extract).not.toHaveBeenCalled();
   expect(t.progress.mock.calls.at(-1)?.[0].pages).toBe(0);
 });
+
+it("runs one bounded missing-field follow-up and retains direct team evidence within the model limit",async()=>{
+ const t=setup();Object.assign(t.config,{purpose:"people",targetedFollowup:true,companyName:"Example Instruments",companyDomain:"instruments.example.com",maxPeopleSearches:2});
+ t.config.budget={maxPages:3,maxDomains:1,maxMinutes:10,maxModelCalls:2};
+ t.service.planFollowup=vi.fn(async()=>({choice:"search_people"}));
+ t.service.targetedSearch=vi.fn(async()=>({seeds:["https://instruments.example.com/team"]}));
+ vi.mocked(t.service.extract).mockResolvedValue([]);
+ vi.mocked(t.service.poll).mockImplementation(async()=>({status:"completed",page:{url:t.progress.mock.calls.at(-1)?.[0].runtime?.attempts.at(-1)?.url||t.config.seeds[0],markdown:t.progress.mock.calls.at(-1)?.[0].runtime?.attempts.at(-1)?.url.endsWith('/team')?"# Our team\n#### Alex Example\n##### CEO":"Example Instruments builds precision sensors for industry."}}));
+ await runResearch(t.step,t.service);
+ expect(t.service.planFollowup).toHaveBeenCalledOnce();expect(t.service.targetedSearch).toHaveBeenCalledOnce();
+ expect(t.progress.mock.calls.at(-1)?.[0].modelCalls).toBeLessThanOrEqual(2);
+ expect(t.progress.mock.calls.some(([e])=>e.page?.findings.some(f=>f.name==="Alex Example"))).toBe(true);
+});
+it("checks cancellation before targeted model or search calls",async()=>{
+ const t=setup();Object.assign(t.config,{purpose:"people",targetedFollowup:true,companyName:"Example Instruments",companyDomain:"instruments.example.com",maxPeopleSearches:2});
+ t.service.planFollowup=vi.fn(async()=>({choice:"search_people"}));t.service.targetedSearch=vi.fn(async()=>({seeds:[]}));
+ vi.mocked(t.service.extract).mockImplementation(async()=>{t.setStatus("cancelled");return []});
+ await runResearch(t.step,t.service);
+ expect(t.service.planFollowup).not.toHaveBeenCalled();expect(t.service.targetedSearch).not.toHaveBeenCalled();
+});

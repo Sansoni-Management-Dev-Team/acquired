@@ -68,3 +68,18 @@ The company review panel also keeps worksheet, decision, contacts and drafts tog
 The worker reserves outbound requests for cancellation and final persistence before the free plan's 50-subrequest limit. Runs can therefore finish as partial before their page allowance is exhausted. The people status endpoint reconciles workers that have errored or stopped, preserving saved evidence instead of leaving a permanent running state.
 
 **Continue / retry unread pages** resumes the saved queue and legal-entity context with a fresh page budget, explicitly retrying unread attempts. It does not repeat the initial web search. The server rejects continuations from another company/mandate or after the reviewed domain changes.
+
+### Targeted follow-ups
+
+New company/people jobs can opt in with `config.targetedFollowup`. The runner
+reads the initial company pages, then makes at most one Workers AI decision for
+missing headcount or a named decision-maker. Choices are enumerated discovered
+pages, a server-built identity-anchored query, or stop. The decision consumes the
+existing model allowance; searches are claimed once on the authenticated app
+callback. Company jobs use at most one web search; people jobs retain their
+configured one/two-search limit. Unknown fields and provider failures remain
+visible. Existing jobs without the flag keep their original orchestration.
+
+Deploy the app callback and worker before enabling the flag on newly created
+jobs. This change uses existing JSON job configuration; it requires no database
+or Durable Object migration.

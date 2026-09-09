@@ -1,3 +1,4 @@
+import { targetedPlan, resolveTargetedChoice, type TargetedPlan } from "./targeted-research";
 import { unusablePage } from "./page-quality";
 import { businessPrompt, validateBusinessFindings } from "./business-research";
 import { companyHeadcountPrompt, observedCompanyFacts, companyFactLinks, orderCompanyFactQueue } from "./company-facts";
@@ -55,6 +56,8 @@ export interface ResearchServices {
   readPeoplePage?(url: string): Promise<{ status: string; page?: { url: string; markdown: string; title?: string }; warning?: string }>;
   readFallbackPage?(url: string): ReturnType<ResearchServices["poll"]>;
   peopleFollowup?(): Promise<{ seeds: string[]; legalEntity?: string; warning?: string }>;
+  planFollowup?(plan: TargetedPlan): Promise<unknown>;
+  targetedSearch?(field: "size" | "people"): Promise<{ seeds: string[]; warning?: string }>;
   now(): number;
 }
 export async function runResearch(
@@ -115,11 +118,39 @@ export async function runResearch(
     ).slice(0, 200);
     const domains = new Set<string>(initial.config.autoDomains || []),
       budget = initial.config.budget;
-    let peopleFollowupAttempted = Boolean(initial.config.peopleFollowupStarted);
+    let targetedAttempted = Boolean(initial.config.targetedFollowupStarted);
+    let priorityUrl: string | undefined;
+    const collected: ResearchPage["findings"] = [];
+    let peopleFollowupAttempted = Boolean(initial.config.peopleFollowupStarted || initial.config.targetedFollowup);
     while (
-      (runtime.remaining.length || (!peopleFollowupAttempted && initial.config.purpose === "people" && initial.config.maxPeopleSearches === 2 && Boolean(service.peopleFollowup))) &&
+      (runtime.remaining.length || (initial.config.targetedFollowup && !targetedAttempted && Boolean(service.planFollowup)) || (!peopleFollowupAttempted && initial.config.purpose === "people" && initial.config.maxPeopleSearches === 2 && Boolean(service.peopleFollowup))) &&
       runtime.attempts.length < budget.maxPages
     ) {
+      if (initial.config.targetedFollowup && !targetedAttempted && service.planFollowup && runtime.attempts.length > 0 && (runtime.attempts.length >= Math.min(2, budget.maxPages - 1, initial.config.purpose === "people" ? Math.max(1, budget.maxModelCalls - 2) : 2) || (!runtime.remaining.length && runtime.attempts.length > 0))) {
+        targetedAttempted = true;
+        const plan = targetedPlan(initial.config, collected, runtime.remaining, runtime.visited);
+        if (plan && modelCalls < budget.maxModelCalls) {
+          const current = await check("targeted-followup");
+          if (terminalResearchStates.includes(current.status)) return;
+          if (current.expired) { warnings.push("Time limit reached before targeted follow-up"); break; }
+          modelCalls++;
+          await publish("extracting", `Researching the remaining gap: ${plan.missing}`);
+          try {
+            const output = await step.do("targeted-plan", () => service.planFollowup!(plan), false);
+            const choice = resolveTargetedChoice(output, plan);
+            if (choice.kind === "read") priorityUrl = choice.url;
+            if (choice.kind === "search" && service.targetedSearch) {
+              await step.sleep("targeted-search-spacing", 21000);
+              const beforeSearch = await check("targeted-search");
+              if (terminalResearchStates.includes(beforeSearch.status)) return;
+              if (beforeSearch.expired) { warnings.push("Time limit reached before targeted search"); break; }
+              const result = await step.do("targeted-search", () => service.targetedSearch!(choice.field), false);
+              runtime.remaining = uniqueResearchUrls([...result.seeds, ...runtime.remaining]);
+              if (result.warning) warnings.push(result.warning);
+            }
+          } catch { warnings.push("Targeted follow-up unavailable; existing sources retained"); }
+        }
+      }
       if (!peopleFollowupAttempted && runtime.attempts.length && initial.config.purpose === "people" && initial.config.maxPeopleSearches === 2 && service.peopleFollowup && ((discovered.peopleLeadCount || initial.config.peopleSearchLeads?.length || 0) > 0 || runtime.attempts.some(a => a.reason.includes("legal operator")) || runtime.attempts.length >= Math.min(3, budget.maxPages - 1) || !runtime.remaining.length)) {
         await step.sleep("people-search-spacing", 21000);
         const current = await check(`people-followup-${runtime.attempts.length}`);
@@ -133,6 +164,11 @@ export async function runResearch(
       runtime.remaining = orderResearchQueue(runtime.remaining,runtime.visited,initial.config.strategy,runtime.attempts.map(a=>a.url));
       if (initial.config.purpose === "people") runtime.remaining = orderPeopleQueue(runtime.remaining, runtime.visited, initial.config.companyDomain!);
       if (initial.config.purpose === "firmographics") runtime.remaining = orderCompanyFactQueue(runtime.remaining, initial.config);
+      if (priorityUrl) {
+        runtime.remaining = [priorityUrl, ...runtime.remaining.filter(u=>u!==priorityUrl)];
+        priorityUrl = undefined;
+      }
+      if (!runtime.remaining.length) break;
       const index = runtime.remaining.findIndex(
         (u) =>
           domains.has(researchDomain(u)) || domains.size < budget.maxDomains,
@@ -325,10 +361,16 @@ export async function runResearch(
             extracted.warning ||
             (initial.config.purpose === "people" ? `${findings.filter(f => f.kind === "person").length} sourced people leads${findings.some(f => f.kind === "identifier") ? "; legal operator identified" : ""}; role currency and email remain unverified` : `${findings.length} supported claims; financial fit remains unknown`);
         } else { entry.reason = "Read without AI extraction (model limit)"; }
+        if (initial.config.purpose === "people") {
+          // Keep directly observed team evidence even when the model failed or its allowance ended.
+          const direct = validatePeopleFindings([], markdown, sourceUrl, initial.config);
+          findings.push(...direct.filter(f=>!findings.some(v=>v.kind===f.kind && v.name===f.name && v.value===f.value)));
+        }
         const catalogue = initial.config.purpose ? [] : [...statedSupplyFindings(markdown, sourceUrl, initial.config.searchTerms), ...catalogueProductFindings(markdown, sourceUrl, initial.config.searchTerms)]
           .filter(c => !findings.some(f => f.kind === c.kind && f.value === c.value));
         findings = [...findings, ...catalogue].slice(0, initial.config.purpose === "firmographics" ? 8 : 4);
         if (catalogue.length) entry.reason = `${findings.length} supported claims including directly observed website evidence; financial fit remains unknown`;
+        collected.push(...findings);
         const observedAt = await step.do(`observed-${attempt}`, async () =>
           new Date(service.now()).toISOString(),
         );
@@ -365,6 +407,7 @@ export async function runResearch(
       warnings.push(
         `${runtime.remaining.length} URLs remain; continue research with a fresh budget`,
       );
+    if (initial.config.targetedFollowup && initial.config.purpose && !collected.some(f=>initial.config.purpose === "people" ? f.kind === "person" : f.kind === "headcount")) warnings.push(initial.config.purpose === "people" ? "Named decision-maker remains unknown; available sources retained" : "Headcount remains unknown; available sources retained");
     if (!pages) warnings.push("No pages could be read");
     await publish(
       warnings.length ? "partial" : "complete",

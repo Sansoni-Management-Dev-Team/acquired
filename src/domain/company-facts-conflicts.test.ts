@@ -7,7 +7,7 @@ it("surfaces conflicting counts and treats equivalent employee labels as the sam
   expect(companyFactConflicts([count("11-50"),count("11-50 employees")])).toEqual([]);
   expect(companyFactConflicts([count("11-50"),count("51-200 employees")])).toEqual(["headcount"]);
 });
-it("searches a clean company alias with its domain and prioritises supported numeric profiles", () => {
-  expect(companyFactSearchQuery("Example Group / Old Brand",config.companyDomain!)).toBe('"Example Group" "instruments.example.com" employees revenue company size');
-  expect(orderCompanyFactQueue(["https://unrelated.example.com/about","https://instruments.example.com/","https://www.datanyze.com/companies/example/123","https://www.linkedin.com/company/example"],config)).toEqual(["https://www.linkedin.com/company/example","https://www.datanyze.com/companies/example/123","https://instruments.example.com/"]);
+it("anchors size research to the website and reads it before matched numeric profiles", () => {
+  expect(companyFactSearchQuery("Example Group / Old Brand",config.companyDomain!)).toBe('"instruments.example.com" employees');
+  expect(orderCompanyFactQueue(["https://unrelated.example.com/about","https://instruments.example.com/","https://www.datanyze.com/companies/example/123","https://www.linkedin.com/company/example"],config)).toEqual(["https://instruments.example.com/","https://www.linkedin.com/company/example","https://www.datanyze.com/companies/example/123"]);
 });

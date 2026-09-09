@@ -1,3 +1,4 @@
+import { targetedQuery } from "@/domain/targeted-research";
 import { companyFactSearchQuery } from "@/domain/company-facts";
 import { mergePeopleSearchLeads, peopleFollowupQuery, cleanLegalEntity, type PeopleSearchLead } from "@/domain/people-search-results";
 import { dispatchContinuation } from "@/lib/research-continuation";
@@ -71,6 +72,28 @@ export async function POST(
   if (!job) return Response.json({ error: "Not available" }, { status: 403 });
   const payload = await request.json().catch(() => null);
   const repo = new ResearchRepository(job.organizationId);
+  if (payload?.action === "targeted-followup") {
+    const config = job.config as ResearchConfig;
+    const field = config.purpose === "firmographics" ? "size" : "people";
+    if (!config.targetedFollowup || !config.purpose || payload.field !== field || (field === "people" && config.maxPeopleSearches !== 2) || terminalResearchStates.includes(job.status)) return Response.json({ seeds: [] });
+    const evidence = await requireDb().select().from(researchFindings).where(and(eq(researchFindings.jobId, job.id), eq(researchFindings.organizationId, job.organizationId)));
+    const facts = evidence.map(f=>f.evidence as {kind?:string;name?:string;value?:string});
+    if (facts.some(f=>field === "people" ? f.kind === "person" : f.kind === "headcount")) return Response.json({ seeds: [] });
+    const legalEntity = facts.find(f=>f.kind === "identifier" && f.name === "Legal entity")?.value || config.legalEntity;
+    const claimed = await requireDb().update(researchJobs).set({config:sql`jsonb_set(${researchJobs.config}, '{targetedFollowupStarted}', 'true'::jsonb)`})
+      .where(and(eq(researchJobs.id, job.id), sql`COALESCE(${researchJobs.config}->>'targetedFollowupStarted', 'false') = 'false'`, notInArray(researchJobs.status, terminalResearchStates))).returning({id:researchJobs.id});
+    if (!claimed.length) return Response.json({seeds:[]});
+    try {
+      const query = targetedQuery(field, {...config, legalEntity});
+      if (field === "people") {
+        const result = await peopleWebSearch(config.companyName!, config.companyDomain!, fetch, query, legalEntity);
+        await saveSearchLeads(job.id, config.peopleSearchLeads || [], result.leads);
+        return Response.json({seeds:result.seeds});
+      }
+      const results = await cloudflareSearchResults(query);
+      return Response.json({seeds:results.filter(r=>companyResultMatches(r,config.companyName!,config.companyDomain!,legalEntity)).map(r=>r.url)});
+    } catch { return Response.json({seeds:[],warning:"Targeted search unavailable; existing evidence retained"}); }
+  }
   if (payload?.action === "people-followup") {
     const config = job.config as ResearchConfig;
     if (config.purpose !== "people" || config.maxPeopleSearches !== 2 || terminalResearchStates.includes(job.status)) return Response.json({ seeds: [] });
@@ -102,7 +125,7 @@ export async function POST(
       .filter((s): s is string => Boolean(s));
     let warning = "";
     let peopleLeadCount = config.peopleSearchLeads?.length || 0;
-    if (config.purpose === "firmographics" && config.discover) {
+    if (config.purpose === "firmographics" && config.discover && !config.targetedFollowup) {
       try { seeds.push(...(await cloudflareSearchResults(companyFactSearchQuery(config.companyName!, config.companyDomain!))).filter(r => companyResultMatches(r, config.companyName!, config.companyDomain!, config.legalEntity)).map(r => r.url)); }
       catch { warning = "Public profile search unavailable; company website research continues."; }
     } else if (config.purpose === "people" && config.discover) {
@@ -113,7 +136,7 @@ export async function POST(
         await saveSearchLeads(job.id, config.peopleSearchLeads || [], result.leads);
       }
       catch (error) { warning = `${error instanceof Error ? error.message : "Public web search unavailable"}; company website research continues.`; }
-    } else if (config.discover) {
+    } else if (config.discover && !config.purpose) {
       try {
         const mandate = await new AcquisitionRepository(
           job.organizationId,

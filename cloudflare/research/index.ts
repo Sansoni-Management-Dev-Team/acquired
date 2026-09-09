@@ -1,3 +1,4 @@
+import { targetedPrompt, targetedSchema } from "../../src/domain/targeted-research";
 import { readFallback } from "./fallback";
 import { peopleExtractionSchema } from "../../src/domain/people-research";
 import { searchResults } from "../../src/domain/cloudflare-search";
@@ -252,6 +253,14 @@ export class AcquireResearch extends WorkflowEntrypoint<
           const result = output as { response?: unknown };
           return typeof result.response === "string" ? JSON.parse(result.response) : result.response ?? output;
         },
+        planFollowup: async (plan) => {
+          const output = await this.env.AI.run("@cf/meta/llama-3.3-70b-instruct-fp8-fast", {
+            messages: targetedPrompt(plan), max_tokens: 100, temperature: 0,
+            response_format: { type: "json_schema", json_schema: targetedSchema(plan) },
+          }) as { response?: unknown };
+          return typeof output.response === "string" ? JSON.parse(output.response) : output.response;
+        },
+        targetedSearch: (field) => callback(this.env, id, { action: "targeted-followup", field }, requestBudget) as Promise<{ seeds: string[]; warning?: string }>,
         peopleFollowup: () => callback(this.env, id, { action: "people-followup" }, requestBudget) as Promise<{ seeds: string[]; warning?: string }>,
         now: () => Date.now(),
       },
