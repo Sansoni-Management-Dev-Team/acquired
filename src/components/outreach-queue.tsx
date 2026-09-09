@@ -1,6 +1,7 @@
 "use client";
 
 import { PeopleSearch } from "./people-search";
+import { BuyerProfileEditor } from "./buyer-profile-editor";
 import { useEffect, useMemo, useState } from "react";
 import { LoaderCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -15,8 +16,6 @@ export type OutreachTargetView = {
   establishedYear?: number; firmableId?: string; contacts: OutreachContactView[]; signals: Signal[]; drafts: OutreachDraftView[];
 };
 
-const emptyProfile: BuyerProfile = { senderName: "", background: "", investmentThesis: "", operatingIntent: "", callToAction: "", signature: "" };
-
 export function OutreachQueue({ initialTargets, initialBuyerProfile, mandateId, initialTargetId, embedded = false, showPeopleSearch = true, onRefresh, onDirtyChange }: { showPeopleSearch?: boolean; onDirtyChange?: (dirty: boolean) => void; embedded?: boolean; onRefresh?: () => void; mandateId: string; initialTargetId?: string; initialTargets: OutreachTargetView[]; initialBuyerProfile: BuyerProfile | null }) {
   const router = useRouter();
   const refresh = () => { router.refresh(); onRefresh?.(); };
@@ -28,13 +27,12 @@ export function OutreachQueue({ initialTargets, initialBuyerProfile, mandateId, 
   const [candidates, setCandidates] = useState<ContactCandidate[]>([]);
   const [selectedContacts, setSelectedContacts] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
-  const [buyerProfile, setBuyerProfile] = useState<BuyerProfile>(initialBuyerProfile || emptyProfile);
+  const [buyerProfile, setBuyerProfile] = useState<BuyerProfile | null>(initialBuyerProfile);
   const [profileEdited, setProfileEdited] = useState(false);
   const [profileSaved, setProfileSaved] = useState(Boolean(initialBuyerProfile));
-  const [savingProfile, setSavingProfile] = useState(false);
   const selected = useMemo(() => initialTargets.find((target) => target.id === selectedId) || initialTargets[0], [initialTargets, selectedId]);
   const contact = selected?.contacts.find((item) => item.id === selectedContacts[selected.id]) || selected?.contacts[0];
-  const readyToPreview = Boolean(selected && !contact?.doNotContact && selected.signals.some(s => s.direction === "positive") && profileSaved && buyerProfile.publicProfileApproved);
+  const readyToPreview = Boolean(selected && !contact?.doNotContact && selected.signals.some(s => s.direction === "positive") && profileSaved && buyerProfile?.publicProfileApproved);
   const readyToDraft = readyToPreview && Boolean(contact?.email);
   const contactNeedsLiveEnrichment = !contact || !contact.email || contact.fictionalised;
   useEffect(() => { onDirtyChange?.(Object.keys(draftEdits).length > 0 || profileEdited); }, [draftEdits, profileEdited, onDirtyChange]);
@@ -68,22 +66,6 @@ export function OutreachQueue({ initialTargets, initialBuyerProfile, mandateId, 
     finally { setBusy(null); }
   }
 
-  async function saveBuyerProfile() {
-    setSavingProfile(true); setError("");
-    try {
-      const response = await fetch("/api/outreach/profile", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(buyerProfile) });
-      const result = await response.json() as { profile?: BuyerProfile; error?: string };
-      if (!response.ok || !result.profile) throw new Error(result.error || "Buyer profile could not be saved");
-      setBuyerProfile(result.profile); setProfileSaved(true); setProfileEdited(false); refresh();
-    } catch (caught) { setProfileSaved(false); setError(caught instanceof Error ? caught.message : "Buyer profile could not be saved"); }
-    finally { setSavingProfile(false); }
-  }
-
-  function updateProfile(field: keyof BuyerProfile, value: string) {
-    setBuyerProfile((current) => ({ ...current, [field]: value, publicProfileApproved: false }));
-    setProfileSaved(false); setProfileEdited(true);
-  }
-
   function editFor(draft: OutreachDraftView) { return draftEdits[draft.id] || { subject: draft.subject, body: draft.body }; }
 
   async function saveDraft(draft: OutreachDraftView) {
@@ -114,11 +96,7 @@ export function OutreachQueue({ initialTargets, initialBuyerProfile, mandateId, 
     <aside className="space-y-4">
       {showPeopleSearch && <PeopleSearch key={selected.id} mandateId={mandateId} targetId={selected.id} onSaved={refresh} />}
 
-      <details className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5"><summary className="cursor-pointer text-sm font-semibold">Buyer profile</summary><div className="mt-3 flex items-center justify-between gap-3"><h2 className="text-sm font-semibold">Public positioning</h2><span className={`text-[10px] uppercase tracking-[.14em] ${profileSaved ? "text-emerald-300" : "text-amber-300"}`}>{profileSaved ? "Saved" : "Required"}</span></div><div className="mt-4 space-y-3">{([
-        ["senderName", "Sender name", "Alex Buyer"], ["background", "Background", "Your relevant operating and professional background"],
-        ["investmentThesis", "Investment thesis", "The kind of company you want to acquire"], ["operatingIntent", "Operating intent", "How you intend to own and operate the business"],
-        ["callToAction", "Call to action", "The specific next step you want to request"], ["signature", "Signature", "Name and sign-off"],
-      ] as Array<["senderName" | "background" | "investmentThesis" | "operatingIntent" | "callToAction" | "signature", string, string]>).map(([field, label, placeholder]) => <label key={field} className="block text-[11px] text-[var(--muted)]">{label}{field === "senderName" || field === "signature" ? <input value={buyerProfile[field]} onChange={(event) => updateProfile(field, event.target.value)} placeholder={placeholder} className="mt-1 w-full rounded-md border border-[var(--border)] bg-black/20 px-3 py-2 text-xs text-white" /> : <textarea value={buyerProfile[field]} onChange={(event) => updateProfile(field, event.target.value)} placeholder={placeholder} className="mt-1 min-h-16 w-full resize-y rounded-md border border-[var(--border)] bg-black/20 px-3 py-2 text-xs text-white" />}</label>)}</div><button disabled={savingProfile || profileSaved} onClick={saveBuyerProfile} className="mt-4 rounded-md border border-[var(--border)] px-3 py-2 text-xs font-semibold disabled:opacity-40">{savingProfile ? "Saving…" : profileSaved ? "Profile saved" : "Save buyer profile"}</button><a className="mt-3 block text-xs underline" href={`/mandates/${mandateId}?tab=brief`}>Review public profile and disclosure in Brief</a></details>
+      <BuyerProfileEditor initial={initialBuyerProfile} onDirtyChange={dirty => { setProfileEdited(dirty); if (dirty) setProfileSaved(false); }} onSaved={profile => { setBuyerProfile(profile); setProfileSaved(true); onRefresh?.(); }} />
       <section className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5">
         <label className="text-xs uppercase tracking-[.16em] text-[var(--muted)]">Saved business<select value={selected.id} onChange={(event) => { if (Object.keys(draftEdits).length && !window.confirm("Discard unsaved draft edits and switch company?")) return; setDraftEdits({}); setSelectedId(event.target.value); setCandidates([]); setPreview([]); setError(""); }} className="mt-2 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] px-3 py-2.5 text-sm text-white">{initialTargets.map((target) => <option key={target.id} value={target.id}>{target.companyName}</option>)}</select></label>
         <h2 className="mt-5 text-xl font-semibold">{selected.companyName}</h2><p className="mt-1 text-xs text-[var(--muted)]">{selected.domain || "No domain"}{selected.sector ? ` · ${selected.sector}` : ""}</p>
@@ -136,7 +114,7 @@ export function OutreachQueue({ initialTargets, initialBuyerProfile, mandateId, 
     </aside>
     <section className="space-y-3">
       {preview.length > 0 && <div className="space-y-3"><p role="status" className="text-sm text-amber-200">Preview only · not saved. Select a recipient and generate the saved sequence when ready.</p>{preview.map(draft => <article key={draft.step} className="rounded-lg border border-[var(--border)] p-5"><h3 className="font-semibold">{draft.step}. {draft.subject}</h3><p className="mt-3 whitespace-pre-wrap text-sm text-[var(--muted)]">{draft.body}</p></article>)}</div>}
-      {selected.drafts.length === 0 ? <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-7"><p className="text-xs uppercase tracking-[.16em] text-[var(--accent)]">Outreach readiness</p><h2 className="mt-2 text-xl font-semibold">Generate seven evidence-grounded drafts</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--muted)]">Drafts use the stored company profile, selected decision-maker, and persisted evidence signals. They remain in draft state and cannot send without human approval.</p><button disabled={!readyToPreview || busy !== null} onClick={() => perform("drafts", "/api/outreach/drafts", { mandateId, targetId: selected.id, contactId: contact?.id, preview: true })} className="mt-5 mr-3 min-h-12 rounded-md border border-[var(--border)] px-4 text-sm disabled:opacity-40">Preview drafts without email</button><button disabled={!readyToDraft || busy !== null} onClick={() => perform("drafts", "/api/outreach/drafts", { mandateId, targetId: selected.id, contactId: contact?.id })} className="mt-5 inline-flex items-center gap-2 rounded-md bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-40">{busy === "drafts" && <LoaderCircle size={15} className="animate-spin" />}Generate and save drafts</button>{!readyToDraft && <p className="mt-3 text-xs text-amber-200">{!buyerProfile.publicProfileApproved ? <a className="underline" href={`/mandates/${mandateId}?tab=brief`}>Approve the public buyer profile in Brief.</a> : !profileSaved ? "Save the buyer profile above." : !selected.signals.some(s => s.direction === "positive") ? <a className="underline" href={`/mandates/${mandateId}/targets/${selected.id}`}>Review public sub-sector evidence in the worksheet.</a> : "Preview now; select a contact with a work email to save the sequence."}</p>}</div> : <><div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4"><div><p className="text-xs uppercase tracking-[.16em] text-[var(--accent)]">Saved sequence</p><p className="mt-1 text-xs text-[var(--muted)]">{hasApprovedDraft ? "Revoke approved Gmail drafts before regenerating." : "Regeneration replaces all seven drafts and resets their approvals."}</p></div><button disabled={!readyToDraft || hasApprovedDraft || busy !== null || messageBusy !== null} onClick={regenerateDrafts} className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40">{busy === "drafts" && <LoaderCircle size={14} className="animate-spin" />}Regenerate all drafts</button></div>{selected.drafts.map((draft) => {
+      {selected.drafts.length === 0 ? <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-7"><p className="text-xs uppercase tracking-[.16em] text-[var(--accent)]">Outreach readiness</p><h2 className="mt-2 text-xl font-semibold">Generate seven evidence-grounded drafts</h2><p className="mt-3 max-w-2xl text-sm leading-6 text-[var(--muted)]">Drafts use the stored company profile, selected decision-maker, and persisted evidence signals. They remain in draft state and cannot send without human approval.</p><button disabled={!readyToPreview || busy !== null} onClick={() => perform("drafts", "/api/outreach/drafts", { mandateId, targetId: selected.id, contactId: contact?.id, preview: true })} className="mt-5 mr-3 min-h-12 rounded-md border border-[var(--border)] px-4 text-sm disabled:opacity-40">Preview drafts without email</button><button disabled={!readyToDraft || busy !== null} onClick={() => perform("drafts", "/api/outreach/drafts", { mandateId, targetId: selected.id, contactId: contact?.id })} className="mt-5 inline-flex items-center gap-2 rounded-md bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-black disabled:cursor-not-allowed disabled:opacity-40">{busy === "drafts" && <LoaderCircle size={15} className="animate-spin" />}Generate and save drafts</button>{!readyToDraft && <p className="mt-3 text-xs text-amber-200">{!buyerProfile?.publicProfileApproved ? "Approve and save the public profile in Buyer profile." : !profileSaved ? "Save the buyer profile above." : !selected.signals.some(s => s.direction === "positive") ? <a className="underline" href={`/mandates/${mandateId}/targets/${selected.id}`}>Review public sub-sector evidence in the worksheet.</a> : "Preview now; select a contact with a work email to save the sequence."}</p>}</div> : <><div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-4"><div><p className="text-xs uppercase tracking-[.16em] text-[var(--accent)]">Saved sequence</p><p className="mt-1 text-xs text-[var(--muted)]">{hasApprovedDraft ? "Revoke approved Gmail drafts before regenerating." : "Regeneration replaces all seven drafts and resets their approvals."}</p></div><button disabled={!readyToDraft || hasApprovedDraft || busy !== null || messageBusy !== null} onClick={regenerateDrafts} className="inline-flex items-center gap-2 rounded-md border border-[var(--border)] px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40">{busy === "drafts" && <LoaderCircle size={14} className="animate-spin" />}Regenerate all drafts</button></div>{selected.drafts.map((draft) => {
         const edit = editFor(draft); const approved = draft.state === "approved";
         return <article key={draft.id} className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5">
           <div className="flex flex-wrap items-center justify-between gap-3"><span className="text-xs uppercase tracking-[.16em] text-[var(--accent)]">Step {draft.step}</span><button disabled={messageBusy !== null || (!approved && Boolean(contact?.fictionalised || !contact?.email || contact.doNotContact))} onClick={() => setApproval(draft, !approved)} className={`rounded-md border px-3 py-2 text-xs font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${approved ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--accent)]" : "border-[var(--border)] text-[var(--muted)]"}`}>{messageBusy === draft.id ? "Syncing Gmail…" : approved ? "Revoke approval" : contact?.fictionalised ? "Real contact required" : "Approve & save to Gmail"}</button></div>
