@@ -349,3 +349,13 @@ it("retains the predefined search when the AI planner quota is exhausted",async(
  expect(t.service.planFollowup).toHaveBeenCalledOnce();expect(t.service.targetedSearch).toHaveBeenCalledOnce();
  expect(t.progress.mock.calls.at(-1)?.[0].message).toContain("predefined company follow-up");
 });
+
+it("does not spend AI calls on an explicit company team card",async()=>{
+ const t=setup();Object.assign(t.config,{purpose:"people",targetedFollowup:true,companyName:"Example Instruments",companyDomain:"instruments.example.com"});
+ t.service.planFollowup=vi.fn(async()=>({choice:"stop"}));
+ vi.mocked(t.service.poll).mockResolvedValue({status:"completed",page:{url:t.config.seeds[0],markdown:"# Our team\n#### Alex Example\n##### CEO"}});
+ await runResearch(t.step,t.service);
+ expect(t.service.extract).not.toHaveBeenCalled();expect(t.service.planFollowup).not.toHaveBeenCalled();
+ expect(t.progress.mock.calls.at(-1)?.[0].modelCalls).toBe(0);
+ expect(t.progress.mock.calls.some(([e])=>e.page?.findings.some(f=>f.name==="Alex Example"))).toBe(true);
+});

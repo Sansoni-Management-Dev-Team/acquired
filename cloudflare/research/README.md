@@ -89,3 +89,8 @@ runner uses an offered first-party team link or the predefined company query.
 It does not exceed the page/search allowance or invent a broader query. Direct
 source parsing still runs when model extraction fails. The progress message
 reports this degraded mode; it is not counted as a successful agent decision.
+
+Local crawler comparisons must retain navigation and footer links (`only_main_content: false`
+in the Crawl4AI MCP tool), matching the production reader's raw markdown. Pruned
+article text can hide team/contact links and should not be used to measure routing
+coverage. Explicit company team cards are parsed before invoking the people model.

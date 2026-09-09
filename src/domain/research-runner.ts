@@ -316,9 +316,13 @@ export async function runResearch(
           runtime.visited,
         ).slice(0, 200);
         let findings: ResearchPage["findings"] = [];
+        const directPeople = initial.config.purpose === "people" ? validatePeopleFindings([], markdown, sourceUrl, initial.config) : [];
         if (initial.config.purpose === "firmographics") {
           findings = observedCompanyFacts(markdown, sourceUrl, initial.config);
           entry.reason = `${findings.length} sourced company facts; estimates and scope require review`;
+        } else if (directPeople.some(f=>f.kind === "person")) {
+          findings = directPeople;
+          entry.reason = "Named role directly supported by company page; no AI extraction needed";
         } else if (modelCalls < budget.maxModelCalls) {
           modelCalls++;
           await publish(
@@ -367,8 +371,7 @@ export async function runResearch(
         } else { entry.reason = "Read without AI extraction (model limit)"; }
         if (initial.config.purpose === "people") {
           // Keep directly observed team evidence even when the model failed or its allowance ended.
-          const direct = validatePeopleFindings([], markdown, sourceUrl, initial.config);
-          findings.push(...direct.filter(f=>!findings.some(v=>v.kind===f.kind && v.name===f.name && v.value===f.value)));
+          findings.push(...directPeople.filter(f=>!findings.some(v=>v.kind===f.kind && v.name===f.name && v.value===f.value)));
         }
         const catalogue = initial.config.purpose ? [] : [...statedSupplyFindings(markdown, sourceUrl, initial.config.searchTerms), ...catalogueProductFindings(markdown, sourceUrl, initial.config.searchTerms)]
           .filter(c => !findings.some(f => f.kind === c.kind && f.value === c.value));
