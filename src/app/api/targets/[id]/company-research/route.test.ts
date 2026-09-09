@@ -20,7 +20,7 @@ it("requires authentication and mandate membership before dispatch", async () =>
 });
 it("derives public company identity and fixed budget server-side", async () => {
   expect((await POST(request({ ...body, companyName: "injected", seeds: ["http://localhost/"], budget: { maxPages: 999 } }), ctx)).status).toBe(202);
-  expect(m.create).toHaveBeenCalledWith(requestId, mandateId, "user-a", expect.objectContaining({ targetId: id, companyName: "Example Instruments", seeds: ["https://instruments.example.com/"], budget: { maxPages: 5, maxDomains: 3, maxModelCalls: 5, maxMinutes: 10 } }));
+  expect(m.create).toHaveBeenCalledWith(requestId, mandateId, "user-a", expect.objectContaining({ targetedFollowup: true, targetId: id, companyName: "Example Instruments", seeds: ["https://instruments.example.com/"], budget: { maxPages: 5, maxDomains: 3, maxModelCalls: 5, maxMinutes: 10 } }));
   expect(m.worker).toHaveBeenCalledWith(`/jobs/${requestId}`, "POST");
 });
 it("does not reuse another target's request or start without a reviewed public website", async () => {

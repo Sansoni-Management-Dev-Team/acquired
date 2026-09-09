@@ -31,7 +31,7 @@ export async function dispatchBusinessPeople(org: string, completedId: string) {
         const hash = createHash("sha256").update(`${parent.id}:${next.target.id}:firmographics`).digest("hex");
         const id = `${hash.slice(0,8)}-${hash.slice(8,12)}-4${hash.slice(13,16)}-8${hash.slice(17,20)}-${hash.slice(20,32)}`;
         const pages = config.companyBudget.maxPages;
-        const child: ResearchConfig = { purpose: "firmographics", parentJobId: parent.id, targetId: next.target.id, companyName: next.target.companyName, companyDomain: next.target.domain!, seeds: [`https://${next.target.domain}/`], searchTerms: ["company size industry founded headquarters"], geography: "Australia", discover: true, approved: true, strategy: "investigate", budget: { maxPages: pages, maxDomains: Math.min(3, pages), maxModelCalls: pages, maxMinutes: 10 } };
+        const child: ResearchConfig = { purpose: "firmographics", targetedFollowup: true, parentJobId: parent.id, targetId: next.target.id, companyName: next.target.companyName, companyDomain: next.target.domain!, seeds: [`https://${next.target.domain}/`], searchTerms: ["company size industry founded headquarters"], geography: "Australia", discover: true, approved: true, strategy: "investigate", budget: { maxPages: pages, maxDomains: Math.min(3, pages), maxModelCalls: pages, maxMinutes: 10 } };
         const job = await repo.create(id, parent.mandateId, parent.createdBy, child);
         if (!terminalResearchStates.includes(job.status)) await researchWorker(`/jobs/${job.id}`, "POST");
         return;
@@ -56,7 +56,7 @@ export async function dispatchBusinessPeople(org: string, completedId: string) {
   const hash = createHash("sha256").update(`${parent.id}:${next.target.id}:people`).digest("hex");
   const id = `${hash.slice(0,8)}-${hash.slice(8,12)}-4${hash.slice(13,16)}-8${hash.slice(17,20)}-${hash.slice(20,32)}`;
   const pages = config.peopleBudget.maxPages;
-  const child: ResearchConfig = { purpose: "people", parentJobId: parent.id, targetId: next.target.id, companyName: next.target.companyName, companyDomain: next.target.domain!, seeds: uniqueResearchUrls([...(config.peopleLinks?.[next.target.id] || []), `https://${next.target.domain}/`]).slice(0, 10), searchTerms: ["owner founder director management team"], geography: config.geography, discover: true, approved: true, maxPeopleSearches: config.peopleSearchesPerCompany || 1, strategy: "investigate", budget: { maxPages: pages, maxDomains: Math.min(3, pages), maxModelCalls: pages, maxMinutes: 5 } };
+  const child: ResearchConfig = { purpose: "people", targetedFollowup: true, parentJobId: parent.id, targetId: next.target.id, companyName: next.target.companyName, companyDomain: next.target.domain!, seeds: uniqueResearchUrls([...(config.peopleLinks?.[next.target.id] || []), `https://${next.target.domain}/`]).slice(0, 10), searchTerms: ["owner founder director management team"], geography: config.geography, discover: true, approved: true, maxPeopleSearches: config.peopleSearchesPerCompany || 1, strategy: "investigate", budget: { maxPages: pages, maxDomains: Math.min(3, pages), maxModelCalls: pages, maxMinutes: 5 } };
   const job = await repo.create(id, parent.mandateId, parent.createdBy, child);
   if (!terminalResearchStates.includes(job.status)) await researchWorker(`/jobs/${job.id}`, "POST");
 }

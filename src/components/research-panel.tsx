@@ -291,7 +291,7 @@ export function ResearchPanel({
                     Assess sourced claims with AI
                   </label>
                   <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={companyDetails && useAi} disabled={!useAi} onChange={e => setCompanyDetails(e.target.checked)} />Research size, industry, founding year and company details</label>
-                  {companyDetails && useAi && <p className="text-sm text-[var(--muted)]">Follow up up to 2 researched companies, with 3 additional page attempts plus one public web search per company (10 minutes each). Review reported headcounts, public revenue estimates, source conflicts and an optional industry/headcount EBITDA scenario in each company’s review. Unknowns remain unknown.</p>}
+                  {companyDetails && useAi && <p className="text-sm text-[var(--muted)]">Read company websites first, then use a targeted follow-up for missing headcount. Follow up up to 2 researched companies, with 3 additional page attempts plus one public web search per company (10 minutes each). Review reported headcounts, public revenue estimates, source conflicts and an optional industry/headcount EBITDA scenario in each company’s review. Unknowns remain unknown.</p>}
                   {!continuation && <label className="flex items-start gap-2 text-sm">
                     <input type="checkbox" checked={findPeople && useAi} disabled={!useAi} onChange={e => { setFindPeople(e.target.checked); }} />
                     Find owners and decision-makers for relevant businesses

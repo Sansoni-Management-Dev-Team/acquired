@@ -22,7 +22,7 @@ it("dispatches a separately bounded child with stable identity and parent owners
   const [id,mandate,user,config] = mocks.create.mock.calls[0];
   expect(id).toMatch(/^[\da-f-]{36}$/);
   expect([mandate,user]).toEqual(["mandate","user"]);
-  expect(config).toMatchObject({parentJobId:parent.id,purpose:"people",targetId:target.id,maxPeopleSearches:2,budget:{maxPages:2,maxModelCalls:2,maxMinutes:5}});
+  expect(config).toMatchObject({parentJobId:parent.id,purpose:"people",targetedFollowup:true,targetId:target.id,maxPeopleSearches:2,budget:{maxPages:2,maxModelCalls:2,maxMinutes:5}});
   expect(mocks.worker).toHaveBeenCalledWith(`/jobs/${id}`,"POST");
 });
 it("never creates another child while one is active",async()=>{
@@ -49,7 +49,7 @@ it("does not dispatch when people research was not selected",async()=>{
 it("runs company facts before the people phase using a separate approved budget", async () => {
   mocks.get.mockResolvedValue({ ...parent, config: { ...parent.config, companyBudget: { maxCompanies: 2, maxPages: 3 } } });
   await dispatchBusinessPeople("org", parent.id);
-  expect(mocks.create.mock.calls[0][3]).toMatchObject({ purpose: "firmographics", parentJobId: parent.id, targetId: target.id, budget: { maxPages: 3, maxModelCalls: 3 } });
+  expect(mocks.create.mock.calls[0][3]).toMatchObject({ purpose: "firmographics", targetedFollowup: true, parentJobId: parent.id, targetId: target.id, budget: { maxPages: 3, maxModelCalls: 3 } });
 });
 it("counts failed company jobs against the cap then advances to people", async () => {
   mocks.get.mockResolvedValue({ ...parent, config: { ...parent.config, companyBudget: { maxCompanies: 1, maxPages: 3 } } });
@@ -67,4 +67,11 @@ it("keeps the one-search allowance on previously approved runs",async()=>{
  mocks.get.mockResolvedValue({...parent,config:{...parent.config,peopleSearchesPerCompany:undefined}});
  await dispatchBusinessPeople('org',parent.id);
  expect(mocks.create.mock.calls[0][3].maxPeopleSearches).toBe(1);
+});
+
+it("hands discovered team links to people research without duplicate page seeds",async()=>{
+ const team="https://instruments.example.com/team",contact="https://instruments.example.com/contact";
+ mocks.get.mockResolvedValue({...parent,config:{...parent.config,peopleLinks:{[target.id]:[team,team,contact]}}});
+ await dispatchBusinessPeople("org",parent.id);
+ expect(mocks.create.mock.calls[0][3].seeds).toEqual([team,contact,"https://instruments.example.com/"]);
 });

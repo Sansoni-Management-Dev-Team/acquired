@@ -50,7 +50,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const domain = c.member.target.domain;
   const seed = domain && publicResearchUrl(`https://${domain}/`);
   if (!seed) return Response.json({ error: "Add and review the company website in its worksheet first" }, { status: 409 });
-  let config: ResearchConfig = { purpose: "firmographics", targetId: id, companyName: c.member.target.companyName, companyDomain: new URL(seed).hostname.replace(/^www\./, ""), seeds: [seed], searchTerms: ["company size industry founded headquarters"], geography: "Australia", discover: true, approved: true, strategy: "investigate", budget: { maxPages: 5, maxDomains: 3, maxModelCalls: 5, maxMinutes: 10 } };
+  let config: ResearchConfig = { purpose: "firmographics", targetedFollowup: true, targetId: id, companyName: c.member.target.companyName, companyDomain: new URL(seed).hostname.replace(/^www\./, ""), seeds: [seed], searchTerms: ["company size industry founded headquarters"], geography: "Australia", discover: true, approved: true, strategy: "investigate", budget: { maxPages: 5, maxDomains: 3, maxModelCalls: 5, maxMinutes: 10 } };
   const repo = new ResearchRepository(c.org);
   if (input.data.continueFrom) {
     const previous = await repo.get(input.data.continueFrom);
