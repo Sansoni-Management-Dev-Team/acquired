@@ -13,3 +13,11 @@ it("reports unavailable search instead of silently claiming coverage", async () 
   vi.stubEnv("RESEARCH_WORKER_URL", "");
   await expect(peopleWebSeeds("Example", "example.com")).rejects.toThrow("not configured");
 });
+it("retains a profile connected to a source-supported legal operator",async()=>{
+ vi.stubEnv('RESEARCH_WORKER_URL','https://research.example.com');vi.stubEnv('RESEARCH_SERVICE_SECRET','test-key');
+ const {peopleWebSearch}=await import('./people-web-search');
+ const url='https://www.linkedin.com/in/alexexample';
+ const fetcher=vi.fn<typeof fetch>().mockResolvedValue(Response.json({seeds:[url],results:[{url,title:'Alex Example - Example Holdings Pty Ltd',snippet:'Director at Example Holdings Pty Ltd'}]}));
+ const result=await peopleWebSearch('Example Instruments','instruments.example.com',fetcher,'query','Example Holdings Pty Ltd');
+ expect(result.leads).toHaveLength(1);
+});

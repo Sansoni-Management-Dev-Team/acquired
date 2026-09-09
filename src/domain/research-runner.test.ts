@@ -295,3 +295,10 @@ it("paces follow-up search and rechecks the deadline after waiting",async()=>{
  expect(t.service.peopleFollowup).not.toHaveBeenCalled();
  expect(t.progress.mock.calls.at(-1)?.[0].status).toBe('partial');
 });
+it("reserves the second search while website pages may reveal the legal operator",async()=>{
+ const t=setup();Object.assign(t.config,{purpose:'people',companyName:'Example Instruments',companyDomain:'instruments.example.com',maxPeopleSearches:2});t.config.budget={maxPages:5,maxDomains:1,maxModelCalls:5,maxMinutes:10};
+ vi.mocked(t.service.discover).mockResolvedValue({seeds:['https://instruments.example.com/about','https://instruments.example.com/privacy'],peopleLeadCount:0});
+ vi.mocked(t.service.poll).mockImplementation(async()=>({status:'completed',page:{url:t.service.submit && vi.mocked(t.service.submit).mock.calls.at(-1)![0],markdown:'No named staff published.'}}));
+ t.service.peopleFollowup=vi.fn(async()=>{expect(t.service.submit).toHaveBeenCalledTimes(3);return{seeds:[]};});
+ await runResearch(t.step,t.service);expect(t.service.peopleFollowup).toHaveBeenCalledOnce();
+});

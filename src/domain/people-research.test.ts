@@ -61,3 +61,13 @@ it("retains explicit first-party team cards even when the model supplies the wro
 it("reads the company's own team page before third-party profiles",()=>{
  expect(orderPeopleQueue(['https://www.linkedin.com/in/alexexample','https://instruments.example.com/who-we-are/'],['https://instruments.example.com/'],config.companyDomain!)[0]).toContain('/who-we-are/');
 });
+it("does not follow a directory publisher's own team or country-navigation links",()=>{
+ const page='[About the publisher](/about) [Our team](/team) [Choose country](/about/choose-country) [Company team](https://instruments.example.com/team)';
+ expect(peopleFollowUpLinks(page,'https://directory.example.com/company/example-instruments',[],config)).toEqual(['https://instruments.example.com/team']);
+});
+it("rejects role labels and companies masquerading as named people",()=>{
+ for(const name of ['Funeral Director','Managing Director','The Founder','Our Team','Example Holdings Pty Ltd']){
+  const quote=`Please speak with ${name}, the Managing Director.`;
+  expect(validatePeopleFindings([{...candidate,name,quote}],quote,source,config)).toEqual([]);
+ }
+});

@@ -30,3 +30,6 @@ it("preserves a company-associated profile when the role is not published",()=>{
  expect(peopleFollowupQuery('Example Instruments',leads)).toBe('"Alex Example" "Example Instruments"');
  expect(peopleSearchLeads([{...result,title:'Alex Example - Example',snippet:'Experience: Example'}],'Example','query','now','example.com')).toEqual([]);
 });
+it("searches the legal name without appending ABN text",()=>{
+ expect(peopleFollowupQuery('Example Instruments',[],'Example Holdings Pty Ltd (ABN 12 345 678 901)')).toBe('"Example Holdings Pty Ltd" director owner company profile Australia');
+});

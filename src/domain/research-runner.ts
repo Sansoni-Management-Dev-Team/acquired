@@ -29,7 +29,7 @@ export type ResearchControl = {
 };
 export interface ResearchServices {
   control(): Promise<ResearchControl>;
-  discover(): Promise<{ seeds: string[]; warning?: string }>;
+  discover(): Promise<{ seeds: string[]; warning?: string; peopleLeadCount?: number }>;
   progress(event: {
     revision: number;
     status: string;
@@ -118,7 +118,7 @@ export async function runResearch(
       (runtime.remaining.length || (!peopleFollowupAttempted && initial.config.purpose === "people" && initial.config.maxPeopleSearches === 2 && Boolean(service.peopleFollowup))) &&
       runtime.attempts.length < budget.maxPages
     ) {
-      if (!peopleFollowupAttempted && runtime.attempts.length && initial.config.purpose === "people" && initial.config.maxPeopleSearches === 2 && service.peopleFollowup) {
+      if (!peopleFollowupAttempted && runtime.attempts.length && initial.config.purpose === "people" && initial.config.maxPeopleSearches === 2 && service.peopleFollowup && ((discovered.peopleLeadCount || initial.config.peopleSearchLeads?.length || 0) > 0 || runtime.attempts.some(a => a.reason.includes("legal operator")) || runtime.attempts.length >= Math.min(3, budget.maxPages - 1) || !runtime.remaining.length)) {
         await step.sleep("people-search-spacing", 21000);
         const current = await check(`people-followup-${runtime.attempts.length}`);
         if (terminalResearchStates.includes(current.status)) return;
@@ -253,7 +253,7 @@ export async function runResearch(
         runtime.remaining = orderResearchQueue(
           [
             ...runtime.remaining,
-            ...(initial.config.purpose === "firmographics" ? companyFactLinks(markdown, sourceUrl, initial.config, runtime.visited) : initial.config.purpose === "people" ? peopleFollowUpLinks(markdown, sourceUrl, runtime.visited) : followUpLinks(
+            ...(initial.config.purpose === "firmographics" ? companyFactLinks(markdown, sourceUrl, initial.config, runtime.visited) : initial.config.purpose === "people" ? peopleFollowUpLinks(markdown, sourceUrl, runtime.visited, initial.config) : followUpLinks(
               markdown,
               sourceUrl,
               initial.config.searchTerms,

@@ -1,4 +1,4 @@
-import { mergePeopleSearchLeads, peopleFollowupQuery, type PeopleSearchLead } from "@/domain/people-search-results";
+import { mergePeopleSearchLeads, peopleFollowupQuery, cleanLegalEntity, type PeopleSearchLead } from "@/domain/people-search-results";
 import { dispatchContinuation } from "@/lib/research-continuation";
 import { cloudflareWebSearch } from "@/adapters/cloudflare-web-search";
 import { businessWebSeeds } from "@/adapters/business-web-search";
@@ -74,12 +74,13 @@ export async function POST(
     if (config.purpose !== "people" || config.maxPeopleSearches !== 2 || terminalResearchStates.includes(job.status)) return Response.json({ seeds: [] });
     const findings = await requireDb().select().from(researchFindings).where(and(eq(researchFindings.jobId, job.id), eq(researchFindings.organizationId, job.organizationId)));
     const candidate = findings.map(f => f.evidence as { kind?: string; name?: string; value?: string }).find(f => f.kind === "identifier" && f.name === "Legal entity");
-    const query = peopleFollowupQuery(config.companyName!, config.peopleSearchLeads || [], candidate?.value, config.companyDomain);
+    const legalEntity = candidate?.value ? cleanLegalEntity(candidate.value) : config.legalEntity;
+    const query = peopleFollowupQuery(config.companyName!, config.peopleSearchLeads || [], legalEntity, config.companyDomain);
     if (!query) return Response.json({ seeds: [] });
-    const claimed = await requireDb().update(researchJobs).set({ config: sql`jsonb_set(jsonb_set(${researchJobs.config}, '{peopleFollowupStarted}', 'true'::jsonb), '{legalEntity}', ${JSON.stringify(candidate?.value || config.legalEntity || "")}::jsonb)` }).where(and(eq(researchJobs.id, job.id), sql`COALESCE(${researchJobs.config}->>'peopleFollowupStarted', 'false') = 'false'`, notInArray(researchJobs.status, terminalResearchStates))).returning({ id: researchJobs.id });
+    const claimed = await requireDb().update(researchJobs).set({ config: sql`jsonb_set(jsonb_set(${researchJobs.config}, '{peopleFollowupStarted}', 'true'::jsonb), '{legalEntity}', ${JSON.stringify(legalEntity || "")}::jsonb)` }).where(and(eq(researchJobs.id, job.id), sql`COALESCE(${researchJobs.config}->>'peopleFollowupStarted', 'false') = 'false'`, notInArray(researchJobs.status, terminalResearchStates))).returning({ id: researchJobs.id });
     if (!claimed.length) return Response.json({ seeds: [] });
     try {
-      const result = await peopleWebSearch(config.companyName!, config.companyDomain!, fetch, query);
+      const result = await peopleWebSearch(config.companyName!, config.companyDomain!, fetch, query, legalEntity);
       await saveSearchLeads(job.id, config.peopleSearchLeads || [], result.leads);
       return Response.json({ seeds: result.seeds });
     }
@@ -98,6 +99,7 @@ export async function POST(
       .map(publicResearchUrl)
       .filter((s): s is string => Boolean(s));
     let warning = "";
+    let peopleLeadCount = config.peopleSearchLeads?.length || 0;
     if (config.purpose === "firmographics" && config.discover) {
       try { seeds.push(...await cloudflareWebSearch(`"${config.companyName}" ${config.companyDomain} LinkedIn company size employees`)); }
       catch { warning = "Public profile search unavailable; company website research continues."; }
@@ -105,6 +107,7 @@ export async function POST(
       try {
         const result = await peopleWebSearch(config.companyName!, config.companyDomain!);
         seeds.push(...result.seeds);
+        peopleLeadCount = result.leads.length;
         await saveSearchLeads(job.id, config.peopleSearchLeads || [], result.leads);
       }
       catch (error) { warning = `${error instanceof Error ? error.message : "Public web search unavailable"}; company website research continues.`; }
@@ -170,7 +173,7 @@ export async function POST(
     }
     seeds = [...new Set(seeds)].slice(0, 100);
     await repo.seeds(jobId, seeds, warning || "Discovery complete");
-    return Response.json({ seeds, warning });
+    return Response.json({ seeds, warning, peopleLeadCount });
   }
   const event = progressSchema.safeParse(payload);
   if (!event.success)

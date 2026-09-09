@@ -1,5 +1,6 @@
 import { canonicalSearchUrl, type WebSearchResult } from "./cloudflare-search";
 export type PeopleSearchLead = WebSearchResult & { observedAt: string; query: string; basis: "search-result" };
+export const cleanLegalEntity = (name: string) => name.match(/^.*?\b(?:pty\.?\s+ltd\.?|limited)\b/i)?.[0] || name;
 export const companySearchName = (company: string) => company.split(/\s+\/\s+/).at(-1)!.trim();
 export const companyMentioned = (text: string, company: string) => company.split(/\s+\/\s+/).some(name => text.toLowerCase().includes(name.trim().toLowerCase()));
 export const allowedPeopleSource = (url: string) => !/rocketreach|zoominfo|signalhire|contactout|whitepages|spokeo|truepeoplesearch/i.test(new URL(url).hostname);
@@ -18,7 +19,7 @@ export function peopleFollowupQuery(company: string, leads: PeopleSearchLead[], 
     const searchName = name.split(/\s+/).filter(part => !/^[\p{L}]\.?$/u.test(part)).join(" ");
     if (searchName.length > 1) return `"${searchName}" "${companySearchName(company).slice(0, 160)}"`;
   }
-  return legalEntity ? `"${legalEntity.slice(0, 160)}" director owner company profile Australia` : `"${companySearchName(company).slice(0, 160)}" ${companySearchName(company).includes(" ") ? "" : domain || ""} LinkedIn`.replace(/\s+/g, " ");
+  return legalEntity ? `"${cleanLegalEntity(legalEntity).slice(0, 160)}" director owner company profile Australia` : `"${companySearchName(company).slice(0, 160)}" ${companySearchName(company).includes(" ") ? "" : domain || ""} LinkedIn`.replace(/\s+/g, " ");
 }
 export function mergePeopleSearchLeads(leads: PeopleSearchLead[]) {
   const seen = new Set<string>();
