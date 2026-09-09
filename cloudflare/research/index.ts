@@ -1,3 +1,4 @@
+import { providerJsonRequest } from "../../src/adapters/observability/provider-request";
 import { researchExtractionRequest } from "../../src/domain/research-extraction-schema";
 import { FreeOpenRouter } from "../../src/adapters/ai/free-openrouter";
 import { callbackOrigin } from "./callback-origin";
@@ -43,7 +44,7 @@ async function authorized(request: Request, secret: string) {
   for (let i = 0; i < x.length; i++) difference |= x[i] ^ y[i];
   return difference === 0;
 }
-async function callback(env: Env, id: string, body?: unknown, budget?: { used: number }) {
+async function callback(env: Env, id: string, body?: unknown, budget?: { used: number; jobId?: string }) {
   const origin = callbackOrigin(env.APP_ORIGIN, env.LOCAL_DEVELOPMENT === "true");
   if (budget) budget.used++;
   const r = await fetch(`${origin}/api/research/internal/${id}`, {
@@ -58,9 +59,9 @@ async function callback(env: Env, id: string, body?: unknown, budget?: { used: n
   if (!r.ok) throw new Error(`Callback failed (${r.status})`);
   return r.json();
 }
-async function browser(env: Env, path: string, method = "GET", body?: unknown, budget?: { used: number }) {
+async function browser(env: Env, path: string, method = "GET", body?: unknown, budget?: { used: number; jobId?: string }) {
   if (budget) budget.used++;
-  const r = await fetch(
+  const { response: r, data } = await providerJsonRequest<{ success: boolean; result: unknown }>(fetch,
     `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/crawl${path}`,
     {
       method,
@@ -70,22 +71,20 @@ async function browser(env: Env, path: string, method = "GET", body?: unknown, b
       },
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(30000),
-    },
+    }, { provider: "cloudflare-browser", operation: `crawl_${method.toLowerCase()}`, jobId: budget?.jobId },
   );
-  const data = (await r.json()) as { success: boolean; result: unknown };
   if (!r.ok || !data.success)
     throw new CrawlerRequestError(r.status);
   return data.result;
 }
-async function readMarkdown(env: Env, url: string, budget: { used: number }, fallback = false) {
+async function readMarkdown(env: Env, url: string, budget: { used: number; jobId?: string }, fallback = false) {
   if (!publicResearchUrl(url)) throw new Error("Unsupported URL");
   budget.used++;
-  const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/markdown`, {
+  const { response, data } = await providerJsonRequest<{ success?: boolean; result?: unknown }>(fetch, `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/markdown`, {
     method: "POST", headers: { authorization: `Bearer ${env.CF_BROWSER_TOKEN}`, "Content-Type": "application/json" },
     body: JSON.stringify({ url, gotoOptions: { waitUntil: fallback ? "domcontentloaded" : "networkidle2", timeout: fallback ? 20000 : 25000 } }),
     signal: AbortSignal.timeout(fallback ? 25000 : 40000),
-  });
-  const data = await response.json() as { success?: boolean; result?: unknown };
+  }, { provider: "cloudflare-browser", operation: fallback ? "markdown_fallback" : "markdown", jobId: budget.jobId });
   if (!response.ok || !data.success || typeof data.result !== "string") throw new Error(`Page reader unavailable (${response.status})`);
   return { status: "completed", page: { url, markdown: data.result.slice(0, 30000) } };
 }
@@ -96,9 +95,10 @@ export class AcquireResearch extends WorkflowEntrypoint<
   async run(event: WorkflowEvent<{ jobId: string }>, step: WorkflowStep) {
     const id = event.payload.jobId;
     // Leave room for cancellation and final progress below the free-plan limit of 50 external requests.
-    const requestBudget = { used: 0 };
+    const requestBudget = { used: 0, jobId: id };
     const ai = new FreeOpenRouter({
       apiKey: this.env.OPENROUTER_API_KEY,
+      jobId: id,
       onRequest: () => { requestBudget.used++; },
       onUsage: usage => console.info("research-ai", JSON.stringify({ jobId: id, ...usage })),
     });
@@ -139,6 +139,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
           }>,
         progress: async (event) => {
           await callback(this.env, id, event, requestBudget);
+          console.info("research-progress", JSON.stringify({ timestamp: new Date().toISOString(), jobId: id, status: event.status, revision: event.revision, pages: event.pages, modelCalls: event.modelCalls, savedPageFindings: event.page?.findings.length, remainingUrls: event.runtime?.remaining.length }));
         },
         readPeoplePage: (url) => readMarkdown(this.env, url, requestBudget),
         ...(this.env.CRAWL4AI_URL ? { readFallbackPage: async (url: string) => {
@@ -208,7 +209,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
         },
         extractHeadcount: async (messages) => {
           const output = await ai.complete({
-            messages, max_tokens: 300, reasoning_effort: "none", temperature: 0,
+            messages, operation: "headcount_extraction", max_tokens: 300, reasoning_effort: "none", temperature: 0,
             response_format: { type: "json_schema", json_schema: {
               type: "object", properties: { value: { type: ["string", "null"] }, quote: { type: ["string", "null"] } },
               required: ["value", "quote"], additionalProperties: false,
@@ -219,7 +220,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
         },
         planFollowup: async (plan) => {
           const output = await ai.complete({
-            messages: targetedPrompt(plan), max_tokens: 100, reasoning_effort: "none", temperature: 0,
+            messages: targetedPrompt(plan), operation: "followup_planning", max_tokens: 100, reasoning_effort: "none", temperature: 0,
             response_format: { type: "json_schema", json_schema: targetedSchema(plan) },
           }) as { response?: unknown };
           return typeof output.response === "string" ? JSON.parse(output.response) : output.response;
@@ -242,12 +243,11 @@ const worker = {
       if (typeof body?.query !== "string" || body.query.trim().length < 2 || body.query.length > 500)
         return Response.json({ error: "Invalid search" }, { status: 400 });
       try {
-        const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/markdown`, {
+        const { response, data } = await providerJsonRequest<{ success?: boolean; result?: unknown }>(fetch, `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/markdown`, {
           method: "POST", headers: { authorization: `Bearer ${env.CF_BROWSER_TOKEN}`, "Content-Type": "application/json" },
           body: JSON.stringify({ url: `https://html.duckduckgo.com/html/?q=${encodeURIComponent(body.query)}`, gotoOptions: { waitUntil: "domcontentloaded", timeout: 20000 } }),
           signal: AbortSignal.timeout(40000),
-        });
-        const data = await response.json() as { success?: boolean; result?: unknown };
+        }, { provider: "cloudflare-browser", operation: "web_search", jobId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-job-id") || "") ? request.headers.get("x-research-job-id")! : undefined, requestId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-request-id") || "") ? request.headers.get("x-research-request-id")! : undefined });
         if (!response.ok || !data.success) return Response.json({ error: "Public search unavailable" }, { status: response.status === 429 ? 429 : 502 });
         if (typeof data.result !== "string") throw new Error("Search unavailable");
         const results = searchResults(data.result);

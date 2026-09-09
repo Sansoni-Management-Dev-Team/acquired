@@ -86,11 +86,11 @@ export async function POST(
     try {
       const query = targetedQuery(field, {...config, legalEntity});
       if (field === "people") {
-        const result = await peopleWebSearch(config.companyName!, config.companyDomain!, fetch, query, legalEntity);
+        const result = await peopleWebSearch(config.companyName!, config.companyDomain!, fetch, query, legalEntity, job.id);
         await saveSearchLeads(job.id, config.peopleSearchLeads || [], result.leads);
         return Response.json({seeds:result.seeds});
       }
-      const results = await cloudflareSearchResults(query);
+      const results = await cloudflareSearchResults(query, fetch, job.id);
       return Response.json({seeds:results.filter(r=>companyResultMatches(r,config.companyName!,config.companyDomain!,legalEntity)).map(r=>r.url)});
     } catch { return Response.json({seeds:[],warning:"Targeted search unavailable; existing evidence retained"}); }
   }
@@ -105,7 +105,7 @@ export async function POST(
     const claimed = await requireDb().update(researchJobs).set({ config: sql`jsonb_set(jsonb_set(${researchJobs.config}, '{peopleFollowupStarted}', 'true'::jsonb), '{legalEntity}', ${JSON.stringify(legalEntity || "")}::jsonb)` }).where(and(eq(researchJobs.id, job.id), sql`COALESCE(${researchJobs.config}->>'peopleFollowupStarted', 'false') = 'false'`, notInArray(researchJobs.status, terminalResearchStates))).returning({ id: researchJobs.id });
     if (!claimed.length) return Response.json({ seeds: [] });
     try {
-      const result = await peopleWebSearch(config.companyName!, config.companyDomain!, fetch, query, legalEntity);
+      const result = await peopleWebSearch(config.companyName!, config.companyDomain!, fetch, query, legalEntity, job.id);
       await saveSearchLeads(job.id, config.peopleSearchLeads || [], result.leads);
       return Response.json({ seeds: result.seeds });
     }
@@ -126,11 +126,11 @@ export async function POST(
     let warning = "";
     let peopleLeadCount = config.peopleSearchLeads?.length || 0;
     if (config.purpose === "firmographics" && config.discover && !config.targetedFollowup) {
-      try { seeds.push(...(await cloudflareSearchResults(companyFactSearchQuery(config.companyName!, config.companyDomain!))).filter(r => companyResultMatches(r, config.companyName!, config.companyDomain!, config.legalEntity)).map(r => r.url)); }
+      try { seeds.push(...(await cloudflareSearchResults(companyFactSearchQuery(config.companyName!, config.companyDomain!), fetch, job.id)).filter(r => companyResultMatches(r, config.companyName!, config.companyDomain!, config.legalEntity)).map(r => r.url)); }
       catch { warning = "Public profile search unavailable; company website research continues."; }
     } else if (config.purpose === "people" && config.discover) {
       try {
-        const result = await peopleWebSearch(config.companyName!, config.companyDomain!);
+        const result = await peopleWebSearch(config.companyName!, config.companyDomain!, fetch, undefined, undefined, job.id);
         seeds.push(...result.seeds);
         peopleLeadCount = result.leads.length;
         await saveSearchLeads(job.id, config.peopleSearchLeads || [], result.leads);
@@ -196,7 +196,7 @@ export async function POST(
     }
     const afterDiscovery = (await repo.get(jobId))?.config as ResearchConfig | undefined;
     if (config.workflow === "business" && config.discover && (!config.targetBusinesses || new Set(afterDiscovery?.newBusinessIds || []).size < config.targetBusinesses)) {
-      try { const web = await businessWebSeeds(config.searchTerms, config.geography); seeds = Array.from({ length: Math.max(seeds.length, web.seeds.length) }, (_, i) => [seeds[i], web.seeds[i]].filter((url): url is string => Boolean(url))).flat(); if (web.warning) warning = [warning, web.warning].filter(Boolean).join(" "); }
+      try { const web = await businessWebSeeds(config.searchTerms, config.geography, fetch, job.id); seeds = Array.from({ length: Math.max(seeds.length, web.seeds.length) }, (_, i) => [seeds[i], web.seeds[i]].filter((url): url is string => Boolean(url))).flat(); if (web.warning) warning = [warning, web.warning].filter(Boolean).join(" "); }
       catch { warning = [warning, "Public web discovery unavailable; directory and supplied websites retained."].filter(Boolean).join(" "); }
     }
     seeds = [...new Set(seeds)].slice(0, 100);

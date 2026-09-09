@@ -10,11 +10,12 @@ export class FreeOpenRouterAiProvider implements AiProvider {
   isConfigured() { return Boolean(this.apiKey); }
   async generateStructured(request: AiStructuredRequest) {
     let usage: FreeResearchUsage | undefined;
-    const ai = new FreeOpenRouter({ apiKey: this.apiKey, models: FREE_DRAFT_MODELS, fetch: this.fetcher, onUsage: value => {
+    const ai = new FreeOpenRouter({ apiKey: this.apiKey, models: FREE_DRAFT_MODELS, fetch: this.fetcher, verbose: process.env.AI_VERBOSE_LOGGING === "true", onUsage: value => {
       usage = value;
       if (process.env.AI_VERBOSE_LOGGING === "true") console.info("draft-ai", JSON.stringify(value));
     } });
     const result = await ai.complete({
+      operation: "outreach_drafting",
       messages: [{ role: "system", content: request.system }, { role: "user", content: request.user }],
       // Drafting is bounded composition; disable reasoning and allow a full sequence.
       max_tokens: (request.maxTokens ?? 3000) + 2048, temperature: request.temperature ?? 0.35,

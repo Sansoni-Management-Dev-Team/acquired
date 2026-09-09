@@ -60,3 +60,35 @@ They still obey the saved page, model-call and time budgets and cancellation.
 For crawl HTTP 422 navigation failures, the worker tries the direct Markdown
 reader once; disallowed pages and access denials do not take this fallback.
 Cancellation HTTP 400 is accepted only after confirming the crawl already ended.
+
+## Provider observability
+
+The dev log now includes JSON events prefixed `research-provider`. Each request
+has a request ID, provider, operation, start/finish time and elapsed milliseconds.
+Research requests carry their job ID; app-to-worker search requests share the
+same request ID so a worker failure can be traced back to the originating job.
+Operations distinguish business/people extraction, headcount, planning, drafting,
+web search, crawling and Markdown reads. `research-progress` records saved
+progress counts and remaining URLs without logging page content.
+
+Failures record HTTP status, numeric provider error codes, allowlisted request
+IDs (including Cloudflare Ray IDs), and available Retry-After/limit/remaining/reset
+headers. OpenRouter error-metadata headers are also inspected. Header names and
+original numeric values are preserved; reset values retain the provider's units.
+Message patterns classify daily quota, request rate, concurrency, upstream
+capacity and credit errors. These are diagnostic interpretations of provider
+messages, not a claim that every 429 identifies its limit. Unspecified rate
+limits stay `rate_limit_unspecified`. Raw messages, prompts, queries, page text,
+request URLs, authorization headers and arbitrary metadata are never logged.
+
+Transport/timeouts, malformed bodies, HTTP-200 provider errors, output token
+limits and schema validation failures produce separate failure events. Error
+logging stays enabled even when success logging is disabled by an adapter.
+No retries or extra provider requests are performed by the logging layer.
+
+```sh
+tail -F .local-data/dev-start.log | rg --line-buffered 'research-provider|research-progress|research-ai|research-runtime'
+```
+
+Provider references: [OpenRouter routing metadata](https://openrouter.ai/docs/guides/features/router-metadata)
+and [Cloudflare Browser Run limits](https://developers.cloudflare.com/browser-run/limits/).

@@ -54,6 +54,7 @@ export const researchExtractionSchema = {
 export function researchExtractionRequest(messages: { role: string; content: string }[]) {
   return {
     messages,
+    operation: messages[0].content.startsWith("Find named business decision-makers") ? "people_extraction" as const : "business_extraction" as const,
     max_tokens: 1200,
     reasoning_effort: "none" as const,
     temperature: 0,

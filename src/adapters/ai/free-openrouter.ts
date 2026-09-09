@@ -1,3 +1,4 @@
+import { providerJsonRequest } from "../observability/provider-request";
 import { ResearchAiError } from "../../domain/research-ai-error";
 import { z } from "zod";
 
@@ -11,6 +12,7 @@ export const FREE_RESEARCH_MODELS = [
 
 export type FreeResearchRequest = {
   messages: { role: string; content: string }[];
+  operation?: "business_extraction" | "people_extraction" | "headcount_extraction" | "followup_planning" | "outreach_drafting";
   max_tokens: number;
   temperature?: number;
   reasoning_effort?: "medium" | "none";
@@ -34,6 +36,8 @@ export class FreeOpenRouter {
     fetch?: typeof globalThis.fetch;
     onRequest?: () => void;
     onUsage?: (usage: FreeResearchUsage) => void;
+    jobId?: string;
+    verbose?: boolean;
   }) {
     this.options = privateOptions;
     this.models = [...new Set(privateOptions.models ?? FREE_RESEARCH_MODELS)];
@@ -50,10 +54,17 @@ export class FreeOpenRouter {
     const models = input.reasoning_effort === "none" ? this.models.filter(m => m.startsWith("nex-agi/")) : this.models;
     if (!models.length) throw new ResearchAiError("No approved free model supports the requested reasoning mode");
     const started = Date.now();
+    const requestId = crypto.randomUUID();
     this.options.onRequest?.();
     let response: Response;
+    let payload: {
+      model?: string;
+      error?: unknown;
+      choices?: { finish_reason?: string; message?: { content?: string } }[];
+      usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
+    };
     try {
-      response = await (this.options.fetch ?? globalThis.fetch)("https://openrouter.ai/api/v1/chat/completions", {
+      const result = await providerJsonRequest<typeof payload>(this.options.fetch ?? globalThis.fetch, "https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: { Authorization: `Bearer ${this.options.apiKey}`, "Content-Type": "application/json", "X-OpenRouter-Title": "Acquired Research" },
         // OpenRouter tries these in order on provider overload/unavailability.
@@ -69,7 +80,9 @@ export class FreeOpenRouter {
           provider: { require_parameters: true, data_collection: "deny", max_price: { prompt: 0, completion: 0 } },
         }),
         signal: AbortSignal.timeout(45000),
-      });
+      }, { provider: "openrouter", operation: input.operation || "structured_completion", requestId, jobId: this.options.jobId, modelCandidates: models, verbose: this.options.verbose });
+      response = result.response;
+      payload = result.data;
     } catch {
       throw new ResearchAiError("Free research AI unavailable: request timed out or transport failed");
     }
@@ -78,19 +91,17 @@ export class FreeOpenRouter {
       const retryAfter = response.headers.get("retry-after");
       throw new ResearchAiError(`Free research AI unavailable (HTTP ${response.status})${retryAfter && /^\d+$/.test(retryAfter) ? `; retry after ${retryAfter} seconds` : ""}. No paid or Workers AI fallback was used.`);
     }
-    const payload = await response.json() as {
-      model?: string;
-      error?: unknown;
-      choices?: { finish_reason?: string; message?: { content?: string } }[];
-      usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
-    };
     this.options.onUsage?.({ model: payload.model ?? "unknown", inputTokens: payload.usage?.prompt_tokens ?? 0, outputTokens: payload.usage?.completion_tokens ?? 0, cost: payload.usage?.cost ?? null, elapsedMs: Date.now() - started });
+    const rejectOutput = (message: string, category: string): never => {
+      console.info("research-provider", JSON.stringify({ timestamp: new Date().toISOString(), provider: "openrouter", operation: input.operation || "structured_completion", requestId, jobId: this.options.jobId, event: "response_rejected", category, elapsedMs: Date.now() - started }));
+      throw new ResearchAiError(message);
+    };
     const choice = payload.choices?.[0];
-    if (payload.error || !choice?.message?.content || choice.finish_reason === "length") throw new ResearchAiError(choice?.finish_reason === "length" ? "Free research AI reached its output token limit" : "Free research AI returned an incomplete response");
+    if (payload.error || !choice?.message?.content || choice.finish_reason === "length") return rejectOutput(choice?.finish_reason === "length" ? "Free research AI reached its output token limit" : "Free research AI returned an incomplete response", choice?.finish_reason === "length" ? "output_token_limit" : "incomplete_response");
     let parsed: unknown;
-    try { parsed = JSON.parse(choice.message.content); } catch { throw new ResearchAiError("Free research AI returned invalid JSON"); }
+    try { parsed = JSON.parse(choice.message.content); } catch { return rejectOutput("Free research AI returned invalid JSON", "invalid_output_json"); }
     const result = validator.safeParse(parsed);
-    if (!result.success) throw new ResearchAiError("Free research AI response did not match the research schema");
+    if (!result.success) return rejectOutput("Free research AI response did not match the research schema", "schema_validation");
     return { response: result.data };
   }
 }
