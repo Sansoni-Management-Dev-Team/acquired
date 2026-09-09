@@ -1,3 +1,6 @@
+import { dispatchAutomaticEnrichment } from "@/lib/automatic-enrichment";
+import { dispatchContinuation } from "@/lib/research-continuation";
+import { automaticResearchConfig } from "@/domain/automatic-research";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
@@ -35,6 +38,13 @@ export async function GET(
       const worker = await researchWorker(`/jobs/${job.id}`) as { status: string };
       if (["errored", "terminated", "complete"].includes(worker.status)) await repo.recoverStopped(job.id, job.revision, job.pages);
     } catch { /* An unavailable status endpoint does not imply the job stopped. */ }
+  }
+  const latest = initialJobs.find(j => !(j.config as ResearchConfig).purpose);
+  if (latest && (latest.config as ResearchConfig).mode === "automatic") {
+    try {
+      await dispatchContinuation(org, latest.id);
+      await dispatchAutomaticEnrichment(org, latest.id);
+    } catch { /* Durable queued jobs are retried on subsequent polls. */ }
   }
   const jobs = await repo.list(id);
   return Response.json(
@@ -109,8 +119,13 @@ export async function POST(
         { status: 409 },
       );
   }
+  config = automaticResearchConfig(config);
+  if (config.mode === "automatic") config.researchRunId = requestId;
   try {
-    const job = await new ResearchRepository(org).create(
+    const repo = new ResearchRepository(org);
+    if (config.mode === "automatic" && !await repo.concurrentResearchReady()) return Response.json({ error: "Automatic research is awaiting the research concurrency database upgrade." }, { status: 503 });
+    if (config.mode === "automatic" && await repo.hasOtherActive(requestId)) return Response.json({ error: "Research is already running. Stop it before starting another run." }, { status: 409 });
+    const job = await repo.create(
       requestId,
       id,
       session.user.id,

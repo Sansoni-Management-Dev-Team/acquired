@@ -1,7 +1,7 @@
 import { ResearchAiError } from "./research-ai-error";
 import { targetedPlan, resolveTargetedChoice, fallbackTargetedChoice, type TargetedPlan } from "./targeted-research";
 import { unusablePage } from "./page-quality";
-import { businessPrompt, validateBusinessFindings } from "./business-research";
+import { businessPrompt, ownCompany, validateBusinessFindings } from "./business-research";
 import { companyHeadcountPrompt, companyFactDiagnostics, observedCompanyFacts, companyFactLinks, orderCompanyFactQueue } from "./company-facts";
 import { peoplePrompt, validatePeopleFindings, peopleFollowUpLinks, orderPeopleQueue } from "./people-research";
 import {
@@ -122,7 +122,7 @@ export async function runResearch(
     runtime.remaining = orderResearchQueue(
       [...runtime.remaining, ...discovered.seeds],
       runtime.visited,
-    ).slice(0, 200);
+    ).slice(0, 1000);
     const goalProgress = async (label: string) => {
       if (!initial.config.targetBusinesses || initial.config.purpose) return null;
       const current = await check(label);
@@ -145,6 +145,7 @@ export async function runResearch(
       (runtime.remaining.length || (initial.config.targetedFollowup && !targetedAttempted && Boolean(service.planFollowup)) || (!peopleFollowupAttempted && initial.config.purpose === "people" && initial.config.maxPeopleSearches === 2 && Boolean(service.peopleFollowup))) &&
       runtime.attempts.length < budget.maxPages
     ) {
+      if (initial.config.mode === "automatic" && initial.config.purpose && collected.some(f => initial.config.purpose === "people" ? f.kind === "person" : f.kind === "headcount")) break;
       if (await finishAtGoal(`goal-${runtime.attempts.length}`)) return;
       if (initial.config.targetedFollowup && !targetedAttempted && service.planFollowup && runtime.attempts.length > 0 && (runtime.attempts.length >= Math.min(2, budget.maxPages - 1, initial.config.purpose === "people" ? Math.max(1, budget.maxModelCalls - 2) : 2) || (!runtime.remaining.length && runtime.attempts.length > 0))) {
         targetedAttempted = true;
@@ -186,7 +187,7 @@ export async function runResearch(
         peopleFollowupAttempted = true;
         const followup = await step.do("people-followup", () => service.peopleFollowup!(), false);
         if (followup.warning) warnings.push(followup.warning);
-        runtime.remaining = uniqueResearchUrls([...followup.seeds, ...runtime.remaining]).slice(0, 200);
+        runtime.remaining = uniqueResearchUrls([...followup.seeds, ...runtime.remaining]).slice(0, 1000);
       }
       const beforeOrder = [...runtime.remaining];
       runtime.remaining = orderResearchQueue(runtime.remaining,runtime.visited,initial.config.strategy,runtime.attempts.map(a=>a.url));
@@ -342,11 +343,23 @@ export async function runResearch(
             )),
           ],
           runtime.visited,
-        ).slice(0, 200);
+        ).slice(0, 1000);
         let findings: ResearchPage["findings"] = [];
         const directPeople = initial.config.purpose === "people" ? validatePeopleFindings([], markdown, sourceUrl, initial.config) : [];
         if (initial.config.purpose === "firmographics") {
           findings = observedCompanyFacts(markdown, sourceUrl, initial.config);
+          if (initial.config.mode === "automatic" && researchDomain(sourceUrl) === initial.config.companyDomain && !ownCompany(collected, sourceUrl) && modelCalls < budget.maxModelCalls) {
+            modelCalls++;
+            await publish("extracting", "Checking company identity and products alongside company details");
+            try {
+              const business = await step.do(`company-identity-${attempt}`, async () => {
+                const current = await service.control();
+                if (terminalResearchStates.includes(current.status) || service.now() >= current.deadline) return [];
+                return validateBusinessFindings(await service.extract(businessPrompt(markdown, initial.config.searchTerms, sourceUrl, false)), markdown, sourceUrl, initial.config);
+              }, false);
+              findings.push(...business);
+            } catch { warnings.push("Company identity extraction unavailable; directly observed facts retained"); }
+          }
           trace("extraction_result", { source: source(sourceUrl), method: "observed_company_facts", accepted: findings.length, kinds: findings.map(f => f.kind), headcountFound: findings.some(f => f.kind === "headcount"), ...companyFactDiagnostics(markdown, sourceUrl, initial.config), reason: findings.length ? "supported_facts" : "no_supported_company_fact_pattern" });
           entry.reason = `${findings.length} sourced company facts; estimates and scope require review`;
         } else if (directPeople.some(f=>f.kind === "person")) {
@@ -430,6 +443,11 @@ export async function runResearch(
         warnings.push("Some pages could not be read; see page details");
         await publish("crawling", entry.reason);
       }
+    }
+    if (initial.config.mode === "automatic" && initial.config.purpose && collected.some(f => initial.config.purpose === "people" ? f.kind === "person" : f.kind === "headcount")) {
+      trace("run_finished", { pages, modelCalls, reason: "requested_evidence_found", purpose: initial.config.purpose });
+      await publish("complete", initial.config.purpose === "people" ? "Sourced decision-maker found; review role and contact evidence before outreach." : "Sourced headcount found; company evidence is ready for review.");
+      return;
     }
     if (await finishAtGoal("final-goal")) return;
     const goal = await goalProgress("final-count");

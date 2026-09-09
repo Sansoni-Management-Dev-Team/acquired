@@ -1,3 +1,5 @@
+import { automaticCompanySearch } from "@/adapters/automatic-company-search";
+import { dispatchAutomaticEnrichment } from "@/lib/automatic-enrichment";
 import { targetedQuery } from "@/domain/targeted-research";
 import { companyFactSearchQuery } from "@/domain/company-facts";
 import { mergePeopleSearchLeads, peopleFollowupQuery, cleanLegalEntity, type PeopleSearchLead } from "@/domain/people-search-results";
@@ -49,13 +51,14 @@ export async function GET(
   const job = await getJob(request, jobId);
   if (!job) return Response.json({ error: "Not available" }, { status: 403 });
   const config = job.config as ResearchConfig;
+  const root = config.researchRunId && config.researchRunId !== job.id ? await new ResearchRepository(job.organizationId).get(config.researchRunId) : job;
   return Response.json(
     {
-      status: job.status,
+      status: root?.status === "cancelled" ? "cancelled" : job.status,
       crawlId: job.crawlId,
       config,
       seeds: job.seeds,
-      deadline: job.createdAt.getTime() + config.budget.maxMinutes * 60000,
+      deadline: Math.min(job.createdAt.getTime() + config.budget.maxMinutes * 60000, (root?.config as ResearchConfig | undefined)?.automaticDeadline || Infinity),
     },
     { headers: { "Cache-Control": "no-store" } },
   );
@@ -88,10 +91,13 @@ export async function POST(
       if (field === "people") {
         const result = await peopleWebSearch(config.companyName!, config.companyDomain!, fetch, query, legalEntity, job.id);
         await saveSearchLeads(job.id, config.peopleSearchLeads || [], result.leads);
-        return Response.json({seeds:result.seeds});
+        const seeds = result.seeds.length || config.mode !== "automatic" ? result.seeds : await automaticCompanySearch({ ...config, legalEntity }, field, job.id);
+        return Response.json({seeds});
       }
       const results = await cloudflareSearchResults(query, fetch, job.id);
-      return Response.json({seeds:results.filter(r=>companyResultMatches(r,config.companyName!,config.companyDomain!,legalEntity)).map(r=>r.url)});
+      let seeds = results.filter(r=>companyResultMatches(r,config.companyName!,config.companyDomain!,legalEntity)).map(r=>r.url);
+      if (!seeds.length && config.mode === "automatic") seeds = await automaticCompanySearch({ ...config, legalEntity }, field, job.id);
+      return Response.json({seeds});
     } catch { return Response.json({seeds:[],warning:"Targeted search unavailable; existing evidence retained"}); }
   }
   if (payload?.action === "people-followup") {
@@ -208,7 +214,10 @@ export async function POST(
     return Response.json({ error: "Invalid progress event" }, { status: 400 });
   try {
     await repo.progress(jobId, event.data);
-    if (["complete", "partial", "failed"].includes(event.data.status) && !await dispatchContinuation(job.organizationId, jobId)) await dispatchBusinessPeople(job.organizationId, jobId);
+    if ((job.config as ResearchConfig).mode === "automatic") {
+      if (["complete", "partial"].includes(event.data.status)) await dispatchContinuation(job.organizationId, jobId);
+      if (event.data.page || ["complete", "partial", "failed"].includes(event.data.status)) await dispatchAutomaticEnrichment(job.organizationId, jobId);
+    } else if (["complete", "partial", "failed"].includes(event.data.status) && !await dispatchContinuation(job.organizationId, jobId)) await dispatchBusinessPeople(job.organizationId, jobId);
     return Response.json({ ok: true });
   } catch {
     return Response.json(

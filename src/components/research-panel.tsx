@@ -57,7 +57,6 @@ export function ResearchPanel({
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [setup, setSetup] = useState(false);
-  const [strategy,setStrategy]=useState<"discover"|"investigate">("discover");
   const [terms, setTerms] = useState(
     brief.criteria
       .find((c) => c.key === "subsectors")
@@ -72,21 +71,15 @@ export function ResearchPanel({
       : brief.criteria.find((c) => c.key === "geography")?.value || "",
   );
   const [seeds, setSeeds] = useState(""),
-    [pages, setPages] = useState(3),
-    [useAi, setUseAi] = useState(true),
     [discover, setDiscover] = useState(true),
     [continuation, setContinuation] = useState<Job | null>(null);
   const [targetBusinesses, setTargetBusinesses] = useState<number | "">(20);
   const targetValid = Number.isInteger(targetBusinesses) && Number(targetBusinesses) >= 1 && Number(targetBusinesses) <= 100;
   const backdropPressed = useRef(false);
-  const [companyDetails, setCompanyDetails] = useState(true);
   const [findPeople, setFindPeople] = useState(true);
-  const [peopleCompanies, setPeopleCompanies] = useState<number | "">(2);
-  const [peoplePages, setPeoplePages] = useState<number | "">(5);
   const changedRef = useRef(onResultsChanged);
   useEffect(() => { changedRef.current = onResultsChanged; }, [onResultsChanged]);
   const signatureRef = useRef("");
-  const peopleBudgetValid = Number.isSafeInteger(peopleCompanies) && Number(peopleCompanies) > 0 && Number.isSafeInteger(peoplePages) && Number(peoplePages) > 0;
   const setupRef = useRef<HTMLDialogElement>(null);
   useEffect(() => { if (setup && setupRef.current && !setupRef.current.open) setupRef.current.showModal(); }, [setup]);
   const refresh = useCallback(async () => {
@@ -115,20 +108,27 @@ export function ResearchPanel({
   const active = [...data.jobs, ...(data.peopleJobs || []), ...(data.companyJobs || [])].find(
     (j) => !terminalResearchStates.includes(j.status),
   );
-  const currentJob = active || data.jobs[0];
-  const currentResults = data.results?.find(r => r.jobId === currentJob?.id);
-  const relatedPeople = (data.peopleJobs || []).filter(j => j.config.parentJobId === currentJob?.id);
-  const searchLeadCount = new Set([...relatedPeople, ...(currentJob?.config.purpose === "people" ? [currentJob] : [])].flatMap(j => (j.config.peopleSearchLeads || []).map(l => `${j.config.targetId}:${l.url}`))).size;
-  const peopleFound = (currentResults?.people || 0) + (data.results || []).filter(r => relatedPeople.some(j => j.id === r.jobId)).reduce((sum, r) => sum + r.people, 0);
+  const currentJob = data.jobs.find(j => !terminalResearchStates.includes(j.status)) || data.jobs[0];
+  const runId = currentJob?.config.researchRunId || currentJob?.id;
+  const inRun = (j: Job) => j.id === runId || j.config.researchRunId === runId || j.config.parentJobId === runId;
+  const relatedPeople = (data.peopleJobs || []).filter(inRun);
+  const relatedCompanies = (data.companyJobs || []).filter(inRun);
+  const runJobs = [...data.jobs, ...relatedPeople, ...relatedCompanies].filter(inRun);
+  const enriching = [...relatedPeople, ...relatedCompanies].filter(j => !terminalResearchStates.includes(j.status));
+  const finishedEnrichment = [...relatedPeople, ...relatedCompanies].filter(j => terminalResearchStates.includes(j.status));
+  const searchLeadCount = new Set(relatedPeople.flatMap(j => (j.config.peopleSearchLeads || []).map(l => `${j.config.targetId}:${l.url}`))).size;
+  const peopleFound = (data.results || []).filter(r => runJobs.some(j => j.id === r.jobId)).reduce((sum, r) => sum + r.people, 0);
+  const newBusinessCount = new Set(runJobs.flatMap(j => j.config.newBusinessIds || [])).size;
+  const runPages = runJobs.reduce((sum, j) => sum + j.pages, 0);
   const termList = terms
     .split("\n")
     .map((s) => s.trim())
     .filter(Boolean);
   const budget = {
-    maxPages: pages,
-    maxDomains: Math.min(3, pages),
+    maxPages: 5,
+    maxDomains: 5,
     maxMinutes: 10,
-    maxModelCalls: useAi ? pages : 0,
+    maxModelCalls: 5,
   };
   const remainingFor = (job: Job) =>
     continueResearchConfig(
@@ -166,10 +166,6 @@ export function ResearchPanel({
     setSeeds(remainingFor(job).slice(0, 10).join("\n"));
     setDiscover(false);
     setFindPeople(Boolean(job.config.findPeople));
-    setCompanyDetails(Boolean(job.config.companyBudget));
-    setPeopleCompanies(job.config.peopleBudget?.maxCompanies || 2);
-    setPeoplePages(job.config.peopleBudget?.maxPages || 2);
-    setStrategy("discover");
     setSetup(true);
   }
   function retryFailed(job: Job) {
@@ -213,13 +209,13 @@ export function ResearchPanel({
                   {continuation && (
                     <p className="font-medium">
                       Continue {remainingFor(continuation).length} saved URLs
-                      with a fresh budget. Completed pages are skipped.
+                      automatically. Completed pages are skipped.
                     </p>
                   )}
                   <label className="block space-y-2 text-sm">
                     <span className="font-semibold">Target new businesses</span>
                     <input className={input} type="number" min="1" max="100" step="1" value={targetBusinesses} disabled={Boolean(continuation)} aria-describedby="business-target-help" aria-invalid={!targetValid} onChange={e => setTargetBusinesses(e.target.value === "" ? "" : Number(e.target.value))} />
-                    <span id="business-target-help" className="block text-xs text-[var(--muted)]">Aim for this many new, distinct businesses. Existing targets and duplicates don’t count. Search and research limits may stop the run earlier.</span>
+                    <span id="business-target-help" className="block text-xs text-[var(--muted)]">Aim for this many new, distinct businesses. Existing targets and duplicates don’t count. Research continues automatically through available sources; duplicates do not use up your target.</span>
                     {!targetValid && <span role="alert" className="block text-sm text-amber-200">Enter a whole number from 1 to 100.</span>}
                   </label>
                   <label className="block text-sm">
@@ -263,7 +259,7 @@ export function ResearchPanel({
                       </label>
                     </>
                   )}
-                  {discover && !continuation && <p className="text-sm text-[var(--muted)]">Discovery uses the directory index, up to 12 Google Places searches (20 results each), and up to 3 web searches. These calls are additional to the page-research allowance; results are not exhaustive.</p>}
+                  {discover && !continuation && <p className="text-sm text-[var(--muted)]">Discovery uses the directory index, up to 12 Google Places searches (20 results each), and up to 3 web searches. Discovered links are researched automatically; results are not exhaustive.</p>}
                   {discover && !continuation && (
                     <details>
                       <summary className="cursor-pointer py-2 text-sm">
@@ -284,76 +280,26 @@ export function ResearchPanel({
                   )}
                     </div>
                   </details>
-                  <details className="rounded-lg border border-[var(--border)] p-3">
-                    <summary className="min-h-12 cursor-pointer content-center text-sm font-medium">Research depth & limits</summary>
-                    <div className="space-y-4 pt-3">
-                  {continuation && <label className="flex min-h-12 items-center gap-3 text-sm">
-                    <input type="checkbox" checked={strategy === "investigate"} onChange={(e) => { setStrategy(e.target.checked ? "investigate" : "discover"); }} />
-                    Investigate product pages on known websites first
-                  </label>}
-                  <label className="block text-sm">
-                    Maximum page attempts
-                    <select
-                      className={input}
-                      value={pages}
-                      onChange={(e) => {
-                        setPages(Number(e.target.value));
-                      }}
-                    >
-                      {[1, 2, 3, 4, 5].map((n) => (
-                        <option key={n}>{n}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="flex min-h-12 items-center gap-3 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={useAi}
-                      onChange={(e) => {
-                        setUseAi(e.target.checked);
-                      }}
-                    />
-                    Assess sourced claims with AI
-                  </label>
-                  <label className="flex min-h-12 items-center gap-3 text-sm"><input type="checkbox" checked={companyDetails && useAi} disabled={!useAi} onChange={e => setCompanyDetails(e.target.checked)} />Research size, industry, founding year and company details</label>
-                  {companyDetails && useAi && <p className="text-sm text-[var(--muted)]">Read company websites first, then use a targeted follow-up for missing headcount. Follow up up to 2 researched companies, with 3 additional page attempts plus one public web search per company (10 minutes each). Review reported headcounts, public revenue estimates, source conflicts and an optional industry/headcount EBITDA scenario in each company’s review. Unknowns remain unknown.</p>}
-                  {!continuation && <label className="flex min-h-12 items-center gap-3 text-sm">
-                    <input type="checkbox" checked={findPeople && useAi} disabled={!useAi} onChange={e => { setFindPeople(e.target.checked); }} />
-                    Find owners and decision-makers for relevant businesses
-                  </label>}
-                  {findPeople && useAi && <div className="space-y-3 rounded-lg border border-[var(--border)] p-3">
-                    <p className="text-sm">Find businesses and their decision-makers in one run. People research starts automatically for relevant businesses with an established website identity, including existing targets. Contacts remain source leads for your review; no emails are sent.</p>
-                    <label className="block text-sm">Maximum businesses for deeper people research
-                      <input className={input} type="number" min="1" step="1" required value={peopleCompanies} disabled={Boolean(continuation)} onChange={e => { setPeopleCompanies(e.target.value === "" ? "" : Number(e.target.value)); }} />
-                    </label>
-                    <label className="block text-sm">Page attempts per business for people research
-                      <input className={input} type="number" min="1" step="1" required value={peoplePages} disabled={Boolean(continuation)} onChange={e => { setPeoplePages(e.target.value === "" ? "" : Number(e.target.value)); }} />
-                    </label>
-                    {!peopleBudgetValid && <p role="alert" className="text-sm text-amber-200">Enter a whole number of at least 1 in both fields.</p>}
-                    <p className="text-sm text-[var(--muted)]">Separate people allowance: up to {peopleBudgetValid ? Number(peopleCompanies) * Number(peoplePages) : "—"} additional page attempts and AI calls, {Number(peopleCompanies) * (continuation ? continuation.config.peopleSearchesPerCompany || 1 : 2)} web searches, and 5 minutes per business. These are maximums; available sources and worker time or request limits may end a run earlier. Missing contacts do not block target review. Paid Firmable enrichment remains a separate action.</p>
-                  </div>}
-                    </div>
-                  </details>
+                  <label className="flex min-h-12 items-center gap-3 text-sm"><input type="checkbox" checked={findPeople} onChange={e => setFindPeople(e.target.checked)} />Find owners and decision-makers</label>
+                  <p className="text-sm text-[var(--muted)]">Company details are researched automatically as businesses are found. Missing facts trigger follow-up research; unsupported details stay marked unknown.</p>
                   <div className="sticky -bottom-6 -mx-6 border-t border-[var(--border)] bg-[var(--panel)] p-6 space-y-3">
                   <p className="text-sm text-[var(--muted)]">
-                    Business research allows {pages} page attempts, {Math.min(3, pages)}{" "}
-                    domains, {useAi ? pages : 0} AI calls and 10 minutes. Failed
-                    attempts count toward the limit. Included allowances are
-                    shared across your account; usage may incur charges.
+                    Research continues towards your target, with company enrichment running alongside discovery. You can stop at any time. The run ends when the target is reached, useful sources are exhausted, or the automatic safety limit is reached. Usage may incur charges.
                   </p>
                   <p className="text-xs text-[var(--muted)]">Starting research shares these search terms, URLs and page content with the research providers. Keep confidential buyer details out of the search settings.</p>
                   <button
                     className={`${button} w-full bg-white font-semibold text-black`}
-                    disabled={busy || !targetValid || !termList.length || geography.trim().length < 2 || (findPeople && useAi && !peopleBudgetValid)}
+                    disabled={busy || !targetValid || !termList.length || geography.trim().length < 2}
                     onClick={() =>
                       act({
                         requestId: crypto.randomUUID(),
                         workflow: "business",
                         targetBusinesses,
-                        ...(companyDetails && useAi ? { companyBudget: { maxCompanies: 2, maxPages: 3 } } : {}),
-                        findPeople: findPeople && useAi,
+                        mode: "automatic",
+                        companyBudget: { maxCompanies: 2, maxPages: 3 },
+                        findPeople,
                         peopleSearchesPerCompany: 2,
-                        ...(findPeople && useAi ? { peopleBudget: { maxCompanies: peopleCompanies, maxPages: peoplePages } } : {}),
+                        ...(findPeople ? { peopleBudget: { maxCompanies: Number(targetBusinesses), maxPages: 12 } } : {}),
                         ...(continuation
                           ? { continueFrom: continuation.id }
                           : {}),
@@ -366,7 +312,7 @@ export function ResearchPanel({
                         approved: true,
                         discover,
                         budget,
-                        strategy: continuation ? strategy : "discover",
+                        strategy: "discover",
                       })
                     }
                   >
@@ -380,15 +326,15 @@ export function ResearchPanel({
           )}
           {currentJob && <div className="space-y-3" role="status">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="font-semibold">{!terminalResearchStates.includes(currentJob.status) ? (currentJob.config.purpose === "firmographics" ? "Researching company details" : currentJob.config.purpose === "people" ? "Finding decision-makers" : currentJob.status === "discovering" ? "Finding businesses" : "Researching businesses") : currentJob.status === "cancelled" ? "Research cancelled" : "Latest research run"}</h2>
+              <h2 className="font-semibold">{!terminalResearchStates.includes(currentJob.status) ? (currentJob.config.purpose === "firmographics" ? "Researching company details" : currentJob.config.purpose === "people" ? "Finding decision-makers" : currentJob.status === "discovering" ? "Finding businesses" : "Researching businesses") : currentJob.status === "cancelled" ? "Research cancelled" : enriching.length ? "Enriching businesses" : "Latest research run"}</h2>
               <span className="text-xs text-[var(--muted)]">{new Date(currentJob.createdAt).toLocaleString()}</span>
             </div>
-            {currentJob.config.targetBusinesses && <p className="text-sm font-medium" aria-live="polite">{new Set(currentJob.config.newBusinessIds || []).size} of {currentJob.config.targetBusinesses} new businesses found</p>}
-            <p className="text-sm">{currentJob.config.purpose ? currentJob.config.companyName : `${currentResults?.added || 0} new businesses researched · ${currentResults?.updated || 0} existing businesses with new evidence`} · {peopleFound} sourced contact leads{searchLeadCount ? ` · ${searchLeadCount} search leads to verify` : ""}</p>
-            <p className="text-sm">{currentJob.pages} pages read · {currentJob.config.runtime?.remaining.length || 0} URLs remaining</p>
-            <p className="text-xs text-[var(--muted)]">Page attempts: {currentJob.config.runtime?.attempts.length || currentJob.pages}/{currentJob.config.budget.maxPages} · AI calls: {currentJob.modelCalls}/{currentJob.config.budget.maxModelCalls}</p>
+            {currentJob.config.targetBusinesses && <p className="text-sm font-medium" aria-live="polite">{newBusinessCount} of {currentJob.config.targetBusinesses} new businesses found</p>}
+            <p className="text-sm">{currentJob.config.purpose ? currentJob.config.companyName : `${enriching.length} enrichment jobs running · ${finishedEnrichment.length} finished`} · {peopleFound} sourced contact leads{searchLeadCount ? ` · ${searchLeadCount} search leads to verify` : ""}</p>
+            <p className="text-sm">{runPages} pages read across this run · {currentJob.config.runtime?.remaining.length || 0} URLs remaining</p>
+
             <p className="text-sm text-[var(--muted)]">{currentJob.message}</p>
-            {terminalResearchStates.includes(currentJob.status) && Boolean(currentJob.config.runtime?.remaining.length) && <p className="text-sm">This run has stopped; the remaining websites have not all been researched.</p>}
+            {!active && terminalResearchStates.includes(currentJob.status) && Boolean(currentJob.config.runtime?.remaining.length) && <p className="text-sm">This run has stopped; the remaining websites have not all been researched.</p>}
             {!active && !currentJob.config.purpose && remainingFor(currentJob).length > 0 && <button className={button} disabled={busy} onClick={() => resume(currentJob)}>Continue research</button>}
             {!active && !currentJob.config.purpose && currentJob.config.runtime?.attempts.some(a => a.status === "failed" || /extraction failed/i.test(a.reason)) && <button className={button} disabled={busy} onClick={() => retryFailed(currentJob)}>Retry failed pages</button>}
             {active && <button className={button} disabled={busy} onClick={() => act({action:"cancel"}, active.id)}>Stop research</button>}

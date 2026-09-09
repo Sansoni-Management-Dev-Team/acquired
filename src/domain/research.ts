@@ -66,6 +66,7 @@ export const researchStartSchema = z.object({
   discover: z.boolean().default(true),
   strategy: z.enum(["discover", "investigate"]).optional(),
   workflow: z.literal("business").optional(),
+  mode: z.literal("automatic").optional(),
   targetBusinesses: z.number().int().min(1).max(100).optional(),
   findPeople: z.boolean().optional(),
   peopleSearchesPerCompany: z.number().int().min(1).max(2).optional(),
@@ -75,7 +76,7 @@ export const researchStartSchema = z.object({
   budget: researchBudgetSchema,
 }).refine(c => !c.findPeople || (c.workflow === "business" && Boolean(c.peopleBudget) && c.budget.maxModelCalls > 0), "People research requires an AI business run and an explicit people budget").refine(c => !c.companyBudget || (c.workflow === "business" && c.budget.maxModelCalls > 0), "Company details follow-up requires a business run");
 export const researchRuntimeSchema = z.object({
-  remaining: z.array(z.string().url()).max(200),
+  remaining: z.array(z.string().url()).max(1000),
   visited: z.array(z.string().url()).max(1000),
   attempts: z
     .array(
@@ -156,7 +157,7 @@ export function continueResearchConfig(
 export type ResearchConfig = Omit<
   z.infer<typeof researchStartSchema>,
   "requestId" | "continueFrom"
-> & { newBusinessIds?: string[]; businessTargetStartedAt?: string; targetedFollowup?: boolean; targetedFollowupStarted?: boolean; autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
+> & { executionSlot?: number; researchRunId?: string; automaticPageLimit?: number; automaticPagesUsed?: number; automaticDeadline?: number; newBusinessIds?: string[]; businessTargetStartedAt?: string; targetedFollowup?: boolean; targetedFollowupStarted?: boolean; autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
 export const findingSchema = z.object({
   kind: z.enum([
     "company",

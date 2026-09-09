@@ -42,6 +42,14 @@ export class ResearchRepository {
         .limit(1)
     )[0];
   }
+  async concurrentResearchReady() {
+    const result = await this.db.execute(sql`SELECT to_regclass('public.research_jobs_active_slot_idx') IS NOT NULL AS ready`);
+    return (result as { rows?: { ready: boolean }[] }).rows?.[0]?.ready === true;
+  }
+  async hasOtherActive(id: string) {
+    const rows = await this.db.select({ id: researchJobs.id }).from(researchJobs).where(and(eq(researchJobs.organizationId, this.org), sql`${researchJobs.id} <> ${id}`, notInArray(researchJobs.status, terminalResearchStates))).limit(1);
+    return rows.length > 0;
+  }
   list(mandateId: string) {
     return this.db
       .select()
@@ -53,7 +61,7 @@ export class ResearchRepository {
         ),
       )
       .orderBy(desc(researchJobs.createdAt))
-      .limit(20);
+      .limit(1000);
   }
   findings(mandateId: string) {
     return this.db
@@ -118,6 +126,12 @@ export class ResearchRepository {
   }
   async recoverStopped(id: string, revision: number, pages: number) {
     await this.db.update(researchJobs).set({ status: pages ? "partial" : "failed", message: "Worker stopped unexpectedly; saved evidence retained. Start a new run or continue remaining URLs.", updatedAt: new Date() }).where(and(eq(researchJobs.id, id), eq(researchJobs.organizationId, this.org), eq(researchJobs.revision, revision), notInArray(researchJobs.status, terminalResearchStates)));
+  }
+  async cancelRun(id: string) {
+    const job = await this.get(id);
+    if (!job) return [];
+    const rootId = (job.config as ResearchConfig).researchRunId || id;
+    return this.db.update(researchJobs).set({ status: "cancelled", message: "Research stopped; saved evidence retained", updatedAt: new Date() }).where(and(eq(researchJobs.organizationId, this.org), sql`(${researchJobs.id} = ${rootId} OR ${researchJobs.config}->>'researchRunId' = ${rootId})`, sql`(${researchJobs.id} = ${rootId} OR ${researchJobs.status} NOT IN ('complete', 'partial', 'failed', 'cancelled'))`)).returning({ id: researchJobs.id });
   }
   async cancel(id: string) {
     await this.db
@@ -187,7 +201,7 @@ export class ResearchRepository {
       throw new Error("Research budget exceeded");
     if (event.page && publicResearchUrl(event.page.url)) {
       const sourceUrl = publicResearchUrl(event.page.url)!;
-      const findings = (config.purpose === "firmographics" ? (input: unknown, markdown: string, source: string) => validateCompanyFacts(input, markdown, source, config) : config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, config) : config.workflow === "business" ? (input: unknown, markdown: string, source: string) => validateBusinessFindings(input, markdown, source, config) : validateFindings)(
+      const findings = (config.purpose === "firmographics" ? (input: unknown, markdown: string, source: string) => [...validateCompanyFacts(input, markdown, source, config), ...(config.mode === "automatic" && new URL(source).hostname.replace(/^www\./, "") === config.companyDomain ? validateBusinessFindings(input, markdown, source, config) : [])] : config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, config) : config.workflow === "business" ? (input: unknown, markdown: string, source: string) => validateBusinessFindings(input, markdown, source, config) : validateFindings)(
         event.page.findings,
         event.page.markdown,
         sourceUrl,

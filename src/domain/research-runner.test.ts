@@ -446,3 +446,13 @@ it("honours the planner stop action and retains unread sources", async () => {
   expect(t.progress.mock.calls.at(-1)?.[0].runtime?.remaining.length).toBeGreaterThan(0);
   expect(t.progress.mock.calls.at(-1)?.[0].message).toContain("No useful targeted follow-up selected");
 });
+
+it("stops automatic company detail research once a supported headcount is found", async () => {
+  const t = setup();
+  Object.assign(t.config, { mode: "automatic", purpose: "firmographics", companyName: "Example Instruments", companyDomain: "instruments.example.com" });
+  t.config.budget.maxPages = 12;
+  vi.mocked(t.service.poll).mockResolvedValue({ status: "completed", page: { url: t.config.seeds[0], markdown: "Example Instruments makes sensors. We employ 50 employees. [About](/about) [Contact](/contact)" } });
+  await runResearch(t.step, t.service);
+  expect(t.service.poll).toHaveBeenCalledOnce();
+  expect(t.progress.mock.calls.find(([e]) => e.page)?.[0].page?.findings.some(f => f.kind === "headcount")).toBe(true);
+});

@@ -1,6 +1,8 @@
+import { automaticBatch } from "./automatic-research";
 import { researchDomain, researchUrlKey, uniqueResearchUrls, type ResearchConfig } from './research';
 export function automaticContinuation(job: {id:string;status:string;message:string;createdAt:Date;modelCalls:number;config:ResearchConfig}, now=Date.now()):ResearchConfig|null {
   const config=job.config, runtime=config.runtime;
+  if (config.mode === "automatic" && !config.purpose) return automaticBatch(job, now);
   if(job.status!== 'partial' || !/Worker request budget reached/.test(job.message) || !runtime) return null;
   const pages=config.budget.maxPages-runtime.attempts.length;
   const minutes=Math.floor((job.createdAt.getTime()+config.budget.maxMinutes*60000-now)/60000);

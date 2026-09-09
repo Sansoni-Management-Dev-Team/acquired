@@ -159,7 +159,7 @@ export const researchJobs = pgTable("research_jobs", {
   revision: integer("revision").notNull().default(0), pages: integer("pages").notNull().default(0), modelCalls: integer("model_calls").notNull().default(0),
   message: text("message").notNull().default("Queued"), crawlId: text("crawl_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, table => [index("research_jobs_mandate_idx").on(table.organizationId, table.mandateId), uniqueIndex("research_jobs_active_org_idx").on(table.organizationId).where(sql`${table.status} NOT IN ('complete', 'partial', 'failed', 'cancelled')`)]);
+}, table => [index("research_jobs_mandate_idx").on(table.organizationId, table.mandateId), uniqueIndex("research_jobs_active_slot_idx").on(table.organizationId, sql`COALESCE(${table.config}->>'executionSlot', '0')`).where(sql`${table.status} NOT IN ('complete', 'partial', 'failed', 'cancelled')`)]);
 
 export const researchFindings = pgTable("research_findings", {
   id: uuid("id").primaryKey().defaultRandom(), jobId: uuid("job_id").notNull().references(() => researchJobs.id, { onDelete: "cascade" }),

@@ -5,7 +5,7 @@ import { researchFindings } from "@/db/schema";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { OrganizationRepository } from "@/db/repositories";
 import { briefToMandate } from "@/domain/acquisition";
-import { findingSchema, publicResearchUrl } from "@/domain/research";
+import { findingSchema, publicResearchUrl, type ResearchConfig } from "@/domain/research";
 import { mapGooglePlace } from "@/adapters/firmable-mapper";
 import { rankTarget } from "@/domain/scoring";
 import { z } from "zod";
@@ -125,6 +125,11 @@ export async function POST(
     return Response.json({ ok: true, targetId: saved.id });
   }
   if (body.data.action === "cancel") {
+    if ((job.config as ResearchConfig).mode === "automatic") {
+      const stopped = await repo.cancelRun(jobId);
+      await Promise.allSettled(stopped.map(j => researchWorker(`/jobs/${j.id}`, "DELETE")));
+      return Response.json({ ok: true, message: "Discovery and enrichment stopped; saved evidence retained." });
+    }
     await repo.cancel(jobId);
     try {
       await researchWorker(`/jobs/${jobId}`, "DELETE");

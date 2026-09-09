@@ -9,7 +9,11 @@ const mocks = vi.hoisted(() => ({
   list: vi.fn(),
   findings: vi.fn(),
   get: vi.fn(),
+  hasOtherActive: vi.fn(),
+  concurrentResearchReady: vi.fn(),
 }));
+vi.mock("@/lib/automatic-enrichment", () => ({ dispatchAutomaticEnrichment: vi.fn() }));
+vi.mock("@/lib/research-continuation", () => ({ dispatchContinuation: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: mocks.session } } }));
 vi.mock("@/lib/research-service", () => ({
   researchEnabled: mocks.enabled,
@@ -29,6 +33,8 @@ vi.mock("@/db/research-repository", () => ({
       mocks.org(org);
     }
     get = mocks.get;
+    hasOtherActive = mocks.hasOtherActive;
+    concurrentResearchReady = mocks.concurrentResearchReady;
     create = mocks.create;
     list = mocks.list;
     findings = mocks.findings;
@@ -148,4 +154,14 @@ it("continues server-saved public terms and queue, ignoring client replacements"
       seeds: ["https://remaining.example.com/"],
     }),
   );
+});
+
+ it("derives automatic depth server-side and waits for the concurrency migration", async () => {
+  const automatic = { ...body, workflow: "business", mode: "automatic", targetBusinesses: 30 };
+  mocks.concurrentResearchReady.mockResolvedValue(false);
+  expect((await POST(request(automatic), context)).status).toBe(503);
+  expect(mocks.create).not.toHaveBeenCalled();
+  mocks.concurrentResearchReady.mockResolvedValue(true);
+  expect((await POST(request(automatic), context)).status).toBe(202);
+  expect(mocks.create.mock.calls[0][3]).toMatchObject({ mode: "automatic", budget: { maxPages: 10 }, companyBudget: { maxCompanies: 30 }, researchRunId: jobId });
 });
