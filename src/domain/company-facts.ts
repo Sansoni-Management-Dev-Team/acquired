@@ -105,11 +105,11 @@ export function headcountModelFindings(input: unknown, markdown: string, source:
 }
 export function companyFactLinks(markdown: string, source: string, config: ResearchConfig, visited: string[]) {
   if (!config.companyDomain || researchDomain(source) !== config.companyDomain) return [];
-  return pageLinks(markdown, source).filter(link => !visited.some(v => researchUrlKey(v) === researchUrlKey(link.url)) && (researchDomain(link.url) === config.companyDomain && /about|company|history|contact|our-story/i.test(link.url + link.label) || /^(?:[a-z]{2,3}\.)?linkedin\.com$/.test(new URL(link.url).hostname) && /^\/company\//.test(new URL(link.url).pathname))).slice(0, 8).map(link => link.url);
+  return pageLinks(markdown, source).filter(link => !visited.some(v => researchUrlKey(v) === researchUrlKey(link.url)) && (researchDomain(link.url) === config.companyDomain && /about|company|history|contact|our-story|who-we-are|team|leadership/i.test(link.url + link.label) || /^(?:[a-z]{2,3}\.)?linkedin\.com$/.test(new URL(link.url).hostname) && /^\/company\//.test(new URL(link.url).pathname))).slice(0, 8).map(link => link.url);
 }
 export function orderCompanyFactQueue(urls: string[], config: ResearchConfig) {
   return urls.filter(url => Boolean(publicResearchUrl(url)) && (researchDomain(url) === config.companyDomain || /linkedin\.com\/company\//.test(url) || researchDomain(url) === "datanyze.com" && /^\/companies\//.test(new URL(url).pathname))).sort((a, b) => {
-    const priority = (url: string) => /linkedin\.com\/company\//.test(url) ? 0 : researchDomain(url) === "datanyze.com" ? 1 : /about|company|history|our-story/.test(new URL(url).pathname) ? 2 : new URL(url).pathname === "/" ? 3 : researchDomain(url) === config.companyDomain && /contact/.test(url) ? 4 : 5;
+    const priority = (url: string) => researchDomain(url) === config.companyDomain && new URL(url).pathname === "/" ? 0 : /linkedin\.com\/company\//.test(url) ? 1 : researchDomain(url) === "datanyze.com" ? 2 : /about|company|history|our-story|who-we-are|team|leadership/.test(new URL(url).pathname) ? 3 : researchDomain(url) === config.companyDomain && /contact/.test(url) ? 4 : 5;
     return priority(a) - priority(b);
   });
 }
@@ -122,7 +122,7 @@ export function companyFactConflicts(findings: { evidence: ResearchFinding }[]) 
   });
 }
 
-export function companyFactSearchQuery(name: string, domain: string) {
-  const alias = name.split(" / ")[0].replace(/["\\]/g, " ").trim();
-  return `"${alias}" "${domain}" employees revenue company size`;
+export function companyFactSearchQuery(_name: string, domain: string) {
+  // Domain anchoring avoids long queries that search engines silently broaden.
+  return `"${domain.replace(/["\\]/g, " ").trim()}" employees`;
 }

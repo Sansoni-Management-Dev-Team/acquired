@@ -1,7 +1,8 @@
 import { companyFactSearchQuery } from "@/domain/company-facts";
 import { mergePeopleSearchLeads, peopleFollowupQuery, cleanLegalEntity, type PeopleSearchLead } from "@/domain/people-search-results";
 import { dispatchContinuation } from "@/lib/research-continuation";
-import { cloudflareWebSearch } from "@/adapters/cloudflare-web-search";
+import { companyResultMatches } from "@/domain/company-research-routing";
+import { cloudflareSearchResults } from "@/adapters/cloudflare-web-search";
 import { businessWebSeeds } from "@/adapters/business-web-search";
 import { dispatchBusinessPeople } from "@/lib/business-research-people";
 import { peopleWebSearch } from "@/adapters/people-web-search";
@@ -102,7 +103,7 @@ export async function POST(
     let warning = "";
     let peopleLeadCount = config.peopleSearchLeads?.length || 0;
     if (config.purpose === "firmographics" && config.discover) {
-      try { seeds.push(...await cloudflareWebSearch(companyFactSearchQuery(config.companyName!, config.companyDomain!))); }
+      try { seeds.push(...(await cloudflareSearchResults(companyFactSearchQuery(config.companyName!, config.companyDomain!))).filter(r => companyResultMatches(r, config.companyName!, config.companyDomain!, config.legalEntity)).map(r => r.url)); }
       catch { warning = "Public profile search unavailable; company website research continues."; }
     } else if (config.purpose === "people" && config.discover) {
       try {
