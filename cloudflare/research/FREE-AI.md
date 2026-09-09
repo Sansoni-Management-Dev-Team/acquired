@@ -4,7 +4,7 @@ Business extraction, people extraction, headcount extraction and follow-up plann
 use `src/adapters/ai/free-openrouter.ts` in both Node and the research Worker.
 No Workers AI binding is present in the research Worker.
 
-The ordered candidates are NEX N2.5 Mini, NEX N2.5 Pro, then Nemotron 3 Super.
+The ordered research candidates are NEX N2.5 Pro, NEX N2.5 Mini, then Nemotron 3 Super.
 OpenRouter's `models` routing tries the next candidate when a provider is unavailable
 or overloaded. The list is explicit: no automatic model discovery, paid fallback,
 web-search plugin or arbitrary model override. Zero input/output price ceilings
@@ -15,6 +15,27 @@ Set `OPENROUTER_API_KEY` as a secret on `acquire-research`. This is independent 
 the existing outreach drafting provider and its model configuration.
 
 ## Local verification
+
+The local Next.js application can use this same provider for draft generation:
+
+```dotenv
+AI_PROVIDER=openrouter-free
+OUTREACH_DRAFTING_PROVIDER=ai
+OPENROUTER_API_KEY=your-key
+```
+
+Keep the key in `.env.local` and restart the development server after changing it.
+This mode ignores `OUTREACH_AI_MODELS`, including any paid fallback in that list.
+Selecting `AI_PROVIDER=openrouter` explicitly restores the separate configurable
+outreach provider. This switch does not start a local research workflow worker;
+research dispatch is configured separately through `RESEARCH_WORKER_URL`.
+
+`pnpm dev` now configures and starts both local services automatically; see
+[local development](../../docs/27-local-research-and-ai.md). Free drafting uses
+NEX Mini then NEX Pro with reasoning disabled and an additional 2,048 output tokens
+for the seven-message sequence. Nemotron is excluded from drafting because its
+advertised effort levels do not include `none`. Research uses `medium`, which all
+three research candidates support. Model usage logs contain no draft or page text.
 
 Put the key in `.env.local` or export it, then run:
 

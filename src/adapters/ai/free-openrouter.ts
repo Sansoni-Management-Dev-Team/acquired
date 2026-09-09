@@ -3,8 +3,8 @@ import { z } from "zod";
 // Explicit candidates, never openrouter/auto or a paid fallback. Update only
 // after testing the new candidate against the research extraction cases.
 export const FREE_RESEARCH_MODELS = [
-  "nex-agi/nex-n2.5-mini:free",
   "nex-agi/nex-n2.5-pro:free",
+  "nex-agi/nex-n2.5-mini:free",
   "nvidia/nemotron-3-super-120b-a12b:free",
 ] as const;
 
@@ -12,6 +12,7 @@ export type FreeResearchRequest = {
   messages: { role: string; content: string }[];
   max_tokens: number;
   temperature?: number;
+  reasoning_effort?: "medium" | "none";
   response_format: { type: string; json_schema: Record<string, unknown> };
 };
 
@@ -44,6 +45,9 @@ export class FreeOpenRouter {
   async complete(input: FreeResearchRequest): Promise<{ response: unknown }> {
     if (!this.options.apiKey) throw new Error("Research AI unavailable: OPENROUTER_API_KEY is not configured");
     const validator = z.fromJSONSchema(input.response_format.json_schema);
+    // NEX supports disabling reasoning; Nemotron's advertised efforts do not.
+    const models = input.reasoning_effort === "none" ? this.models.filter(m => m.startsWith("nex-agi/")) : this.models;
+    if (!models.length) throw new Error("No approved free model supports the requested reasoning mode");
     const started = Date.now();
     this.options.onRequest?.();
     let response: Response;
@@ -54,11 +58,12 @@ export class FreeOpenRouter {
         // OpenRouter tries these in order on provider overload/unavailability.
         // One external request, bounded below the workflow's 60-second step.
         body: JSON.stringify({
-          models: this.models,
+          models,
           messages: input.messages,
           max_tokens: Math.max(input.max_tokens, 2048),
           temperature: input.temperature ?? 0,
-          reasoning: { effort: "low", exclude: true },
+          // Medium is supported by every candidate; NEX does not support low.
+          reasoning: { effort: input.reasoning_effort ?? "medium", exclude: true },
           response_format: { type: "json_schema", json_schema: { name: "research_result", strict: true, schema: input.response_format.json_schema } },
           provider: { require_parameters: true, data_collection: "deny", max_price: { prompt: 0, completion: 0 } },
         }),
@@ -79,7 +84,7 @@ export class FreeOpenRouter {
       usage?: { prompt_tokens?: number; completion_tokens?: number; cost?: number };
     };
     const choice = payload.choices?.[0];
-    if (payload.error || !choice?.message?.content || choice.finish_reason === "length") throw new Error("Free research AI returned an incomplete response");
+    if (payload.error || !choice?.message?.content || choice.finish_reason === "length") throw new Error(choice?.finish_reason === "length" ? "Free research AI reached its output token limit" : "Free research AI returned an incomplete response");
     let parsed: unknown;
     try { parsed = JSON.parse(choice.message.content); } catch { throw new Error("Free research AI returned invalid JSON"); }
     const result = validator.safeParse(parsed);

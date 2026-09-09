@@ -1,4 +1,5 @@
 import { FreeOpenRouter } from "../../src/adapters/ai/free-openrouter";
+import { callbackOrigin } from "./callback-origin";
 import { targetedPrompt, targetedSchema } from "../../src/domain/targeted-research";
 import { readFallback } from "./fallback";
 import { peopleExtractionSchema } from "../../src/domain/people-research";
@@ -21,6 +22,7 @@ interface Env {
   OPENROUTER_API_KEY: string;
   SERVICE_SECRET: string;
   APP_ORIGIN: string;
+  LOCAL_DEVELOPMENT?: string;
   CF_ACCOUNT_ID: string;
   CF_BROWSER_TOKEN: string;
   CRAWL4AI_URL?: string;
@@ -41,10 +43,9 @@ async function authorized(request: Request, secret: string) {
   return difference === 0;
 }
 async function callback(env: Env, id: string, body?: unknown, budget?: { used: number }) {
-  const origin = new URL(env.APP_ORIGIN);
-  if (origin.protocol !== "https:") throw new Error("HTTPS callback required");
+  const origin = callbackOrigin(env.APP_ORIGIN, env.LOCAL_DEVELOPMENT === "true");
   if (budget) budget.used++;
-  const r = await fetch(`${origin.origin}/api/research/internal/${id}`, {
+  const r = await fetch(`${origin}/api/research/internal/${id}`, {
     method: body ? "POST" : "GET",
     headers: {
       authorization: `Bearer ${env.SERVICE_SECRET}`,

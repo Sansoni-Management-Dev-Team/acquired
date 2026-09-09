@@ -48,6 +48,7 @@ describe("fixture outreach drafting", () => {
       system: expect.stringContaining("Never invent"),
       user: expect.stringContaining("signal-1"),
     }));
+    expect(generateStructured.mock.calls[0][0].schema.properties.drafts.items.properties.signalIds.items.enum).toEqual(["signal-1"]);
   });
 
   it("rejects AI drafts that cite evidence outside the stored signal set", async () => {

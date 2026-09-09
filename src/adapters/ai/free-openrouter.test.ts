@@ -23,6 +23,7 @@ describe("free research OpenRouter service", () => {
     expect(url).toBe("https://openrouter.ai/api/v1/chat/completions");
     expect(JSON.parse(init.body)).toMatchObject({ models: [...FREE_RESEARCH_MODELS], provider: { max_price: { prompt: 0, completion: 0 }, require_parameters: true, data_collection: "deny" } });
     expect(JSON.parse(init.body).plugins).toBeUndefined();
+    expect(JSON.parse(init.body).reasoning.effort).toBe("medium");
     expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({ model: FREE_RESEARCH_MODELS[1], cost: 0 }));
   });
 
@@ -62,5 +63,11 @@ describe("free research OpenRouter service", () => {
     await expect(new FreeOpenRouter({ apiKey: "", fetch: fetcher }).complete(request)).rejects.toThrow(/not configured/);
     expect(fetcher).not.toHaveBeenCalled();
     await expect(new FreeOpenRouter({ apiKey: "secret", fetch: fetcher }).complete(request)).rejects.toThrow("Free research AI unavailable: request timed out or transport failed");
+  });
+  it("does not route reasoning-disabled requests to an incompatible fallback", async () => {
+    const fetcher = vi.fn();
+    const ai = new FreeOpenRouter({ apiKey: "secret", models: ["nvidia/nemotron-3-super-120b-a12b:free"], fetch: fetcher });
+    await expect(ai.complete({ ...request, reasoning_effort: "none" })).rejects.toThrow(/reasoning mode/);
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });

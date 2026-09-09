@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { requireDb } from "@/db/client";
 import { mailboxConnections } from "@/db/schema";
 import { auth } from "@/lib/auth";
+import { FREE_DRAFT_MODELS } from "@/adapters/ai/free-provider";
 
 export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ gmail?: string; reason?: string }> }) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -26,8 +27,9 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const notice = await searchParams;
   const fixtureMode = process.env.TARGET_DATA_PROVIDER === "fixture";
   const fixtureDrafting = process.env.OUTREACH_DRAFTING_PROVIDER === "fixture";
-  const outreachModels = process.env.OUTREACH_AI_MODELS || process.env.OUTREACH_AI_MODEL || "";
-  const aiConfigured = process.env.AI_PROVIDER === "openrouter" && Boolean(process.env.OPENROUTER_API_KEY && outreachModels);
+  const freeAi = process.env.AI_PROVIDER === "openrouter-free";
+  const outreachModels = freeAi ? FREE_DRAFT_MODELS.join(" → ") : process.env.OUTREACH_AI_MODELS || process.env.OUTREACH_AI_MODEL || "";
+  const aiConfigured = (freeAi || process.env.AI_PROVIDER === "openrouter") && Boolean(process.env.OPENROUTER_API_KEY && outreachModels);
   const localDatabase = process.env.DATABASE_DRIVER === "postgres";
   const connections = [
     { name: localDatabase ? "OrbStack PostgreSQL" : "Neon Postgres", state: "Connected", detail: localDatabase ? "Local project_acquire database" : "Deployed database", tone: "text-[var(--accent)]" },

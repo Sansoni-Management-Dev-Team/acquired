@@ -65,7 +65,7 @@ const aiDraftSchema = z.object({
   if (steps.some((step, index) => step !== index + 1)) context.addIssue({ code: "custom", message: "Draft steps must contain each step from 1 to 7 exactly once" });
 });
 
-const outreachResponseSchema = {
+const outreachResponseSchema = (signalIds: string[]) => ({
   type: "object",
   additionalProperties: false,
   properties: {
@@ -80,14 +80,14 @@ const outreachResponseSchema = {
           step: { type: "integer", minimum: 1, maximum: 7 },
           subject: { type: "string" },
           body: { type: "string" },
-          signalIds: { type: "array", items: { type: "string" } },
+          signalIds: { type: "array", items: { type: "string", enum: signalIds } },
         },
         required: ["step", "subject", "body", "signalIds"],
       },
     },
   },
   required: ["drafts"],
-} as const;
+} as const);
 
 const OUTREACH_SYSTEM_PROMPT = `You write respectful, principal-led acquisition outreach to Australian business owners and senior decision-makers.
 
@@ -120,7 +120,7 @@ export class AiOutreachDraftingProvider implements OutreachDraftingProvider {
         buyer: publicBuyerProfile(request.buyerProfile),
         evidenceSignals: request.signals.map((signal) => ({ id: signal.id, kind: signal.kind, value: signal.value, direction: signal.direction, source: signal.provenance.source, confidence: signal.provenance.confidence })),
       }),
-      schema: outreachResponseSchema,
+      schema: outreachResponseSchema(request.signals.map(signal => signal.id)),
       maxTokens: 3_000,
       temperature: 0.35,
     });

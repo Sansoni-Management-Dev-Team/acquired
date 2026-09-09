@@ -1,7 +1,7 @@
 import { expect, it } from "vitest";
 import { FreeOpenRouter } from "./free-openrouter";
 import { peopleExtractionSchema, peoplePrompt, validatePeopleFindings } from "../../domain/people-research";
-import { companyHeadcountPrompt } from "../../domain/company-facts";
+import { companyHeadcountPrompt, headcountModelFindings } from "../../domain/company-facts";
 import { targetedPrompt, targetedSchema, type TargetedPlan } from "../../domain/targeted-research";
 import { type ResearchConfig } from "../../domain/research";
 
@@ -25,7 +25,8 @@ it.skipIf(process.env.OPENROUTER_RESEARCH_LIVE !== "1")("extracts sourced facts,
   expect((size.response as { value: string }).value).toContain("18");
   expect(text).toContain((size.response as { quote: string }).quote);
   const unknown = await ai.complete({ messages: companyHeadcountPrompt("We manufacture specialist instruments. No employee count is published.", source, config), max_tokens: 300, response_format: { type: "json_schema", json_schema: schema } });
-  expect(unknown.response).toEqual({ value: null, quote: null });
+  expect((unknown.response as { value: unknown }).value).toBeNull();
+  expect(headcountModelFindings(unknown.response, "We manufacture specialist instruments. No employee count is published.", source, config).some(f => f.kind === "headcount")).toBe(false);
   const plan: TargetedPlan = { companyName: "Example Instruments", companyDomain: "example.com", missing: "A named owner or decision-maker", actions: [{ id: "read_0", kind: "read", url: "https://example.com/team" }, { id: "stop", kind: "stop" }] };
   const planned = await ai.complete({ messages: targetedPrompt(plan), max_tokens: 100, response_format: { type: "json_schema", json_schema: targetedSchema(plan) } });
   expect(planned.response).toEqual({ choice: "read_0" });
