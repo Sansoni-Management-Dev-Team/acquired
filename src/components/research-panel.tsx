@@ -9,6 +9,7 @@ import {
   type ResearchConfig,
   type SavedResearchFinding,
 } from "@/domain/research";
+import { GeographySelect } from "./geography-select";
 import type { AcquisitionBrief } from "@/domain/acquisition";
 const input =
   "min-h-12 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2 text-sm";
@@ -66,7 +67,9 @@ export function ResearchPanel({
       .join("\n") || "",
   );
   const [geography, setGeography] = useState(
-    brief.criteria.find((c) => c.key === "geography")?.value || "",
+    brief.criteria.find((c) => c.key === "geography")?.state === "unrestricted"
+      ? "National"
+      : brief.criteria.find((c) => c.key === "geography")?.value || "",
   );
   const [seeds, setSeeds] = useState(""),
     [pages, setPages] = useState(3),
@@ -214,17 +217,7 @@ export function ResearchPanel({
                       }}
                     />
                   </label>
-                  <label className="block text-sm">
-                    Geography
-                    <input
-                      className={input}
-                      disabled={Boolean(continuation)}
-                      value={geography}
-                      onChange={(e) => {
-                        setGeography(e.target.value);
-                      }}
-                    />
-                  </label>
+                  <GeographySelect className={input} disabled={Boolean(continuation)} value={geography} onChange={setGeography} />
                   {!continuation && (
                     <>
                       <label className="block text-sm">
