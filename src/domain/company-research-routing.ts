@@ -13,7 +13,9 @@ export function companyResultMatches(result: WebSearchResult, company: string, d
   const text = `${result.title} ${result.snippet} ${url}`;
   const domainPattern = new RegExp(`(?<![a-z0-9.-])(?:www\\.)?${domain.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![a-z0-9.-])`, "i");
   if (domainPattern.test(text)) return true;
-  const haystack = ` ${normalized(text)} `;
+  const path = new URL(url).pathname;
+  const otherCompanyPage = path === "/" || /^\/(?:about(?:-us)?|contact(?:-us)?|team|our-team)(?:\/|$)/i.test(path);
+  const haystack = ` ${normalized(otherCompanyPage ? result.title : text)} `;
   return [...company.split(/\s+\/\s+/), ...(legalEntity ? [legalEntity] : [])].some(name => {
     const needle = normalized(name);
     return needle.includes(" ") && haystack.includes(` ${needle} `);

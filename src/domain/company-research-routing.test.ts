@@ -18,3 +18,8 @@ it("uses supplied aliases and evidenced legal names without inferring shared own
  expect(companyResultMatches(result("Example Holdings Pty Ltd director"),company,domain)).toBe(false);
  expect(companyPeopleQuery(company,domain)).toContain(`"${domain}"`);
 });
+
+it("does not read another company's about page just because its snippet mentions the target",()=>{
+ expect(companyResultMatches(result("About Other Supplier","We sell to Example Instruments","https://other.example.com/about-us"),company,domain)).toBe(false);
+ expect(companyResultMatches(result("Example Instruments company profile","","https://directory.example.com/companies/example-instruments"),company,domain)).toBe(true);
+});
