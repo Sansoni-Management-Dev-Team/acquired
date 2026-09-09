@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { peopleFollowUpLinks, validatePeopleFindings, orderPeopleQueue } from "./people-research";
+import { peopleRoleConflicts, peopleFollowUpLinks, validatePeopleFindings, orderPeopleQueue } from "./people-research";
 import type { ResearchConfig } from "./research";
 const config = { companyName: "Example Instruments", companyDomain: "instruments.example.com" } as ResearchConfig;
 const source = "https://instruments.example.com/team";
@@ -78,4 +78,24 @@ it("reads signed founder messages only inside an explicit first-party founder se
   expect(validatePeopleFindings([], signed, source, config).map(f => f.name)).toEqual(["Alex Example"]);
   expect(validatePeopleFindings([], signed.replace("About & Message From Founder/Director", "Testimonials"), source, config)).toEqual([]);
   expect(validatePeopleFindings([], signed, "https://directory.example.com/", config)).toEqual([]);
+});
+
+it("accepts adjacent team headings without requiring blank lines", () => {
+ const page = "# Our team\n#### Alex Example\n##### CEO\n# Testimonials\n#### Casey Customer\n##### CEO";
+ expect(validatePeopleFindings([],page,source,config).map(f=>f.name)).toEqual(["Alex Example"]);
+});
+it("matches visible italic text without changing identifiers or inventing a quote", () => {
+ const quote = "We build instruments.” – Alex Example, Managing Director";
+ expect(validatePeopleFindings([{...candidate,quote}],`_“${quote.split(' – ')[0]}_ – Alex Example, Managing Director`,source,config)).toHaveLength(1);
+ expect(validatePeopleFindings([{...candidate,quote:quote.replace('instruments','aircraft')}],`_“${quote}_`,source,config)).toEqual([]);
+ const email = "alex_example@instruments.example.com";
+ const passage = `${candidate.quote} Contact Alex Example: ${email}`;
+ expect(validatePeopleFindings([{...candidate,quote:passage,email}],passage,source,config)[0].email).toBe(email);
+});
+
+it("flags competing leadership assertions but not duplicate sources or different roles", () => {
+ const ceo = {...candidate,kind:"person" as const,value:"CEO"};
+ expect(peopleRoleConflicts([ceo,ceo])).toEqual([]);
+ expect(peopleRoleConflicts([ceo,{...ceo,name:"Casey Example",value:"Chief Executive Officer"}])).toEqual(["ceo"]);
+ expect(peopleRoleConflicts([ceo,{...ceo,name:"Casey Example",value:"General Manager"}])).toEqual([]);
 });

@@ -1,6 +1,6 @@
 import { companyMentioned, companySearchName } from "./people-search-results";
 import { findingSchema, pageLinks, publicResearchUrl, researchDomain, researchUrlKey, type ResearchConfig, type ResearchFinding } from "./research";
-const norm = (s: string) => s.replace(/\*\*|__|`/g, "").replace(/\s+/g, " ").toLowerCase();
+const norm = (s: string) => s.replace(/\*\*|__|`/g, "").replace(/(?<![\p{L}\p{N}])([_*])([^\n]+?)\1(?![\p{L}\p{N}])/gu, "$2").replace(/\s+/g, " ").toLowerCase();
 const personName = (name: string) => /^[\p{Lu}][\p{L}'’-]+(?: [\p{L}'’.-]+){1,4}$/u.test(name) && !/\b(team|staff|office|manager|director|founder|owner|ceo|president|principal|partner|contact|customer|service|support|the|pty|ltd|limited|inc|company|holdings)\b/i.test(name);
 const role = /\b(owner|founder|director|president|chief|ceo|managing|general manager|principal|partner)\b/i;
 function teamCards(markdown: string, source: string): ResearchFinding[] {
@@ -10,7 +10,7 @@ function teamCards(markdown: string, source: string): ResearchFinding[] {
     const tail = markdown.slice(section.index! + section[0].length);
     const next = tail.search(/^#{1,3} /m);
     const body = next < 0 ? tail : tail.slice(0, next);
-    for (const card of body.matchAll(/^#{4,6} ([^\n]+)\n\s*\n#{4,6} ([^\n]+)$/gm)) {
+    for (const card of body.matchAll(/^#{4,6} ([^\n]+)\n\s*#{4,6} ([^\n]+)$/gm)) {
       const name = card[1].trim(), value = card[2].trim();
       if (!/^[\p{Lu}][\p{L}'’-]+(?: [\p{L}'’.-]+){1,4}$/u.test(name) || !role.test(value)) continue;
       findings.push({ kind: "person", name, value, quote: card[0], website: source, relevance: "unclear" });
@@ -88,3 +88,17 @@ export const peopleExtractionSchema = {
   } } },
   required: ["findings"], additionalProperties: false,
 };
+
+// A quote establishes a published role, not current employment. Surface competing
+// assertions without choosing a winner or silently discarding older evidence.
+export function peopleRoleConflicts(findings: ResearchFinding[]) {
+  const roles = new Map<string, Set<string>>();
+  for (const f of findings) {
+    if (f.kind !== "person") continue;
+    const role = norm(f.value).replace(/chief executive officer/, "ceo");
+    if (!["ceo", "managing director", "general manager"].includes(role)) continue;
+    const names = roles.get(role) || new Set<string>();
+    names.add(norm(f.name)); roles.set(role, names);
+  }
+  return [...roles].filter(([, names]) => names.size > 1).map(([role]) => role);
+}
