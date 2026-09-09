@@ -81,6 +81,17 @@ export class ResearchRepository {
       .where(and(eq(researchFindings.organizationId, this.org), eq(researchFindings.mandateId, mandateId)))
       .groupBy(researchFindings.jobId);
   }
+  async recordNewBusiness(id: string, targetId: string) {
+    const job = await this.get(id);
+    if (!job) return;
+    const config = job.config as ResearchConfig;
+    if (!config.targetBusinesses || config.purpose) return;
+    const [target] = await this.db.select({ createdAt: targets.createdAt }).from(targets)
+      .where(and(eq(targets.id, targetId), eq(targets.organizationId, this.org))).limit(1);
+    if (!target || target.createdAt.getTime() < new Date(config.businessTargetStartedAt || job.createdAt).getTime()) return;
+    await this.db.update(researchJobs).set({ config: sql`jsonb_set(${researchJobs.config}, '{newBusinessIds}', (SELECT jsonb_agg(DISTINCT value) FROM jsonb_array_elements(COALESCE(${researchJobs.config}->'newBusinessIds', '[]'::jsonb) || ${JSON.stringify([targetId])}::jsonb)))` })
+      .where(and(eq(researchJobs.id, id), eq(researchJobs.organizationId, this.org)));
+  }
   async create(
     id: string,
     mandateId: string,
@@ -94,7 +105,7 @@ export class ResearchRepository {
         mandateId,
         createdBy,
         organizationId: this.org,
-        config,
+        config: config.targetBusinesses ? { ...config, businessTargetStartedAt: config.businessTargetStartedAt || new Date().toISOString() } : config,
         seeds: config.seeds.map(publicResearchUrl).filter(Boolean),
       })
       .onConflictDoNothing();
@@ -201,7 +212,7 @@ export class ResearchRepository {
       // Only a literal first-party company assertion may create a new business.
       let targetId = config.purpose === "people" ? config.targetId : linked[0]?.id;
       const company = ownCompany(findings, sourceUrl);
-      if (!targetId && config.workflow === "business" && company) {
+      if (!targetId && config.workflow === "business" && company && (!config.targetBusinesses || new Set(config.newBusinessIds || []).size < config.targetBusinesses)) {
         const acquisition = new AcquisitionRepository(this.org, this.db);
         const mandate = await acquisition.getMandate(job.mandateId);
         if (mandate) {
@@ -211,6 +222,7 @@ export class ResearchRepository {
           if (saved) { await acquisition.attach(job.mandateId, saved.id); targetId = saved.id; }
         }
       }
+      if (targetId) await this.recordNewBusiness(id, targetId);
       if (targetId && ((config.workflow === "business" && config.findPeople) || (config.purpose === "firmographics" && config.parentJobId))) {
         const links = peopleFollowUpLinks(event.page.markdown, sourceUrl, [], config.purpose ? config : undefined).filter(url => new URL(url).hostname.replace(/^www\./, "") === domain).slice(0, 8);
         const ownerJob = config.purpose === "firmographics" ? config.parentJobId! : id;

@@ -76,6 +76,9 @@ export function ResearchPanel({
     [useAi, setUseAi] = useState(true),
     [discover, setDiscover] = useState(true),
     [continuation, setContinuation] = useState<Job | null>(null);
+  const [targetBusinesses, setTargetBusinesses] = useState<number | "">(20);
+  const targetValid = Number.isInteger(targetBusinesses) && Number(targetBusinesses) >= 1 && Number(targetBusinesses) <= 100;
+  const backdropPressed = useRef(false);
   const [companyDetails, setCompanyDetails] = useState(true);
   const [findPeople, setFindPeople] = useState(true);
   const [peopleCompanies, setPeopleCompanies] = useState<number | "">(2);
@@ -157,6 +160,7 @@ export function ResearchPanel({
   }
   function resume(job: Job) {
     setContinuation(job);
+    setTargetBusinesses(job.config.targetBusinesses || 20);
     setTerms(job.config.searchTerms.join("\n"));
     setGeography(job.config.geography);
     setSeeds(remainingFor(job).slice(0, 10).join("\n"));
@@ -181,7 +185,7 @@ export function ResearchPanel({
       {loading ? (
         <p role="status">Checking research service…</p>
       ) : !data.enabled ? (
-        <div className="space-y-3"><p>Website research is awaiting activation.</p><details><summary className="cursor-pointer py-2">Research history &amp; source details</summary>{historyContent}</details></div>
+        <div className="space-y-3"><p>Website research is awaiting activation.</p><details><summary className="cursor-pointer py-2">Sources &amp; research history</summary>{historyContent}</details></div>
       ) : (
         <>
           {!active && (
@@ -196,8 +200,15 @@ export function ResearchPanel({
                 {setup ? "Close setup" : "Find & research businesses"}
               </button>
               {setup && (
-                <dialog ref={setupRef} onCancel={() => setSetup(false)} onClose={() => setSetup(false)} aria-labelledby="research-setup-title" className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-dvh w-full max-w-xl overflow-y-auto border-l border-[var(--border)] bg-[var(--panel)] p-6 text-white backdrop:bg-black/70">
-                  <div className="mb-5 flex items-center justify-between gap-4"><h2 id="research-setup-title" className="text-xl font-semibold">{continuation ? "Continue research" : "Find & research businesses"}</h2><button className={button} onClick={() => setSetup(false)} aria-label="Close research settings">Close</button></div>
+                <dialog ref={setupRef} onPointerDown={e => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  backdropPressed.current = e.target === e.currentTarget && (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom);
+                }} onClick={e => {
+                  const rect = e.currentTarget.getBoundingClientRect();
+                  if (backdropPressed.current && e.target === e.currentTarget && (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom)) setSetup(false);
+                  backdropPressed.current = false;
+                }} onCancel={() => setSetup(false)} onClose={() => setSetup(false)} aria-labelledby="research-setup-title" className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-dvh w-full max-w-xl overflow-y-auto border-l border-[var(--border)] bg-[var(--panel)] p-6 text-white backdrop:bg-black/70">
+                  <div className="sticky -top-6 z-10 -mx-6 -mt-6 mb-5 flex items-center justify-between gap-4 border-b border-[var(--border)] bg-[var(--panel)] p-6"><h2 id="research-setup-title" className="text-xl font-semibold">{continuation ? "Continue research" : "Find & research businesses"}</h2><button className={button} onClick={() => setSetup(false)} aria-label="Close research settings">Close</button></div>
                   <div className="space-y-4">
                   {continuation && (
                     <p className="font-medium">
@@ -205,6 +216,12 @@ export function ResearchPanel({
                       with a fresh budget. Completed pages are skipped.
                     </p>
                   )}
+                  <label className="block space-y-2 text-sm">
+                    <span className="font-semibold">Target new businesses</span>
+                    <input className={input} type="number" min="1" max="100" step="1" value={targetBusinesses} disabled={Boolean(continuation)} aria-describedby="business-target-help" aria-invalid={!targetValid} onChange={e => setTargetBusinesses(e.target.value === "" ? "" : Number(e.target.value))} />
+                    <span id="business-target-help" className="block text-xs text-[var(--muted)]">Aim for this many new, distinct businesses. Existing targets and duplicates don’t count. Search and research limits may stop the run earlier.</span>
+                    {!targetValid && <span role="alert" className="block text-sm text-amber-200">Enter a whole number from 1 to 100.</span>}
+                  </label>
                   <label className="block text-sm">
                     Public research terms (up to three)
                     <textarea
@@ -218,6 +235,9 @@ export function ResearchPanel({
                     />
                   </label>
                   <GeographySelect className={input} disabled={Boolean(continuation)} value={geography} onChange={setGeography} />
+                  <details className="rounded-lg border border-[var(--border)] p-3">
+                    <summary className="min-h-12 cursor-pointer content-center text-sm font-medium">Search sources & focused queries</summary>
+                    <div className="space-y-4 pt-3">
                   {!continuation && (
                     <>
                       <label className="block text-sm">
@@ -231,7 +251,7 @@ export function ResearchPanel({
                           }}
                         />
                       </label>
-                      <label className="flex items-center gap-2 text-sm">
+                      <label className="flex min-h-12 items-center gap-3 text-sm">
                         <input
                           type="checkbox"
                           checked={discover}
@@ -262,7 +282,12 @@ export function ResearchPanel({
                       </ul>
                     </details>
                   )}
-                  {continuation && <label className="flex items-center gap-2 text-sm">
+                    </div>
+                  </details>
+                  <details className="rounded-lg border border-[var(--border)] p-3">
+                    <summary className="min-h-12 cursor-pointer content-center text-sm font-medium">Research depth & limits</summary>
+                    <div className="space-y-4 pt-3">
+                  {continuation && <label className="flex min-h-12 items-center gap-3 text-sm">
                     <input type="checkbox" checked={strategy === "investigate"} onChange={(e) => { setStrategy(e.target.checked ? "investigate" : "discover"); }} />
                     Investigate product pages on known websites first
                   </label>}
@@ -280,7 +305,7 @@ export function ResearchPanel({
                       ))}
                     </select>
                   </label>
-                  <label className="flex items-center gap-2 text-sm">
+                  <label className="flex min-h-12 items-center gap-3 text-sm">
                     <input
                       type="checkbox"
                       checked={useAi}
@@ -290,9 +315,9 @@ export function ResearchPanel({
                     />
                     Assess sourced claims with AI
                   </label>
-                  <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={companyDetails && useAi} disabled={!useAi} onChange={e => setCompanyDetails(e.target.checked)} />Research size, industry, founding year and company details</label>
+                  <label className="flex min-h-12 items-center gap-3 text-sm"><input type="checkbox" checked={companyDetails && useAi} disabled={!useAi} onChange={e => setCompanyDetails(e.target.checked)} />Research size, industry, founding year and company details</label>
                   {companyDetails && useAi && <p className="text-sm text-[var(--muted)]">Read company websites first, then use a targeted follow-up for missing headcount. Follow up up to 2 researched companies, with 3 additional page attempts plus one public web search per company (10 minutes each). Review reported headcounts, public revenue estimates, source conflicts and an optional industry/headcount EBITDA scenario in each company’s review. Unknowns remain unknown.</p>}
-                  {!continuation && <label className="flex items-start gap-2 text-sm">
+                  {!continuation && <label className="flex min-h-12 items-center gap-3 text-sm">
                     <input type="checkbox" checked={findPeople && useAi} disabled={!useAi} onChange={e => { setFindPeople(e.target.checked); }} />
                     Find owners and decision-makers for relevant businesses
                   </label>}
@@ -307,6 +332,9 @@ export function ResearchPanel({
                     {!peopleBudgetValid && <p role="alert" className="text-sm text-amber-200">Enter a whole number of at least 1 in both fields.</p>}
                     <p className="text-sm text-[var(--muted)]">Separate people allowance: up to {peopleBudgetValid ? Number(peopleCompanies) * Number(peoplePages) : "—"} additional page attempts and AI calls, {Number(peopleCompanies) * (continuation ? continuation.config.peopleSearchesPerCompany || 1 : 2)} web searches, and 5 minutes per business. These are maximums; available sources and worker time or request limits may end a run earlier. Missing contacts do not block target review. Paid Firmable enrichment remains a separate action.</p>
                   </div>}
+                    </div>
+                  </details>
+                  <div className="sticky -bottom-6 -mx-6 border-t border-[var(--border)] bg-[var(--panel)] p-6 space-y-3">
                   <p className="text-sm text-[var(--muted)]">
                     Business research allows {pages} page attempts, {Math.min(3, pages)}{" "}
                     domains, {useAi ? pages : 0} AI calls and 10 minutes. Failed
@@ -315,12 +343,13 @@ export function ResearchPanel({
                   </p>
                   <p className="text-xs text-[var(--muted)]">Starting research shares these search terms, URLs and page content with the research providers. Keep confidential buyer details out of the search settings.</p>
                   <button
-                    className={button}
-                    disabled={busy || !termList.length || geography.trim().length < 2 || (findPeople && useAi && !peopleBudgetValid)}
+                    className={`${button} w-full bg-white font-semibold text-black`}
+                    disabled={busy || !targetValid || !termList.length || geography.trim().length < 2 || (findPeople && useAi && !peopleBudgetValid)}
                     onClick={() =>
                       act({
                         requestId: crypto.randomUUID(),
                         workflow: "business",
+                        targetBusinesses,
                         ...(companyDetails && useAi ? { companyBudget: { maxCompanies: 2, maxPages: 3 } } : {}),
                         findPeople: findPeople && useAi,
                         peopleSearchesPerCompany: 2,
@@ -344,6 +373,7 @@ export function ResearchPanel({
                     {continuation ? "Continue research" : "Find & research businesses"}
                   </button>
                   </div>
+                  </div>
                 </dialog>
               )}
             </>
@@ -353,6 +383,7 @@ export function ResearchPanel({
               <h2 className="font-semibold">{!terminalResearchStates.includes(currentJob.status) ? (currentJob.config.purpose === "firmographics" ? "Researching company details" : currentJob.config.purpose === "people" ? "Finding decision-makers" : currentJob.status === "discovering" ? "Finding businesses" : "Researching businesses") : currentJob.status === "cancelled" ? "Research cancelled" : "Latest research run"}</h2>
               <span className="text-xs text-[var(--muted)]">{new Date(currentJob.createdAt).toLocaleString()}</span>
             </div>
+            {currentJob.config.targetBusinesses && <p className="text-sm font-medium" aria-live="polite">{new Set(currentJob.config.newBusinessIds || []).size} of {currentJob.config.targetBusinesses} new businesses found</p>}
             <p className="text-sm">{currentJob.config.purpose ? currentJob.config.companyName : `${currentResults?.added || 0} new businesses researched · ${currentResults?.updated || 0} existing businesses with new evidence`} · {peopleFound} sourced contact leads{searchLeadCount ? ` · ${searchLeadCount} search leads to verify` : ""}</p>
             <p className="text-sm">{currentJob.pages} pages read · {currentJob.config.runtime?.remaining.length || 0} URLs remaining</p>
             <p className="text-xs text-[var(--muted)]">Page attempts: {currentJob.config.runtime?.attempts.length || currentJob.pages}/{currentJob.config.budget.maxPages} · AI calls: {currentJob.modelCalls}/{currentJob.config.budget.maxModelCalls}</p>
@@ -364,7 +395,7 @@ export function ResearchPanel({
             {active?.status === "queued" && <button className={button} disabled={busy} onClick={() => act({action:"retry-dispatch"}, active.id)}>Reconnect job</button>}
           </div>}
           <details className="border-t border-[var(--border)] pt-3">
-            <summary className="cursor-pointer py-2 text-sm font-medium">Research history &amp; source details</summary>
+            <summary className="cursor-pointer py-2 text-sm font-medium">Sources &amp; research history</summary>
             <div className="mt-4 space-y-5">
           <div className="space-y-3" aria-live="polite">
             {data.jobs.slice(0, 5).map((job) => {
@@ -489,6 +520,8 @@ export function ResearchPanel({
               {job.status === "queued" && <button className={`${button} ml-3`} disabled={busy} onClick={() => act({action:"retry-dispatch"}, job.id)}>Reconnect</button>}
             </article>)}
           </div>}
+          <details><summary className="min-h-12 cursor-pointer content-center text-sm">Unlinked business evidence</summary>
+          <p className="mb-3 text-xs text-[var(--muted)]">Source leads that have not been added to Targets. Review before adding a business.</p>
           <ResearchFindings
             findings={data.findings.filter(f => !f.targetId)}
             onChanged={() => {
@@ -496,6 +529,7 @@ export function ResearchPanel({
               onResultsChanged();
             }}
           />
+          </details>
           {historyContent}
             </div>
           </details>

@@ -173,12 +173,14 @@ export async function POST(
         const acquisition = new AcquisitionRepository(job.organizationId);
         // Prefer exact directory searches for separate capabilities; existing company identities are reused.
         for (const target of discovery.targets.slice(0, 100)) {
+          const latest = (await repo.get(jobId))?.config as ResearchConfig | undefined;
+          if (config.targetBusinesses && new Set(latest?.newBusinessIds || []).size >= config.targetBusinesses) break;
           const saved = await companies.upsertEnrichedTarget({
             target: rankTarget(target, filters),
             mandateId: job.mandateId,
             actorId: job.createdBy,
           });
-          if (saved) await acquisition.attach(job.mandateId, saved.id);
+          if (saved) { await acquisition.attach(job.mandateId, saved.id); await repo.recordNewBusiness(jobId, saved.id); }
           const url = target.domain
             ? publicResearchUrl(`https://${target.domain}/`)
             : null;
@@ -192,7 +194,8 @@ export async function POST(
           "Discovery interrupted; supplied seeds retained. Retry discovery separately if needed.";
       }
     }
-    if (config.workflow === "business" && config.discover) {
+    const afterDiscovery = (await repo.get(jobId))?.config as ResearchConfig | undefined;
+    if (config.workflow === "business" && config.discover && (!config.targetBusinesses || new Set(afterDiscovery?.newBusinessIds || []).size < config.targetBusinesses)) {
       try { const web = await businessWebSeeds(config.searchTerms, config.geography); seeds = Array.from({ length: Math.max(seeds.length, web.seeds.length) }, (_, i) => [seeds[i], web.seeds[i]].filter((url): url is string => Boolean(url))).flat(); if (web.warning) warning = [warning, web.warning].filter(Boolean).join(" "); }
       catch { warning = [warning, "Public web discovery unavailable; directory and supplied websites retained."].filter(Boolean).join(" "); }
     }

@@ -359,3 +359,32 @@ it("does not spend AI calls on an explicit company team card",async()=>{
  expect(t.progress.mock.calls.at(-1)?.[0].modelCalls).toBe(0);
  expect(t.progress.mock.calls.some(([e])=>e.page?.findings.some(f=>f.name==="Alex Example"))).toBe(true);
 });
+
+describe("new business target", () => {
+  it("stops before crawling when discovery has reached the distinct business target", async () => {
+    const { config, service, step, progress } = setup();
+    config.targetBusinesses = 2;
+    config.newBusinessIds = ["one", "two", "two"];
+    await runResearch(step, service);
+    expect(service.submit).not.toHaveBeenCalled();
+    expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ status: "complete", message: expect.stringContaining("2 of 2 new businesses found") }));
+  });
+  it("does not count repeated business IDs as new businesses", async () => {
+    const { config, service, step, progress } = setup();
+    config.targetBusinesses = 2;
+    config.newBusinessIds = ["one", "one"];
+    await runResearch(step, service);
+    expect(service.submit).toHaveBeenCalled();
+    expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ status: "partial", message: expect.stringContaining("1 of 2 new businesses found") }));
+  });
+  it("stops after a newly saved business reaches the target", async () => {
+    const { config, service, step, progress } = setup();
+    config.targetBusinesses = 1;
+    progress.mockImplementation(async event => {
+      if (event.page) config.newBusinessIds = ["new-business"];
+    });
+    await runResearch(step, service);
+    expect(service.submit).toHaveBeenCalledTimes(1);
+    expect(progress).toHaveBeenLastCalledWith(expect.objectContaining({ status: "complete", message: expect.stringContaining("1 of 1 new businesses found") }));
+  });
+});

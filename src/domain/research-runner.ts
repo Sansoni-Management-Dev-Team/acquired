@@ -116,6 +116,18 @@ export async function runResearch(
       [...runtime.remaining, ...discovered.seeds],
       runtime.visited,
     ).slice(0, 200);
+    const goalProgress = async (label: string) => {
+      if (!initial.config.targetBusinesses || initial.config.purpose) return null;
+      const current = await check(label);
+      return { count: new Set(current.config.newBusinessIds || []).size, target: initial.config.targetBusinesses };
+    };
+    const finishAtGoal = async (label: string) => {
+      const goal = await goalProgress(label);
+      if (!goal || goal.count < goal.target) return false;
+      await publish("complete", `${goal.count} of ${goal.target} new businesses found — target reached. Saved businesses remain available for review.`);
+      return true;
+    };
+    if (await finishAtGoal("discovery-goal")) return;
     const domains = new Set<string>(initial.config.autoDomains || []),
       budget = initial.config.budget;
     let targetedAttempted = Boolean(initial.config.targetedFollowupStarted);
@@ -126,6 +138,7 @@ export async function runResearch(
       (runtime.remaining.length || (initial.config.targetedFollowup && !targetedAttempted && Boolean(service.planFollowup)) || (!peopleFollowupAttempted && initial.config.purpose === "people" && initial.config.maxPeopleSearches === 2 && Boolean(service.peopleFollowup))) &&
       runtime.attempts.length < budget.maxPages
     ) {
+      if (await finishAtGoal(`goal-${runtime.attempts.length}`)) return;
       if (initial.config.targetedFollowup && !targetedAttempted && service.planFollowup && runtime.attempts.length > 0 && (runtime.attempts.length >= Math.min(2, budget.maxPages - 1, initial.config.purpose === "people" ? Math.max(1, budget.maxModelCalls - 2) : 2) || (!runtime.remaining.length && runtime.attempts.length > 0))) {
         targetedAttempted = true;
         const plan = targetedPlan(initial.config, collected, runtime.remaining, runtime.visited);
@@ -410,6 +423,9 @@ export async function runResearch(
         await publish("crawling", entry.reason);
       }
     }
+    if (await finishAtGoal("final-goal")) return;
+    const goal = await goalProgress("final-count");
+    if (goal) warnings.push(`${goal.count} of ${goal.target} new businesses found — ${runtime.remaining.length ? "research budget reached" : "available search results exhausted"}`);
     if (runtime.remaining.length)
       warnings.push(
         `${runtime.remaining.length} URLs remain; continue research with a fresh budget`,
