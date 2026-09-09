@@ -6,6 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:net";
 import pg from "pg";
 import { localDevConfig } from "./dev-config.mjs";
+import { stopPreviousDevServers } from "./dev-processes.mjs";
 
 const args = process.argv.slice(2).filter(a => a !== "--");
 const portIndex = args.findIndex(a => a === "--port" || a === "-p");
@@ -20,6 +21,7 @@ const secretFile = resolve(directory, "service-secret");
 const secret = existsSync(secretFile) ? readFileSync(secretFile, "utf8") : randomBytes(32).toString("hex");
 writeFileSync(secretFile, secret, { mode: 0o600 });
 const config = localDevConfig({ ...fileEnv, ...process.env }, secret, port, workerPort);
+await stopPreviousDevServers([port, workerPort]);
 for (const p of [port, workerPort]) await new Promise((resolve, reject) => {
   const server = createServer();
   server.once("error", () => reject(new Error(`Port ${p} is occupied. Stop the existing development server first.`)));

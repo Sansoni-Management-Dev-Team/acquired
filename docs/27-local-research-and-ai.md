@@ -10,9 +10,10 @@ Run `pnpm dev` and open http://localhost:3010. The launcher:
    free-only OpenRouter adapter for all research inference.
 
 `pnpm dev --port 3011` changes the app and callback port together. Override
-`LOCAL_RESEARCH_PORT` if 8787 is occupied. Stop the existing development server
-before restarting; the launcher fails on occupied ports rather than silently
-changing the callback destination. Ctrl+C stops both child processes and leaves
+`LOCAL_RESEARCH_PORT` to change the worker port. Running `pnpm dev` again automatically
+stops this project's existing app and worker on those ports, including orphaned
+development processes. Unrelated processes are left running and reported as port
+conflicts. Restarting interrupts any active local research run. Ctrl+C stops both child processes and leaves
 the database container running.
 
 Required `.env.local` values: `OPENROUTER_API_KEY`, `CF_ACCOUNT_ID`,
