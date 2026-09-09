@@ -27,7 +27,7 @@ export async function loadOutreach(organizationId: string, mandateId: string) {
     const sector = firmographics.sector && typeof firmographics.sector === "object" ? (firmographics.sector as { value?: unknown }).value : undefined;
     const established = firmographics.establishedYear && typeof firmographics.establishedYear === "object" ? (firmographics.establishedYear as { value?: unknown }).value : undefined;
     return {
-      id: target.id, companyName: target.companyName, domain: target.domain || undefined, status: target.status,
+      id: target.id, companyName: target.companyName, domain: target.domain || undefined, status: target.status, stage: memberships.find(m => m.target.id === target.id)?.assessment.stage,
       sector: typeof sector === "string" ? sector : undefined, description: typeof outreach.description === "string" ? outreach.description : undefined,
       establishedYear: typeof established === "number" ? established : undefined, firmableId: typeof identifiers.firmableId === "string" ? identifiers.firmableId : undefined,
       contacts: contactRows.filter((row) => row.targetId === target.id).map((row) => { const personal = row.personalData as Record<string, unknown>; return { id: row.id, displayName: row.displayName, role: row.role || undefined, email: typeof personal.email === "string" ? personal.email : undefined, emailStatus: typeof personal.emailStatus === "string" ? personal.emailStatus : "provider-supplied", sourceUrl: typeof (row.provenance as Record<string, unknown>).sourceUrl === "string" ? (row.provenance as Record<string, unknown>).sourceUrl as string : undefined, fictionalised: row.fictionalised, doNotContact: personal.doNotContact === true }; }),

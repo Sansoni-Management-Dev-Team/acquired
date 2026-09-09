@@ -51,10 +51,11 @@ export async function POST(request: Request) {
   if (!buyerProfile.publicProfileApproved) return Response.json({ error: "Approve the public buyer profile before drafting." }, { status: 409 });
   const firmographics = target.firmographics as Record<string, unknown>;
   const outreachContext = firmographics.outreachContext && typeof firmographics.outreachContext === "object" ? firmographics.outreachContext as Record<string, unknown> : {};
-  const provider = createOutreachDraftingProvider();
+  let provider: ReturnType<typeof createOutreachDraftingProvider> | undefined;
 
   let drafts;
   try {
+    provider = createOutreachDraftingProvider();
     drafts = await provider.generateSequence({
       companyName: target.companyName,
       contactFirstName: contact?.displayName.split(/\s+/)[0] || "there",
@@ -65,7 +66,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "AI outreach drafting failed";
-    console.error("[outreach-drafting] generation.failed", JSON.stringify({ provider: provider.providerName, targetId: target.id, message }));
+    console.error("[outreach-drafting] generation.failed", JSON.stringify({ provider: provider?.providerName || "unconfigured", targetId: target.id, message }));
     return Response.json({ error: message }, { status: 502 });
   }
   if (parsed.data.preview) return Response.json({ preview: drafts, saved: false });

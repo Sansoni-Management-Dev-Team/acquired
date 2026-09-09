@@ -71,8 +71,8 @@ export function BuyerProfileEditor({ initial, onSaved, onDirtyChange }: {
     }
   }
 
-  return <details className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5">
-    <summary className="cursor-pointer text-sm font-semibold">Buyer profile<span className="ml-2 text-xs font-normal text-[var(--muted)]">{dirty ? "Unsaved changes" : saved ? "Saved" : "Required"}</span></summary>
+  return <details open={!saved || !profile.publicProfileApproved} className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5">
+    <summary className="min-h-12 cursor-pointer py-3 text-sm font-semibold">Buyer profile<span className="ml-2 text-xs font-normal text-[var(--muted)]">{dirty ? "Unsaved changes" : saved ? profile.publicProfileApproved ? "Approved" : "Needs approval" : "Required"}</span></summary>
     <p className="mt-3 text-sm text-[var(--muted)]">Shared across all mandates. Changes saved here also appear in Brief and Outreach.</p>
     <form className="mt-4" onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy} className="min-w-0 space-y-4 disabled:opacity-60">
@@ -97,7 +97,7 @@ export function BuyerProfileEditor({ initial, onSaved, onDirtyChange }: {
             <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={profile.capitalConfirmed || false} onChange={event => update("capitalConfirmed", event.target.checked)} />Capital amount and funding form confirmed</label>
           </div>
         </details>
-        <button disabled={busy || (saved && !dirty)} className="rounded-md border border-[var(--border)] px-3 py-2 text-sm font-semibold disabled:opacity-40">{busy ? "Saving…" : "Save buyer profile"}</button>
+        <button disabled={busy || (saved && !dirty)} className="min-h-12 rounded-md border border-[var(--border)] px-3 py-2 text-sm font-semibold disabled:opacity-40">{busy ? "Saving…" : "Save buyer profile"}</button>
       </fieldset>
       {error && <p role="alert" className="mt-3 text-sm text-red-300">{error}</p>}
       {status && <p role="status" className="mt-3 text-sm text-[var(--muted)]">{status}</p>}
