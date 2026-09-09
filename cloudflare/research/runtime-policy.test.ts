@@ -1,0 +1,25 @@
+import { expect, it, vi } from "vitest";
+import { cancelCrawl, crawlRetryUrl, CrawlerRequestError, requestBudgetStop } from "./runtime-policy";
+it("keeps the production reserve but lets local research pass it", () => {
+  expect(requestBudgetStop(31, false)).toBeUndefined();
+  expect(requestBudgetStop(32, false)).toContain("request budget");
+  expect(requestBudgetStop(33, true)).toBeUndefined();
+  expect(requestBudgetStop(1000, true)).toBeUndefined();
+});
+it("accepts a cancellation race only after verifying the crawl is finished", async () => {
+  const request = vi.fn().mockRejectedValueOnce(new CrawlerRequestError(400)).mockResolvedValueOnce({ status: "completed" });
+  await expect(cancelCrawl("test-id", request)).resolves.toBeUndefined();
+  expect(request.mock.calls).toEqual([["/test-id", "DELETE"], ["/test-id", "GET"]]);
+});
+it("preserves genuine cancellation errors", async () => {
+  const request = vi.fn().mockRejectedValueOnce(new CrawlerRequestError(400)).mockResolvedValueOnce({ status: "running" });
+  await expect(cancelCrawl("test-id", request)).rejects.toThrow("400");
+  const denied = vi.fn().mockRejectedValue(new CrawlerRequestError(401));
+  await expect(cancelCrawl("test-id", denied)).rejects.toThrow("401");
+  expect(denied).toHaveBeenCalledTimes(1);
+});
+it("retries only crawl navigation errors, never explicit access restrictions", () => {
+  expect(crawlRetryUrl([{url:"https://example.com",status:"errored",metadata:{status:422}}])).toBe("https://example.com");
+  expect(crawlRetryUrl([{url:"https://example.com",status:"disallowed",metadata:{status:422}}])).toBeUndefined();
+  expect(crawlRetryUrl([{url:"https://example.com",status:"errored",metadata:{status:403}}])).toBeUndefined();
+});

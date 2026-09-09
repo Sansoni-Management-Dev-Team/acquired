@@ -44,3 +44,10 @@ node scripts/test-free-research.mjs
 ```
 
 See [free research AI](../cloudflare/research/FREE-AI.md) for model routing and limits.
+
+Local workflows do not use the deployed Worker's conservative 32-request guard.
+They still obey the saved page, model-call and time budgets and cancellation.
+`research-runtime` logs report total requests so local runs can be measured.
+For crawl HTTP 422 navigation failures, the worker tries the direct Markdown
+reader once; disallowed pages and access denials do not take this fallback.
+Cancellation HTTP 400 is accepted only after confirming the crawl already ended.

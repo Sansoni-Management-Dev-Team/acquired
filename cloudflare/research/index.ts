@@ -1,5 +1,6 @@
 import { FreeOpenRouter } from "../../src/adapters/ai/free-openrouter";
 import { callbackOrigin } from "./callback-origin";
+import { cancelCrawl, crawlRetryUrl, CrawlerRequestError, requestBudgetStop } from "./runtime-policy";
 import { targetedPrompt, targetedSchema } from "../../src/domain/targeted-research";
 import { readFallback } from "./fallback";
 import { peopleExtractionSchema } from "../../src/domain/people-research";
@@ -73,8 +74,20 @@ async function browser(env: Env, path: string, method = "GET", body?: unknown, b
   );
   const data = (await r.json()) as { success: boolean; result: unknown };
   if (!r.ok || !data.success)
-    throw new Error(`Crawler unavailable (${r.status})`);
+    throw new CrawlerRequestError(r.status);
   return data.result;
+}
+async function readMarkdown(env: Env, url: string, budget: { used: number }, fallback = false) {
+  if (!publicResearchUrl(url)) throw new Error("Unsupported URL");
+  budget.used++;
+  const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/markdown`, {
+    method: "POST", headers: { authorization: `Bearer ${env.CF_BROWSER_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ url, gotoOptions: { waitUntil: fallback ? "domcontentloaded" : "networkidle2", timeout: fallback ? 20000 : 25000 } }),
+    signal: AbortSignal.timeout(fallback ? 25000 : 40000),
+  });
+  const data = await response.json() as { success?: boolean; result?: unknown };
+  if (!response.ok || !data.success || typeof data.result !== "string") throw new Error(`Page reader unavailable (${response.status})`);
+  return { status: "completed", page: { url, markdown: data.result.slice(0, 30000) } };
 }
 export class AcquireResearch extends WorkflowEntrypoint<
   Env,
@@ -116,7 +129,8 @@ export class AcquireResearch extends WorkflowEntrypoint<
       {
         control: async () => {
           const state = await callback(this.env, id, undefined, requestBudget) as ResearchControl;
-          return requestBudget.used >= 32 ? { ...state, deadline: 0, stopReason: "Worker request budget reached; saved evidence retained. Start another research run to continue." } : state;
+          const stopReason = requestBudgetStop(requestBudget.used, this.env.LOCAL_DEVELOPMENT === "true");
+          return stopReason ? { ...state, deadline: 0, stopReason } : state;
         },
         discover: () =>
           callback(this.env, id, { action: "discover" }, requestBudget) as Promise<{
@@ -126,17 +140,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
         progress: async (event) => {
           await callback(this.env, id, event, requestBudget);
         },
-        readPeoplePage: async (url) => {
-          if (!publicResearchUrl(url)) throw new Error("Unsupported URL");
-          requestBudget.used++;
-          const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${this.env.CF_ACCOUNT_ID}/browser-rendering/markdown`, {
-            method: "POST", headers: { authorization: `Bearer ${this.env.CF_BROWSER_TOKEN}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ url, gotoOptions: { waitUntil: "networkidle2", timeout: 25000 } }), signal: AbortSignal.timeout(40000),
-          });
-          const data = await response.json() as { success?: boolean; result?: unknown };
-          if (!response.ok || !data.success || typeof data.result !== "string") throw new Error(`Page reader unavailable (${response.status})`);
-          return { status: "completed", page: { url, markdown: data.result.slice(0, 30000) } };
-        },
+        readPeoplePage: (url) => readMarkdown(this.env, url, requestBudget),
         ...(this.env.CRAWL4AI_URL ? { readFallbackPage: async (url: string) => {
           requestBudget.used++;
           return readFallback(url, this.env.CRAWL4AI_URL!, this.env.CRAWL4AI_SECRET || "");
@@ -168,6 +172,17 @@ export class AcquireResearch extends WorkflowEntrypoint<
           const record = data.records?.find(
             (r) => r.status === "completed" && r.markdown,
           );
+          // A 422 crawl navigation failure may still be readable by the direct
+          // reader. Do not retry disallowed/skipped pages or access denials.
+          const retryUrl = !record && data.status !== "running" ? crawlRetryUrl(data.records || []) : undefined;
+          let fallbackFailed = false;
+          if (retryUrl) {
+            try {
+              const result = await readMarkdown(this.env, retryUrl, requestBudget, true);
+              console.info("research-reader", JSON.stringify({ jobId: id, fallback: "markdown", reason: "crawl_http_422" }));
+              return result;
+            } catch { fallbackFailed = true; }
+          }
           return {
             status: data.status,
             ...(record
@@ -181,11 +196,11 @@ export class AcquireResearch extends WorkflowEntrypoint<
               : {}),
             warning: record
               ? undefined
-              : `Crawler ${data.records?.[0]?.status || data.status}; HTTP ${data.records?.[0]?.metadata?.status || "not reported"}${data.records?.[0]?.status === "completed" ? "; no extractable content" : ""}`,
+              : `Crawler ${data.records?.[0]?.status || data.status}; HTTP ${data.records?.[0]?.metadata?.status || "not reported"}${data.records?.[0]?.status === "completed" ? "; no extractable content" : ""}${fallbackFailed ? "; direct page reader also failed" : ""}`,
           };
         },
         cancel: async (crawlId) => {
-          await browser(this.env, `/${crawlId}`, "DELETE", undefined, requestBudget);
+          await cancelCrawl(crawlId, (path, method) => browser(this.env, path, method, undefined, requestBudget));
         },
         extract: async (messages) => {
           const output = await ai.complete(
@@ -270,7 +285,9 @@ export class AcquireResearch extends WorkflowEntrypoint<
         peopleFollowup: () => callback(this.env, id, { action: "people-followup" }, requestBudget) as Promise<{ seeds: string[]; warning?: string }>,
         now: () => Date.now(),
       },
-    );
+    ).finally(() => {
+      console.info("research-runtime", JSON.stringify({ jobId: id, requests: requestBudget.used, local: this.env.LOCAL_DEVELOPMENT === "true" }));
+    });
   }
 }
 const worker = {
@@ -315,7 +332,7 @@ const worker = {
           { error: "Cancel the saved job first" },
           { status: 409 },
         );
-      if (state.crawlId) await browser(env, `/${state.crawlId}`, "DELETE");
+      if (state.crawlId) await cancelCrawl(state.crawlId, (path, method) => browser(env, path, method));
       // Keep the workflow alive long enough to observe cancellation and clean up a racing submission.
       return Response.json({ ok: true });
     }
