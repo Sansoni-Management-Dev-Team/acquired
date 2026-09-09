@@ -55,6 +55,7 @@ export interface ResearchServices {
   extract(messages: ReturnType<typeof extractionPrompt>): Promise<unknown>;
   extractHeadcount?(messages: ReturnType<typeof companyHeadcountPrompt>): Promise<unknown>;
   readPeoplePage?(url: string): Promise<{ status: string; page?: { url: string; markdown: string; title?: string }; warning?: string }>;
+  readPage?(url: string): ReturnType<ResearchServices["poll"]>;
   readFallbackPage?(url: string): ReturnType<ResearchServices["poll"]>;
   peopleFollowup?(): Promise<{ seeds: string[]; legalEntity?: string; warning?: string }>;
   planFollowup?(plan: TargetedPlan): Promise<unknown>;
@@ -219,12 +220,13 @@ export async function runResearch(
       );
       try {
         let result: Awaited<ReturnType<ResearchServices["poll"]>> | undefined;
-        if (["people", "firmographics"].includes(initial.config.purpose || "") && service.readPeoplePage) {
-          await step.sleep(`people-reader-spacing-${attempt}`, 21000);
+        const directReader = service.readPage || (["people", "firmographics"].includes(initial.config.purpose || "") ? service.readPeoplePage : undefined);
+        if (directReader) {
+          if (!service.readPage) await step.sleep(`people-reader-spacing-${attempt}`, 21000);
           result = await step.do(`read-people-${attempt}`, async () => {
             const current = await service.control();
             if (terminalResearchStates.includes(current.status) || service.now() >= current.deadline) throw new Error("Stopped before reading");
-            try { return await service.readPeoplePage!(url); }
+            try { return await directReader(url); }
             catch { return { status: "failed", warning: "Primary page reader unavailable" }; }
           }, false);
         } else {

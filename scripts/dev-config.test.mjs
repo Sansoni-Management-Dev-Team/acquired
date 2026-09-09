@@ -5,10 +5,13 @@ it("overrides production database, worker, auth origin and paid AI settings for 
   const config = localDevConfig({ ...env, DATABASE_URL: "postgres://prod.example.com/db", DATABASE_DRIVER: "neon", AI_PROVIDER: "openrouter", RESEARCH_WORKER_URL: "https://production.example.com", APP_URL: "https://production.example.com" }, "local-secret");
   expect(config.app).toMatchObject({ DATABASE_URL: LOCAL_DATABASE_URL, DATABASE_DRIVER: "postgres", AI_PROVIDER: "openrouter-free", OUTREACH_DRAFTING_PROVIDER: "ai", RESEARCH_WORKER_URL: "http://127.0.0.1:8787", RESEARCH_SERVICE_SECRET: "local-secret", APP_URL: "http://localhost:3010" });
   expect(config.worker).not.toHaveProperty("DATABASE_URL");
+  expect(config.worker).not.toHaveProperty("CF_ACCOUNT_ID");
+  expect(config.worker).not.toHaveProperty("CF_BROWSER_TOKEN");
+  expect(config.worker.LOCAL_CRAWL4AI_URL).toBe("http://127.0.0.1:18083");
   expect(config.origin).toBe("http://127.0.0.1:3010");
 });
 it("rejects missing credentials or conflicting ports instead of using production", () => {
   expect(() => localDevConfig({}, "s")).toThrow(/OPENROUTER/);
-  expect(() => localDevConfig({ OPENROUTER_API_KEY: "fake" }, "s")).toThrow(/CF_ACCOUNT/);
+  expect(localDevConfig({ OPENROUTER_API_KEY: "fake" }, "s").worker.LOCAL_CRAWL4AI_URL).toBe("http://127.0.0.1:18083");
   expect(() => localDevConfig(env, "s", 3010, 3010)).toThrow(/differ/);
 });

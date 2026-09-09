@@ -22,6 +22,12 @@ The primary research worker works without these optional secrets. Until they are
 
 ## Local checks
 
+`pnpm dev` now builds and starts this reader automatically in OrbStack using
+`compose.local.yml`, without deploying a Cloudflare container or applying its
+Durable Object migration. It is the primary reader for local searches and all
+research pages. Local compose allows three simultaneous reads; the hosted
+container's default remains one. See [local development](../../docs/27-local-research-and-ai.md).
+
 Build: `docker build --platform linux/amd64 -t acquire-crawl4ai:test cloudflare/crawl4ai`
 
 Run: `docker run --rm -p 127.0.0.1:18083:8080 acquire-crawl4ai:test`

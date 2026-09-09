@@ -68,6 +68,24 @@ function setup() {
   };
 }
 describe("bounded research orchestration", () => {
+  it("uses the local direct reader with the same extraction and progress, without cloud crawl calls", async () => {
+    const t = setup();
+    t.service.readPage = vi.fn(async url => ({ status: "completed", page: { url, markdown: "Example Instruments makes sensors." } }));
+    await runResearch(t.step, t.service);
+    expect(t.service.readPage).toHaveBeenCalled();
+    expect(t.service.extract).toHaveBeenCalled();
+    expect(t.service.submit).not.toHaveBeenCalled();
+    expect(t.service.poll).not.toHaveBeenCalled();
+    expect(t.progress.mock.calls.some(([event]) => event.page?.findings.length)).toBe(true);
+  });
+  it("does not fall back to cloud crawling when the local reader fails", async () => {
+    const t = setup();
+    t.service.readPage = vi.fn().mockRejectedValue(new Error("Local reader offline"));
+    await runResearch(t.step, t.service);
+    expect(t.service.submit).not.toHaveBeenCalled();
+    expect(t.service.poll).not.toHaveBeenCalled();
+    expect(t.service.extract).not.toHaveBeenCalled();
+  });
   it.each([
     [new ResearchAiError("Free research AI reached its output token limit"), "output token limit"],
     [new Error("private provider response"), "Evidence extraction failed; page read successfully"],

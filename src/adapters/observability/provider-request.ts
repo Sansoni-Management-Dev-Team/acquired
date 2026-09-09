@@ -34,7 +34,7 @@ export function providerDiagnostics(status: number, headers: Headers, body: unkn
 }
 
 export type RequestContext = {
-  provider: "openrouter" | "cloudflare-browser" | "research-worker";
+  provider: "openrouter" | "cloudflare-browser" | "research-worker" | "local-crawl4ai";
   operation: string;
   jobId?: string;
   requestId?: string;

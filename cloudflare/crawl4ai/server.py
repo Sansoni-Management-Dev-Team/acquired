@@ -2,12 +2,14 @@
 import asyncio
 import ipaddress
 import json
+import os
 import socket
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
-busy = threading.BoundedSemaphore(1)
+busy = threading.BoundedSemaphore(max(1, min(3, int(os.environ.get("CRAWL4AI_CONCURRENCY", "1")))))
+reader_loop = asyncio.new_event_loop()
 
 
 def public_url(url):
@@ -67,6 +69,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(404, {"error": "Not found"})
         if not busy.acquire(blocking=False):
             return self.send_json(429, {"error": "Reader busy"})
+        future = None
         try:
             self.connection.settimeout(10)
             length = int(self.headers.get("Content-Length", "0"))
@@ -78,12 +81,18 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(400, {"error": "Unsupported public URL"})
             async def bounded():
                 return await asyncio.wait_for(read_page(url), timeout=35)
-            self.send_json(200, asyncio.run(bounded()))
+            # Crawl4AI shares async cache resources. All reads must use one loop,
+            # including concurrent requests, rather than a new loop per thread.
+            future = asyncio.run_coroutine_threadsafe(bounded(), reader_loop)
+            self.send_json(200, future.result(timeout=40))
         except Exception:
+            if future is not None:
+                future.cancel()
             self.send_json(502, {"error": "Page read failed"})
         finally:
             busy.release()
 
 
 if __name__ == "__main__":
+    threading.Thread(target=reader_loop.run_forever, daemon=True).start()
     ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()

@@ -1,6 +1,23 @@
 name: project-acquire
 
 services:
+  crawl4ai:
+    build:
+      context: ./cloudflare/crawl4ai
+    platform: linux/amd64
+    container_name: project-acquire-crawl4ai
+    environment:
+      CRAWL4AI_CONCURRENCY: "3"
+    ports:
+      - "127.0.0.1:18083:8080"
+    shm_size: "1gb"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    restart: unless-stopped
   postgres:
     image: postgres:17-alpine
     container_name: project-acquire-postgres

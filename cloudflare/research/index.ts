@@ -1,3 +1,4 @@
+import { localRead } from "./local-reader";
 import { providerJsonRequest } from "../../src/adapters/observability/provider-request";
 import { researchExtractionRequest } from "../../src/domain/research-extraction-schema";
 import { FreeOpenRouter } from "../../src/adapters/ai/free-openrouter";
@@ -25,8 +26,9 @@ interface Env {
   SERVICE_SECRET: string;
   APP_ORIGIN: string;
   LOCAL_DEVELOPMENT?: string;
-  CF_ACCOUNT_ID: string;
-  CF_BROWSER_TOKEN: string;
+  CF_ACCOUNT_ID?: string;
+  CF_BROWSER_TOKEN?: string;
+  LOCAL_CRAWL4AI_URL?: string;
   CRAWL4AI_URL?: string;
   CRAWL4AI_SECRET?: string;
 }
@@ -60,6 +62,7 @@ async function callback(env: Env, id: string, body?: unknown, budget?: { used: n
   return r.json();
 }
 async function browser(env: Env, path: string, method = "GET", body?: unknown, budget?: { used: number; jobId?: string }) {
+  if (env.LOCAL_DEVELOPMENT === "true") throw new Error("Cloudflare browser API is disabled in local development");
   if (budget) budget.used++;
   const { response: r, data } = await providerJsonRequest<{ success: boolean; result: unknown }>(fetch,
     `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/crawl${path}`,
@@ -80,6 +83,7 @@ async function browser(env: Env, path: string, method = "GET", body?: unknown, b
 async function readMarkdown(env: Env, url: string, budget: { used: number; jobId?: string }, fallback = false) {
   if (!publicResearchUrl(url)) throw new Error("Unsupported URL");
   budget.used++;
+  if (env.LOCAL_DEVELOPMENT === "true") return localRead(env, url, { jobId: budget.jobId });
   const { response, data } = await providerJsonRequest<{ success?: boolean; result?: unknown }>(fetch, `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/markdown`, {
     method: "POST", headers: { authorization: `Bearer ${env.CF_BROWSER_TOKEN}`, "Content-Type": "application/json" },
     body: JSON.stringify({ url, gotoOptions: { waitUntil: fallback ? "domcontentloaded" : "networkidle2", timeout: fallback ? 20000 : 25000 } }),
@@ -142,7 +146,8 @@ export class AcquireResearch extends WorkflowEntrypoint<
           console.info("research-progress", JSON.stringify({ timestamp: new Date().toISOString(), jobId: id, status: event.status, revision: event.revision, pages: event.pages, modelCalls: event.modelCalls, savedPageFindings: event.page?.findings.length, remainingUrls: event.runtime?.remaining.length }));
         },
         readPeoplePage: (url) => readMarkdown(this.env, url, requestBudget),
-        ...(this.env.CRAWL4AI_URL ? { readFallbackPage: async (url: string) => {
+        ...(this.env.LOCAL_DEVELOPMENT === "true" ? { readPage: (url: string) => readMarkdown(this.env, url, requestBudget) } : {}),
+        ...(this.env.LOCAL_DEVELOPMENT !== "true" && this.env.CRAWL4AI_URL ? { readFallbackPage: async (url: string) => {
           requestBudget.used++;
           return readFallback(url, this.env.CRAWL4AI_URL!, this.env.CRAWL4AI_SECRET || "");
         } } : {}),
@@ -243,6 +248,16 @@ const worker = {
       if (typeof body?.query !== "string" || body.query.trim().length < 2 || body.query.length > 500)
         return Response.json({ error: "Invalid search" }, { status: 400 });
       try {
+        if (env.LOCAL_DEVELOPMENT === "true") {
+          const result = await localRead(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(body.query)}`, {
+            operation: "web_search",
+            requestId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-request-id") || "") ? request.headers.get("x-research-request-id")! : undefined,
+            jobId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-job-id") || "") ? request.headers.get("x-research-job-id")! : undefined,
+          });
+          const results = searchResults(result.page.markdown);
+          if (!results.length && !/no results found|no more results/i.test(result.page.markdown)) return Response.json({ error: "Local search could not be read" }, { status: 502 });
+          return Response.json({ seeds: results.map(r => r.url).slice(0, 6), results });
+        }
         const { response, data } = await providerJsonRequest<{ success?: boolean; result?: unknown }>(fetch, `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/markdown`, {
           method: "POST", headers: { authorization: `Bearer ${env.CF_BROWSER_TOKEN}`, "Content-Type": "application/json" },
           body: JSON.stringify({ url: `https://html.duckduckgo.com/html/?q=${encodeURIComponent(body.query)}`, gotoOptions: { waitUntil: "domcontentloaded", timeout: 20000 } }),
@@ -275,7 +290,7 @@ const worker = {
           { error: "Cancel the saved job first" },
           { status: 409 },
         );
-      if (state.crawlId) await cancelCrawl(state.crawlId, (path, method) => browser(env, path, method));
+      if (state.crawlId && env.LOCAL_DEVELOPMENT !== "true") await cancelCrawl(state.crawlId, (path, method) => browser(env, path, method));
       // Keep the workflow alive long enough to observe cancellation and clean up a racing submission.
       return Response.json({ ok: true });
     }
