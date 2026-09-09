@@ -16,6 +16,14 @@ development processes. Unrelated processes are left running and reported as port
 conflicts. Restarting interrupts any active local research run. Ctrl+C stops both child processes and leaves
 the database container running.
 
+App, worker and launcher output is shown in the terminal and saved automatically
+to `.local-data/dev-start.log`. Each `pnpm dev` start clears the previous log.
+The file is ignored by Git. Follow it from another terminal with:
+
+```sh
+tail -F .local-data/dev-start.log
+```
+
 Required `.env.local` values: `OPENROUTER_API_KEY`, `CF_ACCOUNT_ID`,
 `CF_BROWSER_TOKEN` (Cloudflare Browser Rendering access). The corresponding
 `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` aliases also work. Keys are never

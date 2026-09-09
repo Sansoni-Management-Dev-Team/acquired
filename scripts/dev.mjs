@@ -7,6 +7,11 @@ import { createServer } from "node:net";
 import pg from "pg";
 import { localDevConfig } from "./dev-config.mjs";
 import { stopPreviousDevServers } from "./dev-processes.mjs";
+import { startDevLog } from "./dev-log.mjs";
+
+const logPath = resolve(".local-data/dev-start.log");
+const log = startDevLog(logPath);
+process.on("uncaughtExceptionMonitor", error => log.record(`${error.stack || error.message}\n`));
 
 const args = process.argv.slice(2).filter(a => a !== "--");
 const portIndex = args.findIndex(a => a === "--port" || a === "-p");
@@ -22,12 +27,17 @@ const secret = existsSync(secretFile) ? readFileSync(secretFile, "utf8") : rando
 writeFileSync(secretFile, secret, { mode: 0o600 });
 const config = localDevConfig({ ...fileEnv, ...process.env }, secret, port, workerPort);
 await stopPreviousDevServers([port, workerPort]);
+// Old processes may have written shutdown output while we were stopping them.
+log.reset();
+console.info(`Development log: ${logPath} (cleared on each pnpm dev start)`);
 for (const p of [port, workerPort]) await new Promise((resolve, reject) => {
   const server = createServer();
   server.once("error", () => reject(new Error(`Port ${p} is occupied. Stop the existing development server first.`)));
   server.listen(p, "127.0.0.1", () => server.close(resolve));
 });
-const docker = spawnSync("docker", ["--context", "orbstack", "compose", "-f", "compose.local.yml", "up", "-d", "--wait", "postgres"], { stdio: "inherit" });
+const docker = spawnSync("docker", ["--context", "orbstack", "compose", "-f", "compose.local.yml", "up", "-d", "--wait", "postgres"], { encoding: "utf8" });
+if (docker.stdout) process.stdout.write(docker.stdout);
+if (docker.stderr) process.stderr.write(docker.stderr);
 if (docker.status !== 0) throw new Error("Start OrbStack and retry pnpm dev");
 const db = new pg.Client({ connectionString: config.app.DATABASE_URL });
 await db.connect();
@@ -57,7 +67,8 @@ function stop(code) {
 process.on("SIGINT", () => stop(0));
 process.on("SIGTERM", () => stop(0));
 function start(command, arguments_, env) {
-  const child = spawn(command, arguments_, { env, stdio: "inherit", detached: true });
+  const child = spawn(command, arguments_, { env, stdio: ["inherit", "pipe", "pipe"], detached: true });
+  log.attach(child);
   children.push(child);
   child.on("error", error => { console.error(error.message); stop(1); });
   child.on("exit", code => stop(code ?? 1));
