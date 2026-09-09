@@ -29,7 +29,6 @@ export async function POST(request: Request) {
   const member = (await acquisition.memberships(mandate.id)).find(m => m.target.id === parsed.data.targetId);
   if (!member) return Response.json({ error: "Target not found in mandate" }, { status: 404 });
   if (["excluded", "parked"].includes(member.assessment.stage)) return Response.json({ error: "Return this target to the active pipeline before drafting." }, { status: 409 });
-  if (!mandate.brief.disclosureApproved) return Response.json({ error: "Approve the mandate outreach disclosure in the Brief tab first." }, { status: 409 });
   const [target] = await database.select().from(targets).where(and(eq(targets.id, parsed.data.targetId), eq(targets.organizationId, organizationId))).limit(1);
   const [contact] = parsed.data.contactId ? await database.select().from(contacts).where(and(eq(contacts.id, parsed.data.contactId), eq(contacts.targetId, parsed.data.targetId), eq(contacts.organizationId, organizationId))).limit(1) : [];
   if (!target || (parsed.data.contactId && !contact) || (!parsed.data.preview && !contact)) return Response.json({ error: "Target or contact not found." }, { status: 404 });

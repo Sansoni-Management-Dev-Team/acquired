@@ -23,7 +23,19 @@ it("previews without a contact and never writes a sequence or Gmail draft", asyn
   const response = await POST(request(true)); expect(response.status).toBe(200); expect(await response.json()).toMatchObject({ saved: false, preview: [{ step: 1 }] });
   expect(m.generate).toHaveBeenCalledWith(expect.objectContaining({ contactFirstName: "there" })); expect(m.insert).not.toHaveBeenCalled(); expect(m.update).not.toHaveBeenCalled();
 });
-it("still requires a contact for saved sequences and approved disclosure for previews", async () => {
+it("still requires a contact for saved sequences", async () => {
   expect((await POST(request(false))).status).toBe(404); expect(m.generate).not.toHaveBeenCalled();
-  m.mandate.mockResolvedValue({ id: mandateId, brief: { disclosureApproved: false } }); expect((await POST(request(true))).status).toBe(409); expect(m.generate).not.toHaveBeenCalled();
+});
+it("previews without the removed mandate disclosure approval", async () => {
+  m.mandate.mockResolvedValue({ id: mandateId, brief: { disclosureApproved: false, outreachPositioning: "A home for instrument companies" } });
+  expect((await POST(request(true))).status).toBe(200);
+  expect(m.generate).toHaveBeenCalled();
+});
+it("still requires approval of the public buyer profile", async () => {
+  m.select.mockReturnValue({ from: (table: unknown) => ({ where: () => {
+    const rows = table === targets ? [{ id, companyName: "Example Instruments", firmographics: {} }] : table === organization ? [{ metadata: JSON.stringify({ buyerProfile: { ...publicProfile, publicProfileApproved: false } }) }] : table === signals ? [{ id: "signal", kind: "capability", value: "Makes instruments", weight: "medium", direction: "positive", capturedAt: new Date(), source: "Company website", confidence: 70 }] : [];
+    return { limit: async () => rows, then: (resolve: (rows: unknown[]) => unknown) => Promise.resolve(rows).then(resolve) };
+  } }) });
+  expect((await POST(request(true))).status).toBe(409);
+  expect(m.generate).not.toHaveBeenCalled();
 });
