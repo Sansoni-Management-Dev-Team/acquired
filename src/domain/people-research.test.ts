@@ -43,3 +43,18 @@ it("accepts a first-party operator assertion, not an unrelated supplier", () => 
   const other = 'Our supplier is Example Holdings Pty Ltd.';
   expect(validatePeopleFindings([{ ...f, quote: other }], other, source, config)).toEqual([]);
 });
+it("reads a named profile before generic contact and privacy pages",()=>{
+ expect(orderPeopleQueue(['https://instruments.example.com/privacy','https://instruments.example.com/contact','https://www.linkedin.com/in/alexexample'],['https://instruments.example.com/'],config.companyDomain!)[0]).toBe('https://www.linkedin.com/in/alexexample');
+});
+it("accepts literal names and roles separated by presentation formatting",()=>{
+ const markdown='Alex Example is **Managing Director** of Example Instruments.';
+ expect(validatePeopleFindings([candidate],markdown,source,config)).toHaveLength(1);
+});
+it("retains explicit first-party team cards even when the model supplies the wrong quote",()=>{
+ const markdown='# Our team\n\n#### Alex Example\n\n##### Managing Director\n\n# Testimonials\n\n#### Sam Sample\n\n##### CEO';
+ const wrong={...candidate,quote:'Our team has extensive experience.'};
+ const findings=validatePeopleFindings([wrong],markdown,source,config);
+ expect(findings).toHaveLength(1);expect(findings[0]).toMatchObject({name:'Alex Example',value:'Managing Director',quote:'#### Alex Example\n\n##### Managing Director'});
+ expect(validatePeopleFindings([],markdown,'https://other.example.com/team',config)).toEqual([]);
+ expect(validatePeopleFindings([],markdown.replace('# Our team','# Testimonials'),source,config)).toEqual([]);
+});

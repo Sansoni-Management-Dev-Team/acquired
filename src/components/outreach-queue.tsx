@@ -17,7 +17,7 @@ export type OutreachTargetView = {
 
 const emptyProfile: BuyerProfile = { senderName: "", background: "", investmentThesis: "", operatingIntent: "", callToAction: "", signature: "" };
 
-export function OutreachQueue({ initialTargets, initialBuyerProfile, mandateId, initialTargetId, embedded = false, onRefresh, onDirtyChange }: { onDirtyChange?: (dirty: boolean) => void; embedded?: boolean; onRefresh?: () => void; mandateId: string; initialTargetId?: string; initialTargets: OutreachTargetView[]; initialBuyerProfile: BuyerProfile | null }) {
+export function OutreachQueue({ initialTargets, initialBuyerProfile, mandateId, initialTargetId, embedded = false, showPeopleSearch = true, onRefresh, onDirtyChange }: { showPeopleSearch?: boolean; onDirtyChange?: (dirty: boolean) => void; embedded?: boolean; onRefresh?: () => void; mandateId: string; initialTargetId?: string; initialTargets: OutreachTargetView[]; initialBuyerProfile: BuyerProfile | null }) {
   const router = useRouter();
   const refresh = () => { router.refresh(); onRefresh?.(); };
   const [selectedId, setSelectedId] = useState(initialTargetId || initialTargets[0]?.id || "");
@@ -112,7 +112,7 @@ export function OutreachQueue({ initialTargets, initialBuyerProfile, mandateId, 
 
   return <div className={`grid gap-5 ${embedded ? "" : "xl:grid-cols-[320px_1fr]"}`}>
     <aside className="space-y-4">
-      <PeopleSearch key={selected.id} mandateId={mandateId} targetId={selected.id} onSaved={refresh} />
+      {showPeopleSearch && <PeopleSearch key={selected.id} mandateId={mandateId} targetId={selected.id} onSaved={refresh} />}
 
       <details className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5"><summary className="cursor-pointer text-sm font-semibold">Buyer profile</summary><div className="mt-3 flex items-center justify-between gap-3"><h2 className="text-sm font-semibold">Public positioning</h2><span className={`text-[10px] uppercase tracking-[.14em] ${profileSaved ? "text-emerald-300" : "text-amber-300"}`}>{profileSaved ? "Saved" : "Required"}</span></div><div className="mt-4 space-y-3">{([
         ["senderName", "Sender name", "Alex Buyer"], ["background", "Background", "Your relevant operating and professional background"],

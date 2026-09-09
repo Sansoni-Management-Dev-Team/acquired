@@ -51,6 +51,7 @@ export interface ResearchServices {
   cancel(id: string): Promise<void>;
   extract(messages: ReturnType<typeof extractionPrompt>): Promise<unknown>;
   extractHeadcount?(messages: ReturnType<typeof companyHeadcountPrompt>): Promise<unknown>;
+  readPeoplePage?(url: string): Promise<{ status: string; page?: { url: string; markdown: string; title?: string }; warning?: string }>;
   peopleFollowup?(): Promise<{ seeds: string[]; legalEntity?: string; warning?: string }>;
   now(): number;
 }
@@ -112,10 +113,20 @@ export async function runResearch(
     ).slice(0, 200);
     const domains = new Set<string>(initial.config.autoDomains || []),
       budget = initial.config.budget;
+    let peopleFollowupAttempted = Boolean(initial.config.peopleFollowupStarted);
     while (
-      runtime.remaining.length &&
+      (runtime.remaining.length || (!peopleFollowupAttempted && initial.config.purpose === "people" && initial.config.maxPeopleSearches === 2 && Boolean(service.peopleFollowup))) &&
       runtime.attempts.length < budget.maxPages
     ) {
+      if (!peopleFollowupAttempted && runtime.attempts.length && initial.config.purpose === "people" && initial.config.maxPeopleSearches === 2 && service.peopleFollowup) {
+        const current = await check(`people-followup-${runtime.attempts.length}`);
+        if (terminalResearchStates.includes(current.status)) return;
+        if (current.expired) { warnings.push(current.stopReason || "Time limit reached"); break; }
+        peopleFollowupAttempted = true;
+        const followup = await step.do("people-followup", () => service.peopleFollowup!(), false);
+        if (followup.warning) warnings.push(followup.warning);
+        runtime.remaining = uniqueResearchUrls([...followup.seeds, ...runtime.remaining]).slice(0, 200);
+      }
       runtime.remaining = orderResearchQueue(runtime.remaining,runtime.visited,initial.config.strategy,runtime.attempts.map(a=>a.url));
       if (initial.config.purpose === "people") runtime.remaining = orderPeopleQueue(runtime.remaining, runtime.visited, initial.config.companyDomain!);
       if (initial.config.purpose === "firmographics") runtime.remaining = orderCompanyFactQueue(runtime.remaining, initial.config);
@@ -150,47 +161,56 @@ export async function runResearch(
         `Reading website ${domains.size}, page attempt ${attempt} of ${budget.maxPages}`,
       );
       try {
-        activeCrawl = await step.do(
-          `submit-${attempt}`,
-          async () => {
+        let result: Awaited<ReturnType<ResearchServices["poll"]>> | undefined;
+        if (initial.config.purpose === "people" && service.readPeoplePage) {
+          await step.sleep(`people-reader-spacing-${attempt}`, 21000);
+          result = await step.do(`read-people-${attempt}`, async () => {
             const current = await service.control();
+            if (terminalResearchStates.includes(current.status) || service.now() >= current.deadline) throw new Error("Stopped before reading");
+            return service.readPeoplePage!(url);
+          }, false);
+        } else {
+          activeCrawl = await step.do(
+            `submit-${attempt}`,
+            async () => {
+              const current = await service.control();
+              if (
+                terminalResearchStates.includes(current.status) ||
+                service.now() >= current.deadline
+              )
+                throw new Error("Stopped before submission");
+              return service.submit(url);
+            },
+            false,
+          );
+          entry.crawlId = activeCrawl;
+          entry.reason = "Waiting for crawler";
+          await publish("crawling", `Waiting for ${new URL(url).hostname}`);
+          for (let poll = 0; poll < 30; poll++) {
+            await step.sleep(`sleep-${attempt}-${poll}`, 11000);
+            const current = await check(`poll-${attempt}-${poll}`);
             if (
               terminalResearchStates.includes(current.status) ||
-              service.now() >= current.deadline
-            )
-              throw new Error("Stopped before submission");
-            return service.submit(url);
-          },
-          false,
-        );
-        entry.crawlId = activeCrawl;
-        entry.reason = "Waiting for crawler";
-        await publish("crawling", `Waiting for ${new URL(url).hostname}`);
-        let result: Awaited<ReturnType<ResearchServices["poll"]>> | undefined;
-        for (let poll = 0; poll < 30; poll++) {
-          await step.sleep(`sleep-${attempt}-${poll}`, 11000);
-          const current = await check(`poll-${attempt}-${poll}`);
-          if (
-            terminalResearchStates.includes(current.status) ||
-            current.expired
-          ) {
-            try {
-              await step.do(`cancel-${attempt}`, () => service.cancel(activeCrawl!), false);
-            } catch { /* A completed or unavailable crawl must not prevent saving the continuation. */ }
-            activeCrawl = null;
-            entry.status = "failed";
-            entry.reason = "Stopped while waiting for crawler";
-            if (!terminalResearchStates.includes(current.status))
-              await publish(
-                "partial",
-                current.stopReason || "Time limit reached; unfinished crawl cancelled",
-              );
-            return;
+              current.expired
+            ) {
+              try {
+                await step.do(`cancel-${attempt}`, () => service.cancel(activeCrawl!), false);
+              } catch { /* A completed or unavailable crawl must not prevent saving the continuation. */ }
+              activeCrawl = null;
+              entry.status = "failed";
+              entry.reason = "Stopped while waiting for crawler";
+              if (!terminalResearchStates.includes(current.status))
+                await publish(
+                  "partial",
+                  current.stopReason || "Time limit reached; unfinished crawl cancelled",
+                );
+              return;
+            }
+            result = await step.do(`poll-${attempt}-${poll}`, () =>
+              service.poll(activeCrawl!),
+            );
+            if (result.status !== "running") break;
           }
-          result = await step.do(`poll-${attempt}-${poll}`, () =>
-            service.poll(activeCrawl!),
-          );
-          if (result.status !== "running") break;
         }
         if (!result || result.status === "running") {
           await step.do(`cancel-timeout-${attempt}`, () =>
@@ -311,11 +331,6 @@ export async function runResearch(
             truncated: result.page.markdown.length > 24000,
           },
         );
-        if (initial.config.purpose === "people" && findings.some(f => f.kind === "identifier" && f.name === "Legal entity") && service.peopleFollowup && initial.config.maxPeopleSearches === 2 && runtime.attempts.length < budget.maxPages) {
-          const followup = await step.do(`people-followup-${attempt}`, () => service.peopleFollowup!(), false);
-          if (followup.warning) warnings.push(followup.warning);
-          runtime.remaining = uniqueResearchUrls([...followup.seeds, ...runtime.remaining]).slice(0, 200);
-        }
       } catch {
         if (activeCrawl) {
           try {

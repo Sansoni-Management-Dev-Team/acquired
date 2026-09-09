@@ -1,4 +1,5 @@
-import { searchResultUrls } from "../../src/domain/cloudflare-search";
+import { peopleExtractionSchema } from "../../src/domain/people-research";
+import { searchResults } from "../../src/domain/cloudflare-search";
 import {
   WorkflowEntrypoint,
   type WorkflowEvent,
@@ -114,6 +115,17 @@ export class AcquireResearch extends WorkflowEntrypoint<
         progress: async (event) => {
           await callback(this.env, id, event, requestBudget);
         },
+        readPeoplePage: async (url) => {
+          if (!publicResearchUrl(url)) throw new Error("Unsupported URL");
+          requestBudget.used++;
+          const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${this.env.CF_ACCOUNT_ID}/browser-rendering/markdown`, {
+            method: "POST", headers: { authorization: `Bearer ${this.env.CF_BROWSER_TOKEN}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ url, gotoOptions: { waitUntil: "networkidle2", timeout: 25000 } }), signal: AbortSignal.timeout(40000),
+          });
+          const data = await response.json() as { success?: boolean; result?: unknown };
+          if (!response.ok || !data.success || typeof data.result !== "string") throw new Error(`Page reader unavailable (${response.status})`);
+          return { status: "completed", page: { url, markdown: data.result.slice(0, 30000) } };
+        },
         submit: async (url) => {
           if (!publicResearchUrl(url)) throw new Error("Unsupported URL");
           return (await browser(this.env, "", "POST", {
@@ -169,7 +181,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
               temperature: 0,
               response_format: {
                 type: "json_schema",
-                json_schema: {
+                json_schema: messages[0].content.startsWith("Find named business decision-makers") ? peopleExtractionSchema : {
                   type: "object",
                   properties: {
                     findings: {
@@ -255,9 +267,10 @@ const worker = {
         });
         const data = await response.json() as { success?: boolean; result?: unknown };
         if (!response.ok || !data.success || typeof data.result !== "string") throw new Error("Search unavailable");
-        const seeds = searchResultUrls(data.result);
+        const results = searchResults(data.result);
+        const seeds = results.map(r => r.url).slice(0, 6);
         if (!seeds.length && !/no results found|no more results/i.test(data.result)) throw new Error("Search could not be read");
-        return Response.json({ seeds });
+        return Response.json({ seeds, results });
       } catch { return Response.json({ error: "Public search unavailable" }, { status: 502 }); }
     }
     const match = new URL(request.url).pathname.match(

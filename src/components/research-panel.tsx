@@ -76,7 +76,7 @@ export function ResearchPanel({
   const [companyDetails, setCompanyDetails] = useState(true);
   const [findPeople, setFindPeople] = useState(true);
   const [peopleCompanies, setPeopleCompanies] = useState<number | "">(2);
-  const [peoplePages, setPeoplePages] = useState<number | "">(2);
+  const [peoplePages, setPeoplePages] = useState<number | "">(5);
   const changedRef = useRef(onResultsChanged);
   useEffect(() => { changedRef.current = onResultsChanged; }, [onResultsChanged]);
   const signatureRef = useRef("");
@@ -112,6 +112,7 @@ export function ResearchPanel({
   const currentJob = active || data.jobs[0];
   const currentResults = data.results?.find(r => r.jobId === currentJob?.id);
   const relatedPeople = (data.peopleJobs || []).filter(j => j.config.parentJobId === currentJob?.id);
+  const searchLeadCount = new Set([...relatedPeople, ...(currentJob?.config.purpose === "people" ? [currentJob] : [])].flatMap(j => (j.config.peopleSearchLeads || []).map(l => `${j.config.targetId}:${l.url}`))).size;
   const peopleFound = (currentResults?.people || 0) + (data.results || []).filter(r => relatedPeople.some(j => j.id === r.jobId)).reduce((sum, r) => sum + r.people, 0);
   const termList = terms
     .split("\n")
@@ -303,7 +304,7 @@ export function ResearchPanel({
                     Find owners and decision-makers for relevant businesses
                   </label>}
                   {findPeople && useAi && <div className="space-y-3 rounded-lg border border-[var(--border)] p-3">
-                    <p className="text-sm">Capture names on pages already read. Then research people for relevant businesses with an established website identity. Contacts remain source leads for your review; no emails are sent.</p>
+                    <p className="text-sm">Find businesses and their decision-makers in one run. People research starts automatically for relevant businesses with an established website identity, including existing targets. Contacts remain source leads for your review; no emails are sent.</p>
                     <label className="block text-sm">Maximum businesses for deeper people research
                       <input className={input} type="number" min="1" step="1" required value={peopleCompanies} disabled={Boolean(continuation)} onChange={e => { setPeopleCompanies(e.target.value === "" ? "" : Number(e.target.value)); }} />
                     </label>
@@ -311,7 +312,7 @@ export function ResearchPanel({
                       <input className={input} type="number" min="1" step="1" required value={peoplePages} disabled={Boolean(continuation)} onChange={e => { setPeoplePages(e.target.value === "" ? "" : Number(e.target.value)); }} />
                     </label>
                     {!peopleBudgetValid && <p role="alert" className="text-sm text-amber-200">Enter a whole number of at least 1 in both fields.</p>}
-                    <p className="text-sm text-[var(--muted)]">Separate people allowance: up to {peopleBudgetValid ? Number(peopleCompanies) * Number(peoplePages) : "—"} additional page attempts and AI calls, {peopleCompanies} web searches, and 5 minutes per business. These are maximums; available sources and worker time or request limits may end a run earlier. Missing contacts do not block target review. Paid Firmable enrichment remains a separate action.</p>
+                    <p className="text-sm text-[var(--muted)]">Separate people allowance: up to {peopleBudgetValid ? Number(peopleCompanies) * Number(peoplePages) : "—"} additional page attempts and AI calls, {Number(peopleCompanies) * (continuation ? continuation.config.peopleSearchesPerCompany || 1 : 2)} web searches, and 5 minutes per business. These are maximums; available sources and worker time or request limits may end a run earlier. Missing contacts do not block target review. Paid Firmable enrichment remains a separate action.</p>
                   </div>}
                   <p className="text-sm text-[var(--muted)]">
                     Business research allows {pages} page attempts, {Math.min(3, pages)}{" "}
@@ -329,6 +330,7 @@ export function ResearchPanel({
                         workflow: "business",
                         ...(companyDetails && useAi ? { companyBudget: { maxCompanies: 2, maxPages: 3 } } : {}),
                         findPeople: findPeople && useAi,
+                        peopleSearchesPerCompany: 2,
                         ...(findPeople && useAi ? { peopleBudget: { maxCompanies: peopleCompanies, maxPages: peoplePages } } : {}),
                         ...(continuation
                           ? { continueFrom: continuation.id }
@@ -358,7 +360,7 @@ export function ResearchPanel({
               <h2 className="font-semibold">{!terminalResearchStates.includes(currentJob.status) ? (currentJob.config.purpose === "firmographics" ? "Researching company details" : currentJob.config.purpose === "people" ? "Finding decision-makers" : currentJob.status === "discovering" ? "Finding businesses" : "Researching businesses") : currentJob.status === "cancelled" ? "Research cancelled" : "Latest research run"}</h2>
               <span className="text-xs text-[var(--muted)]">{new Date(currentJob.createdAt).toLocaleString()}</span>
             </div>
-            <p className="text-sm">{currentJob.config.purpose ? currentJob.config.companyName : `${currentResults?.added || 0} new businesses researched · ${currentResults?.updated || 0} existing businesses with new evidence`} · {peopleFound} contact leads</p>
+            <p className="text-sm">{currentJob.config.purpose ? currentJob.config.companyName : `${currentResults?.added || 0} new businesses researched · ${currentResults?.updated || 0} existing businesses with new evidence`} · {peopleFound} sourced contact leads{searchLeadCount ? ` · ${searchLeadCount} search leads to verify` : ""}</p>
             <p className="text-sm">{currentJob.pages} pages read · {currentJob.config.runtime?.remaining.length || 0} URLs remaining</p>
             <p className="text-xs text-[var(--muted)]">Page attempts: {currentJob.config.runtime?.attempts.length || currentJob.pages}/{currentJob.config.budget.maxPages} · AI calls: {currentJob.modelCalls}/{currentJob.config.budget.maxModelCalls}</p>
             <p className="text-sm text-[var(--muted)]">{currentJob.message}</p>

@@ -1,3 +1,4 @@
+import type { PeopleSearchLead } from "./people-search-results";
 import { z } from "zod";
 
 export const researchStates = [
@@ -66,6 +67,7 @@ export const researchStartSchema = z.object({
   strategy: z.enum(["discover", "investigate"]).optional(),
   workflow: z.literal("business").optional(),
   findPeople: z.boolean().optional(),
+  peopleSearchesPerCompany: z.number().int().min(1).max(2).optional(),
   peopleBudget: z.object({ maxCompanies: z.number().int().min(1), maxPages: z.number().int().min(1) }).optional(),
   companyBudget: z.object({ maxCompanies: z.number().int().min(1).max(5), maxPages: z.number().int().min(1).max(5) }).optional(),
   approved: z.literal(true),
@@ -153,7 +155,7 @@ export function continueResearchConfig(
 export type ResearchConfig = Omit<
   z.infer<typeof researchStartSchema>,
   "requestId" | "continueFrom"
-> & { autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleLinks?: Record<string, string[]> };
+> & { autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
 export const findingSchema = z.object({
   kind: z.enum([
     "company",

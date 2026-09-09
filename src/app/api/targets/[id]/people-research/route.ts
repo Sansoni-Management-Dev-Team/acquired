@@ -1,3 +1,4 @@
+import { mergePeopleSearchLeads } from "@/domain/people-search-results";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
@@ -38,7 +39,8 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       }
     } catch { /* Preserve running state when the status check is unavailable. */ }
   }
-  return Response.json({ enabled: researchEnabled(), webSearchEnabled: researchEnabled(), jobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).targetId === id), findings: findings.filter(f => (f.evidence as { kind?: string }).kind === "person") }, { headers: { "Cache-Control": "no-store" } });
+  const searchLeads = mergePeopleSearchLeads(jobs.flatMap(j => (j.config as ResearchConfig).peopleSearchLeads || []));
+  return Response.json({ searchLeads, enabled: researchEnabled(), webSearchEnabled: researchEnabled(), jobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).targetId === id), findings: findings.filter(f => (f.evidence as { kind?: string }).kind === "person") }, { headers: { "Cache-Control": "no-store" } });
 }
 const inputSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("start"), mandateId: z.string().uuid(), requestId: z.string().uuid(), continueFrom: z.string().uuid().optional(), approved: z.literal(true) }),

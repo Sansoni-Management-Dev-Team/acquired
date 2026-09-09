@@ -268,3 +268,21 @@ it("saves a request-budget stop even when crawl cancellation fails", async () =>
   expect(t.service.cancel).toHaveBeenCalledTimes(1);
   expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({status:"partial",message:"Worker request budget reached"});
 });
+it("searches a discovered name after a blocked profile and continues to alternative sources",async()=>{
+ const t=setup();
+ Object.assign(t.config,{purpose:'people',companyName:'Example Instruments',companyDomain:'instruments.example.com',maxPeopleSearches:2,peopleSearchLeads:[{url:'https://www.linkedin.com/in/alexexample',title:'Alex Example - Director',snippet:'Director of Example Instruments',basis:'search-result',query:'query',observedAt:'2026-09-09T00:00:00Z'}]});
+ vi.mocked(t.service.submit).mockRejectedValueOnce(new Error('blocked'));
+ t.service.peopleFollowup=vi.fn(async()=>({seeds:['https://instruments.example.com/team']}));
+ await runResearch(t.step,t.service);
+ expect(t.service.peopleFollowup).toHaveBeenCalledOnce();
+ expect(t.service.submit).toHaveBeenCalledTimes(2);
+ expect(t.service.submit).toHaveBeenLastCalledWith('https://instruments.example.com/team');
+});
+it("reads individual people pages without spending requests on crawler submission and polling",async()=>{
+ const t=setup(); Object.assign(t.config,{purpose:'people',companyName:'Example Instruments',companyDomain:'instruments.example.com'});t.config.budget.maxPages=1;
+ t.service.readPeoplePage=vi.fn(async url=>({status:'completed',page:{url,markdown:'No named staff published.'}}));
+ await runResearch(t.step,t.service);
+ expect(t.service.readPeoplePage).toHaveBeenCalledOnce();
+ expect(t.service.submit).not.toHaveBeenCalled(); expect(t.service.poll).not.toHaveBeenCalled();
+ expect(t.progress.mock.calls.at(-1)?.[0].pages).toBe(1);
+});

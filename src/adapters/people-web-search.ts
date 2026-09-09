@@ -1,5 +1,10 @@
-import { cloudflareWebSearch } from "./cloudflare-web-search";
+import { cloudflareSearchResults } from "./cloudflare-web-search";
+import { allowedPeopleSource, peopleSearchLeads, companySearchName } from "@/domain/people-search-results";
+export async function peopleWebSearch(company: string, domain: string, fetcher: typeof fetch = fetch, query?: string) {
+  query ||= `"${companySearchName(company).slice(0, 160)}" ${companySearchName(company).includes(" ") ? "" : domain} owner founder director`.replace(/\s+/g, " ");
+  const results = (await cloudflareSearchResults(query, fetcher)).filter(r => allowedPeopleSource(r.url));
+  return { seeds: results.map(r => r.url), leads: peopleSearchLeads(results, company, query, new Date().toISOString(), domain) };
+}
 export async function peopleWebSeeds(company: string, domain: string, fetcher: typeof fetch = fetch, legalEntity?: string) {
-  const seeds = await cloudflareWebSearch(legalEntity ? `"${legalEntity.slice(0, 160)}" director owner company profile Australia` : `"${company.slice(0, 160)}" ${domain} owner founder director management team Australia`, fetcher);
-  return seeds.filter(url => !/rocketreach|zoominfo|signalhire|contactout|whitepages|spokeo|truepeoplesearch/i.test(new URL(url).hostname));
+  return (await peopleWebSearch(company, domain, fetcher, legalEntity ? `"${legalEntity.slice(0, 160)}" director owner company profile Australia` : undefined)).seeds;
 }

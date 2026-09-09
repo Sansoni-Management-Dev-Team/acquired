@@ -5,7 +5,7 @@ vi.mock("@/db/research-repository",()=>({ResearchRepository:class {get=mocks.get
 vi.mock("@/db/acquisition-repository",()=>({AcquisitionRepository:class {memberships=mocks.members;}}));
 vi.mock("./research-service",()=>({researchWorker:mocks.worker}));
 import { dispatchBusinessPeople } from "./business-research-people";
-const parent = {id:"00000000-0000-4000-8000-000000000001",mandateId:"mandate",createdBy:"user",status:"complete",config:{workflow:"business",findPeople:true,peopleBudget:{maxCompanies:2,maxPages:2},geography:"Australia"}};
+const parent = {id:"00000000-0000-4000-8000-000000000001",mandateId:"mandate",createdBy:"user",status:"complete",config:{workflow:"business",findPeople:true,peopleSearchesPerCompany:2,peopleBudget:{maxCompanies:2,maxPages:2},geography:"Australia"}};
 const target = {id:"target",domain:"instruments.example.com",companyName:"Example Instruments"};
 beforeEach(()=>{
   vi.resetAllMocks();
@@ -22,7 +22,7 @@ it("dispatches a separately bounded child with stable identity and parent owners
   const [id,mandate,user,config] = mocks.create.mock.calls[0];
   expect(id).toMatch(/^[\da-f-]{36}$/);
   expect([mandate,user]).toEqual(["mandate","user"]);
-  expect(config).toMatchObject({parentJobId:parent.id,purpose:"people",targetId:target.id,maxPeopleSearches:1,budget:{maxPages:2,maxModelCalls:2,maxMinutes:5}});
+  expect(config).toMatchObject({parentJobId:parent.id,purpose:"people",targetId:target.id,maxPeopleSearches:2,budget:{maxPages:2,maxModelCalls:2,maxMinutes:5}});
   expect(mocks.worker).toHaveBeenCalledWith(`/jobs/${id}`,"POST");
 });
 it("never creates another child while one is active",async()=>{
@@ -62,4 +62,9 @@ it("stops automatic follow-ups when company research is cancelled", async () => 
   mocks.where.mockReset().mockResolvedValue([{ status: "cancelled" }]);
   await dispatchBusinessPeople("org", parent.id);
   expect(mocks.create).not.toHaveBeenCalled();
+});
+it("keeps the one-search allowance on previously approved runs",async()=>{
+ mocks.get.mockResolvedValue({...parent,config:{...parent.config,peopleSearchesPerCompany:undefined}});
+ await dispatchBusinessPeople('org',parent.id);
+ expect(mocks.create.mock.calls[0][3].maxPeopleSearches).toBe(1);
 });

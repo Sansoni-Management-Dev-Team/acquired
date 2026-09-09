@@ -1,8 +1,9 @@
+import { mergePeopleSearchLeads, peopleFollowupQuery, type PeopleSearchLead } from "@/domain/people-search-results";
 import { dispatchContinuation } from "@/lib/research-continuation";
 import { cloudflareWebSearch } from "@/adapters/cloudflare-web-search";
 import { businessWebSeeds } from "@/adapters/business-web-search";
 import { dispatchBusinessPeople } from "@/lib/business-research-people";
-import { peopleWebSeeds } from "@/adapters/people-web-search";
+import { peopleWebSearch } from "@/adapters/people-web-search";
 import { z } from "zod";
 import { and, eq, notInArray, sql } from "drizzle-orm";
 import { requireDb } from "@/db/client";
@@ -56,6 +57,9 @@ export async function GET(
     { headers: { "Cache-Control": "no-store" } },
   );
 }
+async function saveSearchLeads(jobId: string, previous: PeopleSearchLead[], leads: PeopleSearchLead[]) {
+  await requireDb().update(researchJobs).set({ config: sql`jsonb_set(${researchJobs.config}, '{peopleSearchLeads}', ${JSON.stringify(mergePeopleSearchLeads([...leads, ...previous]))}::jsonb)` }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates)));
+}
 export async function POST(
   request: Request,
   context: { params: Promise<{ jobId: string }> },
@@ -70,11 +74,16 @@ export async function POST(
     if (config.purpose !== "people" || config.maxPeopleSearches !== 2 || terminalResearchStates.includes(job.status)) return Response.json({ seeds: [] });
     const findings = await requireDb().select().from(researchFindings).where(and(eq(researchFindings.jobId, job.id), eq(researchFindings.organizationId, job.organizationId)));
     const candidate = findings.map(f => f.evidence as { kind?: string; name?: string; value?: string }).find(f => f.kind === "identifier" && f.name === "Legal entity");
-    if (!candidate?.value) return Response.json({ seeds: [] });
-    const claimed = await requireDb().update(researchJobs).set({ config: sql`jsonb_set(jsonb_set(${researchJobs.config}, '{peopleFollowupStarted}', 'true'::jsonb), '{legalEntity}', ${JSON.stringify(candidate.value)}::jsonb)` }).where(and(eq(researchJobs.id, job.id), sql`COALESCE(${researchJobs.config}->>'peopleFollowupStarted', 'false') = 'false'`, notInArray(researchJobs.status, terminalResearchStates))).returning({ id: researchJobs.id });
+    const query = peopleFollowupQuery(config.companyName!, config.peopleSearchLeads || [], candidate?.value, config.companyDomain);
+    if (!query) return Response.json({ seeds: [] });
+    const claimed = await requireDb().update(researchJobs).set({ config: sql`jsonb_set(jsonb_set(${researchJobs.config}, '{peopleFollowupStarted}', 'true'::jsonb), '{legalEntity}', ${JSON.stringify(candidate?.value || config.legalEntity || "")}::jsonb)` }).where(and(eq(researchJobs.id, job.id), sql`COALESCE(${researchJobs.config}->>'peopleFollowupStarted', 'false') = 'false'`, notInArray(researchJobs.status, terminalResearchStates))).returning({ id: researchJobs.id });
     if (!claimed.length) return Response.json({ seeds: [] });
-    try { return Response.json({ seeds: await peopleWebSeeds(config.companyName!, config.companyDomain!, fetch, candidate.value) }); }
-    catch { return Response.json({ seeds: [], warning: "Legal-entity follow-up search unavailable; saved website research retained." }); }
+    try {
+      const result = await peopleWebSearch(config.companyName!, config.companyDomain!, fetch, query);
+      await saveSearchLeads(job.id, config.peopleSearchLeads || [], result.leads);
+      return Response.json({ seeds: result.seeds });
+    }
+    catch { return Response.json({ seeds: [], warning: "Targeted people follow-up search unavailable; saved website research retained." }); }
   }
   if (payload?.action === "discover") {
     if (terminalResearchStates.includes(job.status))
@@ -93,7 +102,11 @@ export async function POST(
       try { seeds.push(...await cloudflareWebSearch(`"${config.companyName}" ${config.companyDomain} LinkedIn company size employees`)); }
       catch { warning = "Public profile search unavailable; company website research continues."; }
     } else if (config.purpose === "people" && config.discover) {
-      try { seeds.push(...await peopleWebSeeds(config.companyName!, config.companyDomain!)); }
+      try {
+        const result = await peopleWebSearch(config.companyName!, config.companyDomain!);
+        seeds.push(...result.seeds);
+        await saveSearchLeads(job.id, config.peopleSearchLeads || [], result.leads);
+      }
       catch (error) { warning = `${error instanceof Error ? error.message : "Public web search unavailable"}; company website research continues.`; }
     } else if (config.discover) {
       try {

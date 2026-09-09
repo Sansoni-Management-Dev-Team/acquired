@@ -44,7 +44,7 @@ export async function dispatchBusinessPeople(org: string, completedId: string) {
   const active = children.find(j => !terminalResearchStates.includes(j.status));
   if (active) { if (active.status === "queued") await researchWorker(`/jobs/${active.id}`, "POST"); return; }
   if (new Set(children.map(j => (j.config as ResearchConfig).targetId || j.id)).size >= config.peopleBudget.maxCompanies) return;
-  const findings = await db.select().from(researchFindings).where(and(eq(researchFindings.organizationId, org), sql`(${researchFindings.jobId} = ${parent.id}::uuid OR ${researchFindings.jobId} IN (SELECT ${researchJobs.id} FROM ${researchJobs} WHERE ${researchJobs.organizationId} = ${org} AND ${researchJobs.config}->>'autoRoot' = ${parent.id}))`));
+  const findings = await db.select().from(researchFindings).where(and(eq(researchFindings.organizationId, org), eq(researchFindings.mandateId, parent.mandateId)));
   const members = await new AcquisitionRepository(org).memberships(parent.mandateId);
   const next = members.find(member => {
     if (!member.target.domain || ["parked", "excluded"].includes(member.assessment.stage) || children.some(j => (j.config as ResearchConfig).targetId === member.target.id)) return false;
@@ -56,7 +56,7 @@ export async function dispatchBusinessPeople(org: string, completedId: string) {
   const hash = createHash("sha256").update(`${parent.id}:${next.target.id}:people`).digest("hex");
   const id = `${hash.slice(0,8)}-${hash.slice(8,12)}-4${hash.slice(13,16)}-8${hash.slice(17,20)}-${hash.slice(20,32)}`;
   const pages = config.peopleBudget.maxPages;
-  const child: ResearchConfig = { purpose: "people", parentJobId: parent.id, targetId: next.target.id, companyName: next.target.companyName, companyDomain: next.target.domain!, seeds: config.peopleLinks?.[next.target.id]?.slice(0, 9).concat(`https://${next.target.domain}/`) || [`https://${next.target.domain}/`], searchTerms: ["owner founder director management team"], geography: config.geography, discover: true, approved: true, maxPeopleSearches: 1, strategy: "investigate", budget: { maxPages: pages, maxDomains: Math.min(3, pages), maxModelCalls: pages, maxMinutes: 5 } };
+  const child: ResearchConfig = { purpose: "people", parentJobId: parent.id, targetId: next.target.id, companyName: next.target.companyName, companyDomain: next.target.domain!, seeds: config.peopleLinks?.[next.target.id]?.slice(0, 9).concat(`https://${next.target.domain}/`) || [`https://${next.target.domain}/`], searchTerms: ["owner founder director management team"], geography: config.geography, discover: true, approved: true, maxPeopleSearches: config.peopleSearchesPerCompany || 1, strategy: "investigate", budget: { maxPages: pages, maxDomains: Math.min(3, pages), maxModelCalls: pages, maxMinutes: 5 } };
   const job = await repo.create(id, parent.mandateId, parent.createdBy, child);
   if (!terminalResearchStates.includes(job.status)) await researchWorker(`/jobs/${job.id}`, "POST");
 }
