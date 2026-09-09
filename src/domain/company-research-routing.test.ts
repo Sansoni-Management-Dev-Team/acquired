@@ -8,6 +8,7 @@ it("reads own pages and identified profiles, not unrelated companies or loose si
  expect(companyResultMatches(result("Other Instruments company profile"),company,domain)).toBe(false);
  expect(companyResultMatches(result("Example software"),"Example",domain)).toBe(false);
  expect(companyResultMatches(result("Example",`Website: ${domain}`),"Example",domain)).toBe(true);
+ expect(companyResultMatches(result("Example",`Website: www.${domain}`),"Example",domain)).toBe(true);
  expect(companyResultMatches(result("Example",`Website: fake.${domain}`),"Example",domain)).toBe(false);
  expect(companyResultMatches(result("Example",`Website: ${domain}.evil.com`),"Example",domain)).toBe(false);
 });

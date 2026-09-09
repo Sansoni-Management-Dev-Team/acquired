@@ -32,3 +32,8 @@ export function resolveTargetedChoice(output: unknown, plan: TargetedPlan): Targ
   const result=z.object({choice:z.string()}).safeParse(output);
   return result.success ? plan.actions.find(a=>a.id===result.data.choice)||{id:"stop",kind:"stop"}:{id:"stop",kind:"stop"};
 }
+
+export function fallbackTargetedChoice(plan: TargetedPlan): TargetedAction {
+  const direct = plan.actions.find(a=>a.kind === "read" && researchDomain(a.url) === plan.companyDomain && /team|leadership|who-we-are/i.test(a.url));
+  return direct || plan.actions.find(a=>a.kind === "search") || plan.actions.find(a=>a.kind === "read") || {id:"stop",kind:"stop"};
+}

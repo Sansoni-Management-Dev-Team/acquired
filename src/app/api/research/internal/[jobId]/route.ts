@@ -80,7 +80,7 @@ export async function POST(
     const facts = evidence.map(f=>f.evidence as {kind?:string;name?:string;value?:string});
     if (facts.some(f=>field === "people" ? f.kind === "person" : f.kind === "headcount")) return Response.json({ seeds: [] });
     const legalEntity = facts.find(f=>f.kind === "identifier" && f.name === "Legal entity")?.value || config.legalEntity;
-    const claimed = await requireDb().update(researchJobs).set({config:sql`jsonb_set(${researchJobs.config}, '{targetedFollowupStarted}', 'true'::jsonb)`})
+    const claimed = await requireDb().update(researchJobs).set({config:sql`jsonb_set(jsonb_set(${researchJobs.config}, '{targetedFollowupStarted}', 'true'::jsonb), '{legalEntity}', ${JSON.stringify(legalEntity || "")}::jsonb)`})
       .where(and(eq(researchJobs.id, job.id), sql`COALESCE(${researchJobs.config}->>'targetedFollowupStarted', 'false') = 'false'`, notInArray(researchJobs.status, terminalResearchStates))).returning({id:researchJobs.id});
     if (!claimed.length) return Response.json({seeds:[]});
     try {

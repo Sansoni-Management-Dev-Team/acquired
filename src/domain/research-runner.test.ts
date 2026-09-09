@@ -340,3 +340,12 @@ it("checks cancellation before targeted model or search calls",async()=>{
  await runResearch(t.step,t.service);
  expect(t.service.planFollowup).not.toHaveBeenCalled();expect(t.service.targetedSearch).not.toHaveBeenCalled();
 });
+
+it("retains the predefined search when the AI planner quota is exhausted",async()=>{
+ const t=setup();Object.assign(t.config,{purpose:"firmographics",targetedFollowup:true,companyName:"Example Instruments",companyDomain:"instruments.example.com"});
+ t.service.planFollowup=vi.fn(async()=>{throw new Error("AI quota exceeded")});
+ t.service.targetedSearch=vi.fn(async()=>({seeds:[]}));
+ await runResearch(t.step,t.service);
+ expect(t.service.planFollowup).toHaveBeenCalledOnce();expect(t.service.targetedSearch).toHaveBeenCalledOnce();
+ expect(t.progress.mock.calls.at(-1)?.[0].message).toContain("predefined company follow-up");
+});

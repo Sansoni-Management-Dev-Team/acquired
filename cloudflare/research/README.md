@@ -83,3 +83,9 @@ visible. Existing jobs without the flag keep their original orchestration.
 Deploy the app callback and worker before enabling the flag on newly created
 jobs. This change uses existing JSON job configuration; it requires no database
 or Durable Object migration.
+
+If Workers AI rejects a planning call (including free-quota exhaustion), the
+runner uses an offered first-party team link or the predefined company query.
+It does not exceed the page/search allowance or invent a broader query. Direct
+source parsing still runs when model extraction fails. The progress message
+reports this degraded mode; it is not counted as a successful agent decision.

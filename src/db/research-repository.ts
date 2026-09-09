@@ -211,9 +211,11 @@ export class ResearchRepository {
           if (saved) { await acquisition.attach(job.mandateId, saved.id); targetId = saved.id; }
         }
       }
-      if (targetId && config.workflow === "business" && config.findPeople) {
-        const links = peopleFollowUpLinks(event.page.markdown, sourceUrl, []).filter(url => new URL(url).hostname.replace(/^www\./, "") === domain).slice(0, 8);
-        if (links.length) await this.db.update(researchJobs).set({ config: sql`jsonb_set(${researchJobs.config}, '{peopleLinks}', COALESCE(${researchJobs.config}->'peopleLinks', '{}'::jsonb) || ${JSON.stringify({ [targetId]: links })}::jsonb)` }).where(eq(researchJobs.id, id));
+      if (targetId && ((config.workflow === "business" && config.findPeople) || (config.purpose === "firmographics" && config.parentJobId))) {
+        const links = peopleFollowUpLinks(event.page.markdown, sourceUrl, [], config.purpose ? config : undefined).filter(url => new URL(url).hostname.replace(/^www\./, "") === domain).slice(0, 8);
+        const ownerJob = config.purpose === "firmographics" ? config.parentJobId! : id;
+        // Preserve earlier team links when later pages add contact/about links.
+        if (links.length) await this.db.update(researchJobs).set({ config: sql`jsonb_set(${researchJobs.config}, '{peopleLinks}', jsonb_set(COALESCE(${researchJobs.config}->'peopleLinks', '{}'::jsonb), ARRAY[${targetId}]::text[], COALESCE(${researchJobs.config}->'peopleLinks'->${targetId}, '[]'::jsonb) || ${JSON.stringify(links)}::jsonb))` }).where(and(eq(researchJobs.id, ownerJob), eq(researchJobs.organizationId, this.org)));
       }
       for (const evidence of (config.purpose === "firmographics" && !targetId ? [] : findings)) {
         const evidenceKey = createHash("sha256")

@@ -1,4 +1,4 @@
-import { targetedPlan, resolveTargetedChoice, type TargetedPlan } from "./targeted-research";
+import { targetedPlan, resolveTargetedChoice, fallbackTargetedChoice, type TargetedPlan } from "./targeted-research";
 import { unusablePage } from "./page-quality";
 import { businessPrompt, validateBusinessFindings } from "./business-research";
 import { companyHeadcountPrompt, observedCompanyFacts, companyFactLinks, orderCompanyFactQueue } from "./company-facts";
@@ -135,20 +135,24 @@ export async function runResearch(
           if (current.expired) { warnings.push("Time limit reached before targeted follow-up"); break; }
           modelCalls++;
           await publish("extracting", `Researching the remaining gap: ${plan.missing}`);
+          let choice = fallbackTargetedChoice(plan);
           try {
             const output = await step.do("targeted-plan", () => service.planFollowup!(plan), false);
-            const choice = resolveTargetedChoice(output, plan);
-            if (choice.kind === "read") priorityUrl = choice.url;
-            if (choice.kind === "search" && service.targetedSearch) {
-              await step.sleep("targeted-search-spacing", 21000);
-              const beforeSearch = await check("targeted-search");
-              if (terminalResearchStates.includes(beforeSearch.status)) return;
-              if (beforeSearch.expired) { warnings.push("Time limit reached before targeted search"); break; }
-              const result = await step.do("targeted-search", () => service.targetedSearch!(choice.field), false);
+            choice = resolveTargetedChoice(output, plan);
+          } catch { warnings.push("AI planner unavailable; using a predefined company follow-up"); }
+          if (choice.kind === "read") priorityUrl = choice.url;
+          if (choice.kind === "search" && service.targetedSearch) {
+            await step.sleep("targeted-search-spacing", 21000);
+            const beforeSearch = await check("targeted-search");
+            if (terminalResearchStates.includes(beforeSearch.status)) return;
+            if (beforeSearch.expired) { warnings.push("Time limit reached before targeted search"); break; }
+            const field = choice.field;
+            try {
+              const result = await step.do("targeted-search", () => service.targetedSearch!(field), false);
               runtime.remaining = uniqueResearchUrls([...result.seeds, ...runtime.remaining]);
               if (result.warning) warnings.push(result.warning);
-            }
-          } catch { warnings.push("Targeted follow-up unavailable; existing sources retained"); }
+            } catch { warnings.push("Targeted search unavailable; existing sources retained"); }
+          }
         }
       }
       if (!peopleFollowupAttempted && runtime.attempts.length && initial.config.purpose === "people" && initial.config.maxPeopleSearches === 2 && service.peopleFollowup && ((discovered.peopleLeadCount || initial.config.peopleSearchLeads?.length || 0) > 0 || runtime.attempts.some(a => a.reason.includes("legal operator")) || runtime.attempts.length >= Math.min(3, budget.maxPages - 1) || !runtime.remaining.length)) {
