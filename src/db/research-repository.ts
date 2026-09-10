@@ -253,7 +253,9 @@ export class ResearchRepository {
       // never from a directory, register, association or social listing page.
       let targetId = config.purpose === "people" ? config.targetId : linked[0]?.id;
       const company = ownCompany(findings, sourceUrl);
-      if (!targetId && config.workflow === "business" && company && !directorySource(sourceUrl, event.page.markdown) && (!config.targetBusinesses || new Set(config.newBusinessIds || []).size < config.targetBusinesses)) {
+      // ...and only when the page also shows what the business makes, does or sells; identity alone is not a lead.
+      const businessFit = findings.some(f => ["product", "capability", "customer", "business_role"].includes(f.kind));
+      if (!targetId && config.workflow === "business" && company && businessFit && !directorySource(sourceUrl, event.page.markdown) && (!config.targetBusinesses || new Set(config.newBusinessIds || []).size < config.targetBusinesses)) {
         const acquisition = new AcquisitionRepository(this.org, this.db);
         const mandate = await acquisition.getMandate(job.mandateId);
         if (mandate) {
