@@ -20,7 +20,9 @@ export function normaliseLocalSearch(payload: unknown): WebSearchResult[] {
   const rows: OpenSerpResult[] = Array.isArray(payload) ? payload : Array.isArray((payload as { results?: unknown })?.results) ? (payload as { results: OpenSerpResult[] }).results : [];
   const results = new Map<string, WebSearchResult>();
   for (const row of rows) {
-    if (typeof row?.url !== "string" || /(^|\.)google\.com$/.test(new URL(row.url, "https://invalid.example").hostname) && /\/goto/.test(row.url)) continue;
+    if (typeof row?.url !== "string") continue;
+    const host = new URL(row.url, "https://invalid.example").hostname;
+    if (/(^|\.)(?:google\.com|duckduckgo\.com|bing\.com)$/.test(host)) continue;
     const safe = canonicalSearchUrl(row.url)?.replace(/\/$/, "");
     if (!safe || !publicResearchUrl(safe) || results.has(safe)) continue;
     const snippet = typeof row.snippet === "string" ? row.snippet : typeof row.description === "string" ? row.description : "";

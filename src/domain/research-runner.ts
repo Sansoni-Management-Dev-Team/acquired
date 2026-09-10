@@ -1,7 +1,7 @@
 import { ResearchAiError } from "./research-ai-error";
 import { targetedPlan, resolveTargetedChoice, fallbackTargetedChoice, nextTargetedAction, MAX_TARGETED_SEARCHES, type TargetedPlan } from "./targeted-research";
 import { stripBoilerplate } from "./page-content";
-import { directorySource } from "./discovery-sources";
+import { directorySource, serviceBusinessDomain, unreadableDiscoverySource } from "./discovery-sources";
 import { unusablePage } from "./page-quality";
 import { businessPrompt, headingCompanyFinding, ownCompany, validateBusinessFindings } from "./business-research";
 import { companyHeadcountPrompt, companyFactDiagnostics, observedCompanyFacts, companyFactLinks, orderCompanyFactQueue, modelHeadcountFinding } from "./company-facts";
@@ -216,7 +216,7 @@ export async function runResearch(
       const beforeOrder = [...runtime.remaining];
       runtime.remaining = orderResearchQueue(runtime.remaining,runtime.visited,initial.config.strategy,runtime.attempts.map(a=>a.url));
       // Discovery never re-reads businesses already attached to the mandate.
-      if (!initial.config.purpose && skipDomains.size) runtime.remaining = runtime.remaining.filter(u => !skipDomains.has(researchDomain(u)));
+      if (!initial.config.purpose) runtime.remaining = runtime.remaining.filter(u => !skipDomains.has(researchDomain(u)) && !unreadableDiscoverySource(u) && !serviceBusinessDomain(u));
       if (initial.config.purpose === "people") runtime.remaining = orderPeopleQueue(runtime.remaining, runtime.visited, initial.config.companyDomain!);
       if (initial.config.purpose === "firmographics") runtime.remaining = orderCompanyFactQueue(runtime.remaining, initial.config).filter(u => !blockedDomains.has(researchDomain(u)));
       trace("source_queue", { before: beforeOrder.length, after: runtime.remaining.length, excluded: beforeOrder.filter(u => !runtime.remaining.includes(u)).slice(0, 20).map(source), next: runtime.remaining.slice(0, 5).map(source), reason: "visited_and_purpose_source_filters" });
