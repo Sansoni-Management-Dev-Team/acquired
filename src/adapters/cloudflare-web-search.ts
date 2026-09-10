@@ -1,13 +1,13 @@
 import { providerJsonRequest } from "./observability/provider-request";
 import { publicResearchUrl } from "@/domain/research";
 import type { WebSearchResult } from "@/domain/cloudflare-search";
-export async function cloudflareSearchResults(query: string, fetcher: typeof fetch = fetch, jobId?: string, page = 1): Promise<WebSearchResult[]> {
+export async function cloudflareSearchResults(query: string, fetcher: typeof fetch = fetch, jobId?: string, page = 1, engine?: "google"): Promise<WebSearchResult[]> {
   const base = process.env.RESEARCH_WORKER_URL, secret = process.env.RESEARCH_SERVICE_SECRET;
   if (!base || !secret) throw new Error("Public web search is not configured");
   const requestId = crypto.randomUUID();
   const { response: r, data } = await providerJsonRequest<{ seeds?: unknown; results?: unknown }>(fetcher,`${base.replace(/\/$/, "")}/search`, {
     method: "POST", headers: { authorization: `Bearer ${secret}`, "Content-Type": "application/json", "x-research-request-id": requestId, ...(jobId ? { "x-research-job-id": jobId } : {}) },
-    body: JSON.stringify({ query: query.slice(0, 500), ...(page > 1 ? { page } : {}) }), signal: AbortSignal.timeout(50000), cache: "no-store",
+    body: JSON.stringify({ query: query.slice(0, 500), ...(page > 1 ? { page } : {}), ...(engine ? { engine } : {}) }), signal: AbortSignal.timeout(50000), cache: "no-store",
   }, { provider: "research-worker", operation: "web_search", requestId, jobId });
   if (!r.ok) throw new Error(`Public web search failed (HTTP ${r.status})`);
   console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), jobId, requestId, event: "search_response", results: Array.isArray(data.results) ? data.results.length : null, seeds: Array.isArray(data.seeds) ? data.seeds.length : null }));

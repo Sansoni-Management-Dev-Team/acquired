@@ -251,7 +251,7 @@ const worker = {
     if (!(await authorized(request, env.SERVICE_SECRET)))
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     if (new URL(request.url).pathname === "/search" && request.method === "POST") {
-      const body = await request.json().catch(() => null) as { query?: unknown; page?: unknown } | null;
+      const body = await request.json().catch(() => null) as { query?: unknown; page?: unknown; engine?: unknown } | null;
       if (typeof body?.query !== "string" || body.query.trim().length < 2 || body.query.length > 500)
         return Response.json({ error: "Invalid search" }, { status: 400 });
       // Deeper result pages are available from the local search container only.
@@ -265,7 +265,7 @@ const worker = {
           };
           // OpenSERP returns full snippets; fall back to the rendered HTML endpoint when it is unavailable.
           try {
-            const local = await localSearch(env, body.query, { ...ids, start: (page - 1) * 10 });
+            const local = await localSearch(env, body.query, { ...ids, start: (page - 1) * 10, engine: body.engine === "google" ? "google" : undefined });
             if (local) return Response.json({ seeds: local.map(r => r.url).slice(0, 6), results: local });
           } catch (error) { console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), ...ids, event: "local_search_fallback", reason: error instanceof Error ? error.message.slice(0, 120) : "unknown" })); }
           const result = await localRead(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(body.query)}`, {
