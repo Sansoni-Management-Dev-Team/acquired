@@ -43,6 +43,13 @@ it("abstains on missing, conflicting, unbounded counts and ambiguous industries"
   expect(estimateEbitda(saved(profile.replace("Manufacturing", "Wholesale"))).status).toBe("unavailable");
   expect(estimateEbitda(saved(profile.replace("Manufacturing", "Wholesale")), "other-goods-wholesale").status).toBe("estimated");
 });
+it("does not build an EBITDA scenario from a lone third-party headcount estimate", () => {
+  const text = "# Example Instruments\nWebsite\n[www.instruments.example.com](//www.instruments.example.com)\n### Employees\n40";
+  const facts = observedCompanyFacts(text, "https://www.datanyze.com/companies/example-instruments/123", config).map((evidence, i) => ({ id: String(i), jobId: "job", targetId: "target", sourceUrl: "https://www.datanyze.com/companies/example-instruments/123", observedAt: "2026-09-09T00:00:00Z", confidence: 0.3, evidence }));
+  const result = estimateEbitda(facts, "manufacturing");
+  expect(result.status).toBe("unavailable");
+  expect(result.reason).toContain("third-party");
+});
 it("follows relevant own-company pages and public company profiles", () => {
   expect(companyFactLinks("[About](/about) [Team](https://au.linkedin.com/company/example-instruments) [News](/news) [Customer about](https://customer.example.com/about)", "https://instruments.example.com/", config, [])).toEqual(["https://instruments.example.com/about", source]);
 });
