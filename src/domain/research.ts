@@ -324,15 +324,20 @@ export function followUpLinks(
   source: string,
   terms: string[],
   visited: string[],
+  options: { external?: boolean } = {},
 ): string[] {
   const tokens =
     terms
       .join(" ")
       .toLowerCase()
       .match(/[a-z]{4,}/g) || [];
+  // A business site's outbound links lead to customers, regulators and blogs, not to
+  // other suppliers; only listing pages are allowed to point discovery off-site.
+  const sourceDomain = researchDomain(source);
   return pageLinks(markdown, source)
     .filter(
       (l) =>
+        (options.external || researchDomain(l.url) === sourceDomain) &&
         !visited.some((v) => researchUrlKey(v) === researchUrlKey(l.url)) &&
         !/login|sign-in|privacy|terms|cart|checkout|facebook|linkedin|twitter|instagram|youtube|vimeo|tiktok|pinterest|flipsnack|issuu|blog|news|how-to|low-cost|funeral-prices|faq|checklist|\/maps\/|maps\.|\/api\/|\.(?:json|xml|csv|zip)$|staging|my-?account|\/account\b|wp-admin|\/feed\b|\/tag\/|\/category\/|\/product-category\/|\/collections\/|\/product\/|\/products\/[^/]+\/?$/i.test(
           l.url,

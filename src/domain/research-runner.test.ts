@@ -542,5 +542,16 @@ it("skips websites already attached to the mandate and caps pages per website du
   const attempted = vi.mocked(t.service.readPage).mock.calls.map(c => c[0]);
   expect(attempted.some(u => u.includes("known.example.com"))).toBe(false);
   expect(attempted.filter(u => u.includes("fresh.example.com"))).toHaveLength(2);
-  expect(t.progress.mock.calls.at(-1)?.[0].message).toContain("Per-website page limit");
+  // Two pages without company or product evidence: the rest of that website is dropped.
+  expect(t.progress.mock.calls.at(-1)?.[0].runtime?.remaining).toEqual([]);
+  // With evidence, the remaining pages are carried to the next batch instead.
+  const u = setup();
+  Object.assign(u.config, { workflow: "business", seeds: ["https://fresh.example.com/"] });
+  u.config.budget = { maxPages: 6, maxDomains: 6, maxMinutes: 10, maxModelCalls: 6 };
+  u.service.readPage = vi.fn(async url => ({ status: "completed", page: { url, markdown: `Fresh Example makes sensors. ${links}` } }));
+  vi.mocked(u.service.extract).mockResolvedValue([{ kind: "company", name: "Fresh Example", value: "Fresh Example makes sensors", quote: "Fresh Example makes sensors.", website: "https://fresh.example.com/" }]);
+  await runResearch(u.step, u.service);
+  expect(vi.mocked(u.service.readPage).mock.calls).toHaveLength(2);
+  expect(u.progress.mock.calls.at(-1)?.[0].runtime?.remaining.length).toBeGreaterThan(0);
+  expect(u.progress.mock.calls.at(-1)?.[0].message).toContain("Per-website page limit");
 });

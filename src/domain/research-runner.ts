@@ -1,6 +1,7 @@
 import { ResearchAiError } from "./research-ai-error";
 import { targetedPlan, resolveTargetedChoice, fallbackTargetedChoice, nextTargetedAction, MAX_TARGETED_SEARCHES, type TargetedPlan } from "./targeted-research";
 import { stripBoilerplate } from "./page-content";
+import { directorySource } from "./discovery-sources";
 import { unusablePage } from "./page-quality";
 import { businessPrompt, headingCompanyFinding, ownCompany, validateBusinessFindings } from "./business-research";
 import { companyHeadcountPrompt, companyFactDiagnostics, observedCompanyFacts, companyFactLinks, orderCompanyFactQueue, modelHeadcountFinding } from "./company-facts";
@@ -378,6 +379,7 @@ export async function runResearch(
               sourceUrl,
               initial.config.searchTerms,
               runtime.visited,
+              { external: directorySource(sourceUrl, markdown) },
             )),
           ],
           runtime.visited,
@@ -473,6 +475,10 @@ export async function runResearch(
         findings = [...findings, ...catalogue].slice(0, initial.config.purpose === "firmographics" ? 12 : 4);
         if (catalogue.length) entry.reason = `${findings.length} supported claims including directly observed website evidence; financial fit remains unknown`;
         collected.push(...findings);
+        // A website whose pages have produced no company or product evidence by the cap is dropped for this job.
+        if (!initial.config.purpose && perDomainCap !== Infinity && attemptsOn(researchDomain(url)) >= perDomainCap && !collected.some(f => ["company", "product", "capability", "customer"].includes(f.kind) && researchDomain(publicResearchUrl(f.website) || sourceUrl) === researchDomain(sourceUrl))) {
+          runtime.remaining = runtime.remaining.filter(u => researchDomain(u) !== researchDomain(sourceUrl));
+        }
         const observedAt = await step.do(`observed-${attempt}`, async () =>
           new Date(service.now()).toISOString(),
         );
