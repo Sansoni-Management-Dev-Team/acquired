@@ -265,10 +265,15 @@ export function validateFindings(
   if (!source) return [];
   allowed.add(source);
   allowed.add(new URL(source).origin + "/");
+  // A model-supplied subject that names the page's own company but is absent from the
+  // quote is dropped (the site implies it); a subject naming another company still rejects.
+  const pageOwner = normalize(markdown.slice(0, 2000));
+  const ownSubject = (f: ResearchFinding) => Boolean(f.subject) && pageOwner.includes(normalize(f.subject!)) && (!f.website || researchDomain(publicResearchUrl(f.website) || source) === researchDomain(source));
   return candidates
     .filter(f => !["person", "headcount", "revenue", "company_relationship", "company_contact", "founded_year", "location", "industry"].includes(f.kind))
     .map(normalizeResearchFinding)
     .filter((f): f is ResearchFinding => Boolean(f))
+    .map(f => f.subject && !normalize(f.quote).includes(normalize(f.subject)) && f.kind !== "company" && ownSubject(f) ? { ...f, subject: undefined } : f)
     .filter(
       (f) =>
         normalize(markdown).includes(normalize(f.quote)) &&

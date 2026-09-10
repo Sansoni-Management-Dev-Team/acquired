@@ -34,7 +34,7 @@ export type ResearchControl = {
 export interface ResearchServices {
   diagnostic?(event: Record<string, unknown>): void;
   control(): Promise<ResearchControl>;
-  discover(): Promise<{ seeds: string[]; warning?: string; peopleLeadCount?: number }>;
+  discover(): Promise<{ seeds: string[]; warning?: string; peopleLeadCount?: number; skipDomains?: string[] }>;
   progress(event: {
     revision: number;
     status: string;
@@ -122,6 +122,7 @@ export async function runResearch(
     const discovered = await step.do("discover", () => service.discover());
     trace("discovery_result", { purpose: initial.config.purpose || "business", seeds: discovered.seeds.length, warning: Boolean(discovered.warning), budget: initial.config.budget });
     if (discovered.warning) warnings.push(discovered.warning);
+    const skipDomains = new Set([...(initial.config.skipDomains || []), ...(discovered.skipDomains || [])]);
     runtime.remaining = orderResearchQueue(
       [...runtime.remaining, ...discovered.seeds],
       runtime.visited,
@@ -214,7 +215,7 @@ export async function runResearch(
       const beforeOrder = [...runtime.remaining];
       runtime.remaining = orderResearchQueue(runtime.remaining,runtime.visited,initial.config.strategy,runtime.attempts.map(a=>a.url));
       // Discovery never re-reads businesses already attached to the mandate.
-      if (!initial.config.purpose && initial.config.skipDomains?.length) { const skip = new Set(initial.config.skipDomains); runtime.remaining = runtime.remaining.filter(u => !skip.has(researchDomain(u))); }
+      if (!initial.config.purpose && skipDomains.size) runtime.remaining = runtime.remaining.filter(u => !skipDomains.has(researchDomain(u)));
       if (initial.config.purpose === "people") runtime.remaining = orderPeopleQueue(runtime.remaining, runtime.visited, initial.config.companyDomain!);
       if (initial.config.purpose === "firmographics") runtime.remaining = orderCompanyFactQueue(runtime.remaining, initial.config).filter(u => !blockedDomains.has(researchDomain(u)));
       trace("source_queue", { before: beforeOrder.length, after: runtime.remaining.length, excluded: beforeOrder.filter(u => !runtime.remaining.includes(u)).slice(0, 20).map(source), next: runtime.remaining.slice(0, 5).map(source), reason: "visited_and_purpose_source_filters" });

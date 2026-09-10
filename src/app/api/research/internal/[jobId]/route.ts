@@ -221,9 +221,10 @@ export async function POST(
       try { const web = await businessWebSeeds(config.searchTerms, config.geography, fetch, job.id); web.seeds = web.seeds.filter(url => !skip.has(researchDomain(url))); seeds = Array.from({ length: Math.max(seeds.length, web.seeds.length) }, (_, i) => [seeds[i], web.seeds[i]].filter((url): url is string => Boolean(url))).flat(); if (web.warning) warning = [warning, web.warning].filter(Boolean).join(" "); }
       catch { warning = [warning, "Public web discovery unavailable; directory and supplied websites retained."].filter(Boolean).join(" "); }
     }
-    seeds = [...new Set(seeds)].slice(0, 100);
+    const finalSkip = new Set(((await repo.get(jobId))?.config as ResearchConfig | undefined)?.skipDomains || []);
+    seeds = [...new Set(seeds)].filter(url => !finalSkip.has(researchDomain(url))).slice(0, 100);
     await repo.seeds(jobId, seeds, warning || "Discovery complete");
-    return Response.json({ seeds, warning, peopleLeadCount });
+    return Response.json({ seeds, warning, peopleLeadCount, skipDomains: [...finalSkip] });
   }
   const event = progressSchema.safeParse(payload);
   if (!event.success)

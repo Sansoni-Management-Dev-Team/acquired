@@ -202,3 +202,9 @@ describe("explicit website supply statements", () => {
     expect(statedSupplyFindings("We are a manufacturer if funding is approved. We are a wholesale supplier but would never manufacture products.", "https://optics.example.com/", ["optical sensors"])).toEqual([]);
   });
 });
+  it("keeps a first-party product claim whose subject is the site's own company even when the quote omits the name", () => {
+    const markdown = "# White Lily Urns\n\nWe have a large selection of cremation urns for adults in stock and available for purchase.";
+    const finding = { kind: "product", name: "Cremation urns", value: "cremation urns for adults", quote: "We have a large selection of cremation urns for adults in stock and available for purchase.", website: "https://urns.example.com/", subject: "White Lily Urns", relevance: "relevant" };
+    expect(validateFindings([finding], markdown, "https://urns.example.com/", ["Funeral consumables: urns and fittings"]).map(f => [f.kind, f.relevance, f.subject])).toEqual([["product", "relevant", undefined]]);
+    expect(validateFindings([{ ...finding, subject: "Someone Else Pty Ltd" }], markdown, "https://urns.example.com/", ["urns"])).toEqual([]);
+  });
