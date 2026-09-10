@@ -10,7 +10,9 @@ import {
   terminalResearchStates,
   continueResearchConfig,
   type ResearchConfig,
+  type ResearchFinding,
 } from "@/domain/research";
+import { summariseEvidence, type EvidenceCounts } from "@/domain/evidence-status";
 import { researchEnabled, researchWorker } from "@/lib/research-service";
 export async function GET(
   request: Request,
@@ -28,10 +30,11 @@ export async function GET(
   if (!(await new AcquisitionRepository(org).getMandate(id)))
     return Response.json({ error: "Mandate not found" }, { status: 404 });
   const repo = new ResearchRepository(org);
-  const [initialJobs, findings, results] = await Promise.all([
+  const [initialJobs, findings, results, targetEvidence] = await Promise.all([
     repo.list(id),
     repo.findings(id),
     repo.resultCounts(id),
+    repo.targetEvidence(id),
   ]);
   for (const job of initialJobs.filter(j => !terminalResearchStates.includes(j.status) && Date.now() - j.updatedAt.getTime() > 90000)) {
     try {
@@ -47,8 +50,16 @@ export async function GET(
     } catch { /* Durable queued jobs are retried on subsequent polls. */ }
   }
   const jobs = await repo.list(id);
+  const evidence: Record<string, EvidenceCounts> = {};
+  for (const targetId of new Set([...targetEvidence.map(f => f.targetId!), ...jobs.flatMap(j => (j.config as ResearchConfig).targetId ? [(j.config as ResearchConfig).targetId!] : [])])) {
+    const own = jobs.filter(j => (j.config as ResearchConfig).targetId === targetId);
+    evidence[targetId] = summariseEvidence(targetEvidence.filter(f => f.targetId === targetId).map(f => ({ evidence: f.evidence as ResearchFinding })), {
+      searches: own.reduce((sum, j) => sum + ((j.config as ResearchConfig).targetedSearches?.length || 0), 0),
+      researching: own.some(j => !terminalResearchStates.includes(j.status)),
+    });
+  }
   return Response.json(
-    { enabled: true, results, jobs: jobs.filter(j => !(j.config as ResearchConfig).purpose), companyJobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "firmographics"), peopleJobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).parentJobId), findings: findings.filter(f => (f.evidence as { kind?: string }).kind !== "person") },
+    { enabled: true, results, evidence, jobs: jobs.filter(j => !(j.config as ResearchConfig).purpose), companyJobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "firmographics"), peopleJobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).parentJobId), findings: findings.filter(f => (f.evidence as { kind?: string }).kind !== "person") },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

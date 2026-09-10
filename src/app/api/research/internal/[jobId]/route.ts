@@ -1,6 +1,6 @@
 import { automaticCompanySearch } from "@/adapters/automatic-company-search";
 import { dispatchAutomaticEnrichment } from "@/lib/automatic-enrichment";
-import { targetedQuery } from "@/domain/targeted-research";
+import { targetedQueries, MAX_TARGETED_SEARCHES } from "@/domain/targeted-research";
 import { companyFactSearchQuery } from "@/domain/company-facts";
 import { mergePeopleSearchLeads, peopleFollowupQuery, cleanLegalEntity, type PeopleSearchLead } from "@/domain/people-search-results";
 import { dispatchContinuation } from "@/lib/research-continuation";
@@ -78,27 +78,33 @@ export async function POST(
   if (payload?.action === "targeted-followup") {
     const config = job.config as ResearchConfig;
     const field = config.purpose === "firmographics" ? "size" : "people";
-    if (!config.targetedFollowup || !config.purpose || payload.field !== field || (field === "people" && config.maxPeopleSearches !== 2) || terminalResearchStates.includes(job.status)) return Response.json({ seeds: [] });
+    if (!config.targetedFollowup || !config.purpose || payload.field !== field || (field === "people" && config.maxPeopleSearches !== 2) || terminalResearchStates.includes(job.status)) return Response.json({ seeds: [], exhausted: true });
     const evidence = await requireDb().select().from(researchFindings).where(and(eq(researchFindings.jobId, job.id), eq(researchFindings.organizationId, job.organizationId)));
     const facts = evidence.map(f=>f.evidence as {kind?:string;name?:string;value?:string});
-    if (facts.some(f=>field === "people" ? f.kind === "person" : f.kind === "headcount")) return Response.json({ seeds: [] });
+    if (facts.some(f=>field === "people" ? f.kind === "person" : f.kind === "headcount")) return Response.json({ seeds: [], exhausted: true });
     const legalEntity = facts.find(f=>f.kind === "identifier" && f.name === "Legal entity")?.value || config.legalEntity;
-    const claimed = await requireDb().update(researchJobs).set({config:sql`jsonb_set(jsonb_set(${researchJobs.config}, '{targetedFollowupStarted}', 'true'::jsonb), '{legalEntity}', ${JSON.stringify(legalEntity || "")}::jsonb)`})
-      .where(and(eq(researchJobs.id, job.id), sql`COALESCE(${researchJobs.config}->>'targetedFollowupStarted', 'false') = 'false'`, notInArray(researchJobs.status, terminalResearchStates))).returning({id:researchJobs.id});
-    if (!claimed.length) return Response.json({seeds:[]});
+    // Each query in the ladder runs once per job; a page read never consumes a search.
+    const executed = config.targetedSearches || [];
+    const ladder = targetedQueries(field, { ...config, legalEntity });
+    const query = ladder.find(q => !executed.includes(q));
+    if (!query || executed.length >= MAX_TARGETED_SEARCHES[field]) return Response.json({ seeds: [], exhausted: true });
+    const claimed = await requireDb().update(researchJobs).set({config:sql`jsonb_set(jsonb_set(${researchJobs.config}, '{targetedSearches}', COALESCE(${researchJobs.config}->'targetedSearches', '[]'::jsonb) || ${JSON.stringify([query])}::jsonb), '{legalEntity}', ${JSON.stringify(legalEntity || "")}::jsonb)`})
+      .where(and(eq(researchJobs.id, job.id), sql`NOT (COALESCE(${researchJobs.config}->'targetedSearches', '[]'::jsonb) ? ${query})`, notInArray(researchJobs.status, terminalResearchStates))).returning({id:researchJobs.id});
+    if (!claimed.length) return Response.json({seeds:[], exhausted: executed.length + 1 >= Math.min(ladder.length, MAX_TARGETED_SEARCHES[field])});
+    const exhausted = executed.length + 1 >= Math.min(ladder.length, MAX_TARGETED_SEARCHES[field]);
     try {
-      const query = targetedQuery(field, {...config, legalEntity});
       if (field === "people") {
         const result = await peopleWebSearch(config.companyName!, config.companyDomain!, fetch, query, legalEntity, job.id);
         await saveSearchLeads(job.id, config.peopleSearchLeads || [], result.leads);
         const seeds = result.seeds.length || config.mode !== "automatic" ? result.seeds : await automaticCompanySearch({ ...config, legalEntity }, field, job.id);
-        return Response.json({seeds});
+        return Response.json({seeds, query, exhausted});
       }
       const results = await cloudflareSearchResults(query, fetch, job.id);
       let seeds = results.filter(r=>companyResultMatches(r,config.companyName!,config.companyDomain!,legalEntity)).map(r=>r.url);
-      if (!seeds.length && config.mode === "automatic") seeds = await automaticCompanySearch({ ...config, legalEntity }, field, job.id);
-      return Response.json({seeds});
-    } catch { return Response.json({seeds:[],warning:"Targeted search unavailable; existing evidence retained"}); }
+      if (!seeds.length && config.mode === "automatic" && !executed.length) seeds = await automaticCompanySearch({ ...config, legalEntity }, field, job.id);
+      console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), jobId: job.id, event: "targeted_search_executed", field, round: executed.length + 1, candidates: results.length, accepted: seeds.length, exhausted }));
+      return Response.json({seeds, query, exhausted});
+    } catch { return Response.json({seeds:[],warning:"Targeted search unavailable; existing evidence retained", exhausted}); }
   }
   if (payload?.action === "people-followup") {
     const config = job.config as ResearchConfig;
@@ -186,7 +192,9 @@ export async function POST(
             mandateId: job.mandateId,
             actorId: job.createdBy,
           });
-          if (saved) { await acquisition.attach(job.mandateId, saved.id); await repo.recordNewBusiness(jobId, saved.id); }
+          // Directory and map listings are discovery sources. A business counts toward
+          // the target only once its own website shows mandate-relevant evidence.
+          if (saved) await acquisition.attach(job.mandateId, saved.id);
           const url = target.domain
             ? publicResearchUrl(`https://${target.domain}/`)
             : null;
@@ -214,15 +222,21 @@ export async function POST(
     return Response.json({ error: "Invalid progress event" }, { status: 400 });
   try {
     await repo.progress(jobId, event.data);
-    if ((job.config as ResearchConfig).mode === "automatic") {
-      if (["complete", "partial"].includes(event.data.status)) await dispatchContinuation(job.organizationId, jobId);
-      if (event.data.page || ["complete", "partial", "failed"].includes(event.data.status)) await dispatchAutomaticEnrichment(job.organizationId, jobId);
-    } else if (["complete", "partial", "failed"].includes(event.data.status) && !await dispatchContinuation(job.organizationId, jobId)) await dispatchBusinessPeople(job.organizationId, jobId);
-    return Response.json({ ok: true });
   } catch {
     return Response.json(
       { error: "Unable to record progress" },
       { status: 409 },
     );
   }
+  // Progress is saved above. A dispatch failure must not make the worker retry
+  // and then fail a healthy run; the next callback or poll refills the queue.
+  try {
+    if ((job.config as ResearchConfig).mode === "automatic") {
+      if (["complete", "partial"].includes(event.data.status)) await dispatchContinuation(job.organizationId, jobId);
+      if (event.data.page || ["complete", "partial", "failed"].includes(event.data.status)) await dispatchAutomaticEnrichment(job.organizationId, jobId);
+    } else if (["complete", "partial", "failed"].includes(event.data.status) && !await dispatchContinuation(job.organizationId, jobId)) await dispatchBusinessPeople(job.organizationId, jobId);
+  } catch (error) {
+    console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), jobId, event: "dispatch_deferred", reason: error instanceof Error ? error.message.slice(0, 200) : "unknown" }));
+  }
+  return Response.json({ ok: true });
 }

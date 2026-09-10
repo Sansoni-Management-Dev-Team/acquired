@@ -184,7 +184,7 @@ export function ResearchPanel({
         <div className="space-y-3"><p>Website research is awaiting activation.</p><details><summary className="cursor-pointer py-2">Sources &amp; research history</summary>{historyContent}</details></div>
       ) : (
         <>
-          {!active && (
+          {(!active || setup) && (
             <>
               <button
                 className={button}

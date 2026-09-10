@@ -1,5 +1,6 @@
 import type { PeopleSearchLead } from "./people-search-results";
 import { z } from "zod";
+import { relevantExcerpt } from "./page-content";
 
 export const researchStates = [
   "queued",
@@ -157,7 +158,7 @@ export function continueResearchConfig(
 export type ResearchConfig = Omit<
   z.infer<typeof researchStartSchema>,
   "requestId" | "continueFrom"
-> & { executionSlot?: number; researchRunId?: string; automaticPageLimit?: number; automaticPagesUsed?: number; automaticDeadline?: number; newBusinessIds?: string[]; businessTargetStartedAt?: string; targetedFollowup?: boolean; targetedFollowupStarted?: boolean; autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
+> & { executionSlot?: number; researchRunId?: string; automaticPageLimit?: number; automaticPagesUsed?: number; automaticDeadline?: number; newBusinessIds?: string[]; businessTargetStartedAt?: string; targetedFollowup?: boolean; targetedSearches?: string[]; autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
 export const findingSchema = z.object({
   kind: z.enum([
     "company",
@@ -392,35 +393,9 @@ export function parseResearchExtraction(output: unknown): unknown {
 }
 
 export function researchPageExcerpt(markdown: string, terms: string[]) {
-  const lines = markdown.split("\n");
-  const seen = new Set<string>();
-  const clean = lines.filter((line) => {
-    const key = normalize(line);
-    if (!key) return true;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-  const tokens =
-    terms
-      .join(" ")
-      .toLowerCase()
-      .match(/[a-z]{4,}/g) || [];
-  const chunks = clean.join("\n").split(/\n\s*\n/);
-  const ranked = chunks
-    .map((text, i) => ({
-      text,
-      i,
-      score:
-        tokens.filter((t) => text.toLowerCase().includes(t)).length +
-        (/manufactur|wholesal|distribut|suppl|certif/i.test(text) ? 3 : 0) -
-        (/^\s*[-*]?\s*\[.*\]\(/.test(text) ? 5 : 0),
-    }))
-    .sort((a, b) => b.score - a.score || a.i - b.i)
-    .map((c) => c.text)
-    .join("\n\n")
-    .slice(0, 12000);
-  return `${clean[0] || ""}\n\n${ranked}`.slice(0,12000);
+  // Keep the opening block for identity, then the sections describing what the
+  // business makes, supplies, certifies and who runs it. Lines stay verbatim.
+  return relevantExcerpt(markdown, { maxChars: 12000, priorities: ["business", "size", "leadership", "contact", "financial"], terms, dedupe: true });
 }
 export function normalizeResearchFinding(
   f: ResearchFinding,

@@ -53,11 +53,14 @@ it('cleans up jobs created during a cancellation race before dispatch', async ()
   expect(mocks.worker).not.toHaveBeenCalled();
 });
 
-it('enriches new directory leads even before the first website has been read', async () => {
+it('does not spend enrichment effort on directory leads until their own website shows mandate relevance', async () => {
   const discovered = { ...root, config: { ...root.config, newBusinessIds: [target.id] } };
   mocks.get.mockResolvedValue(discovered);
   mocks.where.mockReset().mockResolvedValueOnce([discovered]).mockResolvedValueOnce([]);
   await dispatchAutomaticEnrichment('org', 'root');
-  expect(mocks.create).toHaveBeenCalledOnce();
-  expect(mocks.create.mock.calls[0][3].purpose).toBe('firmographics');
+  expect(mocks.create).not.toHaveBeenCalled();
+  // Company identity alone is not relevance evidence.
+  mocks.where.mockReset().mockResolvedValueOnce([discovered]).mockResolvedValueOnce([evidence[0]]);
+  await dispatchAutomaticEnrichment('org', 'root');
+  expect(mocks.create).not.toHaveBeenCalled();
 });

@@ -106,3 +106,16 @@ it("reports rejected evidence reasons without returning names or quotes to diagn
   validatePeopleFindings([{ kind: "person", name: "Alex Example", value: "CEO", quote: "Alex Example is CEO", website: "https://instruments.example.com", relevance: "unclear" }], "Welcome to our sensor catalogue.", "https://instruments.example.com", config, reason => reasons.push(reason));
   expect(reasons).toEqual(["quote_not_on_page"]);
 });
+it("captures plain-line team listings with roles and published work emails, never inferring addresses", () => {
+  const markdown = "# Meet our team\nOur team members are our strength.\n\n![](https://instruments.example.com/jane.jpg)\nJane Citizen\nManaging Director\n![](https://instruments.example.com/sam.jpg)\nSam Sample\nDirector & National Production Manager\nAlex Example\nGeneral Manager of Operations\n[0400 000 000](tel:0400%20000%20000) alexe@instruments.example.com\nChris Person\nManager - Queensland\n[0400 000 001](tel:0400%20000%20001) chrisp@instruments.example.com\nPat Sampleson\nOwner\npat@personal.example.org\n### Your reliable partner\nContact us today.";
+  const findings = validatePeopleFindings([], markdown, source, config);
+  expect(findings.map(f => [f.name, f.value, f.email])).toEqual([
+    ["Jane Citizen", "Managing Director", undefined],
+    ["Sam Sample", "Director & National Production Manager", undefined],
+    ["Alex Example", "General Manager of Operations", "alexe@instruments.example.com"],
+    ["Pat Sampleson", "Owner", undefined],
+  ]);
+  expect(findings[2].quote).toBe("Alex Example\nGeneral Manager of Operations\n[0400 000 000](tel:0400%20000%20000) alexe@instruments.example.com");
+  expect(validatePeopleFindings([], markdown, "https://other.example.com/team", config)).toEqual([]);
+  expect(validatePeopleFindings([], markdown.replace("# Meet our team", "# Customer stories"), source, config)).toEqual([]);
+});

@@ -60,6 +60,12 @@ After the application's migrations have been separately approved and applied to 
 run `pnpm dev`. Until then, database-backed registration and application workflows will fail because
 the empty database has no application or Better Auth tables.
 
+`pnpm dev` serves the app at `http://localhost:3010`. Set `APP_URL` and
+`NEXT_PUBLIC_APP_URL` to that address in `.env.local`. For Google OAuth, register
+`http://localhost:3010/api/auth/callback/google` and
+`http://localhost:3010/api/mailbox/google/callback` as authorized redirect URIs,
+and set `GOOGLE_GMAIL_REDIRECT_URI` to the mailbox callback URL.
+
 ## Driver selection
 
 `DATABASE_DRIVER` is mandatory whenever `DATABASE_URL` is set. Selection never depends on

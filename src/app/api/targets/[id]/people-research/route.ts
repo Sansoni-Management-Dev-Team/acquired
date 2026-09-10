@@ -57,7 +57,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const [row] = await db.select({ finding: researchFindings, config: researchJobs.config }).from(researchFindings).innerJoin(researchJobs, eq(researchJobs.id, researchFindings.jobId)).where(and(eq(researchFindings.id, input.data.findingId), eq(researchFindings.organizationId, c.org), eq(researchFindings.mandateId, c.mandateId), eq(researchFindings.targetId, id))).limit(1);
     const config = row?.config as ResearchConfig | undefined;
     const f = findingSchema.safeParse(row?.finding.evidence);
-    if (!row || !(config?.purpose === "people" && config.targetId === id || config?.workflow === "business" && config.findPeople) || !f.success || f.data.kind !== "person") return Response.json({ error: "Candidate not found" }, { status: 404 });
+    if (!row || !((config?.purpose === "people" || config?.purpose === "firmographics") && config.targetId === id || config?.workflow === "business" && config.findPeople) || !f.success || f.data.kind !== "person") return Response.json({ error: "Candidate not found" }, { status: 404 });
     const existing = (await db.select().from(contacts).where(and(eq(contacts.organizationId, c.org), eq(contacts.targetId, id)))).find(contact => contact.displayName.toLowerCase() === f.data.name.toLowerCase());
     // Never overwrite an enriched contact or its do-not-contact preference with weaker web evidence.
     if (existing) return Response.json({ contactId: existing.id, message: "Existing contact retained" });
@@ -81,7 +81,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     config = { ...saved, approved: true, parentJobId: previous.id, discover: false, budget: config.budget, seeds: remaining.slice(0, 10), runtime: { remaining, visited: (saved.runtime?.visited || []).filter(url => !retry.some(r => researchUrlKey(r) === researchUrlKey(url))), attempts: [] } };
   }
   const prior = await repo.get(input.data.requestId);
-  if (prior && ((prior.config as ResearchConfig).targetId !== id || (prior.config as ResearchConfig).purpose !== "people")) return Response.json({ error: "Request ID belongs to another job" }, { status: 409 });
+  if (prior && (prior.mandateId !== c.mandateId || (prior.config as ResearchConfig).targetId !== id || (prior.config as ResearchConfig).purpose !== "people")) return Response.json({ error: "Request ID belongs to another job" }, { status: 409 });
   try {
     const job = await repo.create(input.data.requestId, c.mandateId, c.session.user.id, config);
     if (!terminalResearchStates.includes(job.status)) await researchWorker(`/jobs/${job.id}`, "POST");

@@ -5,7 +5,7 @@ import { researchJobs, researchFindings } from '@/db/schema';
 import { ResearchRepository } from '@/db/research-repository';
 import { AcquisitionRepository } from '@/db/acquisition-repository';
 import { ENRICHMENT_CONCURRENCY } from '@/domain/automatic-research';
-import { eligibleForPeople } from '@/domain/business-research';
+import { eligibleForPeople, relevantBusiness } from '@/domain/business-research';
 import { researchDomain, terminalResearchStates, type ResearchConfig, type ResearchFinding } from '@/domain/research';
 import { researchWorker } from './research-service';
 
@@ -26,7 +26,9 @@ export async function dispatchAutomaticEnrichment(org: string, jobId: string) {
   const dispatch: string[] = related.filter(j => j.status === 'queued').map(j => j.id);
   const scheduled = new Set(related.filter(j => (j.config as ResearchConfig).purpose).map(j => `${(j.config as ResearchConfig).targetId}:${(j.config as ResearchConfig).purpose}`));
   const newIds = new Set(related.flatMap(j => (j.config as ResearchConfig).newBusinessIds || []));
-  const candidates = members.filter(m => m.target.domain && !['excluded', 'parked'].includes(m.assessment.stage) && (newIds.has(m.target.id) || findings.some(f => f.targetId === m.target.id && researchDomain(f.sourceUrl) === m.target.domain))).sort((a, b) => Number(newIds.has(b.target.id)) - Number(newIds.has(a.target.id)));
+  // Enrichment effort is spent only on businesses whose own website shows mandate-relevant evidence.
+  const relevant = (id: string) => relevantBusiness(findings.filter(f => f.targetId === id).map(f => f.evidence as ResearchFinding));
+  const candidates = members.filter(m => m.target.domain && !['excluded', 'parked'].includes(m.assessment.stage) && (newIds.has(m.target.id) || findings.some(f => f.targetId === m.target.id && researchDomain(f.sourceUrl) === m.target.domain)) && relevant(m.target.id)).sort((a, b) => Number(newIds.has(b.target.id)) - Number(newIds.has(a.target.id)));
   const tasks = candidates.flatMap(member => {
     const evidence = findings.filter(f => f.targetId === member.target.id).map(f => f.evidence as ResearchFinding);
     const purposes: ('firmographics' | 'people')[] = [];

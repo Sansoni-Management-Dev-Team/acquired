@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useState } from "react";
 import { peopleRoleConflicts } from "@/domain/people-research";
+import { evidenceLabel } from "@/domain/evidence-status";
 import type { ResearchFinding } from "@/domain/research";
 import { terminalResearchStates } from "@/domain/research";
 import { buttonClass, jsonRequest } from "./mandate-workspace";
-type Result = { searchLeads?: import("@/domain/people-search-results").PeopleSearchLead[]; enabled: boolean; webSearchEnabled: boolean; jobs: { id: string; status: string; message: string; pages: number; config?: { runtime?: { remaining?: string[]; attempts?: { status: string; url: string; reason: string }[] } } }[]; findings: { id: string; sourceUrl: string; observedAt: string; confidence: number; evidence: ResearchFinding }[] };
+type Result = { searchLeads?: import("@/domain/people-search-results").PeopleSearchLead[]; enabled: boolean; webSearchEnabled: boolean; jobs: { id: string; status: string; message: string; pages: number; config?: { targetedSearches?: string[]; runtime?: { remaining?: string[]; attempts?: { status: string; url: string; reason: string }[] } } }[]; findings: { id: string; sourceUrl: string; observedAt: string; confidence: number; evidence: ResearchFinding }[] };
 export function PeopleSearch({ mandateId, targetId, onSaved }: { mandateId: string; targetId: string; onSaved: () => void }) {
   const [data, setData] = useState<Result>();
   const [busy, setBusy] = useState(false);
@@ -27,6 +28,7 @@ export function PeopleSearch({ mandateId, targetId, onSaved }: { mandateId: stri
   const active = data?.jobs.find(j => !terminalResearchStates.includes(j.status));
   return <section className="space-y-3 rounded-lg border border-[var(--border)] p-4">
     <h3 className="font-semibold">Search public web · Cloudflare</h3>
+    <p className="text-sm">Named decision-maker: {evidenceLabel(new Set((data?.findings || []).map(f => f.evidence.name.toLowerCase())).size, { searches: (data?.jobs || []).reduce((sum, j) => sum + (j.config?.targetedSearches?.length || 0), 0), researching: Boolean(active) })}</p>
     <p className="text-xs text-[var(--muted)]">Read company pages first, then use a targeted follow-up if a named owner or director is still missing. Review sources before saving a contact. Published emails are not delivery-verified.</p>
     <p className="text-xs text-[var(--muted)]">Up to 2 web searches, 5 pages and 5 AI calls. Runs in the background for up to 10 minutes; provider usage may incur charges.</p>
     {data && !data.webSearchEnabled && <p className="text-xs text-amber-200">Web search is unavailable. The agent can still follow the company website’s team and contact links.</p>}

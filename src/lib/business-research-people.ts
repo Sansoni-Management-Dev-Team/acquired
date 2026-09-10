@@ -4,7 +4,7 @@ import { requireDb } from "@/db/client";
 import { researchJobs, researchFindings } from "@/db/schema";
 import { ResearchRepository } from "@/db/research-repository";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
-import { eligibleForPeople } from "@/domain/business-research";
+import { eligibleForPeople, relevantBusiness } from "@/domain/business-research";
 import { uniqueResearchUrls, researchDomain, terminalResearchStates, type ResearchConfig, type ResearchFinding } from "@/domain/research";
 import { researchWorker } from "./research-service";
 export async function dispatchBusinessPeople(org: string, completedId: string) {
@@ -26,7 +26,7 @@ export async function dispatchBusinessPeople(org: string, completedId: string) {
     if (new Set(facts.map(j => (j.config as ResearchConfig).targetId || j.id)).size < config.companyBudget.maxCompanies) {
       const evidence = await db.select().from(researchFindings).where(and(eq(researchFindings.organizationId, org), eq(researchFindings.mandateId, parent.mandateId)));
       const members = await new AcquisitionRepository(org).memberships(parent.mandateId);
-      const next = members.find(m => m.target.domain && m.assessment.stage !== "excluded" && !facts.some(j => (j.config as ResearchConfig).targetId === m.target.id) && evidence.some(f => f.targetId === m.target.id && researchDomain(f.sourceUrl) === m.target.domain));
+      const next = members.find(m => m.target.domain && m.assessment.stage !== "excluded" && !facts.some(j => (j.config as ResearchConfig).targetId === m.target.id) && evidence.some(f => f.targetId === m.target.id && researchDomain(f.sourceUrl) === m.target.domain) && relevantBusiness(evidence.filter(f => f.targetId === m.target.id).map(f => f.evidence as ResearchFinding)));
       if (next) {
         const hash = createHash("sha256").update(`${parent.id}:${next.target.id}:firmographics`).digest("hex");
         const id = `${hash.slice(0,8)}-${hash.slice(8,12)}-4${hash.slice(13,16)}-8${hash.slice(17,20)}-${hash.slice(20,32)}`;

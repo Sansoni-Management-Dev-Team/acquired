@@ -1,5 +1,6 @@
 import { validateCompanyFacts } from "@/domain/company-facts";
-import { ownCompany, validateBusinessFindings } from "@/domain/business-research";
+import { ownCompany, relevantBusiness, validateBusinessFindings } from "@/domain/business-research";
+import { directorySource } from "@/domain/discovery-sources";
 import { AcquisitionRepository } from "./acquisition-repository";
 import { OrganizationRepository } from "./repositories";
 import { mapGooglePlace } from "@/adapters/firmable-mapper";
@@ -76,6 +77,14 @@ export class ResearchRepository {
       )
       .orderBy(desc(researchFindings.observedAt))
       .limit(100);
+  }
+  // Every saved finding for the mandate's targets, including company-detail and
+  // people jobs, so review screens can distinguish found-awaiting-review from unknown.
+  targetEvidence(mandateId: string) {
+    return this.db.select({ targetId: researchFindings.targetId, jobId: researchFindings.jobId, evidence: researchFindings.evidence })
+      .from(researchFindings)
+      .where(and(eq(researchFindings.organizationId, this.org), eq(researchFindings.mandateId, mandateId), sql`${researchFindings.targetId} IS NOT NULL`, sql`${researchFindings.evidence}->>'kind' IN ('headcount', 'revenue', 'person')`))
+      .limit(5000);
   }
   resultCounts(mandateId: string) {
     return this.db.select({
@@ -201,7 +210,7 @@ export class ResearchRepository {
       throw new Error("Research budget exceeded");
     if (event.page && publicResearchUrl(event.page.url)) {
       const sourceUrl = publicResearchUrl(event.page.url)!;
-      const findings = (config.purpose === "firmographics" ? (input: unknown, markdown: string, source: string) => [...validateCompanyFacts(input, markdown, source, config), ...(config.mode === "automatic" && new URL(source).hostname.replace(/^www\./, "") === config.companyDomain ? validateBusinessFindings(input, markdown, source, config) : [])] : config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, config) : config.workflow === "business" ? (input: unknown, markdown: string, source: string) => validateBusinessFindings(input, markdown, source, config) : validateFindings)(
+      const findings = (config.purpose === "firmographics" ? (input: unknown, markdown: string, source: string) => [...validateCompanyFacts(input, markdown, source, config), ...validatePeopleFindings(input, markdown, source, config).filter(f => f.kind === "person"), ...(config.mode === "automatic" && new URL(source).hostname.replace(/^www\./, "") === config.companyDomain ? validateBusinessFindings(input, markdown, source, config) : [])] : config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, config) : config.workflow === "business" ? (input: unknown, markdown: string, source: string) => validateBusinessFindings(input, markdown, source, config) : validateFindings)(
         event.page.findings,
         event.page.markdown,
         sourceUrl,
@@ -223,10 +232,11 @@ export class ResearchRepository {
           and(eq(targets.organizationId, this.org), eq(targets.domain, config.purpose === "firmographics" ? config.companyDomain! : domain), ...(config.purpose === "firmographics" ? [eq(targets.id, config.targetId!)] : [])),
         )
         .limit(1);
-      // Only a literal first-party company assertion may create a new business.
+      // Only a literal first-party company assertion may create a new business, and
+      // never from a directory, register, association or social listing page.
       let targetId = config.purpose === "people" ? config.targetId : linked[0]?.id;
       const company = ownCompany(findings, sourceUrl);
-      if (!targetId && config.workflow === "business" && company && (!config.targetBusinesses || new Set(config.newBusinessIds || []).size < config.targetBusinesses)) {
+      if (!targetId && config.workflow === "business" && company && !directorySource(sourceUrl, event.page.markdown) && (!config.targetBusinesses || new Set(config.newBusinessIds || []).size < config.targetBusinesses)) {
         const acquisition = new AcquisitionRepository(this.org, this.db);
         const mandate = await acquisition.getMandate(job.mandateId);
         if (mandate) {
@@ -236,7 +246,8 @@ export class ResearchRepository {
           if (saved) { await acquisition.attach(job.mandateId, saved.id); targetId = saved.id; }
         }
       }
-      if (targetId) await this.recordNewBusiness(id, targetId);
+      // Count toward the business target only with mandate-relevant website evidence.
+      if (targetId && relevantBusiness(findings)) await this.recordNewBusiness(id, targetId);
       if (targetId && ((config.workflow === "business" && config.findPeople) || (config.purpose === "firmographics" && config.parentJobId))) {
         const links = peopleFollowUpLinks(event.page.markdown, sourceUrl, [], config.purpose ? config : undefined).filter(url => new URL(url).hostname.replace(/^www\./, "") === domain).slice(0, 8);
         const ownerJob = config.purpose === "firmographics" ? config.parentJobId! : id;

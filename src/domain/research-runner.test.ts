@@ -377,7 +377,8 @@ it("retains the predefined search when the AI planner quota is exhausted",async(
  t.service.planFollowup=vi.fn(async()=>{throw new Error("AI quota exceeded")});
  t.service.targetedSearch=vi.fn(async()=>({seeds:[]}));
  await runResearch(t.step,t.service);
- expect(t.service.planFollowup).toHaveBeenCalledOnce();expect(t.service.targetedSearch).toHaveBeenCalledOnce();
+ expect(t.service.planFollowup).toHaveBeenCalledOnce();expect(t.service.targetedSearch).toHaveBeenCalled();
+ expect(vi.mocked(t.service.targetedSearch).mock.calls.length).toBeLessThanOrEqual(4);
  expect(t.progress.mock.calls.at(-1)?.[0].message).toContain("predefined company follow-up");
 });
 
@@ -455,4 +456,42 @@ it("stops automatic company detail research once a supported headcount is found"
   await runResearch(t.step, t.service);
   expect(t.service.poll).toHaveBeenCalledOnce();
   expect(t.progress.mock.calls.find(([e]) => e.page)?.[0].page?.findings.some(f => f.kind === "headcount")).toBe(true);
+});
+
+it("keeps searching for a missing headcount after reading team pages, capturing named leaders on the way", async () => {
+  // Anonymised regression of a casket manufacturer whose own site never states headcount.
+  const t = setup();
+  Object.assign(t.config, { mode: "automatic", purpose: "firmographics", targetedFollowup: true, companyName: "Example Caskets", companyDomain: "caskets.example.com", seeds: ["https://caskets.example.com/"] });
+  t.config.budget = { maxPages: 8, maxDomains: 4, maxMinutes: 10, maxModelCalls: 6 };
+  const pages: Record<string, string> = {
+    "https://caskets.example.com/": "# Example Caskets\nExample Caskets manufactures caskets and coffins. [About](/about/) [Our team](/about/our-team/)",
+    "https://caskets.example.com/about/": "# About\nWe are proud of our national reach. [Our team](/about/our-team/)",
+    "https://caskets.example.com/about/our-team/": "# Meet our team\nOur team members are our strength.\n\nJane Citizen\nManaging Director\nAlex Example\nGeneral Manager of Operations\n[0400 000 000](tel:0400%20000%20000) alexe@caskets.example.com\n",
+    "https://www.datanyze.com/companies/example-caskets/123": "# Example Caskets\nWebsite\n[www.caskets.example.com](//www.caskets.example.com)\n### Employees\n98\n### Founded\n1973",
+  };
+  t.service.readPage = vi.fn(async url => ({ status: "completed", page: { url, markdown: pages[url] || "" } }));
+  t.service.planFollowup = vi.fn(async () => ({ choice: "read_0" }));
+  t.service.targetedSearch = vi.fn(async (_field, round) => ({ seeds: round === 1 ? [] : ["https://www.datanyze.com/companies/example-caskets/123"], exhausted: round >= 2 }));
+  await runResearch(t.step, t.service);
+  expect(t.service.planFollowup).toHaveBeenCalledOnce();
+  // Choosing to read did not consume the search; searching continued until evidence appeared.
+  expect(t.service.targetedSearch).toHaveBeenCalledTimes(2);
+  const saved = t.progress.mock.calls.flatMap(([e]) => e.page?.findings || []);
+  expect(saved.some(f => f.kind === "headcount" && f.value === "98")).toBe(true);
+  expect(saved.filter(f => f.kind === "person").map(f => [f.name, f.email])).toEqual([["Jane Citizen", undefined], ["Alex Example", "alexe@caskets.example.com"]]);
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: "complete" });
+  expect(t.progress.mock.calls.at(-1)?.[0].message).toContain("headcount found");
+});
+
+it("stops the follow-up loop once the search ladder is exhausted and reports the field as unknown", async () => {
+  const t = setup();
+  Object.assign(t.config, { purpose: "firmographics", targetedFollowup: true, companyName: "Example Caskets", companyDomain: "caskets.example.com", seeds: ["https://caskets.example.com/"] });
+  t.config.budget = { maxPages: 8, maxDomains: 4, maxMinutes: 10, maxModelCalls: 6 };
+  t.service.readPage = vi.fn(async url => ({ status: "completed", page: { url, markdown: "# Example Caskets\nWe make caskets. [About](/about/)" } }));
+  t.service.planFollowup = vi.fn(async () => ({ choice: "stop" }));
+  t.service.targetedSearch = vi.fn(async (_field, round) => ({ seeds: [], exhausted: round >= 3 }));
+  await runResearch(t.step, t.service);
+  expect(t.service.targetedSearch).toHaveBeenCalledTimes(3);
+  expect(vi.mocked(t.service.readPage).mock.calls.length).toBeLessThanOrEqual(3);
+  expect(t.progress.mock.calls.at(-1)?.[0].message).toContain("Headcount remains unknown");
 });

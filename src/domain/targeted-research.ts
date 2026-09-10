@@ -11,7 +11,18 @@ export function targetedQuery(field: "size" | "people", config: Pick<ResearchCon
   const name = publicCompanyName(config.legalEntity || config.companyName?.split(/\s+\/\s+/).at(-1) || "");
   return `"${name}" ${config.legalEntity ? "" : `"${domain}" `}director owner`;
 }
-export function targetedPlan(config: ResearchConfig, findings: ResearchFinding[], queue: string[], visited: string[]): TargetedPlan | null {
+// Bounded external search ladder for one missing field. Each query is run at
+// most once per job; a page read never consumes a search.
+export const MAX_TARGETED_SEARCHES: Record<"size" | "people", number> = { size: 4, people: 2 };
+export function targetedQueries(field: "size" | "people", config: Pick<ResearchConfig,"companyName"|"companyDomain"|"legalEntity">) {
+  const name = publicCompanyName(config.companyName?.split(/\s+\/\s+/).at(-1) || "");
+  const legal = config.legalEntity ? publicCompanyName(config.legalEntity) : "";
+  const queries = field === "size"
+    ? [targetedQuery("size", config), name && `"${name}" employees`, name && `"${name}" company size`, (legal || name) && `"${legal || name}" headcount revenue`]
+    : [targetedQuery("people", config), name && `"${name}" ${legal ? `"${legal}" ` : ""}managing director owner Australia`];
+  return [...new Set(queries.filter((q): q is string => Boolean(q)).map(q => q.replace(/\s+/g, " ").trim()))].slice(0, MAX_TARGETED_SEARCHES[field]);
+}
+export function targetedPlan(config: ResearchConfig, findings: ResearchFinding[], queue: string[], visited: string[], searchAvailable = true): TargetedPlan | null {
   if (!config.companyName || !config.companyDomain || !config.purpose) return null;
   const field = config.purpose === "people" ? "people" : "size";
   if (findings.some(f=>field === "people" ? f.kind === "person" : f.kind === "headcount")) return null;
@@ -20,7 +31,7 @@ export function targetedPlan(config: ResearchConfig, findings: ResearchFinding[]
     .filter(url=>publicResearchUrl(url) && !visited.some(v=>researchUrlKey(v)===researchUrlKey(url)))
     .filter(url=> researchDomain(url) !== config.companyDomain || /about|team|leadership|who-we-are|company|history|our-story/i.test(new URL(url).pathname)).slice(0,4);
   const actions: TargetedAction[] = candidates.map((url,i)=>({id:`read_${i}`,kind:"read",url}));
-  if (field === "size" || config.maxPeopleSearches === 2) actions.push({id:`search_${field}`,kind:"search",field});
+  if (searchAvailable && (field === "size" || config.maxPeopleSearches === 2)) actions.push({id:`search_${field}`,kind:"search",field});
   actions.push({id:"stop",kind:"stop"});
   return actions.length > 1 ? {companyName:config.companyName,companyDomain:config.companyDomain,missing:field === "size"?"A sourced headcount range":"A named owner or decision-maker with an explicit role",legalEntity,actions}:null;
 }
@@ -36,4 +47,16 @@ export function resolveTargetedChoice(output: unknown, plan: TargetedPlan): Targ
 export function fallbackTargetedChoice(plan: TargetedPlan): TargetedAction {
   const direct = plan.actions.find(a=>a.kind === "read" && researchDomain(a.url) === plan.companyDomain && /team|leadership|who-we-are/i.test(a.url));
   return direct || plan.actions.find(a=>a.kind === "search") || plan.actions.find(a=>a.kind === "read") || {id:"stop",kind:"stop"};
+}
+// Deterministic follow-up policy for later rounds: inspect pages an external
+// search already surfaced, read at most one own-site page between searches,
+// then search again while queries remain.
+export function nextTargetedAction(plan: TargetedPlan, state: { readsSinceSearch: number; searchAvailable: boolean }): TargetedAction {
+  const reads = plan.actions.filter((a): a is Extract<TargetedAction, { kind: "read" }> => a.kind === "read");
+  const search = state.searchAvailable ? plan.actions.find(a => a.kind === "search") : undefined;
+  const external = reads.find(a => researchDomain(a.url) !== plan.companyDomain);
+  if (external) return external;
+  const own = reads.find(a => /team|leadership|who-we-are|management|people|directors/i.test(new URL(a.url).pathname));
+  if (own && state.readsSinceSearch < 1) return own;
+  return search || reads[0] || { id: "stop", kind: "stop" };
 }

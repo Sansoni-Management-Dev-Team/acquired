@@ -119,3 +119,32 @@ Automatic research (migration `0005_research_concurrency` required): the form as
 One discovery job and two enrichment jobs can run simultaneously per organisation. The database's active-slot unique index prevents racing callbacks from overfilling a slot. Each business/purpose has a deterministic job ID. Enrichment starts on saved evidence and on new directory leads, without waiting for discovery to finish; it uses up to 12 pages per purpose and stops early when the requested headcount or decision-maker evidence is found. Automatic company-name search broadening is attempted once if the targeted domain search is empty. Unsupported facts remain unknown. Stop research cancels the run and its children; callbacks and periodic status checks refill available slots and reconnect queued jobs.
 
 The migration changes only the active-job index. It must be explicitly approved before application. Until that index is present, automatic start requests return a clear service-unavailable response. Older manually bounded jobs retain their existing behaviour.
+
+## Missing-field follow-up and evidence states
+
+Company-detail research runs in rounds. Reading a page never consumes the
+external search: when headcount is still unknown after the site's team and
+about pages, the Worker runs a bounded ladder of targeted web searches (four
+for size, two for people), inspects matched company profiles, and continues
+until sourced evidence is found or the ladder is exhausted. Named leaders and
+explicitly published work emails on pages already read are saved during
+company research; a separate people job is queued only for the remaining gap.
+
+Page text is trimmed of navigation and form scaffolding, and the model excerpt
+is chosen by section relevance rather than by a fixed character cut-off, so a
+team listing at the end of a long page still reaches extraction. Every saved
+quote remains verbatim page text.
+
+Directories, registers, associations and social listings are discovery sources
+only. A business counts toward the new-business target, and receives
+enrichment effort, once its own website shows mandate-relevant evidence.
+
+Review screens show "Found — awaiting review" separately from "Unknown — N web
+searches run". Conflicting headcount or revenue observations are kept with
+their source, retrieval date, confidence, currency and reporting period; the
+EBITDA scenario abstains while sources disagree.
+
+`node scripts/retest-research-gaps.mjs <mandateId> [--people]` researches the
+businesses in a mandate that still lack headcount (or a named person) one at a
+time against the local stack and writes a coverage, time and cost report to
+`.local-data/research-retests/`.

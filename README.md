@@ -26,7 +26,7 @@ pnpm install
 pnpm dev
 ```
 
-Then open `http://localhost:3000/targets`.
+Then open `http://localhost:3010/targets`.
 
 ## Verify
 
