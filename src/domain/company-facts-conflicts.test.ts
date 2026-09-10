@@ -9,5 +9,5 @@ it("surfaces conflicting counts and treats equivalent employee labels as the sam
 });
 it("anchors size research to the website and reads it before matched numeric profiles", () => {
   expect(companyFactSearchQuery("Example Group / Old Brand",config.companyDomain!)).toBe('"instruments.example.com" employees');
-  expect(orderCompanyFactQueue(["https://unrelated.example.com/about","https://instruments.example.com/","https://www.datanyze.com/companies/example/123","https://www.linkedin.com/company/example"],config)).toEqual(["https://instruments.example.com/","https://www.datanyze.com/companies/example/123","https://www.linkedin.com/company/example"]);
+  expect(orderCompanyFactQueue(["https://unrelated.example.com/about","https://instruments.example.com/","https://www.datanyze.com/companies/example/123","https://www.linkedin.com/company/example"],config)).toEqual(["https://instruments.example.com/","https://www.datanyze.com/companies/example/123","https://unrelated.example.com/about","https://www.linkedin.com/company/example"]);
 });

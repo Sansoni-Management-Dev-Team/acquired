@@ -1,4 +1,4 @@
-import { validateCompanyFacts } from "@/domain/company-facts";
+import { modelHeadcountFinding, validateCompanyFacts } from "@/domain/company-facts";
 import { ownCompany, relevantBusiness, validateBusinessFindings } from "@/domain/business-research";
 import { directorySource } from "@/domain/discovery-sources";
 import { AcquisitionRepository } from "./acquisition-repository";
@@ -210,7 +210,8 @@ export class ResearchRepository {
       throw new Error("Research budget exceeded");
     if (event.page && publicResearchUrl(event.page.url)) {
       const sourceUrl = publicResearchUrl(event.page.url)!;
-      const findings = (config.purpose === "firmographics" ? (input: unknown, markdown: string, source: string) => [...validateCompanyFacts(input, markdown, source, config), ...validatePeopleFindings(input, markdown, source, config).filter(f => f.kind === "person"), ...(config.mode === "automatic" && new URL(source).hostname.replace(/^www\./, "") === config.companyDomain ? validateBusinessFindings(input, markdown, source, config) : [])] : config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, config) : config.workflow === "business" ? (input: unknown, markdown: string, source: string) => validateBusinessFindings(input, markdown, source, config) : validateFindings)(
+      const modelHeadcounts = (input: unknown, markdown: string, source: string) => (Array.isArray(input) ? input : []).flatMap((raw: unknown) => { const f = raw as { kind?: unknown; value?: unknown; quote?: unknown }; const located = f?.kind === "headcount" ? modelHeadcountFinding({ value: f.value, quote: f.quote }, markdown, source, config) : null; return located ? [located] : []; });
+      const findings = (config.purpose === "firmographics" ? (input: unknown, markdown: string, source: string) => { const labelled = validateCompanyFacts(input, markdown, source, config); return [...labelled, ...(labelled.some(f => f.kind === "headcount") ? [] : modelHeadcounts(input, markdown, source)), ...validatePeopleFindings(input, markdown, source, config).filter(f => f.kind === "person"), ...(config.mode === "automatic" && new URL(source).hostname.replace(/^www\./, "") === config.companyDomain ? validateBusinessFindings(input, markdown, source, config) : [])]; } : config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, config) : config.workflow === "business" ? (input: unknown, markdown: string, source: string) => validateBusinessFindings(input, markdown, source, config) : validateFindings)(
         event.page.findings,
         event.page.markdown,
         sourceUrl,

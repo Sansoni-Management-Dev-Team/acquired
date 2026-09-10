@@ -495,3 +495,38 @@ it("stops the follow-up loop once the search ladder is exhausted and reports the
   expect(vi.mocked(t.service.readPage).mock.calls.length).toBeLessThanOrEqual(3);
   expect(t.progress.mock.calls.at(-1)?.[0].message).toContain("Headcount remains unknown");
 });
+
+it("asks the model to locate a headcount on an identity-matched profile that has no labelled count, and keeps only a verbatim statement", async () => {
+  const t = setup();
+  Object.assign(t.config, { mode: "automatic", purpose: "firmographics", targetedFollowup: true, companyName: "Example Caskets", companyDomain: "caskets.example.com", seeds: ["https://profiles.example.net/company/example-caskets"] });
+  t.config.budget = { maxPages: 4, maxDomains: 4, maxMinutes: 10, maxModelCalls: 4 };
+  const page = "# Example Caskets\nExample Caskets is a family business with a dedicated team of 35 staff across two sites. Followers 900.";
+  t.service.readPage = vi.fn(async url => ({ status: "completed", page: { url, markdown: page } }));
+  t.service.extractHeadcount = vi.fn(async () => ({ value: "35 staff", quote: "a dedicated team of 35 staff across two sites" }));
+  await runResearch(t.step, t.service);
+  expect(t.service.extractHeadcount).toHaveBeenCalledOnce();
+  const saved = t.progress.mock.calls.flatMap(([e]) => e.page?.findings || []);
+  expect(saved.find(f => f.kind === "headcount")).toMatchObject({ value: "35 staff", factMetadata: { basis: "third_party_estimate" } });
+  expect(t.progress.mock.calls.at(-1)?.[0].status).toBe("complete");
+  // An invented statement is discarded and the loop continues.
+  const u = setup();
+  Object.assign(u.config, { purpose: "firmographics", targetedFollowup: true, companyName: "Example Caskets", companyDomain: "caskets.example.com", seeds: ["https://profiles.example.net/company/example-caskets"] });
+  u.config.budget = { maxPages: 2, maxDomains: 2, maxMinutes: 10, maxModelCalls: 2 };
+  u.service.readPage = vi.fn(async url => ({ status: "completed", page: { url, markdown: page } }));
+  u.service.extractHeadcount = vi.fn(async () => ({ value: "900", quote: "Followers 900" }));
+  await runResearch(u.step, u.service);
+  expect(u.progress.mock.calls.flatMap(([e]) => e.page?.findings || []).some(f => f.kind === "headcount")).toBe(false);
+});
+
+it("skips the remaining pages of a host that returned no content, instead of spending the page budget on it", async () => {
+  const t = setup();
+  Object.assign(t.config, { purpose: "firmographics", targetedFollowup: true, companyName: "Example Caskets", companyDomain: "caskets.example.com", seeds: ["https://caskets.example.com/"] });
+  t.config.budget = { maxPages: 6, maxDomains: 6, maxMinutes: 10, maxModelCalls: 2 };
+  t.service.readPage = vi.fn(async url => url.includes("blocked.example.net") ? { status: "failed", warning: "no content" } : { status: "completed", page: { url, markdown: "# Example Caskets\nWe make caskets." } });
+  t.service.planFollowup = vi.fn(async () => ({ choice: "search_size" }));
+  t.service.targetedSearch = vi.fn(async () => ({ seeds: ["https://blocked.example.net/company/a", "https://blocked.example.net/company/b", "https://blocked.example.net/company/c", "https://www.linkedin.com/in/someone"], exhausted: true }));
+  await runResearch(t.step, t.service);
+  const attempted = vi.mocked(t.service.readPage).mock.calls.map(c => c[0]);
+  expect(attempted.filter(u => u.includes("blocked.example.net"))).toHaveLength(1);
+  expect(attempted.some(u => u.includes("linkedin.com/in/"))).toBe(false);
+});

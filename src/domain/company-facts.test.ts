@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { companyFactLinks, headcountModelFindings, observedCompanyFacts, parseHeadcount, validateCompanyFacts } from "./company-facts";
+import { companyFactLinks, headcountModelFindings, modelHeadcountFinding, observedCompanyFacts, parseHeadcount, validateCompanyFacts } from "./company-facts";
 import { estimateEbitda } from "./estimated-ebitda";
 import { validateFindings, type ResearchConfig, type SavedResearchFinding } from "./research";
 const config: ResearchConfig = { purpose: "firmographics", companyName: "Example Instruments", companyDomain: "instruments.example.com", seeds: [], searchTerms: ["company size"], geography: "Australia", discover: false, approved: true, budget: { maxPages: 3, maxDomains: 3, maxModelCalls: 3, maxMinutes: 10 } };
@@ -9,7 +9,21 @@ const saved = (text = profile): SavedResearchFinding[] => observedCompanyFacts(t
 it("reads labelled profile fields after matching the declared website, ignoring followers and other companies", () => {
   expect(observedCompanyFacts(profile, source, config).map(f => [f.kind, f.value])).toEqual([["headcount", "11-50 employees"], ["founded_year", "2011"], ["industry", "Manufacturing"], ["location", "Melbourne, VIC"]]);
   expect(observedCompanyFacts(profile.replaceAll("instruments.example.com", "different.example.com"), source, config)).toEqual([]);
-  expect(observedCompanyFacts(profile, "https://directory.example.com/company/example", config)).toEqual([]);
+  // Any other profile naming the company yields third-party estimates; one that does not name it yields nothing.
+  expect(observedCompanyFacts(profile, "https://directory.example.com/company/example", config).map(f => [f.kind, f.value, f.factMetadata?.basis])).toEqual([["headcount", "11-50 employees", "third_party_estimate"], ["founded_year", "2011", "third_party_estimate"]]);
+  expect(observedCompanyFacts(profile.replace("# Example Instruments", "# Profile").replaceAll("instruments.example.com", "other.example.com"), "https://directory.example.com/company/12345", config)).toEqual([]);
+});
+it("reads labelled fields from an identity-matched third-party profile and validates a model-located count", () => {
+  const text = "# Company profile\nExample Instruments Pty Ltd\nIndustry & Specialities\nManufacturing\nCompany Type:\nSME\nCompany size:\n51-200 Employees\nYear Founded:\n1981 (45 years)\n### Employees by Department\nEmployees by Seniority\nC-level\n2employees\nNon-managers\n6employees\n299 followers";
+  const url = "https://profiles.example.net/company/example-instruments-pty-ltd";
+  const facts = observedCompanyFacts(text, url, config);
+  expect(facts.map(f => [f.kind, f.value])).toEqual([["headcount", "51-200 Employees"], ["founded_year", "1981"]]);
+  expect(facts[0].factMetadata).toMatchObject({ basis: "third_party_estimate", sourceKind: "third_party_directory" });
+  expect(modelHeadcountFinding({ value: "51-200 employees", quote: "Company size:\n51-200 Employees" }, text, url, config)?.value).toBe("51-200 employees");
+  expect(modelHeadcountFinding({ value: "299", quote: "299 followers" }, text, url, config)).toBeNull();
+  expect(modelHeadcountFinding({ value: "6", quote: "Non-managers\n6employees" }, text, url, config)).toBeNull();
+  expect(modelHeadcountFinding({ value: "40 employees", quote: "We employ 40 employees" }, text, url, config)).toBeNull();
+  expect(modelHeadcountFinding({ value: "51-200 employees", quote: "Company size:\n51-200 Employees" }, text, "https://profiles.example.net/company/someone-else", { ...config, companyName: "Other Co" })).toBeNull();
 });
 it("requires both source semantics and a grounded AI headcount; revalidates callback data", () => {
   const accepted = headcountModelFindings({ value: "11-50", quote: "Company size 11-50 employees" }, profile, source, config);

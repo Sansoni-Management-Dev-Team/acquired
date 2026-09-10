@@ -44,7 +44,7 @@ export async function dispatchAutomaticEnrichment(org: string, jobId: string) {
     const { member, purpose } = next;
     const hash = createHash('sha256').update(`${rootId}:${member.target.id}:${purpose}`).digest('hex');
     const id = `${hash.slice(0,8)}-${hash.slice(8,12)}-4${hash.slice(13,16)}-8${hash.slice(17,20)}-${hash.slice(20,32)}`;
-    const child: ResearchConfig = { mode: 'automatic', researchRunId: rootId, executionSlot: slot, purpose, targetedFollowup: true, parentJobId: rootId, targetId: member.target.id, companyName: member.target.companyName, companyDomain: member.target.domain!, seeds: [`https://${member.target.domain}/`], searchTerms: purpose === 'people' ? ['owner founder director management team'] : config.searchTerms, geography: config.geography, approved: true, discover: true, strategy: 'investigate', maxPeopleSearches: 2, budget: { maxPages: 12, maxDomains: 5, maxModelCalls: 14, maxMinutes: 15 } };
+    const child: ResearchConfig = { mode: 'automatic', researchRunId: rootId, executionSlot: slot, purpose, targetedFollowup: true, parentJobId: rootId, targetId: member.target.id, companyName: member.target.companyName, companyDomain: member.target.domain!, seeds: [`https://${member.target.domain}/`], searchTerms: purpose === 'people' ? ['owner founder director management team'] : config.searchTerms, geography: config.geography, approved: true, discover: true, strategy: 'investigate', maxPeopleSearches: 2, budget: { maxPages: 12, maxDomains: 8, maxModelCalls: 14, maxMinutes: 15 } };
     try {
       const saved = await repo.create(id, root.mandateId, root.createdBy, child);
       scheduled.add(`${member.target.id}:${purpose}`);

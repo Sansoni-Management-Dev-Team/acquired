@@ -3,7 +3,7 @@
 // inference cost. Requires `pnpm dev` and a signed-in session cookie saved at
 // .local-data/dev/test-cookie. Output stays under .local-data.
 //
-//   node scripts/retest-research-gaps.mjs <mandateId> [--limit 5] [--people]
+//   node scripts/retest-research-gaps.mjs <mandateId> [--limit 5] [--people] [--only name,name] [--force]
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
@@ -13,6 +13,10 @@ if (!mandateId) throw new Error("Usage: node scripts/retest-research-gaps.mjs <m
 const limitIndex = process.argv.indexOf("--limit");
 const limit = limitIndex > 0 ? Number(process.argv[limitIndex + 1]) : 100;
 const includePeople = process.argv.includes("--people");
+const onlyIndex = process.argv.indexOf("--only");
+const only = onlyIndex > 0 ? process.argv[onlyIndex + 1].split(",").map(s => s.trim().toLowerCase()) : null;
+// --force re-researches even when evidence is already saved (used after extraction changes).
+const force = process.argv.includes("--force");
 const origin = process.env.APP_URL || "http://localhost:3010";
 const cookie = readFileSync(".local-data/dev/test-cookie", "utf8").trim();
 const db = new pg.Client({ connectionString: "postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire" });
@@ -36,8 +40,9 @@ const results = [];
 const started = Date.now();
 for (const member of members) {
   if (results.length >= limit) break;
+  if (only && !only.some(o => member.company_name.toLowerCase().includes(o))) continue;
   const before = summarise(await evidenceFor(member.id));
-  if (before.headcount.length && (!includePeople || before.people.length)) { results.push({ company: member.company_name, skipped: "evidence already saved", ...before }); continue; }
+  if (!force && before.headcount.length && (!includePeople || before.people.length)) { results.push({ company: member.company_name, skipped: "evidence already saved", ...before }); continue; }
   const purpose = before.headcount.length ? "people" : "firmographics";
   const path = purpose === "people" ? `/api/targets/${member.id}/people-research` : `/api/targets/${member.id}/company-research`;
   // One manual research job per organisation at a time: wait for any active job first.

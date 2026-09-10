@@ -3,7 +3,7 @@ import { targetedPlan, resolveTargetedChoice, fallbackTargetedChoice, nextTarget
 import { stripBoilerplate } from "./page-content";
 import { unusablePage } from "./page-quality";
 import { businessPrompt, ownCompany, validateBusinessFindings } from "./business-research";
-import { companyHeadcountPrompt, companyFactDiagnostics, observedCompanyFacts, companyFactLinks, orderCompanyFactQueue } from "./company-facts";
+import { companyHeadcountPrompt, companyFactDiagnostics, observedCompanyFacts, companyFactLinks, orderCompanyFactQueue, modelHeadcountFinding } from "./company-facts";
 import { peoplePrompt, validatePeopleFindings, peopleFollowUpLinks, orderPeopleQueue } from "./people-research";
 import {
   extractionPrompt,
@@ -77,6 +77,8 @@ export async function runResearch(
   const source = (value: string) => { try { const url = new URL(value); return `${url.origin}${url.pathname}`; } catch { return "invalid_url"; } };
   const trace = (event: string, details: Record<string, unknown>) => service.diagnostic?.({ event, ...details });
   let runtime: ResearchRuntime = { remaining: [], visited: [], attempts: [] };
+  // A host that returns no readable content is skipped for the rest of the job.
+  const blockedDomains = new Set<string>();
   const publish = async (
     status: string,
     message: string,
@@ -212,7 +214,7 @@ export async function runResearch(
       const beforeOrder = [...runtime.remaining];
       runtime.remaining = orderResearchQueue(runtime.remaining,runtime.visited,initial.config.strategy,runtime.attempts.map(a=>a.url));
       if (initial.config.purpose === "people") runtime.remaining = orderPeopleQueue(runtime.remaining, runtime.visited, initial.config.companyDomain!);
-      if (initial.config.purpose === "firmographics") runtime.remaining = orderCompanyFactQueue(runtime.remaining, initial.config);
+      if (initial.config.purpose === "firmographics") runtime.remaining = orderCompanyFactQueue(runtime.remaining, initial.config).filter(u => !blockedDomains.has(researchDomain(u)));
       trace("source_queue", { before: beforeOrder.length, after: runtime.remaining.length, excluded: beforeOrder.filter(u => !runtime.remaining.includes(u)).slice(0, 20).map(source), next: runtime.remaining.slice(0, 5).map(source), reason: "visited_and_purpose_source_filters" });
       if (priorityUrl) {
         runtime.remaining = [priorityUrl, ...runtime.remaining.filter(u=>u!==priorityUrl)];
@@ -332,6 +334,10 @@ export async function runResearch(
         if (finalQuality) result = { status: "failed", warning: finalQuality };
         trace("page_read", { source: source(url), status: result.status, quality: finalQuality || (result.page ? "usable" : "missing_content"), characters: result.page?.markdown.length || 0 });
         if (result.status !== "completed" || !result.page) {
+          if (researchDomain(url) !== initial.config.companyDomain) {
+            blockedDomains.add(researchDomain(url));
+            runtime.remaining = runtime.remaining.filter(u => !blockedDomains.has(researchDomain(u)));
+          }
           entry.status = "failed";
           entry.reason = (
             result.warning || `Crawler status: ${result.status}`
@@ -384,6 +390,22 @@ export async function runResearch(
               }, false);
               findings.push(...business);
             } catch { warnings.push("Company identity extraction unavailable; directly observed facts retained"); }
+          }
+          // A labelled count is preferred. Otherwise the model may locate a statement on an
+          // identity-matched page; the statement is re-derived verbatim before it is kept.
+          const diagnostics = companyFactDiagnostics(markdown, sourceUrl, initial.config);
+          if (!findings.some(f => f.kind === "headcount") && diagnostics.eligibleSource && diagnostics.employmentLanguage && service.extractHeadcount && modelCalls < budget.maxModelCalls) {
+            modelCalls++;
+            await publish("extracting", `Checking ${new URL(sourceUrl).hostname} for a stated headcount`);
+            try {
+              const located = await step.do(`headcount-${attempt}`, async () => {
+                const current = await service.control();
+                if (terminalResearchStates.includes(current.status) || service.now() >= current.deadline) return null;
+                return modelHeadcountFinding(await service.extractHeadcount!(companyHeadcountPrompt(markdown, sourceUrl, initial.config)), markdown, sourceUrl, initial.config);
+              }, false);
+              trace("headcount_model_result", { source: source(sourceUrl), accepted: Boolean(located) });
+              if (located) findings.push(located);
+            } catch { warnings.push("Headcount extraction unavailable; labelled facts retained"); }
           }
           // Named leaders and published work emails on pages already read are kept; deeper people research is queued only for remaining gaps.
           findings = [...directPeople.filter(f => f.kind === "person"), ...findings];

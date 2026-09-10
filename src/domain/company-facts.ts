@@ -32,15 +32,27 @@ function profileContext(markdown: string, source: string, config: ResearchConfig
   const websites = [...websiteLabel.matchAll(/(?:https?:\/\/|www\.)[a-z0-9.-]+(?::\d+)?(?:\/[^\s\]<>)]*)?/gi)].map(m => m[0].startsWith("www.") ? `https://${m[0]}` : m[0]);
   const identityMatched = websites.some(website => researchDomain(website) === config.companyDomain);
   const directory = researchDomain(source) === "datanyze.com" && /^\/companies\/[^/]+\/\d+\/?$/.test(new URL(source).pathname);
-  if (!firstParty && !((linkedIn || directory) && identityMatched)) return null;
+  // Any other third-party profile must name the company (or its website) in its
+  // opening text or URL; single-word names need the website or legal entity.
+  const thirdParty = !firstParty && !linkedIn && !directory && !/^(?:[a-z]{2,3}\.)?(?:facebook|instagram|twitter|x|youtube|tiktok|pinterest)\.com$/.test(new URL(source).hostname) && thirdPartyIdentity(text, source, config);
+  if (!firstParty && !((linkedIn || directory) && identityMatched) && !thirdParty) return null;
   if (firstParty && /\/(?:blog|post|case-stud|news|product\/|media\/)/i.test(new URL(source).pathname)) return null;
-  return { text, firstParty, linkedIn, directory };
+  return { text, firstParty, linkedIn, directory, thirdParty };
+}
+const normalizedName = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+function thirdPartyIdentity(text: string, source: string, config: ResearchConfig) {
+  const opening = ` ${normalizedName(text.slice(0, 2500))} `;
+  const slug = normalizedName(decodeURIComponent(new URL(source).pathname).replace(/[-_.]/g, " "));
+  const domainPattern = new RegExp(`(?<![a-z0-9.-])(?:www\\.)?${escape(config.companyDomain!)}(?![a-z0-9.-])`, "i");
+  if (domainPattern.test(text)) return true;
+  const names = [config.companyName!.split(/\s+\/\s+/).at(-1)!, ...(config.legalEntity ? [config.legalEntity] : [])].map(normalizedName).filter(Boolean);
+  return names.some(name => (name.includes(" ") || name.replace(/\s/g, "").length >= 6) && (opening.includes(` ${name} `) || slug.includes(name)));
 }
 export function companyFactDiagnostics(markdown: string, source: string, config: ResearchConfig) {
   const context = profileContext(markdown, source, config);
   return {
     eligibleSource: Boolean(context),
-    sourceType: context?.firstParty ? "company_website" : context?.linkedIn ? "company_profile" : context?.directory ? "third_party_directory" : "unsupported_or_identity_unmatched",
+    sourceType: context?.firstParty ? "company_website" : context?.linkedIn ? "company_profile" : context?.directory ? "third_party_directory" : context?.thirdParty ? "third_party_profile" : "unsupported_or_identity_unmatched",
     excerptCharacters: companyFactExcerpt(markdown, config).length,
     employmentLanguage: /employees?|staff|team members?|workforce/i.test(companyFactExcerpt(markdown, config)),
   };
@@ -51,7 +63,7 @@ function fact(kind: ResearchFinding["kind"], value: string, quote: string, confi
 export function observedCompanyFacts(markdown: string, source: string, config: ResearchConfig): ResearchFinding[] {
   const context = profileContext(markdown, source, config);
   if (!context) return [];
-  const { text, linkedIn, directory, firstParty } = context, out: ResearchFinding[] = [];
+  const { text, linkedIn, directory, firstParty, thirdParty } = context, out: ResearchFinding[] = [];
   if (linkedIn) {
     const patterns = [
       ["headcount", /Company size\s+((?:\d[\d,]*\s*[-–]\s*)?\d[\d,]*\+?\s+employees)/i],
@@ -68,6 +80,14 @@ export function observedCompanyFacts(markdown: string, source: string, config: R
     if (count && parseHeadcount(count[1])) out.push(fact("headcount", count[1], count[0], config));
     const revenue = text.match(/^###\s+Revenue\s+((?:(?:AUD|USD|A\$|US\$|\$)\s*)?\d[\d,.]*(?:\s*[KMB])?)(?=\s|$)/im);
     if (revenue && /[$]|AUD|USD/i.test(revenue[1])) out.push(fact("revenue", revenue[1], revenue[0], config));
+  } else if (thirdParty) {
+    // Labelled profile fields only (label, optional colon, value on the same or next line).
+    const count = text.match(/\b(?:Company size|Number of employees|Employee count|Employees|Headcount|Staff)\s*:?[ \t]*\n?[ \t]*((?:(?:over|more than|at least|approximately|about|around)\s+)?\d[\d,]*(?:\s*[-–]\s*\d[\d,]*)?\+?(?:\s+employees)?)\b/i);
+    if (count && parseHeadcount(count[1]) && !/\b(?:by seniority|by department|c-level|non-managers)\b/i.test(count[0])) out.push(fact("headcount", count[1], count[0], config));
+    const founded = text.match(/\b(?:Year founded|Founded|Established)\s*:?[ \t]*\n?[ \t]*((?:18|19|20)\d{2})\b/i);
+    if (founded) out.push(fact("founded_year", founded[1], founded[0], config));
+    const revenue = text.match(/\b(?:Annual revenue|Revenue|Turnover)\s*:?[ \t]*\n?[ \t]*((?:AUD|USD|A\$|US\$|\$)\s*\d[\d,.]*(?:\s*(?:[KMB]|million|billion))?)(?=\s|$)/i);
+    if (revenue) out.push(fact("revenue", revenue[1], revenue[0], config));
   } else {
     const subject = `(?:${escape(config.companyName!)}|[Ww]e)`;
     const workforce = new RegExp(`\\b${subject}\\s+(?:currently\\s+)?(?:employ(?:s)?|have|has)\\s+((?:(?:over|more than|at least|approximately|about|around)\\s+)?\\d[\\d,]*(?:\\s*[-–]\\s*\\d[\\d,]*)?\\+?\\s+(?:employees?|staff|team members?))\\b`, "g");
@@ -88,8 +108,8 @@ export function observedCompanyFacts(markdown: string, source: string, config: R
     }
   }
   return out.map(f => ({ ...f, factMetadata: {
-    sourceKind: directory ? "third_party_directory" as const : linkedIn ? "company_profile" as const : "company_website" as const,
-    basis: directory ? "third_party_estimate" as const : "reported" as const,
+    sourceKind: directory || thirdParty ? "third_party_directory" as const : linkedIn ? "company_profile" as const : "company_website" as const,
+    basis: directory || thirdParty ? "third_party_estimate" as const : "reported" as const,
     scope: f.kind === "company_relationship" ? "group" as const : "unspecified" as const,
     period: null,
     currency: f.kind === "revenue" ? /(?:AUD|A\$)/.test(f.value) ? "AUD" : /(?:USD|US\$)/.test(f.value) ? "USD" : null : null,
@@ -104,6 +124,18 @@ export function validateCompanyFacts(input: unknown, markdown: string, source: s
   if (!Array.isArray(input)) return observed;
   const supplied = input.flatMap(raw => { const parsed = findingSchema.safeParse(raw); return parsed.success ? [parsed.data] : []; });
   return observed.filter(f => supplied.some(s => s.kind === f.kind && compact(s.value) === compact(f.value) && compact(s.quote) === compact(f.quote)));
+}
+export function modelHeadcountFinding(candidate: unknown, markdown: string, source: string, config: ResearchConfig): ResearchFinding | null {
+  const context = profileContext(markdown, source, config);
+  if (!context || !candidate || typeof candidate !== "object") return null;
+  const { value, quote } = candidate as { value?: unknown; quote?: unknown };
+  if (typeof value !== "string" || typeof quote !== "string") return null;
+  const count = parseHeadcount(value);
+  const digits = value.match(/\d[\d,]*/g) || [];
+  if (!count || quote.length < 8 || quote.length > 400 || !compact(context.text).includes(compact(quote))) return null;
+  if (!digits.every(d => quote.includes(d)) || !/\b(?:employees?|staff|team members?|workforce|headcount|company size|people)\b/i.test(quote)) return null;
+  if (/\b(?:followers?|by seniority|by department|c-level|non-managers|customers?|clients?|families)\b/i.test(quote)) return null;
+  return { ...fact("headcount", value, quote, config), factMetadata: { sourceKind: context.firstParty ? "company_website" : context.linkedIn ? "company_profile" : "third_party_directory", basis: context.firstParty || context.linkedIn ? "reported" : "third_party_estimate", scope: "unspecified", period: null, currency: null } };
 }
 export function headcountModelFindings(input: unknown, markdown: string, source: string, config: ResearchConfig) {
   const observed = observedCompanyFacts(markdown, source, config);
@@ -121,10 +153,15 @@ export function companyFactLinks(markdown: string, source: string, config: Resea
   if (!config.companyDomain || researchDomain(source) !== config.companyDomain) return [];
   return pageLinks(markdown, source).filter(link => !visited.some(v => researchUrlKey(v) === researchUrlKey(link.url)) && (researchDomain(link.url) === config.companyDomain && /about|company|history|contact|our-story|who-we-are|team|leadership/i.test(link.url + link.label) || /^(?:[a-z]{2,3}\.)?linkedin\.com$/.test(new URL(link.url).hostname) && /^\/company\//.test(new URL(link.url).pathname))).slice(0, 8).map(link => link.url);
 }
+// Search results reach this queue only after an identity match on the result
+// itself; the page must still name the company before any fact is taken from it.
+const socialOrPeopleFinder = (url: string) => /(^|\.)(?:facebook|instagram|twitter|x|youtube|tiktok|pinterest|rocketreach|zoominfo|signalhire|contactout|whitepages|spokeo|truepeoplesearch)\.(?:com|co|net)$/i.test(new URL(url).hostname);
 export function orderCompanyFactQueue(urls: string[], config: ResearchConfig) {
-  return urls.filter(url => Boolean(publicResearchUrl(url)) && (researchDomain(url) === config.companyDomain || /linkedin\.com\/company\//.test(url) || researchDomain(url) === "datanyze.com" && /^\/companies\//.test(new URL(url).pathname))).sort((a, b) => {
-    // Directory profiles read reliably; LinkedIn company pages are often blocked, so they follow.
-    const priority = (url: string) => researchDomain(url) === config.companyDomain && new URL(url).pathname === "/" ? 0 : researchDomain(url) === "datanyze.com" ? 1 : /linkedin\.com\/company\//.test(url) ? 2 : /about|company|history|our-story|who-we-are|team|leadership/.test(new URL(url).pathname) ? 3 : researchDomain(url) === config.companyDomain && /contact/.test(url) ? 4 : 5;
+  // LinkedIn personal profiles and posts are people sources, never company facts.
+  const personalLinkedIn = (url: string) => /(^|\.)linkedin\.com$/.test(new URL(url).hostname) && /^\/(?:in|posts|pub)\//.test(new URL(url).pathname);
+  return urls.filter(url => Boolean(publicResearchUrl(url)) && !socialOrPeopleFinder(url) && !personalLinkedIn(url) && (researchDomain(url) !== config.companyDomain || !/\/(?:blog|post|news|product|media|cart|checkout|privacy|terms)/i.test(new URL(url).pathname))).sort((a, b) => {
+    // Own site first, then profiles that read reliably; LinkedIn company pages are often blocked, so they follow other profiles.
+    const priority = (url: string) => researchDomain(url) === config.companyDomain && new URL(url).pathname === "/" ? 0 : researchDomain(url) === "datanyze.com" ? 1 : researchDomain(url) === config.companyDomain && /about|company|history|our-story|who-we-are|team|leadership/.test(new URL(url).pathname) ? 2 : /linkedin\.com\/company\//.test(url) ? 4 : researchDomain(url) === config.companyDomain ? 5 : 3;
     return priority(a) - priority(b);
   });
 }
