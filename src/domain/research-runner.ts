@@ -2,7 +2,7 @@ import { ResearchAiError } from "./research-ai-error";
 import { targetedPlan, resolveTargetedChoice, fallbackTargetedChoice, nextTargetedAction, MAX_TARGETED_SEARCHES, type TargetedPlan } from "./targeted-research";
 import { stripBoilerplate } from "./page-content";
 import { unusablePage } from "./page-quality";
-import { businessPrompt, ownCompany, validateBusinessFindings } from "./business-research";
+import { businessPrompt, headingCompanyFinding, ownCompany, validateBusinessFindings } from "./business-research";
 import { companyHeadcountPrompt, companyFactDiagnostics, observedCompanyFacts, companyFactLinks, orderCompanyFactQueue, modelHeadcountFinding } from "./company-facts";
 import { peoplePrompt, validatePeopleFindings, peopleFollowUpLinks, orderPeopleQueue } from "./people-research";
 import {
@@ -465,6 +465,11 @@ export async function runResearch(
         }
         const catalogue = initial.config.purpose ? [] : [...statedSupplyFindings(markdown, sourceUrl, initial.config.searchTerms), ...catalogueProductFindings(markdown, sourceUrl, initial.config.searchTerms)]
           .filter(c => !findings.some(f => f.kind === c.kind && f.value === c.value));
+        // Relevant product evidence must belong to a business; take the identity from the site heading when the model omitted it.
+        if (!initial.config.purpose && !ownCompany(findings, sourceUrl) && findings.some(f => ["product", "capability", "customer"].includes(f.kind))) {
+          const heading = headingCompanyFinding(markdown, sourceUrl);
+          if (heading) findings = [heading, ...findings];
+        }
         findings = [...findings, ...catalogue].slice(0, initial.config.purpose === "firmographics" ? 12 : 4);
         if (catalogue.length) entry.reason = `${findings.length} supported claims including directly observed website evidence; financial fit remains unknown`;
         collected.push(...findings);

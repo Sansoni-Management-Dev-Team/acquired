@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { businessPrompt, businessResearchStatus, eligibleForPeople, ownCompany, validateBusinessFindings } from "./business-research";
+import { businessPrompt, businessResearchStatus, eligibleForPeople, ownCompany, validateBusinessFindings, headingCompanyFinding } from "./business-research";
 import { researchStartSchema, type ResearchConfig, type ResearchFinding } from "./research";
 const url = "https://instruments.example.com/";
 const company: ResearchFinding = {kind:"company", name:"Example Instruments", value:"precision sensors", quote:"Example Instruments makes precision sensors.", website:url, relevance:"relevant"};
@@ -47,4 +47,9 @@ describe("combined business research", () => {
     expect(businessResearchStatus("instruments.example.com",[company],true)).toBe("Researching");
     expect(businessResearchStatus("instruments.example.com",[company],false)).toBe("Needs more evidence");
   });
+});
+it("derives the site owner from a heading that matches the domain when the model returns no company claim", () => {
+  expect(headingCompanyFinding("# Welcome\n\n## White Lily Urns\n\nWe make urns.", "https://www.whitelilyurns.example.com/")).toMatchObject({ kind: "company", name: "White Lily Urns", quote: "## White Lily Urns" });
+  expect(headingCompanyFinding("# Beautiful handmade urns for every family", "https://urns.example.com/")).toBeNull();
+  expect(headingCompanyFinding("# Acme", "https://instruments.example.com/")).toBeNull();
 });

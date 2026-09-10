@@ -18,6 +18,23 @@ export function validateBusinessFindings(input: unknown, markdown: string, sourc
   return [...business, ...validatePeopleFindings(input, markdown, source, { ...config, companyName: company.name, companyDomain: researchDomain(source) }).filter(f => f.kind === "person")];
 }
 
+// A first-party page whose main heading is the trading name (matching the domain
+// label) identifies the site owner even when the model returned no company claim.
+export function headingCompanyFinding(markdown: string, source: string): ResearchFinding | null {
+  const safe = publicResearchUrl(source);
+  if (!safe) return null;
+  const label = researchDomain(safe).split(".")[0].toLowerCase();
+  const compactLabel = label.replace(/[^a-z0-9]/g, "");
+  for (const match of markdown.matchAll(/^#{1,2} +([^\n#]{2,80})$/gm)) {
+    const name = match[1].replace(/\[([^\]]*)\]\([^)]*\)/g, "$1").replace(/\*\*|__/g, "").trim();
+    const compact = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (name.split(/\s+/).length > 6 || compact.length < 4) continue;
+    if (compact === compactLabel || (compact.length >= 5 && compactLabel.includes(compact)) || (compactLabel.length >= 5 && compact.includes(compactLabel))) {
+      return { kind: "company", name, value: name, quote: match[0].trim(), website: `${new URL(safe).origin}/`, relevance: "unclear" };
+    }
+  }
+  return null;
+}
 export function eligibleForPeople(domain: string, stage: string, findings: ResearchFinding[]) {
   return Boolean(domain) && !["parked", "excluded"].includes(stage) && Boolean(ownCompany(findings, `https://${domain}/`)) && relevantBusiness(findings) && !findings.some(f => f.kind === "person");
 }
