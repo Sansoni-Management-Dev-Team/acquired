@@ -555,3 +555,16 @@ it("skips websites already attached to the mandate and caps pages per website du
   expect(u.progress.mock.calls.at(-1)?.[0].runtime?.remaining.length).toBeGreaterThan(0);
   expect(u.progress.mock.calls.at(-1)?.[0].message).toContain("Per-website page limit");
 });
+
+it("collects web discovery delivered in slices before reading pages", async () => {
+  const t = setup();
+  Object.assign(t.config, { workflow: "business", discover: true, seeds: [] });
+  t.config.budget = { maxPages: 4, maxDomains: 4, maxMinutes: 10, maxModelCalls: 4 };
+  const slices = [{ seeds: ["https://one.example.com/"], more: true }, { seeds: ["https://two.example.com/"], more: true }, { seeds: ["https://three.example.com/"], more: false }];
+  t.service.discover = vi.fn(async () => slices.shift()!);
+  t.service.readPage = vi.fn(async url => ({ status: "completed", page: { url, markdown: "Example makes sensors." } }));
+  vi.mocked(t.service.extract).mockResolvedValue([]);
+  await runResearch(t.step, t.service);
+  expect(t.service.discover).toHaveBeenCalledTimes(3);
+  expect(vi.mocked(t.service.readPage).mock.calls.map(c => c[0])).toEqual(["https://one.example.com/", "https://two.example.com/", "https://three.example.com/"]);
+});

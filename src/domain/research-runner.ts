@@ -35,7 +35,7 @@ export type ResearchControl = {
 export interface ResearchServices {
   diagnostic?(event: Record<string, unknown>): void;
   control(): Promise<ResearchControl>;
-  discover(): Promise<{ seeds: string[]; warning?: string; peopleLeadCount?: number; skipDomains?: string[] }>;
+  discover(): Promise<{ seeds: string[]; warning?: string; peopleLeadCount?: number; skipDomains?: string[]; more?: boolean }>;
   progress(event: {
     revision: number;
     status: string;
@@ -120,7 +120,15 @@ export async function runResearch(
         ? "Finding starting websites"
         : "Resuming approved websites",
     );
-    const discovered = await step.do("discover", () => service.discover());
+    let discovered = await step.do("discover", () => service.discover());
+    // Web discovery is delivered in slices so no single callback outlives the worker's request limit.
+    for (let round = 1; discovered.more && round <= 12; round++) {
+      const current = await check(`discover-${round}`);
+      if (terminalResearchStates.includes(current.status)) return;
+      if (current.expired) break;
+      const next = await step.do(`discover-${round}`, () => service.discover());
+      discovered = { ...next, seeds: uniqueResearchUrls([...discovered.seeds, ...next.seeds]), warning: next.warning || discovered.warning, skipDomains: next.skipDomains || discovered.skipDomains, peopleLeadCount: next.peopleLeadCount ?? discovered.peopleLeadCount };
+    }
     trace("discovery_result", { purpose: initial.config.purpose || "business", seeds: discovered.seeds.length, warning: Boolean(discovered.warning), budget: initial.config.budget });
     if (discovered.warning) warnings.push(discovered.warning);
     const skipDomains = new Set([...(initial.config.skipDomains || []), ...(discovered.skipDomains || [])]);

@@ -8,7 +8,7 @@ import { mergePeopleSearchLeads, peopleFollowupQuery, cleanLegalEntity, type Peo
 import { dispatchContinuation } from "@/lib/research-continuation";
 import { companyResultMatches } from "@/domain/company-research-routing";
 import { cloudflareSearchResults } from "@/adapters/cloudflare-web-search";
-import { businessWebSeeds } from "@/adapters/business-web-search";
+import { discoveryQueryPlan, runDiscoveryQueries } from "@/adapters/business-web-search";
 import { dispatchBusinessPeople } from "@/lib/business-research-people";
 import { peopleWebSearch } from "@/adapters/people-web-search";
 import { z } from "zod";
@@ -129,18 +129,22 @@ export async function POST(
   if (payload?.action === "discover") {
     if (terminalResearchStates.includes(job.status))
       return Response.json({ seeds: job.seeds, stopped: true });
-    if (!(await repo.claimDiscovery(jobId)))
+    const config = job.config as ResearchConfig;
+    // Web discovery runs in slices: the first call claims discovery and runs the fast
+    // sources; each call then runs a few searches and reports whether more remain.
+    const continuing = typeof config.discoveryCursor === "number";
+    if (!continuing && !(await repo.claimDiscovery(jobId)))
       return Response.json({
         seeds: job.seeds,
         warning: "Discovery already attempted; existing seeds reused.",
       });
-    const config = job.config as ResearchConfig;
-    let seeds = (config.runtime?.remaining || config.seeds)
+    let seeds = (continuing ? (job.seeds as string[]) : (config.runtime?.remaining || config.seeds))
       .map(publicResearchUrl)
       .filter((s): s is string => Boolean(s));
     let warning = "";
     let peopleLeadCount = config.peopleSearchLeads?.length || 0;
-    if (config.purpose === "firmographics" && config.discover && !config.targetedFollowup) {
+    if (continuing) { /* fast sources ran on the first call */ }
+    else if (config.purpose === "firmographics" && config.discover && !config.targetedFollowup) {
       try { const profileResults = await cloudflareSearchResults(companyFactSearchQuery(config.companyName!, config.companyDomain!), fetch, job.id); await repo.saveSnippetEstimates(job.id, snippetSizeEstimates(profileResults, config)); seeds.push(...profileResults.filter(r => companyResultMatches(r, config.companyName!, config.companyDomain!, config.legalEntity)).map(r => r.url)); }
       catch { warning = "Public profile search unavailable; company website research continues."; }
     } else if (config.purpose === "people" && config.discover) {
@@ -216,15 +220,22 @@ export async function POST(
       }
     }
     const afterDiscovery = (await repo.get(jobId))?.config as ResearchConfig | undefined;
+    let more = false;
     if (config.workflow === "business" && config.discover && (!config.targetBusinesses || new Set(afterDiscovery?.newBusinessIds || []).size < config.targetBusinesses)) {
       const skip = new Set(afterDiscovery?.skipDomains || []);
-      try { const web = await businessWebSeeds(config.searchTerms, config.geography, fetch, job.id); web.seeds = web.seeds.filter(url => !skip.has(researchDomain(url))); seeds = Array.from({ length: Math.max(seeds.length, web.seeds.length) }, (_, i) => [seeds[i], web.seeds[i]].filter((url): url is string => Boolean(url))).flat(); if (web.warning) warning = [warning, web.warning].filter(Boolean).join(" "); }
+      const plan = discoveryQueryPlan(config.searchTerms, config.geography);
+      const cursor = afterDiscovery?.discoveryCursor || 0;
+      const slice = plan.slice(cursor, cursor + 6);
+      try { const web = await runDiscoveryQueries(slice, config.searchTerms, fetch, job.id); const fresh = web.seeds.filter(url => !skip.has(researchDomain(url))); seeds = Array.from({ length: Math.max(seeds.length, fresh.length) }, (_, i) => [seeds[i], fresh[i]].filter((url): url is string => Boolean(url))).flat(); if (web.warning) warning = [warning, web.warning].filter(Boolean).join(" "); }
       catch { warning = [warning, "Public web discovery unavailable; directory and supplied websites retained."].filter(Boolean).join(" "); }
+      const next = cursor + slice.length;
+      more = next < plan.length;
+      await requireDb().update(researchJobs).set({ config: sql`jsonb_set(${researchJobs.config}, '{discoveryCursor}', ${String(next)}::jsonb)` }).where(eq(researchJobs.id, jobId));
     }
     const finalSkip = new Set(((await repo.get(jobId))?.config as ResearchConfig | undefined)?.skipDomains || []);
     seeds = [...new Set(seeds)].filter(url => !finalSkip.has(researchDomain(url))).slice(0, 100);
     await repo.seeds(jobId, seeds, warning || "Discovery complete");
-    return Response.json({ seeds, warning, peopleLeadCount, skipDomains: [...finalSkip] });
+    return Response.json({ seeds, warning, peopleLeadCount, skipDomains: [...finalSkip], more });
   }
   const event = progressSchema.safeParse(payload);
   if (!event.success)

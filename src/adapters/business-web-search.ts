@@ -34,18 +34,26 @@ export function expandedSupplierQueries(terms: string[], geography: string) {
   ]);
   return [...new Set(queries)].slice(0, 28);
 }
-export async function businessWebSeeds(terms: string[], geography: string, fetcher: typeof fetch = fetch, jobId?: string, spacingMs = 1500) {
-  // Every result of every query is a seed; the mandate's known websites are removed afterwards, so depth matters more than rank.
-  // Queries run one at a time with a short gap: the search engine throttles a burst.
-  const results: PromiseSettledResult<string[]>[] = [];
-  const plan: { query: string; page: number; engine?: "google" }[] = [
+export type DiscoveryQuery = { query: string; page: number; engine?: "google" };
+export function discoveryQueryPlan(terms: string[], geography: string): DiscoveryQuery[] {
+  return [
     ...supplierSearchQueries(terms, geography).flatMap(query => [{ query, page: 1 }, { query, page: 2 }]),
     // Expansion queries go to the second engine so a different index answers them.
     ...expandedSupplierQueries(terms, geography).map(query => ({ query, page: 1, engine: "google" as const })),
   ];
+}
+// Every result of every query is a seed; the mandate's known websites are removed afterwards, so depth matters more than rank.
+// Queries run one at a time with a short gap: the search engine throttles a burst. Callers run the plan in slices so no
+// single callback outlives the worker's request limit.
+export async function runDiscoveryQueries(plan: DiscoveryQuery[], terms: string[], fetcher: typeof fetch = fetch, jobId?: string, spacingMs = 1500) {
+  const results: PromiseSettledResult<string[]>[] = [];
   for (const [index, { query, page, engine }] of plan.entries()) {
     if (index && spacingMs) await new Promise(resolve => setTimeout(resolve, spacingMs));
     results.push(await Promise.allSettled([cloudflareSearchResults(query, fetcher, jobId, page, engine).then(rows => rows.filter(r => seedRelevant(r, terms)).map(r => r.url))]).then(([r]) => r));
   }
+  return { seeds: [...new Set(results.flatMap(r => r.status === "fulfilled" ? r.value : []))], warning: results.some(r => r.status === "rejected") ? "Some web searches failed; available sources retained." : "" };
+}
+export async function businessWebSeeds(terms: string[], geography: string, fetcher: typeof fetch = fetch, jobId?: string, spacingMs = 1500) {
+  const results = await runDiscoveryQueries(discoveryQueryPlan(terms, geography), terms, fetcher, jobId, spacingMs).then(r => [{ status: "fulfilled" as const, value: r.seeds }, ...(r.warning ? [{ status: "rejected" as const, reason: r.warning }] : [])]);
   return { seeds: [...new Set(results.flatMap(r => r.status === "fulfilled" ? r.value : []))], warning: results.some(r => r.status === "rejected") ? "Some web searches failed; available sources retained." : "" };
 }
