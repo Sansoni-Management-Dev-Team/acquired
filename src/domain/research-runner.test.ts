@@ -378,7 +378,7 @@ it("retains the predefined search when the AI planner quota is exhausted",async(
  t.service.targetedSearch=vi.fn(async()=>({seeds:[]}));
  await runResearch(t.step,t.service);
  expect(t.service.planFollowup).toHaveBeenCalledOnce();expect(t.service.targetedSearch).toHaveBeenCalled();
- expect(vi.mocked(t.service.targetedSearch).mock.calls.length).toBeLessThanOrEqual(4);
+ expect(vi.mocked(t.service.targetedSearch).mock.calls.length).toBeLessThanOrEqual(5);
  expect(t.progress.mock.calls.at(-1)?.[0].message).toContain("predefined company follow-up");
 });
 
@@ -529,4 +529,18 @@ it("skips the remaining pages of a host that returned no content, instead of spe
   const attempted = vi.mocked(t.service.readPage).mock.calls.map(c => c[0]);
   expect(attempted.filter(u => u.includes("blocked.example.net"))).toHaveLength(1);
   expect(attempted.some(u => u.includes("linkedin.com/in/"))).toBe(false);
+});
+
+it("skips websites already attached to the mandate and caps pages per website during discovery", async () => {
+  const t = setup();
+  Object.assign(t.config, { workflow: "business", skipDomains: ["known.example.com"], seeds: ["https://known.example.com/", "https://fresh.example.com/"] });
+  t.config.budget = { maxPages: 6, maxDomains: 6, maxMinutes: 10, maxModelCalls: 6 };
+  const links = Array.from({ length: 5 }, (_, i) => `[Products ${i}](/products-${i})`).join(" ");
+  t.service.readPage = vi.fn(async url => ({ status: "completed", page: { url, markdown: `Fresh Example makes sensors. ${links}` } }));
+  vi.mocked(t.service.extract).mockResolvedValue([]);
+  await runResearch(t.step, t.service);
+  const attempted = vi.mocked(t.service.readPage).mock.calls.map(c => c[0]);
+  expect(attempted.some(u => u.includes("known.example.com"))).toBe(false);
+  expect(attempted.filter(u => u.includes("fresh.example.com"))).toHaveLength(2);
+  expect(t.progress.mock.calls.at(-1)?.[0].message).toContain("Per-website page limit");
 });

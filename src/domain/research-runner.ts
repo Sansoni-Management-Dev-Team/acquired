@@ -213,6 +213,8 @@ export async function runResearch(
       }
       const beforeOrder = [...runtime.remaining];
       runtime.remaining = orderResearchQueue(runtime.remaining,runtime.visited,initial.config.strategy,runtime.attempts.map(a=>a.url));
+      // Discovery never re-reads businesses already attached to the mandate.
+      if (!initial.config.purpose && initial.config.skipDomains?.length) { const skip = new Set(initial.config.skipDomains); runtime.remaining = runtime.remaining.filter(u => !skip.has(researchDomain(u))); }
       if (initial.config.purpose === "people") runtime.remaining = orderPeopleQueue(runtime.remaining, runtime.visited, initial.config.companyDomain!);
       if (initial.config.purpose === "firmographics") runtime.remaining = orderCompanyFactQueue(runtime.remaining, initial.config).filter(u => !blockedDomains.has(researchDomain(u)));
       trace("source_queue", { before: beforeOrder.length, after: runtime.remaining.length, excluded: beforeOrder.filter(u => !runtime.remaining.includes(u)).slice(0, 20).map(source), next: runtime.remaining.slice(0, 5).map(source), reason: "visited_and_purpose_source_filters" });
@@ -225,12 +227,16 @@ export async function runResearch(
         if (followupPossible() && !followup.searchesExhausted) continue;
         break;
       }
+      // In discovery, one website may take at most two page attempts per batch so a
+      // single catalogue or blog cannot absorb the budget; the rest wait for a later batch.
+      const perDomainCap = initial.config.purpose ? Infinity : 2;
+      const attemptsOn = (domain: string) => runtime.attempts.filter(a => researchDomain(a.url) === domain).length;
       const index = runtime.remaining.findIndex(
         (u) =>
-          domains.has(researchDomain(u)) || domains.size < budget.maxDomains,
+          (domains.has(researchDomain(u)) || domains.size < budget.maxDomains) && attemptsOn(researchDomain(u)) < perDomainCap,
       );
       if (index < 0) {
-        warnings.push("Domain limit reached");
+        warnings.push(runtime.remaining.every(u => attemptsOn(researchDomain(u)) >= perDomainCap) ? "Per-website page limit reached for this batch; remaining pages continue next batch" : "Domain limit reached");
         break;
       }
       const control = await check(`page-${runtime.attempts.length}`);

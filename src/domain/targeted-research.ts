@@ -13,12 +13,22 @@ export function targetedQuery(field: "size" | "people", config: Pick<ResearchCon
 }
 // Bounded external search ladder for one missing field. Each query is run at
 // most once per job; a page read never consumes a search.
-export const MAX_TARGETED_SEARCHES: Record<"size" | "people", number> = { size: 4, people: 2 };
-export function targetedQueries(field: "size" | "people", config: Pick<ResearchConfig,"companyName"|"companyDomain"|"legalEntity">) {
+export const MAX_TARGETED_SEARCHES: Record<"size" | "people", number> = { size: 5, people: 2 };
+// Generic words that hide the trading name search engines and directories actually index.
+const genericNameWords = /\b(?:pty|ltd|limited|inc|co|company|group|holdings|australia|australasia|australian|international|plastics|products|industries|industrial|manufacturing|manufacturers|enterprises|services|solutions|supplies|trading)\b\.?/gi;
+export function shortCompanyName(name: string) {
+  const short = name.split(/\s+\/\s+/).at(-1)!.replace(genericNameWords, " ").replace(/[()&,]/g, " ").replace(/\s+/g, " ").trim();
+  return short.length >= 4 && short.toLowerCase() !== name.toLowerCase() ? short : "";
+}
+export function targetedQueries(field: "size" | "people", config: Pick<ResearchConfig,"companyName"|"companyDomain"|"legalEntity"|"companyLocation">) {
   const name = publicCompanyName(config.companyName?.split(/\s+\/\s+/).at(-1) || "");
   const legal = config.legalEntity ? publicCompanyName(config.legalEntity) : "";
+  // The short trading name plus an industry hint and location finds profiles indexed under a different styling of the name.
+  const short = publicCompanyName(shortCompanyName(config.companyName || ""));
+  const industry = (config.companyName || "").match(/\b(plastics|products|industries|manufacturing|caskets?|coffins?|urns?|hardware|engineering|packaging)\b/i)?.[1].toLowerCase() || "";
+  const place = publicCompanyName(config.companyLocation || "");
   const queries = field === "size"
-    ? [targetedQuery("size", config), name && `"${name}" employees`, name && `"${name}" company size`, (legal || name) && `"${legal || name}" headcount revenue`]
+    ? [targetedQuery("size", config), name && `"${name}" employees`, short && `"${short}" ${industry} ${place} employees`.replace(/\s+/g, " "), name && `"${name}" company size`, (legal || name) && `"${legal || name}" headcount revenue`]
     : [targetedQuery("people", config), name && `"${name}" ${legal ? `"${legal}" ` : ""}managing director owner Australia`];
   return [...new Set(queries.filter((q): q is string => Boolean(q)).map(q => q.replace(/\s+/g, " ").trim()))].slice(0, MAX_TARGETED_SEARCHES[field]);
 }

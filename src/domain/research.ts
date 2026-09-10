@@ -158,7 +158,7 @@ export function continueResearchConfig(
 export type ResearchConfig = Omit<
   z.infer<typeof researchStartSchema>,
   "requestId" | "continueFrom"
-> & { executionSlot?: number; researchRunId?: string; automaticPageLimit?: number; automaticPagesUsed?: number; automaticDeadline?: number; newBusinessIds?: string[]; businessTargetStartedAt?: string; targetedFollowup?: boolean; targetedSearches?: string[]; autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
+> & { executionSlot?: number; researchRunId?: string; automaticPageLimit?: number; automaticPagesUsed?: number; automaticDeadline?: number; newBusinessIds?: string[]; businessTargetStartedAt?: string; targetedFollowup?: boolean; targetedSearches?: string[]; skipDomains?: string[]; companyLocation?: string; autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
 export const findingSchema = z.object({
   kind: z.enum([
     "company",
@@ -184,7 +184,8 @@ export const findingSchema = z.object({
   subject: z.string().max(200).optional(),
   factMetadata: z.object({
     sourceKind: z.enum(["company_website", "company_profile", "third_party_directory"]),
-    basis: z.enum(["reported", "third_party_estimate"]),
+    basis: z.enum(["reported", "third_party_estimate", "search_snippet"]),
+    identityNote: z.string().max(200).nullable().default(null),
     scope: z.enum(["unspecified", "group"]).default("unspecified"),
     period: z.string().max(100).nullable().default(null),
     currency: z.string().max(10).nullable().default(null),
@@ -328,7 +329,7 @@ export function followUpLinks(
     .filter(
       (l) =>
         !visited.some((v) => researchUrlKey(v) === researchUrlKey(l.url)) &&
-        !/login|sign-in|privacy|terms|cart|checkout|facebook|linkedin|twitter|instagram|blog|news|how-to|low-cost|funeral-prices|faq|checklist/i.test(
+        !/login|sign-in|privacy|terms|cart|checkout|facebook|linkedin|twitter|instagram|youtube|vimeo|tiktok|pinterest|flipsnack|issuu|blog|news|how-to|low-cost|funeral-prices|faq|checklist|\/maps\/|maps\.|\/api\/|\.(?:json|xml|csv|zip)$|staging|my-?account|\/account\b|wp-admin|\/feed\b|\/tag\/|\/category\/|\/product-category\/|\/collections\/|\/product\/|\/products\/[^/]+\/?$/i.test(
           l.url,
         ),
     )

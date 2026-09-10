@@ -23,7 +23,7 @@ export function estimateEbitda(findings: SavedResearchFinding[], benchmarkId?: s
   if (values.some(v => !v || v.min === null || v.max === null || v.min === 0)) return { ...base, reason: "A bounded, positive headcount range is needed; open-ended counts remain unknown." };
   if (new Set(values.map(v => JSON.stringify(v))).size > 1) return { ...base, reason: "Conflicting headcount observations need review before estimating." };
   // A directory's modelled headcount is not a reported count. Show the scenario only once a published statement exists.
-  if (!headcounts.some(f => f.evidence.factMetadata?.basis !== "third_party_estimate")) return { ...base, headcountFindingIds: headcounts.map(f => f.id), reason: "Only third-party headcount estimates are available. Confirm the count from a published statement before estimating." };
+  if (!headcounts.some(f => (f.evidence.factMetadata?.basis || "reported") === "reported")) return { ...base, headcountFindingIds: headcounts.map(f => f.id), reason: "Only third-party or search-result estimates are available. Confirm the count from a published statement before estimating." };
   const industries = findings.filter(f => f.evidence.kind === "industry").map(f => f.evidence.value);
   const matches = ebitdaBenchmarks.filter(b => industries.some(industry => b.industry.test(industry)));
   const benchmark = benchmarkId ? ebitdaBenchmarks.find(b => b.id === benchmarkId) : matches.length === 1 ? matches[0] : undefined;

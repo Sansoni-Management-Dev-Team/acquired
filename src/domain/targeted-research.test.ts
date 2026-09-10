@@ -1,5 +1,5 @@
 import {expect,it} from "vitest";
-import {targetedPlan,resolveTargetedChoice,targetedQuery,targetedQueries,nextTargetedAction,MAX_TARGETED_SEARCHES} from "./targeted-research";
+import {targetedPlan,resolveTargetedChoice,targetedQuery,targetedQueries,nextTargetedAction,shortCompanyName,MAX_TARGETED_SEARCHES} from "./targeted-research";
 import type {ResearchConfig,ResearchFinding} from "./research";
 const config={purpose:"people",companyName:"Example Instruments",companyDomain:"instruments.example.com",maxPeopleSearches:2} as ResearchConfig;
 it("offers only missing-field actions, discovered useful pages and available search allowance",()=>{
@@ -33,4 +33,12 @@ it("offers a bounded, non-repeating search ladder and inspects surfaced pages be
  // Generic about/values pages are not worth a follow-up read while searches remain.
  expect(nextTargetedAction(targetedPlan(size,[],["https://instruments.example.com/about/values"],[])!,{readsSinceSearch:0,searchAvailable:true})).toMatchObject({kind:"search"});
  expect(targetedPlan(size,[],[],[],false)).toBeNull();
+});
+it("adds a short trading-name query with industry and location hints",()=>{
+ expect(shortCompanyName("Corex Plastics Australia")).toBe("Corex");
+ expect(shortCompanyName("Zeus Products Pty Ltd")).toBe("Zeus");
+ expect(shortCompanyName("Example Instruments")).toBe("");
+ const queries=targetedQueries("size",{purpose:"firmographics",companyName:"Corex Plastics Australia",companyDomain:"corex.example.com",companyLocation:"Dandenong South VIC"} as ResearchConfig);
+ expect(queries).toContain('"Corex" plastics Dandenong South VIC employees');
+ expect(queries.length).toBeLessThanOrEqual(MAX_TARGETED_SEARCHES.size);
 });

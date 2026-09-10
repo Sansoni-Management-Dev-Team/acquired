@@ -8,5 +8,5 @@ it("bounds discovery, retains partial results, and rejects private URLs",async()
   expect(fetcher).toHaveBeenCalledTimes(3);
   expect(result.seeds).toEqual(["https://instruments.example.com/"]);
   expect(result.warning).toContain("failed");
-  expect(JSON.parse(fetcher.mock.calls[0][1]!.body as string)).toMatchObject({query:"sensors manufacturers suppliers businesses Australia"});
+  expect(JSON.parse(fetcher.mock.calls[0][1]!.body as string)).toMatchObject({query:expect.stringMatching(/^sensors manufacturer OR wholesaler Australia -"funeral director"/)});
 });

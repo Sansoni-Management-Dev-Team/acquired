@@ -97,3 +97,9 @@ it("does not mistake a customer's group or a product description for the target'
   expect(observedCompanyFacts(text, "https://instruments.example.com/", config).filter(f => f.kind === "company_relationship")).toEqual([]);
   expect(observedCompanyFacts("Example Instruments is a subsidiary of Example Holdings.", "https://instruments.example.com/", config).some(f => f.kind === "company_relationship")).toBe(true);
 });
+it("keeps a sibling-domain profile flagged for identity review at lower confidence", () => {
+  const sibling = profile.replaceAll("instruments.example.com", "instruments.example.net");
+  const facts = observedCompanyFacts(sibling, source, config);
+  expect(facts.find(f => f.kind === "headcount")?.factMetadata?.identityNote).toContain("instruments.example.net");
+  expect(observedCompanyFacts(profile.replaceAll("instruments.example.com", "other.example.net"), source, config)).toEqual([]);
+});

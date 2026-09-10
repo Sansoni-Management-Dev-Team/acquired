@@ -31,13 +31,16 @@ function profileContext(markdown: string, source: string, config: ResearchConfig
   const websiteLabel = text.match(/\bWebsite\s*\n([^\n]+)(?:\n([^\n]+))?/i)?.[0] || "";
   const websites = [...websiteLabel.matchAll(/(?:https?:\/\/|www\.)[a-z0-9.-]+(?::\d+)?(?:\/[^\s\]<>)]*)?/gi)].map(m => m[0].startsWith("www.") ? `https://${m[0]}` : m[0]);
   const identityMatched = websites.some(website => researchDomain(website) === config.companyDomain);
+  // A profile listing a sibling domain (corex.net.au for corex.com.au) is probably the same company; keep it flagged for review.
+  const label = (domain: string) => domain.split(".")[0];
+  const alternate = identityMatched ? undefined : websites.map(researchDomain).find(domain => domain !== config.companyDomain && label(domain) === label(config.companyDomain!) && label(domain).length >= 4);
   const directory = researchDomain(source) === "datanyze.com" && /^\/companies\/[^/]+\/\d+\/?$/.test(new URL(source).pathname);
   // Any other third-party profile must name the company (or its website) in its
   // opening text or URL; single-word names need the website or legal entity.
   const thirdParty = !firstParty && !linkedIn && !directory && !/^(?:[a-z]{2,3}\.)?(?:facebook|instagram|twitter|x|youtube|tiktok|pinterest)\.com$/.test(new URL(source).hostname) && thirdPartyIdentity(text, source, config);
-  if (!firstParty && !((linkedIn || directory) && identityMatched) && !thirdParty) return null;
+  if (!firstParty && !((linkedIn || directory) && (identityMatched || alternate)) && !thirdParty) return null;
   if (firstParty && /\/(?:blog|post|case-stud|news|product\/|media\/)/i.test(new URL(source).pathname)) return null;
-  return { text, firstParty, linkedIn, directory, thirdParty };
+  return { text, firstParty, linkedIn, directory, thirdParty, alternateDomain: (linkedIn || directory) && !identityMatched ? alternate : undefined };
 }
 const normalizedName = (value: string) => value.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 function thirdPartyIdentity(text: string, source: string, config: ResearchConfig) {
@@ -63,7 +66,7 @@ function fact(kind: ResearchFinding["kind"], value: string, quote: string, confi
 export function observedCompanyFacts(markdown: string, source: string, config: ResearchConfig): ResearchFinding[] {
   const context = profileContext(markdown, source, config);
   if (!context) return [];
-  const { text, linkedIn, directory, firstParty, thirdParty } = context, out: ResearchFinding[] = [];
+  const { text, linkedIn, directory, firstParty, thirdParty, alternateDomain } = context, out: ResearchFinding[] = [];
   if (linkedIn) {
     const patterns = [
       ["headcount", /Company size\s+((?:\d[\d,]*\s*[-–]\s*)?\d[\d,]*\+?\s+employees)/i],
@@ -111,6 +114,7 @@ export function observedCompanyFacts(markdown: string, source: string, config: R
     sourceKind: directory || thirdParty ? "third_party_directory" as const : linkedIn ? "company_profile" as const : "company_website" as const,
     basis: directory || thirdParty ? "third_party_estimate" as const : "reported" as const,
     scope: f.kind === "company_relationship" ? "group" as const : "unspecified" as const,
+    identityNote: alternateDomain ? `Profile lists website ${alternateDomain}, not ${config.companyDomain}; confirm this is the same company` : null,
     period: null,
     currency: f.kind === "revenue" ? /(?:AUD|A\$)/.test(f.value) ? "AUD" : /(?:USD|US\$)/.test(f.value) ? "USD" : null : null,
   } })).filter(f => f.quote.length >= 8 && f.value.length >= 1 && (f.kind !== "founded_year" || Number(f.value) <= new Date().getUTCFullYear())).slice(0, 8);
@@ -135,7 +139,7 @@ export function modelHeadcountFinding(candidate: unknown, markdown: string, sour
   if (!count || quote.length < 8 || quote.length > 400 || !compact(context.text).includes(compact(quote))) return null;
   if (!digits.every(d => quote.includes(d)) || !/\b(?:employees?|staff|team members?|workforce|headcount|company size|people)\b/i.test(quote)) return null;
   if (/\b(?:followers?|by seniority|by department|c-level|non-managers|customers?|clients?|families)\b/i.test(quote)) return null;
-  return { ...fact("headcount", value, quote, config), factMetadata: { sourceKind: context.firstParty ? "company_website" : context.linkedIn ? "company_profile" : "third_party_directory", basis: context.firstParty || context.linkedIn ? "reported" : "third_party_estimate", scope: "unspecified", period: null, currency: null } };
+  return { ...fact("headcount", value, quote, config), factMetadata: { sourceKind: context.firstParty ? "company_website" : context.linkedIn ? "company_profile" : "third_party_directory", basis: context.firstParty || context.linkedIn ? "reported" : "third_party_estimate", scope: "unspecified", identityNote: context.alternateDomain ? `Profile lists website ${context.alternateDomain}, not ${config.companyDomain}; confirm this is the same company` : null, period: null, currency: null } };
 }
 export function headcountModelFindings(input: unknown, markdown: string, source: string, config: ResearchConfig) {
   const observed = observedCompanyFacts(markdown, source, config);

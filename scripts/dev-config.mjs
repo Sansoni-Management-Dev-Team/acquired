@@ -8,7 +8,7 @@ export function localDevConfig(environment, secret, port = 3010, workerPort = 87
       AI_PROVIDER: "openrouter-free", OUTREACH_DRAFTING_PROVIDER: "ai", AI_VERBOSE_LOGGING: "true", RESEARCH_ENABLED: "true",
       RESEARCH_WORKER_URL: `http://127.0.0.1:${workerPort}`, RESEARCH_SERVICE_SECRET: secret,
       APP_URL: `http://localhost:${port}`, NEXT_PUBLIC_APP_URL: `http://localhost:${port}` },
-    worker: { OPENROUTER_API_KEY: environment.OPENROUTER_API_KEY, LOCAL_CRAWL4AI_URL: "http://127.0.0.1:18083", SERVICE_SECRET: secret },
+    worker: { OPENROUTER_API_KEY: environment.OPENROUTER_API_KEY, LOCAL_CRAWL4AI_URL: "http://127.0.0.1:18083", LOCAL_SEARCH_URL: "http://127.0.0.1:7000", SERVICE_SECRET: secret },
     origin: `http://127.0.0.1:${port}`,
   };
 }

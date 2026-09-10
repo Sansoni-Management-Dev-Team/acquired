@@ -35,7 +35,7 @@ for (const p of [port, workerPort]) await new Promise((resolve, reject) => {
   server.once("error", () => reject(new Error(`Port ${p} is occupied. Stop the existing development server first.`)));
   server.listen(p, "127.0.0.1", () => server.close(resolve));
 });
-const docker = spawnSync("docker", ["--context", "orbstack", "compose", "-f", "compose.local.yml", "up", "-d", "--build", "--wait", "postgres", "crawl4ai"], { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
+const docker = spawnSync("docker", ["--context", "orbstack", "compose", "-f", "compose.local.yml", "up", "-d", "--build", "--wait", "postgres", "crawl4ai", "openserp"], { encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
 if (docker.stdout) process.stdout.write(docker.stdout);
 if (docker.stderr) process.stderr.write(docker.stderr);
 if (docker.status !== 0) throw new Error("Start OrbStack and retry pnpm dev");
@@ -74,7 +74,7 @@ function start(command, arguments_, env) {
   child.on("exit", code => stop(code ?? 1));
   return child;
 }
-console.info(`Local app: http://localhost:${port} · OrbStack Postgres :5434 · research worker :${workerPort} · local Crawl4AI :18083 · free models → Mercury fallback`);
+console.info(`Local app: http://localhost:${port} · OrbStack Postgres :5434 · research worker :${workerPort} · local Crawl4AI :18083 · OpenSERP search :7000 · free models → Mercury fallback`);
 start("pnpm", ["exec", "wrangler", "dev", "--local", "--config", resolve(directory, "wrangler.json"), "--ip", "127.0.0.1", "--port", String(workerPort), "--inspector-port", "0", "--persist-to", resolve(directory, "state"), "--show-interactive-dev-session=false"], { ...process.env, WRANGLER_SEND_METRICS: "false" });
 let ready = false;
 for (let i = 0; i < 60 && !stopping; i++) {

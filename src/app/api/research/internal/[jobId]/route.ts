@@ -1,6 +1,8 @@
 import { automaticCompanySearch } from "@/adapters/automatic-company-search";
 import { dispatchAutomaticEnrichment } from "@/lib/automatic-enrichment";
 import { targetedQueries, MAX_TARGETED_SEARCHES } from "@/domain/targeted-research";
+import { snippetSizeEstimates, isSearchSnippet } from "@/domain/snippet-estimates";
+import { researchDomain } from "@/domain/research";
 import { companyFactSearchQuery } from "@/domain/company-facts";
 import { mergePeopleSearchLeads, peopleFollowupQuery, cleanLegalEntity, type PeopleSearchLead } from "@/domain/people-search-results";
 import { dispatchContinuation } from "@/lib/research-continuation";
@@ -80,8 +82,8 @@ export async function POST(
     const field = config.purpose === "firmographics" ? "size" : "people";
     if (!config.targetedFollowup || !config.purpose || payload.field !== field || (field === "people" && config.maxPeopleSearches !== 2) || terminalResearchStates.includes(job.status)) return Response.json({ seeds: [], exhausted: true });
     const evidence = await requireDb().select().from(researchFindings).where(and(eq(researchFindings.jobId, job.id), eq(researchFindings.organizationId, job.organizationId)));
-    const facts = evidence.map(f=>f.evidence as {kind?:string;name?:string;value?:string});
-    if (facts.some(f=>field === "people" ? f.kind === "person" : f.kind === "headcount")) return Response.json({ seeds: [], exhausted: true });
+    const facts = evidence.map(f=>f.evidence as {kind?:string;name?:string;value?:string;factMetadata?:{basis?:string}});
+    if (facts.some(f=>field === "people" ? f.kind === "person" : f.kind === "headcount" && !isSearchSnippet(f))) return Response.json({ seeds: [], exhausted: true });
     const legalEntity = facts.find(f=>f.kind === "identifier" && f.name === "Legal entity")?.value || config.legalEntity;
     // Each query in the ladder runs once per job; a page read never consumes a search.
     const executed = config.targetedSearches || [];
@@ -100,9 +102,10 @@ export async function POST(
         return Response.json({seeds, query, exhausted});
       }
       const results = await cloudflareSearchResults(query, fetch, job.id);
+      const estimates = await repo.saveSnippetEstimates(job.id, snippetSizeEstimates(results, { ...config, legalEntity }));
       let seeds = results.filter(r=>companyResultMatches(r,config.companyName!,config.companyDomain!,legalEntity)).map(r=>r.url);
       if (!seeds.length && config.mode === "automatic" && !executed.length) seeds = await automaticCompanySearch({ ...config, legalEntity }, field, job.id);
-      console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), jobId: job.id, event: "targeted_search_executed", field, round: executed.length + 1, candidates: results.length, accepted: seeds.length, exhausted }));
+      console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), jobId: job.id, event: "targeted_search_executed", field, round: executed.length + 1, candidates: results.length, accepted: seeds.length, snippetEstimates: estimates, exhausted }));
       return Response.json({seeds, query, exhausted});
     } catch { return Response.json({seeds:[],warning:"Targeted search unavailable; existing evidence retained", exhausted}); }
   }
@@ -138,7 +141,7 @@ export async function POST(
     let warning = "";
     let peopleLeadCount = config.peopleSearchLeads?.length || 0;
     if (config.purpose === "firmographics" && config.discover && !config.targetedFollowup) {
-      try { seeds.push(...(await cloudflareSearchResults(companyFactSearchQuery(config.companyName!, config.companyDomain!), fetch, job.id)).filter(r => companyResultMatches(r, config.companyName!, config.companyDomain!, config.legalEntity)).map(r => r.url)); }
+      try { const profileResults = await cloudflareSearchResults(companyFactSearchQuery(config.companyName!, config.companyDomain!), fetch, job.id); await repo.saveSnippetEstimates(job.id, snippetSizeEstimates(profileResults, config)); seeds.push(...profileResults.filter(r => companyResultMatches(r, config.companyName!, config.companyDomain!, config.legalEntity)).map(r => r.url)); }
       catch { warning = "Public profile search unavailable; company website research continues."; }
     } else if (config.purpose === "people" && config.discover) {
       try {
@@ -183,6 +186,10 @@ export async function POST(
           job.organizationId,
         );
         const acquisition = new AcquisitionRepository(job.organizationId);
+        // Businesses already attached to the mandate are enriched separately; discovery skips their websites.
+        const skipDomains = [...new Set((await acquisition.memberships(job.mandateId)).flatMap(m => m.target.domain ? [m.target.domain.toLowerCase().replace(/^www\./, "")] : []))];
+        if (skipDomains.length) await requireDb().update(researchJobs).set({ config: sql`jsonb_set(${researchJobs.config}, '{skipDomains}', ${JSON.stringify(skipDomains)}::jsonb)` }).where(eq(researchJobs.id, jobId));
+        seeds = seeds.filter(url => !skipDomains.includes(researchDomain(url)));
         // Prefer exact directory searches for separate capabilities; existing company identities are reused.
         for (const target of discovery.targets.slice(0, 100)) {
           const latest = (await repo.get(jobId))?.config as ResearchConfig | undefined;
@@ -210,7 +217,8 @@ export async function POST(
     }
     const afterDiscovery = (await repo.get(jobId))?.config as ResearchConfig | undefined;
     if (config.workflow === "business" && config.discover && (!config.targetBusinesses || new Set(afterDiscovery?.newBusinessIds || []).size < config.targetBusinesses)) {
-      try { const web = await businessWebSeeds(config.searchTerms, config.geography, fetch, job.id); seeds = Array.from({ length: Math.max(seeds.length, web.seeds.length) }, (_, i) => [seeds[i], web.seeds[i]].filter((url): url is string => Boolean(url))).flat(); if (web.warning) warning = [warning, web.warning].filter(Boolean).join(" "); }
+      const skip = new Set(afterDiscovery?.skipDomains || []);
+      try { const web = await businessWebSeeds(config.searchTerms, config.geography, fetch, job.id); web.seeds = web.seeds.filter(url => !skip.has(researchDomain(url))); seeds = Array.from({ length: Math.max(seeds.length, web.seeds.length) }, (_, i) => [seeds[i], web.seeds[i]].filter((url): url is string => Boolean(url))).flat(); if (web.warning) warning = [warning, web.warning].filter(Boolean).join(" "); }
       catch { warning = [warning, "Public web discovery unavailable; directory and supplied websites retained."].filter(Boolean).join(" "); }
     }
     seeds = [...new Set(seeds)].slice(0, 100);

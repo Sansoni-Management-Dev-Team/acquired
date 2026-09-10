@@ -18,6 +18,7 @@ import {
 } from "./schema";
 import {
   type ResearchConfig,
+  type ResearchFinding,
   progressSchema,
   terminalResearchStates,
   validateFindings,
@@ -132,6 +133,21 @@ export class ResearchRepository {
         "Another research job is active. Wait for it to finish or cancel it.",
       );
     return job;
+  }
+  // Search-snippet estimates come from result text, not a read page; they are saved
+  // against the target at low confidence and never satisfy a missing-field check.
+  async saveSnippetEstimates(id: string, estimates: (ResearchFinding & { sourceUrl: string })[]) {
+    const job = await this.get(id);
+    if (!job) return 0;
+    const config = job.config as ResearchConfig;
+    if (!config.targetId) return 0;
+    let saved = 0;
+    for (const { sourceUrl, ...evidence } of estimates) {
+      const evidenceKey = createHash("sha256").update(JSON.stringify([sourceUrl, evidence.kind, evidence.name, evidence.value, evidence.quote])).digest("hex");
+      const result = await this.db.insert(researchFindings).values({ jobId: id, organizationId: this.org, mandateId: job.mandateId, targetId: config.targetId, evidenceKey, sourceUrl, observedAt: new Date(), evidence: { ...evidence, source: "Search result snippet — unverified estimate", status: "unverified", truncated: false }, confidence: 0.2 }).onConflictDoNothing().returning({ id: researchFindings.id });
+      saved += result.length;
+    }
+    return saved;
   }
   async recoverStopped(id: string, revision: number, pages: number) {
     await this.db.update(researchJobs).set({ status: pages ? "partial" : "failed", message: "Worker stopped unexpectedly; saved evidence retained. Start a new run or continue remaining URLs.", updatedAt: new Date() }).where(and(eq(researchJobs.id, id), eq(researchJobs.organizationId, this.org), eq(researchJobs.revision, revision), notInArray(researchJobs.status, terminalResearchStates)));
@@ -283,7 +299,7 @@ export class ResearchRepository {
               status: "unverified",
               truncated: event.page.truncated,
             },
-            confidence: evidence.factMetadata?.basis === "third_party_estimate" ? 0.3 : 0.5,
+            confidence: evidence.factMetadata?.basis === "search_snippet" ? 0.2 : evidence.factMetadata?.identityNote ? 0.2 : evidence.factMetadata?.basis === "third_party_estimate" ? 0.3 : 0.5,
           })
           .onConflictDoNothing();
       }

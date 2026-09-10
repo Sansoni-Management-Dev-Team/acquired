@@ -91,7 +91,7 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
   </div>{reviewId && data.memberships.find(m => m.target.id === reviewId) && <CompanyReviewPanel key={reviewId} mandate={data.mandate} initial={data.memberships.find(m => m.target.id === reviewId)!} position={`Company ${reviewQueue.indexOf(reviewId) + 1} of ${reviewQueue.length}`} onClose={() => setReviewId(null)} onChanged={async () => setData(await jsonRequest(`/api/mandates/${id}`))} onNext={reviewQueue.indexOf(reviewId) < reviewQueue.length - 1 ? () => setReviewId(reviewQueue[reviewQueue.indexOf(reviewId) + 1]) : undefined} />}</>;
 }
 function EvidenceChips({ summary }: { summary?: EvidenceCounts }) {
-  const state = summary || { searches: 0, researching: false };
+  const state = summary || { searches: 0, researching: false, snippetEstimates: 0 };
   return <p className="mt-1 text-xs text-[var(--muted)]">Size: {evidenceLabel(summary?.headcount || 0, state, summary?.conflicts.includes("headcount"))} · Decision-maker: {evidenceLabel(summary?.person || 0, state)}</p>;
 }
 function CoveragePanel({ data }: { data: WorkspaceData }) {

@@ -1,4 +1,5 @@
 import { localRead } from "./local-reader";
+import { localSearch } from "./local-search";
 import { providerJsonRequest } from "../../src/adapters/observability/provider-request";
 import { researchExtractionRequest } from "../../src/domain/research-extraction-schema";
 import { FreeOpenRouter } from "../../src/adapters/ai/free-openrouter";
@@ -29,6 +30,7 @@ interface Env {
   CF_ACCOUNT_ID?: string;
   CF_BROWSER_TOKEN?: string;
   LOCAL_CRAWL4AI_URL?: string;
+  LOCAL_SEARCH_URL?: string;
   CRAWL4AI_URL?: string;
   CRAWL4AI_SECRET?: string;
 }
@@ -250,6 +252,15 @@ const worker = {
         return Response.json({ error: "Invalid search" }, { status: 400 });
       try {
         if (env.LOCAL_DEVELOPMENT === "true") {
+          const ids = {
+            requestId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-request-id") || "") ? request.headers.get("x-research-request-id")! : undefined,
+            jobId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-job-id") || "") ? request.headers.get("x-research-job-id")! : undefined,
+          };
+          // OpenSERP returns full snippets; fall back to the rendered HTML endpoint when it is unavailable.
+          try {
+            const local = await localSearch(env, body.query, ids);
+            if (local) return Response.json({ seeds: local.map(r => r.url).slice(0, 6), results: local });
+          } catch (error) { console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), ...ids, event: "local_search_fallback", reason: error instanceof Error ? error.message.slice(0, 120) : "unknown" })); }
           const result = await localRead(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(body.query)}`, {
             operation: "web_search",
             requestId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-request-id") || "") ? request.headers.get("x-research-request-id")! : undefined,
