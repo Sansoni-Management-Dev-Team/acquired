@@ -85,7 +85,11 @@ async function browser(env: Env, path: string, method = "GET", body?: unknown, b
 async function readMarkdown(env: Env, url: string, budget: { used: number; jobId?: string }, fallback = false) {
   if (!publicResearchUrl(url)) throw new Error("Unsupported URL");
   budget.used++;
-  if (env.LOCAL_DEVELOPMENT === "true") return localRead(env, url, { jobId: budget.jobId });
+  if (env.LOCAL_DEVELOPMENT === "true") {
+    // The local reader is shared by concurrent jobs; a transient failure gets one retry.
+    try { return await localRead(env, url, { jobId: budget.jobId }); }
+    catch { await new Promise(resolve => setTimeout(resolve, 4000)); return localRead(env, url, { jobId: budget.jobId }); }
+  }
   const { response, data } = await providerJsonRequest<{ success?: boolean; result?: unknown }>(fetch, `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/markdown`, {
     method: "POST", headers: { authorization: `Bearer ${env.CF_BROWSER_TOKEN}`, "Content-Type": "application/json" },
     body: JSON.stringify({ url, gotoOptions: { waitUntil: fallback ? "domcontentloaded" : "networkidle2", timeout: fallback ? 20000 : 25000 } }),
@@ -247,9 +251,12 @@ const worker = {
     if (!(await authorized(request, env.SERVICE_SECRET)))
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     if (new URL(request.url).pathname === "/search" && request.method === "POST") {
-      const body = await request.json().catch(() => null) as { query?: unknown } | null;
+      const body = await request.json().catch(() => null) as { query?: unknown; page?: unknown } | null;
       if (typeof body?.query !== "string" || body.query.trim().length < 2 || body.query.length > 500)
         return Response.json({ error: "Invalid search" }, { status: 400 });
+      // Deeper result pages are available from the local search container only.
+      const page = typeof body.page === "number" && Number.isInteger(body.page) && body.page >= 1 && body.page <= 3 ? body.page : 1;
+      if (page > 1 && env.LOCAL_DEVELOPMENT !== "true") return Response.json({ seeds: [], results: [] });
       try {
         if (env.LOCAL_DEVELOPMENT === "true") {
           const ids = {
@@ -258,7 +265,7 @@ const worker = {
           };
           // OpenSERP returns full snippets; fall back to the rendered HTML endpoint when it is unavailable.
           try {
-            const local = await localSearch(env, body.query, ids);
+            const local = await localSearch(env, body.query, { ...ids, start: (page - 1) * 10 });
             if (local) return Response.json({ seeds: local.map(r => r.url).slice(0, 6), results: local });
           } catch (error) { console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), ...ids, event: "local_search_fallback", reason: error instanceof Error ? error.message.slice(0, 120) : "unknown" })); }
           const result = await localRead(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(body.query)}`, {

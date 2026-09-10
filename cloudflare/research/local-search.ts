@@ -31,13 +31,21 @@ export function normaliseLocalSearch(payload: unknown): WebSearchResult[] {
   return [...results.values()].slice(0, 12);
 }
 
-export async function localSearch(env: LocalSearchEnv, query: string, context: { jobId?: string; requestId?: string } = {}, fetcher: typeof fetch = fetch): Promise<WebSearchResult[] | null> {
-  const endpoint = localSearchEndpoint(env);
-  if (!endpoint) return null;
-  const url = new URL(endpoint);
-  url.searchParams.set("text", query);
-  url.searchParams.set("limit", "10");
-  const { response, data } = await providerJsonRequest<unknown>(fetcher, url.href, { method: "GET", signal: AbortSignal.timeout(45000) }, { provider: "local-openserp", operation: "web_search", jobId: context.jobId, requestId: context.requestId });
-  if (!response.ok) throw new Error(`Local search unavailable (${response.status})`);
-  return normaliseLocalSearch(data);
+export async function localSearch(env: LocalSearchEnv, query: string, context: { jobId?: string; requestId?: string; start?: number } = {}, fetcher: typeof fetch = fetch): Promise<WebSearchResult[] | null> {
+  if (!localSearchEndpoint(env)) return null;
+  // DuckDuckGo first; when its headless session times out, Google answers the same query more slowly.
+  let lastError: unknown;
+  for (const engine of ["duckduckgo", "google"]) {
+    const url = new URL(localSearchEndpoint(env, engine)!);
+    url.searchParams.set("text", query);
+    url.searchParams.set("limit", "10");
+    if (context.start) url.searchParams.set("start", String(context.start));
+    try {
+      const { response, data } = await providerJsonRequest<unknown>(fetcher, url.href, { method: "GET", signal: AbortSignal.timeout(45000) }, { provider: "local-openserp", operation: `web_search_${engine}`, jobId: context.jobId, requestId: context.requestId });
+      if (!response.ok) throw new Error(`Local search unavailable (${response.status})`);
+      const results = normaliseLocalSearch(data);
+      if (results.length || engine === "google") return results;
+    } catch (error) { lastError = error; }
+  }
+  throw lastError instanceof Error ? lastError : new Error("Local search unavailable");
 }
