@@ -153,7 +153,10 @@ export class AcquireResearch extends WorkflowEntrypoint<
           console.info("research-progress", JSON.stringify({ timestamp: new Date().toISOString(), jobId: id, status: event.status, revision: event.revision, pages: event.pages, modelCalls: event.modelCalls, savedPageFindings: event.page?.findings.length, remainingUrls: event.runtime?.remaining.length }));
         },
         readPeoplePage: (url) => readMarkdown(this.env, url, requestBudget),
-        ...(this.env.LOCAL_DEVELOPMENT === "true" ? { readPage: (url: string) => readMarkdown(this.env, url, requestBudget) } : {}),
+        // Every page read is one synchronous request. The asynchronous crawl job needed a submit
+        // plus repeated polls, and a queued crawl could consume an instance's whole request budget
+        // before its first page arrived; the crawl path remains only as the fallback below.
+        readPage: (url: string) => readMarkdown(this.env, url, requestBudget),
         ...(this.env.LOCAL_DEVELOPMENT !== "true" && this.env.CRAWL4AI_URL ? { readFallbackPage: async (url: string) => {
           requestBudget.used++;
           return readFallback(url, this.env.CRAWL4AI_URL!, this.env.CRAWL4AI_SECRET || "");
