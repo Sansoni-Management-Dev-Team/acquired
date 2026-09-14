@@ -1,3 +1,6 @@
+import { browserMarkdown } from "./browser-reader";
+import { cachedPage } from "./page-cache";
+import { providerFailure } from "../../src/domain/research-provider-error";
 import { localRead } from "./local-reader";
 import { localSearch } from "./local-search";
 import { providerJsonRequest } from "../../src/adapters/observability/provider-request";
@@ -58,7 +61,7 @@ async function callback(env: Env, id: string, body?: unknown, budget?: { used: n
       "Content-Type": "application/json",
     },
     body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(55000),
+    signal: AbortSignal.timeout((body as { action?: string } | undefined)?.action === "browser-permit" ? 5000 : body ? 55000 : 10000),
   });
   if (!r.ok) throw new Error(`Callback failed (${r.status})`);
   return r.json();
@@ -84,19 +87,17 @@ async function browser(env: Env, path: string, method = "GET", body?: unknown, b
 }
 async function readMarkdown(env: Env, url: string, budget: { used: number; jobId?: string }, fallback = false) {
   if (!publicResearchUrl(url)) throw new Error("Unsupported URL");
-  budget.used++;
   if (env.LOCAL_DEVELOPMENT === "true") {
     // The local reader is shared by concurrent jobs; a transient failure gets one retry.
     try { return await localRead(env, url, { jobId: budget.jobId }); }
     catch { await new Promise(resolve => setTimeout(resolve, 4000)); return localRead(env, url, { jobId: budget.jobId }); }
   }
-  const { response, data } = await providerJsonRequest<{ success?: boolean; result?: unknown }>(fetch, `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/markdown`, {
-    method: "POST", headers: { authorization: `Bearer ${env.CF_BROWSER_TOKEN}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ url, gotoOptions: { waitUntil: fallback ? "domcontentloaded" : "networkidle2", timeout: fallback ? 20000 : 25000 } }),
-    signal: AbortSignal.timeout(fallback ? 25000 : 40000),
-  }, { provider: "cloudflare-browser", operation: fallback ? "markdown_fallback" : "markdown", jobId: budget.jobId });
-  if (!response.ok || !data.success || typeof data.result !== "string") throw new Error(`Page reader unavailable (${response.status})`);
-  return { status: "completed", page: { url, markdown: data.result.slice(0, 30000) } };
+  const markdown = await browserMarkdown(env, url, {
+    jobId: budget.jobId, operation: fallback ? "markdown_fallback" : "markdown",
+    onRequest: () => { budget.used++; },
+    permit: () => callback(env, budget.jobId!, { action: "browser-permit" }) as Promise<{ granted: boolean; retryAfterMs: number }>,
+  });
+  return { status: "completed", page: { url, markdown: markdown.slice(0, 30000), observedAt: new Date().toISOString() } };
 }
 export class AcquireResearch extends WorkflowEntrypoint<
   Env,
@@ -128,7 +129,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
                 delay: "12 seconds",
                 backoff: "exponential",
               },
-              timeout: "60 seconds",
+              timeout: "120 seconds",
             },
             async () => JSON.stringify(await run()) ?? "null",
           );
@@ -156,7 +157,11 @@ export class AcquireResearch extends WorkflowEntrypoint<
         // Every page read is one synchronous request. The asynchronous crawl job needed a submit
         // plus repeated polls, and a queued crawl could consume an instance's whole request budget
         // before its first page arrived; the crawl path remains only as the fallback below.
-        readPage: (url: string) => readMarkdown(this.env, url, requestBudget),
+        readPage: async (url: string) => {
+          const state = await callback(this.env, id, undefined, requestBudget) as ResearchControl;
+          const read = () => readMarkdown(this.env, url, requestBudget);
+          return this.env.LOCAL_DEVELOPMENT === "true" ? read() : cachedPage(caches.default, state.config.researchRunId || id, url, read);
+        },
         ...(this.env.LOCAL_DEVELOPMENT !== "true" && this.env.CRAWL4AI_URL ? { readFallbackPage: async (url: string) => {
           requestBudget.used++;
           return readFallback(url, this.env.CRAWL4AI_URL!, this.env.CRAWL4AI_SECRET || "");
@@ -259,7 +264,7 @@ const worker = {
         return Response.json({ error: "Invalid search" }, { status: 400 });
       // Deeper result pages are available from the local search container only.
       const page = typeof body.page === "number" && Number.isInteger(body.page) && body.page >= 1 && body.page <= 3 ? body.page : 1;
-      if (page > 1 && env.LOCAL_DEVELOPMENT !== "true") return Response.json({ seeds: [], results: [] });
+      if ((page > 1 || body.engine && body.engine !== "duckduckgo") && env.LOCAL_DEVELOPMENT !== "true") return Response.json({ error: "Production search supports DuckDuckGo page 1 only", category: "unsupported_search" }, { status: 422 });
       try {
         if (env.LOCAL_DEVELOPMENT === "true") {
           const ids = {
@@ -271,6 +276,7 @@ const worker = {
             const local = await localSearch(env, body.query, { ...ids, start: (page - 1) * 10, engine: body.engine === "google" ? "google" : undefined });
             if (local) return Response.json({ seeds: local.map(r => r.url).slice(0, 6), results: local });
           } catch (error) { console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), ...ids, event: "local_search_fallback", reason: error instanceof Error ? error.message.slice(0, 120) : "unknown" })); }
+          if (page > 1 || body.engine === "google") return Response.json({ error: "Requested search backend unavailable", category: "unsupported_search" }, { status: 502 });
           const result = await localRead(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(body.query)}`, {
             operation: "web_search",
             requestId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-request-id") || "") ? request.headers.get("x-research-request-id")! : undefined,
@@ -280,18 +286,17 @@ const worker = {
           if (!results.length && !/no results found|no more results/i.test(result.page.markdown)) return Response.json({ error: "Local search could not be read" }, { status: 502 });
           return Response.json({ seeds: results.map(r => r.url).slice(0, 6), results });
         }
-        const { response, data } = await providerJsonRequest<{ success?: boolean; result?: unknown }>(fetch, `https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/markdown`, {
-          method: "POST", headers: { authorization: `Bearer ${env.CF_BROWSER_TOKEN}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ url: `https://html.duckduckgo.com/html/?q=${encodeURIComponent(body.query)}`, gotoOptions: { waitUntil: "domcontentloaded", timeout: 20000 } }),
-          signal: AbortSignal.timeout(40000),
-        }, { provider: "cloudflare-browser", operation: "web_search", jobId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-job-id") || "") ? request.headers.get("x-research-job-id")! : undefined, requestId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-request-id") || "") ? request.headers.get("x-research-request-id")! : undefined });
-        if (!response.ok || !data.success) return Response.json({ error: "Public search unavailable" }, { status: response.status === 429 ? 429 : 502 });
-        if (typeof data.result !== "string") throw new Error("Search unavailable");
-        const results = searchResults(data.result);
+        const jobId = request.headers.get("x-research-job-id") || "";
+        if (!/^[0-9a-f-]{36}$/i.test(jobId)) return Response.json({ error: "A research job is required for rate-controlled search" }, { status: 400 });
+        const markdown = await browserMarkdown(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(body.query)}`, {
+          jobId, operation: "web_search",
+          permit: () => callback(env, jobId, { action: "browser-permit" }) as Promise<{ granted: boolean; retryAfterMs: number }>,
+        });
+        const results = searchResults(markdown);
         const seeds = results.map(r => r.url).slice(0, 6);
-        if (!seeds.length && !/no results found|no more results/i.test(data.result)) throw new Error("Search could not be read");
+        if (!seeds.length && !/no results found|no more results/i.test(markdown)) throw new Error("Search could not be read");
         return Response.json({ seeds, results });
-      } catch { return Response.json({ error: "Public search unavailable" }, { status: 502 }); }
+      } catch (error) { const failure = providerFailure(error); return Response.json({ error: failure.message, category: failure.category }, { status: failure.status >= 400 ? failure.status : 502 }); }
     }
     const match = new URL(request.url).pathname.match(
       /^\/jobs\/([0-9a-f-]{36})$/i,

@@ -6,6 +6,40 @@ import {
 } from "./research-runner";
 import type { ResearchConfig } from "./research";
 import { ResearchAiError } from "./research-ai-error";
+it('finds revenue after headcount and completes only when both objectives have evidence', async () => {
+  const t = setup();
+  Object.assign(t.config, { mode: 'automatic', purpose: 'firmographics', targetedFollowup: true, companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
+  t.config.budget = { maxPages: 5, maxDomains: 2, maxMinutes: 10, maxModelCalls: 0 };
+  t.service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: url.endsWith('/financials') ? '# Example Instruments\nOur annual revenue is AUD 12 million.' : '# Example Instruments\nWe employ 50 employees.' } }));
+  t.service.targetedSearch = vi.fn(async () => ({ seeds: ['https://instruments.example.com/financials'], exhausted: true }));
+  await runResearch(t.step, t.service);
+  expect(t.service.targetedSearch).toHaveBeenCalledWith('revenue', 1);
+  expect(t.service.readPage).toHaveBeenCalledTimes(2);
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'complete', pages: 2 });
+  expect(t.progress.mock.calls.flatMap(([event]) => event.page?.findings || []).some(f => f.kind === 'revenue' && f.factMetadata?.currency === 'AUD')).toBe(true);
+});
+it('searches for a published email after finding a director without rereading the team page', async () => {
+  const t = setup();
+  Object.assign(t.config, { mode: 'automatic', purpose: 'people', targetedFollowup: true, maxPeopleSearches: 2, companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
+  t.config.budget = { maxPages: 5, maxDomains: 2, maxMinutes: 10, maxModelCalls: 0 };
+  t.service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: '# Our team\n#### Alex Example\n##### Managing Director' + (url.endsWith('/contact') ? '\nalex@instruments.example.com' : '') } }));
+  t.service.targetedSearch = vi.fn(async () => ({ seeds: ['https://instruments.example.com/contact', ...t.config.seeds], exhausted: true }));
+  await runResearch(t.step, t.service);
+  expect(t.service.targetedSearch).toHaveBeenCalledWith('email', 1);
+  expect(t.service.readPage).toHaveBeenCalledTimes(2);
+  expect(t.progress.mock.calls.at(-1)?.[0].status).toBe('complete');
+  expect(t.progress.mock.calls.flatMap(([event]) => event.page?.findings || []).some(f => f.email === 'alex@instruments.example.com')).toBe(true);
+});
+it('keeps the same objective active after a transient search failure', async () => {
+  const t = setup();
+  Object.assign(t.config, { purpose: 'firmographics', targetedFollowup: true, companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
+  t.config.budget = { maxPages: 5, maxDomains: 2, maxMinutes: 10, maxModelCalls: 0 };
+  t.service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: '# Example Instruments\nWe employ 50 employees.' } }));
+  t.service.targetedSearch = vi.fn().mockResolvedValueOnce({ seeds: [], failed: true, warning: 'Temporary provider failure' }).mockResolvedValue({ seeds: [], exhausted: true });
+  await runResearch(t.step, t.service);
+  expect(vi.mocked(t.service.targetedSearch).mock.calls.map(([field]) => field)).toEqual(['revenue', 'revenue']);
+  expect(t.progress.mock.calls.at(-1)?.[0].message).toContain('revenue remains unknown');
+});
 function setup() {
   const config: ResearchConfig = {
     seeds: ["https://instruments.example.com/"],
@@ -360,7 +394,8 @@ it("runs one bounded missing-field follow-up and retains direct team evidence wi
  vi.mocked(t.service.extract).mockResolvedValue([]);
  vi.mocked(t.service.poll).mockImplementation(async()=>({status:"completed",page:{url:t.progress.mock.calls.at(-1)?.[0].runtime?.attempts.at(-1)?.url||t.config.seeds[0],markdown:t.progress.mock.calls.at(-1)?.[0].runtime?.attempts.at(-1)?.url.endsWith('/team')?"# Our team\n#### Alex Example\n##### CEO":"Example Instruments builds precision sensors for industry."}}));
  await runResearch(t.step,t.service);
- expect(t.service.planFollowup).toHaveBeenCalledOnce();expect(t.service.targetedSearch).toHaveBeenCalledOnce();
+ expect(t.service.planFollowup).toHaveBeenCalledOnce();
+ expect(vi.mocked(t.service.targetedSearch).mock.calls.map(([field]) => field)).toEqual(["people", "email", "email"]);
  expect(t.progress.mock.calls.at(-1)?.[0].modelCalls).toBeLessThanOrEqual(2);
  expect(t.progress.mock.calls.some(([e])=>e.page?.findings.some(f=>f.name==="Alex Example"))).toBe(true);
 });
@@ -378,7 +413,7 @@ it("retains the predefined search when the AI planner quota is exhausted",async(
  t.service.targetedSearch=vi.fn(async()=>({seeds:[]}));
  await runResearch(t.step,t.service);
  expect(t.service.planFollowup).toHaveBeenCalledOnce();expect(t.service.targetedSearch).toHaveBeenCalled();
- expect(vi.mocked(t.service.targetedSearch).mock.calls.length).toBeLessThanOrEqual(5);
+ expect(vi.mocked(t.service.targetedSearch).mock.calls.length).toBeLessThanOrEqual(8);
  expect(t.progress.mock.calls.at(-1)?.[0].message).toContain("predefined company follow-up");
 });
 
@@ -448,13 +483,13 @@ it("honours the planner stop action and retains unread sources", async () => {
   expect(t.progress.mock.calls.at(-1)?.[0].message).toContain("No useful targeted follow-up selected");
 });
 
-it("stops automatic company detail research once a supported headcount is found", async () => {
+it("continues automatic company detail research when headcount is found but revenue is missing", async () => {
   const t = setup();
   Object.assign(t.config, { mode: "automatic", purpose: "firmographics", companyName: "Example Instruments", companyDomain: "instruments.example.com" });
   t.config.budget.maxPages = 12;
   vi.mocked(t.service.poll).mockResolvedValue({ status: "completed", page: { url: t.config.seeds[0], markdown: "Example Instruments makes sensors. We employ 50 employees. [About](/about) [Contact](/contact)" } });
   await runResearch(t.step, t.service);
-  expect(t.service.poll).toHaveBeenCalledOnce();
+  expect(t.service.poll).toHaveBeenCalledTimes(3);
   expect(t.progress.mock.calls.find(([e]) => e.page)?.[0].page?.findings.some(f => f.kind === "headcount")).toBe(true);
 });
 
@@ -475,12 +510,12 @@ it("keeps searching for a missing headcount after reading team pages, capturing 
   await runResearch(t.step, t.service);
   expect(t.service.planFollowup).toHaveBeenCalledOnce();
   // Choosing to read did not consume the search; searching continued until evidence appeared.
-  expect(t.service.targetedSearch).toHaveBeenCalledTimes(2);
+  expect(t.service.targetedSearch).toHaveBeenCalledTimes(3);
   const saved = t.progress.mock.calls.flatMap(([e]) => e.page?.findings || []);
   expect(saved.some(f => f.kind === "headcount" && f.value === "98")).toBe(true);
   expect(saved.filter(f => f.kind === "person").map(f => [f.name, f.email])).toEqual([["Jane Citizen", undefined], ["Alex Example", "alexe@caskets.example.com"]]);
-  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: "complete" });
-  expect(t.progress.mock.calls.at(-1)?.[0].message).toContain("headcount found");
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: "partial" });
+  expect(t.progress.mock.calls.at(-1)?.[0].message).toContain("revenue remains unknown");
 });
 
 it("stops the follow-up loop once the search ladder is exhausted and reports the field as unknown", async () => {
@@ -491,9 +526,9 @@ it("stops the follow-up loop once the search ladder is exhausted and reports the
   t.service.planFollowup = vi.fn(async () => ({ choice: "stop" }));
   t.service.targetedSearch = vi.fn(async (_field, round) => ({ seeds: [], exhausted: round >= 3 }));
   await runResearch(t.step, t.service);
-  expect(t.service.targetedSearch).toHaveBeenCalledTimes(3);
+  expect(t.service.targetedSearch).toHaveBeenCalledTimes(4);
   expect(vi.mocked(t.service.readPage).mock.calls.length).toBeLessThanOrEqual(3);
-  expect(t.progress.mock.calls.at(-1)?.[0].message).toContain("Headcount remains unknown");
+  expect(t.progress.mock.calls.at(-1)?.[0].message).toContain("headcount remains unknown");
 });
 
 it("asks the model to locate a headcount on an identity-matched profile that has no labelled count, and keeps only a verbatim statement", async () => {
@@ -507,7 +542,7 @@ it("asks the model to locate a headcount on an identity-matched profile that has
   expect(t.service.extractHeadcount).toHaveBeenCalledOnce();
   const saved = t.progress.mock.calls.flatMap(([e]) => e.page?.findings || []);
   expect(saved.find(f => f.kind === "headcount")).toMatchObject({ value: "35 staff", factMetadata: { basis: "third_party_estimate" } });
-  expect(t.progress.mock.calls.at(-1)?.[0].status).toBe("complete");
+  expect(t.progress.mock.calls.at(-1)?.[0].status).toBe("partial");
   // An invented statement is discarded and the loop continues.
   const u = setup();
   Object.assign(u.config, { purpose: "firmographics", targetedFollowup: true, companyName: "Example Caskets", companyDomain: "caskets.example.com", seeds: ["https://profiles.example.net/company/example-caskets"] });

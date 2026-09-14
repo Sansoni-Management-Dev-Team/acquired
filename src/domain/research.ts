@@ -62,7 +62,7 @@ export const researchStartSchema = z.object({
         .transform((v) => publicResearchUrl(v)!),
     )
     .max(10),
-  searchTerms: z.array(z.string().trim().min(2).max(160)).min(1).max(3),
+  searchTerms: z.array(z.string().trim().min(2).max(160)).min(1).max(6),
   geography: z.string().trim().min(2).max(160),
   discover: z.boolean().default(true),
   strategy: z.enum(["discover", "investigate"]).optional(),
@@ -158,7 +158,7 @@ export function continueResearchConfig(
 export type ResearchConfig = Omit<
   z.infer<typeof researchStartSchema>,
   "requestId" | "continueFrom"
-> & { executionSlot?: number; researchRunId?: string; automaticPageLimit?: number; automaticPagesUsed?: number; automaticDeadline?: number; newBusinessIds?: string[]; businessTargetStartedAt?: string; targetedFollowup?: boolean; targetedSearches?: string[]; skipDomains?: string[]; companyLocation?: string; discoveryCursor?: number; autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
+> & { executionSlot?: number; researchRunId?: string; automaticPageLimit?: number; automaticPagesUsed?: number; automaticDeadline?: number; newBusinessIds?: string[]; businessTargetStartedAt?: string; targetedFollowup?: boolean; targetedSearches?: string[]; targetedSearchAttempts?: import("./research-objectives").SearchAttempt[]; skipDomains?: string[]; companyLocation?: string; discoveryCursor?: number; discoveryPending?: boolean; discoveryAttempts?: { query: string; status: "succeeded" | "failed"; category?: string }[]; autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
 export const findingSchema = z.object({
   kind: z.enum([
     "company",

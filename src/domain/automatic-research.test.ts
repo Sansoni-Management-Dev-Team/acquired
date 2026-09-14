@@ -4,6 +4,10 @@ import type { ResearchConfig } from './research';
 const base: ResearchConfig = { mode: 'automatic', workflow: 'business', targetBusinesses: 20, findPeople: true, seeds: [], searchTerms: ['sensors'], geography: 'Australia', approved: true, discover: true, budget: { maxPages: 3, maxDomains: 3, maxModelCalls: 3, maxMinutes: 10 } };
 const runtime = { remaining: ['https://next.example.com/'], visited: ['https://done.example.com/'], attempts: [{ url: 'https://done.example.com/', status: 'read' as const, reason: 'Read' }] };
 describe('automatic research', () => {
+  it('continues unsearched target types even when the first batch has no seeds', () => {
+    const config = { ...automaticResearchConfig(base), discoveryCursor: 6, discoveryPending: true, runtime: { remaining: [], visited: [], attempts: [] } };
+    expect(automaticBatch({ id: 'root', status: 'partial', config })).toMatchObject({ discover: true, discoveryCursor: 6, discoveryPending: true });
+  });
   it('sizes enrichment for the target rather than only two companies', () => {
     const config = automaticResearchConfig(base);
     expect(config.companyBudget).toEqual({ maxCompanies: 20, maxPages: 12 });

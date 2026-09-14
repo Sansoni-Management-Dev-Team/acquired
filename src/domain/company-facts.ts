@@ -97,6 +97,8 @@ export function observedCompanyFacts(markdown: string, source: string, config: R
     for (const match of text.matchAll(workforce)) if (parseHeadcount(match[1])) out.push(fact("headcount", match[1], match[0], config));
     const founded = text.match(new RegExp(`\\b${subject}\\s+(?:was|were)\\s+(?:founded|established)\\s+in\\s+((?:18|19|20)\\d{2})\\b`));
     if (founded) out.push(fact("founded_year", founded[1], founded[0], config));
+    const revenue = text.match(/\b(?:Our|We reported|We recorded)\s+(?:annual\s+)?(?:revenue|turnover)(?:\s+(?:is|was|of))?\s+((?:AUD|USD|A\$|US\$|\$)\s*\d[\d,.]*(?:\s*(?:million|billion|[KMB]))?)(?=\s|[.,;]|$)/i);
+    if (revenue) out.push(fact("revenue", revenue[1], revenue[0], config));
   }
   if (firstParty) {
     // Only literal own-site group statements; preserve ambiguity for review, never merge entities.

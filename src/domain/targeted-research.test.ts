@@ -8,8 +8,8 @@ it("offers only missing-field actions, discovered useful pages and available sea
  expect(resolveTargetedChoice({choice:"read_99",url:"https://evil.example.com"},plan).kind).toBe("stop");
  expect(resolveTargetedChoice({choice:"read_0"},plan)).toMatchObject({url:"https://instruments.example.com/team"});
  expect(targetedPlan({...config,maxPeopleSearches:1},[],[],[])).toBeNull();
- expect(targetedPlan(config,[{kind:"person"} as ResearchFinding],[],[])).toBeNull();
- expect(targetedPlan({...config,purpose:"firmographics"},[{kind:"headcount"} as ResearchFinding],[],[])).toBeNull();
+ expect(targetedPlan(config,[{kind:"person"} as ResearchFinding],[],[])?.actions).toContainEqual({id:"search_email",kind:"search",field:"email"});
+ expect(targetedPlan({...config,purpose:"firmographics"},[{kind:"headcount"} as ResearchFinding],[],[])?.actions).toContainEqual({id:"search_revenue",kind:"search",field:"revenue"});
 });
 it("anchors queries in company identity and only uses supplied legal operators",()=>{
  expect(targetedQuery("size",config)).toBe('"instruments.example.com" employees');

@@ -21,7 +21,9 @@ function teamCards(markdown: string, source: string): ResearchFinding[] {
     for (const card of body.matchAll(/^#{4,6} ([^\n]+)\n\s*#{4,6} ([^\n]+)$/gm)) {
       const name = card[1].trim(), value = card[2].trim();
       if (!personName(name) || !role.test(value)) continue;
-      push(name, value, card[0]);
+      const contact = body.slice(card.index! + card[0].length).match(/^\s*\n([^\n]*)/)?.[1] || "";
+      const email = contact.match(emailPattern)?.[0];
+      push(name, value, email ? `${card[0]}\n${contact}` : card[0], email);
     }
     const lines = body.replace(/!\[[^\]]*\]\([^)]*\)/g, "").split("\n");
     for (let i = 0; i + 1 < lines.length; i++) {

@@ -1,3 +1,4 @@
+import { missingResearchFields } from "@/domain/research-objectives";
 import { createHash } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { requireDb } from '@/db/client';
@@ -6,7 +7,6 @@ import { ResearchRepository } from '@/db/research-repository';
 import { AcquisitionRepository } from '@/db/acquisition-repository';
 import { ENRICHMENT_CONCURRENCY } from '@/domain/automatic-research';
 import { eligibleForPeople, relevantBusiness } from '@/domain/business-research';
-import { isSearchSnippet } from '@/domain/snippet-estimates';
 import { researchDomain, terminalResearchStates, type ResearchConfig, type ResearchFinding } from '@/domain/research';
 import { researchWorker } from './research-service';
 
@@ -33,8 +33,8 @@ export async function dispatchAutomaticEnrichment(org: string, jobId: string) {
   const tasks = candidates.flatMap(member => {
     const evidence = findings.filter(f => f.targetId === member.target.id).map(f => f.evidence as ResearchFinding);
     const purposes: ('firmographics' | 'people')[] = [];
-    if (config.companyBudget && !evidence.some(f => f.kind === 'headcount' && !isSearchSnippet(f))) purposes.push('firmographics');
-    if (config.findPeople && !evidence.some(f => f.kind === 'person') && eligibleForPeople(member.target.domain!, member.assessment.stage, evidence)) purposes.push('people');
+    if (config.companyBudget && missingResearchFields({ purpose: "firmographics" }, evidence).length > 0) purposes.push('firmographics');
+    if (config.findPeople && missingResearchFields({ purpose: "people" }, evidence).length > 0 && eligibleForPeople(member.target.domain!, member.assessment.stage, evidence)) purposes.push('people');
     return purposes.map(purpose => ({ member, purpose }));
   });
   const counts = { firmographics: new Set(related.filter(j => (j.config as ResearchConfig).purpose === 'firmographics').map(j => (j.config as ResearchConfig).targetId)).size, people: new Set(related.filter(j => (j.config as ResearchConfig).purpose === 'people').map(j => (j.config as ResearchConfig).targetId)).size };

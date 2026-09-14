@@ -61,7 +61,7 @@ export function ResearchPanel({
     brief.criteria
       .find((c) => c.key === "subsectors")
       ?.value.split(";")
-      .slice(0, 3)
+      .slice(0, 6)
       .map((s) => s.trim().slice(0, 160))
       .join("\n") || "",
   );
@@ -219,7 +219,7 @@ export function ResearchPanel({
                     {!targetValid && <span role="alert" className="block text-sm text-amber-200">Enter a whole number from 1 to 100.</span>}
                   </label>
                   <label className="block text-sm">
-                    Public research terms (up to three)
+                    Public research terms (up to six)
                     <textarea
                       className={input}
                       rows={3}
@@ -259,7 +259,7 @@ export function ResearchPanel({
                       </label>
                     </>
                   )}
-                  {discover && !continuation && <p className="text-sm text-[var(--muted)]">Discovery uses the directory index, up to 12 Google Places searches (20 results each), and up to 3 web searches. Discovered links are researched automatically; results are not exhaustive.</p>}
+                  {discover && !continuation && <p className="text-sm text-[var(--muted)]">Discovery uses the directory index, up to 12 Google Places searches (20 results each), and focused web searches across your target types. Discovered links are researched automatically; results are not exhaustive.</p>}
                   {discover && !continuation && (
                     <details>
                       <summary className="cursor-pointer py-2 text-sm">

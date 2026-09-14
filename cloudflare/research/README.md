@@ -1,96 +1,47 @@
-# Event-driven public website research
+# Public website research
 
-The Vercel application remains the UI, authentication layer and only database writer. A Cloudflare Worker starts a named Workflow for each saved job. The Workflow calls back to Vercel for the approved public search configuration, submits bounded Browser Run crawls, waits durably, extracts claims with Workers AI, and returns evidence to the app. There is no always-on Python/Fly.io server or queue to operate.
+The Next.js application owns authentication, approved research configuration, Postgres writes and evidence validation. A Cloudflare Workflow executes each job and calls the app for discovery, targeted searches, cancellation checks and progress. Production reads pages through Browser Run's synchronous markdown endpoint. AI extraction uses OpenRouter free models with the existing Mercury fallback; see `FREE-AI.md`. Local development uses Crawl4AI and OpenSERP.
 
-```mermaid
-flowchart LR
-  UI[Coverage: approve public research] --> App[Vercel API]
-  App --> DB[(Existing Postgres)]
-  App --> Worker[Authenticated Cloudflare Worker]
-  Worker --> Workflow[Durable Workflow]
-  Workflow --> Discovery[Vercel: directory index + Google Places]
-  Workflow --> Browser[Browser Run crawl API]
-  Browser --> AI[Workers AI: quoted claims]
-  AI --> Callback[Vercel evidence callback]
-  Callback --> DB
-  DB --> Review[Coverage and target evidence review]
-```
+## Discovery
 
-## Scope and boundaries
+The form accepts six target types. Queries preserve product/service phrases and rotate through all target types before expanding by region. Service phrases are not forced into manufacturing queries, and queries have no hard-coded funeral exclusions. Existing source and relevance checks still decide whether a website qualifies as a business.
 
-- The Workflow payload contains only a job UUID. Private buyer financial criteria stay in Vercel. Google receives only user-approved search terms/geography; Cloudflare receives the approved research configuration and public pages. No outreach is sent.
-- Discovery splits approved descriptions into up to nine focused supplier queries, interleaves the results, and uses the existing directory index plus Google Places. The crawler visits unseen domains before following relevant product, wholesale and capability links. Consumer advice and blog links are deprioritized by exclusion. This is bounded research, not exhaustive search or autonomous general web search. Crawl4AI is not installed in production.
-- Pending URLs, visited URLs, per-page outcomes and exact provider status/HTTP codes (where reported) are checkpointed in the existing job configuration JSON. No further database migration is needed. Continue research creates a new job with a fresh approved budget, reuses server-owned terms and remaining URLs, and skips completed pages. Legacy jobs can recover starting URLs minus pages with saved evidence, but cannot reconstruct their full missing page history.
-- User limits: up to five one-page crawl submissions, five domains, fifteen minutes and five model calls. UI defaults to three pages/domains/model calls and ten minutes. Account quotas are shared; these job limits do not guarantee free operation.
-- One active job per organisation. Named Workflow instances make dispatch repeatable. Ambiguous crawl submissions and AI calls are not automatically retried, avoiding duplicate billed submissions. Callback writes deduplicate evidence and use monotonic progress revisions. Discovery is claimed once; interrupted discovery may retain only supplied/previously saved seeds.
-- Deadlines are checked between external actions, not hard preemption of in-flight requests. Cancellation retains saved findings and requests provider cleanup. A provider outage can prevent cancellation acknowledgement. A stalled job can be cancelled from Coverage, freeing the organisation slot; queued jobs can be reconnected without creating a second Workflow.
-- Pages are truncated to 24,000 characters for validation; the model receives at most 12,000 characters and 1,200 output tokens. Full crawls are not archived. Quoted findings and page progress persist in the application database. Linked pages may be explored without successful extraction.
-- Extraction uses `@cf/meta/llama-3.1-8b-instruct-fast` in JSON mode; both object and text responses are supported. Malformed findings are discarded individually and results are capped at twelve.
-- Claims require verbatim quote/value matching and meaningful business assertions. Business roles require a literal role/activity; selling or partnering does not establish manufacturing. ABNs/ACNs are identifiers, never accreditations. Generic guidelines and information about third parties are omitted from the review. Company names must occur in their quote, and websites must occur in observed links or match the source origin. Accreditation mentions remain unverified and never automatically update certified status or scoring. The legacy numeric confidence field is not displayed: the UI uses quoted-statement, unverified-certification and unverified-identifier labels. Findings are grouped by website/company and duplicate claim values share their source references. Product relevance is provisional and does not establish financial fit.
-- URL validation allows public HTTPS hostnames, rejects literal IPs/local names/credentials, and strips query strings. Browser Run enforces destination access; the app does not fetch user-supplied URLs directly. Query-dependent pages are intentionally unsupported.
+The deployed search reader supports DuckDuckGo page one. Other engines and later pages return explicit `unsupported_search` errors; they are never silently substituted or returned as a successful empty result. The discovery plan uses up to 36 distinct first-page queries. Each callback executes one query, with at most six callbacks before researching the available websites. Automatic continuations carry the search cursor so later target types remain reachable even when an earlier batch finds no seeds. Failed queries get one further attempt and are recorded separately from successful searches.
 
-## Activation
+## Independent enrichment objectives
 
-1. Review `drizzle/0004_research_jobs.sql`. **Receive explicit approval for this specific migration and database before applying it.** It adds two tables, foreign keys, lookup indexes and one-active-job/evidence uniqueness indexes; it does not change existing business records.
-2. Configure Worker secrets: `SERVICE_SECRET` (random shared secret), `CF_ACCOUNT_ID`, `CF_BROWSER_TOKEN` (Browser Rendering permission). Configure `APP_ORIGIN` to the application's HTTPS origin. Keep secrets out of Git.
-3. Deploy with `pnpm exec wrangler deploy --config cloudflare/research/wrangler.jsonc` using an account token with Workers Scripts, Workflows and Workers AI permissions, and a registered workers.dev subdomain or custom route.
-4. Configure Vercel `RESEARCH_WORKER_URL` and matching `RESEARCH_SERVICE_SECRET`. After the approved migration succeeds, set `RESEARCH_ENABLED=true` and redeploy. Until then the API returns disabled without querying the new tables.
-5. Smoke-test with one approved public URL, discovery disabled and one page. Confirm job completion, cited evidence, repeated dispatch identity and cancellation. Do not use confidential buyer examples.
+Company jobs track headcount and revenue separately; people jobs track a named decision-maker and published work email separately. A sourced headcount does not finish revenue research. A named director without an email does not finish email research. The predefined search limits are five headcount queries, three revenue queries, two people queries and two email queries, within the existing page, model and time ceilings. Every failed query can be retried once; successful empty searches are not repeated.
 
-To disable new work, set `RESEARCH_ENABLED=false` and redeploy. Cancel active jobs first so their callbacks remain available for cleanup. Never remove the new tables as a casual rollback; saved evidence should be retained.
+The planner chooses only from discovered URLs and predefined search actions. Pages already visited within a job are not fetched again for another field. The production Cache API also reuses successful public page reads within the same authenticated research run, best-effort for one hour; failed reads are not cached. Original retrieval timestamps are retained. Cache keys include the run ID, preventing reuse between organisations. Cache availability and simultaneous first reads can still cause duplicate requests.
+
+Company and people findings found on the same page are retained. Quotes, company identity, financial currency and named-person/email association are validated again in the application. Email is accepted only when published alongside the person's name and role at the company domain; addresses are never guessed. Search snippets remain explicitly unverified estimates and do not complete a sourced financial objective.
+
+## Provider reliability
+
+The authenticated `browser-permit` callback coordinates browser requests across jobs using an atomic conditional JSON update on the oldest existing research job row. It stores only a provider admission timestamp, without changing the job's status, evidence or revision. The initial spacing is eleven seconds for the shared Browser Run account. It requires no schema change. Requests without a research job ID cannot use production search.
+
+Provider error classifications survive to search/page outcomes: daily quota, request rate, concurrency, authentication/policy, credits, transport and timeout. Bounded admission waits avoid immediate bursts. A 120-second workflow step covers composed control/read/extraction calls; control and admission callbacks have shorter timeouts. Account quotas still apply and a successful test read does not establish capacity for a full mandate.
+
+## Deployment
+
+Production is already configured. Deploy the application callback before the worker when changing their shared contract.
+
+- Vercel: `RESEARCH_ENABLED`, `RESEARCH_WORKER_URL`, `RESEARCH_SERVICE_SECRET`, database and existing app settings.
+- Worker secrets: `SERVICE_SECRET`, `CF_ACCOUNT_ID`, `CF_BROWSER_TOKEN`, `OPENROUTER_API_KEY`.
+- Worker variable: `APP_ORIGIN`, set to the production application origin.
+- Optional authenticated Crawl4AI fallback: `CRAWL4AI_URL` and `CRAWL4AI_SECRET`.
+- Worker deployment: `pnpm exec wrangler deploy --config cloudflare/research/wrangler.jsonc`.
+
+This change uses existing job JSON and needs no database or Durable Object migration. Never run any database migration without explicit approval for that specific migration.
 
 ## Validation
 
-`pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm exec tsc -p cloudflare/research/tsconfig.json`, and `pnpm exec wrangler deploy --dry-run --config cloudflare/research/wrangler.jsonc`.
+Run `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm exec tsc -p cloudflare/research/tsconfig.json`, and the Wrangler deployment dry run. Tests cover separate objectives, supported search capabilities, provider admission, failure classification, retries, page reuse, original retrieval timestamps and continuation of discovery without initial seeds.
 
-Tests use fictional domains and mocked providers; they do not consume crawl or AI quota. Runtime integration against the new database requires the migration approval above.
+For an explicitly requested live reader check:
 
-## Research sources (checked 8 September 2026)
+```sh
+RUN_RESEARCH_BENCHMARK=1 node --env-file=.env --env-file=.env.local node_modules/vitest/vitest.mjs run scripts/benchmark-research.test.ts
+```
 
-- [Workflow API and named instances](https://developers.cloudflare.com/workflows/build/workers-api/)
-- [Durable sleeping and retries](https://developers.cloudflare.com/workflows/build/sleeping-and-retrying/)
-- [Browser Run crawl endpoint](https://developers.cloudflare.com/browser-run/quick-actions/crawl-endpoint/)
-- [Browser Run pricing and shared quotas](https://developers.cloudflare.com/browser-run/pricing/)
-- [Workers AI pricing](https://developers.cloudflare.com/workers-ai/platform/pricing/)
-
-The earlier local benchmark is retained in ignored `.local-data/crawler-benchmark/REPORT.md`. It compared public directory/static/JavaScript fixtures; it does not establish production throughput or full market coverage.
-
-## People research
-
-Open a company from Targets or Pipeline, select **Contacts & drafts**, then **Search public web**. The same option is available on Outreach, alongside Firmable. Vercel needs `TAVILY_API_KEY` for up to two bounded public web searches; without it, the UI explicitly reports website-only research. Cloudflare Browser Run reads the returned URLs and follows team/contact links; Workers AI extracts named decision-makers. Cloudflare is the execution and crawling layer, not the web search index.
-
-People jobs reuse the existing research tables with `config.purpose = "people"` and a server-derived target ID, company name and domain. They use up to two searches (company name, then a source-backed legal entity when found), five page attempts, three domains, five model calls and ten minutes. Only one research job can be active per organisation. No additional migration is required. Search results are discovery URLs, not evidence: a person requires a literal source passage containing their name and role, plus an explicit company association on third-party pages. Jobs and findings are isolated by organisation, mandate and target. Company coverage excludes people findings.
-
-Users choose **Use this contact** to save a sourced lead. Publicly listed roles and business emails remain unverified; emails are never guessed. Saving a web lead does not overwrite existing contact enrichment or do-not-contact preferences. Missing emails remain unknown. Cancellation and reconnect use the existing durable job controls.
-
-The company review panel also keeps worksheet, decision, contacts and drafts together. A shortlist decision admits a company to Pipeline without qualifying it. Reviewed public sub-sector evidence carries into outreach; private financial answers do not. Draft previews can be generated without a contact email, but previews do not write sequences or Gmail drafts. Saving a sequence requires a selected contact with email; existing disclosure and Gmail approval gates remain enforced.
-
-The worker reserves outbound requests for cancellation and final persistence before the free plan's 50-subrequest limit. Runs can therefore finish as partial before their page allowance is exhausted. The people status endpoint reconciles workers that have errored or stopped, preserving saved evidence instead of leaving a permanent running state.
-
-**Continue / retry unread pages** resumes the saved queue and legal-entity context with a fresh page budget, explicitly retrying unread attempts. It does not repeat the initial web search. The server rejects continuations from another company/mandate or after the reviewed domain changes.
-
-### Targeted follow-ups
-
-New company/people jobs can opt in with `config.targetedFollowup`. The runner
-reads the initial company pages, then makes at most one Workers AI decision for
-missing headcount or a named decision-maker. Choices are enumerated discovered
-pages, a server-built identity-anchored query, or stop. The decision consumes the
-existing model allowance; searches are claimed once on the authenticated app
-callback. Company jobs use at most one web search; people jobs retain their
-configured one/two-search limit. Unknown fields and provider failures remain
-visible. Existing jobs without the flag keep their original orchestration.
-
-Deploy the app callback and worker before enabling the flag on newly created
-jobs. This change uses existing JSON job configuration; it requires no database
-or Durable Object migration.
-
-If Workers AI rejects a planning call (including free-quota exhaustion), the
-runner uses an offered first-party team link or the predefined company query.
-It does not exceed the page/search allowance or invent a broader query. Direct
-source parsing still runs when model extraction fails. The progress message
-reports this degraded mode; it is not counted as a successful agent decision.
-
-Local crawler comparisons must retain navigation and footer links (`only_main_content: false`
-in the Crawl4AI MCP tool), matching the production reader's raw markdown. Pruned
-article text can hide team/contact links and should not be used to measure routing
-coverage. Explicit company team cards are parsed before invoking the people model.
+This makes exactly three public homepage reads, with no AI, search or database writes. It writes `.local-data/stu-206-reader-benchmark.json`. It does not measure full enrichment coverage or actual billing. The September 14 check read all three sample homepages successfully; headcount, revenue and named-person/email evidence were absent from those homepage extractions. A full user-triggered mandate run is still needed to measure final coverage, time and provider cost.

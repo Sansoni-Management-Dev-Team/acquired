@@ -1,3 +1,5 @@
+import { providerFailure } from "./research-provider-error";
+import { missingResearchFields, fieldLabels, type ResearchField } from "./research-objectives";
 import { ResearchAiError } from "./research-ai-error";
 import { targetedPlan, resolveTargetedChoice, fallbackTargetedChoice, nextTargetedAction, MAX_TARGETED_SEARCHES, type TargetedPlan } from "./targeted-research";
 import { stripBoilerplate } from "./page-content";
@@ -51,18 +53,18 @@ export interface ResearchServices {
     id: string,
   ): Promise<{
     status: string;
-    page?: { url: string; markdown: string; title?: string };
+    page?: { url: string; markdown: string; title?: string; observedAt?: string };
     warning?: string;
   }>;
   cancel(id: string): Promise<void>;
   extract(messages: ReturnType<typeof extractionPrompt>): Promise<unknown>;
   extractHeadcount?(messages: ReturnType<typeof companyHeadcountPrompt>): Promise<unknown>;
-  readPeoplePage?(url: string): Promise<{ status: string; page?: { url: string; markdown: string; title?: string }; warning?: string }>;
+  readPeoplePage?(url: string): Promise<{ status: string; page?: { url: string; markdown: string; title?: string; observedAt?: string }; warning?: string }>;
   readPage?(url: string): ReturnType<ResearchServices["poll"]>;
   readFallbackPage?(url: string): ReturnType<ResearchServices["poll"]>;
   peopleFollowup?(): Promise<{ seeds: string[]; legalEntity?: string; warning?: string }>;
   planFollowup?(plan: TargetedPlan): Promise<unknown>;
-  targetedSearch?(field: "size" | "people", round: number): Promise<{ seeds: string[]; warning?: string; exhausted?: boolean }>;
+  targetedSearch?(field: ResearchField, round: number): Promise<{ seeds: string[]; warning?: string; exhausted?: boolean; failed?: boolean; retryable?: boolean }>;
   now(): number;
 }
 export async function runResearch(
@@ -122,7 +124,7 @@ export async function runResearch(
     );
     let discovered = await step.do("discover", () => service.discover());
     // Web discovery is delivered in slices so no single callback outlives the worker's request limit.
-    for (let round = 1; discovered.more && round <= 12; round++) {
+    for (let round = 1; discovered.more && round < 6; round++) {
       const current = await check(`discover-${round}`);
       if (terminalResearchStates.includes(current.status)) return;
       if (current.expired) break;
@@ -131,6 +133,7 @@ export async function runResearch(
     }
     trace("discovery_result", { purpose: initial.config.purpose || "business", seeds: discovered.seeds.length, warning: Boolean(discovered.warning), budget: initial.config.budget });
     if (discovered.warning) warnings.push(discovered.warning);
+    if (discovered.more) warnings.push("More discovery queries remain for the next batch");
     const skipDomains = new Set([...(initial.config.skipDomains || []), ...(discovered.skipDomains || [])]);
     runtime.remaining = orderResearchQueue(
       [...runtime.remaining, ...discovered.seeds],
@@ -156,9 +159,13 @@ export async function runResearch(
     // Missing-field follow-up runs in rounds: reading a page never consumes the
     // external search, and searching continues until evidence is found, the
     // query ladder is exhausted, or the page budget ends.
-    const MAX_FOLLOWUP_ROUNDS = 8;
+    const MAX_FOLLOWUP_ROUNDS = 28;
     const followup = { rounds: 0, searches: 0, afterAttempt: -1, readsSinceSearch: 0, searchesExhausted: !service.targetedSearch, plannerUsed: false };
-    const fieldFound = () => collected.some(f => initial.config.purpose === "people" ? f.kind === "person" : f.kind === "headcount");
+    const exhaustedFields = new Set<ResearchField>();
+    const fieldSearches: Partial<Record<ResearchField, number>> = {};
+    const fieldFailures: Partial<Record<ResearchField, number>> = {};
+    const fieldFound = () => missingResearchFields(initial.config, collected).length === 0;
+    const availableField = () => missingResearchFields(initial.config, collected).find(f => !exhaustedFields.has(f));
     const followupPossible = () => Boolean(initial.config.targetedFollowup && initial.config.purpose && followup.rounds < MAX_FOLLOWUP_ROUNDS && !fieldFound());
     const followupThreshold = Math.min(2, budget.maxPages - 1, initial.config.purpose === "people" ? Math.max(1, budget.maxModelCalls - 2) : 2);
     // Due after new page evidence, or whenever the queue is empty and a search remains.
@@ -172,7 +179,8 @@ export async function runResearch(
       if (followupDue()) {
         followup.rounds++;
         followup.afterAttempt = runtime.attempts.length;
-        const plan = targetedPlan(initial.config, collected, runtime.remaining, runtime.visited, !followup.searchesExhausted);
+        followup.searchesExhausted = !service.targetedSearch || !availableField();
+        const plan = targetedPlan(initial.config, collected, runtime.remaining, runtime.visited, !followup.searchesExhausted, availableField());
         if (!plan) { if (!runtime.remaining.length) break; }
         else {
           const current = await check(`targeted-followup-${followup.rounds}`);
@@ -206,8 +214,11 @@ export async function runResearch(
               trace("targeted_search_result", { round, field, seeds: result.seeds.length, exhausted: Boolean(result.exhausted), sources: result.seeds.slice(0, 20).map(source), warning: Boolean(result.warning) });
               runtime.remaining = uniqueResearchUrls([...result.seeds, ...runtime.remaining]);
               if (result.warning) warnings.push(result.warning);
-              if (result.exhausted || followup.searches >= MAX_TARGETED_SEARCHES[field]) followup.searchesExhausted = true;
-            } catch { warnings.push("Targeted search unavailable; existing sources retained"); followup.searchesExhausted = true; }
+              if (result.failed) fieldFailures[field] = (fieldFailures[field] || 0) + 1;
+              else fieldSearches[field] = (fieldSearches[field] || 0) + 1;
+              if (result.exhausted || (fieldSearches[field] || 0) >= MAX_TARGETED_SEARCHES[field] || (fieldFailures[field] || 0) >= MAX_TARGETED_SEARCHES[field] * 2) exhaustedFields.add(field);
+              followup.searchesExhausted = !availableField();
+            } catch { warnings.push(`Search for ${fieldLabels[field]} unavailable; existing sources retained`); exhaustedFields.add(field); followup.searchesExhausted = !availableField(); }
           }
         }
       }
@@ -281,7 +292,7 @@ export async function runResearch(
             const current = await service.control();
             if (terminalResearchStates.includes(current.status) || service.now() >= current.deadline) throw new Error("Stopped before reading");
             try { return await directReader(url); }
-            catch { return { status: "failed", warning: "Primary page reader unavailable" }; }
+            catch (error) { return { status: "failed", warning: providerFailure(error).message }; }
           }, false);
         } else {
           activeCrawl = await step.do(
@@ -470,6 +481,7 @@ export async function runResearch(
             (initial.config.purpose === "people" ? `${findings.filter(f => f.kind === "person").length} sourced people leads${findings.some(f => f.kind === "identifier") ? "; legal operator identified" : ""}; role currency and email remain unverified` : `${findings.length} supported claims; financial fit remains unknown`);
         } else { entry.reason = "Read without AI extraction (model limit)"; }
         if (initial.config.purpose === "people") {
+          findings.push(...observedCompanyFacts(markdown, sourceUrl, initial.config));
           // Keep directly observed team evidence even when the model failed or its allowance ended.
           findings.push(...directPeople.filter(f=>!findings.some(v=>v.kind===f.kind && v.name===f.name && v.value===f.value)));
         }
@@ -488,7 +500,7 @@ export async function runResearch(
           runtime.remaining = runtime.remaining.filter(u => researchDomain(u) !== researchDomain(sourceUrl));
         }
         const observedAt = await step.do(`observed-${attempt}`, async () =>
-          new Date(service.now()).toISOString(),
+          result.page?.observedAt || new Date(service.now()).toISOString(),
         );
         await publish(
           "crawling",
@@ -519,9 +531,9 @@ export async function runResearch(
         await publish("crawling", entry.reason);
       }
     }
-    if (initial.config.mode === "automatic" && initial.config.purpose && collected.some(f => initial.config.purpose === "people" ? f.kind === "person" : f.kind === "headcount")) {
+    if (initial.config.mode === "automatic" && initial.config.purpose && fieldFound()) {
       trace("run_finished", { pages, modelCalls, reason: "requested_evidence_found", purpose: initial.config.purpose });
-      await publish("complete", initial.config.purpose === "people" ? "Sourced decision-maker found; review role and contact evidence before outreach." : "Sourced headcount found; company evidence is ready for review.");
+      await publish("complete", initial.config.purpose === "people" ? "Sourced decision-maker and published email found; review evidence before outreach." : "Sourced headcount and revenue found; company evidence is ready for review.");
       return;
     }
     if (await finishAtGoal("final-goal")) return;
@@ -531,7 +543,7 @@ export async function runResearch(
       warnings.push(
         `${runtime.remaining.length} URLs remain; continue research with a fresh budget`,
       );
-    if (initial.config.targetedFollowup && initial.config.purpose && !collected.some(f=>initial.config.purpose === "people" ? f.kind === "person" : f.kind === "headcount")) warnings.push(initial.config.purpose === "people" ? "Named decision-maker remains unknown; available sources retained" : "Headcount remains unknown; available sources retained");
+    if (initial.config.targetedFollowup && initial.config.purpose) for (const field of missingResearchFields(initial.config, collected)) warnings.push(`${fieldLabels[field]} remains unknown; available sources retained`);
     trace("run_finished", { pages, attempts: runtime.attempts.length, modelCalls, remaining: runtime.remaining.length, findings: collected.length, kinds: [...new Set(collected.map(f => f.kind))], reason: runtime.attempts.length >= budget.maxPages ? "page_budget_reached" : "sources_exhausted_or_followup_stopped" });
     if (!pages) warnings.push("No pages could be read");
     await publish(
