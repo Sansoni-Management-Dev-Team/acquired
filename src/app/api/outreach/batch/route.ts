@@ -1,3 +1,4 @@
+import { acquireOutreachBatch } from "@/lib/outreach-batch-guard";
 import { and, eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { requireDb } from "@/db/client";
@@ -27,6 +28,9 @@ export async function POST(request: Request) {
     if (!response.ok) throw new Error(result.error || "Request failed");
     return result;
   }
+  const release = acquireOutreachBatch(organizationId);
+  if (!release) return Response.json({ error: "Another outreach batch is running. Retry shortly." }, { status: 429, headers: { "Retry-After": "1" } });
+  try {
   const results = await processOutreachBatch(rows, async row => {
     if (!members.has(row.targetId)) throw new Error("Target not found in this mandate.");
     if (action === "generate") return read(await generate(childRequest({ mandateId, ...row, reuseExisting: true })));
@@ -44,4 +48,5 @@ export async function POST(request: Request) {
     return { saved };
   });
   return Response.json({ results });
+  } finally { release(); }
 }

@@ -58,6 +58,7 @@ export function OutreachTable({ mandateId, initialTargets, initialBuyerProfile, 
       // One contact per request keeps long-running provider calls bounded and gives
       // immediate per-row feedback. The server validates every contact independently.
       for (const [index, row] of work.entries()) {
+        if (index > 0) await new Promise(resolve => setTimeout(resolve, 300));
         if (cancelled.current) break;
         setResults(current => ({ ...current, [row.key]: action === "generate" ? "Generating…" : "Saving to Gmail…" }));
         try {

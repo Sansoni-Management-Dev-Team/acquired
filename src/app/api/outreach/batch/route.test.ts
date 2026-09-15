@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 const m = vi.hoisted(() => ({ session: vi.fn(), mandate: vi.fn(), members: vi.fn(), generate: vi.fn(), approve: vi.fn(), select: vi.fn() }));
+vi.mock("@/lib/outreach-batch-guard", () => ({ acquireOutreachBatch: () => () => {} }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: m.session } } }));
 vi.mock("@/db/client", () => ({ requireDb: () => ({ select: m.select }) }));
 vi.mock("@/db/acquisition-repository", () => ({ AcquisitionRepository: class { getMandate = m.mandate; memberships = m.members; } }));
