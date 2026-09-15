@@ -160,3 +160,15 @@ Industry selection uses exact labels, curated aliases and bounded token/typo mat
 ### Headcount-based EBITDA estimates
 
 The company details panel automatically computes an indicative annual EBITDA range whenever its refreshed research evidence contains a usable, bounded headcount. Reported statements, third-party estimates and search-result estimates can all supply the input; the panel labels estimated-headcount inputs explicitly. The calculation uses the selected or suggested ABS cohort from the 170-cohort reference set. Conflicting, missing, zero or open-ended counts remain unavailable until reviewed. This derived estimate does not overwrite reported EBITDA or revenue.
+
+### Industry-based EBITDA ranges
+
+The company details panel calculates indicative annual EBITDA ranges from a bounded, sourced headcount and ABS industry benchmarks. The checked-in reference contains 79 industry subdivisions, 72 division/employee-band cohorts, 18 all-size industry divisions and one broad all-industry fallback. The source workbook supplies 2022–23, 2023–24 and 2024–25 observations with original employment/EBITDA inputs and cell references. Refresh with `python3 scripts/build-ebitda-benchmarks.py`; this downloads reference data and does not access a database.
+
+For each benchmark, EBITDA per person is `EBITDA ($m) × 1,000 / employment ('000)`. The displayed low and high are the minimum and maximum products across the sourced headcount endpoints and available historical annual ratios. Negative ratios remain negative and bounds are ordered correctly. This is a historical scenario range, not a confidence interval or a company's reported earnings. Single-point headcount can still produce a range through year-to-year variation.
+
+Industry selection uses exact labels, curated aliases and bounded token/typo matching. Ambiguous or unrelated descriptions use an explicitly labelled broad fallback, and all suggestions can be overridden. Matching scores are not represented as statistical confidence. Where headcount overlaps employee bands, separate broader-division comparisons use the part of the headcount range inside each band. Subdivision and employee-band ratios are never multiplied together. Missing, unbounded or conflicting headcount still prevents calculation. Third-party and search-result headcounts are accepted with an explicit estimated-input label. Estimates remain in the company details panel and do not overwrite reported revenue/EBITDA or automatically qualify a target.
+
+### Headcount-based EBITDA estimates
+
+The company details panel automatically computes an indicative annual EBITDA range whenever its refreshed research evidence contains a usable, bounded headcount. Reported statements, third-party estimates and search-result estimates can all supply the input; the panel labels estimated-headcount inputs explicitly. The calculation uses the selected or suggested ABS cohort from the 170-cohort reference set. Conflicting, missing, zero or open-ended counts remain unavailable until reviewed. This derived estimate does not overwrite reported EBITDA or revenue.
