@@ -10,7 +10,7 @@ import { OutreachQueue, type OutreachTargetView } from "./outreach-queue";
 import { TargetResearchEvidence } from "./research-panel";
 import { buttonClass, fieldClass, jsonRequest, panelClass } from "./mandate-workspace";
 
-type OutreachData = { views: OutreachTargetView[]; buyerProfile: BuyerProfile | null };
+type OutreachData = { canCompose?: boolean; views: OutreachTargetView[]; buyerProfile: BuyerProfile | null };
 export function CompanyReviewPanel({ mandate, initial, onClose, onChanged, onNext, position }: { mandate: MandateView; initial: MembershipView; onClose: () => void; onChanged: () => Promise<void>; onNext?: () => void; position: string }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [member, setMember] = useState(initial);
@@ -65,7 +65,7 @@ export function CompanyReviewPanel({ mandate, initial, onClose, onChanged, onNex
         <Link className="text-sm underline" href={`/mandates/${mandate.id}/targets/${member.target.id}`} onClick={e => { if ((dirty || worksheetDirty || outreachDirty) && !window.confirm("Discard unsaved edits and open the full worksheet?")) e.preventDefault(); }}>Open full worksheet</Link>
       </div>
       {worksheetOpened && <div hidden={tab !== "details"}><TargetWorksheet key={member.version} embedded mandates={[]} mandate={mandate} initial={member} onDirty={() => setWorksheetDirty(true)} onSaved={async () => { setWorksheetDirty(false); await refresh(); const d = await jsonRequest(`/api/mandates/${mandate.id}`); const m = d.memberships.find((m: MembershipView) => m.target.id === member.target.id); if (!dirty) { setReason(m.assessment.reason); setNextAction(m.assessment.nextAction); } }} /></div>}
-      <div hidden={tab !== "outreach"}>{outreach ? <OutreachQueue showPeopleSearch={tab === "outreach"} onDirtyChange={setOutreachDirty} embedded key={member.target.id} mandateId={mandate.id} initialTargetId={member.target.id} initialTargets={outreach.views.filter(t => t.id === member.target.id)} initialBuyerProfile={outreach.buyerProfile} onRefresh={() => { void refresh().catch(e => setError(e.message)); }} /> : <p role="status">Loading contacts and drafts…</p>}</div>
+      <div hidden={tab !== "outreach"}>{outreach ? <OutreachQueue canCompose={outreach.canCompose} showPeopleSearch={tab === "outreach"} onDirtyChange={setOutreachDirty} embedded key={member.target.id} mandateId={mandate.id} initialTargetId={member.target.id} initialTargets={outreach.views.filter(t => t.id === member.target.id)} initialBuyerProfile={outreach.buyerProfile} onRefresh={() => { void refresh().catch(e => setError(e.message)); }} /> : <p role="status">Loading contacts and drafts…</p>}</div>
     </div>
   </dialog>;
 }

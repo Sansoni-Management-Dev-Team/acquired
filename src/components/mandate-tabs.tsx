@@ -1,3 +1,4 @@
+import { mandateTabHref } from "@/domain/mandate-navigation";
 import Link from "next/link";
 
 const tabs = [
@@ -7,9 +8,7 @@ const tabs = [
   ["outreach", "Outreach"],
 ] as const;
 
-export function mandateTabHref(mandateId: string, tab: string) {
-  return tab === "outreach" ? `/outreach?mandateId=${mandateId}` : `/mandates/${mandateId}?tab=${tab}`;
-}
+export { mandateTabHref } from "@/domain/mandate-navigation";
 
 export function MandateTabs({ mandateId, activeTab }: { mandateId: string; activeTab: string }) {
   return <nav aria-label="Mandate sections" className="flex gap-1 overflow-x-auto border-b border-[var(--border)]">

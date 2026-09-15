@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Building2, LogOut, Settings, Plus } from "lucide-react";
+import { Building2, LogOut, Settings, Plus, PanelLeftClose, PanelLeftOpen, Menu } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 
 import { mandateTabHref } from "./mandate-tabs";
@@ -21,6 +21,8 @@ export function AppShell({ children, providerMode }: { children: React.ReactNode
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarJson, setSidebarJson] = useState('{"mandates":[],"tab":"brief"}');
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const sidebar: SidebarState = JSON.parse(sidebarJson);
   if (["/sign-in", "/sign-up", "/forgot-password", "/reset-password", "/onboarding", "/auth/complete"].includes(pathname)) return <main>{children}</main>;
 
@@ -32,33 +34,34 @@ export function AppShell({ children, providerMode }: { children: React.ReactNode
   }
 
   return (
-    <SidebarContext.Provider value={setSidebarJson}><div className="min-h-screen lg:grid lg:grid-cols-[272px_minmax(0,1fr)]">
-      <aside className="border-b border-[var(--border)] bg-black p-6 lg:min-h-screen lg:border-b-0 lg:border-r">
-        <Link href="/mandates" className="mb-8 flex items-center gap-3">
-          <Image src="/acquired-crown.png" width={42} height={42} alt="Acquired crown" className="size-10 object-contain" priority />
-          <span><strong className="block tracking-[.16em]">ACQUIRED</strong><small className="text-[var(--muted)]">Deal intelligence</small></span>
-        </Link>
-        <div className="space-y-4">
-          <label className="block text-xs font-medium text-[var(--muted)]">Active mandate
-            <select aria-label="Active mandate" value={sidebar.selected || ""} onChange={e => router.push(mandateTabHref(e.target.value, sidebar.tab))} className="mt-2 min-h-12 w-full min-w-0 rounded-lg border border-[var(--border)] bg-[var(--panel-raised)] px-3 text-sm text-white">
-              <option value="" disabled>Select a mandate</option>
-              {sidebar.mandates.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-            </select>
-          </label>
-          <div className="flex gap-4 text-xs text-[var(--muted)]">
-            <Link href="/mandates" className="flex min-h-11 items-center gap-2 hover:text-white"><Building2 size={15} />All mandates</Link>
-            <Link href="/mandates/new" className="flex min-h-11 items-center gap-2 hover:text-white"><Plus size={15} />New mandate</Link>
-          </div>
-          {!sidebar.selected && <p className="text-xs leading-relaxed text-[var(--muted)]">Select a mandate to open its workspace.</p>}
+    <SidebarContext.Provider value={setSidebarJson}><div className={`min-h-screen lg:grid ${collapsed ? "lg:grid-cols-[80px_minmax(0,1fr)]" : "lg:grid-cols-[272px_minmax(0,1fr)]"}`}>
+      <aside className={`border-b border-[var(--border)] bg-black p-4 lg:min-h-screen lg:border-b-0 lg:border-r ${collapsed ? "lg:px-3" : "lg:p-5"}`}>
+        <div className={`flex items-center justify-between gap-2 ${collapsed ? "lg:flex-col" : ""}`}>
+          <Link href="/mandates" aria-label="Acquired — all mandates" className="flex min-h-12 min-w-0 items-center gap-3">
+            <Image src="/acquired-crown.png" width={42} height={42} alt="" className="size-10 shrink-0 object-contain" priority />
+            <span className={collapsed ? "lg:hidden" : ""}><strong className="block text-sm tracking-[.16em]">ACQUIRED</strong></span>
+          </Link>
+          <button aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} aria-controls="desktop-mandate-selector" onClick={() => setCollapsed(value => !value)} className="hidden size-11 shrink-0 items-center justify-center rounded-md hover:bg-[var(--panel-raised)] lg:flex">{collapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}</button>
+          <button aria-label={mobileOpen ? "Close navigation" : "Open navigation"} aria-expanded={mobileOpen} aria-controls="sidebar-navigation" onClick={() => setMobileOpen(value => !value)} className="flex size-12 items-center justify-center rounded-md lg:hidden"><Menu size={22} /></button>
         </div>
-        <nav aria-label="Account" className="mt-8 flex flex-col gap-1 border-t border-[var(--border)] pt-5">
-          <Link href="/settings" className="flex min-h-12 items-center gap-3 rounded-md px-3 text-sm text-[var(--muted)] hover:text-white"><Settings size={18} />Settings</Link>
-          <button onClick={signOut} className="flex shrink-0 items-center gap-3 rounded-md px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-[.11em] text-[var(--muted)] transition hover:bg-[var(--panel-raised)] hover:text-white"><LogOut size={16} />Sign out</button>
-        </nav>
-        <div className="mt-10 hidden rounded-lg border border-[var(--border)] bg-[var(--panel)] p-3 text-xs text-[var(--muted)] lg:block">
-          <span className="mb-2 block uppercase tracking-[.16em]">Environment</span>
-          <span className="flex items-center gap-2 text-white"><i className="size-2 rounded-full bg-lime-400" />{providerMode}</span>
-          <span className="mt-1 block">{providerMode === "Fixture providers" ? "No external provider calls" : "Search calls are user-triggered"}</span>
+        <div id="sidebar-navigation" className={`${mobileOpen ? "block" : "hidden"} mt-5 lg:block`}>
+          <div id="desktop-mandate-selector" className={collapsed ? "lg:hidden" : ""}>
+            <label className="block text-xs font-medium text-[var(--muted)]">Active mandate
+              <select aria-label="Active mandate" value={sidebar.selected || ""} onChange={e => { router.push(mandateTabHref(e.target.value, sidebar.tab)); setMobileOpen(false); }} className="mt-2 min-h-12 w-full min-w-0 rounded-lg border border-[var(--border)] bg-[var(--panel-raised)] px-3 text-sm text-white">
+                <option value="" disabled>Select a mandate</option>
+                {sidebar.mandates.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </select>
+            </label>
+          </div>
+          <nav aria-label="Mandates" className="mt-3 space-y-1">
+            <Link href="/mandates" title="All mandates" onClick={() => setMobileOpen(false)} className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-sm text-[var(--muted)] hover:text-white ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><Building2 size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>All mandates</span></Link>
+            <Link href="/mandates/new" title="New mandate" onClick={() => setMobileOpen(false)} className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-sm text-[var(--muted)] hover:text-white ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><Plus size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>New mandate</span></Link>
+          </nav>
+          <nav aria-label="Account" className="mt-6 space-y-1 border-t border-[var(--border)] pt-4">
+            <Link href="/settings" title="Settings" onClick={() => setMobileOpen(false)} className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-sm text-[var(--muted)] hover:text-white ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><Settings size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>Settings</span></Link>
+            <button onClick={signOut} title="Sign out" className={`flex min-h-12 w-full items-center gap-3 rounded-md px-3 text-sm text-[var(--muted)] hover:text-white ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><LogOut size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>Sign out</span></button>
+          </nav>
+          {!collapsed && <div className="mt-10 hidden rounded-lg border border-[var(--border)] p-3 text-xs text-[var(--muted)] lg:block"><span className="mb-2 block uppercase tracking-[.16em]">Environment</span><span className="flex items-center gap-2 text-white"><i className="size-2 rounded-full bg-lime-400" />{providerMode}</span></div>}
         </div>
       </aside>
       <main className="min-w-0">{children}</main>
