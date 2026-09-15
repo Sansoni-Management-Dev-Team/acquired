@@ -9,6 +9,7 @@ import {
   type ResearchConfig,
   type SavedResearchFinding,
 } from "@/domain/research";
+import { ResearchRunOutcome } from "./research-run-outcome";
 import { GeographySelect } from "./geography-select";
 import type { AcquisitionBrief } from "@/domain/acquisition";
 const input =
@@ -324,16 +325,15 @@ export function ResearchPanel({
           )}
           {currentJob && <div className="space-y-3" role="status">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="font-semibold">{!terminalResearchStates.includes(currentJob.status) ? (currentJob.config.purpose === "firmographics" ? "Researching company details" : currentJob.config.purpose === "people" ? "Finding decision-makers" : currentJob.status === "discovering" ? "Finding businesses" : "Researching businesses") : currentJob.status === "cancelled" ? "Research cancelled" : enriching.length ? "Enriching businesses" : "Latest research run"}</h2>
+              <h2 className="font-semibold">{!terminalResearchStates.includes(currentJob.status) ? (currentJob.config.purpose === "firmographics" ? "Researching company details" : currentJob.config.purpose === "people" ? "Finding decision-makers" : currentJob.status === "discovering" ? "Finding businesses" : "Researching businesses") : currentJob.status === "cancelled" ? "Research cancelled" : enriching.length ? "Enriching businesses" : currentJob.status === "failed" ? "Research failed" : currentJob.status === "complete" ? "Research complete" : "Research paused"}</h2>
               <span className="text-xs text-[var(--muted)]">{new Date(currentJob.createdAt).toLocaleString()}</span>
             </div>
             <ResearchProgress job={currentJob} count={newBusinessCount} active={Boolean(active)} enriching={enriching.length} />
+            <ResearchRunOutcome status={currentJob.status} remaining={remainingFor(currentJob).length} active={Boolean(active)} canResume={!currentJob.config.purpose} busy={busy} onResume={() => resume(currentJob)} />
             <details className="text-sm text-[var(--muted)]"><summary className="min-h-12 cursor-pointer content-center">Details</summary>
               <p>{enriching.length} enrichment jobs running · {finishedEnrichment.length} finished · {peopleFound} contact leads{searchLeadCount ? ` · ${searchLeadCount} leads to verify` : ""}</p>
               <p>{runPages} pages read · {currentJob.config.runtime?.remaining.length || 0} URLs remaining</p><p className="mt-2 break-words">{currentJob.message}</p>
             </details>
-            {!active && terminalResearchStates.includes(currentJob.status) && Boolean(currentJob.config.runtime?.remaining.length) && <p className="text-sm">This run has stopped; the remaining websites have not all been researched.</p>}
-            {!active && !currentJob.config.purpose && remainingFor(currentJob).length > 0 && <button className={button} disabled={busy} onClick={() => resume(currentJob)}>Continue research</button>}
             {!active && !currentJob.config.purpose && currentJob.config.runtime?.attempts.some(a => a.status === "failed" || /extraction failed/i.test(a.reason)) && <button className={button} disabled={busy} onClick={() => retryFailed(currentJob)}>Retry failed pages</button>}
             {active && <button className={button} disabled={busy} onClick={() => act({action:"cancel"}, active.id)}>Stop research</button>}
             {active?.status === "queued" && <button className={button} disabled={busy} onClick={() => act({action:"retry-dispatch"}, active.id)}>Reconnect job</button>}
@@ -524,7 +524,7 @@ function ResearchProgress({ job, count, active, enriching }: { job: Job; count: 
   const goal = !job.config.purpose && job.config.targetBusinesses;
   const discovering = Boolean(goal && !terminalResearchStates.includes(job.status));
   const determinate = Boolean(goal && (discovering || !active));
-  const label = determinate ? `${count} of ${goal} businesses found` : job.config.purpose === "people" ? "Finding decision-makers…" : enriching || job.config.purpose === "firmographics" ? "Researching company details…" : active ? "Researching businesses…" : `Research ${job.status}`;
+  const label = !active && !determinate ? `Research ${job.status}` : determinate ? `${count} of ${goal} businesses found` : job.config.purpose === "people" ? "Finding decision-makers…" : enriching || job.config.purpose === "firmographics" ? "Researching company details…" : active ? "Researching businesses…" : `Research ${job.status}`;
   const percentage = determinate ? Math.min(100, Math.max(0, count / Number(goal) * 100)) : undefined;
   return <div className="space-y-2"><p role="status" aria-live="polite" className="text-sm font-medium">{label}</p>{(active || determinate) && <div role="progressbar" aria-label={label} aria-valuemin={determinate ? 0 : undefined} aria-valuemax={determinate ? 100 : undefined} aria-valuenow={percentage} className="h-2 overflow-hidden rounded-full bg-[var(--panel-raised)]"><div className={`h-full rounded-full bg-[var(--accent)] ${determinate ? "transition-[width]" : "w-1/3 motion-safe:animate-pulse"}`} style={determinate ? { width: `${percentage}%` } : undefined} /></div>}</div>;
 }
