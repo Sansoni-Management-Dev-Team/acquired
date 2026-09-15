@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { automaticBatch, automaticResearchConfig } from './automatic-research';
+import { automaticBatch, automaticResearchConfig, mandateResearchSlot } from './automatic-research';
 import type { ResearchConfig } from './research';
 const base: ResearchConfig = { mode: 'automatic', workflow: 'business', targetBusinesses: 20, findPeople: true, seeds: [], searchTerms: ['sensors'], geography: 'Australia', approved: true, discover: true, budget: { maxPages: 3, maxDomains: 3, maxModelCalls: 3, maxMinutes: 10 } };
 const runtime = { remaining: ['https://next.example.com/'], visited: ['https://done.example.com/'], attempts: [{ url: 'https://done.example.com/', status: 'read' as const, reason: 'Read' }] };
@@ -39,4 +39,10 @@ describe('automatic research', () => {
     expect(automaticResearchConfig(legacy)).toBe(legacy);
     expect(automaticResearchConfig({ ...base, findPeople: false }).peopleBudget).toBeUndefined();
   });
+});
+
+it('namespaces discovery and enrichment slots while preserving continuation identity', () => {
+  expect(mandateResearchSlot('a',0)).not.toBe(mandateResearchSlot('b',0));
+  expect(mandateResearchSlot('a','a:1')).toBe('a:1');
+  expect(mandateResearchSlot('a',1)).toBe('a:1');
 });

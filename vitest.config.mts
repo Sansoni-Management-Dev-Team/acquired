@@ -4,5 +4,5 @@ export default defineConfig({
   resolve: {
     alias: { "@": new URL("./src", import.meta.url).pathname },
   },
-  test: { environment: "node" },
+  test: { environment: "node", exclude: ["**/node_modules/**", "**/.git/**", "cloudflare/research/workflow-tests/**"] },
 });

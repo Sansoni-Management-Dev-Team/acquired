@@ -41,6 +41,8 @@ describe("combined business research", () => {
     expect(eligibleForPeople("unrelated.example.com","identified",[company,product])).toBe(false);
     expect(eligibleForPeople("instruments.example.com","excluded",[company,product])).toBe(false);
     expect(eligibleForPeople("instruments.example.com","identified",[company,product,person])).toBe(false);
+    expect(eligibleForPeople("instruments.example.com","identified",[company,product,{...person,value:"General Manager"}])).toBe(true);
+    expect(eligibleForPeople("instruments.example.com","identified",[company,product,{...person,email:undefined}])).toBe(true);
   });
   it("missing contacts do not block review and weak evidence remains unresolved", () => {
     expect(businessResearchStatus("instruments.example.com",[company,product],true)).toBe("Ready to review");

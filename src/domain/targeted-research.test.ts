@@ -8,7 +8,7 @@ it("offers only missing-field actions, discovered useful pages and available sea
  expect(resolveTargetedChoice({choice:"read_99",url:"https://evil.example.com"},plan).kind).toBe("stop");
  expect(resolveTargetedChoice({choice:"read_0"},plan)).toMatchObject({url:"https://instruments.example.com/team"});
  expect(targetedPlan({...config,maxPeopleSearches:1},[],[],[])).toBeNull();
- expect(targetedPlan(config,[{kind:"person"} as ResearchFinding],[],[])?.actions).toContainEqual({id:"search_email",kind:"search",field:"email"});
+ expect(targetedPlan(config,[{kind:"person",value:"Director"} as ResearchFinding],[],[])?.actions).toContainEqual({id:"search_email",kind:"search",field:"email"});
  expect(targetedPlan({...config,purpose:"firmographics"},[{kind:"headcount"} as ResearchFinding],[],[])?.actions).toContainEqual({id:"search_revenue",kind:"search",field:"revenue"});
 });
 it("anchors queries in company identity and only uses supplied legal operators",()=>{
@@ -41,4 +41,32 @@ it("adds a short trading-name query with industry and location hints",()=>{
  const queries=targetedQueries("size",{purpose:"firmographics",companyName:"Corex Plastics Australia",companyDomain:"corex.example.com",companyLocation:"Dandenong South VIC"} as ResearchConfig);
  expect(queries).toContain('"Corex" plastics Dandenong South VIC employees');
  expect(queries.length).toBeLessThanOrEqual(MAX_TARGETED_SEARCHES.size);
+});
+
+it("pivots from the trading name to independent legal-entity and D&B searches", () => {
+ const trading = targetedQueries("people", config);
+ expect(trading[0]).toBe('"Example Instruments" owner');
+ expect(trading).toContain('"Example Instruments" founder');
+ expect(trading).toContain('"Example Instruments" ASIC director');
+ expect(trading).toContain('"Example Instruments" managing director general manager');
+ const legal = targetedQueries("people", {...config, legalEntity: "Example Holdings Pty Ltd (ABN 12 345 678 901)"});
+ expect(legal.slice(0, 4)).toEqual([
+  '"Example Holdings Pty Ltd" director owner',
+  'site:dnb.com "Example Holdings Pty Ltd"',
+  '"Example Holdings Pty Ltd" owner shareholder',
+  '"Example Holdings Pty Ltd" ASIC director',
+ ]);
+ expect(legal.filter(query => !trading.includes(query))).toHaveLength(4);
+ expect(legal.join(' ')).not.toContain('ABN');
+});
+it("targets owner email even when a general manager was found first", () => {
+ const findings = [{kind:"person",name:"Casey Manager",value:"General Manager"}, {kind:"person",name:"Alex Owner",value:"Owner"}] as ResearchFinding[];
+ expect(targetedQueries("email",config,findings)[0]).toContain('"Alex Owner"');
+});
+
+it("uses directory names as separate follow-up candidates, without merging nicknames", () => {
+ const peopleSearchLeads = [{url:"https://www.zoominfo.com/pic/delphi-measurement-pty-ltd/346253626",title:"Delphi Measurement Employee Directory",snippet:"employees are Michael Leonard, Darren Fraser. Website: delphimeasurement.com",query:"Delphi Measurement owner",observedAt:"2026-09-15",basis:"search-result" as const}];
+ const queries=targetedQueries("people",{companyName:"Delphi Measurement",companyDomain:"delphimeasurement.com",peopleSearchLeads});
+ expect(queries.slice(0,2)).toEqual(['"Michael Leonard" "Delphi Measurement"','"Darren Fraser" "Delphi Measurement"']);
+ expect(queries.join(" ")).not.toContain('"Mike Leonard"');
 });

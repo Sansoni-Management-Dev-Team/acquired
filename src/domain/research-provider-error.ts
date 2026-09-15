@@ -7,6 +7,10 @@ export class ResearchProviderError extends Error {
     this.category = safe;
   }
 }
+// Admission contention is deferred work, distinct from a provider HTTP 429.
+export class BrowserAdmissionDeferred extends ResearchProviderError {
+  constructor(reason?: string) { super('request_rate', 429); if (reason) this.message = reason; }
+}
 export function providerFailure(error: unknown) {
   return error instanceof ResearchProviderError ? error : new ResearchProviderError(error instanceof Error && /Timeout|Abort/.test(error.name) ? 'timeout' : 'transport');
 }

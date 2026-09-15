@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { LOCAL_DATABASE_URL, localDevConfig, localDevEnvironment } from "./dev-config.mjs";
+import { LOCAL_DATABASE_URL, localDevConfig, localDevEnvironment, localWorkerConfig } from "./dev-config.mjs";
 const env = { OPENROUTER_API_KEY: "fake", CF_ACCOUNT_ID: "fake", CF_BROWSER_TOKEN: "fake" };
 it("overrides production database, worker, auth origin and paid AI settings for development", () => {
   const config = localDevConfig({ ...env, DATABASE_URL: "postgres://prod.example.com/db", DATABASE_DRIVER: "neon", AI_PROVIDER: "openrouter", RESEARCH_WORKER_URL: "https://production.example.com", APP_URL: "https://production.example.com" }, "local-secret");
@@ -9,6 +9,18 @@ it("overrides production database, worker, auth origin and paid AI settings for 
   expect(config.worker).not.toHaveProperty("CF_BROWSER_TOKEN");
   expect(config.worker.LOCAL_CRAWL4AI_URL).toBe("http://127.0.0.1:18083");
   expect(config.origin).toBe("http://127.0.0.1:3010");
+});
+
+it("enables parity without forwarding CF credentials, remote bindings or OpenSERP", () => {
+  const config = localDevConfig({ ...env, CLOUDFLARE_API_TOKEN: "do-not-use", CRAWL4AI_URL: "https://reader.workers.dev" }, "s", 3010, 8787, true);
+  expect(config.policy).toBe("production");
+  expect(config.worker).not.toHaveProperty("LOCAL_SEARCH_URL");
+  expect(config.app.CF_BROWSER_TOKEN).toBe("");
+  expect(config.app.CLOUDFLARE_API_TOKEN).toBe("");
+  expect(config.app.CRAWL4AI_URL).toBe("");
+  const worker = localWorkerConfig({ compatibility_date: "2026-09-08", vars: { APP_ORIGIN: "https://production.example" }, browser: { binding: "BROWSER", remote: true } }, config.origin, "/local/index.ts", config.policy);
+  expect(worker).not.toHaveProperty("browser");
+  expect(worker.vars).toEqual({ APP_ORIGIN: "http://127.0.0.1:3010", LOCAL_DEVELOPMENT: "true", LOCAL_RESEARCH_POLICY: "production" });
 });
 it("rejects missing credentials or conflicting ports instead of using production", () => {
   expect(() => localDevConfig({}, "s")).toThrow(/OPENROUTER/);

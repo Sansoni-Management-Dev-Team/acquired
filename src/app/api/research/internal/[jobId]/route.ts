@@ -1,3 +1,5 @@
+import { dispatchDiscoveryCandidates } from "@/lib/automatic-discovery";
+import { reserveResearchProvider } from "@/lib/research-provider-queue";
 import { researchBrowserPermit } from "@/lib/research-browser-permit";
 import { objectiveFields, fieldSatisfied, nextSearchQuery, type ResearchField } from "@/domain/research-objectives";
 import { dispatchAutomaticEnrichment } from "@/lib/automatic-enrichment";
@@ -53,19 +55,24 @@ export async function GET(
   const { jobId } = await context.params;
   const job = await getJob(request, jobId);
   if (!job) return Response.json({ error: "Not available" }, { status: 403 });
+  return Response.json(await controlSnapshot(job, true), { headers: { "Cache-Control": "no-store" } });
+}
+async function runEvidence(job: NonNullable<Awaited<ReturnType<typeof getJob>>>) {
+  const config = job.config as ResearchConfig;
+  const rootId = config.researchRunId || job.id;
+  return requireDb().select().from(researchFindings).where(and(eq(researchFindings.organizationId, job.organizationId), config.targetId ? and(eq(researchFindings.targetId, config.targetId), sql`${researchFindings.jobId} IN (SELECT id FROM research_jobs WHERE id = ${rootId} OR config->>'researchRunId' = ${rootId})`) : eq(researchFindings.jobId, job.id)));
+}
+async function controlSnapshot(job: NonNullable<Awaited<ReturnType<typeof getJob>>>, includeFindings = false) {
   const config = job.config as ResearchConfig;
   const root = config.researchRunId && config.researchRunId !== job.id ? await new ResearchRepository(job.organizationId).get(config.researchRunId) : job;
-  return Response.json(
-    {
-      status: root?.status === "cancelled" ? "cancelled" : job.status,
-      crawlId: job.crawlId,
-      config,
-      seeds: job.seeds,
-      deadline: Math.min(job.createdAt.getTime() + config.budget.maxMinutes * 60000, (root?.config as ResearchConfig | undefined)?.automaticDeadline || Infinity),
-    },
-    { headers: { "Cache-Control": "no-store" } },
-  );
+  return {
+    status: root?.status === "cancelled" ? "cancelled" : job.status,
+    updatedAt: job.updatedAt.toISOString(), crawlId: job.crawlId, config: config.discoveryCandidate || config.parallelDiscovery ? { ...config, newBusinessIds: (root?.config as ResearchConfig | undefined)?.newBusinessIds || [] } : config, seeds: job.seeds,
+    deadline: Math.min(job.createdAt.getTime() + config.budget.maxMinutes * 60000, (root?.config as ResearchConfig | undefined)?.automaticDeadline || Infinity),
+    ...(includeFindings && config.targetId ? { findings: (await runEvidence(job)).map(f => f.evidence) } : {}),
+  };
 }
+
 async function saveSearchLeads(jobId: string, previous: PeopleSearchLead[], leads: PeopleSearchLead[]) {
   await requireDb().update(researchJobs).set({ config: sql`jsonb_set(${researchJobs.config}, '{peopleSearchLeads}', ${JSON.stringify(mergePeopleSearchLeads([...leads, ...previous]))}::jsonb)` }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates)));
 }
@@ -78,12 +85,26 @@ export async function POST(
   if (!job) return Response.json({ error: "Not available" }, { status: 403 });
   const payload = await request.json().catch(() => null);
   const repo = new ResearchRepository(job.organizationId);
-  if (payload?.action === "browser-permit") return Response.json(await researchBrowserPermit());
+  if (payload?.action === "provider-reserve") {
+    if (terminalResearchStates.includes(job.status) || !['page', 'search', 'ai'].includes(payload.provider) || typeof payload.token !== 'string' || payload.token.length > 160) return Response.json({ granted: false, retryAfterMs: 1000 });
+    const reservation = await reserveResearchProvider(jobId, payload.token, payload.provider);
+    // A durable queue wait is live work, not an unresponsive provider step.
+    await requireDb().update(researchJobs).set({ updatedAt: new Date() }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates)));
+    return Response.json(reservation);
+  }
+  if (payload?.action === "browser-permit") return Response.json(await researchBrowserPermit(jobId, typeof payload.token === 'string' ? payload.token : undefined));
+  // Pass the reserved search slot through the existing provider adapter. It is
+  // consumed atomically by /search, never trusted merely because a header exists.
+  const searchFetch: typeof fetch = (input, init) => {
+    const headers = new Headers(init?.headers);
+    if (typeof payload?.browserReservation === 'string') headers.set('x-research-browser-reservation', payload.browserReservation);
+    return fetch(input, { ...init, headers });
+  };
   if (payload?.action === "targeted-followup") {
     const config = job.config as ResearchConfig;
     const field = payload.field as ResearchField;
     if (!config.targetedFollowup || !objectiveFields(config).includes(field) || ((field === "people" || field === "email") && config.maxPeopleSearches !== 2) || terminalResearchStates.includes(job.status)) return Response.json({ seeds: [], exhausted: true });
-    const evidence = await requireDb().select().from(researchFindings).where(and(eq(researchFindings.jobId, job.id), eq(researchFindings.organizationId, job.organizationId)));
+    const evidence = await runEvidence(job);
     const facts = evidence.map(f => f.evidence as import("@/domain/research").ResearchFinding);
     if (fieldSatisfied(field, facts)) return Response.json({ seeds: [], exhausted: true });
     const legalEntity = facts.find(f => f.kind === "identifier" && f.name === "Legal entity")?.value || config.legalEntity;
@@ -105,11 +126,11 @@ export async function POST(
     try {
       let seeds: string[];
       if (field === "people" || field === "email") {
-        const result = await peopleWebSearch(config.companyName!, config.companyDomain!, fetch, query, legalEntity, job.id);
+        const result = await peopleWebSearch(config.companyName!, config.companyDomain!, searchFetch, query, legalEntity, job.id);
         await saveSearchLeads(job.id, config.peopleSearchLeads || [], result.leads);
         seeds = result.seeds;
       } else {
-        const results = await cloudflareSearchResults(query, fetch, job.id);
+        const results = await cloudflareSearchResults(query, searchFetch, job.id);
         await repo.saveSnippetEstimates(job.id, snippetSizeEstimates(results, { ...config, legalEntity }));
         seeds = results.filter(r => companyResultMatches(r, config.companyName!, config.companyDomain!, legalEntity)).map(r => r.url);
       }
@@ -132,7 +153,7 @@ export async function POST(
     const claimed = await requireDb().update(researchJobs).set({ config: sql`jsonb_set(jsonb_set(${researchJobs.config}, '{peopleFollowupStarted}', 'true'::jsonb), '{legalEntity}', ${JSON.stringify(legalEntity || "")}::jsonb)` }).where(and(eq(researchJobs.id, job.id), sql`COALESCE(${researchJobs.config}->>'peopleFollowupStarted', 'false') = 'false'`, notInArray(researchJobs.status, terminalResearchStates))).returning({ id: researchJobs.id });
     if (!claimed.length) return Response.json({ seeds: [] });
     try {
-      const result = await peopleWebSearch(config.companyName!, config.companyDomain!, fetch, query, legalEntity, job.id);
+      const result = await peopleWebSearch(config.companyName!, config.companyDomain!, searchFetch, query, legalEntity, job.id);
       await saveSearchLeads(job.id, config.peopleSearchLeads || [], result.leads);
       return Response.json({ seeds: result.seeds });
     }
@@ -157,11 +178,11 @@ export async function POST(
     let peopleLeadCount = config.peopleSearchLeads?.length || 0;
     if (continuing) { /* fast sources ran on the first call */ }
     else if (config.purpose === "firmographics" && config.discover && !config.targetedFollowup) {
-      try { const profileResults = await cloudflareSearchResults(companyFactSearchQuery(config.companyName!, config.companyDomain!), fetch, job.id); await repo.saveSnippetEstimates(job.id, snippetSizeEstimates(profileResults, config)); seeds.push(...profileResults.filter(r => companyResultMatches(r, config.companyName!, config.companyDomain!, config.legalEntity)).map(r => r.url)); }
+      try { const profileResults = await cloudflareSearchResults(companyFactSearchQuery(config.companyName!, config.companyDomain!), searchFetch, job.id); await repo.saveSnippetEstimates(job.id, snippetSizeEstimates(profileResults, config)); seeds.push(...profileResults.filter(r => companyResultMatches(r, config.companyName!, config.companyDomain!, config.legalEntity)).map(r => r.url)); }
       catch { warning = "Public profile search unavailable; company website research continues."; }
     } else if (config.purpose === "people" && config.discover && !config.targetedFollowup) {
       try {
-        const result = await peopleWebSearch(config.companyName!, config.companyDomain!, fetch, undefined, undefined, job.id);
+        const result = await peopleWebSearch(config.companyName!, config.companyDomain!, searchFetch, undefined, undefined, job.id);
         seeds.push(...result.seeds);
         peopleLeadCount = result.leads.length;
         await saveSearchLeads(job.id, config.peopleSearchLeads || [], result.leads);
@@ -241,7 +262,7 @@ export async function POST(
       const attempts = afterDiscovery?.discoveryAttempts || [];
       let newAttempts: NonNullable<ResearchConfig['discoveryAttempts']> = [];
       try {
-        const web = await runDiscoveryQueries(slice, config.searchTerms, fetch, job.id);
+        const web = await runDiscoveryQueries(slice, config.searchTerms, searchFetch, job.id);
         newAttempts = web.attempts;
         const fresh = web.seeds.filter(url => !skip.has(researchDomain(url)));
         seeds = Array.from({ length: Math.max(seeds.length, fresh.length) }, (_, i) => [seeds[i], fresh[i]].filter((url): url is string => Boolean(url))).flat();
@@ -258,8 +279,9 @@ export async function POST(
     }
     const finalSkip = new Set(((await repo.get(jobId))?.config as ResearchConfig | undefined)?.skipDomains || []);
     seeds = [...new Set(seeds)].filter(url => !finalSkip.has(researchDomain(url))).slice(0, 100);
-    await repo.seeds(jobId, seeds, warning || "Discovery complete");
-    return Response.json({ seeds, warning, peopleLeadCount, skipDomains: [...finalSkip], more });
+    await repo.seeds(jobId, seeds, warning || (seeds.length ? "Website search finished; researching candidate businesses" : "Website search finished; no candidate websites found in this batch"));
+    if (config.parallelDiscovery) await dispatchDiscoveryCandidates(job.organizationId, jobId);
+    return Response.json({ seeds: config.parallelDiscovery ? [] : seeds, warning, peopleLeadCount, skipDomains: [...finalSkip], more });
   }
   const event = progressSchema.safeParse(payload);
   if (!event.success)
@@ -277,10 +299,14 @@ export async function POST(
   try {
     if ((job.config as ResearchConfig).mode === "automatic") {
       if (["complete", "partial"].includes(event.data.status)) await dispatchContinuation(job.organizationId, jobId);
-      if (event.data.page || ["complete", "partial", "failed"].includes(event.data.status)) await dispatchAutomaticEnrichment(job.organizationId, jobId);
+      if (event.data.page || ["complete", "partial", "failed"].includes(event.data.status)) {
+        await dispatchDiscoveryCandidates(job.organizationId, jobId);
+        await dispatchAutomaticEnrichment(job.organizationId, jobId);
+      }
     } else if (["complete", "partial", "failed"].includes(event.data.status) && !await dispatchContinuation(job.organizationId, jobId)) await dispatchBusinessPeople(job.organizationId, jobId);
   } catch (error) {
     console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), jobId, event: "dispatch_deferred", reason: error instanceof Error ? error.message.slice(0, 200) : "unknown" }));
   }
-  return Response.json({ ok: true });
+  const saved = await repo.get(jobId);
+  return Response.json({ ok: true, ...(saved ? { control: await controlSnapshot(saved) } : {}) });
 }

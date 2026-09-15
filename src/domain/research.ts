@@ -79,6 +79,12 @@ export const researchStartSchema = z.object({
 export const researchRuntimeSchema = z.object({
   remaining: z.array(z.string().url()).max(1000),
   visited: z.array(z.string().url()).max(1000),
+  // One page may be awaiting extraction when a batch runs out of requests.
+  // Persist the content in existing job JSON; no database schema change needed.
+  pendingPage: z.object({
+    url: z.string().url(),
+    page: z.object({ url: z.string().url(), markdown: z.string().max(30000), title: z.string().optional(), observedAt: z.string() }),
+  }).optional(),
   attempts: z
     .array(
       z.object({
@@ -152,13 +158,13 @@ export function continueResearchConfig(
     discover: false,
     budget,
     parentJobId,
-    runtime: { remaining, visited, attempts: [] },
+    runtime: { remaining, visited, attempts: [], ...(config.runtime?.pendingPage ? { pendingPage: config.runtime.pendingPage } : {}) },
   };
 }
 export type ResearchConfig = Omit<
   z.infer<typeof researchStartSchema>,
   "requestId" | "continueFrom"
-> & { executionSlot?: number; researchRunId?: string; automaticPageLimit?: number; automaticPagesUsed?: number; automaticDeadline?: number; newBusinessIds?: string[]; businessTargetStartedAt?: string; targetedFollowup?: boolean; targetedSearches?: string[]; targetedSearchAttempts?: import("./research-objectives").SearchAttempt[]; skipDomains?: string[]; companyLocation?: string; discoveryCursor?: number; discoveryPending?: boolean; discoveryAttempts?: { query: string; status: "succeeded" | "failed"; category?: string }[]; autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
+> & { parallelDiscovery?: boolean; discoveryCandidate?: boolean; executionSlot?: number | string; researchRunId?: string; automaticPageLimit?: number; automaticPagesUsed?: number; automaticDeadline?: number; newBusinessIds?: string[]; businessTargetStartedAt?: string; targetedFollowup?: boolean; targetedSearches?: string[]; targetedSearchAttempts?: import("./research-objectives").SearchAttempt[]; skipDomains?: string[]; companyLocation?: string; discoveryCursor?: number; discoveryPending?: boolean; discoveryAttempts?: { query: string; status: "succeeded" | "failed"; category?: string }[]; autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
 export const findingSchema = z.object({
   kind: z.enum([
     "company",
@@ -339,7 +345,7 @@ export function followUpLinks(
       (l) =>
         (options.external || researchDomain(l.url) === sourceDomain) &&
         !visited.some((v) => researchUrlKey(v) === researchUrlKey(l.url)) &&
-        !/login|sign-in|privacy|terms|cart|checkout|facebook|linkedin|twitter|instagram|youtube|vimeo|tiktok|pinterest|flipsnack|issuu|blog|news|how-to|low-cost|funeral-prices|faq|checklist|\/maps\/|maps\.|\/api\/|\.(?:json|xml|csv|zip)$|staging|my-?account|\/account\b|wp-admin|\/feed\b|\/tag\/|\/category\/|\/product-category\/|\/collections\/|\/product\/|\/products\/[^/]+\/?$/i.test(
+        !/obituar|testimonials|howwecollectandstoredata|colou?r-chart|login|sign-in|privacy|terms|cart|checkout|facebook|linkedin|twitter|instagram|youtube|vimeo|tiktok|pinterest|flipsnack|issuu|blog|news|how-to|low-cost|funeral-prices|faq|checklist|\/maps\/|maps\.|\/api\/|\.(?:json|xml|csv|zip)$|staging|my-?account|\/account\b|wp-admin|\/feed\b|\/tag\/|\/category\/|\/product-category\/|\/collections\/|\/product\/|\/products\/[^/]+\/?$/i.test(
           l.url,
         ),
     )

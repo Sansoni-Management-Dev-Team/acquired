@@ -5,7 +5,7 @@ import { requireDb } from '@/db/client';
 import { researchJobs, researchFindings } from '@/db/schema';
 import { ResearchRepository } from '@/db/research-repository';
 import { AcquisitionRepository } from '@/db/acquisition-repository';
-import { ENRICHMENT_CONCURRENCY } from '@/domain/automatic-research';
+import { BUSINESS_RESEARCH_CONCURRENCY, mandateResearchSlot } from '@/domain/automatic-research';
 import { eligibleForPeople, relevantBusiness } from '@/domain/business-research';
 import { researchDomain, terminalResearchStates, type ResearchConfig, type ResearchFinding } from '@/domain/research';
 import { researchWorker } from './research-service';
@@ -23,7 +23,8 @@ export async function dispatchAutomaticEnrichment(org: string, jobId: string) {
   if (related.some(j => j.status === 'cancelled')) return;
   const findings = await db.select().from(researchFindings).where(and(eq(researchFindings.organizationId, org), eq(researchFindings.mandateId, root.mandateId), sql`${researchFindings.jobId} IN (SELECT ${researchJobs.id} FROM ${researchJobs} WHERE ${researchJobs.id} = ${rootId} OR ${researchJobs.config}->>'researchRunId' = ${rootId})`));
   const members = await new AcquisitionRepository(org).memberships(root.mandateId);
-  const occupied = new Set(jobs.filter(j => !terminalResearchStates.includes(j.status)).map(j => (j.config as ResearchConfig).executionSlot || 0));
+  const occupied = new Set(jobs.filter(j => (j.mandateId === root.mandateId || related.includes(j)) && !terminalResearchStates.includes(j.status)).map(j => mandateResearchSlot(root.mandateId, (j.config as ResearchConfig).executionSlot)));
+  const busyDomains = new Set(jobs.filter(j => j.mandateId === root.mandateId && !terminalResearchStates.includes(j.status)).flatMap(j => (j.config as ResearchConfig).companyDomain ? [(j.config as ResearchConfig).companyDomain!] : []));
   const dispatch: string[] = related.filter(j => j.status === 'queued').map(j => j.id);
   const scheduled = new Set(related.filter(j => (j.config as ResearchConfig).purpose).map(j => `${(j.config as ResearchConfig).targetId}:${(j.config as ResearchConfig).purpose}`));
   const newIds = new Set(related.flatMap(j => (j.config as ResearchConfig).newBusinessIds || []));
@@ -38,20 +39,31 @@ export async function dispatchAutomaticEnrichment(org: string, jobId: string) {
     return purposes.map(purpose => ({ member, purpose }));
   });
   const counts = { firmographics: new Set(related.filter(j => (j.config as ResearchConfig).purpose === 'firmographics').map(j => (j.config as ResearchConfig).targetId)).size, people: new Set(related.filter(j => (j.config as ResearchConfig).purpose === 'people').map(j => (j.config as ResearchConfig).targetId)).size };
-  for (let slot = 1; slot <= ENRICHMENT_CONCURRENCY; slot++) {
-    if (occupied.has(slot)) continue;
-    const next = tasks.find(({ member, purpose }) => !scheduled.has(`${member.target.id}:${purpose}`) && (newIds.has(member.target.id) || counts[purpose] < (config.targetBusinesses || 20)));
-    if (!next) break;
-    const { member, purpose } = next;
-    const hash = createHash('sha256').update(`${rootId}:${member.target.id}:${purpose}`).digest('hex');
-    const id = `${hash.slice(0,8)}-${hash.slice(8,12)}-4${hash.slice(13,16)}-8${hash.slice(17,20)}-${hash.slice(20,32)}`;
-    const child: ResearchConfig = { mode: 'automatic', researchRunId: rootId, executionSlot: slot, purpose, targetedFollowup: true, parentJobId: rootId, targetId: member.target.id, companyName: member.target.companyName, companyDomain: member.target.domain!, companyLocation: [member.target.suburb, member.target.state].filter(Boolean).join(' '), seeds: [`https://${member.target.domain}/`], searchTerms: purpose === 'people' ? ['owner founder director management team'] : config.searchTerms, geography: config.geography, approved: true, discover: true, strategy: 'investigate', maxPeopleSearches: 2, budget: { maxPages: 12, maxDomains: 8, maxModelCalls: 14, maxMinutes: 15 } };
-    try {
-      const saved = await repo.create(id, root.mandateId, root.createdBy, child);
-      scheduled.add(`${member.target.id}:${purpose}`);
-      counts[purpose]++;
-      if (saved.status === 'queued') dispatch.push(saved.id);
-    } catch { /* Another callback claimed this slot. The next callback/poll refills vacancies. */ }
+  // A pair of slots belongs to one business until both purposes finish. This
+  // bounds businesses (not merely jobs), including callbacks that race to refill.
+  for (let group = 0; group < BUSINESS_RESEARCH_CONCURRENCY; group++) {
+    const slots = [group * 2 + 1, group * 2 + 2];
+    const active = jobs.filter(j => j.mandateId === root.mandateId && !terminalResearchStates.includes(j.status) && slots.some(slot => mandateResearchSlot(root.mandateId, slot) === mandateResearchSlot(root.mandateId, (j.config as ResearchConfig).executionSlot)));
+    const activeTarget = active.map(j => (j.config as ResearchConfig).targetId).find(Boolean);
+    const next = tasks.find(({ member, purpose }) => (!active.length || (member.target.id === activeTarget || active.some(j => (j.config as ResearchConfig).companyDomain === member.target.domain))) && (busyDomains.has(member.target.domain!) || busyDomains.size < BUSINESS_RESEARCH_CONCURRENCY) && !scheduled.has(`${member.target.id}:${purpose}`) && (newIds.has(member.target.id) || counts[purpose] < (config.targetBusinesses || 20)));
+    if (!next) continue;
+    const member = next.member;
+    for (const purpose of ['firmographics', 'people'] as const) {
+      const slot = slots[purpose === 'firmographics' ? 0 : 1];
+      if (occupied.has(mandateResearchSlot(root.mandateId, slot)) || scheduled.has(`${member.target.id}:${purpose}`) || !tasks.some(t => t.member.target.id === member.target.id && t.purpose === purpose)) continue;
+      if (!newIds.has(member.target.id) && counts[purpose] >= (config.targetBusinesses || 20)) continue;
+      const hash = createHash('sha256').update(`${rootId}:${member.target.id}:${purpose}`).digest('hex');
+      const id = `${hash.slice(0,8)}-${hash.slice(8,12)}-4${hash.slice(13,16)}-8${hash.slice(17,20)}-${hash.slice(20,32)}`;
+      const child: ResearchConfig = { mode: 'automatic', researchRunId: rootId, executionSlot: mandateResearchSlot(root.mandateId, slot), purpose, targetedFollowup: true, parentJobId: rootId, targetId: member.target.id, companyName: member.target.companyName, companyDomain: member.target.domain!, companyLocation: [member.target.suburb, member.target.state].filter(Boolean).join(' '), seeds: [`https://${member.target.domain}/`], searchTerms: purpose === 'people' ? ['owner founder director management team'] : config.searchTerms, geography: config.geography, approved: true, discover: true, strategy: 'investigate', maxPeopleSearches: 2, budget: { maxPages: 12, maxDomains: 8, maxModelCalls: 14, maxMinutes: 15 } };
+      try {
+        const saved = await repo.create(id, root.mandateId, root.createdBy, child);
+        scheduled.add(`${member.target.id}:${purpose}`);
+        occupied.add(mandateResearchSlot(root.mandateId, slot));
+        counts[purpose]++;
+        busyDomains.add(member.target.domain!);
+        if (saved.status === 'queued') dispatch.push(saved.id);
+      } catch { break; /* A racing callback claimed this business slot. */ }
+    }
   }
   const current = await repo.get(rootId);
   if (current?.status === 'cancelled') { await repo.cancelRun(rootId); return; }

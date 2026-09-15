@@ -16,7 +16,8 @@ it("uses supplied aliases and evidenced legal names without inferring shared own
  expect(companyResultMatches(result("Trading Instruments staff"),"Example Group / Trading Instruments",domain)).toBe(true);
  expect(companyResultMatches(result("Example Holdings Pty Ltd director"),company,domain,"Example Holdings Pty Ltd")).toBe(true);
  expect(companyResultMatches(result("Example Holdings Pty Ltd director"),company,domain)).toBe(false);
- expect(companyPeopleQuery(company,domain)).toContain(`"${domain}"`);
+ expect(companyPeopleQuery(company,domain)).toBe('"Example Instruments" owner');
+ expect(companyPeopleQuery("Example",domain)).toBe('"Example" "instruments.example.com" owner');
 });
 
 it("does not read another company's about page just because its snippet mentions the target",()=>{

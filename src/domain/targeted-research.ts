@@ -1,6 +1,7 @@
-import { missingResearchFields, fieldLabels, type ResearchField } from "./research-objectives";
+import { missingResearchFields, ownershipContact, fieldLabels, type ResearchField } from "./research-objectives";
 import { z } from "zod";
 import { publicCompanyName } from "./company-research-routing";
+import { cleanLegalEntity, peopleCandidateNames, type PeopleSearchLead } from "./people-search-results";
 import { orderPeopleQueue } from "./people-research";
 import { orderCompanyFactQueue } from "./company-facts";
 import { publicResearchUrl, researchDomain, researchUrlKey, type ResearchConfig, type ResearchFinding } from "./research";
@@ -9,31 +10,38 @@ export type TargetedPlan = { companyName: string; companyDomain: string; missing
 export function targetedQuery(field: ResearchField, config: Pick<ResearchConfig,"companyName"|"companyDomain"|"legalEntity">) {
   const domain = publicCompanyName(config.companyDomain || "");
   if (field === "size") return `"${domain}" employees`;
-  const name = publicCompanyName(config.legalEntity || config.companyName?.split(/\s+\/\s+/).at(-1) || "");
+  const name = publicCompanyName((config.legalEntity ? cleanLegalEntity(config.legalEntity) : "") || config.companyName?.split(/\s+\/\s+/).at(-1) || "");
   return `"${name}" ${config.legalEntity ? "" : `"${domain}" `}director owner`;
 }
 // Bounded external search ladder for one missing field. Each query is run at
 // most once per job; a page read never consumes a search.
-export const MAX_TARGETED_SEARCHES: Record<ResearchField, number> = { size: 5, revenue: 3, people: 2, email: 2 };
+export const MAX_TARGETED_SEARCHES: Record<ResearchField, number> = { size: 5, revenue: 3, people: 10, email: 2 };
 // Generic words that hide the trading name search engines and directories actually index.
 const genericNameWords = /\b(?:pty|ltd|limited|inc|co|company|group|holdings|australia|australasia|australian|international|plastics|products|industries|industrial|manufacturing|manufacturers|enterprises|services|solutions|supplies|trading)\b\.?/gi;
 export function shortCompanyName(name: string) {
   const short = name.split(/\s+\/\s+/).at(-1)!.replace(genericNameWords, " ").replace(/[()&,]/g, " ").replace(/\s+/g, " ").trim();
   return short.length >= 4 && short.toLowerCase() !== name.toLowerCase() ? short : "";
 }
-export function targetedQueries(field: ResearchField, config: Pick<ResearchConfig,"companyName"|"companyDomain"|"legalEntity"|"companyLocation">, findings: ResearchFinding[] = []) {
+export function targetedQueries(field: ResearchField, config: Pick<ResearchConfig,"companyName"|"companyDomain"|"legalEntity"|"companyLocation"> & { peopleSearchLeads?: PeopleSearchLead[] }, findings: ResearchFinding[] = []) {
   const name = publicCompanyName(config.companyName?.split(/\s+\/\s+/).at(-1) || "");
-  const legal = config.legalEntity ? publicCompanyName(config.legalEntity) : "";
+  const legal = config.legalEntity ? publicCompanyName(cleanLegalEntity(config.legalEntity)) : "";
   // The short trading name plus an industry hint and location finds profiles indexed under a different styling of the name.
   const short = publicCompanyName(shortCompanyName(config.companyName || ""));
   const industry = (config.companyName || "").match(/\b(plastics|products|industries|manufacturing|caskets?|coffins?|urns?|hardware|engineering|packaging)\b/i)?.[1].toLowerCase() || "";
   const place = publicCompanyName(config.companyLocation || "");
-  const person = publicCompanyName(findings.find(f => f.kind === "person")?.name || "");
+  const person = publicCompanyName(findings.find(ownershipContact)?.name || "");
   const queries = field === "revenue" ? [`"${name}" annual revenue`, `"${name}" turnover`, `"${config.companyDomain}" revenue`]
     : field === "email" ? [`site:${config.companyDomain} ${person ? `"${person}"` : 'director'} email`, `"${person || name}" "${config.companyDomain}" contact`]
     : field === "size"
     ? [targetedQuery("size", config), name && `"${name}" employees`, short && `"${short}" ${industry} ${place} employees`.replace(/\s+/g, " "), name && `"${name}" company size`, (legal || name) && `"${legal || name}" headcount revenue`]
-    : [targetedQuery("people", config), name && `"${name}" ${legal ? `"${legal}" ` : ""}managing director owner Australia`];
+    : [
+      ...(legal ? [`"${legal}" director owner`, `site:dnb.com "${legal}"`, `"${legal}" owner shareholder`, `"${legal}" ASIC director`] : []),
+      ...peopleCandidateNames(config.peopleSearchLeads || []).slice(0, 2).map(person => `"${publicCompanyName(person)}" "${name}"`),
+      name && `"${name}" owner`,
+      name && `"${name}" founder`,
+      name && `"${name}" ASIC director`,
+      name && `"${name}" managing director general manager`,
+    ];
   return [...new Set(queries.filter((q): q is string => Boolean(q)).map(q => q.replace(/\s+/g, " ").trim()))].slice(0, MAX_TARGETED_SEARCHES[field]);
 }
 export function targetedPlan(config: ResearchConfig, findings: ResearchFinding[], queue: string[], visited: string[], searchAvailable = true, requestedField?: ResearchField): TargetedPlan | null {

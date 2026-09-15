@@ -113,9 +113,44 @@ it("captures plain-line team listings with roles and published work emails, neve
     ["Jane Citizen", "Managing Director", undefined],
     ["Sam Sample", "Director & National Production Manager", undefined],
     ["Alex Example", "General Manager of Operations", "alexe@instruments.example.com"],
+    ["Chris Person", "Manager - Queensland", "chrisp@instruments.example.com"],
     ["Pat Sampleson", "Owner", undefined],
   ]);
   expect(findings[2].quote).toBe("Alex Example\nGeneral Manager of Operations\n[0400 000 000](tel:0400%20000%20000) alexe@instruments.example.com");
   expect(validatePeopleFindings([], markdown, "https://other.example.com/team", config)).toEqual([]);
   expect(validatePeopleFindings([], markdown.replace("# Meet our team", "# Customer stories"), source, config)).toEqual([]);
+});
+
+it("follows only the same D&B company's contacts tab", () => {
+ const profile = "https://www.dnb.com/business-directory/company-profiles/example-holdings.123";
+ const page = `[Contacts](${profile}/contacts) [Other contacts](https://www.dnb.com/business-directory/company-profiles/other.456/contacts) [Publisher team](https://www.dnb.com/team)`;
+ expect(peopleFollowUpLinks(page,profile,[],config)).toEqual([`${profile}/contacts`]);
+ expect(peopleFollowUpLinks(page,profile,[`${profile}/contacts`],config)).toEqual([]);
+});
+it("accepts directory evidence for a verified legal entity without inferring ownership", () => {
+ const source = "https://www.dnb.com/business-directory/company-profiles/example-holdings.123/contacts";
+ const quote = "# Example Holdings Pty Ltd\nContacts\nAlex Example\nDirector";
+ const person = {...candidate, value:"Director", quote, website:source};
+ expect(validatePeopleFindings([person],quote,source,{...config,legalEntity:"Example Holdings Pty Ltd"})).toMatchObject([{name:"Alex Example",value:"Director"}]);
+ expect(validatePeopleFindings([person],quote,source,config)).toEqual([]);
+ expect(validatePeopleFindings([{...person,value:"Owner"}],quote,source,{...config,legalEntity:"Example Holdings Pty Ltd"})).toEqual([]);
+});
+
+it("accepts a source-backed Delphi director passage but not the search summary alone", () => {
+ // Short excerpt from Cranes & Lifting, 12 September 2025.
+ const quote="Mike Leonard, Managing Director at Delphi Measurement";
+ const url="https://www.cranesandlifting.com.au/delphi-measurements-australian-made-load-cells-gain-momentum/";
+ const company={companyName:"Delphi Measurement",companyDomain:"delphimeasurement.com"} as ResearchConfig;
+ const finding={kind:"person",name:"Mike Leonard",value:"Managing Director",quote,website:url};
+ expect(validatePeopleFindings([finding],quote,url,company)).toMatchObject([{name:"Mike Leonard",value:"Managing Director"}]);
+ expect(validatePeopleFindings([finding],"Subscribe to read the article",url,company)).toEqual([]);
+ expect(validatePeopleFindings([{...finding,value:"Owner"}],quote,url,company)).toEqual([]);
+ expect(orderPeopleQueue(["https://www.linkedin.com/in/mike-leonard",url],[],company.companyDomain!)[0]).toBe(url);
+});
+it("retains the visible QA manager card without inventing gated contact details", () => {
+ const quote="Key Employees of Delphi Measurement\nDarren Fraser\nManager, Quality Assurance\nPhone Email";
+ const url="https://www.zoominfo.com/pic/delphi-measurement-pty-ltd/346253626";
+ const findings=validatePeopleFindings([{kind:"person",name:"Darren Fraser",value:"Manager, Quality Assurance",quote,website:url}],quote,url,{companyName:"Delphi Measurement",companyDomain:"delphimeasurement.com"} as ResearchConfig);
+ expect(findings).toMatchObject([{name:"Darren Fraser",value:"Manager, Quality Assurance"}]);
+ expect(findings[0].email).toBeUndefined();
 });

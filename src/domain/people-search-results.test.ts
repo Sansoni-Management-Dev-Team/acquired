@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import { searchResults, canonicalSearchUrl } from "./cloudflare-search";
-import { peopleSearchLeads, peopleFollowupQuery, mergePeopleSearchLeads } from "./people-search-results";
+import { peopleSearchLeads, peopleFollowupQuery, mergePeopleSearchLeads, peopleCandidateNames, allowedPeopleSource } from "./people-search-results";
 it("keeps result snippets attached to their own source and collapses locale profiles", () => {
  const page = '## [Alex E. - Director | LinkedIn](https://au.linkedin.com/in/alexexample/nl)\n[Director at **Example Instruments**](https://au.linkedin.com/in/alexexample/nl)\n[Unrelated person CEO](https://other.example.com/)\n## [Duplicate](https://www.linkedin.com/in/alexexample)\n## [Another business](https://business.example.com/)\n[Sam Sample is CEO at Another Business](https://business.example.com/)';
  const results=searchResults(page);
@@ -32,4 +32,13 @@ it("preserves a company-associated profile when the role is not published",()=>{
 });
 it("searches the legal name without appending ABN text",()=>{
  expect(peopleFollowupQuery('Example Instruments',[],'Example Holdings Pty Ltd (ABN 12 345 678 901)')).toBe('"Example Holdings Pty Ltd" director owner company profile Australia');
+});
+
+it("uses public company-directory names as leads while rejecting gated and personal lookup paths", () => {
+ const url="https://www.zoominfo.com/pic/delphi-measurement-pty-ltd/346253626";
+ const leads=peopleSearchLeads([{url,title:"Delphi Measurement Employee Directory",snippet:"employees are Michael Leonard, Darren Fraser. Website: delphimeasurement.com"}],"Delphi Measurement","owner","now","delphimeasurement.com");
+ expect(peopleCandidateNames(leads)).toEqual(["Michael Leonard","Darren Fraser"]);
+ expect(allowedPeopleSource("https://zoominfo.com/p/Michael-Leonard/123")).toBe(false);
+ expect(allowedPeopleSource("https://app.zoominfo.com/login")).toBe(false);
+ expect(peopleSearchLeads([{url,title:"Other Company",snippet:"employees are Michael Leonard, Darren Fraser."}],"Delphi Measurement","owner","now")).toEqual([]);
 });

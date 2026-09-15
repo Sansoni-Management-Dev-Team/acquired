@@ -1,3 +1,4 @@
+import { dispatchDiscoveryCandidates } from "@/lib/automatic-discovery";
 import { dispatchAutomaticEnrichment } from "@/lib/automatic-enrichment";
 import { dispatchContinuation } from "@/lib/research-continuation";
 import { automaticResearchConfig } from "@/domain/automatic-research";
@@ -39,13 +40,18 @@ export async function GET(
   for (const job of initialJobs.filter(j => !terminalResearchStates.includes(j.status) && Date.now() - j.updatedAt.getTime() > 90000)) {
     try {
       const worker = await researchWorker(`/jobs/${job.id}`) as { status: string };
+      if (["running", "waiting"].includes(worker.status) && Date.now() - job.updatedAt.getTime() > 10 * 60000) {
+        const recovery = await researchWorker(`/jobs/${job.id}`, "POST", { action: "recover-stalled" }) as { recovered?: boolean };
+        if (recovery.recovered) await repo.recoverStopped(job.id, job.revision, job.pages);
+      }
       if (["errored", "terminated", "complete"].includes(worker.status)) await repo.recoverStopped(job.id, job.revision, job.pages);
     } catch { /* An unavailable status endpoint does not imply the job stopped. */ }
   }
-  const latest = initialJobs.find(j => !(j.config as ResearchConfig).purpose);
+  const latest = initialJobs.find(j => !(j.config as ResearchConfig).purpose && !(j.config as ResearchConfig).discoveryCandidate);
   if (latest && (latest.config as ResearchConfig).mode === "automatic") {
     try {
       await dispatchContinuation(org, latest.id);
+      await dispatchDiscoveryCandidates(org, latest.id);
       await dispatchAutomaticEnrichment(org, latest.id);
     } catch { /* Durable queued jobs are retried on subsequent polls. */ }
   }
@@ -135,7 +141,7 @@ export async function POST(
   try {
     const repo = new ResearchRepository(org);
     if (config.mode === "automatic" && !await repo.concurrentResearchReady()) return Response.json({ error: "Automatic research is awaiting the research concurrency database upgrade." }, { status: 503 });
-    if (config.mode === "automatic" && await repo.hasOtherActive(requestId)) return Response.json({ error: "Research is already running. Stop it before starting another run." }, { status: 409 });
+    if (config.mode === "automatic" && await repo.hasOtherActive(requestId, id)) return Response.json({ error: "Research is already running for this mandate. Stop it before starting another run here." }, { status: 409 });
     const job = await repo.create(
       requestId,
       id,

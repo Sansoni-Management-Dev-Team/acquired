@@ -109,3 +109,9 @@ it("bounds excessive model output without discarding valid quoted claims", () =>
   expect(validateFindings(records, page, source)).toHaveLength(12);
   expect(validateFindings([{invalid: true}, finding], page, source)).toEqual([finding]);
 });
+
+it("does not follow obituary, data policy, testimonial or colour-chart detours", () => {
+  const source = "https://supplier.example.com/";
+  const markdown = ["obituaries/obituary-listings", "howwecollectandstoredata", "testimonials", "perspex-colour-chart", "products"].map(path => `[Supplier products](https://supplier.example.com/${path})`).join("\n");
+  expect(followUpLinks(markdown, source, ["supplier products"], [])).toEqual([source + "products"]);
+});

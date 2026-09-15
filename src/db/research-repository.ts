@@ -1,3 +1,4 @@
+import { mandateResearchSlot } from "@/domain/automatic-research";
 import { modelHeadcountFinding, validateCompanyFacts } from "@/domain/company-facts";
 import { ownCompany, relevantBusiness, validateBusinessFindings } from "@/domain/business-research";
 import { directorySource } from "@/domain/discovery-sources";
@@ -48,8 +49,8 @@ export class ResearchRepository {
     const result = await this.db.execute(sql`SELECT to_regclass('public.research_jobs_active_slot_idx') IS NOT NULL AS ready`);
     return (result as { rows?: { ready: boolean }[] }).rows?.[0]?.ready === true;
   }
-  async hasOtherActive(id: string) {
-    const rows = await this.db.select({ id: researchJobs.id }).from(researchJobs).where(and(eq(researchJobs.organizationId, this.org), sql`${researchJobs.id} <> ${id}`, notInArray(researchJobs.status, terminalResearchStates))).limit(1);
+  async hasOtherActive(id: string, mandateId: string) {
+    const rows = await this.db.select({ id: researchJobs.id }).from(researchJobs).where(and(eq(researchJobs.organizationId, this.org), eq(researchJobs.mandateId, mandateId), sql`${researchJobs.id} <> ${id}`, notInArray(researchJobs.status, terminalResearchStates))).limit(1);
     return rows.length > 0;
   }
   list(mandateId: string) {
@@ -87,9 +88,11 @@ export class ResearchRepository {
       .where(and(eq(researchFindings.organizationId, this.org), eq(researchFindings.mandateId, mandateId), sql`${researchFindings.targetId} IS NOT NULL`, sql`${researchFindings.evidence}->>'kind' IN ('headcount', 'revenue', 'person')`))
       .limit(5000);
   }
-  resultCounts(mandateId: string) {
-    return this.db.select({
+  async resultCounts(mandateId: string) {
+    const rows = await this.db.select({
       jobId: researchFindings.jobId,
+      // Full evidence set, independent of target creation and the UI's findings limit.
+      businessDomains: sql<string[]>`coalesce(array_agg(distinct regexp_replace(lower(split_part(${researchFindings.sourceUrl}, '/', 3)), '^www[.]', '')) filter (where ${researchFindings.evidence}->>'kind' = 'company' and regexp_replace(lower(split_part(${researchFindings.evidence}->>'website', '/', 3)), '^www[.]', '') = regexp_replace(lower(split_part(${researchFindings.sourceUrl}, '/', 3)), '^www[.]', '')), array[]::text[])`,
       added: sql<number>`count(distinct case when ${targets.createdAt} >= ${researchJobs.createdAt} then ${targets.id} end)::int`,
       updated: sql<number>`count(distinct case when ${targets.createdAt} < ${researchJobs.createdAt} then ${targets.id} end)::int`,
       people: sql<number>`count(distinct case when ${researchFindings.evidence}->>'kind' = 'person' then lower(${researchFindings.evidence}->>'name') end)::int`,
@@ -98,6 +101,7 @@ export class ResearchRepository {
       .leftJoin(targets, and(eq(targets.id, researchFindings.targetId), eq(targets.organizationId, this.org)))
       .where(and(eq(researchFindings.organizationId, this.org), eq(researchFindings.mandateId, mandateId)))
       .groupBy(researchFindings.jobId);
+    return rows.map(row => ({ ...row, businessDomains: row.businessDomains.filter(domain => domain && !directorySource(`https://${domain}/`)) }));
   }
   async recordNewBusiness(id: string, targetId: string) {
     const job = await this.get(id);
@@ -108,7 +112,7 @@ export class ResearchRepository {
       .where(and(eq(targets.id, targetId), eq(targets.organizationId, this.org))).limit(1);
     if (!target || target.createdAt.getTime() < new Date(config.businessTargetStartedAt || job.createdAt).getTime()) return;
     await this.db.update(researchJobs).set({ config: sql`jsonb_set(${researchJobs.config}, '{newBusinessIds}', (SELECT jsonb_agg(DISTINCT value) FROM jsonb_array_elements(COALESCE(${researchJobs.config}->'newBusinessIds', '[]'::jsonb) || ${JSON.stringify([targetId])}::jsonb)))` })
-      .where(and(eq(researchJobs.id, id), eq(researchJobs.organizationId, this.org)));
+      .where(and(sql`${researchJobs.id} IN (${id}, ${config.discoveryCandidate ? config.researchRunId || id : id})`, eq(researchJobs.organizationId, this.org)));
   }
   async create(
     id: string,
@@ -116,6 +120,7 @@ export class ResearchRepository {
     createdBy: string,
     config: ResearchConfig,
   ) {
+    config = { ...config, executionSlot: mandateResearchSlot(mandateId, config.executionSlot) };
     await this.db
       .insert(researchJobs)
       .values({
