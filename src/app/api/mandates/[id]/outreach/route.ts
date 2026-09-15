@@ -10,5 +10,5 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!z.string().uuid().safeParse(id).success) return Response.json({ error: "Invalid mandate" }, { status: 400 });
   const mandate = await new AcquisitionRepository(org).getMandate(id);
   if (!mandate) return Response.json({ error: "Mandate not found" }, { status: 404 });
-  return Response.json(await loadOutreach(org, id), { headers: { "Cache-Control": "no-store" } });
+  return Response.json(await loadOutreach(org, id, session.user.id), { headers: { "Cache-Control": "no-store" } });
 }

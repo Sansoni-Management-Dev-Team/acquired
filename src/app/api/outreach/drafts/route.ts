@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { reviewedOutreachSignals } from "@/domain/reviewed-outreach-evidence";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -13,7 +14,7 @@ import { auth } from "@/lib/auth";
 import { accreditationSignals } from "@/domain/accreditation-evidence";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
 
-const requestSchema = z.object({ mandateId: z.string().uuid(), targetId: z.string().uuid(), contactId: z.string().uuid().optional(), preview: z.boolean().default(false) });
+const requestSchema = z.object({ mandateId: z.string().uuid(), targetId: z.string().uuid(), contactId: z.string().uuid().optional(), preview: z.boolean().default(false), reuseExisting: z.boolean().default(false) });
 
 export async function POST(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -35,20 +36,22 @@ export async function POST(request: Request) {
   const personal = (contact?.personalData || {}) as Record<string, unknown>;
   if (personal.doNotContact === true) return Response.json({ error: "This contact is marked do-not-contact." }, { status: 409 });
   if (!parsed.data.preview && (typeof personal.email !== "string" || !personal.email)) return Response.json({ error: "A work email is required." }, { status: 409 });
+  if (!parsed.data.preview && contact?.fictionalised) return Response.json({ error: "Select a real contact before saving outreach." }, { status: 409 });
   const signalRows = await database.select().from(signals).where(and(eq(signals.organizationId, organizationId), eq(signals.targetId, target.id)));
   const evidence: Signal[] = signalRows.map((row) => ({ id: row.id, kind: row.kind, value: row.value, weight: row.weight === "very_high" ? "very-high" : row.weight, direction: row.direction === "negative" ? "negative" : "positive", provenance: { source: row.source, sourceUrl: row.sourceUrl || undefined, capturedAt: row.capturedAt.toISOString(), confidence: row.confidence } }));
   evidence.push(...accreditationSignals(member.accreditations), ...reviewedOutreachSignals(member));
   if (!evidence.some((signal) => signal.direction === "positive")) return Response.json({ error: "At least one positive evidence signal is required." }, { status: 409 });
-  const existingEnrolments = await database.select({ id: sequenceEnrolments.id }).from(sequenceEnrolments).where(and(eq(sequenceEnrolments.organizationId, organizationId), eq(sequenceEnrolments.targetId, target.id), eq(sequenceEnrolments.mandateId, mandate.id)));
-  if (existingEnrolments.length) {
-    const existingMessages = await database.select({ providerMessageId: messages.providerMessageId }).from(messages).where(and(eq(messages.organizationId, organizationId), eq(messages.enrolmentId, existingEnrolments[0].id)));
-    if (existingMessages.some((item) => item.providerMessageId)) return Response.json({ error: "Revoke approved Gmail drafts before regenerating this sequence." }, { status: 409 });
-  }
-
   const [organizationRow] = await database.select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, organizationId)).limit(1);
   const buyerProfile = buyerProfileFromMetadata(organizationRow?.metadata);
   if (!buyerProfile) return Response.json({ error: "Complete and save the buyer profile before generating outreach." }, { status: 409 });
   if (!buyerProfile.publicProfileApproved) return Response.json({ error: "Approve the public buyer profile before drafting." }, { status: 409 });
+  const existingEnrolments = await database.select({ id: sequenceEnrolments.id, sequenceId: sequenceEnrolments.sequenceId }).from(sequenceEnrolments).where(and(eq(sequenceEnrolments.organizationId, organizationId), eq(sequenceEnrolments.targetId, target.id), eq(sequenceEnrolments.mandateId, mandate.id), ...(contact ? [eq(sequenceEnrolments.contactId, contact.id)] : [])));
+  if (existingEnrolments.length) {
+    const existingMessages = await database.select({ providerMessageId: messages.providerMessageId, id: messages.id }).from(messages).where(and(eq(messages.organizationId, organizationId), eq(messages.enrolmentId, existingEnrolments[0].id)));
+    if (!parsed.data.preview && parsed.data.reuseExisting && existingMessages.length === DEFAULT_SEQUENCE.length) return Response.json({ enrolmentId: existingEnrolments[0].id, messageCount: existingMessages.length, reused: true });
+    if (!parsed.data.preview && existingMessages.some((item) => item.providerMessageId)) return Response.json({ error: "Revoke approved Gmail drafts before regenerating this sequence." }, { status: 409 });
+  }
+
   const firmographics = target.firmographics as Record<string, unknown>;
   const outreachContext = firmographics.outreachContext && typeof firmographics.outreachContext === "object" ? firmographics.outreachContext as Record<string, unknown> : {};
   let provider: ReturnType<typeof createOutreachDraftingProvider> | undefined;
@@ -71,19 +74,26 @@ export async function POST(request: Request) {
   }
   if (parsed.data.preview) return Response.json({ preview: drafts, saved: false });
   if (!contact) return Response.json({ error: "Select a contact before saving" }, { status: 409 });
-  let [sequence] = await database.select().from(sequences).where(and(eq(sequences.organizationId, organizationId), eq(sequences.name, `Mandate ${mandate.id}`))).limit(1);
-  if (!sequence) [sequence] = await database.insert(sequences).values({ organizationId, name: `Mandate ${mandate.id}`, steps: DEFAULT_SEQUENCE, createdBy: session.user.id }).returning();
-  let [enrolment] = await database.select().from(sequenceEnrolments).where(and(eq(sequenceEnrolments.organizationId, organizationId), eq(sequenceEnrolments.targetId, target.id), eq(sequenceEnrolments.sequenceId, sequence.id))).limit(1);
-  if (!enrolment) [enrolment] = await database.insert(sequenceEnrolments).values({ organizationId, mandateId: mandate.id, sequenceId: sequence.id, targetId: target.id, contactId: contact.id, state: "draft" }).returning();
-  else await database.update(sequenceEnrolments).set({ contactId: contact.id, state: "draft" }).where(eq(sequenceEnrolments.id, enrolment.id));
+  // A stable sequence per mandate/contact preserves the existing uniqueness constraint
+  // while allowing several recipients at the same company, without schema changes.
+  const hash = createHash("sha256").update(JSON.stringify([organizationId, mandate.id, target.id, contact.id])).digest("hex");
+  const sequenceId = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+  let enrolment = existingEnrolments[0];
+  if (!enrolment) {
+    await database.insert(sequences).values({ id: sequenceId, organizationId, name: `Mandate ${mandate.id} · contact ${contact.id}`, steps: DEFAULT_SEQUENCE, createdBy: session.user.id }).onConflictDoNothing();
+    await database.insert(sequenceEnrolments).values({ organizationId, mandateId: mandate.id, sequenceId, targetId: target.id, contactId: contact.id, state: "draft" }).onConflictDoNothing();
+    [enrolment] = await database.select({ id: sequenceEnrolments.id, sequenceId: sequenceEnrolments.sequenceId }).from(sequenceEnrolments).where(and(eq(sequenceEnrolments.organizationId, organizationId), eq(sequenceEnrolments.sequenceId, sequenceId), eq(sequenceEnrolments.targetId, target.id))).limit(1);
+  }
+  if (!enrolment) return Response.json({ error: "Could not save the outreach sequence. Please retry." }, { status: 409 });
 
   for (const draft of drafts) {
     const purpose = DEFAULT_SEQUENCE.find((step) => step.step === draft.step)?.purpose || "Evidence-led outreach";
     const values = { purpose, subject: draft.subject, body: draft.body, signalIds: draft.signalIds, state: "draft" as const, scheduledFor: draft.scheduledFor, updatedAt: new Date() };
     const [existing] = await database.select({ id: messages.id }).from(messages).where(and(eq(messages.enrolmentId, enrolment.id), eq(messages.stepNumber, draft.step))).limit(1);
+    if (existing && parsed.data.reuseExisting) continue;
     if (existing) await database.update(messages).set(values).where(eq(messages.id, existing.id));
-    else await database.insert(messages).values({ organizationId, enrolmentId: enrolment.id, stepNumber: draft.step, ...values });
+    else await database.insert(messages).values({ organizationId, enrolmentId: enrolment.id, stepNumber: draft.step, ...values }).onConflictDoNothing();
   }
-  await new OrganizationRepository(database, organizationId).appendAudit({ actorId: session.user.id, action: "outreach.drafts_generated", entityType: "target", entityId: target.id, metadata: { mandateId: mandate.id, contactId: contact.id, sequenceId: sequence.id, messageCount: drafts.length, draftingMode: provider.mode, draftingProvider: provider.providerName, evidenceIds: evidence.map(({ id }) => id), liveDelivery: false } });
+  await new OrganizationRepository(database, organizationId).appendAudit({ actorId: session.user.id, action: "outreach.drafts_generated", entityType: "target", entityId: target.id, metadata: { mandateId: mandate.id, contactId: contact.id, sequenceId: enrolment.sequenceId, messageCount: drafts.length, draftingMode: provider.mode, draftingProvider: provider.providerName, evidenceIds: evidence.map(({ id }) => id), liveDelivery: false } });
   return Response.json({ enrolmentId: enrolment.id, messageCount: drafts.length });
 }

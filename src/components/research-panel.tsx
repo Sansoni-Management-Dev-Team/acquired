@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   terminalResearchStates,
   groupResearchFindings,
@@ -41,12 +41,10 @@ export function ResearchPanel({
   mandateId,
   brief,
   onResultsChanged,
-  historyContent,
 }: {
   mandateId: string;
   brief: AcquisitionBrief;
   onResultsChanged: () => void;
-  historyContent?: ReactNode;
 }) {
   const [data, setData] = useState<Data>({
     enabled: false,
@@ -108,7 +106,7 @@ export function ResearchPanel({
   const active = [...data.jobs, ...(data.peopleJobs || []), ...(data.companyJobs || [])].find(
     (j) => !terminalResearchStates.includes(j.status),
   );
-  const currentJob = data.jobs.find(j => !terminalResearchStates.includes(j.status)) || data.jobs[0];
+  const currentJob = data.jobs.find(j => !terminalResearchStates.includes(j.status)) || active || data.jobs[0];
   const runId = currentJob?.config.researchRunId || currentJob?.id;
   const inRun = (j: Job) => j.id === runId || j.config.researchRunId === runId || j.config.parentJobId === runId;
   const relatedPeople = (data.peopleJobs || []).filter(inRun);
@@ -181,7 +179,7 @@ export function ResearchPanel({
       {loading ? (
         <p role="status">Checking research service…</p>
       ) : !data.enabled ? (
-        <div className="space-y-3"><p>Website research is awaiting activation.</p><details><summary className="cursor-pointer py-2">Sources &amp; research history</summary>{historyContent}</details></div>
+        <p>Website research is awaiting activation.</p>
       ) : (
         <>
           {(!active || setup) && (
@@ -281,10 +279,10 @@ export function ResearchPanel({
                     </div>
                   </details>
                   <label className="flex min-h-12 items-center gap-3 text-sm"><input type="checkbox" checked={findPeople} onChange={e => setFindPeople(e.target.checked)} />Find owners and decision-makers</label>
-                  <p className="text-sm text-[var(--muted)]">Company details are researched automatically as businesses are found. Missing facts trigger follow-up research; unsupported details stay marked unknown.</p>
+                  <p className="text-sm text-[var(--muted)]">Company details are researched automatically. Unsupported facts stay unknown.</p>
                   <div className="sticky -bottom-6 -mx-6 border-t border-[var(--border)] bg-[var(--panel)] p-6 space-y-3">
                   <p className="text-sm text-[var(--muted)]">
-                    Research continues towards your target, with company enrichment running alongside discovery. You can stop at any time. The run ends when the target is reached, useful sources are exhausted, or the automatic safety limit is reached. Usage may incur charges.
+                    Research runs until the target or a safety limit is reached. Stop at any time. Provider charges may apply.
                   </p>
                   <p className="text-xs text-[var(--muted)]">Starting research shares these search terms, URLs and page content with the research providers. Keep confidential buyer details out of the search settings.</p>
                   <button
@@ -329,158 +327,22 @@ export function ResearchPanel({
               <h2 className="font-semibold">{!terminalResearchStates.includes(currentJob.status) ? (currentJob.config.purpose === "firmographics" ? "Researching company details" : currentJob.config.purpose === "people" ? "Finding decision-makers" : currentJob.status === "discovering" ? "Finding businesses" : "Researching businesses") : currentJob.status === "cancelled" ? "Research cancelled" : enriching.length ? "Enriching businesses" : "Latest research run"}</h2>
               <span className="text-xs text-[var(--muted)]">{new Date(currentJob.createdAt).toLocaleString()}</span>
             </div>
-            {currentJob.config.targetBusinesses && <p className="text-sm font-medium" aria-live="polite">{newBusinessCount} of {currentJob.config.targetBusinesses} new businesses found</p>}
-            <p className="text-sm">{currentJob.config.purpose ? currentJob.config.companyName : `${enriching.length} enrichment jobs running · ${finishedEnrichment.length} finished`} · {peopleFound} sourced contact leads{searchLeadCount ? ` · ${searchLeadCount} search leads to verify` : ""}</p>
-            <p className="text-sm">{runPages} pages read across this run · {currentJob.config.runtime?.remaining.length || 0} URLs remaining</p>
-
-            <p className="text-sm text-[var(--muted)]">{currentJob.message}</p>
+            <ResearchProgress job={currentJob} count={newBusinessCount} active={Boolean(active)} enriching={enriching.length} />
+            <details className="text-sm text-[var(--muted)]"><summary className="min-h-12 cursor-pointer content-center">Details</summary>
+              <p>{enriching.length} enrichment jobs running · {finishedEnrichment.length} finished · {peopleFound} contact leads{searchLeadCount ? ` · ${searchLeadCount} leads to verify` : ""}</p>
+              <p>{runPages} pages read · {currentJob.config.runtime?.remaining.length || 0} URLs remaining</p><p className="mt-2 break-words">{currentJob.message}</p>
+            </details>
             {!active && terminalResearchStates.includes(currentJob.status) && Boolean(currentJob.config.runtime?.remaining.length) && <p className="text-sm">This run has stopped; the remaining websites have not all been researched.</p>}
             {!active && !currentJob.config.purpose && remainingFor(currentJob).length > 0 && <button className={button} disabled={busy} onClick={() => resume(currentJob)}>Continue research</button>}
             {!active && !currentJob.config.purpose && currentJob.config.runtime?.attempts.some(a => a.status === "failed" || /extraction failed/i.test(a.reason)) && <button className={button} disabled={busy} onClick={() => retryFailed(currentJob)}>Retry failed pages</button>}
             {active && <button className={button} disabled={busy} onClick={() => act({action:"cancel"}, active.id)}>Stop research</button>}
             {active?.status === "queued" && <button className={button} disabled={busy} onClick={() => act({action:"retry-dispatch"}, active.id)}>Reconnect job</button>}
+            {[...data.jobs, ...(data.peopleJobs || []), ...(data.companyJobs || [])].filter(job => job.id !== active?.id && !terminalResearchStates.includes(job.status)).map(job => <div key={job.id} className="flex flex-wrap items-center gap-3 text-sm"><span>{job.config.companyName || "Research"} · {job.config.purpose === "people" ? "Finding decision-makers" : "Company research"}</span><button className={button} disabled={busy} onClick={() => act({action:"cancel"}, job.id)}>Stop research</button>{job.status === "queued" && <button className={button} disabled={busy} onClick={() => act({action:"retry-dispatch"}, job.id)}>Reconnect job</button>}</div>)}
           </div>}
-          <details className="border-t border-[var(--border)] pt-3">
-            <summary className="cursor-pointer py-2 text-sm font-medium">Sources &amp; research history</summary>
-            <div className="mt-4 space-y-5">
-          <div className="space-y-3" aria-live="polite">
-            {data.jobs.slice(0, 5).map((job) => {
-              const runtime = job.config.runtime;
-              const websites = new Set(
-                (runtime?.attempts || [])
-                  .filter((a) => a.status === "read")
-                  .map((a) => researchDomain(a.finalUrl || a.url)),
-              ).size;
-              const finished = terminalResearchStates.includes(job.status);
-              const remaining = remainingFor(job);
-              return (
-                <article
-                  key={job.id}
-                  className="rounded-lg border border-[var(--border)] p-4"
-                >
-                  <div className="flex flex-wrap justify-between gap-3">
-                    <strong className="capitalize">
-                      {job.status === "partial"
-                        ? "Finished with remaining work"
-                        : job.status}
-                    </strong>
-                    <span className="text-xs text-[var(--muted)]">
-                      {runtime
-                        ? `${websites} websites read · ${runtime.attempts.length}/${job.config.budget.maxPages} attempts`
-                        : `${job.pages} pages read`}{" "}
-                      · {job.modelCalls}/{job.config.budget.maxModelCalls} AI
-                      calls
-                    </span>
-                  </div>
-                  <p className="mt-2 text-sm text-[var(--muted)]">
-                    {job.message}
-                  </p>
-                  {finished && job.config.workflow === "business" && job.config.findPeople && job.status !== "cancelled" && !active && <button className={`${button} mt-3`} disabled={busy} onClick={() => act({action:"resume-people"}, job.id)}>Check remaining people research</button>}
-                  {runtime ? (
-                    <details className="mt-3">
-                      <summary className="cursor-pointer py-2 text-sm">
-                        Page details · {runtime.remaining.length} URLs remaining
-                      </summary>
-                      <ul className="space-y-3 text-sm">
-                        {runtime.attempts.map((a) => (
-                          <li key={a.url}>
-                            <a
-                              className="break-all underline"
-                              href={a.finalUrl || a.url}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              {a.url}
-                            </a>
-                            <p>
-                              {a.status} · {a.reason}
-                            </p>
-                          </li>
-                        ))}
-                      </ul>
-                      {runtime.remaining.length > 0 && (
-                        <details className="mt-3">
-                          <summary className="cursor-pointer py-2">
-                            Remaining websites and pages
-                          </summary>
-                          <ul className="space-y-2 text-xs">
-                            {runtime.remaining.map((url) => (
-                              <li key={url} className="break-all">
-                                {url}
-                              </li>
-                            ))}
-                          </ul>
-                        </details>
-                      )}
-                    </details>
-                  ) : (
-                    <p className="mt-2 text-xs text-[var(--muted)]">
-                      Earlier run: full page history was not recorded.
-                      Continuing skips pages with saved findings.
-                    </p>
-                  )}
-                  {!finished ? (
-                    <div className="mt-3 flex gap-3">
-                      <button
-                        className={button}
-                        disabled={busy}
-                        onClick={() => act({ action: "cancel" }, job.id)}
-                      >
-                        Cancel research
-                      </button>
-                      {job.status === "queued" && (
-                        <button
-                          className={button}
-                          disabled={busy}
-                          onClick={() =>
-                            act({ action: "retry-dispatch" }, job.id)
-                          }
-                        >
-                          Reconnect job
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    remaining.length > 0 &&
-                    !active && (
-                      <button
-                        className={`${button} mt-3`}
-                        disabled={busy}
-                        onClick={() => resume(job)}
-                      >
-                        Continue research
-                      </button>
-                    )
-                  )}
-                </article>
-              );
-            })}
-          </div>
-          {(data.peopleJobs || []).length > 0 && <div className="space-y-3" aria-live="polite">
-            <h3 className="font-semibold">Decision-maker research</h3>
-            {data.peopleJobs!.slice(0, 6).map(job => <article key={job.id} className="rounded-lg border border-[var(--border)] p-3">
-              <p className="font-medium">{job.config.companyName} · {job.status}</p>
-              <p className="text-sm text-[var(--muted)]">{job.pages}/{job.config.budget.maxPages} pages · {job.message}</p>
-              <a className="mt-2 inline-block text-sm underline" href={`/mandates/${mandateId}?tab=targets`}>Review business and contact leads in Targets</a>
-              {!terminalResearchStates.includes(job.status) && <button className={`${button} ml-3`} disabled={busy} onClick={() => act({action:"cancel"}, job.id)}>Stop people research</button>}
-              {job.status === "queued" && <button className={`${button} ml-3`} disabled={busy} onClick={() => act({action:"retry-dispatch"}, job.id)}>Reconnect</button>}
-            </article>)}
-          </div>}
-          <details><summary className="min-h-12 cursor-pointer content-center text-sm">Unlinked business evidence</summary>
-          <p className="mb-3 text-xs text-[var(--muted)]">Source leads that have not been added to Targets. Review before adding a business.</p>
-          <ResearchFindings
-            findings={data.findings.filter(f => !f.targetId)}
-            onChanged={() => {
-              void refresh();
-              onResultsChanged();
-            }}
-          />
-          </details>
-          {historyContent}
-            </div>
-          </details>
+
         </>
       )}
+      {busy && <p role="status" className="text-sm">Updating research…</p>}
       {error && (
         <p role="alert" className="text-sm text-red-200">
           {error}
@@ -656,4 +518,13 @@ export function TargetResearchEvidence({
   }, [mandateId, targetId, domain]);
   if (!findings.length) return null;
   return <ResearchFindings findings={findings} onChanged={() => {}} />;
+}
+
+function ResearchProgress({ job, count, active, enriching }: { job: Job; count: number; active: boolean; enriching: number }) {
+  const goal = !job.config.purpose && job.config.targetBusinesses;
+  const discovering = Boolean(goal && !terminalResearchStates.includes(job.status));
+  const determinate = Boolean(goal && (discovering || !active));
+  const label = determinate ? `${count} of ${goal} businesses found` : job.config.purpose === "people" ? "Finding decision-makers…" : enriching || job.config.purpose === "firmographics" ? "Researching company details…" : active ? "Researching businesses…" : `Research ${job.status}`;
+  const percentage = determinate ? Math.min(100, Math.max(0, count / Number(goal) * 100)) : undefined;
+  return <div className="space-y-2"><p role="status" aria-live="polite" className="text-sm font-medium">{label}</p>{(active || determinate) && <div role="progressbar" aria-label={label} aria-valuemin={determinate ? 0 : undefined} aria-valuemax={determinate ? 100 : undefined} aria-valuenow={percentage} className="h-2 overflow-hidden rounded-full bg-[var(--panel-raised)]"><div className={`h-full rounded-full bg-[var(--accent)] ${determinate ? "transition-[width]" : "w-1/3 motion-safe:animate-pulse"}`} style={determinate ? { width: `${percentage}%` } : undefined} /></div>}</div>;
 }

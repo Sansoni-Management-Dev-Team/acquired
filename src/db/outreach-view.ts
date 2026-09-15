@@ -1,12 +1,13 @@
+import { connectionCanCompose } from "@/lib/gmail-connection";
 import { reviewedOutreachSignals } from "@/domain/reviewed-outreach-evidence";
 import { and, eq } from "drizzle-orm";
 import type { OutreachTargetView } from "@/components/outreach-queue";
 import { requireDb } from "./client";
-import { contacts, messages, organization, sequenceEnrolments, signals, targets } from "./schema";
+import { contacts, messages, mailboxConnections, organization, sequenceEnrolments, signals, targets } from "./schema";
 import { accreditationSignals } from "@/domain/accreditation-evidence";
 import { buyerProfileFromMetadata } from "@/domain/buyer-profile";
 import { AcquisitionRepository } from "./acquisition-repository";
-export async function loadOutreach(organizationId: string, mandateId: string) {
+export async function loadOutreach(organizationId: string, mandateId: string, userId?: string) {
   const acquisition = new AcquisitionRepository(organizationId);
   const memberships = await acquisition.memberships(mandateId);
   const membershipIds = new Set(memberships.map(m => m.target.id));
@@ -19,7 +20,7 @@ export async function loadOutreach(organizationId: string, mandateId: string) {
     database.select().from(messages).where(eq(messages.organizationId, organizationId)),
     database.select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, organizationId)).limit(1),
   ]);
-  const enrolmentTargets = new Map(enrolmentRows.map((row) => [row.id, row.targetId]));
+  const enrolments = new Map(enrolmentRows.map((row) => [row.id, row]));
   const views: OutreachTargetView[] = targetRows.filter(target => membershipIds.has(target.id)).map((target) => {
     const firmographics = target.firmographics as Record<string, unknown>;
     const identifiers = target.identifiers as Record<string, unknown>;
@@ -32,8 +33,9 @@ export async function loadOutreach(organizationId: string, mandateId: string) {
       establishedYear: typeof established === "number" ? established : undefined, firmableId: typeof identifiers.firmableId === "string" ? identifiers.firmableId : undefined,
       contacts: contactRows.filter((row) => row.targetId === target.id).map((row) => { const personal = row.personalData as Record<string, unknown>; return { id: row.id, displayName: row.displayName, role: row.role || undefined, email: typeof personal.email === "string" ? personal.email : undefined, emailStatus: typeof personal.emailStatus === "string" ? personal.emailStatus : "provider-supplied", sourceUrl: typeof (row.provenance as Record<string, unknown>).sourceUrl === "string" ? (row.provenance as Record<string, unknown>).sourceUrl as string : undefined, fictionalised: row.fictionalised, doNotContact: personal.doNotContact === true }; }),
       signals: [...reviewedOutreachSignals(memberships.find(m => m.target.id === target.id)), ...accreditationSignals(memberships.find(m => m.target.id === target.id)?.accreditations || []), ...signalRows.filter((row) => row.targetId === target.id).map((row) => ({ id: row.id, kind: row.kind, value: row.value, weight: row.weight === "very_high" ? "very-high" as const : row.weight, direction: row.direction === "negative" ? "negative" as const : "positive" as const, provenance: { source: row.source, sourceUrl: row.sourceUrl || undefined, capturedAt: row.capturedAt.toISOString(), confidence: row.confidence } }))],
-      drafts: messageRows.filter((row) => enrolmentTargets.get(row.enrolmentId) === target.id).map((row) => ({ id: row.id, step: row.stepNumber, subject: row.subject, body: row.body, signalIds: Array.isArray(row.signalIds) ? row.signalIds.filter((id): id is string => typeof id === "string") : [], scheduledFor: row.scheduledFor?.toISOString(), state: row.state, gmailDraftSaved: Boolean(row.providerMessageId) })).sort((left, right) => left.step - right.step),
+      drafts: messageRows.filter((row) => enrolments.get(row.enrolmentId)?.targetId === target.id).map((row) => ({ id: row.id, contactId: enrolments.get(row.enrolmentId)?.contactId || undefined, step: row.stepNumber, subject: row.subject, body: row.body, signalIds: Array.isArray(row.signalIds) ? row.signalIds.filter((id): id is string => typeof id === "string") : [], scheduledFor: row.scheduledFor?.toISOString(), state: row.state, gmailDraftSaved: Boolean(row.providerMessageId) })).sort((left, right) => left.step - right.step),
     };
   });
-  return { views, buyerProfile: buyerProfileFromMetadata(organizationRows[0]?.metadata) };
+  const [connection] = userId ? await database.select().from(mailboxConnections).where(and(eq(mailboxConnections.organizationId, organizationId), eq(mailboxConnections.userId, userId), eq(mailboxConnections.provider, "gmail"))).limit(1) : [];
+  return { canCompose: Boolean(connection && connectionCanCompose(connection)), views, buyerProfile: buyerProfileFromMetadata(organizationRows[0]?.metadata) };
 }

@@ -1,4 +1,5 @@
-import { notFound, redirect } from "next/navigation";
+import { mandateOutreachHref } from "@/domain/mandate-navigation";
+import { notFound, redirect, permanentRedirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
@@ -7,12 +8,13 @@ import { MandateWorkspace } from "@/components/mandate-workspace";
 import { requireDb } from "@/db/client";
 import { contacts, organization } from "@/db/schema";
 import { buyerProfileFromMetadata } from "@/domain/buyer-profile";
-export default async function MandatePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string }> }) {
-  const { organizationId } = await acquisitionSession();
+export default async function MandatePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string; targetId?: string }> }) {
   const { id } = await params;
   if (!z.string().uuid().safeParse(id).success) notFound();
-  const requested = (await searchParams).tab || "brief";
-  if (requested === "outreach") redirect(`/outreach?mandateId=${id}`);
+  const query = await searchParams;
+  const requested = query.tab || "brief";
+  if (requested === "outreach") permanentRedirect(mandateOutreachHref(id, query.targetId));
+  const { organizationId } = await acquisitionSession();
   if (requested === "coverage") redirect(`/mandates/${id}?tab=targets`);
   const tab = ["brief","targets","pipeline"].includes(requested) ? requested : "brief";
   const repo = new AcquisitionRepository(organizationId);
