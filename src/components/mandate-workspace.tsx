@@ -49,10 +49,25 @@ function captureBrief(current: AcquisitionBrief): AcquisitionBrief {
 }
 export function BriefEditor({ initial, onSave, busy }: { initial: AcquisitionBrief; onSave: (brief: AcquisitionBrief) => void; busy: boolean }) {
   const [brief, setBrief] = useState(initial);
+  const [generating, setGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState("");
+  async function generateTestMandate() {
+    setGenerating(true);
+    setGenerationError("");
+    try {
+      const result = await jsonRequest("/api/mandates/generate", {});
+      setBrief(result.brief);
+    } catch (error) {
+      setGenerationError(error instanceof Error ? error.message : "Could not generate a brief. Please try again.");
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   const update = (key: keyof AcquisitionBrief, value: unknown) => setBrief(b => ({ ...b, [key]: value }));
-  return <form onSubmit={e => { e.preventDefault(); onSave(brief); }} className="space-y-5"><div className={panelClass}><label className="text-sm">Mandate name<input required maxLength={100} className={fieldClass} value={brief.name} onChange={e => update("name", e.target.value)} /></label><label className="mt-4 block text-sm">Describe the acquisition brief<textarea className={`${fieldClass} min-h-28`} value={brief.naturalLanguage} onChange={e => update("naturalLanguage", e.target.value)} /></label><button type="button" className={`${buttonClass} mt-3`} onClick={() => setBrief(captureBrief(brief))}>Extract draft criteria</button><p className="mt-2 text-xs text-[var(--muted)]">Review every extracted field. Unrecognised details stay in the original brief; enter them below. Separate alternative sub-sectors with semicolons. Use National or Australian states for geography.</p></div>
+  return <form onSubmit={e => { e.preventDefault(); onSave(brief); }} className="space-y-5"><fieldset disabled={generating} className="min-w-0 space-y-5"><div className={panelClass}><label className="text-sm">Mandate name<input required maxLength={100} className={fieldClass} value={brief.name} onChange={e => update("name", e.target.value)} /></label><label className="mt-4 block text-sm">Describe the acquisition brief<textarea className={`${fieldClass} min-h-28`} value={brief.naturalLanguage} onChange={e => update("naturalLanguage", e.target.value)} /></label><div className="mt-3 flex flex-wrap gap-2"><button type="button" className={buttonClass} onClick={() => setBrief(captureBrief(brief))}>Extract draft criteria</button><button type="button" disabled={busy || generating} className={buttonClass} onClick={generateTestMandate}>{generating ? "Generating…" : "Generate test mandate"}</button></div>{generationError && <p role="alert" className="mt-2 text-sm text-red-300">{generationError}</p>}<p role="status" className="mt-2 text-xs text-[var(--muted)]">{generating ? "Creating a new acquisition brief with AI…" : "Generate a new AI test brief, then review and save it."}</p><p className="mt-2 text-xs text-[var(--muted)]">Review every extracted field. Unrecognised details stay in the original brief; enter them below. Separate alternative sub-sectors with semicolons. Use National or Australian states for geography.</p></div>
     <BriefCriteria criteria={brief.criteria} onChange={criteria => update("criteria", criteria)} />
-    <div className={panelClass}><label className="block text-sm">Investment thesis for this mandate<textarea className={fieldClass} value={brief.investmentThesis} onChange={e => update("investmentThesis", e.target.value)} /></label><label className="mt-4 block text-sm">Approved outreach positioning<textarea className={fieldClass} value={brief.outreachPositioning} onChange={e => update("outreachPositioning", e.target.value)} /></label><p className="mt-2 text-xs text-[var(--muted)]">The private brief, financial criteria and investment thesis are not sent to the drafting provider.</p></div><button disabled={busy} className={`${buttonClass} bg-[var(--accent)] text-black`}>{busy ? "Saving…" : "Save reviewed brief"}</button></form>;
+    <div className={panelClass}><label className="block text-sm">Investment thesis for this mandate<textarea className={fieldClass} value={brief.investmentThesis} onChange={e => update("investmentThesis", e.target.value)} /></label><label className="mt-4 block text-sm">Approved outreach positioning<textarea className={fieldClass} value={brief.outreachPositioning} onChange={e => update("outreachPositioning", e.target.value)} /></label><p className="mt-2 text-xs text-[var(--muted)]">The private brief, financial criteria and investment thesis are not sent to the drafting provider.</p></div><button disabled={busy} className={`${buttonClass} bg-[var(--accent)] text-black`}>{busy ? "Saving…" : "Save reviewed brief"}</button></fieldset></form>;
 }
 export function NewMandate({ mandates }: { mandates: MandateView[] }) {
   const router = useRouter(); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);

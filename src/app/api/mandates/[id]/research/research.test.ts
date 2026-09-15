@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   hasOtherActive: vi.fn(),
   concurrentResearchReady: vi.fn(),
 }));
+vi.mock("@/lib/automatic-discovery", () => ({ dispatchDiscoveryCandidates: vi.fn() }));
 vi.mock("@/lib/automatic-enrichment", () => ({ dispatchAutomaticEnrichment: vi.fn() }));
 vi.mock("@/lib/research-continuation", () => ({ dispatchContinuation: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: mocks.session } } }));
