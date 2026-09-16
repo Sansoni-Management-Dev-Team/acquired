@@ -53,19 +53,19 @@ export async function providerJsonRequest<T>(fetcher: typeof fetch, url: string,
   let response: Response;
   try { response = await fetcher(url, init); }
   catch (error) {
-    emit("request_failed", { category: init.signal?.aborted || (error instanceof Error && /TimeoutError|AbortError/.test(error.name)) ? "timeout" : "transport" });
+    emit("request_failed", { failureOrigin: "provider_transport", category: init.signal?.aborted || (error instanceof Error && /TimeoutError|AbortError/.test(error.name)) ? "timeout" : "transport" });
     throw error;
   }
   let data: T;
   try { data = await response.json() as T; }
   catch (error) {
     const timedOut = init.signal?.aborted || (error instanceof Error && /TimeoutError|AbortError/.test(error.name));
-    emit("request_failed", { httpStatus: response.status, ...providerDiagnostics(response.status, response.headers, {}), category: timedOut ? "timeout" : response.status === 429 ? "rate_limit_unspecified" : "invalid_json_or_interrupted_body", classificationBasis: timedOut ? "abort_signal" : "response_body" });
+    emit("request_failed", { failureOrigin: "upstream_response", httpStatus: response.status, ...providerDiagnostics(response.status, response.headers, {}), category: timedOut ? "timeout" : response.status === 429 ? "rate_limit_unspecified" : "invalid_json_or_interrupted_body", classificationBasis: timedOut ? "abort_signal" : "response_body" });
     if (!response.ok) return { response, data: {} as T };
     throw error;
   }
   const payload = object(data);
-  if (!response.ok || payload.error || payload.success === false) emit("request_failed", { httpStatus: response.status, ...providerDiagnostics(response.status, response.headers, data) });
-  else if (verbose) emit("request_completed", { httpStatus: response.status });
+  if (!response.ok || payload.error || payload.success === false) emit("request_failed", { failureOrigin: "upstream_response", httpStatus: response.status, ...providerDiagnostics(response.status, response.headers, data) });
+  else if (verbose) emit("request_completed", { httpStatus: response.status, providerRequestIds: providerDiagnostics(response.status, response.headers, {}).providerRequestIds });
   return { response, data };
 }
