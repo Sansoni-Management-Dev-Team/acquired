@@ -61,6 +61,7 @@ export interface ResearchServices {
     page?: { url: string; markdown: string; title?: string; observedAt?: string };
     warning?: string;
     deferred?: boolean;
+    retryAfterMs?: number;
   }>;
   cancel(id: string): Promise<void>;
   extract(messages: ReturnType<typeof extractionPrompt>): Promise<unknown>;
@@ -400,7 +401,16 @@ export async function runResearch(
           if (terminalResearchStates.includes(current.status)) return;
           if (!current.expired) {
             result = await step.do(`fallback-${attempt}`, () => service.readFallbackPage!(url), false);
+            trace("fallback_result", { source: source(url), status: result.status, deferred: Boolean(result.deferred) });
           }
+        }
+        if (result.deferred) {
+          const current = await check(`fallback-wait-${attempt}`);
+          if (terminalResearchStates.includes(current.status)) return;
+          const waitMs = Math.min(result.retryAfterMs || 3000, 60000, Math.max(0, current.deadline - service.now()));
+          if (waitMs > 0) await step.sleep(`fallback-backoff-${attempt}`, waitMs);
+          deferPage("Fallback reader admission deferred; continue with a fresh request budget");
+          break;
         }
         const finalQuality = result.page ? unusablePage(result.page.markdown) : null;
         if (finalQuality) result = { status: "failed", warning: finalQuality };

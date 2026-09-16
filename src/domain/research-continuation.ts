@@ -3,7 +3,7 @@ import { researchDomain, researchUrlKey, uniqueResearchUrls, type ResearchConfig
 export function automaticContinuation(job: {id:string;status:string;message:string;createdAt:Date;modelCalls:number;config:ResearchConfig}, now=Date.now()):ResearchConfig|null {
   const config=job.config, runtime=config.runtime;
   if (config.mode === "automatic" && !config.purpose && !config.discoveryCandidate) return automaticBatch(job, now);
-  if(job.status!== 'partial' || !/Worker request budget reached|Browser admission deferred/.test(job.message) || !runtime) return null;
+  if(job.status!== 'partial' || !/Worker request budget reached|Browser admission deferred|Fallback reader admission deferred/.test(job.message) || !runtime) return null;
   const noProgress = runtime.attempts.every(a => a.status === 'pending');
   const admissionContinuations = noProgress ? (config.admissionContinuations || 0) + 1 : 0;
   if (admissionContinuations > 2) return null;

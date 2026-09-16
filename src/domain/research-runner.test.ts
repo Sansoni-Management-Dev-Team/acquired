@@ -705,3 +705,16 @@ it("falls back without exceeding the planner budget or disrupting discovery on A
   expect(t.service.discover).toHaveBeenCalledTimes(2);
   expect(t.progress.mock.calls.at(-1)?.[0].modelCalls).toBe(1);
 });
+
+it("preserves pages for continuation when the fallback reader is busy", async () => {
+  const t = setup(); t.config.budget.maxPages = 1;
+  vi.mocked(t.service.poll).mockResolvedValue({ status: "failed" });
+  t.service.readFallbackPage = vi.fn(async () => ({ status: "failed", deferred: true, retryAfterMs: 30000 }));
+  await runResearch(t.step, t.service);
+  expect(t.service.extract).not.toHaveBeenCalled();
+  const last = t.progress.mock.calls.at(-1)?.[0];
+  expect(last).toMatchObject({ status: "partial", pages: 0 });
+  expect(last?.runtime?.remaining).toContain(t.config.seeds[0]);
+  expect(last?.runtime?.attempts[0].status).toBe("pending");
+  expect(t.step.sleep).toHaveBeenCalledWith("fallback-backoff-1", 30000);
+});

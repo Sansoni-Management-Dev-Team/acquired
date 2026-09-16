@@ -13,3 +13,6 @@ coverage/
 
 /.playwright-cli/
 /output/playwright/
+
+# Python reader/benchmark bytecode
+__pycache__/

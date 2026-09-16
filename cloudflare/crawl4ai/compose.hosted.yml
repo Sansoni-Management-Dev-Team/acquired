@@ -1,0 +1,33 @@
+name: acquire-reader
+services:
+  reader:
+    build: .
+    environment:
+      SERVICE_SECRET: ${SERVICE_SECRET:?Set a strong SERVICE_SECRET}
+      CRAWL4AI_CONCURRENCY: "3"
+      CRAWL4AI_DOMAIN_DELAY: "3"
+    shm_size: 1gb
+    mem_limit: 4g
+    cpus: 2
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+  https:
+    image: caddy:2.10.2-alpine
+    environment:
+      READER_HOST: ${READER_HOST:?Set the reader DNS hostname}
+    ports: ["80:80", "443:443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      reader:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  caddy_data:
+  caddy_config:

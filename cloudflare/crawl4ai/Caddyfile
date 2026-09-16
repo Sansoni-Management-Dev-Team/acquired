@@ -1,0 +1,3 @@
+{$READER_HOST} {
+	reverse_proxy reader:8080
+}

@@ -30,3 +30,9 @@ it('caps automatic continuations when admission repeatedly makes no progress',()
  expect(automaticContinuation(blocked,60000)).toBeNull();
  expect(automaticContinuation({...job,config:{...config,admissionContinuations:2}},60000)?.admissionContinuations).toBe(0);
 });
+
+it('resumes fallback admission waits within the same bounded continuation policy',()=>{
+ const waiting={...job,message:'Fallback reader admission deferred; continue with a fresh request budget',config:{...config,runtime:{visited:[],remaining:['https://example.com/'],attempts:[{url:'https://example.com/',status:'pending' as const,reason:'Waiting'}]}}};
+ expect(automaticContinuation(waiting,60000)?.runtime?.remaining).toContain('https://example.com/');
+ expect(automaticContinuation({...waiting,config:{...waiting.config,admissionContinuations:2}},60000)).toBeNull();
+});
