@@ -30,7 +30,7 @@ export function PipelineBoard({ mandateId, memberships, onReview, onShortlist, b
         setDragging(member.target.id);
       }}
       onDragEnd={() => { setDragging(null); setOverShortlist(false); }}
-      className={`min-w-0 rounded-lg border border-[var(--border)] bg-black p-4 ${dragging === member.target.id ? "opacity-50" : ""}`}>
+      className={`min-w-0 rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 ${dragging === member.target.id ? "opacity-50" : ""}`}>
 
       <Link draggable={false} href={`/mandates/${mandateId}/targets/${member.target.id}`} className="break-words font-semibold underline decoration-[var(--border)] underline-offset-4">{member.target.companyName}</Link>
       <p className="mt-2 break-words text-xs text-[var(--muted)]">{member.target.state} · {member.target.sector.value || "Classification unresolved"}</p>
@@ -52,7 +52,7 @@ export function PipelineBoard({ mandateId, memberships, onReview, onShortlist, b
       <h3 className="font-semibold">No businesses found yet</h3>
       <p className="mt-2 text-sm text-[var(--muted)]">Find or import businesses in Targets. They will appear in Found, ready to review and shortlist.</p>
     </div> : <>
-      <label className="block max-w-sm text-xs">Find a deal<input value={query} onChange={event => setQuery(event.target.value)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2 text-sm text-white" /></label>
+      <label className="block max-w-sm text-xs">Find a deal<input value={query} onChange={event => setQuery(event.target.value)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2 text-sm text-[var(--foreground)]" /></label>
       {query && !active.some(matches) && <p role="status" className="text-sm text-[var(--muted)]">No active deals match “{query}”.</p>}
       <div className="grid items-start gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
         {dealStages.map(([stage, label]) => {

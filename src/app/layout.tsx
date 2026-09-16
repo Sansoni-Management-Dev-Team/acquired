@@ -13,7 +13,10 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: `try{if(localStorage.getItem("acquired-theme")==="light")document.documentElement.dataset.theme="light"}catch{}` }} />
+      </head>
       <body className={`${displayFont.variable} ${bodyFont.variable}`}>
         <AppShell providerMode={process.env.TARGET_DATA_PROVIDER === "fixture" ? "Fixture providers" : "Directory + Google Places"}>{children}</AppShell>
       </body>

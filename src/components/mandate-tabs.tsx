@@ -16,7 +16,7 @@ export function MandateTabs({ mandateId, activeTab }: { mandateId: string; activ
       key={tab}
       href={mandateTabHref(mandateId, tab)}
       aria-current={activeTab === tab ? "page" : undefined}
-      className={`flex min-h-12 shrink-0 items-center border-b-2 px-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--accent)] ${activeTab === tab ? "border-[var(--accent)] text-[var(--accent)]" : "border-transparent text-[var(--muted)] hover:border-[var(--border)] hover:text-white"}`}
+      className={`flex min-h-12 shrink-0 items-center border-b-2 px-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--accent)] ${activeTab === tab ? "border-[var(--accent)] text-[var(--accent)]" : "border-transparent text-[var(--muted)] hover:border-[var(--border)] hover:text-[var(--foreground)]"}`}
     >{label}</Link>)}
   </nav>;
 }

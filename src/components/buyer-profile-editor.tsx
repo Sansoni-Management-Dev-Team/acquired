@@ -99,7 +99,7 @@ export function BuyerProfileEditor({ initial, onSaved, onDirtyChange }: {
         </details>
         <button disabled={busy || (saved && !dirty)} className="min-h-12 rounded-md border border-[var(--border)] px-3 py-2 text-sm font-semibold disabled:opacity-40">{busy ? "Saving…" : "Save buyer profile"}</button>
       </fieldset>
-      {error && <p role="alert" className="mt-3 text-sm text-red-300">{error}</p>}
+      {error && <p role="alert" className="mt-3 text-sm text-[var(--status-red)]">{error}</p>}
       {status && <p role="status" className="mt-3 text-sm text-[var(--muted)]">{status}</p>}
     </form>
   </details>;

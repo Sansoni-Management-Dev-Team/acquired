@@ -35,7 +35,7 @@ export function CompanyFactsPanel({ targetId, mandateId }: { targetId: string; m
   const summary = summariseEvidence(findings, { searches: (data?.jobs || []).reduce((sum, j) => sum + (j.config?.targetedSearches?.length || 0), 0), researching: Boolean(active) });
   return <section className="space-y-3 rounded-xl border border-[var(--border)] p-4">
     <h3 className="font-semibold">Company details &amp; estimated EBITDA</h3>
-    {error && <p role="alert" className="text-sm text-red-200">{error}</p>}
+    {error && <p role="alert" className="text-sm text-[var(--status-red)]">{error}</p>}
     {!data ? <p role="status">Loading company details…</p> : <>
       {data.enabled && <div className="space-y-2">
         {active ? <><p role="status" className="text-sm">{active.message}</p><button className={button} disabled={busy} onClick={() => act("cancel")}>Stop company research</button>{active.status === "queued" && <button className={button} disabled={busy} onClick={() => act("retry-dispatch")}>Reconnect job</button>}</> : <><button className={button} disabled={busy} onClick={() => act("start")}>Research company details</button><p className="text-xs text-[var(--muted)]">Research public websites and profiles: up to 8 page attempts and 4 targeted web searches over 10 minutes; searching continues until a sourced headcount is found or the searches run out. Company name, website and page content are shared with research providers; usage may incur charges.</p>{data.jobs[0] && <p className="text-sm">{data.jobs[0].message}</p>}</>}

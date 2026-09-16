@@ -51,17 +51,17 @@ export function SignUpForm() {
     <form onSubmit={submit} className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--panel)] p-7">
       <GoogleSignInButton />
       <label className="text-sm" htmlFor="name">Your name</label>
-      <input required id="name" name="name" autoComplete="name" className="mb-4 mt-2 w-full rounded-md border border-[var(--border)] bg-black/20 px-3 py-2.5 outline-none focus:border-[var(--accent)]" />
+      <input required id="name" name="name" autoComplete="name" className="mb-4 mt-2 w-full rounded-md border border-[var(--border)] bg-[var(--input)] px-3 py-2.5 outline-none focus:border-[var(--accent)]" />
       <label className="text-sm" htmlFor="organizationName">Organisation</label>
-      <input required id="organizationName" name="organizationName" autoComplete="organization" className="mb-4 mt-2 w-full rounded-md border border-[var(--border)] bg-black/20 px-3 py-2.5 outline-none focus:border-[var(--accent)]" />
+      <input required id="organizationName" name="organizationName" autoComplete="organization" className="mb-4 mt-2 w-full rounded-md border border-[var(--border)] bg-[var(--input)] px-3 py-2.5 outline-none focus:border-[var(--accent)]" />
       <label className="text-sm" htmlFor="email">Email</label>
-      <input required id="email" name="email" type="email" autoComplete="email" className="mb-4 mt-2 w-full rounded-md border border-[var(--border)] bg-black/20 px-3 py-2.5 outline-none focus:border-[var(--accent)]" />
+      <input required id="email" name="email" type="email" autoComplete="email" className="mb-4 mt-2 w-full rounded-md border border-[var(--border)] bg-[var(--input)] px-3 py-2.5 outline-none focus:border-[var(--accent)]" />
       <label className="text-sm" htmlFor="password">Password</label>
-      <input required minLength={8} maxLength={128} id="password" name="password" type="password" autoComplete="new-password" className="mt-2 w-full rounded-md border border-[var(--border)] bg-black/20 px-3 py-2.5 outline-none focus:border-[var(--accent)]" />
+      <input required minLength={8} maxLength={128} id="password" name="password" type="password" autoComplete="new-password" className="mt-2 w-full rounded-md border border-[var(--border)] bg-[var(--input)] px-3 py-2.5 outline-none focus:border-[var(--accent)]" />
       <p className="mt-2 text-xs text-[var(--muted)]">Use at least 8 characters.</p>
-      {error && <p role="alert" className="mt-3 text-sm text-red-300">{error}</p>}
-      <button disabled={loading} className="mt-5 w-full rounded-md bg-[var(--accent)] px-4 py-2.5 font-semibold text-black disabled:opacity-50">{loading ? "Creating account…" : "Create account"}</button>
-      <p className="mt-4 text-center text-xs text-[var(--muted)]">Already registered? <Link href="/sign-in" className="text-white underline underline-offset-4">Sign in</Link></p>
+      {error && <p role="alert" className="mt-3 text-sm text-[var(--status-red)]">{error}</p>}
+      <button disabled={loading} className="mt-5 w-full rounded-md bg-[var(--accent)] px-4 py-2.5 font-semibold text-[var(--on-accent)] disabled:opacity-50">{loading ? "Creating account…" : "Create account"}</button>
+      <p className="mt-4 text-center text-xs text-[var(--muted)]">Already registered? <Link href="/sign-in" className="text-[var(--foreground)] underline underline-offset-4">Sign in</Link></p>
     </form>
   );
 }

@@ -34,6 +34,6 @@ export function AuthComplete() {
     })();
   }, [router]);
 
-  if (error) return <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--panel)] p-7"><p role="alert" className="text-red-300">{error}</p><Link href="/sign-in" className="mt-5 inline-flex text-sm text-white underline underline-offset-4">Return to sign in</Link></div>;
+  if (error) return <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--panel)] p-7"><p role="alert" className="text-[var(--status-red)]">{error}</p><Link href="/sign-in" className="mt-5 inline-flex text-sm text-[var(--foreground)] underline underline-offset-4">Return to sign in</Link></div>;
   return <div className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--panel)] p-7 text-sm text-[var(--muted)]">Finishing sign-in…</div>;
 }

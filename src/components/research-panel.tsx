@@ -203,7 +203,7 @@ export function ResearchPanel({
                 {setup ? "Close setup" : "Find & research businesses"}
               </button>
               {setup && (
-                <dialog ref={setupRef} onPointerDown={event => dialogBackdrop(backdropPressed, () => setSetup(false)).onPointerDown(event)} onPointerCancel={() => { backdropPressed.current = false; }} onClick={event => dialogBackdrop(backdropPressed, () => setSetup(false)).onClick(event)} onCancel={() => setSetup(false)} onClose={() => setSetup(false)} aria-labelledby="research-setup-title" className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-dvh w-full max-w-xl overflow-y-auto border-l border-[var(--border)] bg-[var(--panel)] p-6 text-white backdrop:bg-black/70">
+                <dialog ref={setupRef} onPointerDown={event => dialogBackdrop(backdropPressed, () => setSetup(false)).onPointerDown(event)} onPointerCancel={() => { backdropPressed.current = false; }} onClick={event => dialogBackdrop(backdropPressed, () => setSetup(false)).onClick(event)} onCancel={() => setSetup(false)} onClose={() => setSetup(false)} aria-labelledby="research-setup-title" className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-dvh w-full max-w-xl overflow-y-auto border-l border-[var(--border)] bg-[var(--panel)] p-6 text-[var(--foreground)] backdrop:bg-black/70">
                   <div className="sticky -top-6 z-10 -mx-6 -mt-6 mb-5 flex items-center justify-between gap-4 border-b border-[var(--border)] bg-[var(--panel)] p-6"><h2 id="research-setup-title" className="text-xl font-semibold">{continuation ? "Continue research" : "Find & research businesses"}</h2><button className={button} onClick={() => setSetup(false)} aria-label="Close research settings">Close</button></div>
                   <div className="space-y-4">
                   {continuation && (
@@ -216,7 +216,7 @@ export function ResearchPanel({
                     <span className="font-semibold">Target new businesses</span>
                     <input className={input} type="number" min="1" max="100" step="1" value={targetBusinesses} disabled={Boolean(continuation)} aria-describedby="business-target-help" aria-invalid={!targetValid} onChange={e => setTargetBusinesses(e.target.value === "" ? "" : Number(e.target.value))} />
                     <span id="business-target-help" className="block text-xs text-[var(--muted)]">Aim for this many new, distinct businesses. Existing targets and duplicates don’t count. Research continues automatically through available sources; duplicates do not use up your target.</span>
-                    {!targetValid && <span role="alert" className="block text-sm text-amber-200">Enter a whole number from 1 to 100.</span>}
+                    {!targetValid && <span role="alert" className="block text-sm text-[var(--status-amber)]">Enter a whole number from 1 to 100.</span>}
                   </label>
                   <label className="block text-sm">
                     Public research terms (up to six)
@@ -288,7 +288,7 @@ export function ResearchPanel({
                   </p>
                   <p className="text-xs text-[var(--muted)]">Starting research shares these search terms, URLs and page content with the research providers. Keep confidential buyer details out of the search settings.</p>
                   <button
-                    className={`${button} w-full bg-white font-semibold text-black`}
+                    className={`${button} w-full bg-[var(--accent)] font-semibold text-[var(--on-accent)]`}
                     disabled={busy || !targetValid || !termList.length || geography.trim().length < 2}
                     onClick={() =>
                       act({
@@ -346,7 +346,7 @@ export function ResearchPanel({
       )}
       {busy && <p role="status" className="text-sm">Updating research…</p>}
       {error && (
-        <p role="alert" className="text-sm text-red-200">
+        <p role="alert" className="text-sm text-[var(--status-red)]">
           {error}
         </p>
       )}

@@ -7,7 +7,7 @@ import { criterionDefinitions, type Criterion } from "@/domain/acquisition";
 import { GeographySelect } from "./geography-select";
 
 const panel = "rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5";
-const field = "mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2 text-sm text-white";
+const field = "mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2 text-sm text-[var(--foreground)]";
 const button = "min-h-11 rounded-md border border-[var(--border)] px-3 py-2 text-sm hover:bg-[var(--panel-raised)] disabled:opacity-40";
 const labelFor = (c: Criterion) => criterionDefinitions.find(([key]) => key === c.key)![1];
 const unresolved = (c: Criterion) => c.state === "unknown" || !c.confirmed;
@@ -52,7 +52,7 @@ function CriteriaDrawer({ initial, onClose, onApply }: { initial: Criterion[]; o
     return () => { element.close(); document.body.style.overflow = overflow; };
   }, []);
   const update = (key: Criterion["key"], patch: Partial<Criterion>) => setDraft(current => current.map(c => c.key === key ? { ...c, ...patch } : c));
-  return createPortal(<dialog ref={dialog} onPointerDown={event => dialogBackdrop(backdropPressed, onClose).onPointerDown(event)} onPointerCancel={() => { backdropPressed.current = false; }} onClick={event => dialogBackdrop(backdropPressed, onClose).onClick(event)} aria-labelledby="criteria-drawer-title" onCancel={onClose} className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-dvh w-full max-w-2xl overflow-y-auto border-l border-[var(--border)] bg-[var(--panel)] p-0 text-white backdrop:bg-black/70">
+  return createPortal(<dialog ref={dialog} onPointerDown={event => dialogBackdrop(backdropPressed, onClose).onPointerDown(event)} onPointerCancel={() => { backdropPressed.current = false; }} onClick={event => dialogBackdrop(backdropPressed, onClose).onClick(event)} aria-labelledby="criteria-drawer-title" onCancel={onClose} className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-dvh w-full max-w-2xl overflow-y-auto border-l border-[var(--border)] bg-[var(--panel)] p-0 text-[var(--foreground)] backdrop:bg-black/70">
     <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="flex items-center justify-between gap-4"><h2 id="criteria-drawer-title" className="text-xl font-semibold">Edit criteria</h2><button type="button" className={button} onClick={onClose}>Cancel</button></div>
       <p className="mt-2 text-sm text-[var(--muted)]">Set what you know and leave the rest unknown. Apply changes, then save the brief.</p>
@@ -71,7 +71,7 @@ function CriteriaDrawer({ initial, onClose, onApply }: { initial: Criterion[]; o
     </div>
     <footer className="sticky bottom-0 flex flex-wrap justify-end gap-2 border-t border-[var(--border)] bg-[var(--panel)] p-5">
       <button type="button" className={button} onClick={() => onApply(draft)}>Apply changes</button>
-      <button type="button" className={`${button} bg-[var(--accent)] text-black`} onClick={() => onApply(draft.map(c => ({ ...c, confirmed: true })))}>Mark all reviewed & apply</button>
+      <button type="button" className={`${button} bg-[var(--accent)] text-[var(--on-accent)]`} onClick={() => onApply(draft.map(c => ({ ...c, confirmed: true })))}>Mark all reviewed & apply</button>
     </footer>
   </dialog>, document.body);
 }
