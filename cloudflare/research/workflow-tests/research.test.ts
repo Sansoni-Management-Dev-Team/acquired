@@ -32,12 +32,15 @@ function replay(options: { pages?: number; cancelled?: boolean; failProgress?: b
   let expiredPermit = false;
   const progress: Progress[] = [];
   const requests: string[] = [];
+  const callbacks: Record<string, unknown>[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input instanceof Request ? input.url : input);
     requests.push(url);
     if (url === `http://127.0.0.1:3010/api/research/internal/${id}`) {
       if (!init?.body) return Response.json({ status, config, seeds: config.seeds, deadline: Date.now() + 600000 });
       const data = JSON.parse(String(init.body));
+      callbacks.push(data);
+      if (data.action === "discovery-context") return Response.json({ scope: "industrial cleaning", startingTerms: [], regions: ["Victoria"], target: 20, found: 0, remainingSearches: 12, attempts: [], candidates: [] });
       if (data.action === "discover") return Response.json({ seeds: [] });
       if (data.action === "provider-reserve") return Response.json({ granted: !options.denyPermit, retryAfterMs: 0, after: Date.now(), until: Date.now() + 2000, token: data.token });
       if (data.action === "browser-permit" && options.expireFirstPermit && !expiredPermit) { expiredPermit = true; return Response.json({ granted: false, retryAfterMs: 0, expired: true }); }
@@ -52,11 +55,11 @@ function replay(options: { pages?: number; cancelled?: boolean; failProgress?: b
       return Response.json({ url: JSON.parse(String(init?.body)).url, markdown });
     }
     if (url === "https://openrouter.ai/api/v1/chat/completions") return Response.json({
-      model: "replay", choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ findings: [] }) } }],
+      model: "replay", choices: [{ finish_reason: "stop", message: { content: JSON.stringify(config.adaptiveDiscovery ? { query: "decontamination contractors", region: "Victoria", reason: "Explore specialist services", stop: false } : { findings: [] }) } }],
     });
     throw new Error(`Unmocked request: ${url}`);
   });
-  return { id, config, progress, requests };
+  return { id, config, progress, requests, callbacks };
 }
 
 it("runs a real Workflow with local reads, extraction and persisted progress, without CF requests", async () => {
@@ -194,4 +197,17 @@ it("recovers an expired browser handoff inside the same real Workflow", async ()
   expect(first.value.deferred).toBe(true);
   const second = JSON.parse(await instance.waitForStepResult({name:"read-people-1-admitted-1"}) as string);
   expect(second.value.status).toBe("completed");
+});
+
+
+it("plans adaptive discovery in a real Workflow with AI admission and model accounting", async () => {
+  const t = replay({ config: { seeds: [], searchTerms: ["industrial cleaning"], researchScope: "industrial cleaning", geography: "VIC", approved: true, discover: true, adaptiveDiscovery: true, workflow: "business", mode: "automatic", parallelDiscovery: true, budget: { maxPages: 2, maxDomains: 2, maxMinutes: 10, maxModelCalls: 2 } } });
+  await using instance = await introspectWorkflowInstance(bindings.RESEARCH, t.id);
+  await instance.modify(m => m.disableSleeps());
+  await bindings.RESEARCH.create({ id: t.id, params: { jobId: t.id } });
+  await instance.waitForStatus("complete");
+  expect(t.progress.at(-1)).toMatchObject({ status: "complete", pages: 0, modelCalls: 1 });
+  expect(t.callbacks.find(c => c.action === "discover")).toMatchObject({ decision: { planning: { query: "decontamination contractors", region: "Victoria" }, attemptIndex: 0 } });
+  expect(t.callbacks.some(c => c.action === "provider-reserve" && c.provider === "ai")).toBe(true);
+  expect(t.requests.filter(url => url.includes("openrouter.ai"))).toHaveLength(1);
 });

@@ -1,3 +1,4 @@
+import { discoveryRegions } from "@/domain/adaptive-discovery";
 import { providerFailure } from "@/domain/research-provider-error";
 import { cloudflareSearchResults } from "./cloudflare-web-search";
 import { focusedDiscoveryPhrases, discoveryRole } from "@/domain/discovery-queries";
@@ -13,7 +14,6 @@ export function seedRelevant(result: WebSearchResult, terms: string[]) {
   const text = `${result.title} ${result.snippet} ${result.url}`.toLowerCase();
   return sectorLexicon(terms).some(stem => new RegExp(`\\b${stem.endsWith("y") ? stem.slice(0, -1) + "(?:y|ies)" : stem + "s?"}\\b`).test(text));
 }
-const australianStates = ["Victoria", "New South Wales", "Queensland", "Western Australia", "South Australia", "Tasmania", "Northern Territory", "Australian Capital Territory"];
 const placeName = (geography: string) => /^national$/i.test(geography) ? "Australia" : geography;
 const phraseQuery = (phrase: string, place: string) => [phrase, discoveryRole(phrase), place].filter(Boolean).join(" ");
 export function supplierSearchQueries(terms: string[], geography: string) {
@@ -21,7 +21,7 @@ export function supplierSearchQueries(terms: string[], geography: string) {
 }
 export function expandedSupplierQueries(terms: string[], geography: string) {
   const phrases = focusedDiscoveryPhrases(terms);
-  const regions = /^(national|Australia)$/i.test(geography) ? australianStates : [geography];
+  const regions = discoveryRegions(geography);
   // Rotate regions across phrases; never spend the entire budget on the first subsector.
   return regions.flatMap(region => phrases.map(phrase => `${phraseQuery(phrase, region)} companies`)).slice(0, 18);
 }

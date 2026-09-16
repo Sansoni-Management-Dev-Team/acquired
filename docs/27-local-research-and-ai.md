@@ -178,3 +178,35 @@ Provider admission is reserved atomically in the existing research-job JSON stat
 Adjacent control checks reuse a one-second snapshot, and saved progress returns refreshed control state. Run-scoped page-cache hits bypass browser admission, completed reads are reused for one hour, and confirmed HTTP 404/410 pages are cached for five minutes. Transient, authentication and rate-limit failures are not negatively cached. Continuations and sibling enrichment jobs reuse saved evidence from the same target/run. The extra fixed 21-second search delays have been removed; provider admission supplies the wait.
 
 Tests cover 20-business fan-out, paired enrichment, target/page ceilings, account-wide admission, four AI lanes, reservation expiry/single use, checkpoint replay, cached reads, cancellation and request-budget continuation. The local SQL compare-and-swap check uses a rolled-back transaction; no database migration is required.
+
+### Adaptive business discovery
+
+New automatic business runs take a public research scope, geography and an effort
+budget. Starting terms are optional hints. The worker plans one query at a time,
+using recent search titles/snippets, distinct-domain yield, previous queries and
+candidate research outcomes. It can explore industry synonyms, local services and
+trade directories within the scope. Only the public scope reaches the planner;
+the original acquisition brief and confidential buyer details are not forwarded.
+Financial fit and sale intentions remain qualification questions, with missing
+facts unknown.
+
+Focused, standard and thorough runs allow up to 12/24/48 discovery search attempts
+and 30/60/120 minutes respectively. Failed searches retry once within that limit.
+Planner calls use each worker batch's existing model allowance and AI admission
+queue. Company and people follow-ups retain their separate bounded search ladders;
+these effort settings are not monetary spending caps. The existing candidate-page
+ceiling is capped at 100/300/1000 respectively, with separate per-company enrichment
+page limits. Cancellation and the run deadline still govern all work.
+
+Search results no longer need to contain the initial sector words. Company-page
+extraction assesses relevance semantically against the original public scope;
+verbatim quotations, company identity and URL validation remain mandatory.
+Generated queries and result snippets cannot qualify a business by themselves.
+
+Attempts, reasons, bounded result excerpts and continuation state live in existing
+research-job JSON; no migration is needed. The UI exposes attempted queries,
+reasons, result counts and fresh-domain counts. Search leases and attempt indices
+prevent concurrent or replayed callbacks from repeating committed searches.
+Malformed or unavailable planning falls back to untried scope-based searches.
+Deploy the updated research Worker along with the application to enable the planner;
+an older Worker uses the bounded fallback searches.

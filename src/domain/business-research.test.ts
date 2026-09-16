@@ -55,3 +55,14 @@ it("derives the site owner from a heading that matches the domain when the model
   expect(headingCompanyFinding("# Beautiful handmade urns for every family", "https://urns.example.com/")).toBeNull();
   expect(headingCompanyFinding("# Acme", "https://instruments.example.com/")).toBeNull();
 });
+
+it("accepts semantically relevant terminology while preserving literal evidence checks", () => {
+  const finding: ResearchFinding = { kind: "capability", name: "Remediation", value: "hazardous material remediation", quote: "We provide hazardous material remediation.", website: url, relevance: "relevant" };
+  const adaptive = { ...config, adaptiveDiscovery: true, researchScope: "Industrial cleaning and decontamination", searchTerms: ["industrial cleaning"] };
+  expect(validateBusinessFindings([finding], finding.quote, url, adaptive)[0].relevance).toBe("relevant");
+  expect(validateBusinessFindings([finding], finding.quote, url, { ...adaptive, adaptiveDiscovery: false })[0].relevance).toBe("adjacent");
+  expect(validateBusinessFindings([finding], "We sell cleaning equipment.", url, adaptive)).toEqual([]);
+  const prompt = businessPrompt(finding.quote, adaptive.searchTerms, url, false, adaptive);
+  expect(prompt[1].content).toContain(adaptive.researchScope);
+  expect(prompt[0].content).toContain("remain unknown");
+});

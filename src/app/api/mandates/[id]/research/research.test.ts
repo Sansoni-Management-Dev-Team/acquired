@@ -166,3 +166,11 @@ it("continues server-saved public terms and queue, ignoring client replacements"
   expect((await POST(request(automatic), context)).status).toBe(202);
   expect(mocks.create.mock.calls[0][3]).toMatchObject({ mode: "automatic", budget: { maxPages: 10 }, companyBudget: { maxCompanies: 30 }, researchRunId: jobId });
 });
+
+it("starts adaptive research from a scope without requiring user-written queries", async () => {
+  mocks.concurrentResearchReady.mockResolvedValue(true);
+  const response = await POST(request({ ...body, searchTerms: [], researchScope: "Waste recycling; Industrial decontamination", researchEffort: "focused", mode: "automatic", workflow: "business" }), context);
+  expect(response.status).toBe(202);
+  expect(mocks.create.mock.calls[0][3]).toMatchObject({ adaptiveDiscovery: true, searchTerms: ["Waste recycling", "Industrial decontamination"], researchScope: "Waste recycling; Industrial decontamination", researchEffort: "focused" });
+  expect(mocks.create.mock.calls[0][3].automaticDeadline - Date.now()).toBeLessThanOrEqual(30 * 60000);
+});

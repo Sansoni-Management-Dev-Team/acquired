@@ -96,7 +96,7 @@ export async function POST(
   if (!(await new AcquisitionRepository(org).getMandate(id)))
     return Response.json({ error: "Mandate not found" }, { status: 404 });
   const { requestId, continueFrom, ...submitted } = parsed.data;
-  let config: ResearchConfig = submitted;
+  let config: ResearchConfig = { ...submitted, searchTerms: submitted.searchTerms.length ? submitted.searchTerms : submitted.researchScope!.split(/[;\n]/).map(s => s.trim().slice(0, 160)).filter(s => s.length >= 2).slice(0, 6) };
   if (continueFrom) {
     const repo = new ResearchRepository(org);
     const prior = await repo.get(continueFrom);

@@ -678,3 +678,30 @@ it('finishes an objective already supported by sibling evidence without another 
   expect(t.service.extract).not.toHaveBeenCalled();
   expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'complete', pages: 0 });
 });
+
+it("replans discovery from fresh feedback and counts planning calls against the model budget", async () => {
+  const t = setup();
+  Object.assign(t.config, { adaptiveDiscovery: true, workflow: 'business', discover: true, parallelDiscovery: true, seeds: [] });
+  const context = { scope: "industrial cleaning", startingTerms: [], regions: ["Victoria"], target: 20, found: 0, remainingSearches: 12, attempts: [], candidates: [] };
+  t.service.discoveryContext = vi.fn().mockResolvedValueOnce(context).mockResolvedValue({ ...context, remainingSearches: 11, attempts: [{ query: "cleaners Victoria", status: "succeeded", newDomains: 0 }] });
+  const decision = { query: "decontamination contractors", region: "Victoria", reason: "Explore a different service", stop: false };
+  t.service.planDiscovery = vi.fn().mockResolvedValue(decision);
+  t.service.discover = vi.fn().mockResolvedValueOnce({ seeds: [], more: true }).mockResolvedValue({ seeds: [], more: false });
+  await runResearch(t.step, t.service);
+  expect(t.service.planDiscovery).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(t.service.planDiscovery).mock.calls[1][0].attempts[0].newDomains).toBe(0);
+  expect(t.service.discover).toHaveBeenLastCalledWith({ planning: decision, attemptIndex: 1 });
+  expect(t.progress.mock.calls.at(-1)?.[0].modelCalls).toBe(2);
+});
+it("falls back without exceeding the planner budget or disrupting discovery on AI failure", async () => {
+  const t = setup();
+  Object.assign(t.config, { adaptiveDiscovery: true, workflow: 'business', discover: true, parallelDiscovery: true, seeds: [] });
+  t.config.budget.maxModelCalls = 1;
+  t.service.discoveryContext = vi.fn().mockResolvedValue({ scope: "cleaning", startingTerms: [], regions: ["Victoria"], target: 20, found: 0, remainingSearches: 12, attempts: [], candidates: [] });
+  t.service.planDiscovery = vi.fn().mockRejectedValue(new Error("AI unavailable"));
+  t.service.discover = vi.fn().mockResolvedValueOnce({ seeds: [], more: true }).mockResolvedValue({ seeds: [], more: false });
+  await runResearch(t.step, t.service);
+  expect(t.service.planDiscovery).toHaveBeenCalledTimes(1);
+  expect(t.service.discover).toHaveBeenCalledTimes(2);
+  expect(t.progress.mock.calls.at(-1)?.[0].modelCalls).toBe(1);
+});

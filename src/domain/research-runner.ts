@@ -1,3 +1,4 @@
+import { adaptiveDiscovery, retryDiscovery, type DiscoveryContext } from "./adaptive-discovery";
 import { providerFailure, BrowserAdmissionDeferred } from "./research-provider-error";
 import { missingResearchFields, fieldLabels, type ResearchField } from "./research-objectives";
 import { ResearchAiError } from "./research-ai-error";
@@ -39,7 +40,9 @@ export type ResearchControl = {
 export interface ResearchServices {
   diagnostic?(event: Record<string, unknown>): void;
   control(): Promise<ResearchControl>;
-  discover(): Promise<{ seeds: string[]; warning?: string; peopleLeadCount?: number; skipDomains?: string[]; more?: boolean }>;
+  discoveryContext?(): Promise<DiscoveryContext>;
+  planDiscovery?(context: DiscoveryContext): Promise<unknown>;
+  discover(decision?: unknown): Promise<{ seeds: string[]; warning?: string; peopleLeadCount?: number; skipDomains?: string[]; more?: boolean }>;
   progress(event: {
     revision: number;
     status: string;
@@ -127,13 +130,33 @@ export async function runResearch(
         ? "Finding starting websites"
         : "Resuming approved websites",
     );
-    let discovered = await step.do("discover", () => service.discover());
+    const discoverRound = async (round: number) => {
+      let decision: unknown;
+      let attemptIndex: number | undefined;
+      if (adaptiveDiscovery(initial.config) && service.discoveryContext && service.planDiscovery) {
+        const context = await step.do(`discovery-context-${round}`, () => service.discoveryContext!());
+        attemptIndex = context.attempts.length;
+        if (context.remainingSearches > 0 && context.found < context.target && !retryDiscovery(context.attempts) && modelCalls < initial.config.budget.maxModelCalls) {
+          const current = await check(`discovery-plan-${round}`);
+          if (terminalResearchStates.includes(current.status) || current.expired) return { seeds: [], more: true };
+          modelCalls++;
+          try { decision = await step.do(`discovery-plan-${round}`, () => service.planDiscovery!(context), false); }
+          catch (error) {
+            if (error instanceof BrowserAdmissionDeferred) { modelCalls--; return { seeds: [], more: true }; }
+            warnings.push("AI search planner unavailable; using scope-based searches");
+          }
+          await publish("discovering", "Adapting search strategy from research results");
+        }
+      }
+      return step.do(round ? `discover-${round}` : "discover", () => service.discover(attemptIndex === undefined ? undefined : { planning: decision, attemptIndex }));
+    };
+    let discovered = await discoverRound(0);
     // Web discovery is delivered in slices so no single callback outlives the worker's request limit.
     for (let round = 1; discovered.more && round < 6; round++) {
       const current = await check(`discover-${round}`);
       if (terminalResearchStates.includes(current.status)) return;
       if (current.expired) break;
-      const next = await step.do(`discover-${round}`, () => service.discover());
+      const next = await discoverRound(round);
       discovered = { ...next, seeds: uniqueResearchUrls([...discovered.seeds, ...next.seeds]), warning: next.warning || discovered.warning, skipDomains: next.skipDomains || discovered.skipDomains, peopleLeadCount: next.peopleLeadCount ?? discovered.peopleLeadCount };
     }
     trace("discovery_result", { purpose: initial.config.purpose || "business", seeds: discovered.seeds.length, warning: Boolean(discovered.warning), budget: initial.config.budget });
@@ -438,7 +461,7 @@ export async function runResearch(
               const business = await step.do(`company-identity-${attempt}`, async () => {
                 const current = await service.control();
                 if (terminalResearchStates.includes(current.status) || service.now() >= current.deadline) return { findings: [], deferred: current.stopReason || "Time limit reached" };
-                return { findings: validateBusinessFindings(await service.extract(businessPrompt(markdown, initial.config.searchTerms, sourceUrl, false)), markdown, sourceUrl, initial.config) };
+                return { findings: validateBusinessFindings(await service.extract(businessPrompt(markdown, initial.config.searchTerms, sourceUrl, false, initial.config)), markdown, sourceUrl, initial.config) };
               }, false);
               findings.push(...business.findings);
               if (business.deferred) { extractionDeferred = business.deferred; modelCalls--; }
@@ -485,7 +508,7 @@ export async function runResearch(
                 return { findings: [], warning: "Extraction deferred", deferred: current.stopReason || "Time limit reached" };
               try {
                 const peopleConfig = { ...current.config, legalEntity: collected.find(f => f.kind === "identifier" && f.name === "Legal entity")?.value || current.config.legalEntity };
-                const raw = await service.extract(initial.config.purpose === "people" ? peoplePrompt(markdown, sourceUrl, peopleConfig) : initial.config.workflow === "business" ? businessPrompt(markdown, initial.config.searchTerms, sourceUrl, Boolean(initial.config.findPeople)) : extractionPrompt(markdown, initial.config.searchTerms, sourceUrl));
+                const raw = await service.extract(initial.config.purpose === "people" ? peoplePrompt(markdown, sourceUrl, peopleConfig) : initial.config.workflow === "business" ? businessPrompt(markdown, initial.config.searchTerms, sourceUrl, Boolean(initial.config.findPeople), initial.config) : extractionPrompt(markdown, initial.config.searchTerms, sourceUrl));
                 const rejected: Record<string, number> = {};
                 const accepted = (initial.config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, peopleConfig, reason => { rejected[reason] = (rejected[reason] || 0) + 1; }) : initial.config.workflow === "business" ? (input: unknown, markdown: string, source: string) => validateBusinessFindings(input, markdown, source, current.config) : validateFindings)(
                     raw, markdown, sourceUrl, initial.config.searchTerms,

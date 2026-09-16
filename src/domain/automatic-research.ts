@@ -1,7 +1,8 @@
+import { researchEfforts } from "./adaptive-discovery";
 import type { ResearchConfig } from './research';
 
 // Internal limits protect against endless queues and unresponsive providers.
-// They are operational ceilings, not controls the buyer needs to tune.
+// Effort presets choose search/time limits; concurrency stays an internal ceiling.
 export const BUSINESS_RESEARCH_CONCURRENCY = 20;
 // Each business has independent company-facts and people work.
 export const ENRICHMENT_CONCURRENCY = BUSINESS_RESEARCH_CONCURRENCY * 2;
@@ -12,13 +13,14 @@ export function mandateResearchSlot(mandateId: string, slot: number | string = 0
 export function automaticResearchConfig(config: ResearchConfig): ResearchConfig {
   if (config.mode !== 'automatic' || config.workflow !== 'business') return config;
   const target = config.targetBusinesses || 20;
-  return { ...config, parallelDiscovery: true, autoRoot: undefined, autoContinueFrom: undefined, autoDomains: [], executionSlot: 0, targetBusinesses: target, strategy: 'discover',
+  const effort = researchEfforts[config.researchEffort || "standard"];
+  return { ...config, adaptiveDiscovery: true, discoveryPending: config.discover, parallelDiscovery: true, autoRoot: undefined, autoContinueFrom: undefined, autoDomains: [], executionSlot: 0, targetBusinesses: target, strategy: 'discover',
     budget: { maxPages: 10, maxDomains: 10, maxModelCalls: 10, maxMinutes: 15 },
     companyBudget: { maxCompanies: target, maxPages: 12 },
     peopleBudget: config.findPeople ? { maxCompanies: target, maxPages: 12 } : undefined,
     peopleSearchesPerCompany: 2,
-    automaticPageLimit: Math.min(1000, Math.max(100, target * 15)),
-    automaticDeadline: Date.now() + 2 * 60 * 60 * 1000,
+    automaticPageLimit: Math.min(effort.pages, Math.max(100, target * 15)),
+    automaticDeadline: Date.now() + effort.minutes * 60 * 1000,
     automaticPagesUsed: 0,
   };
 }

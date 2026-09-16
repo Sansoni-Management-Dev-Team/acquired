@@ -7,13 +7,14 @@ export function ownCompany(findings: ResearchFinding[], source: string) {
 export function relevantBusiness(findings: ResearchFinding[]) {
   return findings.some(f => ["product", "capability", "customer"].includes(f.kind) && f.relevance === "relevant");
 }
-export function businessPrompt(markdown: string, terms: string[], source: string, people: boolean) {
-  const messages = extractionPrompt(markdown, terms, source);
+export function businessPrompt(markdown: string, terms: string[], source: string, people: boolean, config?: ResearchConfig) {
+  const messages = extractionPrompt(markdown, config?.researchScope ? [config.researchScope] : terms, source);
+  if (config?.adaptiveDiscovery) messages[0].content += ` Assess sector relevance semantically against the research scope; equivalent industry terminology is allowed. Geography: ${config.geography}. Capture explicit location evidence; do not invent it. Missing revenue, EBITDA, ownership, sale intentions or deal terms remain unknown and do not make a business irrelevant. Search results and generated queries are leads, never evidence of qualification.`;
   if (people) messages[0].content += ' Also capture a named owner, founder, director or general manager explicitly identified on this company page, if present. Use kind "person", name the full person name, value the literal role, quote a contiguous verbatim passage containing BOTH name and role, website the source URL, relevance "unclear". Never infer identity from testimonials or former staff. Include email only if this same passage explicitly associates the person with a published company-domain work email; otherwise omit it. Never guess emails. Prioritise company identity and concrete relevant products before people.';
   return messages;
 }
 export function validateBusinessFindings(input: unknown, markdown: string, source: string, config: ResearchConfig) {
-  const business = validateFindings(input, markdown, source, config.searchTerms);
+  const business = validateFindings(input, markdown, source, config.searchTerms, config.adaptiveDiscovery === true);
   const company = ownCompany(business, source);
   if (!config.findPeople || !company) return business;
   return [...business, ...validatePeopleFindings(input, markdown, source, { ...config, companyName: company.name, companyDomain: researchDomain(source) }).filter(f => f.kind === "person")];

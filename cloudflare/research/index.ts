@@ -1,3 +1,4 @@
+import { discoveryPrompt, discoveryOutputSchema, type DiscoveryContext } from "../../src/domain/adaptive-discovery";
 import { withLocalProvider } from './local-provider';
 import { providerStep, type Admission } from "./provider-step";
 import type { ResearchProvider } from "../../src/domain/research-provider-queue";
@@ -150,7 +151,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
         ): Promise<T> => {
           const config = stateCache?.value.config;
           const provider: ResearchProvider | undefined = /^read-people-/.test(name) ? 'page'
-            : /^(extract-|company-identity-|headcount-|targeted-plan$)/.test(name) ? 'ai'
+            : /^(extract-|company-identity-|headcount-|discovery-plan-|targeted-plan$)/.test(name) ? 'ai'
             : /^(targeted-search-|people-followup$)/.test(name) || (/^discover(?:-\d+)?$/.test(name) && config?.discover && !config.targetedFollowup) ? 'search' : undefined;
           if (!provider) return checkpoint(name, run, retry);
           const exhausted = requestBudgetStop(requestBudget.used, !productionPolicy(this.env));
@@ -174,8 +175,14 @@ export class AcquireResearch extends WorkflowEntrypoint<
       {
         diagnostic: event => console.info("research-diagnostic", JSON.stringify({ ...event, timestamp: new Date().toISOString(), jobId: id })),
         control,
-        discover: () =>
-          callback(this.env, id, { action: "discover", browserReservation }, requestBudget) as Promise<{
+        discoveryContext: () => callback(this.env, id, { action: "discovery-context" }, requestBudget) as Promise<DiscoveryContext>,
+        planDiscovery: async context => {
+          const output = await ai.complete({ messages: discoveryPrompt(context), operation: "followup_planning", max_tokens: 500, reasoning_effort: "none", temperature: 0.3,
+            response_format: { type: "json_schema", json_schema: discoveryOutputSchema } });
+          return typeof output.response === "string" ? JSON.parse(output.response) : output.response;
+        },
+        discover: decision =>
+          callback(this.env, id, { action: "discover", decision, browserReservation }, requestBudget) as Promise<{
             seeds: string[];
             warning?: string;
           }>,
@@ -295,6 +302,7 @@ const worker = {
       if (typeof body?.query !== "string" || body.query.trim().length < 2 || body.query.length > 500)
         return Response.json({ error: "Invalid search" }, { status: 400 });
       // Deeper result pages are available from the local search container only.
+      const query = body.query;
       const page = typeof body.page === "number" && Number.isInteger(body.page) && body.page >= 1 && body.page <= 3 ? body.page : 1;
       if ((page > 1 || body.engine && body.engine !== "duckduckgo") && productionPolicy(env)) return Response.json({ error: "Production search supports DuckDuckGo page 1 only", category: "unsupported_search" }, { status: 422 });
       try {
@@ -308,11 +316,11 @@ const worker = {
             data => callback(env, ids.jobId!, data), async () => {
               // OpenSERP returns full snippets; fall back to the rendered HTML endpoint when it is unavailable.
               try {
-                const local = await localSearch(env, body.query, { ...ids, start: (page - 1) * 10, engine: body.engine === "google" ? "google" : undefined }, researchFetch(env));
+                const local = await localSearch(env, query, { ...ids, start: (page - 1) * 10, engine: body.engine === "google" ? "google" : undefined }, researchFetch(env));
                 if (local) return Response.json({ seeds: local.map(r => r.url).slice(0, 6), results: local });
               } catch (error) { console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), ...ids, event: "local_search_fallback", reason: error instanceof Error ? error.message.slice(0, 120) : "unknown" })); }
               if (page > 1 || body.engine === "google") return Response.json({ error: "Requested search backend unavailable", category: "unsupported_search" }, { status: 502 });
-              const result = await withLocalProvider('page', undefined, data => callback(env, ids.jobId!, data), () => localRead(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(body.query)}`, {
+              const result = await withLocalProvider('page', undefined, data => callback(env, ids.jobId!, data), () => localRead(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
                 operation: "web_search",
                 requestId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-request-id") || "") ? request.headers.get("x-research-request-id")! : undefined,
                 jobId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-job-id") || "") ? request.headers.get("x-research-job-id")! : undefined,
@@ -324,7 +332,7 @@ const worker = {
         }
         const jobId = request.headers.get("x-research-job-id") || "";
         if (!/^[0-9a-f-]{36}$/i.test(jobId)) return Response.json({ error: "A research job is required for rate-controlled search" }, { status: 400 });
-        const markdown = await browserMarkdown(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(body.query)}`, {
+        const markdown = await browserMarkdown(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
           jobId, operation: "web_search",
           permit: () => callback(env, jobId, { action: "browser-permit", token: request.headers.get("x-research-browser-reservation") }) as Promise<{ granted: boolean; retryAfterMs: number }>,
         });

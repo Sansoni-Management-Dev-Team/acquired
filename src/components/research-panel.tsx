@@ -5,7 +5,6 @@ import {
   terminalResearchStates,
   groupResearchFindings,
   researchDomain,
-  researchQueries,
   continueResearchConfig,
   type ResearchConfig,
   type SavedResearchFinding,
@@ -13,7 +12,7 @@ import {
 import { ResearchRunOutcome } from "./research-run-outcome";
 import { GeographySelect } from "./geography-select";
 import type { AcquisitionBrief } from "@/domain/acquisition";
-import { publicResearchTermVariants } from "@/domain/discovery-queries";
+import { researchEfforts } from "@/domain/adaptive-discovery";
 const input =
   "min-h-12 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2 text-sm";
 const button =
@@ -58,16 +57,9 @@ export function ResearchPanel({
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false),
     [setup, setSetup] = useState(false);
-  const [terms, setTerms] = useState(
-    publicResearchTermVariants(
-      (brief.criteria.find((c) => c.key === "subsectors")?.value || "")
-        .split(";")
-        .map((s) => s.trim())
-        .filter(Boolean),
-    )
-      .map((s) => s.slice(0, 160))
-      .join("\n") || "",
-  );
+  const [scope, setScope] = useState(brief.criteria.find(c => c.key === "subsectors")?.value || "");
+  const [terms, setTerms] = useState("");
+  const [effort, setEffort] = useState<keyof typeof researchEfforts>("standard");
   const [geography, setGeography] = useState(
     brief.criteria.find((c) => c.key === "geography")?.state === "unrestricted"
       ? "National"
@@ -117,6 +109,9 @@ export function ResearchPanel({
   const relatedPeople = (data.peopleJobs || []).filter(inRun);
   const relatedCompanies = (data.companyJobs || []).filter(inRun);
   const runJobs = [...data.jobs, ...relatedPeople, ...relatedCompanies].filter(inRun);
+  const discoveryJobs = runJobs.filter(j => !j.config.purpose && !j.config.discoveryCandidate);
+  const searchHistory = discoveryJobs.reduce<NonNullable<ResearchConfig["discoveryAttempts"]>>((history, j) => (j.config.discoveryAttempts?.length || 0) > history.length ? j.config.discoveryAttempts! : history, []);
+  const searchStopReason = discoveryJobs.find(j => j.config.discoveryStopReason)?.config.discoveryStopReason;
   const enriching = [...relatedPeople, ...relatedCompanies].filter(j => !terminalResearchStates.includes(j.status));
   const finishedEnrichment = [...relatedPeople, ...relatedCompanies].filter(j => terminalResearchStates.includes(j.status));
   const searchLeadCount = new Set(relatedPeople.flatMap(j => (j.config.peopleSearchLeads || []).map(l => `${j.config.targetId}:${l.url}`))).size;
@@ -169,6 +164,8 @@ export function ResearchPanel({
     setContinuation(job);
     setTargetBusinesses(job.config.targetBusinesses || 20);
     setTerms(job.config.searchTerms.join("\n"));
+    setScope(job.config.researchScope || job.config.searchTerms.join("; "));
+    setEffort(job.config.researchEffort || "standard");
     setGeography(job.config.geography);
     setSeeds(remainingFor(job).slice(0, 10).join("\n"));
     setDiscover(false);
@@ -178,6 +175,8 @@ export function ResearchPanel({
   function retryFailed(job: Job) {
     setContinuation(null);
     setTerms(job.config.searchTerms.join("\n"));
+    setScope(job.config.researchScope || job.config.searchTerms.join("; "));
+    setEffort(job.config.researchEffort || "standard");
     setGeography(job.config.geography);
     setSeeds((job.config.runtime?.attempts || []).filter(a => a.status === "failed" || /extraction failed/i.test(a.reason)).map(a => a.finalUrl || a.url).slice(0, 10).join("\n"));
     setDiscover(false);
@@ -218,22 +217,29 @@ export function ResearchPanel({
                     <span id="business-target-help" className="block text-xs text-[var(--muted)]">Aim for this many new, distinct businesses. Existing targets and duplicates don’t count. Research continues automatically through available sources; duplicates do not use up your target.</span>
                     {!targetValid && <span role="alert" className="block text-sm text-[var(--status-amber)]">Enter a whole number from 1 to 100.</span>}
                   </label>
-                  <label className="block text-sm">
-                    Public research terms (up to six)
-                    <textarea
-                      className={input}
-                      rows={3}
-                      disabled={Boolean(continuation)}
-                      value={terms}
-                      onChange={(e) => {
-                        setTerms(e.target.value);
-                      }}
-                    />
+                  <label className="block space-y-2 text-sm">
+                    <span>Research scope</span>
+                    <textarea className={input} rows={3} maxLength={960} disabled={Boolean(continuation)} value={scope} onChange={e => setScope(e.target.value)} aria-describedby="research-scope-help" />
+                    <span id="research-scope-help" className="block text-xs text-[var(--muted)]">Describe the businesses and services to find. AI generates searches and adapts them as it learns. Financial fit and sale intentions are assessed separately when evidence is available.</span>
                   </label>
                   <GeographySelect className={input} disabled={Boolean(continuation)} value={geography} onChange={setGeography} />
+                  <label className="block space-y-2 text-sm">
+                    <span>Research budget</span>
+                    <select className={input} value={effort} disabled={Boolean(continuation)} onChange={e => setEffort(e.target.value as keyof typeof researchEfforts)}>
+                      <option value="focused">Focused · up to 12 discovery searches / 30 minutes</option>
+                      <option value="standard">Standard · up to 24 discovery searches / 60 minutes</option>
+                      <option value="thorough">Thorough · up to 48 discovery searches / 120 minutes</option>
+                    </select>
+                    <span className="block text-xs text-[var(--muted)]">Limits search effort and run duration. Company and owner follow-ups have separate bounded searches. Provider charges vary; this is not a monetary spending cap.</span>
+                  </label>
                   <details className="rounded-lg border border-[var(--border)] p-3">
-                    <summary className="min-h-12 cursor-pointer content-center text-sm font-medium">Search sources & focused queries</summary>
+                    <summary className="min-h-12 cursor-pointer content-center text-sm font-medium">Advanced search settings</summary>
                     <div className="space-y-4 pt-3">
+                      <label className="block text-sm">Starting search terms (optional, up to six; one per line)
+                        <textarea className={input} rows={3} disabled={Boolean(continuation)} value={terms} onChange={e => setTerms(e.target.value)} />
+                      </label>
+                      {(termList.length > 6 || termList.some(t => t.length < 2 || t.length > 160)) && <p role="alert" className="text-xs text-[var(--status-amber)]">Use up to six starting terms, each between 2 and 160 characters.</p>}
+                      <p className="text-xs text-[var(--muted)]">These are hints. The agent can generate different queries within your research scope.</p>
                   {!continuation && (
                     <>
                       <label className="block text-sm">
@@ -259,25 +265,7 @@ export function ResearchPanel({
                       </label>
                     </>
                   )}
-                  {discover && !continuation && <p className="text-sm text-[var(--muted)]">Discovery uses the directory index, up to 12 Google Places searches (20 results each), and focused web searches across your target types. Discovered links are researched automatically; results are not exhaustive.</p>}
-                  {discover && !continuation && (
-                    <details>
-                      <summary className="cursor-pointer py-2 text-sm">
-                        Preview focused searches (
-                        {researchQueries(termList).length})
-                      </summary>
-                      <ul className="list-disc space-y-1 pl-5 text-sm">
-                        {researchQueries(termList).map((q) => (
-                          <li key={q}>
-                            {q} ·{" "}
-                            {/^national$/i.test(geography)
-                              ? "Australia"
-                              : geography}
-                          </li>
-                        ))}
-                      </ul>
-                    </details>
-                  )}
+                  {discover && !continuation && <p className="text-sm text-[var(--muted)]">Directories and maps provide initial leads. Web searches adapt to results, duplicates and candidate research. You can review attempted queries and their rationale during the run.</p>}
                     </div>
                   </details>
                   <label className="flex min-h-12 items-center gap-3 text-sm"><input type="checkbox" checked={findPeople} onChange={e => setFindPeople(e.target.checked)} />Find owners and decision-makers</label>
@@ -286,10 +274,10 @@ export function ResearchPanel({
                   <p className="text-sm text-[var(--muted)]">
                     Research runs until the target or a safety limit is reached. Stop at any time. Provider charges may apply.
                   </p>
-                  <p className="text-xs text-[var(--muted)]">Starting research shares these search terms, URLs and page content with the research providers. Keep confidential buyer details out of the search settings.</p>
+                  <p className="text-xs text-[var(--muted)]">Starting research shares this public research scope, generated queries, URLs and page content with the research providers. Keep confidential buyer details out of the search settings.</p>
                   <button
                     className={`${button} w-full bg-[var(--accent)] font-semibold text-[var(--on-accent)]`}
-                    disabled={busy || !targetValid || !termList.length || geography.trim().length < 2}
+                    disabled={busy || !targetValid || scope.trim().length < 2 || termList.length > 6 || termList.some(t => t.length < 2 || t.length > 160) || geography.trim().length < 2}
                     onClick={() =>
                       act({
                         requestId: crypto.randomUUID(),
@@ -308,6 +296,8 @@ export function ResearchPanel({
                           .map((s) => s.trim())
                           .filter(Boolean),
                         searchTerms: termList,
+                        researchScope: scope.trim(),
+                        researchEffort: effort,
                         geography,
                         approved: true,
                         discover,
@@ -336,6 +326,15 @@ export function ResearchPanel({
               <p>{activeBusinessCount} businesses in progress · {waitingJobs} jobs waiting for a provider slot · {enriching.length} enrichment jobs running · {finishedEnrichment.length} finished · {peopleFound} contact leads{searchLeadCount ? ` · ${searchLeadCount} leads to verify` : ""}</p>
               <p>{runPages} pages read · {queuedUrlCount} URLs queued</p><p className="mt-2 break-words">{currentJob.message === "Discovery complete" ? "Website search finished; researching candidate businesses" : currentJob.message}</p>
             </details>
+            {searchHistory.length > 0 && <details className="rounded-lg border border-[var(--border)] p-3 text-sm">
+              <summary className="min-h-12 cursor-pointer content-center">Search activity · {searchHistory.length} attempts</summary>
+              <ol className="space-y-3 pt-2">{searchHistory.map((attempt, i) => <li key={`${i}:${attempt.query}`}>
+                <p className="font-medium">{attempt.query}</p>
+                {attempt.reason && <p className="text-[var(--muted)]">{attempt.reason}</p>}
+                <p className="text-xs text-[var(--muted)]">{attempt.status === "failed" ? "Search failed; a retry may follow" : `${attempt.resultCount ?? "—"} results · ${attempt.newDomains ?? "—"} new candidate domains`}</p>
+              </li>)}</ol>
+              {searchStopReason && <p className="mt-3 text-[var(--muted)]">{searchStopReason}</p>}
+            </details>}
             {!active && !currentJob.config.purpose && currentJob.config.runtime?.attempts.some(a => a.status === "failed" || /extraction failed/i.test(a.reason)) && <button className={button} disabled={busy} onClick={() => retryFailed(currentJob)}>Retry failed pages</button>}
             {active && <button className={button} disabled={busy} onClick={() => act({action:"cancel"}, active.id)}>Stop research</button>}
             {active?.status === "queued" && <button className={button} disabled={busy} onClick={() => act({action:"retry-dispatch"}, active.id)}>Reconnect job</button>}

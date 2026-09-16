@@ -62,7 +62,9 @@ export const researchStartSchema = z.object({
         .transform((v) => publicResearchUrl(v)!),
     )
     .max(10),
-  searchTerms: z.array(z.string().trim().min(2).max(160)).min(1).max(6),
+  searchTerms: z.array(z.string().trim().min(2).max(160)).max(6).default([]),
+  researchScope: z.string().trim().min(2).max(960).optional(),
+  researchEffort: z.enum(["focused", "standard", "thorough"]).optional(),
   geography: z.string().trim().min(2).max(160),
   discover: z.boolean().default(true),
   strategy: z.enum(["discover", "investigate"]).optional(),
@@ -75,7 +77,7 @@ export const researchStartSchema = z.object({
   companyBudget: z.object({ maxCompanies: z.number().int().min(1).max(5), maxPages: z.number().int().min(1).max(5) }).optional(),
   approved: z.literal(true),
   budget: researchBudgetSchema,
-}).refine(c => !c.findPeople || (c.workflow === "business" && Boolean(c.peopleBudget) && c.budget.maxModelCalls > 0), "People research requires an AI business run and an explicit people budget").refine(c => !c.companyBudget || (c.workflow === "business" && c.budget.maxModelCalls > 0), "Company details follow-up requires a business run");
+}).refine(c => Boolean(c.researchScope || c.searchTerms.length), "Enter a research scope or starting terms").refine(c => !c.findPeople || (c.workflow === "business" && Boolean(c.peopleBudget) && c.budget.maxModelCalls > 0), "People research requires an AI business run and an explicit people budget").refine(c => !c.companyBudget || (c.workflow === "business" && c.budget.maxModelCalls > 0), "Company details follow-up requires a business run");
 export const researchRuntimeSchema = z.object({
   remaining: z.array(z.string().url()).max(1000),
   visited: z.array(z.string().url()).max(1000),
@@ -164,7 +166,7 @@ export function continueResearchConfig(
 export type ResearchConfig = Omit<
   z.infer<typeof researchStartSchema>,
   "requestId" | "continueFrom"
-> & { admissionContinuations?: number; parallelDiscovery?: boolean; discoveryCandidate?: boolean; executionSlot?: number | string; researchRunId?: string; automaticPageLimit?: number; automaticPagesUsed?: number; automaticDeadline?: number; newBusinessIds?: string[]; businessTargetStartedAt?: string; targetedFollowup?: boolean; targetedSearches?: string[]; targetedSearchAttempts?: import("./research-objectives").SearchAttempt[]; skipDomains?: string[]; companyLocation?: string; discoveryCursor?: number; discoveryPending?: boolean; discoveryAttempts?: { query: string; status: "succeeded" | "failed"; category?: string }[]; autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
+> & { adaptiveDiscovery?: boolean; discoveryStopReason?: string; admissionContinuations?: number; parallelDiscovery?: boolean; discoveryCandidate?: boolean; executionSlot?: number | string; researchRunId?: string; automaticPageLimit?: number; automaticPagesUsed?: number; automaticDeadline?: number; newBusinessIds?: string[]; businessTargetStartedAt?: string; targetedFollowup?: boolean; targetedSearches?: string[]; targetedSearchAttempts?: import("./research-objectives").SearchAttempt[]; skipDomains?: string[]; companyLocation?: string; discoveryCursor?: number; discoveryPending?: boolean; discoveryAttempts?: import("./adaptive-discovery").DiscoveryAttempt[]; autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
 export const findingSchema = z.object({
   kind: z.enum([
     "company",
@@ -260,6 +262,7 @@ export function validateFindings(
   markdown: string,
   sourceUrl: string,
   searchTerms: string[] = [],
+  semanticRelevance = false,
 ): ResearchFinding[] {
   if (!Array.isArray(input)) return [];
   const candidates = input.slice(0, 12).flatMap((value) => {
@@ -288,7 +291,7 @@ export function validateFindings(
           normalize(f.quote).includes(normalize(f.name))) &&
         (!f.subject || normalize(f.quote).includes(normalize(f.subject))),
     )
-    .map((f) => ({ ...f, website: publicResearchUrl(f.website) || "", ...(f.relevance === "relevant" && searchTerms.length && !focusMatches(f.quote, searchTerms) ? {relevance: "adjacent" as const} : {}) }))
+    .map((f) => ({ ...f, website: publicResearchUrl(f.website) || "", ...(f.relevance === "relevant" && !semanticRelevance && searchTerms.length && !focusMatches(f.quote, searchTerms) ? {relevance: "adjacent" as const} : {}) }))
     .filter((f) => !f.website || allowed.has(f.website));
 }
 // Preserve explicit first-person supplier statements when the model returns no

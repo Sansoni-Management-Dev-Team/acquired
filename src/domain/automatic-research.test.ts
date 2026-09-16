@@ -15,7 +15,7 @@ describe('automatic research', () => {
     expect(config.budget.maxPages).toBe(10);
   });
   it('continues unread sources after a page batch without rediscovering or losing counts', () => {
-    const config = { ...automaticResearchConfig(base), runtime, newBusinessIds: ['a', 'b'] };
+    const config = { ...automaticResearchConfig(base), discoveryPending: false, runtime, newBusinessIds: ['a', 'b'] };
     const next = automaticBatch({ id: 'root', status: 'partial', config })!;
     expect(next.discover).toBe(false);
     expect(next.runtime?.visited).toEqual(runtime.visited);
@@ -25,7 +25,7 @@ describe('automatic research', () => {
     expect(next.researchRunId).toBe('root');
   });
   it('stops at target, cancellation, no progress, exhausted sources or automatic ceilings', () => {
-    const config = { ...automaticResearchConfig(base), runtime };
+    const config = { ...automaticResearchConfig(base), discoveryPending: false, runtime };
     const job = { id: 'root', status: 'partial', config };
     expect(automaticBatch({ ...job, config: { ...config, targetBusinesses: 1, newBusinessIds: ['a'] } })).toBeNull();
     expect(automaticBatch({ ...job, status: 'cancelled' })).toBeNull();
