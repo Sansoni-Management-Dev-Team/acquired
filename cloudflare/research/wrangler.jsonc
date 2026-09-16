@@ -1,6 +1,7 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "acquire-research",
+  "account_id": "53019d98ec6f1d1d93112558076ee677",
   "main": "index.ts",
   "compatibility_date": "2026-09-08",
   "workflows": [{ "name": "acquire-research", "binding": "RESEARCH", "class_name": "AcquireResearch" }],

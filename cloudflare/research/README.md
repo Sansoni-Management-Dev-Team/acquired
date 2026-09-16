@@ -28,6 +28,16 @@ Provider error classifications survive to search/page outcomes: daily quota, req
 
 Production is already configured. Deploy the application callback before the worker when changing their shared contract.
 
+The Worker and Workflow are hosted in MLAI (`53019d98ec6f1d1d93112558076ee677`),
+at `https://acquire-research.mlai-530.workers.dev`. The Wrangler configuration pins
+that account. Browser Rendering credentials and the Crawl4AI fallback also use
+MLAI. Deployment credentials must have access to this account; Browser Rendering
+requires its own Edit permission. Vercel production uses the new Worker URL and
+a matching `RESEARCH_SERVICE_SECRET`; account management tokens are not needed
+in Vercel. The original account's Worker and completed Workflow history are
+retained for rollback, with no active runs at cutover. Rolling back requires
+restoring both the prior Vercel deployment and its environment settings.
+
 - Vercel: `RESEARCH_ENABLED`, `RESEARCH_WORKER_URL`, `RESEARCH_SERVICE_SECRET`, database and existing app settings.
 - Worker secrets: `SERVICE_SECRET`, `CF_ACCOUNT_ID`, `CF_BROWSER_TOKEN`, `OPENROUTER_API_KEY`.
 - Worker variable: `APP_ORIGIN`, set to the production application origin.

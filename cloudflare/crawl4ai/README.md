@@ -11,8 +11,9 @@ It was applied when deploying to the MLAI account (`53019d98ec6f1d1d93112558076e
 Do not add or apply a different migration without its own explicit approval.
 
 Live endpoint: `https://acquire-crawl4ai.mlai-530.workers.dev`.
-The existing research Worker remains in account `1e410209cb522db00ed992b156eaade8`
-and calls this endpoint using `CRAWL4AI_URL` and `CRAWL4AI_SECRET`.
+The research Worker is also deployed in MLAI at
+`https://acquire-research.mlai-530.workers.dev` and calls this endpoint using
+`CRAWL4AI_URL` and `CRAWL4AI_SECRET`.
 The new account token was verified through deployment, registry image push,
 container creation, secret updates and tail access. Its full policy is not readable
 with that token. Never put either account's API token or service secret in this file.
