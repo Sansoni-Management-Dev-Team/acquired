@@ -3,7 +3,7 @@
   "name": "acquire-crawl4ai",
   "main": "index.ts",
   "compatibility_date": "2026-09-09",
-  "containers": [{ "class_name": "CrawlReader", "image": "./Dockerfile", "instance_type": "standard-1", "max_instances": 1 }],
+  "containers": [{ "class_name": "CrawlReader", "image": "./Dockerfile", "instance_type": "standard-3", "max_instances": 1 }],
   "durable_objects": { "bindings": [{ "name": "READER", "class_name": "CrawlReader" }] },
   "migrations": [{ "tag": "crawl-reader-v1", "new_sqlite_classes": ["CrawlReader"] }],
   "observability": { "enabled": true }

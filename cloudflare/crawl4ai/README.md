@@ -1,6 +1,6 @@
 # Crawl4AI fallback reader
 
-An authenticated Cloudflare Worker routes one-page reads to one on-demand Crawl4AI container. It sleeps after one idle minute, has at most one 4 GiB instance, serialises browser work and returns 429 when busy. The research workflow uses it only after a primary reader failure or unusable content, within the existing page/time allowance. Public HTTPS targets only; private-address destinations and subrequests are rejected. No CAPTCHA solving, account login, or guessed contact information.
+An authenticated Cloudflare Worker routes one-page reads to one on-demand Crawl4AI container. It sleeps after one idle minute, has at most one standard-3 instance (2 vCPUs, 8 GiB RAM), allows three isolated browser reads and returns 429 when busy. The research workflow uses it only after a primary reader failure or unusable content, within the existing page/time allowance. Public HTTPS targets only; private-address destinations and subrequests are rejected. No CAPTCHA solving, account login, or guessed contact information.
 
 ## Migration approval required before first deployment
 
@@ -25,8 +25,7 @@ The primary research worker works without these optional secrets. Until they are
 `pnpm dev` now builds and starts this reader automatically in OrbStack using
 `compose.local.yml`, without deploying a Cloudflare container or applying its
 Durable Object migration. It is the primary reader for local searches and all
-research pages. Local compose allows three simultaneous reads; the hosted
-container's default remains one. See [local development](../../docs/27-local-research-and-ai.md).
+research pages. Local compose allows three simultaneous reads; the Cloudflare deployment also allows three. See [local development](../../docs/27-local-research-and-ai.md).
 
 Build: `docker build --platform linux/amd64 -t acquire-crawl4ai:test cloudflare/crawl4ai`
 
@@ -92,3 +91,13 @@ contract and database schema remain unchanged. Roll back activation by removing
 those optional settings; primary Cloudflare page reads continue as before.
 
 Tests: `python3 -m unittest discover -s cloudflare/crawl4ai -p 'test_*.py'`.
+
+## Prepared Cloudflare deployment
+
+The selected Cloudflare configuration uses one `standard-3` instance, three
+concurrent reads and a one-minute idle sleep. The Worker authenticates both
+`/crawl` and `/health`; the benchmark sends its token to both. No separate VM,
+Caddy service or custom DNS hostname is needed. Run the hosted benchmark on its
+`workers.dev` URL before enabling it as the production fallback. Browser state
+may be discarded on sleep, which is compatible with the isolated reader.
+The first deployment remains gated on explicit approval of `crawl-reader-v1`.

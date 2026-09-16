@@ -25,7 +25,8 @@ if not isinstance(urls, list) or not 1 <= len(urls) <= 30 or any(not isinstance(
     parser.error("Supply 1–30 public HTTPS URLs")
 secret = os.environ.get("READER_BENCHMARK_SECRET")
 try:
-    with urllib.request.urlopen(args.endpoint.rstrip("/") + "/health", timeout=5) as response:
+    health = urllib.request.Request(args.endpoint.rstrip("/") + "/health", headers={"Authorization": f"Bearer {secret}"} if secret else {})
+    with urllib.request.urlopen(health, timeout=45) as response:
         if not json.load(response).get("ok"):
             parser.error("Reader is not ready")
 except Exception:
