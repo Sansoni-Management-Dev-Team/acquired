@@ -4,6 +4,7 @@ import type { ResearchConfig } from './research';
 // Internal limits protect against endless queues and unresponsive providers.
 // Effort presets choose search/time limits; concurrency stays an internal ceiling.
 export const BUSINESS_RESEARCH_CONCURRENCY = 8;
+export const DISCOVERY_RESEARCH_CONCURRENCY = 8;
 export const DISCOVERY_CANDIDATE_LIMIT = 30;
 // Each business has independent company-facts and people work.
 export const ENRICHMENT_CONCURRENCY = BUSINESS_RESEARCH_CONCURRENCY * 2;

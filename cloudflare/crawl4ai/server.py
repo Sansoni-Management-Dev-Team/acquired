@@ -12,7 +12,7 @@ import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
-CONCURRENCY = max(1, min(3, int(os.environ.get("CRAWL4AI_CONCURRENCY", "1"))))
+CONCURRENCY = max(1, min(5, int(os.environ.get("CRAWL4AI_CONCURRENCY", "1"))))
 busy = threading.BoundedSemaphore(CONCURRENCY)
 service_secret = os.environ.get("SERVICE_SECRET", "")
 pool = None

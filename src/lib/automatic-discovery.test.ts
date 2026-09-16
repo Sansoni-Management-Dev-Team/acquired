@@ -14,13 +14,25 @@ it('fans out eight websites and refills them as completion releases capacity', a
   expect(mocks.create.mock.calls.every(c => c[3].discoveryCandidate && !c[3].discover && c[3].budget.maxDomains === 1)).toBe(true);
   expect(mocks.worker).toHaveBeenCalledTimes(8);
 });
+it('keeps discovery full while enrichment occupies all business slots', async () => {
+  const enrichment = Array.from({ length: 16 }, (_, index) => ({
+    id: `enrichment-${index}`,
+    mandateId: 'mandate',
+    status: 'crawling',
+    config: { purpose: index % 2 ? 'people' : 'firmographics', companyDomain: `known-${Math.floor(index / 2)}.example.com`, executionSlot: `mandate:${index + 1}` },
+  }));
+  mocks.where.mockResolvedValue([root, ...enrichment]);
+  await dispatchDiscoveryCandidates('org', 'root');
+  expect(mocks.create).toHaveBeenCalledTimes(8);
+  expect(mocks.create.mock.calls.map(call => call[3].executionSlot)).toEqual(Array.from({ length: 8 }, (_, index) => `mandate:discovery-${index + 1}`));
+});
 it('reserves only remaining target capacity and does not repeat researched websites', async () => {
   const limited = { ...root, config: { ...root.config, newBusinessIds: Array.from({ length: 18 }, (_, i) => `target${i}`) } };
   mocks.get.mockResolvedValue(limited);
   mocks.where.mockResolvedValue([limited, { id: 'done', status: 'complete', pages: 1, config: { discoveryCandidate: true, companyDomain: 'instruments0.example.com', budget: { maxPages: 2 } } }, { id: 'active', status: 'crawling', config: { discoveryCandidate: true, companyDomain: 'instruments1.example.com', executionSlot: 'mandate:1', budget: { maxPages: 2 } } }]);
   await dispatchDiscoveryCandidates('org', 'root');
   expect(mocks.create).toHaveBeenCalledOnce();
-  expect(mocks.create.mock.calls[0][3]).toMatchObject({ companyDomain: 'instruments2.example.com', executionSlot: 'mandate:3' });
+  expect(mocks.create.mock.calls[0][3]).toMatchObject({ companyDomain: 'instruments2.example.com', executionSlot: 'mandate:discovery-1' });
 });
 it('ranks snippet-supported business websites before generic leads', () => {
   const ranked = rankDiscoveryCandidateUrls([

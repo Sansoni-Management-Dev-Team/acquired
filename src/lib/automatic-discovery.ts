@@ -3,7 +3,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { requireDb } from '@/db/client';
 import { researchJobs } from '@/db/schema';
 import { ResearchRepository } from '@/db/research-repository';
-import { BUSINESS_RESEARCH_CONCURRENCY, DISCOVERY_CANDIDATE_LIMIT, mandateResearchSlot } from '@/domain/automatic-research';
+import { DISCOVERY_CANDIDATE_LIMIT, DISCOVERY_RESEARCH_CONCURRENCY, mandateResearchSlot } from '@/domain/automatic-research';
 import { directorySource, serviceBusinessDomain, unreadableDiscoverySource } from '@/domain/discovery-sources';
 import { researchDomain, terminalResearchStates, type ResearchConfig } from '@/domain/research';
 import { researchWorker } from './research-service';
@@ -38,13 +38,14 @@ export async function dispatchDiscoveryCandidates(org: string, jobId: string) {
       if (!byDomain.has(domain) || !directorySource(url)) byDomain.set(domain, url);
     }
   }
-  const busyDomains = new Set(jobs.filter(j => !terminalResearchStates.includes(j.status)).flatMap(j => (j.config as ResearchConfig).companyDomain ? [(j.config as ResearchConfig).companyDomain!] : []));
-  let capacity = Math.min(BUSINESS_RESEARCH_CONCURRENCY - busyDomains.size, Math.max(0, (config.targetBusinesses || 20) - newIds.size - active.length), Math.max(0, DISCOVERY_CANDIDATE_LIMIT - candidates.length));
+  let capacity = Math.min(DISCOVERY_RESEARCH_CONCURRENCY - active.length, Math.max(0, (config.targetBusinesses || 20) - newIds.size - active.length), Math.max(0, DISCOVERY_CANDIDATE_LIMIT - candidates.length));
   let pagesLeft = (config.automaticPageLimit || 100) - candidates.reduce((sum, j) => sum + (terminalResearchStates.includes(j.status) ? ((j.config as ResearchConfig).runtime?.attempts.length || j.pages) : (j.config as ResearchConfig).budget.maxPages), 0);
   const dispatch = active.filter(j => j.status === 'queued').map(j => j.id);
-  for (let slot = 0; slot < BUSINESS_RESEARCH_CONCURRENCY && capacity > 0 && pagesLeft > 0; slot++) {
-    const executionSlot = mandateResearchSlot(root.mandateId, slot * 2 + 1);
-    if (occupied.has(executionSlot) || occupied.has(mandateResearchSlot(root.mandateId, slot * 2 + 2))) continue;
+  for (let slot = 0; slot < DISCOVERY_RESEARCH_CONCURRENCY && capacity > 0 && pagesLeft > 0; slot++) {
+    // Candidate reads have their own slots so paired firmographics/people work
+    // cannot stop discovery from refilling its eight-workflow pool.
+    const executionSlot = mandateResearchSlot(root.mandateId, `discovery-${slot + 1}`);
+    if (occupied.has(executionSlot)) continue;
     const next = byDomain.entries().next().value;
     if (!next) break;
     const [domain, seed] = next;

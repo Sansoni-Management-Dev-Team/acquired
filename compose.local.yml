@@ -7,7 +7,8 @@ services:
     platform: linux/amd64
     container_name: project-acquire-crawl4ai
     environment:
-      CRAWL4AI_CONCURRENCY: "3"
+      # Match the parity coordinator: four page reads plus one search slot.
+      CRAWL4AI_CONCURRENCY: "5"
     ports:
       - "127.0.0.1:18083:8080"
     shm_size: "1gb"
