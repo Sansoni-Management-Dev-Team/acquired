@@ -15,7 +15,6 @@ const summary = (c: Criterion) => c.state === "unknown" ? "Not yet specified" : 
 
 export function BriefCriteria({ criteria, onChange }: { criteria: Criterion[]; onChange: (criteria: Criterion[]) => void }) {
   const [editing, setEditing] = useState(false);
-  const blockers = criteria.filter(c => ["geography", "subsectors"].includes(c.key) && unresolved(c));
   const questions = criteria.filter(unresolved);
   const primary = ["subsectors", "geography", "revenue", "headcount"];
   const extra = criteria.filter(c => !primary.includes(c.key) && c.state !== "unknown");
@@ -27,10 +26,6 @@ export function BriefCriteria({ criteria, onChange }: { criteria: Criterion[]; o
       </div>)}
     </dl>
     {extra.length > 0 && <details className="mt-4 border-t border-[var(--border)] pt-3"><summary className="cursor-pointer text-sm">Additional criteria ({extra.length})</summary><dl className="mt-3 grid gap-3 sm:grid-cols-2">{extra.map(c => <div key={c.key}><dt className="text-xs text-[var(--muted)]">{labelFor(c)}</dt><dd className="mt-1 break-words text-sm">{summary(c)}{c.importance === "requirement" && <span className="ml-2 text-xs text-[var(--muted)]">Required</span>}</dd></div>)}</dl></details>}
-    {blockers.length > 0 && <div className="mt-4 rounded-md border border-amber-300/30 bg-amber-300/5 p-3 text-sm">
-      <p>Before discovery, review {blockers.map(c => c.key === "subsectors" ? "sub-sectors" : "geography").join(" and ")}.</p>
-      <button type="button" className="mt-2 min-h-9 underline underline-offset-4" onClick={() => setEditing(true)}>Review discovery criteria</button>
-    </div>}
     {questions.length > 0 && <details className="mt-4 border-t border-[var(--border)] pt-3">
       <summary className="cursor-pointer text-sm">Open questions ({questions.length})</summary>
       <ul className="mt-3 space-y-2">{questions.map(c => <li key={c.key} className="flex flex-wrap justify-between gap-2 text-sm"><span>{labelFor(c)}</span><span className="text-[var(--muted)]">{c.state === "unknown" ? "Not yet specified" : "Needs review"}</span></li>)}</ul>
