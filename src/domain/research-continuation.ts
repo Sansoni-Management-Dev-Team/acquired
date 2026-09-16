@@ -4,12 +4,15 @@ export function automaticContinuation(job: {id:string;status:string;message:stri
   const config=job.config, runtime=config.runtime;
   if (config.mode === "automatic" && !config.purpose && !config.discoveryCandidate) return automaticBatch(job, now);
   if(job.status!== 'partial' || !/Worker request budget reached|Browser admission deferred/.test(job.message) || !runtime) return null;
+  const noProgress = runtime.attempts.every(a => a.status === 'pending');
+  const admissionContinuations = noProgress ? (config.admissionContinuations || 0) + 1 : 0;
+  if (admissionContinuations > 2) return null;
   const pages=config.budget.maxPages-runtime.attempts.filter(a=>a.status !== 'pending').length;
   const minutes=Math.floor((job.createdAt.getTime()+config.budget.maxMinutes*60000-now)/60000);
   const retry=runtime.attempts.filter(a=>a.status!=='read').map(a=>a.url);
   const remaining=uniqueResearchUrls([...retry,...runtime.remaining]);
   if(pages<=0 || minutes<1 || !remaining.length || !runtime.attempts.length) return null;
-  return {...config,autoContinueFrom:job.id,autoRoot:config.autoRoot||job.id,autoDomains:[...new Set([...(config.autoDomains||[]),...runtime.attempts.map(a=>researchDomain(a.url))])],
+  return {...config,admissionContinuations,autoContinueFrom:job.id,autoRoot:config.autoRoot||job.id,autoDomains:[...new Set([...(config.autoDomains||[]),...runtime.attempts.map(a=>researchDomain(a.url))])],
     discover:false,seeds:remaining.slice(0,10),budget:{...config.budget,maxPages:pages,maxModelCalls:Math.max(0,config.budget.maxModelCalls-job.modelCalls),maxMinutes:minutes},
     runtime:{remaining,visited:runtime.visited.filter(u=>!retry.some(r=>researchUrlKey(r)===researchUrlKey(u))),attempts:[],...(runtime.pendingPage ? {pendingPage:runtime.pendingPage} : {})}};
 }

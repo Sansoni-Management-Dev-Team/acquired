@@ -24,3 +24,9 @@ it('carries root identity and domain usage through subsequent executions',()=>{
  const next=automaticContinuation({...job,config:{...config,autoRoot:'original',autoDomains:['first.example.com']}},60000)!;
  expect(next.autoRoot).toBe('original');expect(next.autoDomains).toEqual(['first.example.com','example.com']);
 });
+
+it('caps automatic continuations when admission repeatedly makes no progress',()=>{
+ const blocked = {...job,message:'Browser admission deferred',config:{...config,admissionContinuations:2,runtime:{visited:[],remaining:['https://example.com/'],attempts:[{url:'https://example.com/',status:'pending' as const,reason:'Waiting'}]}}};
+ expect(automaticContinuation(blocked,60000)).toBeNull();
+ expect(automaticContinuation({...job,config:{...config,admissionContinuations:2}},60000)?.admissionContinuations).toBe(0);
+});

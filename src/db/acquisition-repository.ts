@@ -1,6 +1,6 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { requireDb } from "./client";
-import { coverageRuns, mandates, mandateTargets, targets, valuationObservations, organization } from "./schema";
+import { coverageRuns, mandates, mandateTargets, targets, valuationObservations, organization, researchFindings } from "./schema";
 import { OrganizationRepository } from "./repositories";
 import { assessmentSchema, briefSchema, briefToMandate, emptyBrief, initialAssessment, type AcquisitionBrief, type Accreditation, type Assessment, type CoverageRun, type CoverageSource, type MandateView, type MembershipView, type ValuationObservation } from "@/domain/acquisition";
 import { assessMembership } from "@/domain/mandate-assessment";
@@ -32,18 +32,19 @@ export class AcquisitionRepository {
   async memberships(mandateId: string): Promise<MembershipView[]> {
     const mandate = await this.getMandate(mandateId);
     if (!mandate) throw new Error("Mandate not found");
-    const [links, ranked, rows, orgRows] = await Promise.all([
+    const [links, ranked, rows, orgRows, findings] = await Promise.all([
       this.db.select().from(mandateTargets).where(and(eq(mandateTargets.organizationId, this.org), eq(mandateTargets.mandateId, mandateId))),
       new OrganizationRepository(this.db, this.org).listRankedTargets(),
       this.db.select({ id: targets.id, data: targets.firmographics }).from(targets).where(eq(targets.organizationId, this.org)),
       this.db.select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, this.org)),
+      this.db.select({ finding: researchFindings }).from(researchFindings).innerJoin(mandateTargets, and(eq(mandateTargets.targetId, researchFindings.targetId), eq(mandateTargets.organizationId, researchFindings.organizationId))).where(and(eq(mandateTargets.mandateId, mandateId), eq(researchFindings.organizationId, this.org))).orderBy(desc(researchFindings.observedAt)),
     ]);
     return links.flatMap(link => {
       const target = ranked.find(t => t.id === link.targetId);
       if (!target) return [];
       const assessment = assessmentSchema.safeParse(link.assessment);
       const data = rows.find(r => r.id === target.id)?.data as { accreditations?: Accreditation[] } | undefined;
-      return [{ target: assessMembership(target, mandate.brief, assessment.success ? assessment.data : initialAssessment, buyerProfileFromMetadata(orgRows[0]?.metadata)), assessment: assessment.success ? assessment.data : { ...initialAssessment }, accreditations: data?.accreditations || [], version: link.version }];
+      return [{ researchFindings: findings.filter(({ finding }) => finding.targetId === target.id).map(({ finding }) => ({ ...finding, evidence: finding.evidence as import("@/domain/research").ResearchFinding, observedAt: finding.observedAt.toISOString() })), target: assessMembership(target, mandate.brief, assessment.success ? assessment.data : initialAssessment, buyerProfileFromMetadata(orgRows[0]?.metadata)), assessment: assessment.success ? assessment.data : { ...initialAssessment }, accreditations: data?.accreditations || [], version: link.version }];
     });
   }
   async attach(mandateId: string, targetId: string) {

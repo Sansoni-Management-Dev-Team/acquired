@@ -20,7 +20,7 @@ it("uses redirect options supported by the real Worker fetch implementation", as
   expect(await response.text()).toBe("Unmocked network request blocked");
 });
 
-function replay(options: { pages?: number; cancelled?: boolean; failProgress?: boolean; denyPermit?: boolean; config?: ResearchConfig } = {}) {
+function replay(options: { pages?: number; cancelled?: boolean; failProgress?: boolean; denyPermit?: boolean; expireFirstPermit?: boolean; config?: ResearchConfig } = {}) {
   const id = crypto.randomUUID();
   const config: ResearchConfig = options.config || {
     seeds: Array.from({ length: options.pages || 1 }, (_, i) => `https://instruments${i || ""}.example.com/`),
@@ -29,6 +29,7 @@ function replay(options: { pages?: number; cancelled?: boolean; failProgress?: b
   };
   let status = options.cancelled ? "cancelled" : "queued";
   let failed = false;
+  let expiredPermit = false;
   const progress: Progress[] = [];
   const requests: string[] = [];
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
@@ -39,6 +40,7 @@ function replay(options: { pages?: number; cancelled?: boolean; failProgress?: b
       const data = JSON.parse(String(init.body));
       if (data.action === "discover") return Response.json({ seeds: [] });
       if (data.action === "provider-reserve") return Response.json({ granted: !options.denyPermit, retryAfterMs: 0, after: Date.now(), until: Date.now() + 2000, token: data.token });
+      if (data.action === "browser-permit" && options.expireFirstPermit && !expiredPermit) { expiredPermit = true; return Response.json({ granted: false, retryAfterMs: 0, expired: true }); }
       if (data.action === "browser-permit") return Response.json({ granted: !options.denyPermit, retryAfterMs: 0 });
       // Model the app's revision check after a write succeeds but its response is lost.
       if (!progress.some(p => p.revision === data.revision)) { progress.push(data); status = data.status; }
@@ -178,4 +180,18 @@ it("terminates an unresponsive workflow only after checking fresh saved progress
   updatedAt = new Date().toISOString();
   expect(await (await worker.fetch(request(), recoveryBindings)).json()).toEqual({ recovered: false });
   expect(terminate).toHaveBeenCalledOnce();
+});
+
+it("recovers an expired browser handoff inside the same real Workflow", async () => {
+  const t = replay({ expireFirstPermit: true });
+  await using instance = await introspectWorkflowInstance(bindings.RESEARCH, t.id);
+  await instance.modify(m => m.disableSleeps());
+  await bindings.RESEARCH.create({ id: t.id, params: { jobId: t.id } });
+  await instance.waitForStatus("complete");
+  expect(t.progress.at(-1)).toMatchObject({status:"complete",pages:1});
+  expect(t.requests.filter(url => url === "http://127.0.0.1:18083/crawl")).toHaveLength(1);
+  const first = JSON.parse(await instance.waitForStepResult({name:"read-people-1-admitted-0"}) as string);
+  expect(first.value.deferred).toBe(true);
+  const second = JSON.parse(await instance.waitForStepResult({name:"read-people-1-admitted-1"}) as string);
+  expect(second.value.status).toBe("completed");
 });

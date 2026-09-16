@@ -61,9 +61,24 @@ it("automatically estimates from directory and search headcount while retaining 
     const input = findings();
     input[0].evidence.factMetadata = { basis, sourceKind: "third_party_directory", identityNote: null, scope: "unspecified", period: null, currency: null };
     const result = estimateEbitda(input);
-    expect(result).toMatchObject({status:"estimated",headcountBasis:"estimated",headcountFindingIds:["count"],modelVersion:"abs-headcount-v3"});
+    expect(result).toMatchObject({status:"estimated",headcountBasis:"estimated",headcountFindingIds:["count"],modelVersion:"abs-headcount-v4"});
     expect(result.low).toBe(estimateEbitda(findings()).low);
     expect(result.limitations.join(" ")).toContain("Based on estimated headcount");
   }
   expect(estimateEbitda(findings()).headcountBasis).toBe("reported");
+});
+
+it("averages conflicting counts without overweighting repeated source saves", () => {
+ const a = findings("10 employees")[0];
+ const b = { ...findings("30 employees")[0], id: "other", sourceUrl: "https://other.example.com/team" };
+ const result = estimateEbitda([a, { ...a, id: "repeat" }, b]);
+ expect(result).toMatchObject({ status: "estimated", headcountAggregation: { method: "mean", observations: 2, low: 20, high: 20 } });
+ expect(result.low).toBe(estimateEbitda([findings("20 employees")[0]]).low);
+ expect(result.limitations.join(" ")).toContain("does not resolve source disagreements");
+});
+it("averages range bounds separately and retains fractional means", () => {
+ const result = estimateEbitda([findings("1–10 employees")[0], findings("11–20 employees")[0], findings("12 employees")[0]]);
+ expect(result).toMatchObject({ status: "estimated", headcountAggregation: { method: "mean", observations: 3, low: 8, high: 14 } });
+ const fractional = estimateEbitda([findings("10 employees")[0], findings("11 employees")[0]]);
+ expect(fractional.benchmark?.headcountLow).toBe(10.5);
 });

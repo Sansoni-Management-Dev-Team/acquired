@@ -32,3 +32,8 @@ it("uses the project's OpenRouter key before an unrelated inherited shell key", 
   expect(localDevEnvironment({ OPENROUTER_API_KEY: "project-key" }, { OPENROUTER_API_KEY: "shell-key" }).OPENROUTER_API_KEY).toBe("project-key");
   expect(localDevEnvironment({}, { OPENROUTER_API_KEY: "shell-key" }).OPENROUTER_API_KEY).toBe("shell-key");
 });
+
+it("uses fast local queues by default and production queues only in parity mode", () => {
+  expect(localDevConfig(env, 's').app).toMatchObject({ LOCAL_DEVELOPMENT: 'true', LOCAL_RESEARCH_POLICY: 'development' });
+  expect(localDevConfig(env, 's', 3010, 8787, true).app).toMatchObject({ LOCAL_DEVELOPMENT: 'true', LOCAL_RESEARCH_POLICY: 'production' });
+});

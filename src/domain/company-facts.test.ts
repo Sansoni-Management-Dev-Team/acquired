@@ -53,7 +53,9 @@ it("uses matched ABS units and preserves an observed employee range", () => {
 it("abstains on unusable headcounts and suggests comparable industries", () => {
   expect(estimateEbitda([]).status).toBe("unavailable");
   expect(estimateEbitda(saved(profile.replace("11-50 employees", "50+ employees"))).status).toBe("unavailable");
-  expect(estimateEbitda([...saved(), ...saved(profile.replace("11-50 employees", "51-200 employees"))]).reason).toContain("Conflicting");
+  const averaged = estimateEbitda([...saved(), ...saved(profile.replace("11-50 employees", "51-200 employees"))]);
+  expect(averaged).toMatchObject({ status: "estimated", headcountAggregation: { method: "mean", observations: 2, low: 31, high: 125 } });
+  expect(averaged.limitations.join(" ")).toContain("does not resolve source disagreements");
   expect(estimateEbitda(saved(profile.replace("Manufacturing", "Wholesale"))).match).toMatchObject({ method: "fuzzy", needsReview: true });
   expect(estimateEbitda(saved(profile.replace("Manufacturing", "Wholesale")), "other-goods-wholesale").status).toBe("estimated");
 });

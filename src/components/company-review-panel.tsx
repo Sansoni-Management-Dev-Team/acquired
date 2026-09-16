@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { dialogBackdrop } from "./dialog-backdrop";
 import Link from "next/link";
 import type { MandateView, MembershipView, Assessment } from "@/domain/acquisition";
 import type { BuyerProfile } from "@/domain/buyer-profile";
@@ -13,6 +14,7 @@ import { buttonClass, fieldClass, jsonRequest, panelClass } from "./mandate-work
 type OutreachData = { canCompose?: boolean; views: OutreachTargetView[]; buyerProfile: BuyerProfile | null };
 export function CompanyReviewPanel({ mandate, initial, onClose, onChanged, onNext, position }: { mandate: MandateView; initial: MembershipView; onClose: () => void; onChanged: () => Promise<void>; onNext?: () => void; position: string }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const backdropPressed = useRef(false);
   const [member, setMember] = useState(initial);
   const [tab, setTab] = useState("review");
   const [reason, setReason] = useState(initial.assessment.reason);
@@ -48,7 +50,7 @@ export function CompanyReviewPanel({ mandate, initial, onClose, onChanged, onNex
   const early = ["identified", "reviewing", "parked", "excluded"].includes(member.assessment.stage);
   const conversation = ["contacted", "in-conversation", "qualified"].includes(member.assessment.stage);
   const primary = conversation ? (member.assessment.stage === "contacted" ? "Record conversation" : "Review qualification") : early ? "Review missing details" : !hasContact ? "Find decision-maker" : hasDrafts ? "Review drafts" : "Generate draft";
-  return <dialog ref={dialog} onCancel={e => { e.preventDefault(); close(); }} aria-labelledby="company-review-heading" className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-dvh w-full max-w-4xl overflow-y-auto border-l border-[var(--border)] bg-black p-0 text-white backdrop:bg-black/60">
+  return <dialog ref={dialog} onPointerDown={event => dialogBackdrop(backdropPressed, close).onPointerDown(event)} onPointerCancel={() => { backdropPressed.current = false; }} onClick={event => dialogBackdrop(backdropPressed, close).onClick(event)} onCancel={e => { e.preventDefault(); close(); }} aria-labelledby="company-review-heading" className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-dvh w-full max-w-4xl overflow-y-auto border-l border-[var(--border)] bg-black p-0 text-white backdrop:bg-black/60">
     <header className="sticky top-0 z-10 space-y-3 border-b border-[var(--border)] bg-black p-5">
       <div className="flex items-start justify-between gap-4"><div><p className="text-xs text-[var(--muted)]">{position} · {member.assessment.stage}</p><h2 id="company-review-heading" className="mt-1 text-2xl font-semibold">{member.target.companyName}</h2><p className="mt-1 text-xs text-[var(--muted)]">{member.target.domain || "Website unknown"} · {member.target.state}</p></div><button className={`${buttonClass} min-h-12`} onClick={close}>Close</button></div>
       <nav aria-label="Company review" className="flex flex-wrap gap-2">{[["review", "Review & decision"], ["details", "Worksheet"], ["outreach", "Contacts & drafts"]].map(([value, label]) => <button key={value} aria-current={tab === value ? "page" : undefined} style={tab === value ? { backgroundColor: "white", color: "black" } : undefined} className={`${buttonClass} min-h-12 ${tab === value ? "bg-white text-black" : ""}`} onClick={() => openTab(value)}>{label}</button>)}</nav>

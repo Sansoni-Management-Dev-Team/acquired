@@ -1,3 +1,4 @@
+import { withLocalProvider } from './local-provider';
 import { providerStep, type Admission } from "./provider-step";
 import type { ResearchProvider } from "../../src/domain/research-provider-queue";
 import { productionPolicy, researchFetch } from "./local-policy";
@@ -65,7 +66,7 @@ async function callback(env: Env, id: string, body?: unknown, budget?: { used: n
       "Content-Type": "application/json",
     },
     body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout((body as { action?: string } | undefined)?.action === "browser-permit" ? 5000 : body ? 55000 : 10000),
+    signal: AbortSignal.timeout(["browser-permit", "provider-release"].includes((body as { action?: string } | undefined)?.action || "") ? 5000 : body ? 55000 : 10000),
   });
   if (!r.ok) throw new Error(`Callback failed (${r.status})`);
   return r.json();
@@ -92,9 +93,17 @@ async function browser(env: Env, path: string, method = "GET", body?: unknown, b
 async function readMarkdown(env: Env, url: string, budget: { used: number; jobId?: string }, fallback = false, reservation?: string) {
   if (!publicResearchUrl(url)) throw new Error("Unsupported URL");
   if (!productionPolicy(env)) {
-    // The local reader is shared by concurrent jobs; a transient failure gets one retry.
-    try { return await localRead(env, url, { jobId: budget.jobId }, researchFetch(env)); }
-    catch { await new Promise(resolve => setTimeout(resolve, 4000)); return localRead(env, url, { jobId: budget.jobId }, researchFetch(env)); }
+    const read = (token?: string) => withLocalProvider('page', token,
+      body => callback(env, budget.jobId!, body),
+      () => localRead(env, url, { jobId: budget.jobId }, researchFetch(env)));
+    try { return await read(reservation); }
+    catch (error) {
+      if (error instanceof BrowserAdmissionDeferred) throw error;
+      // Release capacity during the existing transient-failure backoff, then
+      // acquire a fresh single-use reservation for the retry.
+      await new Promise(resolve => setTimeout(resolve, 4000));
+      return read();
+    }
   }
   const markdown = await browserMarkdown(env, url, {
     jobId: budget.jobId, operation: fallback ? "markdown_fallback" : "markdown",
@@ -149,10 +158,15 @@ export class AcquireResearch extends WorkflowEntrypoint<
           return providerStep({ do: checkpoint, sleep: (label, ms) => step.sleep(label, ms) }, name, provider,
             token => callback(this.env, id, { action: "provider-reserve", provider, token: `${id}:${token}` }, requestBudget) as Promise<Admission>,
             async token => {
-              const current = await control();
-              if (["cancelled", "complete", "partial", "failed"].includes(current.status) || Date.now() >= current.deadline) throw new BrowserAdmissionDeferred();
-              browserReservation = provider === 'ai' ? undefined : token;
-              try { return await run(); } finally { browserReservation = undefined; }
+              try {
+                const current = await control();
+                if (["cancelled", "complete", "partial", "failed"].includes(current.status) || Date.now() >= current.deadline) throw new BrowserAdmissionDeferred();
+                browserReservation = provider === 'ai' ? undefined : token;
+                return await run();
+              } finally {
+                browserReservation = undefined;
+                if (!productionPolicy(this.env) && provider === 'page') await callback(this.env, id, { action: 'provider-release', token }).catch(() => {});
+              }
             });
         },
         sleep: (name, ms) => step.sleep(name, ms),
@@ -170,7 +184,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
           stateCache = response.control ? { value: { ...response.control, findings: stateCache?.value.findings }, at: Date.now() } : undefined;
           console.info("research-progress", JSON.stringify({ timestamp: new Date().toISOString(), jobId: id, status: event.status, revision: event.revision, pages: event.pages, modelCalls: event.modelCalls, savedPageFindings: event.page?.findings.length, remainingUrls: event.runtime?.remaining.length }));
         },
-        cachedPage: async (url) => !productionPolicy(this.env) ? null : lookupCachedPage(caches.default, stateCache?.value.config.researchRunId || id, url),
+        cachedPage: async (url) => lookupCachedPage(caches.default, stateCache?.value.config.researchRunId || id, url),
         readPeoplePage: (url) => readMarkdown(this.env, url, requestBudget, false, browserReservation),
         // Every page read is one synchronous request. The asynchronous crawl job needed a submit
         // plus repeated polls, and a queued crawl could consume an instance's whole request budget
@@ -178,7 +192,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
         readPage: async (url: string) => {
           const state = await control();
           const read = () => readMarkdown(this.env, url, requestBudget, false, browserReservation);
-          return !productionPolicy(this.env) ? read() : cachedPage(caches.default, state.config.researchRunId || id, url, read);
+          return cachedPage(caches.default, state.config.researchRunId || id, url, read);
         },
         ...(this.env.LOCAL_DEVELOPMENT !== "true" && this.env.CRAWL4AI_URL ? { readFallbackPage: async (url: string) => {
           requestBudget.used++;
@@ -289,20 +303,24 @@ const worker = {
             requestId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-request-id") || "") ? request.headers.get("x-research-request-id")! : undefined,
             jobId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-job-id") || "") ? request.headers.get("x-research-job-id")! : undefined,
           };
-          // OpenSERP returns full snippets; fall back to the rendered HTML endpoint when it is unavailable.
-          try {
-            const local = await localSearch(env, body.query, { ...ids, start: (page - 1) * 10, engine: body.engine === "google" ? "google" : undefined }, researchFetch(env));
-            if (local) return Response.json({ seeds: local.map(r => r.url).slice(0, 6), results: local });
-          } catch (error) { console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), ...ids, event: "local_search_fallback", reason: error instanceof Error ? error.message.slice(0, 120) : "unknown" })); }
-          if (page > 1 || body.engine === "google") return Response.json({ error: "Requested search backend unavailable", category: "unsupported_search" }, { status: 502 });
-          const result = await localRead(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(body.query)}`, {
-            operation: "web_search",
-            requestId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-request-id") || "") ? request.headers.get("x-research-request-id")! : undefined,
-            jobId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-job-id") || "") ? request.headers.get("x-research-job-id")! : undefined,
-          }, researchFetch(env));
-          const results = searchResults(result.page.markdown);
-          if (!results.length && !/no results found|no more results/i.test(result.page.markdown)) return Response.json({ error: "Local search could not be read" }, { status: 502 });
-          return Response.json({ seeds: results.map(r => r.url).slice(0, 6), results });
+          if (!ids.jobId) return Response.json({ error: "A research job is required for rate-controlled search" }, { status: 400 });
+          return await withLocalProvider('search', request.headers.get("x-research-browser-reservation") || undefined,
+            data => callback(env, ids.jobId!, data), async () => {
+              // OpenSERP returns full snippets; fall back to the rendered HTML endpoint when it is unavailable.
+              try {
+                const local = await localSearch(env, body.query, { ...ids, start: (page - 1) * 10, engine: body.engine === "google" ? "google" : undefined }, researchFetch(env));
+                if (local) return Response.json({ seeds: local.map(r => r.url).slice(0, 6), results: local });
+              } catch (error) { console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), ...ids, event: "local_search_fallback", reason: error instanceof Error ? error.message.slice(0, 120) : "unknown" })); }
+              if (page > 1 || body.engine === "google") return Response.json({ error: "Requested search backend unavailable", category: "unsupported_search" }, { status: 502 });
+              const result = await withLocalProvider('page', undefined, data => callback(env, ids.jobId!, data), () => localRead(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(body.query)}`, {
+                operation: "web_search",
+                requestId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-request-id") || "") ? request.headers.get("x-research-request-id")! : undefined,
+                jobId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-job-id") || "") ? request.headers.get("x-research-job-id")! : undefined,
+              }, researchFetch(env)));
+              const results = searchResults(result.page.markdown);
+              if (!results.length && !/no results found|no more results/i.test(result.page.markdown)) return Response.json({ error: "Local search could not be read" }, { status: 502 });
+              return Response.json({ seeds: results.map(r => r.url).slice(0, 6), results });
+          });
         }
         const jobId = request.headers.get("x-research-job-id") || "";
         if (!/^[0-9a-f-]{36}$/i.test(jobId)) return Response.json({ error: "A research job is required for rate-controlled search" }, { status: 400 });

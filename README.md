@@ -28,6 +28,8 @@ pnpm dev
 
 Then open `http://localhost:3010/targets`.
 
+Normal `pnpm dev` research uses three concurrent local page reads, releasing each slot on completion, with no fixed delay between page starts. Searches retain a separate 12-second spacing and AI retains four admission lanes. Local runs reuse pages within the same research run and omit the production Workflow request-budget guard. Page, model-call, time and cancellation limits still apply. Use `pnpm dev:parity` to test production browser spacing and request budgets. Both modes write to `.local-data/dev-start.log`.
+
 ## Verify
 
 ```bash

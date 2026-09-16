@@ -57,7 +57,8 @@ export type EstimatedEbitda = {
   status: "estimated" | "unavailable"; reason?: string; low?: number; high?: number;
   currency: "AUD"; metric: "EBITDA"; benchmark?: EbitdaScenario; match?: BenchmarkMatch;
   sizeComparisons: EbitdaScenario[]; headcountFindingIds: string[]; headcountBasis?: "reported" | "estimated";
-  modelVersion: "abs-headcount-v3"; limitations: string[];
+  headcountAggregation?: { method: "single" | "mean"; observations: number; low: number; high: number };
+  modelVersion: "abs-headcount-v4"; limitations: string[];
 };
 function scenario(benchmark: Benchmark, min: number, max: number): EbitdaScenario {
   const rates = benchmark.observations.map(o => o.ebitdaMillions * 1000 / o.employmentThousands);
@@ -69,7 +70,7 @@ function scenario(benchmark: Benchmark, min: number, max: number): EbitdaScenari
     sourceUrl: reference.sourceUrl, sheet: benchmark.sheet, cells: benchmark.observations.map(o => `${o.period}: ${o.cells}`).join("; ") };
 }
 export function estimateEbitda(findings: SavedResearchFinding[], benchmarkId?: string): EstimatedEbitda {
-  const base: EstimatedEbitda = { status: "unavailable", currency: "AUD", metric: "EBITDA", headcountFindingIds: [], sizeComparisons: [], modelVersion: "abs-headcount-v3", limitations: [
+  const base: EstimatedEbitda = { status: "unavailable", currency: "AUD", metric: "EBITDA", headcountFindingIds: [], sizeComparisons: [], modelVersion: "abs-headcount-v4", limitations: [
     "Indicative annual EBITDA range from headcount and historical industry ratios, not reported earnings or a confidence interval; actual EBITDA may be negative.",
     "The range uses the lowest and highest available annual ratios from 2022–23 to 2024–25. It does not capture the full variation between individual businesses.",
     "Check source date, workforce geography and group scope. ABS employment counts June persons, including working proprietors, not average FTE.",
@@ -77,20 +78,25 @@ export function estimateEbitda(findings: SavedResearchFinding[], benchmarkId?: s
   ] };
   const headcounts = findings.filter(f => f.evidence.kind === "headcount");
   if (!headcounts.length) return { ...base, reason: "No sourced headcount available." };
-  const values = headcounts.map(f => parseHeadcount(f.evidence.value));
+  // Repeated saves of the same source observation must not weight the mean.
+  const observations = [...new Map(headcounts.map(f => [JSON.stringify([f.sourceUrl, parseHeadcount(f.evidence.value), f.evidence.factMetadata?.period || null, f.evidence.factMetadata?.scope || "unspecified"]), f])).values()];
+  const values = observations.map(f => parseHeadcount(f.evidence.value));
   if (values.some(v => !v || v.min === null || v.max === null || v.min === 0)) return { ...base, reason: "A bounded, positive headcount range is needed; open-ended counts remain unknown." };
-  if (new Set(values.map(v => JSON.stringify(v))).size > 1) return { ...base, reason: "Conflicting headcount observations need review before estimating." };
+  const conflicting = new Set(values.map(v => JSON.stringify([v!.min, v!.max]))).size > 1;
+  const min = values.reduce((sum, v) => sum + v!.min!, 0) / values.length;
+  const max = values.reduce((sum, v) => sum + v!.max!, 0) / values.length;
+  const headcountAggregation = { method: conflicting ? "mean" as const : "single" as const, observations: values.length, low: min, high: max };
+  if (conflicting) base.limitations.push(`Conflicting headcounts averaged across ${values.length} distinct source observations. Lower and upper bounds are averaged separately, with equal weight; repeated observations from the same source are counted once. This assumption does not resolve source disagreements.`);
   const headcountBasis = headcounts.some(f => ["third_party_estimate", "search_snippet"].includes(f.evidence.factMetadata?.basis || "")) ? "estimated" : "reported";
   if (headcountBasis === "estimated") base.limitations.push("Based on estimated headcount from a third-party profile or search result; the resulting EBITDA is an indicative estimate, not reported earnings.");
   const industries = findings.filter(f => f.evidence.kind === "industry").map(f => f.evidence.value);
   const match: BenchmarkMatch = benchmarkId ? { id: legacyIds[benchmarkId] || benchmarkId, method: "manual", description: "Industry benchmark selected manually.", needsReview: false } : matchEbitdaBenchmark(industries);
   const benchmark = ebitdaBenchmarks.find(b => b.id === match.id);
   if (!benchmark) return { ...base, reason: "Selected benchmark is unavailable. Choose another industry." };
-  const min = values[0]!.min!, max = values[0]!.max!;
   if (benchmark.level === "size" && (min < benchmark.sizeMin! || max > (benchmark.sizeMax ?? Infinity))) return { ...base, reason: "The selected employee band does not cover the sourced headcount range. Choose an industry benchmark to see all overlapping size comparisons." };
   const selected = scenario(benchmark, min, max);
   const sizeComparisons = benchmark.level === "size" || !benchmark.division ? [] : ebitdaBenchmarks
     .filter(b => b.level === "size" && b.division === benchmark.division && b.sizeMin! <= max && (b.sizeMax ?? Infinity) >= min)
     .map(b => scenario(b, Math.max(min, b.sizeMin!), Math.min(max, b.sizeMax ?? Infinity)));
-  return { ...base, status: "estimated", headcountBasis, low: selected.low, high: selected.high, headcountFindingIds: headcounts.map(f => f.id), benchmark: selected, match, sizeComparisons };
+  return { ...base, status: "estimated", headcountBasis, headcountAggregation, low: selected.low, high: selected.high, headcountFindingIds: headcounts.map(f => f.id), benchmark: selected, match, sizeComparisons };
 }

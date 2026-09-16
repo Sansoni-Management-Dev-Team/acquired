@@ -21,3 +21,23 @@ it('rebooks an expired slot without issuing an unadmitted request', async () => 
   await expect(providerStep(steps, 'page', 'page', reserve, run, () => now)).resolves.toBe('done');
   expect(run).toHaveBeenCalledOnce(); expect(reserve).toHaveBeenCalledTimes(2);
 });
+
+it('rebooks admission lost during the callback without returning a deferred page', async () => {
+ const steps: ResearchSteps = { do: async (_name, run) => run(), sleep: async () => {} };
+ const reserve = vi.fn(async token => ({granted:true,after:0,until:10000,retryAfterMs:0,token}));
+ const run = vi.fn().mockResolvedValueOnce({status:'failed',deferred:true}).mockResolvedValueOnce({status:'completed'});
+ expect(await providerStep(steps,'page','page',reserve,run,()=>0)).toEqual({status:'completed'});
+ expect(reserve).toHaveBeenCalledTimes(2);
+});
+
+it('waits for local pool capacity without exhausting the three missed-reservation retries', async () => {
+  let now = 0;
+  const steps: ResearchSteps = { do: async (_name, run) => run(), sleep: async (_name, ms) => { now += ms; } };
+  const reserve = vi.fn(async token => now < 5000
+    ? { granted: false, queued: true, retryAfterMs: 1000 }
+    : { granted: true, after: now, until: now + 60000, retryAfterMs: 0, token });
+  const run = vi.fn(async () => 'evidence');
+  await expect(providerStep(steps, 'page', 'page', reserve, run, () => now)).resolves.toBe('evidence');
+  expect(run).toHaveBeenCalledOnce();
+  expect(reserve).toHaveBeenCalledTimes(6);
+});

@@ -1,5 +1,5 @@
 import { dispatchDiscoveryCandidates } from "@/lib/automatic-discovery";
-import { reserveResearchProvider } from "@/lib/research-provider-queue";
+import { reserveResearchProvider, releaseResearchProvider } from "@/lib/research-provider-queue";
 import { researchBrowserPermit } from "@/lib/research-browser-permit";
 import { objectiveFields, fieldSatisfied, nextSearchQuery, type ResearchField } from "@/domain/research-objectives";
 import { dispatchAutomaticEnrichment } from "@/lib/automatic-enrichment";
@@ -89,10 +89,19 @@ export async function POST(
     if (terminalResearchStates.includes(job.status) || !['page', 'search', 'ai'].includes(payload.provider) || typeof payload.token !== 'string' || payload.token.length > 160) return Response.json({ granted: false, retryAfterMs: 1000 });
     const reservation = await reserveResearchProvider(jobId, payload.token, payload.provider);
     // A durable queue wait is live work, not an unresponsive provider step.
-    await requireDb().update(researchJobs).set({ updatedAt: new Date() }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates)));
+    await requireDb().update(researchJobs).set({ updatedAt: new Date(), message: `Waiting for ${payload.provider === "ai" ? "AI" : "browser"} slot` }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates)));
     return Response.json(reservation);
   }
-  if (payload?.action === "browser-permit") return Response.json(await researchBrowserPermit(jobId, typeof payload.token === 'string' ? payload.token : undefined));
+  if (payload?.action === "provider-release") {
+    if (typeof payload.token !== 'string' || payload.token.length > 160) return Response.json({ error: "Invalid token" }, { status: 400 });
+    await releaseResearchProvider(jobId, payload.token);
+    return Response.json({ ok: true });
+  }
+  if (payload?.action === "browser-permit") {
+    const permit = await researchBrowserPermit(jobId, typeof payload.token === 'string' ? payload.token : undefined);
+    if (permit.granted) await requireDb().update(researchJobs).set({ updatedAt: new Date(), message: job.status === "discovering" ? "Searching the web" : "Reading website" }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates)));
+    return Response.json(permit);
+  }
   // Pass the reserved search slot through the existing provider adapter. It is
   // consumed atomically by /search, never trusted merely because a header exists.
   const searchFetch: typeof fetch = (input, init) => {
@@ -254,6 +263,7 @@ export async function POST(
     }
     const afterDiscovery = (await repo.get(jobId))?.config as ResearchConfig | undefined;
     let more = false;
+    let admissionDeferred = false;
     if (config.workflow === "business" && config.discover && (!config.targetBusinesses || new Set(afterDiscovery?.newBusinessIds || []).size < config.targetBusinesses)) {
       const skip = new Set(afterDiscovery?.skipDomains || []);
       const plan = discoveryQueryPlan(config.searchTerms, config.geography);
@@ -271,9 +281,11 @@ export async function POST(
         newAttempts = slice.map(({ query }) => ({ query, status: "failed", category: "provider_error" }));
         warning = [warning, "Public web discovery unavailable; directory and supplied websites retained."].filter(Boolean).join(" ");
       }
+      admissionDeferred = newAttempts.some(a => a.category === "browser_admission");
+      if (admissionDeferred) newAttempts = [];
       const failed = newAttempts.some(a => a.status === "failed");
       const retry = failed && !attempts.some(a => a.query === slice[0]?.query && a.status === "failed");
-      const next = cursor + (retry ? 0 : slice.length);
+      const next = cursor + (retry || admissionDeferred ? 0 : slice.length);
       more = next < plan.length;
       await requireDb().update(researchJobs).set({ config: sql`jsonb_set(jsonb_set(jsonb_set(${researchJobs.config}, '{discoveryCursor}', ${String(next)}::jsonb), '{discoveryPending}', ${JSON.stringify(more)}::jsonb), '{discoveryAttempts}', COALESCE(${researchJobs.config}->'discoveryAttempts', '[]'::jsonb) || ${JSON.stringify(newAttempts)}::jsonb)` }).where(eq(researchJobs.id, jobId));
     }
@@ -281,7 +293,7 @@ export async function POST(
     seeds = [...new Set(seeds)].filter(url => !finalSkip.has(researchDomain(url))).slice(0, 100);
     await repo.seeds(jobId, seeds, warning || (seeds.length ? "Website search finished; researching candidate businesses" : "Website search finished; no candidate websites found in this batch"));
     if (config.parallelDiscovery) await dispatchDiscoveryCandidates(job.organizationId, jobId);
-    return Response.json({ seeds: config.parallelDiscovery ? [] : seeds, warning, peopleLeadCount, skipDomains: [...finalSkip], more });
+    return Response.json({ seeds: config.parallelDiscovery ? [] : seeds, deferred: admissionDeferred, warning, peopleLeadCount, skipDomains: [...finalSkip], more });
   }
   const event = progressSchema.safeParse(payload);
   if (!event.success)

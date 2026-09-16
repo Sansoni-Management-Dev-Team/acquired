@@ -4,7 +4,7 @@ export function localDevConfig(environment, secret, port = 3010, workerPort = 87
   if (port === workerPort) throw new Error("App and worker ports must differ");
   if (!environment.OPENROUTER_API_KEY) throw new Error("Set OPENROUTER_API_KEY in .env.local before starting local development");
   return {
-    app: { ...environment, ...disabledCloudflareEnvironment(environment), NODE_ENV: "development", DATABASE_DRIVER: "postgres", DATABASE_URL: LOCAL_DATABASE_URL,
+    app: { ...environment, ...disabledCloudflareEnvironment(environment), NODE_ENV: "development", LOCAL_DEVELOPMENT: "true", LOCAL_RESEARCH_POLICY: parity ? "production" : "development", DATABASE_DRIVER: "postgres", DATABASE_URL: LOCAL_DATABASE_URL,
       AI_PROVIDER: "openrouter-free", OUTREACH_DRAFTING_PROVIDER: "ai", AI_VERBOSE_LOGGING: "true", RESEARCH_ENABLED: "true",
       RESEARCH_WORKER_URL: `http://127.0.0.1:${workerPort}`, RESEARCH_SERVICE_SECRET: secret,
       APP_URL: `http://localhost:${port}`, NEXT_PUBLIC_APP_URL: `http://localhost:${port}` },

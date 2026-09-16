@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { dialogBackdrop } from "./dialog-backdrop";
 import { createPortal } from "react-dom";
 import { criterionDefinitions, type Criterion } from "@/domain/acquisition";
 import { GeographySelect } from "./geography-select";
@@ -42,6 +43,7 @@ export function BriefCriteria({ criteria, onChange }: { criteria: Criterion[]; o
 function CriteriaDrawer({ initial, onClose, onApply }: { initial: Criterion[]; onClose: () => void; onApply: (criteria: Criterion[]) => void }) {
   const [draft, setDraft] = useState(initial);
   const dialog = useRef<HTMLDialogElement>(null);
+  const backdropPressed = useRef(false);
   useEffect(() => {
     const element = dialog.current!;
     const overflow = document.body.style.overflow;
@@ -50,7 +52,7 @@ function CriteriaDrawer({ initial, onClose, onApply }: { initial: Criterion[]; o
     return () => { element.close(); document.body.style.overflow = overflow; };
   }, []);
   const update = (key: Criterion["key"], patch: Partial<Criterion>) => setDraft(current => current.map(c => c.key === key ? { ...c, ...patch } : c));
-  return createPortal(<dialog ref={dialog} aria-labelledby="criteria-drawer-title" onCancel={onClose} className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-dvh w-full max-w-2xl overflow-y-auto border-l border-[var(--border)] bg-[var(--panel)] p-0 text-white backdrop:bg-black/70">
+  return createPortal(<dialog ref={dialog} onPointerDown={event => dialogBackdrop(backdropPressed, onClose).onPointerDown(event)} onPointerCancel={() => { backdropPressed.current = false; }} onClick={event => dialogBackdrop(backdropPressed, onClose).onClick(event)} aria-labelledby="criteria-drawer-title" onCancel={onClose} className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-dvh w-full max-w-2xl overflow-y-auto border-l border-[var(--border)] bg-[var(--panel)] p-0 text-white backdrop:bg-black/70">
     <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="flex items-center justify-between gap-4"><h2 id="criteria-drawer-title" className="text-xl font-semibold">Edit criteria</h2><button type="button" className={button} onClick={onClose}>Cancel</button></div>
       <p className="mt-2 text-sm text-[var(--muted)]">Set what you know and leave the rest unknown. Apply changes, then save the brief.</p>

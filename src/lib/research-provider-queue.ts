@@ -1,7 +1,7 @@
 import { eq, sql, and } from 'drizzle-orm';
 import { requireDb } from '@/db/client';
 import { researchJobs } from '@/db/schema';
-import { reserveProvider, consumeProvider, type ProviderQueue, type ResearchProvider } from '@/domain/research-provider-queue';
+import { reserveProvider, releaseProvider, localProviderPolicy, consumeProvider, reservationDelay, type ProviderQueue, type ResearchProvider } from '@/domain/research-provider-queue';
 
 // Reuse the existing state row; no schema change. Compare-and-swap guards the
 // queue across Next processes, mandates and callback retries (including Neon).
@@ -20,8 +20,8 @@ async function changeQueue<T>(change: (queue: ProviderQueue, now: number) => { q
 }
 export async function reserveResearchProvider(jobId: string, token: string, provider: ResearchProvider, maxWaitMs?: number) {
   return await changeQueue((queue, now) => {
-    const result = reserveProvider(queue, jobId, token, provider, now, maxWaitMs);
-    return { queue: result.queue, value: { granted: Boolean(result.reservation), retryAfterMs: result.retryAfterMs, ...(result.reservation ? { after: result.reservation.after, until: result.reservation.until, token } : {}) } };
+    const result = reserveProvider(queue, jobId, token, provider, now, maxWaitMs, localProviderPolicy(process.env));
+    return { queue: result.queue, value: { granted: Boolean(result.reservation), queued: result.queued === true, retryAfterMs: result.retryAfterMs, ...(result.reservation ? { after: result.reservation.after, until: result.reservation.until, token } : {}) } };
   }) || { granted: false, retryAfterMs: 1000 };
 }
 export async function consumeResearchProvider(jobId: string, token: string) {
@@ -29,4 +29,16 @@ export async function consumeResearchProvider(jobId: string, token: string) {
     const next = consumeProvider(queue, token, jobId, now);
     return next ? { queue: next, value: true } : null;
   }));
+}
+
+export async function claimResearchProvider(jobId: string, token: string) {
+  return await changeQueue((queue, now) => {
+    const delay = reservationDelay(queue, token, jobId, now);
+    const consumed = delay === 0 ? consumeProvider(queue, token, jobId, now) : null;
+    return { queue: consumed || queue, value: { granted: Boolean(consumed), retryAfterMs: delay ?? 0, expired: delay === null } };
+  }) || { granted: false, retryAfterMs: 1000, expired: false };
+}
+
+export async function releaseResearchProvider(jobId: string, token: string) {
+  return changeQueue(queue => ({ queue: releaseProvider(queue, token, jobId), value: true }));
 }

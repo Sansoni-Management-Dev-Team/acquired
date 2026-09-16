@@ -294,7 +294,7 @@ export async function runResearch(
       };
       await publish(
         "crawling",
-        `Reading website ${domains.size}, page attempt ${attempt} of ${budget.maxPages}`,
+        `Waiting for browser slot — website ${domains.size}, page attempt ${attempt} of ${budget.maxPages}`,
       );
       try {
         let result: Awaited<ReturnType<ResearchServices["poll"]>> | undefined;

@@ -7,7 +7,7 @@ import { researchFetch } from './local-policy';
 export type BrowserReaderEnv = LocalReaderEnv & { CF_ACCOUNT_ID?: string; CF_BROWSER_TOKEN?: string };
 export async function browserMarkdown(env: BrowserReaderEnv, url: string, options: {
   jobId?: string; requestId?: string; operation: string;
-  permit(): Promise<{ granted: boolean; retryAfterMs: number }>;
+  permit(): Promise<{ granted: boolean; retryAfterMs: number; expired?: boolean }>;
   onRequest?(): void;
 }, fetcher: typeof fetch = fetch) {
   if (!publicResearchUrl(url)) throw new Error('Unsupported public URL');
@@ -23,7 +23,7 @@ export async function browserMarkdown(env: BrowserReaderEnv, url: string, option
       if (permit.retryAfterMs > 0) await new Promise(resolve => setTimeout(resolve, Math.min(22000, permit.retryAfterMs)));
       break;
     }
-    if (attempt === 1) throw new BrowserAdmissionDeferred();
+    if (permit.expired || attempt === 1) throw new BrowserAdmissionDeferred();
     await new Promise(resolve => setTimeout(resolve, Math.min(11000, permit.retryAfterMs)));
   }
   options.onRequest?.();
