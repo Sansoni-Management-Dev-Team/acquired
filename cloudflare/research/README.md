@@ -20,7 +20,7 @@ Company and people findings found on the same page are retained. Quotes, company
 
 ## Provider reliability
 
-The authenticated `browser-permit` callback coordinates browser requests across jobs using an atomic conditional JSON update on the oldest existing research job row. It stores only a provider admission timestamp, without changing the job's status, evidence or revision. The initial spacing is eleven seconds for the shared Browser Run account. It requires no schema change. Requests without a research job ID cannot use production search.
+The authenticated `browser-permit` callback coordinates browser requests across jobs using an atomic conditional JSON update on the oldest existing research job row. It stores only a provider admission timestamp, without changing the job's status, evidence or revision. New paid-plan Workers use four concurrent page-read slots and one reserved search slot, with one browser request start per second across both workloads. Slots release on completion, with a 60-second lease for abandoned requests. Same-domain reads cannot overlap and start at least three seconds apart. HTTP 429 rate responses apply a shared Retry-After cooldown. Legacy Worker reservations remain supported during rollout. It requires no schema change. Requests without a research job ID cannot use production search.
 
 Provider error classifications survive to search/page outcomes: daily quota, request rate, concurrency, authentication/policy, credits, transport and timeout. Bounded admission waits avoid immediate bursts. A 120-second workflow step covers composed control/read/extraction calls; control and admission callbacks have shorter timeouts. Account quotas still apply and a successful test read does not establish capacity for a full mandate.
 
@@ -57,3 +57,5 @@ RUN_RESEARCH_BENCHMARK=1 node --env-file=.env --env-file=.env.local node_modules
 ```
 
 This makes exactly three public homepage reads, with no AI, search or database writes. It writes `.local-data/stu-206-reader-benchmark.json`. It does not measure full enrichment coverage or actual billing. The September 14 check read all three sample homepages successfully; headcount, revenue and named-person/email evidence were absent from those homepage extractions. A full user-triggered mandate run is still needed to measure final coverage, time and provider cost.
+
+The `paid-v1` admission protocol is opt-in per Worker request, so deploy the Vercel callbacks before the Worker. Paid instances have a 512-request internal budget; saved page, model, time and cancellation budgets still apply. AI admission stays at four scheduled lanes and the fallback container stays at three reader slots.

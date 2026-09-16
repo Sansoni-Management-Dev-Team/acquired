@@ -1,6 +1,6 @@
 import { adaptiveDiscovery, discoveryLimit, discoveryRegions, resolveDiscoveryDecision, type DiscoveryContext, type DiscoveryAttempt } from "@/domain/adaptive-discovery";
 import { dispatchDiscoveryCandidates } from "@/lib/automatic-discovery";
-import { reserveResearchProvider, releaseResearchProvider } from "@/lib/research-provider-queue";
+import { coolDownResearchBrowser, reserveResearchProvider, releaseResearchProvider } from "@/lib/research-provider-queue";
 import { researchBrowserPermit } from "@/lib/research-browser-permit";
 import { objectiveFields, fieldSatisfied, nextSearchQuery, type ResearchField } from "@/domain/research-objectives";
 import { dispatchAutomaticEnrichment } from "@/lib/automatic-enrichment";
@@ -104,10 +104,16 @@ export async function POST(
   const repo = new ResearchRepository(job.organizationId);
   if (payload?.action === "provider-reserve") {
     if (terminalResearchStates.includes(job.status) || !['page', 'search', 'ai'].includes(payload.provider) || typeof payload.token !== 'string' || payload.token.length > 160) return Response.json({ granted: false, retryAfterMs: 1000 });
-    const reservation = await reserveResearchProvider(jobId, payload.token, payload.provider);
+    const reservation = await reserveResearchProvider(jobId, payload.token, payload.provider, undefined, payload.policy === "paid-v1");
     // A durable queue wait is live work, not an unresponsive provider step.
     await requireDb().update(researchJobs).set({ updatedAt: new Date(), message: `Waiting for ${payload.provider === "ai" ? "AI" : "browser"} slot` }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates)));
     return Response.json(reservation);
+  }
+  if (payload?.action === "browser-cooldown") {
+    const delay = Number(payload.retryAfterMs);
+    if (!Number.isFinite(delay) || delay < 0) return Response.json({ error: "Invalid delay" }, { status: 400 });
+    await coolDownResearchBrowser(delay);
+    return Response.json({ ok: true });
   }
   if (payload?.action === "provider-release") {
     if (typeof payload.token !== 'string' || payload.token.length > 160) return Response.json({ error: "Invalid token" }, { status: 400 });
@@ -115,7 +121,7 @@ export async function POST(
     return Response.json({ ok: true });
   }
   if (payload?.action === "browser-permit") {
-    const permit = await researchBrowserPermit(jobId, typeof payload.token === 'string' ? payload.token : undefined);
+    const permit = await researchBrowserPermit(jobId, typeof payload.token === 'string' ? payload.token : undefined, typeof payload.url === "string" ? researchDomain(payload.url) || undefined : undefined);
     if (permit.granted) await requireDb().update(researchJobs).set({ updatedAt: new Date(), message: job.status === "discovering" ? "Searching the web" : "Reading website" }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates)));
     return Response.json(permit);
   }

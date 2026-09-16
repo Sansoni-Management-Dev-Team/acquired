@@ -1,10 +1,10 @@
 import { eq, sql, and } from 'drizzle-orm';
 import { requireDb } from '@/db/client';
 import { researchJobs } from '@/db/schema';
-import { reserveProvider, releaseProvider, localProviderPolicy, consumeProvider, reservationDelay, type ProviderQueue, type ResearchProvider } from '@/domain/research-provider-queue';
+import { coolDownBrowser, reserveProvider, releaseProvider, localProviderPolicy, consumeProvider, reservationDelay, type ProviderQueue, type ResearchProvider } from '@/domain/research-provider-queue';
 
 // Reuse the existing state row; no schema change. Compare-and-swap guards the
-// queue across Next processes, mandates and callback retries (including Neon).
+// queue across Next processes, mandates and callback retries.
 async function changeQueue<T>(change: (queue: ProviderQueue, now: number) => { queue: ProviderQueue; value: T } | null): Promise<T | null> {
   const db = requireDb();
   for (let retry = 0; retry < 24; retry++) {
@@ -18,10 +18,10 @@ async function changeQueue<T>(change: (queue: ProviderQueue, now: number) => { q
   }
   return null;
 }
-export async function reserveResearchProvider(jobId: string, token: string, provider: ResearchProvider, maxWaitMs?: number) {
+export async function reserveResearchProvider(jobId: string, token: string, provider: ResearchProvider, maxWaitMs?: number, paid = false) {
   return await changeQueue((queue, now) => {
-    const result = reserveProvider(queue, jobId, token, provider, now, maxWaitMs, localProviderPolicy(process.env));
-    return { queue: result.queue, value: { granted: Boolean(result.reservation), queued: result.queued === true, retryAfterMs: result.retryAfterMs, ...(result.reservation ? { after: result.reservation.after, until: result.reservation.until, token } : {}) } };
+    const result = reserveProvider(queue, jobId, token, provider, now, maxWaitMs, localProviderPolicy(process.env), paid);
+    return { queue: result.queue, value: { managed: paid, granted: Boolean(result.reservation), queued: result.queued === true, retryAfterMs: result.retryAfterMs, ...(result.reservation ? { after: result.reservation.after, until: result.reservation.until, token } : {}) } };
   }) || { granted: false, retryAfterMs: 1000 };
 }
 export async function consumeResearchProvider(jobId: string, token: string) {
@@ -31,14 +31,18 @@ export async function consumeResearchProvider(jobId: string, token: string) {
   }));
 }
 
-export async function claimResearchProvider(jobId: string, token: string) {
+export async function claimResearchProvider(jobId: string, token: string, domain?: string) {
   return await changeQueue((queue, now) => {
-    const delay = reservationDelay(queue, token, jobId, now);
-    const consumed = delay === 0 ? consumeProvider(queue, token, jobId, now) : null;
+    const delay = reservationDelay(queue, token, jobId, now, domain);
+    const consumed = delay === 0 ? consumeProvider(queue, token, jobId, now, domain) : null;
     return { queue: consumed || queue, value: { granted: Boolean(consumed), retryAfterMs: delay ?? 0, expired: delay === null } };
   }) || { granted: false, retryAfterMs: 1000, expired: false };
 }
 
 export async function releaseResearchProvider(jobId: string, token: string) {
   return changeQueue(queue => ({ queue: releaseProvider(queue, token, jobId), value: true }));
+}
+
+export async function coolDownResearchBrowser(retryAfterMs: number) {
+  return changeQueue((queue, now) => ({ queue: coolDownBrowser(queue, now, retryAfterMs), value: true }));
 }

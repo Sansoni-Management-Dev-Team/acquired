@@ -58,3 +58,15 @@ it('correlates an actual upstream 429 with the granted browser permit', async ()
     expect(events).toContainEqual(expect.objectContaining({ event: 'request_failed', failureOrigin: 'upstream_response', requestId: permit.requestId, provider: 'cloudflare-browser', httpStatus: 429, category: 'request_rate', limits: { 'retry-after': 12 }, providerRequestIds: { 'cf-ray': '0123456789abcdef-MEL' } }));
   } finally { log.mockRestore(); }
 });
+
+it('shares Retry-After cooldown and releases the lease on an upstream rate limit', async () => {
+  const cooldown=vi.fn(async()=>{}), release=vi.fn(async()=>{});
+  const fetcher=vi.fn<typeof fetch>().mockResolvedValue(Response.json({success:false,errors:[{message:'requests per second exceeded'}]},{status:429,headers:{'retry-after':'12'}}));
+  await expect(browserMarkdown(env,'https://example.com/',{operation:'markdown',permit:async()=>({granted:true,retryAfterMs:0}),cooldown,release},fetcher)).rejects.toMatchObject({category:'browser_admission'});
+  expect(cooldown).toHaveBeenCalledWith(12000);expect(release).toHaveBeenCalledOnce();expect(fetcher).toHaveBeenCalledOnce();
+});
+it('releases capacity after a successful page read', async () => {
+  const release=vi.fn(async()=>{});
+  await browserMarkdown(env,'https://example.com/',{operation:'markdown',permit:async()=>({granted:true,retryAfterMs:0}),release},async()=>Response.json({success:true,result:'evidence'}));
+  expect(release).toHaveBeenCalledOnce();
+});

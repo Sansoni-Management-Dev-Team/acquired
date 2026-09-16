@@ -67,7 +67,7 @@ async function callback(env: Env, id: string, body?: unknown, budget?: { used: n
       "Content-Type": "application/json",
     },
     body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(["browser-permit", "provider-release"].includes((body as { action?: string } | undefined)?.action || "") ? 5000 : body ? 55000 : 10000),
+    signal: AbortSignal.timeout(["browser-permit", "browser-cooldown", "provider-release"].includes((body as { action?: string } | undefined)?.action || "") ? 5000 : body ? 55000 : 10000),
   });
   if (!r.ok) throw new Error(`Callback failed (${r.status})`);
   return r.json();
@@ -109,7 +109,9 @@ async function readMarkdown(env: Env, url: string, budget: { used: number; jobId
   const markdown = await browserMarkdown(env, url, {
     jobId: budget.jobId, operation: fallback ? "markdown_fallback" : "markdown",
     onRequest: () => { budget.used++; },
-    permit: () => callback(env, budget.jobId!, { action: "browser-permit", token: reservation }) as Promise<{ granted: boolean; retryAfterMs: number }>,
+    cooldown: retryAfterMs => callback(env, budget.jobId!, { action: "browser-cooldown", retryAfterMs }),
+    release: () => reservation ? callback(env, budget.jobId!, { action: "provider-release", token: reservation }) : Promise.resolve(),
+    permit: () => callback(env, budget.jobId!, { action: "browser-permit", token: reservation, url }) as Promise<{ granted: boolean; retryAfterMs: number }>,
   });
   return { status: "completed", page: { url, markdown: markdown.slice(0, 30000), observedAt: new Date().toISOString() } };
 }
@@ -119,7 +121,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
 > {
   async run(event: WorkflowEvent<{ jobId: string }>, step: WorkflowStep) {
     const id = event.payload.jobId;
-    // Leave room for cancellation and final progress below the free-plan limit of 50 external requests.
+    // Bound callback/provider traffic while leaving ample room for paid-plan admission waits.
     const requestBudget = { used: 0, jobId: id };
     let stateCache: { value: ResearchControl; at: number } | undefined;
     let browserReservation: string | undefined;
@@ -127,7 +129,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
       // Adjacent goal, page and extraction guards reuse a freshly checked state.
       // After network work or durable waiting, cancellation is checked again.
       if (!stateCache || Date.now() - stateCache.at >= 1000) stateCache = { value: await callback(this.env, id, undefined, requestBudget) as ResearchControl, at: Date.now() };
-      const stopReason = requestBudgetStop(requestBudget.used, !productionPolicy(this.env));
+      const stopReason = requestBudgetStop(requestBudget.used, !productionPolicy(this.env), true);
       return stopReason ? { ...stateCache.value, deadline: 0, stopReason } : stateCache.value;
     };
     const checkpoint = async <T>(name: string, run: () => Promise<T>, retry = true): Promise<T> => {
@@ -154,10 +156,10 @@ export class AcquireResearch extends WorkflowEntrypoint<
             : /^(extract-|company-identity-|headcount-|discovery-plan-|targeted-plan$)/.test(name) ? 'ai'
             : /^(targeted-search-|people-followup$)/.test(name) || (/^discover(?:-\d+)?$/.test(name) && config?.discover && !config.targetedFollowup) ? 'search' : undefined;
           if (!provider) return checkpoint(name, run, retry);
-          const exhausted = requestBudgetStop(requestBudget.used, !productionPolicy(this.env));
+          const exhausted = requestBudgetStop(requestBudget.used, !productionPolicy(this.env), true);
           if (exhausted) throw new BrowserAdmissionDeferred(exhausted);
           return providerStep({ do: checkpoint, sleep: (label, ms) => step.sleep(label, ms) }, name, provider,
-            token => callback(this.env, id, { action: "provider-reserve", provider, token: `${id}:${token}` }, requestBudget) as Promise<Admission>,
+            token => callback(this.env, id, { action: "provider-reserve", provider, policy: "paid-v1", token: `${id}:${token}` }, requestBudget) as Promise<Admission>,
             async token => {
               try {
                 const current = await control();
@@ -166,7 +168,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
                 return await run();
               } finally {
                 browserReservation = undefined;
-                if (!productionPolicy(this.env) && provider === 'page') await callback(this.env, id, { action: 'provider-release', token }).catch(() => {});
+                if (provider !== 'ai') await callback(this.env, id, { action: 'provider-release', token }).catch(() => {});
               }
             });
         },
@@ -334,7 +336,9 @@ const worker = {
         if (!/^[0-9a-f-]{36}$/i.test(jobId)) return Response.json({ error: "A research job is required for rate-controlled search" }, { status: 400 });
         const markdown = await browserMarkdown(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
           jobId, operation: "web_search",
-          permit: () => callback(env, jobId, { action: "browser-permit", token: request.headers.get("x-research-browser-reservation") }) as Promise<{ granted: boolean; retryAfterMs: number }>,
+          cooldown: retryAfterMs => callback(env, jobId, { action: "browser-cooldown", retryAfterMs }),
+          release: () => callback(env, jobId, { action: "provider-release", token: request.headers.get("x-research-browser-reservation") }),
+          permit: () => callback(env, jobId, { action: "browser-permit", token: request.headers.get("x-research-browser-reservation"), url: `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}` }) as Promise<{ granted: boolean; retryAfterMs: number }>,
         });
         const results = searchResults(markdown);
         const seeds = results.map(r => r.url).slice(0, 6);

@@ -9,6 +9,8 @@ export async function browserMarkdown(env: BrowserReaderEnv, url: string, option
   jobId?: string; requestId?: string; operation: string;
   permit(): Promise<{ granted: boolean; retryAfterMs: number; expired?: boolean }>;
   onRequest?(): void;
+  cooldown?(retryAfterMs: number): Promise<unknown>;
+  release?(): Promise<unknown>;
 }, fetcher: typeof fetch = fetch) {
   if (!publicResearchUrl(url)) throw new Error('Unsupported public URL');
   const local = env.LOCAL_DEVELOPMENT === 'true';
@@ -50,10 +52,18 @@ export async function browserMarkdown(env: BrowserReaderEnv, url: string, option
         body: JSON.stringify({ url, gotoOptions: { waitUntil: 'domcontentloaded', timeout: 20000 } }),
         signal: AbortSignal.timeout(25000),
       }, { provider: local ? 'local-crawl4ai' : 'cloudflare-browser', operation: options.operation, jobId: options.jobId, requestId });
+    if (response.status === 429 && options.cooldown && providerDiagnostics(response.status, response.headers, data).category !== "daily_quota") {
+      const header = response.headers.get('retry-after');
+      const seconds = header ? Number(header) : NaN;
+      const retryAfterMs = Number.isFinite(seconds) ? seconds * 1000 : header && Number.isFinite(Date.parse(header)) ? Date.parse(header) - Date.now() : 30000;
+      await options.cooldown(Math.max(1000, retryAfterMs));
+      throw new BrowserAdmissionDeferred('Browser rate limited; queued for retry');
+    }
     if (!response.ok || (!local && !data.success)) throw new ResearchProviderError(providerDiagnostics(response.status, response.headers, data).category, response.status);
     const markdown = local ? data.markdown : data.result;
     if (local && (!data.url || !publicResearchUrl(data.url))) throw new ResearchProviderError('provider_error');
     if (typeof markdown !== 'string' || !markdown.trim()) throw new ResearchProviderError('provider_error');
     return markdown;
   } catch (error) { throw providerFailure(error); }
+  finally { await options.release?.().catch(() => {}); }
 }

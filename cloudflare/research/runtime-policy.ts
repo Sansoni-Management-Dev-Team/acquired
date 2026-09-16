@@ -1,7 +1,7 @@
-export function requestBudgetStop(used: number, localDevelopment: boolean) {
-  // Local Workflows have no need for the deployed Worker's conservative reserve.
+export function requestBudgetStop(used: number, localDevelopment: boolean, paid = false) {
+  // Legacy instances keep their conservative reserve; paid instances allow longer queue waits.
   // The runner still enforces the saved page, AI-call, time and cancellation limits.
-  return !localDevelopment && used >= 32
+  return !localDevelopment && used >= (paid ? 512 : 32)
     ? "Worker request budget reached; saved evidence retained. Start another research run to continue."
     : undefined;
 }

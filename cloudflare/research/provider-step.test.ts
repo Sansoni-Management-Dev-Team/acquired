@@ -41,3 +41,12 @@ it('waits for local pool capacity without exhausting the three missed-reservatio
   expect(run).toHaveBeenCalledOnce();
   expect(reserve).toHaveBeenCalledTimes(6);
 });
+
+it('rebooks managed admission deferrals inside the checkpoint before errors cross workflow transport', async () => {
+  const { BrowserAdmissionDeferred } = await import('../../src/domain/research-provider-error');
+  const steps: ResearchSteps={do:async(_name,run)=>run(),sleep:async()=>{}};
+  const reserve=vi.fn(async token=>({managed:true,granted:true,after:0,until:10000,retryAfterMs:0,token}));
+  let tries=0;const run=vi.fn(async()=>{if(++tries<5)throw new BrowserAdmissionDeferred();return 'done';});
+  expect(await providerStep(steps,'read','page',reserve,run,()=>0)).toBe('done');
+  expect(run).toHaveBeenCalledTimes(5);
+});

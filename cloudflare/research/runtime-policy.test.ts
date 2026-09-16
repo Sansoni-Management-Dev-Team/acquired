@@ -3,6 +3,8 @@ import { cancelCrawl, crawlRetryUrl, CrawlerRequestError, requestBudgetStop, sta
 it("keeps the production reserve but lets local research pass it", () => {
   expect(requestBudgetStop(31, false)).toBeUndefined();
   expect(requestBudgetStop(32, false)).toContain("request budget");
+  expect(requestBudgetStop(511, false, true)).toBeUndefined();
+  expect(requestBudgetStop(512, false, true)).toContain("request budget");
   expect(requestBudgetStop(33, true)).toBeUndefined();
   expect(requestBudgetStop(1000, true)).toBeUndefined();
 });
