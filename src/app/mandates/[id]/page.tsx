@@ -16,7 +16,7 @@ export default async function MandatePage({ params, searchParams }: { params: Pr
   if (requested === "outreach") permanentRedirect(mandateOutreachHref(id, query.targetId));
   const { organizationId } = await acquisitionSession();
   if (requested === "coverage") redirect(`/mandates/${id}?tab=targets`);
-  const tab = ["brief","targets","pipeline"].includes(requested) ? requested : "brief";
+  const tab = ["brief","discover","targets","pipeline"].includes(requested) ? requested : "brief";
   const repo = new AcquisitionRepository(organizationId);
   const mandates = await repo.listMandates();
   const mandate = mandates.find(m => m.id === id);
