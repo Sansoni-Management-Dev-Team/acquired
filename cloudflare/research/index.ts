@@ -60,6 +60,12 @@ async function authorized(request: Request, secret: string) {
 async function callback(env: Env, id: string, body?: unknown, budget?: { used: number; jobId?: string }) {
   const origin = callbackOrigin(env.APP_ORIGIN, env.LOCAL_DEVELOPMENT === "true");
   if (budget) budget.used++;
+  const action = (body as { action?: string } | undefined)?.action || "";
+  const timeoutMs = action === "browser-permit"
+    ? 15000
+    : ["browser-cooldown", "provider-release"].includes(action)
+      ? 5000
+      : body ? 55000 : 10000;
   const r = await researchFetch(env)(`${origin}/api/research/internal/${id}`, {
     method: body ? "POST" : "GET",
     headers: {
@@ -67,7 +73,7 @@ async function callback(env: Env, id: string, body?: unknown, budget?: { used: n
       "Content-Type": "application/json",
     },
     body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(["browser-permit", "browser-cooldown", "provider-release"].includes((body as { action?: string } | undefined)?.action || "") ? 5000 : body ? 55000 : 10000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!r.ok) throw new Error(`Callback failed (${r.status})`);
   return r.json();

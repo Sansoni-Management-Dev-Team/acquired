@@ -31,7 +31,7 @@ export async function browserMarkdown(env: BrowserReaderEnv, url: string, option
     try { permit = await options.permit(); }
     catch (error) {
       admissionLog('permit_callback_failed', { attempt: attempt + 1, category: providerFailure(error).category });
-      throw error;
+      throw new BrowserAdmissionDeferred('Browser admission callback delayed; queued for retry');
     }
     admissionLog('permit_result', { attempt: attempt + 1, granted: permit.granted, retryAfterMs: permit.retryAfterMs, expired: permit.expired === true });
     if (permit.granted) {

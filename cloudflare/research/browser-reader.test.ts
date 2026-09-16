@@ -46,6 +46,14 @@ it('identifies admission expiry without an upstream request or leaking secrets',
   } finally { log.mockRestore(); }
 });
 
+it('keeps a delayed admission callback retryable without sending an upstream request', async () => {
+  const fetcher = vi.fn<typeof fetch>();
+  await expect(browserMarkdown(env, 'https://example.com/', {
+    operation: 'markdown', permit: async () => { throw new Error('callback timed out'); },
+  }, fetcher)).rejects.toMatchObject({ category: 'browser_admission' });
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
 it('correlates an actual upstream 429 with the granted browser permit', async () => {
   const log = vi.spyOn(console, 'info').mockImplementation(() => {});
   try {

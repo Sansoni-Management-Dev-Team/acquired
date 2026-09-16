@@ -18,6 +18,11 @@ it('allows four concurrent pages and reserves a fifth slot for search; starts ar
   queue = releaseProvider(queue, 'p0', 'p0');
   expect(reserve(queue, 'next', 'page', 6000).reservation).toBeDefined();
 });
+it('keeps a paid reservation live while a coordinated callback reaches the browser', () => {
+  const result=reserve({},'job','search',1000);
+  expect(result.reservation?.until).toBe(91000);
+  expect(consumeProvider(result.queue,'job','job',70000,'duckduckgo.com')).not.toBeNull();
+});
 it('preserves FIFO page waits and prevents wrong-job releases', () => {
   let queue: ProviderQueue = {};
   for (let i=0;i<4;i++) { const r=reserve(queue, `p${i}`, 'page', 1000+i*1000); queue=consumeProvider(r.queue,`p${i}`,`p${i}`,1000+i*1000)!; }

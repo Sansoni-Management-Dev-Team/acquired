@@ -70,7 +70,9 @@ function reservePaidBrowser(queue: ProviderQueue, jobId: string, token: string, 
   const after = Math.max(now, queue.browserConsumedAfter || 0, queue.browserCooldownUntil || 0);
   const next = { ...queue, reservations, domainAfter: Object.fromEntries(Object.entries(queue.domainAfter || {}).filter(([, after]) => after > now)), browserWaiters: waiters.map(w => w.jobId === jobId && w.provider === provider ? { ...w, since: now } : w) };
   if (busy || first?.jobId !== jobId || after > now) return { queue: next, queued: true, retryAfterMs: Math.max(3000, Math.min(30000, after - now)) };
-  const reservation: ProviderReservation = { token, jobId, provider, paid: true, after: now, until: now + 15000 };
+  // A Vercel discovery callback can perform database coordination before it
+  // reaches the nested browser request, especially when many jobs wake at once.
+  const reservation: ProviderReservation = { token, jobId, provider, paid: true, after: now, until: now + 90000 };
   return { queue: { ...next, reservations: [...reservations, reservation], browserWaiters: waiters.filter(w => w.jobId !== jobId || w.provider !== provider) }, reservation, retryAfterMs: 0 };
 }
 export function coolDownBrowser(queue: ProviderQueue, now: number, retryAfterMs: number): ProviderQueue {
