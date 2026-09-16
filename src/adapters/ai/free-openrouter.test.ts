@@ -122,3 +122,40 @@ describe("Mercury fallback", () => {
     } finally { clock.mockRestore(); }
   });
 });
+
+describe("sequential free fallback", () => {
+  it("recovers from an HTTP-200 body timeout using a different free model within the total deadline", async () => {
+    let now = 0;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    try {
+      const stalled = new Response();
+      vi.spyOn(stalled, "json").mockImplementation(async () => {
+        now = 22500;
+        throw new DOMException("Aborted", "TimeoutError");
+      });
+      const fetcher = vi.fn().mockResolvedValueOnce(stalled).mockResolvedValueOnce(completion({ value: null, quote: null }));
+      const result = await new FreeOpenRouter({ apiKey: "secret", paidFallback: false, sequentialFreeFallback: true, models: FREE_RESEARCH_MODELS.slice(0, 2), fetch: fetcher }).complete(request);
+      expect(result.response).toEqual({ value: null, quote: null });
+      expect(timeout.mock.calls.map(([ms]) => ms)).toEqual([22500, 22500]);
+      expect(fetcher.mock.calls.map(([, init]) => JSON.parse(init.body).models)).toEqual([[FREE_RESEARCH_MODELS[0]], [FREE_RESEARCH_MODELS[1]]]);
+      for (const [, init] of fetcher.mock.calls) expect(JSON.parse(init.body).provider.max_price).toEqual({ prompt: 0, completion: 0 });
+    } finally { clock.mockRestore(); timeout.mockRestore(); }
+  });
+
+  it.each([400, 401, 402, 403])("does not retry account or request failure %s", async status => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({}, { status }));
+    await expect(new FreeOpenRouter({ apiKey: "secret", paidFallback: false, sequentialFreeFallback: true, fetch: fetcher }).complete(request)).rejects.toThrow();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not retry beyond the total deadline", async () => {
+    let now = 0;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    try {
+      const fetcher = vi.fn().mockImplementation(async () => { now = 45001; throw new DOMException("Aborted", "TimeoutError"); });
+      await expect(new FreeOpenRouter({ apiKey: "secret", paidFallback: false, sequentialFreeFallback: true, fetch: fetcher }).complete(request)).rejects.toThrow();
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    } finally { clock.mockRestore(); }
+  });
+});

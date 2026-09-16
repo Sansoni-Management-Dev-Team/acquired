@@ -10,6 +10,9 @@ export const FREE_RESEARCH_MODELS = [
   "nvidia/nemotron-3-super-120b-a12b:free",
 ] as const;
 
+export const FREE_MANDATE_MODELS = ["dots-studio/dots-3-note-preview:free", "nex-agi/nex-n2.5-mini:free"] as const;
+const supportsDisabledReasoning = (model: string) => model.startsWith("nex-agi/") || model === FREE_MANDATE_MODELS[0];
+
 export const MERCURY_FALLBACK_MODEL = "inception/mercury-2.5";
 // USD per million tokens. Fail closed if current promotional pricing increases.
 export const MERCURY_PRICE_CAP = { prompt: 0.04, completion: 0.15 };
@@ -17,7 +20,7 @@ class FallbackEligibleError extends ResearchAiError {}
 
 export type FreeResearchRequest = {
   messages: { role: string; content: string }[];
-  operation?: "business_extraction" | "people_extraction" | "headcount_extraction" | "followup_planning" | "outreach_drafting";
+  operation?: "business_extraction" | "people_extraction" | "headcount_extraction" | "followup_planning" | "outreach_drafting" | "mandate_generation";
   max_tokens: number;
   temperature?: number;
   reasoning_effort?: "medium" | "none";
@@ -45,10 +48,12 @@ export class FreeOpenRouter {
     jobId?: string;
     verbose?: boolean;
     paidFallback?: boolean;
+    /** Free-only mode: try models separately within 45 seconds; never use paid fallback. */
+    sequentialFreeFallback?: boolean;
   }) {
     this.options = privateOptions;
     this.models = [...new Set(privateOptions.models ?? FREE_RESEARCH_MODELS)];
-    if (!this.models.length || this.models.length > 3 || this.models.some(m => !FREE_RESEARCH_MODELS.some(allowed => allowed === m))) {
+    if (!this.models.length || this.models.length > 3 || this.models.some(m => ![...FREE_RESEARCH_MODELS, ...FREE_MANDATE_MODELS].some(allowed => allowed === m))) {
       throw new ResearchAiError("Research requires one to three approved free OpenRouter models");
     }
   }
@@ -56,6 +61,18 @@ export class FreeOpenRouter {
 
   async complete(input: FreeResearchRequest): Promise<{ response: unknown }> {
     const deadline = Date.now() + 45000;
+    if (this.options.sequentialFreeFallback) {
+      const models = input.reasoning_effort === "none" ? this.models.filter(supportsDisabledReasoning) : this.models;
+      if (!models.length) throw new ResearchAiError("No approved free model supports the requested reasoning mode");
+      for (const [index, model] of models.entries()) {
+        const remainingModels = models.length - index;
+        const attemptDeadline = Date.now() + Math.floor((deadline - Date.now()) / remainingModels);
+        try { return await this.attempt(input, false, attemptDeadline, [model]); }
+        catch (error) {
+          if (!(error instanceof FallbackEligibleError) || remainingModels === 1 || Date.now() >= deadline - 1000) throw error;
+        }
+      }
+    }
     try { return await this.attempt(input, false, deadline); }
     catch (error) {
       if (this.options.paidFallback === false || !(error instanceof FallbackEligibleError) || Date.now() >= deadline - 1000) throw error;
@@ -64,11 +81,11 @@ export class FreeOpenRouter {
     }
   }
 
-  private async attempt(input: FreeResearchRequest, paid: boolean, deadline: number): Promise<{ response: unknown }> {
+  private async attempt(input: FreeResearchRequest, paid: boolean, deadline: number, freeModels = this.models): Promise<{ response: unknown }> {
     if (!this.options.apiKey) throw new ResearchAiError("Research AI unavailable: OPENROUTER_API_KEY is not configured");
     const validator = z.fromJSONSchema(input.response_format.json_schema);
-    // NEX supports disabling reasoning; Nemotron's advertised efforts do not.
-    const models = paid ? [MERCURY_FALLBACK_MODEL] : input.reasoning_effort === "none" ? this.models.filter(m => m.startsWith("nex-agi/")) : this.models;
+    // NEX and Dots support disabling reasoning; Nemotron does not.
+    const models = paid ? [MERCURY_FALLBACK_MODEL] : input.reasoning_effort === "none" ? freeModels.filter(supportsDisabledReasoning) : freeModels;
     if (!models.length) throw new ResearchAiError("No approved free model supports the requested reasoning mode");
     const started = Date.now();
     const requestId = crypto.randomUUID();

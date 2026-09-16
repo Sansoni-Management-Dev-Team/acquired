@@ -42,3 +42,16 @@ it("distinguishes timeout, transport, malformed JSON and HTTP-200 provider failu
   expect(JSON.parse(log.mock.calls.at(-1)![1])).toMatchObject({ event: "request_failed", httpStatus: 200, category: "daily_quota" });
   expect(JSON.stringify(log.mock.calls)).not.toMatch(/secret|private/);
 });
+
+it("classifies an aborted HTTP-200 response body as a timeout without logging content", async () => {
+  const log = vi.spyOn(console, "info").mockImplementation(() => {});
+  const controller = new AbortController();
+  const response = new Response();
+  vi.spyOn(response, "json").mockImplementation(async () => {
+    controller.abort();
+    throw new DOMException("private content", "AbortError");
+  });
+  await expect(providerJsonRequest(vi.fn().mockResolvedValue(response), "https://example.com", { signal: controller.signal }, { provider: "openrouter", operation: "mandate_generation" })).rejects.toThrow();
+  expect(JSON.parse(log.mock.calls.at(-1)![1])).toMatchObject({ event: "request_failed", httpStatus: 200, category: "timeout", classificationBasis: "abort_signal" });
+  expect(JSON.stringify(log.mock.calls)).not.toContain("private content");
+});

@@ -59,7 +59,8 @@ export async function providerJsonRequest<T>(fetcher: typeof fetch, url: string,
   let data: T;
   try { data = await response.json() as T; }
   catch (error) {
-    emit("request_failed", { httpStatus: response.status, ...providerDiagnostics(response.status, response.headers, {}), category: response.status === 429 ? "rate_limit_unspecified" : "invalid_json_or_interrupted_body" });
+    const timedOut = init.signal?.aborted || (error instanceof Error && /TimeoutError|AbortError/.test(error.name));
+    emit("request_failed", { httpStatus: response.status, ...providerDiagnostics(response.status, response.headers, {}), category: timedOut ? "timeout" : response.status === 429 ? "rate_limit_unspecified" : "invalid_json_or_interrupted_body", classificationBasis: timedOut ? "abort_signal" : "response_body" });
     if (!response.ok) return { response, data: {} as T };
     throw error;
   }
