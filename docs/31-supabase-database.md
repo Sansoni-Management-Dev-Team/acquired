@@ -9,14 +9,17 @@ used by the application.
 Set these server-only Vercel production variables together and redeploy:
 
 - `DATABASE_DRIVER=postgres`
-- `DATABASE_URL`: the Supabase session pooler connection string, with its database password.
+- `DATABASE_URL`: the Supabase transaction pooler connection string (port 6543), with its database password.
 - `DATABASE_SSL_CA`: the Supabase root CA certificate in PEM format. The Postgres
-  pool verifies the certificate and hostname, and uses at most five connections
-  per process. Do not add conflicting SSL query options to the connection URL.
+  pool verifies the certificate and hostname, uses at most five connections
+  per process, and attaches to Vercel’s pool lifecycle with a five-second idle timeout. Do not add conflicting SSL query options to the connection URL.
 
 The local `.env` also preserves `SUPABASE_DATABASE_URL` and
 `SUPABASE_DIRECT_DATABASE_URL`. The direct endpoint needs IPv6; the session
-pooler supports IPv4. `pnpm dev` keeps using the local Docker database and clears
+poolers support IPv4. Session mode (port 5432) is reserved for backup and restore;
+production serverless requests use transaction mode (6543) to avoid reserving one
+backend connection per client. The app uses unnamed parameterized queries, not
+named prepared statements or persistent SQL session state. `pnpm dev` keeps using the local Docker database and clears
 `DATABASE_SSL_CA` so production TLS settings do not affect localhost.
 
 Supabase API keys are not Postgres passwords. Neither the service-role key nor

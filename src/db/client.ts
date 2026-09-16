@@ -1,4 +1,5 @@
 import "server-only";
+import { attachDatabasePool } from "@vercel/functions";
 import { neon } from "@neondatabase/serverless";
 import { drizzle as neonDrizzle } from "drizzle-orm/neon-http";
 import { drizzle as postgresDrizzle } from "drizzle-orm/node-postgres";
@@ -25,8 +26,9 @@ function getPostgresPool(connectionString: string) {
     ...(ca ? { ssl: { ca, rejectUnauthorized: true } } : {}),
     max: 5,
     connectionTimeoutMillis: 15_000,
-    idleTimeoutMillis: 30_000,
+    idleTimeoutMillis: 5_000,
   });
+  attachDatabasePool(pool);
   pools.set(connectionString, pool);
   return pool;
 }
