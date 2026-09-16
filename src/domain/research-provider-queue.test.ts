@@ -20,6 +20,7 @@ it('admits four independent AI operations while browsers wait', () => {
     queue = r.queue; starts.push(r.reservation!.after);
   }
   expect(starts).toEqual([1000, 1000, 1000, 1000, 48000]);
+  expect(queue.reservations?.every(reservation => reservation.until - reservation.after === 90000)).toBe(true);
   expect(queue.browserAfter).toBe(400000);
 });
 it('reuses reservations on callback retries and consumes once for the correct job', () => {

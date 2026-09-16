@@ -27,7 +27,9 @@ export function reserveProvider(queue: ProviderQueue, jobId: string, token: stri
   const lane = lanes.indexOf(Math.min(...lanes));
   const after = Math.max(now, provider === 'ai' ? lanes[lane] : (local ? queue.localSearchAfter : queue.browserAfter) || 0);
   if (after - now > maxWaitMs) return { queue, retryAfterMs: Math.min(30000, after - now) };
-  const reservation: ProviderReservation = { token, jobId, provider, ...(local ? { local: true } : {}), after, until: after + 10000 };
+  // AI work can be delayed after its durable Workflow sleep when many instances
+  // wake together. Keep the scheduled lane claim valid through that dispatch lag.
+  const reservation: ProviderReservation = { token, jobId, provider, ...(local ? { local: true } : {}), after, until: after + (provider === 'ai' ? 90000 : 10000) };
   // An AI operation, including fallback, has a 45-second wall-clock deadline.
   if (provider === 'ai') lanes[lane] = after + 47000;
   return { queue: { ...queue, ...(provider === 'ai' ? { aiAfter: lanes } : { [local ? 'localSearchAfter' : 'browserAfter']: after + BROWSER_SPACING_MS }), reservations: [...reservations.filter(r => r.token !== token), reservation] }, reservation, retryAfterMs: after - now };
