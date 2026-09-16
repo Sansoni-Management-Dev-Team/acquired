@@ -19,7 +19,14 @@ function getPostgresPool(connectionString: string) {
   const existingPool = pools.get(connectionString);
   if (existingPool) return existingPool;
 
-  const pool = new Pool({ connectionString });
+  const ca = process.env.DATABASE_SSL_CA;
+  const pool = new Pool({
+    connectionString,
+    ...(ca ? { ssl: { ca, rejectUnauthorized: true } } : {}),
+    max: 5,
+    connectionTimeoutMillis: 15_000,
+    idleTimeoutMillis: 30_000,
+  });
   pools.set(connectionString, pool);
   return pool;
 }
