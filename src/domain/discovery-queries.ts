@@ -20,3 +20,27 @@ export function discoveryRole(phrase: string) {
   if (/\bmanufacturers?\b|\bsuppliers?\b|\bdistributors?\b/i.test(phrase)) return "";
   return "supplier";
 }
+// Turn extracted mandate sectors into public-facing search terms so people see
+// industry criteria ("specialty food manufacturer") instead of acquisition
+// phrasing ("small to medium sized Australian specialty food manufacturing").
+export function publicResearchTermVariants(sectors: string[]): string[] {
+  const baseOf = (sector: string) => sector.split(/[;:]/)[0].replace(/[()]/g, " ").replace(/\s+/g, " ").trim();
+  const roleNoun =
+    /\b(?:producers?|suppliers?|distributors?|wholesalers?|retailers?|providers?|importers?|packagers?|makers?|processors?|fabricators?|foundr(?:ies|y)|mill(?:ers|s)?|baker(?:y|ies)?|confectioners?|services?|workshops?)\b/i;
+  const seen = new Set<string>();
+  return sectors.flatMap((sector) => {
+    const base = baseOf(sector);
+    const existingRole = base.match(roleNoun)?.[0];
+    const cleaned = base.replace(/ manufacturing$/, "").replace(/ manufacturer$/, "");
+    const serviceLike = /\b(?:service|services|cleaning|security|logistic|warehouse|engineering|consulting|maintenance|repair|installation|construction|transport|printing?)\b/i.test(cleaned);
+    const candidates = existingRole
+      ? [base]
+      : [`${cleaned} ${serviceLike ? "businesses" : "manufacturer"}`, `${cleaned} ${serviceLike ? "service providers" : "producers"}`];
+    return candidates.filter((value) => {
+      const key = value.toLowerCase();
+      if (seen.has(key) || key.length < 4) return false;
+      seen.add(key);
+      return true;
+    });
+  }).slice(0, 6);
+}

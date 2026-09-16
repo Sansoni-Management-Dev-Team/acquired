@@ -24,6 +24,49 @@ const cities: Record<string, string> = {
   hobart: "TAS", melbourne: "VIC", newcastle: "NSW", perth: "WA", sydney: "NSW",
 };
 
+// Sector nouns that terminate the phrase being acquired. The last one in the
+// sentence is used as the boundary so alternative lists keep each part's noun.
+const sectorType =
+  "business(?:es)?|companies?|manufactur(?:e|es|ing|ers?)?|producers?|suppliers?|distributors?|wholesalers?|retailers?|providers?|packagers?|baker(?:ies|y)|confectioners?|foundr(?:ies|y)|processors?|fabricators?|makers?|workshops?|studios?|laborator(?:ies|y)|importers?|operators?|farms?|brewer(?:y|ies)?|distillers?|mill(?:ers|s)?";
+const manufacturingFamily = /manufactur/i;
+// Opening words that describe the size, ownership or quality of the target and
+// belong to the acquisition intent rather than the industry.
+const sectorLeadingNoise = new Set([
+  "small", "medium", "mediumsized", "midsized", "mid", "micro", "microsized", "large", "larger", "big",
+  "australian", "australiawide", "national", "local", "interstate",
+  "profitable", "established", "wellestablished", "longestablished", "successful", "leading", "growing",
+  "highgrowth", "familyowned", "familyrun", "owneroperated", "owned", "operated", "private", "independent",
+  "thriving", "wellrun", "reputable", "premium", "quality", "reliable", "boutique",
+]);
+const sectorConnectors = new Set(["to", "of", "the", "a", "an", "and", "or", "sized", "size", "with", "&"]);
+const locationTokens = new Set([
+  ...Object.keys(stateNames), ...Object.keys(cities),
+  "act", "nsw", "nt", "qld", "sa", "tas", "vic", "wa",
+]);
+function cleanSector(value: string) {
+  const tokens = value.trim().toLowerCase().split(/\s+/);
+  let index = 0;
+  while (index < tokens.length) {
+    const token = tokens[index].replace(/[^a-z]/g, "");
+    if (sectorLeadingNoise.has(token) || sectorConnectors.has(token)) {
+      index += 1;
+      continue;
+    }
+    break;
+  }
+  return tokens.slice(index).join(" ").replace(/-/g, " ");
+}
+function standardiseSector(part: string) {
+  const noun = part.match(new RegExp(`^(.+?)\\s+(${sectorType})\\b$`, "i"));
+  if (!noun) return cleanSector(part);
+  const base = cleanSector(noun[1]);
+  const type = noun[2].toLowerCase();
+  if (!base) return ["business", "businesses", "company", "companies"].includes(type) ? "" : type;
+  if (["business", "businesses", "company", "companies"].includes(type)) return base;
+  if (manufacturingFamily.test(type) && !/\bmanufactur/i.test(base)) return `${base} manufacturing`;
+  return `${base} ${type === "manufacture" ? "manufacturing" : type}`;
+}
+
 function money(value: string, unit?: string) {
   const multiplier = unit?.toLowerCase().startsWith("b") ? 1_000_000_000 : unit?.toLowerCase().startsWith("m") ? 1_000_000 : 1;
   return Number(value.replace(/,/g, "")) * multiplier;
@@ -62,17 +105,17 @@ export function parseMandate(text: string): Mandate {
     }
   }
 
-  const manufacturerMatch = text.match(/(?:looking\s+(?:to\s+buy|for)|searching\s+for|buy|find|seeking|targeting|acquir(?:e|ing))\s+(?:an?\s+)?([a-z][a-z &/-]*?)\s+manufacturers?\b/i);
-  const sectorMatch = text.match(/(?:looking\s+(?:to\s+buy|for)|searching\s+for|buy|find|seeking|targeting|acquir(?:e|ing))\s+(?:an?\s+)?([a-z][a-z &/-]+?)\s+(?:business(?:es)?|compan(?:y|ies))\b/i);
+  const sectorVerb =
+    "(?:looking\\s+to\\s+(?:buy|acquire)|looking\\s+for|searching\\s+for|(?:want|hope|wish|intend)\\s+to\\s+acquire|seek(?:ing|s)?\\s+(?:to\\s+(?:acquire|buy))?|seeking|targeting|buying|acquiring|\\bbuy\\b|\\bfind\\b|\\bacquire\\b|\\bsearch\\b)";
+  const sectorMatch = text.match(new RegExp(`${sectorVerb}\\s+(?:an|a)?\\b\\s*([a-z][a-z &/-]*)\\s+(${sectorType})\\b`, "i"));
   const contextualSectorMatch = text.match(/(?:in|across|sectors?[: ])\s+([a-z][a-z &/-]+?)(?=\s+(?:businesses|companies|in|across|with)|[,.]|$)/i);
-  const sectors = manufacturerMatch
-    ? [`${manufacturerMatch[1].trim()} manufacturing`.trim()]
-    : sectorMatch
-    ? sectorMatch[1].split(/\s*(?:\/|,|\bor\b|\band\b)\s*/i).map((value) => value.replace(/-/g, " ").trim()).filter(Boolean)
+  const extractParts = (phrase: string) => phrase.split(/\s*(?:\/|,|;|\bor\b|\band\b)\s*/i).map(standardiseSector).filter((value) => value && !locationTokens.has(value.replace(/[^a-z]/g, "")));
+  const sectors = sectorMatch
+    ? extractParts(`${sectorMatch[1]} ${sectorMatch[2]}`)
     : /\bmanufactur(?:e|er|ers|ing)\b/i.test(text)
     ? ["Manufacturing"]
     : contextualSectorMatch
-    ? contextualSectorMatch[1].split(/\s*(?:\/|,|\bor\b|\band\b)\s*/i).map((value) => value.replace(/-/g, " ").trim()).filter(Boolean)
+    ? extractParts(contextualSectorMatch[1])
     : [];
   if (/national|australia-wide/i.test(text)) for (const state of ["ACT", "NSW", "NT", "QLD", "SA", "TAS", "VIC", "WA"]) states.add(state);
   const revenue = range(text, "revenue", { min: 0, max: null });

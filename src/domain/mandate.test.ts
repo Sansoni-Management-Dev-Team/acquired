@@ -25,4 +25,25 @@ describe("parseMandate", () => {
     expect(parseMandate("Find food manufacturers in NSW").sectors).toEqual(["food manufacturing"]);
     expect(parseMandate("Manufacturers in Queensland").sectors).toEqual(["Manufacturing"]);
   });
+
+  it("drops size, location and ownership descriptors from sectors", () => {
+    const result = parseMandate("To acquire a small to medium sized Australian specialty food manufacturing business, established and profitable");
+    expect(result.sectors).toEqual(["specialty food manufacturing"]);
+  });
+
+  it("keeps the noun for each alternative in a list", () => {
+    const result = parseMandate("We are looking to acquire a craft beverage producer or artisan confectioner and a small bakery");
+    expect(result.sectors).toEqual(["craft beverage producer", "artisan confectioner", "bakery"]);
+  });
+
+  it("drops city and state names from sector lists", () => {
+    expect(parseMandate("Seeking to acquire a boutique artisan bakery business in Sydney").sectors).toEqual(["artisan bakery"]);
+    expect(parseMandate("Looking for a food manufacturer or craft brewery in Melbourne").sectors).toEqual(["food manufacturing", "craft brewery"]);
+  });
+
+  it("extracts mixed role variants from a full brief", () => {
+    const result = parseMandate("Looking to acquire a small to medium sized sustainable packaging manufacturer or eco-friendly packaging supplier, revenue $10m+");
+    expect(result.sectors).toEqual(["sustainable packaging manufacturing", "eco friendly packaging supplier"]);
+    expect(result.revenue).toEqual({ min: 10_000_000, max: null });
+  });
 });

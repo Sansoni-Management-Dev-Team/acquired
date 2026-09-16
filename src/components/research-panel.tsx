@@ -13,6 +13,7 @@ import {
 import { ResearchRunOutcome } from "./research-run-outcome";
 import { GeographySelect } from "./geography-select";
 import type { AcquisitionBrief } from "@/domain/acquisition";
+import { publicResearchTermVariants } from "@/domain/discovery-queries";
 const input =
   "min-h-12 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2 text-sm";
 const button =
@@ -58,11 +59,13 @@ export function ResearchPanel({
     [busy, setBusy] = useState(false),
     [setup, setSetup] = useState(false);
   const [terms, setTerms] = useState(
-    brief.criteria
-      .find((c) => c.key === "subsectors")
-      ?.value.split(";")
-      .slice(0, 6)
-      .map((s) => s.trim().slice(0, 160))
+    publicResearchTermVariants(
+      (brief.criteria.find((c) => c.key === "subsectors")?.value || "")
+        .split(";")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    )
+      .map((s) => s.slice(0, 160))
       .join("\n") || "",
   );
   const [geography, setGeography] = useState(
