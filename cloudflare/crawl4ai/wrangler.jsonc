@@ -1,6 +1,7 @@
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "acquire-crawl4ai",
+  "account_id": "53019d98ec6f1d1d93112558076ee677",
   "main": "index.ts",
   "compatibility_date": "2026-09-09",
   "containers": [{ "class_name": "CrawlReader", "image": "./Dockerfile", "instance_type": "standard-3", "max_instances": 1 }],

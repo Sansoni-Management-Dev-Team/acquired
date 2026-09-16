@@ -25,7 +25,7 @@ if not isinstance(urls, list) or not 1 <= len(urls) <= 30 or any(not isinstance(
     parser.error("Supply 1–30 public HTTPS URLs")
 secret = os.environ.get("READER_BENCHMARK_SECRET")
 try:
-    health = urllib.request.Request(args.endpoint.rstrip("/") + "/health", headers={"Authorization": f"Bearer {secret}"} if secret else {})
+    health = urllib.request.Request(args.endpoint.rstrip("/") + "/health", headers={"User-Agent": "AcquireReaderBenchmark/1.0", **({"Authorization": f"Bearer {secret}"} if secret else {})})
     with urllib.request.urlopen(health, timeout=45) as response:
         if not json.load(response).get("ok"):
             parser.error("Reader is not ready")
@@ -38,7 +38,7 @@ def read(url):
     started = time.monotonic()
     row = {"url": url}
     try:
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", "User-Agent": "AcquireReaderBenchmark/1.0"}
         if secret:
             headers["Authorization"] = f"Bearer {secret}"
         request = urllib.request.Request(args.endpoint.rstrip("/") + "/crawl", data=json.dumps({"url": url}).encode(), headers=headers)

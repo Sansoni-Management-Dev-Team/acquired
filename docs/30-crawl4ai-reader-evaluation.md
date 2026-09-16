@@ -53,4 +53,58 @@ Both readers returned usable content for 23 of 30 URLs. The pooled reader comple
 
 Retain Cloudflare Workflows and primary reads. Prepare Crawl4AI as an authenticated secondary reader on a Docker VM. Warm browser processes are shared but request cookies and storage are not. Persistent human profiles and CAPTCHA handoff are a separate future capability.
 
-Implementation and local validation are complete. Hosted validation, cost measurement and activation remain pending a VM/provider and DNS hostname. The prepared VM deployment needs no database migration. The alternative Cloudflare Container route requires explicit approval for its existing `crawl-reader-v1` Durable Object migration before first deployment.
+The user selected Cloudflare Containers and explicitly approved `crawl-reader-v1`. Deployment and hosted validation are now complete; the service is enabled as the production fallback. Actual billing and a full end-to-end research run remain unverified.
+
+## Hosted Cloudflare benchmark and activation
+
+On 16 September 2026 the same sample returned **22/30 usable pages**, in **59.2 seconds**,
+with a **3.403-second median**. Both commercialcleaning.au and wanless.com.au returned
+usable company content. Datanyze was the one additional failure relative to local
+Crawl4AI. These sequential samples do not establish a universal speed or coverage advantage.
+
+Deployment: MLAI account, one standard-3 instance, three browser slots, one-minute
+idle sleep. Endpoint: `https://acquire-crawl4ai.mlai-530.workers.dev`. Authenticated
+health returned 200, unauthenticated crawl returned 401, and a private-address URL
+returned 400. The service token is held in Cloudflare secrets, not source control.
+
+`acquire-research` was updated in its original account to version
+`704966cd-965e-43cd-bb75-76057114fe91` with the cross-account fallback settings.
+No workflows were running at deployment time. Primary reading remains unchanged.
+
+A separate Neon data-transfer quota error (HTTP 402) prevented querying active
+jobs through the database. Running workflows were instead checked through
+Cloudflare (none). Full research-run validation requires restoring Neon access;
+the page benchmark did not use the database.
+
+| URL | Hosted result | Latency ms |
+|---|---|---:|
+| https://commercialcleaning.au/ | usable | 10436 |
+| https://wanless.com.au/ | usable | 10261 |
+| https://ancr.com.au/wp-content/uploads/project_gallery/lxrp_bell_to_moreland.pdf | failed | 4463 |
+| https://www.linkedin.com/company/csa-specialised-services | failed | 335 |
+| https://csaspecialised.com.au/contact-us/%TRACK_LINK% | failed | 1797 |
+| https://wiza.co/d/csa-specialised-services/8fa5/scott-russell | failed | 2079 |
+| https://www.cbinsights.com/company/csa-specialised-services/people | usable | 3308 |
+| https://www.datanyze.com/companies/csa-specialised-services/357860151 | failed | 2313 |
+| https://pitchbook.com/profiles/company/541626-04 | usable | 4879 |
+| https://csaspecialisedqld.com.au/about-us/ | usable | 2842 |
+| https://cleanaway.com.au/ | usable | 3560 |
+| https://www.simplexwastesolutions.com.au/location/melbourne/ | usable | 2240 |
+| https://www.comcleanaustralia.com.au/category/specialist-cleaning/ | usable | 2606 |
+| https://pjwastesolutions.com.au/industrial-waste-management-melbourne/ | usable | 4581 |
+| https://mertonenv.com.au/services/ | usable | 2416 |
+| https://www.epa.vic.gov.au/managing-industrial-waste | usable | 2916 |
+| https://onixgroup.com.au/ | usable | 7595 |
+| https://federationcouncil.nsw.gov.au/ | usable | 3435 |
+| https://urlebird.com/user/kclean.com.au/ | usable | 4554 |
+| https://builtwith.com/kclean.com.au | unusable | 4020 |
+| https://brycocivilconstruction.com/ | usable | 4264 |
+| https://bettergrow.com.au/ | usable | 2249 |
+| https://cleaningedge.com.au/ | usable | 9674 |
+| https://cleanworks.com.au/ | usable | 2095 |
+| https://platinumindustrial.au/ | usable | 4615 |
+| https://cleancorp.com/ | usable | 5009 |
+| https://capitalcitywaste.services/ | usable | 2814 |
+| https://mwrrg.vic.gov.au/ | failed | 194 |
+| https://centralwestwaste.com.au/ | usable | 3433 |
+| https://envirofs.com.au/ | failed | 3372 |

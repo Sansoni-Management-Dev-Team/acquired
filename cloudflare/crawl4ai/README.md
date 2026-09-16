@@ -2,13 +2,22 @@
 
 An authenticated Cloudflare Worker routes one-page reads to one on-demand Crawl4AI container. It sleeps after one idle minute, has at most one standard-3 instance (2 vCPUs, 8 GiB RAM), allows three isolated browser reads and returns 429 when busy. The research workflow uses it only after a primary reader failure or unusable content, within the existing page/time allowance. Public HTTPS targets only; private-address destinations and subrequests are rejected. No CAPTCHA solving, account login, or guessed contact information.
 
-## Migration approval required before first deployment
+## Deployment status and migration history
 
 `wrangler.jsonc` declares migration **crawl-reader-v1**, with `new_sqlite_classes: ["CrawlReader"]`. This registers a new SQLite-backed Durable Object class for the container. It does not modify the application's Postgres tables or existing research records.
 
-The project AGENTS.md requires explicit approval for each database migration. **Do not run the first deployment until the user explicitly approves crawl-reader-v1.** Building the Docker image and checking the bundle do not apply this migration.
+The user explicitly approved `crawl-reader-v1` and deployment on 16 September 2026.
+It was applied when deploying to the MLAI account (`53019d98ec6f1d1d93112558076ee677`).
+Do not add or apply a different migration without its own explicit approval.
 
-## After approval
+Live endpoint: `https://acquire-crawl4ai.mlai-530.workers.dev`.
+The existing research Worker remains in account `1e410209cb522db00ed992b156eaade8`
+and calls this endpoint using `CRAWL4AI_URL` and `CRAWL4AI_SECRET`.
+The new account token was verified through deployment, registry image push,
+container creation, secret updates and tail access. Its full policy is not readable
+with that token. Never put either account's API token or service secret in this file.
+
+## Deployment procedure
 
 1. `npm ci --prefix cloudflare/crawl4ai`
 2. Verify Cloudflare authentication with `pnpm exec wrangler whoami`.
@@ -100,4 +109,4 @@ concurrent reads and a one-minute idle sleep. The Worker authenticates both
 Caddy service or custom DNS hostname is needed. Run the hosted benchmark on its
 `workers.dev` URL before enabling it as the production fallback. Browser state
 may be discarded on sleep, which is compatible with the isolated reader.
-The first deployment remains gated on explicit approval of `crawl-reader-v1`.
+The initial `crawl-reader-v1` migration has been approved and applied; see deployment history above.
