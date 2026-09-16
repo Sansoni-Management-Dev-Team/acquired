@@ -72,12 +72,12 @@ it('another mandate occupying both enrichment slots does not block this mandate'
   expect(mocks.create.mock.calls.map(call => call[3].executionSlot)).toEqual(['mandate:1','mandate:2']);
 });
 
-it('starts paired research for 20 distinct businesses and holds the 21st', async () => {
+it('starts paired research for eight distinct businesses and holds the ninth', async () => {
   const members = Array.from({ length: 21 }, (_, i) => ({ target: { ...target, id: `target-${i}`, domain: `instruments-${i}.example.com` }, assessment: { stage: 'identified' } }));
   mocks.memberships.mockResolvedValue(members);
   mocks.where.mockReset().mockResolvedValueOnce([root]).mockResolvedValueOnce(members.flatMap(m => evidence.map(f => ({ ...f, targetId: m.target.id, sourceUrl: `https://${m.target.domain}/`, evidence: { ...f.evidence, website: `https://${m.target.domain}/` } }))));
   await dispatchAutomaticEnrichment('org', 'root');
-  expect(mocks.create).toHaveBeenCalledTimes(40);
-  expect(new Set(mocks.create.mock.calls.map(c => c[3].targetId)).size).toBe(20);
-  expect(new Set(mocks.create.mock.calls.map(c => c[3].executionSlot)).size).toBe(40);
+  expect(mocks.create).toHaveBeenCalledTimes(16);
+  expect(new Set(mocks.create.mock.calls.map(c => c[3].targetId)).size).toBe(8);
+  expect(new Set(mocks.create.mock.calls.map(c => c[3].executionSlot)).size).toBe(16);
 });

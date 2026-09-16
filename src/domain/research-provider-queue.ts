@@ -2,9 +2,9 @@
 // use three completion-released slots; local search and AI have separate limits.
 export type ResearchProvider = 'page' | 'search' | 'ai';
 export type ProviderReservation = { token: string; jobId: string; provider: ResearchProvider; after: number; until: number; consumed?: boolean; local?: boolean; released?: boolean; paid?: boolean; domain?: string };
-export type ProviderQueue = { localSearchAfter?: number; localSearchConsumedAfter?: number; browserAfter?: number; browserConsumedAfter?: number; aiAfter?: number[]; reservations?: ProviderReservation[]; browserCooldownUntil?: number; domainAfter?: Record<string, number>; browserWaiters?: { jobId: string; provider: ResearchProvider; since: number }[] };
+export type ProviderQueue = { localSearchAfter?: number; localSearchConsumedAfter?: number; browserAfter?: number; browserConsumedAfter?: number; aiAfter?: number[]; reservations?: ProviderReservation[]; browserCooldownUntil?: number; domainAfter?: Record<string, number>; browserWaiters?: { jobId: string; provider: ResearchProvider; since: number }[]; aiWaiters?: { jobId: string; since: number }[] };
 export const BROWSER_SPACING_MS = 12000;
-export const AI_CONCURRENCY = 4;
+export const AI_CONCURRENCY = 8;
 export const LOCAL_PAGE_CONCURRENCY = 3;
 // Longer than a local read's 45-second deadline; abandoned slots recover automatically.
 export const LOCAL_PAGE_LEASE_MS = 60000;
@@ -15,6 +15,7 @@ export function reserveProvider(queue: ProviderQueue, jobId: string, token: stri
   const reservations = (queue.reservations || []).filter(r => r.until >= now);
   const existing = reservations.find(r => r.token === token && r.jobId === jobId && r.provider === provider && !r.consumed);
   if (existing) return { queue, reservation: existing, retryAfterMs: Math.max(0, existing.after - now) };
+  if (paid && provider === 'ai') return reserveManagedAi(queue, jobId, token, now);
   if (local && provider === 'page') {
     if (reservations.some(r => r.token === token && r.jobId === jobId && r.consumed)) return { queue, retryAfterMs: 1000 };
     const active = reservations.filter(r => r.local && r.provider === 'page' && !r.released);
@@ -56,6 +57,20 @@ function providerConsumedAfter(queue: ProviderQueue, r: ProviderReservation, dom
 }
 export function releaseProvider(queue: ProviderQueue, token: string, jobId: string): ProviderQueue {
   return { ...queue, reservations: queue.reservations?.map(r => r.token === token && r.jobId === jobId && ((r.local && r.provider === 'page') || r.paid) ? { ...r, consumed: true, released: true } : r) };
+}
+
+// AI capacity is a real concurrent pool. A slot is released as soon as the
+// provider call finishes instead of remaining blocked for a fixed interval.
+function reserveManagedAi(queue: ProviderQueue, jobId: string, token: string, now: number) {
+  const reservations = (queue.reservations || []).filter(r => r.until >= now);
+  if (reservations.some(r => r.token === token && r.jobId === jobId)) return { queue, queued: true, retryAfterMs: 1000 };
+  const active = reservations.filter(r => r.paid && r.provider === 'ai' && !r.released);
+  const waiters = (queue.aiWaiters || []).filter(waiter => waiter.since > now - 120000);
+  if (!waiters.some(waiter => waiter.jobId === jobId)) waiters.push({ jobId, since: now });
+  const next = { ...queue, reservations, aiWaiters: waiters.map(waiter => waiter.jobId === jobId ? { ...waiter, since: now } : waiter) };
+  if (active.length >= AI_CONCURRENCY || waiters[0]?.jobId !== jobId) return { queue: next, queued: true, retryAfterMs: 1000 };
+  const reservation: ProviderReservation = { token, jobId, provider: 'ai', paid: true, after: now, until: now + 90000 };
+  return { queue: { ...next, reservations: [...reservations, reservation], aiWaiters: waiters.filter(waiter => waiter.jobId !== jobId) }, reservation, retryAfterMs: 0 };
 }
 
 

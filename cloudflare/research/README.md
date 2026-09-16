@@ -20,7 +20,9 @@ Company and people findings found on the same page are retained. Quotes, company
 
 ## Provider reliability
 
-The authenticated `browser-permit` callback coordinates browser requests across jobs using an atomic conditional JSON update on the oldest existing research job row. It stores only a provider admission timestamp, without changing the job's status, evidence or revision. New paid-plan Workers use four concurrent page-read slots and one reserved search slot, with one browser request start per second across both workloads. Slots release on completion, with a 60-second lease for abandoned requests. Same-domain reads cannot overlap and start at least three seconds apart. HTTP 429 rate responses apply a shared Retry-After cooldown. Legacy Worker reservations remain supported during rollout. It requires no schema change. Requests without a research job ID cannot use production search.
+The `ProviderCoordinator` Durable Object coordinates browser and model requests across jobs without writing admission state to Postgres. Paid-plan Workers use four concurrent page-read slots, one reserved search slot and eight model slots. Slots release on completion, with leases for abandoned requests. Browser starts remain spaced by one second, same-domain reads cannot overlap and start at least three seconds apart, and HTTP 429 responses apply a shared Retry-After cooldown. The application callback remains as a rolling-deployment fallback when the Durable Object binding is absent. This requires no database schema change. Requests without a research job ID cannot use production search.
+
+Automatic discovery ranks leads using the mandate scope and search-result context before it spends page and model calls. It runs at most eight candidate workflows concurrently, schedules at most 30 candidates for a run, and cancels surplus active candidates once the target count is reached.
 
 Provider error classifications survive to search/page outcomes: daily quota, request rate, concurrency, authentication/policy, credits, transport and timeout. Bounded admission waits avoid immediate bursts. A 120-second workflow step covers composed control/read/extraction calls; control and admission callbacks have shorter timeouts. Account quotas still apply and a successful test read does not establish capacity for a full mandate.
 
@@ -44,11 +46,11 @@ restoring both the prior Vercel deployment and its environment settings.
 - Optional authenticated Crawl4AI fallback: `CRAWL4AI_URL` and `CRAWL4AI_SECRET`.
 - Worker deployment: `pnpm exec wrangler deploy --config cloudflare/research/wrangler.jsonc`.
 
-This change uses existing job JSON and needs no database or Durable Object migration. Never run any database migration without explicit approval for that specific migration.
+This change uses existing job JSON and needs no database migration. The Wrangler configuration declares the new SQLite-backed `ProviderCoordinator` Durable Object. Never run any database migration without explicit approval for that specific migration.
 
 ## Validation
 
-Run `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm exec tsc -p cloudflare/research/tsconfig.json`, and the Wrangler deployment dry run. Tests cover separate objectives, supported search capabilities, provider admission, failure classification, retries, page reuse, original retrieval timestamps and continuation of discovery without initial seeds.
+Run `pnpm test`, `pnpm test:workflows`, `pnpm test:coordinator`, `pnpm lint`, `pnpm typecheck`, `pnpm build`, `pnpm exec tsc -p cloudflare/research/tsconfig.json`, and the Wrangler deployment dry run. Tests cover separate objectives, supported search capabilities, provider admission, Durable Object RPC, failure classification, retries, page reuse, original retrieval timestamps and continuation of discovery without initial seeds.
 
 For an explicitly requested live reader check:
 
@@ -58,4 +60,4 @@ RUN_RESEARCH_BENCHMARK=1 node --env-file=.env --env-file=.env.local node_modules
 
 This makes exactly three public homepage reads, with no AI, search or database writes. It writes `.local-data/stu-206-reader-benchmark.json`. It does not measure full enrichment coverage or actual billing. The September 14 check read all three sample homepages successfully; headcount, revenue and named-person/email evidence were absent from those homepage extractions. A full user-triggered mandate run is still needed to measure final coverage, time and provider cost.
 
-The `paid-v1` admission protocol is opt-in per Worker request, so deploy the Vercel callbacks before the Worker. Paid instances have a 512-request internal budget; saved page, model, time and cancellation budgets still apply. AI admission stays at four scheduled lanes and the fallback container stays at three reader slots.
+The Worker uses Durable Object coordination when its binding exists and the `paid-v1` callback protocol during rolling deployment. Paid instances have a 512-request internal budget; saved page, model, time and cancellation budgets still apply. AI admission uses eight completion-released slots and the fallback container stays at three reader slots. The deterministic throughput test models the observed 133 model calls at 12 seconds each: the old four fixed 47-second lanes take about 26 minutes, while the new pool takes about 3 minutes 24 seconds. This measures scheduler overhead, not live provider latency or end-to-end mandate time.

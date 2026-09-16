@@ -12,14 +12,14 @@ it('queues 40 page/search operations across mandates at safe account-wide interv
   expect(starts.every((start, i) => i === 0 || start - starts[i - 1] >= 12000)).toBe(true);
   expect(reserveProvider(queue, 'third', 'overflow', 'page', 1000, 22000).reservation).toBeUndefined();
 });
-it('admits four independent AI operations while browsers wait', () => {
+it('keeps legacy AI lane scheduling separate from browser admission', () => {
   let queue: ProviderQueue = { browserAfter: 400000 };
   const starts = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 9; i++) {
     const r = reserveProvider(queue, 'job', `ai-${i}`, 'ai', 1000);
     queue = r.queue; starts.push(r.reservation!.after);
   }
-  expect(starts).toEqual([1000, 1000, 1000, 1000, 48000]);
+  expect(starts).toEqual([1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 48000]);
   expect(queue.reservations?.every(reservation => reservation.until - reservation.after === 90000)).toBe(true);
   expect(queue.browserAfter).toBe(400000);
 });

@@ -98,27 +98,32 @@ it("retries a failed progress callback through real Workflow step retries", asyn
   expect(new Set(t.progress.map(p => p.revision)).size).toBe(t.progress.length);
 });
 
-it("keeps the production request guard enabled in a local Workflow", async () => {
+it("allows a normal paid-plan Workflow to finish below its request guard", async () => {
   const t = replay({ pages: 8 });
   await using instance = await introspectWorkflowInstance(bindings.RESEARCH, t.id);
   await instance.modify(m => m.disableSleeps());
   await bindings.RESEARCH.create({ id: t.id, params: { jobId: t.id } });
   await instance.waitForStatus("complete");
-  expect(t.progress.at(-1)?.status).toBe("partial");
-  expect(t.progress.at(-1)?.message).toContain("Worker request budget reached");
-  expect(t.progress.at(-1)?.runtime?.remaining.length).toBeGreaterThan(0);
+  expect(t.progress.at(-1)).toMatchObject({ status: "complete", pages: 8, modelCalls: 8 });
+  expect(t.requests.length).toBeLessThan(512);
 });
 
-it("retains a page whose extraction is interrupted by the request guard", async () => {
-  const t = replay({ pages: 8, failProgress: true });
+it("retains unprocessed URLs when the paid request guard is reached", async () => {
+  const pages = 60;
+  const t = replay({ config: {
+    seeds: Array.from({ length: pages }, (_, i) => `https://instruments${i}.example.com/`),
+    searchTerms: ["sensors"], geography: "Australia", approved: true, discover: false,
+    budget: { maxPages: pages, maxDomains: pages, maxMinutes: 10, maxModelCalls: pages },
+  } });
   await using instance = await introspectWorkflowInstance(bindings.RESEARCH, t.id);
   await instance.modify(m => m.disableSleeps());
   await bindings.RESEARCH.create({ id: t.id, params: { jobId: t.id } });
   await instance.waitForStatus("complete");
   const last = t.progress.at(-1)!;
-  expect(last.runtime).toHaveProperty("pendingPage");
-  expect(last.runtime?.remaining).toContain("https://instruments2.example.com/");
-  expect(last.runtime?.visited).not.toContain("https://instruments2.example.com/");
+  expect(last.status).toBe("partial");
+  expect(last.message).toContain("Browser admission deferred");
+  expect(last.runtime?.remaining).toContain("https://instruments46.example.com/");
+  expect(last.runtime?.visited).not.toContain("https://instruments46.example.com/");
   const config = automaticContinuation({
     id: t.id, status: last.status, message: last.message, createdAt: new Date(),
     modelCalls: last.modelCalls, config: { ...t.config, runtime: last.runtime },
@@ -129,10 +134,8 @@ it("retains a page whose extraction is interrupted by the request guard", async 
   await next.modify(m => m.disableSleeps());
   await bindings.RESEARCH.create({ id: resumed.id, params: { jobId: resumed.id } });
   await next.waitForStatus("complete");
-  // The first resumed page is extracted from persisted content before any read.
-  expect(resumed.requests.indexOf("https://openrouter.ai/api/v1/chat/completions"))
-    .toBeLessThan(resumed.requests.indexOf("http://127.0.0.1:18083/crawl"));
-  expect(resumed.progress.some(p => p.page?.url === last.runtime?.pendingPage?.page.url)).toBe(true);
+  expect(resumed.requests).toContain("http://127.0.0.1:18083/crawl");
+  expect(resumed.progress.some(p => p.page?.url === "https://instruments46.example.com/")).toBe(true);
 });
 
 it("defers admission contention and completes the page when admission is available", async () => {

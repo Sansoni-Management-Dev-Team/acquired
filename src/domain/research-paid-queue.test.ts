@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest';
 import { consumeProvider, coolDownBrowser, releaseProvider, reservationDelay, reserveProvider, type ProviderQueue } from './research-provider-queue';
-const reserve = (q: ProviderQueue, job: string, provider: 'page'|'search', now: number, token = job) => reserveProvider(q, job, token, provider, now, undefined, false, true);
+const reserve = (q: ProviderQueue, job: string, provider: 'page'|'search'|'ai', now: number, token = job) => reserveProvider(q, job, token, provider, now, undefined, false, true);
 it('allows four concurrent pages and reserves a fifth slot for search; starts are spaced one second', () => {
   let queue: ProviderQueue = {};
   for (let i = 0; i < 4; i++) {
@@ -22,6 +22,20 @@ it('keeps a paid reservation live while a coordinated callback reaches the brows
   const result=reserve({},'job','search',1000);
   expect(result.reservation?.until).toBe(91000);
   expect(consumeProvider(result.queue,'job','job',70000,'duckduckgo.com')).not.toBeNull();
+});
+it('releases managed AI capacity immediately and preserves FIFO waits', () => {
+  let queue: ProviderQueue={};
+  for(let i=0;i<8;i++){
+    const result=reserve(queue,`ai-${i}`,'ai',1000);
+    queue=result.queue;
+    expect(result.reservation).toBeDefined();
+  }
+  const waiting=reserveProvider(queue,'waiting','waiting','ai',1000,undefined,false,true);
+  queue=waiting.queue;
+  expect(waiting).toMatchObject({queued:true,retryAfterMs:1000});
+  queue=releaseProvider(queue,'ai-0','ai-0');
+  expect(reserveProvider(queue,'later','later','ai',1001,undefined,false,true).reservation).toBeUndefined();
+  expect(reserveProvider(queue,'waiting','waiting','ai',1001,undefined,false,true).reservation).toBeDefined();
 });
 it('preserves FIFO page waits and prevents wrong-job releases', () => {
   let queue: ProviderQueue = {};

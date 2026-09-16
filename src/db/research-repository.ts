@@ -180,6 +180,14 @@ export class ResearchRepository {
       );
     return this.get(id);
   }
+  async cancelDiscoveryCandidates(rootId: string) {
+    return this.db.update(researchJobs).set({ status: "cancelled", message: "Target reached; surplus candidate research stopped", updatedAt: new Date() }).where(and(
+      eq(researchJobs.organizationId, this.org),
+      sql`${researchJobs.config}->>'researchRunId' = ${rootId}`,
+      sql`${researchJobs.config}->>'discoveryCandidate' = 'true'`,
+      notInArray(researchJobs.status, terminalResearchStates),
+    )).returning({ id: researchJobs.id });
+  }
   async claimDiscovery(id: string) {
     return (
       (

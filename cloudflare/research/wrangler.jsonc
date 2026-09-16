@@ -5,6 +5,8 @@
   "main": "index.ts",
   "compatibility_date": "2026-09-08",
   "workflows": [{ "name": "acquire-research", "binding": "RESEARCH", "class_name": "AcquireResearch" }],
+  "durable_objects": { "bindings": [{ "name": "PROVIDER_COORDINATOR", "class_name": "ProviderCoordinator" }] },
+  "exports": { "ProviderCoordinator": { "type": "durable-object", "storage": "sqlite" } },
   "vars": { "APP_ORIGIN": "https://project-acquire.vercel.app" },
   "observability": { "enabled": true }
 }

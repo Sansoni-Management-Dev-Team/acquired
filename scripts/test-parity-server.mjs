@@ -12,6 +12,7 @@ const secret = readFileSync('.local-data/dev/service-secret', 'utf8').trim();
 const configuration = JSON.parse(readFileSync('.local-data/dev/wrangler.json', 'utf8'));
 assert.equal(configuration.vars.LOCAL_DEVELOPMENT, 'true');
 assert.equal(configuration.vars.LOCAL_RESEARCH_POLICY, 'production');
+assert.equal(configuration.durable_objects.bindings[0].name, 'PROVIDER_COORDINATOR');
 const db = new pg.Client({ connectionString: 'postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire' });
 const report = { startedAt: new Date().toISOString(), checks: [], jobs: [] };
 const active = new Set();

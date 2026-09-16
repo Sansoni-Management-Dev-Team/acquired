@@ -30,6 +30,8 @@ export function localWorkerConfig(production, origin, main, policy) {
     compatibility_date: production.compatibility_date,
     ...(production.compatibility_flags ? { compatibility_flags: production.compatibility_flags } : {}),
     workflows: [{ name: "acquire-research-local", binding: "RESEARCH", class_name: "AcquireResearch" }],
+    durable_objects: { bindings: [{ name: "PROVIDER_COORDINATOR", class_name: "ProviderCoordinator" }] },
+    exports: { ProviderCoordinator: { type: "durable-object", storage: "sqlite" } },
     vars: { APP_ORIGIN: origin, LOCAL_DEVELOPMENT: "true", LOCAL_RESEARCH_POLICY: policy },
   };
 }

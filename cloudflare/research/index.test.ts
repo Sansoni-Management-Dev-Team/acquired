@@ -1,5 +1,5 @@
 import { expect, it, vi } from 'vitest';
-vi.mock('cloudflare:workers', () => ({ WorkflowEntrypoint: class {} }));
+vi.mock('cloudflare:workers', () => ({ WorkflowEntrypoint: class {}, DurableObject: class {} }));
 import worker from './index';
 it.each([{ page: 2 }, { engine: 'google' }])('explicitly rejects unsupported production search %j without a provider call', async parameters => {
   const fetcher = vi.spyOn(globalThis, 'fetch');

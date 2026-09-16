@@ -15,6 +15,7 @@ import { callbackOrigin } from "./callback-origin";
 import { cancelCrawl, crawlRetryUrl, CrawlerRequestError, requestBudgetStop, stalledResearch } from "./runtime-policy";
 import { targetedPrompt, targetedSchema } from "../../src/domain/targeted-research";
 import { readFallback } from "./fallback";
+import { ProviderCoordinator } from "./provider-coordinator";
 import { searchResults } from "../../src/domain/cloudflare-search";
 import {
   WorkflowEntrypoint,
@@ -31,6 +32,7 @@ import {
 } from "../../src/domain/research";
 interface Env {
   RESEARCH: Workflow;
+  PROVIDER_COORDINATOR?: DurableObjectNamespace<ProviderCoordinator>;
   OPENROUTER_API_KEY: string;
   SERVICE_SECRET: string;
   APP_ORIGIN: string;
@@ -42,6 +44,16 @@ interface Env {
   LOCAL_SEARCH_URL?: string;
   CRAWL4AI_URL?: string;
   CRAWL4AI_SECRET?: string;
+}
+const coordinator = (env: Env) => env.PROVIDER_COORDINATOR?.getByName("account-wide");
+async function providerAction(env: Env, jobId: string, body: { action: string; token?: string | null; provider?: ResearchProvider; retryAfterMs?: number; url?: string }, budget?: { used: number; jobId?: string }) {
+  const stub = coordinator(env);
+  if (!stub) return callback(env, jobId, body.action === "provider-reserve" ? { ...body, policy: "paid-v1" } : body, budget);
+  if (body.action === "provider-reserve" && body.token && body.provider) return stub.reserve({ jobId, token: body.token, provider: body.provider, local: !productionPolicy(env) });
+  if (body.action === "browser-permit" && body.token) return stub.claim(jobId, body.token, body.url ? new URL(body.url).hostname.replace(/^www\./, "") : undefined);
+  if (body.action === "provider-release" && body.token) return stub.release(jobId, body.token).then(() => ({ ok: true }));
+  if (body.action === "browser-cooldown") return stub.cooldown(body.retryAfterMs || 30000).then(() => ({ ok: true }));
+  throw new Error("Invalid provider coordination action");
 }
 async function authorized(request: Request, secret: string) {
   if (!secret) return false;
@@ -101,7 +113,7 @@ async function readMarkdown(env: Env, url: string, budget: { used: number; jobId
   if (!publicResearchUrl(url)) throw new Error("Unsupported URL");
   if (!productionPolicy(env)) {
     const read = (token?: string) => withLocalProvider('page', token,
-      body => callback(env, budget.jobId!, body),
+      body => providerAction(env, budget.jobId!, body, budget),
       () => localRead(env, url, { jobId: budget.jobId }, researchFetch(env)));
     try { return await read(reservation); }
     catch (error) {
@@ -115,9 +127,9 @@ async function readMarkdown(env: Env, url: string, budget: { used: number; jobId
   const markdown = await browserMarkdown(env, url, {
     jobId: budget.jobId, operation: fallback ? "markdown_fallback" : "markdown",
     onRequest: () => { budget.used++; },
-    cooldown: retryAfterMs => callback(env, budget.jobId!, { action: "browser-cooldown", retryAfterMs }),
-    release: () => reservation ? callback(env, budget.jobId!, { action: "provider-release", token: reservation }) : Promise.resolve(),
-    permit: () => callback(env, budget.jobId!, { action: "browser-permit", token: reservation, url }) as Promise<{ granted: boolean; retryAfterMs: number }>,
+    cooldown: retryAfterMs => providerAction(env, budget.jobId!, { action: "browser-cooldown", retryAfterMs }),
+    release: () => reservation ? providerAction(env, budget.jobId!, { action: "provider-release", token: reservation }) : Promise.resolve(),
+    permit: () => providerAction(env, budget.jobId!, { action: "browser-permit", token: reservation, url }) as Promise<{ granted: boolean; retryAfterMs: number }>,
   });
   return { status: "completed", page: { url, markdown: markdown.slice(0, 30000), observedAt: new Date().toISOString() } };
 }
@@ -165,7 +177,11 @@ export class AcquireResearch extends WorkflowEntrypoint<
           const exhausted = requestBudgetStop(requestBudget.used, !productionPolicy(this.env), true);
           if (exhausted) throw new BrowserAdmissionDeferred(exhausted);
           return providerStep({ do: checkpoint, sleep: (label, ms) => step.sleep(label, ms) }, name, provider,
-            token => callback(this.env, id, { action: "provider-reserve", provider, policy: "paid-v1", token: `${id}:${token}` }, requestBudget) as Promise<Admission>,
+            async token => {
+              const current = await control();
+              if (["cancelled", "complete", "partial", "failed"].includes(current.status) || Date.now() >= current.deadline) return { managed: true, granted: false, queued: false, retryAfterMs: 0 };
+              return providerAction(this.env, id, { action: "provider-reserve", provider, token: `${id}:${token}` }, requestBudget) as Promise<Admission>;
+            },
             async token => {
               try {
                 const current = await control();
@@ -174,7 +190,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
                 return await run();
               } finally {
                 browserReservation = undefined;
-                if (provider !== 'ai') await callback(this.env, id, { action: 'provider-release', token }).catch(() => {});
+                await providerAction(this.env, id, { action: 'provider-release', token }).catch(() => {});
               }
             });
         },
@@ -321,14 +337,14 @@ const worker = {
           };
           if (!ids.jobId) return Response.json({ error: "A research job is required for rate-controlled search" }, { status: 400 });
           return await withLocalProvider('search', request.headers.get("x-research-browser-reservation") || undefined,
-            data => callback(env, ids.jobId!, data), async () => {
+            data => providerAction(env, ids.jobId!, data), async () => {
               // OpenSERP returns full snippets; fall back to the rendered HTML endpoint when it is unavailable.
               try {
                 const local = await localSearch(env, query, { ...ids, start: (page - 1) * 10, engine: body.engine === "google" ? "google" : undefined }, researchFetch(env));
                 if (local) return Response.json({ seeds: local.map(r => r.url).slice(0, 6), results: local });
               } catch (error) { console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), ...ids, event: "local_search_fallback", reason: error instanceof Error ? error.message.slice(0, 120) : "unknown" })); }
               if (page > 1 || body.engine === "google") return Response.json({ error: "Requested search backend unavailable", category: "unsupported_search" }, { status: 502 });
-              const result = await withLocalProvider('page', undefined, data => callback(env, ids.jobId!, data), () => localRead(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
+              const result = await withLocalProvider('page', undefined, data => providerAction(env, ids.jobId!, data), () => localRead(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
                 operation: "web_search",
                 requestId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-request-id") || "") ? request.headers.get("x-research-request-id")! : undefined,
                 jobId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-job-id") || "") ? request.headers.get("x-research-job-id")! : undefined,
@@ -342,9 +358,9 @@ const worker = {
         if (!/^[0-9a-f-]{36}$/i.test(jobId)) return Response.json({ error: "A research job is required for rate-controlled search" }, { status: 400 });
         const markdown = await browserMarkdown(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
           jobId, operation: "web_search",
-          cooldown: retryAfterMs => callback(env, jobId, { action: "browser-cooldown", retryAfterMs }),
-          release: () => callback(env, jobId, { action: "provider-release", token: request.headers.get("x-research-browser-reservation") }),
-          permit: () => callback(env, jobId, { action: "browser-permit", token: request.headers.get("x-research-browser-reservation"), url: `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}` }) as Promise<{ granted: boolean; retryAfterMs: number }>,
+          cooldown: retryAfterMs => providerAction(env, jobId, { action: "browser-cooldown", retryAfterMs }),
+          release: () => providerAction(env, jobId, { action: "provider-release", token: request.headers.get("x-research-browser-reservation") }),
+          permit: () => providerAction(env, jobId, { action: "browser-permit", token: request.headers.get("x-research-browser-reservation"), url: `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}` }) as Promise<{ granted: boolean; retryAfterMs: number }>,
         });
         const results = searchResults(markdown);
         const seeds = results.map(r => r.url).slice(0, 6);
@@ -390,3 +406,4 @@ const worker = {
 };
 
 export default worker;
+export { ProviderCoordinator };

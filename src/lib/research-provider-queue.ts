@@ -21,7 +21,7 @@ async function changeQueue<T>(change: (queue: ProviderQueue, now: number) => { q
 export async function reserveResearchProvider(jobId: string, token: string, provider: ResearchProvider, maxWaitMs?: number, paid = false) {
   return await changeQueue((queue, now) => {
     const result = reserveProvider(queue, jobId, token, provider, now, maxWaitMs, localProviderPolicy(process.env), paid);
-    return { queue: result.queue, value: { managed: paid, granted: Boolean(result.reservation), queued: result.queued === true, retryAfterMs: result.retryAfterMs, ...(result.reservation ? { after: result.reservation.after, until: result.reservation.until, token } : {}) } };
+    return { queue: result.queue, value: { managed: paid, granted: Boolean(result.reservation), queued: 'queued' in result && result.queued === true, retryAfterMs: result.retryAfterMs, ...(result.reservation ? { after: result.reservation.after, until: result.reservation.until, token } : {}) } };
   }) || { granted: false, retryAfterMs: 1000 };
 }
 export async function consumeResearchProvider(jobId: string, token: string) {

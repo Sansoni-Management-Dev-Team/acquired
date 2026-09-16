@@ -20,6 +20,8 @@ it("enables parity without forwarding CF credentials, remote bindings or OpenSER
   expect(config.app.CRAWL4AI_URL).toBe("");
   const worker = localWorkerConfig({ compatibility_date: "2026-09-08", vars: { APP_ORIGIN: "https://production.example" }, browser: { binding: "BROWSER", remote: true } }, config.origin, "/local/index.ts", config.policy);
   expect(worker).not.toHaveProperty("browser");
+  expect(worker.durable_objects.bindings).toEqual([{ name: "PROVIDER_COORDINATOR", class_name: "ProviderCoordinator" }]);
+  expect(worker.exports.ProviderCoordinator).toEqual({ type: "durable-object", storage: "sqlite" });
   expect(worker.vars).toEqual({ APP_ORIGIN: "http://127.0.0.1:3010", LOCAL_DEVELOPMENT: "true", LOCAL_RESEARCH_POLICY: "production" });
 });
 it("rejects missing credentials or conflicting ports instead of using production", () => {
