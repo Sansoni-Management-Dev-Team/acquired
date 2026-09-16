@@ -7,10 +7,11 @@ describe("FirmableClient", () => {
   it("uses one identifier and always requests AU", async () => {
     const fetcher = vi.fn(async (_input: string | URL | Request, _init?: RequestInit) => {
       void _input; void _init;
-      return response({ id: "firm-1", revenue: "$10m-$20m" });
+      return response({ id: "firm-1", revenue: "$10m-$20m", provider_only_field: { nested: true } });
     });
     const result = await new FirmableClient({ apiKey: "test", fetch: fetcher }).enrichCompany({ abn: "12 345 678 901", fqdn: "ignored.example" });
     expect(result.id).toBe("firm-1");
+    expect(result.provider_only_field).toEqual({ nested: true });
     expect(String(fetcher.mock.calls[0][0])).toContain("country=AU&abn=12345678901");
     expect(String(fetcher.mock.calls[0][0])).not.toContain("fqdn");
   });

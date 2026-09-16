@@ -82,12 +82,16 @@ function sectorEvidence(raw: Record<string, unknown>, place: GooglePlaceCandidat
   return value(queryMatch || bestSector(raw, mandate), queryMatch ? "Google Places query match" : "Firmable", capturedAt, queryMatch ? 65 : 60, website);
 }
 
-function firmableSourceData(raw: Record<string, unknown>, fallbackId: string) {
+function firmableSourceData(raw: Record<string, unknown>, fallbackId: string, capturedAt: string) {
   const industryCodes = raw.industry_codes && typeof raw.industry_codes === "object" && !Array.isArray(raw.industry_codes)
     ? raw.industry_codes as Record<string, unknown>
     : {};
   return {
     firmableId: stringValue(raw.id) || fallbackId,
+    capturedAt,
+    // Retain the complete provider response because a company enrichment consumes
+    // credits and Firmable may add fields that the normalized model does not use yet.
+    rawResponse: raw,
     name: stringValue(raw.name),
     website: stringValue(raw.website),
     domain: stringValue(raw.fqdn),
@@ -155,6 +159,6 @@ export function mapFirmableCompany(raw: Record<string, unknown>, place: GooglePl
     establishedYear: establishedYear === undefined ? missing("Not provided by Firmable", "Firmable", capturedAt) : value(establishedYear, "Firmable", capturedAt, 75, website),
     signals: [],
     status: "enriched",
-    sourceData: sourceData(place, firmableSourceData(raw, firmableId)),
+    sourceData: sourceData(place, firmableSourceData(raw, firmableId, capturedAt)),
   };
 }

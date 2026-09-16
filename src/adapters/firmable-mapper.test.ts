@@ -10,17 +10,25 @@ describe("Firmable mapping", () => {
 
   it("maps an enriched company without inventing EBITDA", () => {
     const mandate = parseMandate("Find building services businesses in Melbourne with revenue $2m-$20m and at least $1m EBITDA");
-    const target = mapFirmableCompany({
+    const response = {
       id: "f1", name: "Example Building Services", fqdn: "example.com", industries: ["Building services"],
       revenue: "$5M-$10M", au_employee_count: 42, year_founded: 1998, states: ["Victoria"], hq_location: "Scoresby VIC 3179",
-    }, { id: "p1", name: "Example", formattedAddress: "Scoresby VIC 3179, Australia", website: "https://example.com" }, mandate, "org-1");
+      provider_only_field: { nested: ["retained", 7] },
+    };
+    const target = mapFirmableCompany(response, { id: "p1", name: "Example", formattedAddress: "Scoresby VIC 3179, Australia", website: "https://example.com" }, mandate, "org-1");
     expect(target.status).toBe("enriched");
     expect(target.revenue.value).toEqual({ kind: "band", label: "$5M-$10M" });
     expect(target.headcount.value).toBe(42);
     expect(target.ebitda.value).toBeNull();
     expect(target.ebitda.missingReason).toContain("does not provide EBITDA");
     expect(target.sourceData?.googlePlaces?.placeId).toBe("p1");
-    expect(target.sourceData?.firmable).toEqual(expect.objectContaining({ firmableId: "f1", domain: "example.com", industries: ["Building services"] }));
+    expect(target.sourceData?.firmable).toEqual(expect.objectContaining({
+      firmableId: "f1",
+      domain: "example.com",
+      industries: ["Building services"],
+      capturedAt: expect.any(String),
+      rawResponse: response,
+    }));
   });
 
   it("uses structured Google locality and query evidence when Firmable returns a broad sector", () => {

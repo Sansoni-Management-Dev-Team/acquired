@@ -15,7 +15,7 @@ describe("targetRecordToRankedTarget", () => {
         ebitda: { value: null, missingReason: "Firmable does not provide EBITDA", provenance: { source: "Firmable", capturedAt, confidence: 100 } },
         headcount: { value: 42, provenance: { source: "Firmable", capturedAt, confidence: 75 } },
         establishedYear: { value: 1984, provenance: { source: "Firmable", capturedAt, confidence: 75 } },
-        firmable: { firmableId: "firmable-1", website: "https://example.com", industries: ["Industrials"], keywords: [], states: ["VIC"], locations: ["Melbourne"] },
+        firmable: { firmableId: "firmable-1", website: "https://example.com", industries: ["Industrials"], keywords: [], states: ["VIC"], locations: ["Melbourne"], rawResponse: { id: "firmable-1", provider_only_field: "retained" } },
         scoreExplanation: { tensions: ["Financeability is unscored until operating and lender evidence is collected."], reasons: [{ axis: "fit", label: "Located in VIC", contribution: 10, source: "Discovery record" }] },
       },
       fitScore: 40, ripenessScore: 6, financeabilityScore: null, confidenceScore: 51,
@@ -33,7 +33,7 @@ describe("targetRecordToRankedTarget", () => {
     expect(target).toMatchObject({
       id: row.id, companyName: "Example Industrial", suburb: "Melbourne", state: "VIC",
       scores: { fit: 40, ripeness: 6, financeability: null, confidence: 51 },
-      sourceData: { googlePlaces: { placeId: "place-1" }, firmable: { firmableId: "firmable-1" } },
+      sourceData: { googlePlaces: { placeId: "place-1" }, firmable: { firmableId: "firmable-1", rawResponse: { id: "firmable-1", provider_only_field: "retained" } } },
     });
     expect(target.signals).toEqual([expect.objectContaining({ kind: "company_longevity", weight: "low" })]);
     expect(target.scores.reasons).toEqual([expect.objectContaining({ label: "Located in VIC" })]);

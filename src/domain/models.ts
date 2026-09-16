@@ -59,6 +59,8 @@ export type GooglePlacesSourceData = {
 
 export type FirmableSourceData = {
   firmableId: string;
+  capturedAt?: string;
+  rawResponse?: Record<string, unknown>;
   name?: string;
   website?: string;
   domain?: string;
