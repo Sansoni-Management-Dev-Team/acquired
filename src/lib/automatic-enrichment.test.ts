@@ -19,7 +19,7 @@ it('starts company and people enrichment in separate slots while discovery is ac
   await dispatchAutomaticEnrichment('org', 'root');
   expect(mocks.create).toHaveBeenCalledTimes(2);
   const configs = mocks.create.mock.calls.map(call => call[3]);
-  expect(configs.map(c => c.executionSlot)).toEqual([1, 2]);
+  expect(configs.map(c => c.executionSlot)).toEqual(["mandate:1", "mandate:2"]);
   expect(configs.map(c => c.purpose)).toEqual(['firmographics', 'people']);
   expect(configs.every(c => c.researchRunId === root.id && c.parentJobId === root.id)).toBe(true);
   expect(mocks.worker).toHaveBeenCalledTimes(2);
@@ -32,7 +32,7 @@ it('uses both free slots without waiting for the first dispatch to finish', asyn
   release(); await pending;
 });
 it('does not overfill active slots', async () => {
-  mocks.where.mockReset().mockResolvedValueOnce([root, { id: 'a', status: 'crawling', config: { executionSlot: 1 } }, { id: 'b', status: 'crawling', config: { executionSlot: 2 } }]).mockResolvedValueOnce(evidence);
+  mocks.where.mockReset().mockResolvedValueOnce([root, ...Array.from({ length: 40 }, (_, i) => ({ id: `active-${i}`, mandateId: 'mandate', status: 'crawling', config: { executionSlot: i + 1 } }))]).mockResolvedValueOnce(evidence);
   await dispatchAutomaticEnrichment('org', 'root');
   expect(mocks.create).not.toHaveBeenCalled();
 });
@@ -63,4 +63,21 @@ it('does not spend enrichment effort on directory leads until their own website 
   mocks.where.mockReset().mockResolvedValueOnce([discovered]).mockResolvedValueOnce([evidence[0]]);
   await dispatchAutomaticEnrichment('org', 'root');
   expect(mocks.create).not.toHaveBeenCalled();
+});
+
+it('another mandate occupying both enrichment slots does not block this mandate', async () => {
+  mocks.where.mockReset().mockResolvedValueOnce([root, {id:'other-1',mandateId:'other',status:'crawling',config:{executionSlot:'other:1'}}, {id:'other-2',mandateId:'other',status:'crawling',config:{executionSlot:'other:2'}}]).mockResolvedValueOnce(evidence);
+  await dispatchAutomaticEnrichment('org','root');
+  expect(mocks.create).toHaveBeenCalledTimes(2);
+  expect(mocks.create.mock.calls.map(call => call[3].executionSlot)).toEqual(['mandate:1','mandate:2']);
+});
+
+it('starts paired research for 20 distinct businesses and holds the 21st', async () => {
+  const members = Array.from({ length: 21 }, (_, i) => ({ target: { ...target, id: `target-${i}`, domain: `instruments-${i}.example.com` }, assessment: { stage: 'identified' } }));
+  mocks.memberships.mockResolvedValue(members);
+  mocks.where.mockReset().mockResolvedValueOnce([root]).mockResolvedValueOnce(members.flatMap(m => evidence.map(f => ({ ...f, targetId: m.target.id, sourceUrl: `https://${m.target.domain}/`, evidence: { ...f.evidence, website: `https://${m.target.domain}/` } }))));
+  await dispatchAutomaticEnrichment('org', 'root');
+  expect(mocks.create).toHaveBeenCalledTimes(40);
+  expect(new Set(mocks.create.mock.calls.map(c => c[3].targetId)).size).toBe(20);
+  expect(new Set(mocks.create.mock.calls.map(c => c[3].executionSlot)).size).toBe(40);
 });

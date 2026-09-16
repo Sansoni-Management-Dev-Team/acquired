@@ -1,0 +1,4926 @@
+{
+  "sourceUrl": "https://www.abs.gov.au/statistics/industry/industry-overview/australian-industry/2024-25/81550DO001_202425.xlsx",
+  "releaseDate": "2026-06-19",
+  "latestPeriod": "2024-25",
+  "methodologyUrl": "https://www.abs.gov.au/methodologies/australian-industry-methodology/2024-25",
+  "benchmarks": [
+    {
+      "id": "anzsic-01",
+      "label": "Agriculture",
+      "division": "Agriculture, forestry and fishing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 342.4,
+          "ebitdaMillions": 22633.0,
+          "cells": "B9, H9"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 334.1,
+          "ebitdaMillions": 13700.0,
+          "cells": "B10, H10"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 342.1,
+          "ebitdaMillions": 16390.0,
+          "cells": "B11, H11"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-02",
+      "label": "Aquaculture",
+      "division": "Agriculture, forestry and fishing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 7.3,
+          "ebitdaMillions": 253.0,
+          "cells": "B13, H13"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 7.5,
+          "ebitdaMillions": 220.0,
+          "cells": "B14, H14"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 7.8,
+          "ebitdaMillions": 168.0,
+          "cells": "B15, H15"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-03",
+      "label": "Forestry and logging",
+      "division": "Agriculture, forestry and fishing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 10.4,
+          "ebitdaMillions": 799.0,
+          "cells": "B17, H17"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 10.2,
+          "ebitdaMillions": 787.0,
+          "cells": "B18, H18"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 10.4,
+          "ebitdaMillions": 808.0,
+          "cells": "B19, H19"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-04",
+      "label": "Fishing, hunting and trapping",
+      "division": "Agriculture, forestry and fishing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 9.9,
+          "ebitdaMillions": 574.0,
+          "cells": "B21, H21"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 9.3,
+          "ebitdaMillions": 598.0,
+          "cells": "B22, H22"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 8.7,
+          "ebitdaMillions": 649.0,
+          "cells": "B23, H23"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-05",
+      "label": "Agriculture, forestry and fishing support services",
+      "division": "Agriculture, forestry and fishing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 48.3,
+          "ebitdaMillions": 2707.0,
+          "cells": "B25, H25"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 46.7,
+          "ebitdaMillions": 2211.0,
+          "cells": "B26, H26"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 47.1,
+          "ebitdaMillions": 2332.0,
+          "cells": "B27, H27"
+        }
+      ]
+    },
+    {
+      "id": "division-agriculture-forestry-and-fishing",
+      "label": "Agriculture, forestry and fishing",
+      "division": "Agriculture, forestry and fishing",
+      "level": "division",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 418.2,
+          "ebitdaMillions": 26966.0,
+          "cells": "B29, H29"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 407.9,
+          "ebitdaMillions": 17516.0,
+          "cells": "B30, H30"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 416.1,
+          "ebitdaMillions": 20348.0,
+          "cells": "B31, H31"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-06",
+      "label": "Coal mining",
+      "division": "Mining",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 42.5,
+          "ebitdaMillions": 73623.0,
+          "cells": "B34, H34"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 46.9,
+          "ebitdaMillions": 36319.0,
+          "cells": "B35, H35"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 49.4,
+          "ebitdaMillions": 18332.0,
+          "cells": "B36, H36"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-07",
+      "label": "Oil and gas extraction",
+      "division": "Mining",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 18.3,
+          "ebitdaMillions": 89231.0,
+          "cells": "B38, H38"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 19.2,
+          "ebitdaMillions": 72522.0,
+          "cells": "B39, H39"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 19.6,
+          "ebitdaMillions": 68033.0,
+          "cells": "B40, H40"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-08",
+      "label": "Metal ore mining",
+      "division": "Mining",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 94.2,
+          "ebitdaMillions": 100528.0,
+          "cells": "B42, H42"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 101.2,
+          "ebitdaMillions": 109507.0,
+          "cells": "B43, H43"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 104.3,
+          "ebitdaMillions": 93396.0,
+          "cells": "B44, H44"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-09",
+      "label": "Non-metallic mineral mining and quarrying",
+      "division": "Mining",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 14.8,
+          "ebitdaMillions": 11298.0,
+          "cells": "B46, H46"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 16.0,
+          "ebitdaMillions": 11890.0,
+          "cells": "B47, H47"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 16.9,
+          "ebitdaMillions": 2851.0,
+          "cells": "B48, H48"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-10",
+      "label": "Exploration and other mining support services",
+      "division": "Mining",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 49.0,
+          "ebitdaMillions": 397.0,
+          "cells": "B50, H50"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 53.1,
+          "ebitdaMillions": 302.0,
+          "cells": "B51, H51"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 51.2,
+          "ebitdaMillions": 568.0,
+          "cells": "B52, H52"
+        }
+      ]
+    },
+    {
+      "id": "division-mining",
+      "label": "Mining",
+      "division": "Mining",
+      "level": "division",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 218.7,
+          "ebitdaMillions": 275078.0,
+          "cells": "B54, H54"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 236.4,
+          "ebitdaMillions": 230538.0,
+          "cells": "B55, H55"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 241.4,
+          "ebitdaMillions": 183179.0,
+          "cells": "B56, H56"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-11",
+      "label": "Food product manufacturing",
+      "division": "Manufacturing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 213.6,
+          "ebitdaMillions": 8293.0,
+          "cells": "B59, H59"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 224.0,
+          "ebitdaMillions": 10388.0,
+          "cells": "B60, H60"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 231.5,
+          "ebitdaMillions": 11203.0,
+          "cells": "B61, H61"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-12",
+      "label": "Beverage and tobacco product manufacturing",
+      "division": "Manufacturing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 38.7,
+          "ebitdaMillions": 1228.0,
+          "cells": "B63, H63"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 40.5,
+          "ebitdaMillions": 2189.0,
+          "cells": "B64, H64"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 39.9,
+          "ebitdaMillions": 2275.0,
+          "cells": "B65, H65"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-13",
+      "label": "Textile, leather, clothing and footwear manufacturing",
+      "division": "Manufacturing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 28.1,
+          "ebitdaMillions": 950.0,
+          "cells": "B67, H67"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 27.2,
+          "ebitdaMillions": 861.0,
+          "cells": "B68, H68"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 24.5,
+          "ebitdaMillions": 569.0,
+          "cells": "B69, H69"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-14",
+      "label": "Wood product manufacturing",
+      "division": "Manufacturing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 48.0,
+          "ebitdaMillions": 3252.0,
+          "cells": "B71, H71"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 47.1,
+          "ebitdaMillions": 2356.0,
+          "cells": "B72, H72"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 47.8,
+          "ebitdaMillions": 2420.0,
+          "cells": "B73, H73"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-15",
+      "label": "Pulp, paper and converted paper product manufacturing",
+      "division": "Manufacturing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 15.3,
+          "ebitdaMillions": 715.0,
+          "cells": "B75, H75"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 14.6,
+          "ebitdaMillions": 951.0,
+          "cells": "B76, H76"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 13.7,
+          "ebitdaMillions": 911.0,
+          "cells": "B77, H77"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-16",
+      "label": "Printing (including the reproduction of recorded media)",
+      "division": "Manufacturing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 26.2,
+          "ebitdaMillions": 943.0,
+          "cells": "B79, H79"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 25.5,
+          "ebitdaMillions": 725.0,
+          "cells": "B80, H80"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 24.0,
+          "ebitdaMillions": 810.0,
+          "cells": "B81, H81"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-17",
+      "label": "Petroleum and coal product manufacturing",
+      "division": "Manufacturing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 3.9,
+          "ebitdaMillions": 1428.0,
+          "cells": "B83, H83"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 3.7,
+          "ebitdaMillions": 950.0,
+          "cells": "B84, H84"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 3.6,
+          "ebitdaMillions": 759.0,
+          "cells": "B85, H85"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-18",
+      "label": "Basic chemical and chemical product manufacturing",
+      "division": "Manufacturing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 50.3,
+          "ebitdaMillions": 5253.0,
+          "cells": "B87, H87"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 50.3,
+          "ebitdaMillions": 3240.0,
+          "cells": "B88, H88"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 50.0,
+          "ebitdaMillions": 3827.0,
+          "cells": "B89, H89"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-19",
+      "label": "Polymer product and rubber product manufacturing",
+      "division": "Manufacturing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 40.4,
+          "ebitdaMillions": 2141.0,
+          "cells": "B91, H91"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 40.0,
+          "ebitdaMillions": 1956.0,
+          "cells": "B92, H92"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 40.9,
+          "ebitdaMillions": 1611.0,
+          "cells": "B93, H93"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-20",
+      "label": "Non-metallic mineral product manufacturing",
+      "division": "Manufacturing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 44.1,
+          "ebitdaMillions": 3225.0,
+          "cells": "B95, H95"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 43.3,
+          "ebitdaMillions": 3635.0,
+          "cells": "B96, H96"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 42.2,
+          "ebitdaMillions": 3712.0,
+          "cells": "B97, H97"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-21",
+      "label": "Primary metal and metal product manufacturing",
+      "division": "Manufacturing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 43.2,
+          "ebitdaMillions": 5428.0,
+          "cells": "B99, H99"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 42.4,
+          "ebitdaMillions": 3856.0,
+          "cells": "B100, H100"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 40.1,
+          "ebitdaMillions": 3419.0,
+          "cells": "B101, H101"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-22",
+      "label": "Fabricated metal product manufacturing",
+      "division": "Manufacturing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 110.6,
+          "ebitdaMillions": 4722.0,
+          "cells": "B103, H103"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 109.5,
+          "ebitdaMillions": 5104.0,
+          "cells": "B104, H104"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 114.8,
+          "ebitdaMillions": 5357.0,
+          "cells": "B105, H105"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-23",
+      "label": "Transport equipment manufacturing",
+      "division": "Manufacturing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 84.6,
+          "ebitdaMillions": 3750.0,
+          "cells": "B107, H107"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 88.4,
+          "ebitdaMillions": 3689.0,
+          "cells": "B108, H108"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 85.4,
+          "ebitdaMillions": 3887.0,
+          "cells": "B109, H109"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-24",
+      "label": "Machinery and equipment manufacturing",
+      "division": "Manufacturing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 109.3,
+          "ebitdaMillions": 6930.0,
+          "cells": "B111, H111"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 106.1,
+          "ebitdaMillions": 6844.0,
+          "cells": "B112, H112"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 106.4,
+          "ebitdaMillions": 6849.0,
+          "cells": "B113, H113"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-25",
+      "label": "Furniture and other manufacturing",
+      "division": "Manufacturing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 36.6,
+          "ebitdaMillions": 1323.0,
+          "cells": "B115, H115"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 36.8,
+          "ebitdaMillions": 1234.0,
+          "cells": "B116, H116"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 36.0,
+          "ebitdaMillions": 1121.0,
+          "cells": "B117, H117"
+        }
+      ]
+    },
+    {
+      "id": "division-manufacturing",
+      "label": "Manufacturing",
+      "division": "Manufacturing",
+      "level": "division",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 892.9,
+          "ebitdaMillions": 49581.0,
+          "cells": "B119, H119"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 899.3,
+          "ebitdaMillions": 47977.0,
+          "cells": "B120, H120"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 900.8,
+          "ebitdaMillions": 48730.0,
+          "cells": "B121, H121"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-26",
+      "label": "Electricity supply",
+      "division": "Electricity, gas, water and waste services",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 54.6,
+          "ebitdaMillions": 17087.0,
+          "cells": "B124, H124"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 59.8,
+          "ebitdaMillions": 18930.0,
+          "cells": "B125, H125"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 63.8,
+          "ebitdaMillions": 19415.0,
+          "cells": "B126, H126"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-27",
+      "label": "Gas supply",
+      "division": "Electricity, gas, water and waste services",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 3.1,
+          "ebitdaMillions": 2689.0,
+          "cells": "B128, H128"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 3.3,
+          "ebitdaMillions": 2494.0,
+          "cells": "B129, H129"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 3.3,
+          "ebitdaMillions": 2263.0,
+          "cells": "B130, H130"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-28",
+      "label": "Water supply, sewerage and drainage services",
+      "division": "Electricity, gas, water and waste services",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 33.7,
+          "ebitdaMillions": 10167.0,
+          "cells": "B132, H132"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 36.5,
+          "ebitdaMillions": 10879.0,
+          "cells": "B133, H133"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 38.5,
+          "ebitdaMillions": 11810.0,
+          "cells": "B134, H134"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-29",
+      "label": "Waste collection, treatment and disposal services",
+      "division": "Electricity, gas, water and waste services",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 43.4,
+          "ebitdaMillions": 2872.0,
+          "cells": "B136, H136"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 42.2,
+          "ebitdaMillions": 2924.0,
+          "cells": "B137, H137"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 44.6,
+          "ebitdaMillions": 3443.0,
+          "cells": "B138, H138"
+        }
+      ]
+    },
+    {
+      "id": "division-electricity-gas-water-and-waste-services",
+      "label": "Electricity, gas, water and waste services",
+      "division": "Electricity, gas, water and waste services",
+      "level": "division",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 134.8,
+          "ebitdaMillions": 32816.0,
+          "cells": "B140, H140"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 141.7,
+          "ebitdaMillions": 35227.0,
+          "cells": "B141, H141"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 150.2,
+          "ebitdaMillions": 36931.0,
+          "cells": "B142, H142"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-30",
+      "label": "Building construction",
+      "division": "Construction",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 247.5,
+          "ebitdaMillions": 16008.0,
+          "cells": "B145, H145"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 253.9,
+          "ebitdaMillions": 16498.0,
+          "cells": "B146, H146"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 258.8,
+          "ebitdaMillions": 17829.0,
+          "cells": "B147, H147"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-31",
+      "label": "Heavy and civil engineering construction",
+      "division": "Construction",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 142.4,
+          "ebitdaMillions": 6623.0,
+          "cells": "B149, H149"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 159.5,
+          "ebitdaMillions": 9555.0,
+          "cells": "B150, H150"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 165.9,
+          "ebitdaMillions": 10072.0,
+          "cells": "B151, H151"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-32",
+      "label": "Construction services",
+      "division": "Construction",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 841.6,
+          "ebitdaMillions": 37022.0,
+          "cells": "B153, H153"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 883.0,
+          "ebitdaMillions": 37219.0,
+          "cells": "B154, H154"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 888.3,
+          "ebitdaMillions": 39212.0,
+          "cells": "B155, H155"
+        }
+      ]
+    },
+    {
+      "id": "division-construction",
+      "label": "Construction",
+      "division": "Construction",
+      "level": "division",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 1231.5,
+          "ebitdaMillions": 59654.0,
+          "cells": "B157, H157"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 1296.4,
+          "ebitdaMillions": 63271.0,
+          "cells": "B158, H158"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 1313.0,
+          "ebitdaMillions": 67113.0,
+          "cells": "B159, H159"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-33",
+      "label": "Basic material wholesaling",
+      "division": "Wholesale trade",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 118.6,
+          "ebitdaMillions": 14541.0,
+          "cells": "B162, H162"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 129.0,
+          "ebitdaMillions": 13186.0,
+          "cells": "B163, H163"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 134.7,
+          "ebitdaMillions": 13083.0,
+          "cells": "B164, H164"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-34",
+      "label": "Machinery and equipment wholesaling",
+      "division": "Wholesale trade",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 184.6,
+          "ebitdaMillions": 12217.0,
+          "cells": "B166, H166"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 192.6,
+          "ebitdaMillions": 13686.0,
+          "cells": "B167, H167"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 200.0,
+          "ebitdaMillions": 14422.0,
+          "cells": "B168, H168"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-35",
+      "label": "Motor vehicle and motor vehicle parts wholesaling",
+      "division": "Wholesale trade",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 54.4,
+          "ebitdaMillions": 4482.0,
+          "cells": "B170, H170"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 53.0,
+          "ebitdaMillions": 5046.0,
+          "cells": "B171, H171"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 52.4,
+          "ebitdaMillions": 4660.0,
+          "cells": "B172, H172"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-36",
+      "label": "Grocery, liquor and tobacco product wholesaling",
+      "division": "Wholesale trade",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 99.1,
+          "ebitdaMillions": 5089.0,
+          "cells": "B174, H174"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 95.4,
+          "ebitdaMillions": 5245.0,
+          "cells": "B175, H175"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 93.7,
+          "ebitdaMillions": 5722.0,
+          "cells": "B176, H176"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-37",
+      "label": "Other goods wholesaling",
+      "division": "Wholesale trade",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 108.5,
+          "ebitdaMillions": 5818.0,
+          "cells": "B178, H178"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 109.2,
+          "ebitdaMillions": 6901.0,
+          "cells": "B179, H179"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 110.7,
+          "ebitdaMillions": 5743.0,
+          "cells": "B180, H180"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-38",
+      "label": "Commission-based wholesaling",
+      "division": "Wholesale trade",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 31.8,
+          "ebitdaMillions": 2374.0,
+          "cells": "B182, H182"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 31.7,
+          "ebitdaMillions": 2414.0,
+          "cells": "B183, H183"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 30.9,
+          "ebitdaMillions": 2284.0,
+          "cells": "B184, H184"
+        }
+      ]
+    },
+    {
+      "id": "division-wholesale-trade",
+      "label": "Wholesale trade",
+      "division": "Wholesale trade",
+      "level": "division",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 597.0,
+          "ebitdaMillions": 44522.0,
+          "cells": "B186, H186"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 611.0,
+          "ebitdaMillions": 46477.0,
+          "cells": "B187, H187"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 622.5,
+          "ebitdaMillions": 45912.0,
+          "cells": "B188, H188"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-39",
+      "label": "Motor vehicle and motor vehicle parts retailing",
+      "division": "Retail trade",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 117.0,
+          "ebitdaMillions": 6299.0,
+          "cells": "B191, H191"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 119.0,
+          "ebitdaMillions": 6294.0,
+          "cells": "B192, H192"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 119.7,
+          "ebitdaMillions": 5315.0,
+          "cells": "B193, H193"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-40",
+      "label": "Fuel retailing",
+      "division": "Retail trade",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 47.9,
+          "ebitdaMillions": 2774.0,
+          "cells": "B195, H195"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 56.1,
+          "ebitdaMillions": 2337.0,
+          "cells": "B196, H196"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 60.0,
+          "ebitdaMillions": 2707.0,
+          "cells": "B197, H197"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-41",
+      "label": "Food retailing",
+      "division": "Retail trade",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 518.7,
+          "ebitdaMillions": 12518.0,
+          "cells": "B199, H199"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 506.3,
+          "ebitdaMillions": 12903.0,
+          "cells": "B200, H200"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 496.0,
+          "ebitdaMillions": 13956.0,
+          "cells": "B201, H201"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-42",
+      "label": "Other store-based retailing",
+      "division": "Retail trade",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 731.7,
+          "ebitdaMillions": 24786.0,
+          "cells": "B203, H203"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 754.2,
+          "ebitdaMillions": 26491.0,
+          "cells": "B204, H204"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 750.8,
+          "ebitdaMillions": 27347.0,
+          "cells": "B205, H205"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-43",
+      "label": "Non-store retailing and retail commission-based buying and/or selling",
+      "division": "Retail trade",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 62.7,
+          "ebitdaMillions": 2686.0,
+          "cells": "B207, H207"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 66.4,
+          "ebitdaMillions": 2837.0,
+          "cells": "B208, H208"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 67.4,
+          "ebitdaMillions": 3751.0,
+          "cells": "B209, H209"
+        }
+      ]
+    },
+    {
+      "id": "division-retail-trade",
+      "label": "Retail trade",
+      "division": "Retail trade",
+      "level": "division",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 1478.0,
+          "ebitdaMillions": 49064.0,
+          "cells": "B211, H211"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 1502.0,
+          "ebitdaMillions": 50862.0,
+          "cells": "B212, H212"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 1493.8,
+          "ebitdaMillions": 53077.0,
+          "cells": "B213, H213"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-44",
+      "label": "Accommodation",
+      "division": "Accommodation and food services",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 134.7,
+          "ebitdaMillions": 4046.0,
+          "cells": "B216, H216"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 131.7,
+          "ebitdaMillions": 4420.0,
+          "cells": "B217, H217"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 136.8,
+          "ebitdaMillions": 5473.0,
+          "cells": "B218, H218"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-45",
+      "label": "Food and beverage services",
+      "division": "Accommodation and food services",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 1065.0,
+          "ebitdaMillions": 13831.0,
+          "cells": "B220, H220"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 1072.6,
+          "ebitdaMillions": 13309.0,
+          "cells": "B221, H221"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 1100.5,
+          "ebitdaMillions": 13847.0,
+          "cells": "B222, H222"
+        }
+      ]
+    },
+    {
+      "id": "division-accommodation-and-food-services",
+      "label": "Accommodation and food services",
+      "division": "Accommodation and food services",
+      "level": "division",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 1199.7,
+          "ebitdaMillions": 17877.0,
+          "cells": "B224, H224"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 1204.3,
+          "ebitdaMillions": 17729.0,
+          "cells": "B225, H225"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 1237.3,
+          "ebitdaMillions": 19320.0,
+          "cells": "B226, H226"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-46",
+      "label": "Road transport",
+      "division": "Transport, postal and warehousing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 294.7,
+          "ebitdaMillions": 10246.0,
+          "cells": "B229, H229"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 279.6,
+          "ebitdaMillions": 11159.0,
+          "cells": "B230, H230"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 285.0,
+          "ebitdaMillions": 11807.0,
+          "cells": "B231, H231"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-47",
+      "label": "Rail transport",
+      "division": "Transport, postal and warehousing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 43.7,
+          "ebitdaMillions": 3652.0,
+          "cells": "B233, H233"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 45.6,
+          "ebitdaMillions": 3783.0,
+          "cells": "B234, H234"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 47.5,
+          "ebitdaMillions": 3736.0,
+          "cells": "B235, H235"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-48",
+      "label": "Water transport",
+      "division": "Transport, postal and warehousing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 7.8,
+          "ebitdaMillions": 312.0,
+          "cells": "B237, H237"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 8.1,
+          "ebitdaMillions": 673.0,
+          "cells": "B238, H238"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 8.1,
+          "ebitdaMillions": 704.0,
+          "cells": "B239, H239"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-49",
+      "label": "Air and space transport",
+      "division": "Transport, postal and warehousing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2023-24",
+          "employmentThousands": 41.9,
+          "ebitdaMillions": 6037.0,
+          "cells": "B242, H242"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 42.5,
+          "ebitdaMillions": 6607.0,
+          "cells": "B243, H243"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-50",
+      "label": "Other transport",
+      "division": "Transport, postal and warehousing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2023-24",
+          "employmentThousands": 17.8,
+          "ebitdaMillions": 2751.0,
+          "cells": "B246, H246"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 15.5,
+          "ebitdaMillions": 2818.0,
+          "cells": "B247, H247"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-51",
+      "label": "Postal and courier pick-up and delivery services",
+      "division": "Transport, postal and warehousing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 97.5,
+          "ebitdaMillions": 1507.0,
+          "cells": "B249, H249"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 108.3,
+          "ebitdaMillions": 2836.0,
+          "cells": "B250, H250"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 125.8,
+          "ebitdaMillions": 3631.0,
+          "cells": "B251, H251"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-52",
+      "label": "Transport support services",
+      "division": "Transport, postal and warehousing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 127.7,
+          "ebitdaMillions": 15304.0,
+          "cells": "B253, H253"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 132.3,
+          "ebitdaMillions": 16278.0,
+          "cells": "B254, H254"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 139.9,
+          "ebitdaMillions": 18367.0,
+          "cells": "B255, H255"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-53",
+      "label": "Warehousing and storage services",
+      "division": "Transport, postal and warehousing",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 24.6,
+          "ebitdaMillions": 1496.0,
+          "cells": "B257, H257"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 25.3,
+          "ebitdaMillions": 1650.0,
+          "cells": "B258, H258"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 26.6,
+          "ebitdaMillions": 1600.0,
+          "cells": "B259, H259"
+        }
+      ]
+    },
+    {
+      "id": "division-transport-postal-and-warehousing",
+      "label": "Transport, postal and warehousing",
+      "division": "Transport, postal and warehousing",
+      "level": "division",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 652.1,
+          "ebitdaMillions": 41203.0,
+          "cells": "B261, H261"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 658.8,
+          "ebitdaMillions": 45167.0,
+          "cells": "B262, H262"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 690.9,
+          "ebitdaMillions": 49271.0,
+          "cells": "B263, H263"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-54",
+      "label": "Publishing (except internet and music publishing)",
+      "division": "Information media and telecommunications",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 43.8,
+          "ebitdaMillions": 722.0,
+          "cells": "B266, H266"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 43.9,
+          "ebitdaMillions": 1353.0,
+          "cells": "B267, H267"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 44.8,
+          "ebitdaMillions": 2126.0,
+          "cells": "B268, H268"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-55",
+      "label": "Motion picture and sound recording activities",
+      "division": "Information media and telecommunications",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 44.4,
+          "ebitdaMillions": 635.0,
+          "cells": "B270, H270"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 45.5,
+          "ebitdaMillions": 1268.0,
+          "cells": "B271, H271"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 44.2,
+          "ebitdaMillions": 1168.0,
+          "cells": "B272, H272"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-58",
+      "label": "Telecommunications services",
+      "division": "Information media and telecommunications",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 53.7,
+          "ebitdaMillions": 14747.0,
+          "cells": "B282, H282"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 50.9,
+          "ebitdaMillions": 15410.0,
+          "cells": "B283, H283"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 47.1,
+          "ebitdaMillions": 16772.0,
+          "cells": "B284, H284"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-59",
+      "label": "Internet service providers, web search portals and data processing services",
+      "division": "Information media and telecommunications",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 22.1,
+          "ebitdaMillions": 3306.0,
+          "cells": "B286, H286"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 22.2,
+          "ebitdaMillions": 4023.0,
+          "cells": "B287, H287"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 23.5,
+          "ebitdaMillions": 4908.0,
+          "cells": "B288, H288"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-60",
+      "label": "Library and other information services",
+      "division": "Information media and telecommunications",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 1.7,
+          "ebitdaMillions": 41.0,
+          "cells": "B290, H290"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 1.9,
+          "ebitdaMillions": 44.0,
+          "cells": "B291, H291"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 2.0,
+          "ebitdaMillions": 34.0,
+          "cells": "B292, H292"
+        }
+      ]
+    },
+    {
+      "id": "division-information-media-and-telecommunications",
+      "label": "Information media and telecommunications",
+      "division": "Information media and telecommunications",
+      "level": "division",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 189.0,
+          "ebitdaMillions": 21550.0,
+          "cells": "B294, H294"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 187.4,
+          "ebitdaMillions": 24007.0,
+          "cells": "B295, H295"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 184.6,
+          "ebitdaMillions": 26597.0,
+          "cells": "B296, H296"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-64",
+      "label": "Auxiliary Finance and Insurance Services",
+      "division": null,
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 173.0,
+          "ebitdaMillions": 14331.0,
+          "cells": "B299, H299"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 174.8,
+          "ebitdaMillions": 14282.0,
+          "cells": "B300, H300"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 180.7,
+          "ebitdaMillions": 15979.0,
+          "cells": "B301, H301"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-66",
+      "label": "Rental and hiring services (except real estate)",
+      "division": "Rental, hiring and real estate services",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 88.9,
+          "ebitdaMillions": 13620.0,
+          "cells": "B304, H304"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 90.4,
+          "ebitdaMillions": 13448.0,
+          "cells": "B305, H305"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 89.5,
+          "ebitdaMillions": 13565.0,
+          "cells": "B306, H306"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-67",
+      "label": "Property operators and real estate services",
+      "division": "Rental, hiring and real estate services",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 336.1,
+          "ebitdaMillions": 55627.0,
+          "cells": "B308, H308"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 325.2,
+          "ebitdaMillions": 61193.0,
+          "cells": "B309, H309"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 323.7,
+          "ebitdaMillions": 64683.0,
+          "cells": "B310, H310"
+        }
+      ]
+    },
+    {
+      "id": "division-rental-hiring-and-real-estate-services",
+      "label": "Rental, hiring and real estate services",
+      "division": "Rental, hiring and real estate services",
+      "level": "division",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 425.0,
+          "ebitdaMillions": 69247.0,
+          "cells": "B312, H312"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 415.5,
+          "ebitdaMillions": 74641.0,
+          "cells": "B313, H313"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 413.2,
+          "ebitdaMillions": 78247.0,
+          "cells": "B314, H314"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-69",
+      "label": "Professional, scientific and technical services (except computer system design and related services)",
+      "division": "Professional, scientific and technical services",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 1046.9,
+          "ebitdaMillions": 34167.0,
+          "cells": "B317, H317"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 1063.1,
+          "ebitdaMillions": 37916.0,
+          "cells": "B318, H318"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 1085.9,
+          "ebitdaMillions": 36163.0,
+          "cells": "B319, H319"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-70",
+      "label": "Computer system design and related services",
+      "division": "Professional, scientific and technical services",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 258.6,
+          "ebitdaMillions": 7254.0,
+          "cells": "B321, H321"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 252.9,
+          "ebitdaMillions": 7827.0,
+          "cells": "B322, H322"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 254.2,
+          "ebitdaMillions": 9965.0,
+          "cells": "B323, H323"
+        }
+      ]
+    },
+    {
+      "id": "division-professional-scientific-and-technical-services",
+      "label": "Professional, scientific and technical services",
+      "division": "Professional, scientific and technical services",
+      "level": "division",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 1305.5,
+          "ebitdaMillions": 41421.0,
+          "cells": "B325, H325"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 1316.0,
+          "ebitdaMillions": 45744.0,
+          "cells": "B326, H326"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 1340.2,
+          "ebitdaMillions": 46128.0,
+          "cells": "B327, H327"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-72",
+      "label": "Administrative services",
+      "division": "Administrative and support services",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 781.5,
+          "ebitdaMillions": 8274.0,
+          "cells": "B330, H330"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 776.9,
+          "ebitdaMillions": 8971.0,
+          "cells": "B331, H331"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 779.3,
+          "ebitdaMillions": 9317.0,
+          "cells": "B332, H332"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-73",
+      "label": "Building cleaning, pest control and other support services",
+      "division": "Administrative and support services",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 219.7,
+          "ebitdaMillions": 5179.0,
+          "cells": "B334, H334"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 227.1,
+          "ebitdaMillions": 4826.0,
+          "cells": "B335, H335"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 233.9,
+          "ebitdaMillions": 4666.0,
+          "cells": "B336, H336"
+        }
+      ]
+    },
+    {
+      "id": "division-administrative-and-support-services",
+      "label": "Administrative and support services",
+      "division": "Administrative and support services",
+      "level": "division",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 1001.2,
+          "ebitdaMillions": 13452.0,
+          "cells": "B338, H338"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 1004.0,
+          "ebitdaMillions": 13797.0,
+          "cells": "B339, H339"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 1013.2,
+          "ebitdaMillions": 13983.0,
+          "cells": "B340, H340"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-77",
+      "label": "Public order, safety and regulatory services (private)",
+      "division": "Public administration and safety (private)",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 99.2,
+          "ebitdaMillions": 1351.0,
+          "cells": "B343, H343"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 107.5,
+          "ebitdaMillions": 1325.0,
+          "cells": "B344, H344"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 108.1,
+          "ebitdaMillions": 1552.0,
+          "cells": "B345, H345"
+        }
+      ]
+    },
+    {
+      "id": "division-public-administration-and-safety-private",
+      "label": "Public administration and safety (private)",
+      "division": "Public administration and safety (private)",
+      "level": "division",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 99.2,
+          "ebitdaMillions": 1351.0,
+          "cells": "B347, H347"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 107.5,
+          "ebitdaMillions": 1325.0,
+          "cells": "B348, H348"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 108.1,
+          "ebitdaMillions": 1552.0,
+          "cells": "B349, H349"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-80",
+      "label": "Preschool and school education (private)",
+      "division": "Education and training (private)",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 296.9,
+          "ebitdaMillions": 3657.0,
+          "cells": "B352, H352"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 306.9,
+          "ebitdaMillions": 4109.0,
+          "cells": "B353, H353"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 319.0,
+          "ebitdaMillions": 3471.0,
+          "cells": "B354, H354"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-81",
+      "label": "Tertiary education (private)",
+      "division": "Education and training (private)",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 77.4,
+          "ebitdaMillions": 1791.0,
+          "cells": "B356, H356"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 76.4,
+          "ebitdaMillions": 1210.0,
+          "cells": "B357, H357"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 85.0,
+          "ebitdaMillions": 1524.0,
+          "cells": "B358, H358"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-82",
+      "label": "Adult, community and other education (private)",
+      "division": "Education and training (private)",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 119.9,
+          "ebitdaMillions": 1742.0,
+          "cells": "B360, H360"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 131.0,
+          "ebitdaMillions": 1995.0,
+          "cells": "B361, H361"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 138.2,
+          "ebitdaMillions": 2089.0,
+          "cells": "B362, H362"
+        }
+      ]
+    },
+    {
+      "id": "division-education-and-training-private",
+      "label": "Education and training (private)",
+      "division": "Education and training (private)",
+      "level": "division",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 494.3,
+          "ebitdaMillions": 7191.0,
+          "cells": "B364, H364"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 514.3,
+          "ebitdaMillions": 7315.0,
+          "cells": "B365, H365"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 542.3,
+          "ebitdaMillions": 7084.0,
+          "cells": "B366, H366"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-84",
+      "label": "Hospitals (private)",
+      "division": "Health care and social assistance (private)",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 151.6,
+          "ebitdaMillions": 926.0,
+          "cells": "B369, H369"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 155.4,
+          "ebitdaMillions": 1209.0,
+          "cells": "B370, H370"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 158.6,
+          "ebitdaMillions": 1213.0,
+          "cells": "B371, H371"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-85",
+      "label": "Medical and other health care services (private)",
+      "division": "Health care and social assistance (private)",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 562.2,
+          "ebitdaMillions": 31939.0,
+          "cells": "B373, H373"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 574.7,
+          "ebitdaMillions": 32287.0,
+          "cells": "B374, H374"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 626.8,
+          "ebitdaMillions": 33002.0,
+          "cells": "B375, H375"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-86",
+      "label": "Residential care services (private)",
+      "division": "Health care and social assistance (private)",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 356.5,
+          "ebitdaMillions": 2485.0,
+          "cells": "B377, H377"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 390.2,
+          "ebitdaMillions": 1556.0,
+          "cells": "B378, H378"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 418.6,
+          "ebitdaMillions": 1736.0,
+          "cells": "B379, H379"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-87",
+      "label": "Social assistance services (private)",
+      "division": "Health care and social assistance (private)",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 596.1,
+          "ebitdaMillions": 1080.0,
+          "cells": "B381, H381"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 683.3,
+          "ebitdaMillions": 2732.0,
+          "cells": "B382, H382"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 702.7,
+          "ebitdaMillions": 4647.0,
+          "cells": "B383, H383"
+        }
+      ]
+    },
+    {
+      "id": "division-health-care-and-social-assistance-private",
+      "label": "Health care and social assistance (private)",
+      "division": "Health care and social assistance (private)",
+      "level": "division",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 1666.4,
+          "ebitdaMillions": 36430.0,
+          "cells": "B385, H385"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 1803.6,
+          "ebitdaMillions": 37784.0,
+          "cells": "B386, H386"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 1906.7,
+          "ebitdaMillions": 40598.0,
+          "cells": "B387, H387"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-89",
+      "label": "Heritage activities",
+      "division": "Arts and recreation services",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 9.8,
+          "ebitdaMillions": 15.0,
+          "cells": "B390, H390"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 10.9,
+          "ebitdaMillions": 20.0,
+          "cells": "B391, H391"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 12.0,
+          "ebitdaMillions": -19.0,
+          "cells": "B392, H392"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-90",
+      "label": "Creative and performing arts activities",
+      "division": "Arts and recreation services",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 49.2,
+          "ebitdaMillions": 1568.0,
+          "cells": "B394, H394"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 47.0,
+          "ebitdaMillions": 1664.0,
+          "cells": "B395, H395"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 47.5,
+          "ebitdaMillions": 1454.0,
+          "cells": "B396, H396"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-91",
+      "label": "Sports and recreation activities",
+      "division": "Arts and recreation services",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 165.0,
+          "ebitdaMillions": 3221.0,
+          "cells": "B398, H398"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 188.0,
+          "ebitdaMillions": 2516.0,
+          "cells": "B399, H399"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 196.8,
+          "ebitdaMillions": 2880.0,
+          "cells": "B400, H400"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-92",
+      "label": "Gambling activities",
+      "division": "Arts and recreation services",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 33.0,
+          "ebitdaMillions": 2745.0,
+          "cells": "B402, H402"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 32.8,
+          "ebitdaMillions": 2644.0,
+          "cells": "B403, H403"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 33.2,
+          "ebitdaMillions": 2897.0,
+          "cells": "B404, H404"
+        }
+      ]
+    },
+    {
+      "id": "division-arts-and-recreation-services",
+      "label": "Arts and recreation services",
+      "division": "Arts and recreation services",
+      "level": "division",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 257.0,
+          "ebitdaMillions": 7548.0,
+          "cells": "B406, H406"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 278.7,
+          "ebitdaMillions": 6843.0,
+          "cells": "B407, H407"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 289.6,
+          "ebitdaMillions": 7212.0,
+          "cells": "B408, H408"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-94",
+      "label": "Repair and maintenance",
+      "division": "Other services",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 213.1,
+          "ebitdaMillions": 7133.0,
+          "cells": "B411, H411"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 223.3,
+          "ebitdaMillions": 7469.0,
+          "cells": "B412, H412"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 222.7,
+          "ebitdaMillions": 8181.0,
+          "cells": "B413, H413"
+        }
+      ]
+    },
+    {
+      "id": "anzsic-95",
+      "label": "Personal and other services",
+      "division": "Other services",
+      "level": "subdivision",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 371.7,
+          "ebitdaMillions": -1129.0,
+          "cells": "B415, H415"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 354.3,
+          "ebitdaMillions": -1478.0,
+          "cells": "B416, H416"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 364.8,
+          "ebitdaMillions": -103.0,
+          "cells": "B417, H417"
+        }
+      ]
+    },
+    {
+      "id": "division-other-services",
+      "label": "Other services",
+      "division": "Other services",
+      "level": "division",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 584.8,
+          "ebitdaMillions": 6004.0,
+          "cells": "B419, H419"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 577.6,
+          "ebitdaMillions": 5991.0,
+          "cells": "B420, H420"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 587.5,
+          "ebitdaMillions": 8078.0,
+          "cells": "B421, H421"
+        }
+      ]
+    },
+    {
+      "id": "all-industries",
+      "label": "All selected industries",
+      "division": null,
+      "level": "economy",
+      "sizeMin": null,
+      "sizeMax": null,
+      "sheet": "Table_1",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 13018.3,
+          "ebitdaMillions": 815287.0,
+          "cells": "B423, H423"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 13337.3,
+          "ebitdaMillions": 786494.0,
+          "cells": "B424, H424"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 13632.0,
+          "ebitdaMillions": 769337.0,
+          "cells": "B425, H425"
+        }
+      ]
+    },
+    {
+      "id": "size-agriculture-forestry-and-fishing-0-4",
+      "label": "Agriculture, forestry and fishing \u2014 0\u20134 employees",
+      "division": "Agriculture, forestry and fishing",
+      "level": "size",
+      "sizeMin": 0,
+      "sizeMax": 4,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 259.3,
+          "ebitdaMillions": 18223.0,
+          "cells": "B9, W9"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 249.6,
+          "ebitdaMillions": 13285.0,
+          "cells": "C9, X9"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 251.8,
+          "ebitdaMillions": 12710.0,
+          "cells": "D9, Y9"
+        }
+      ]
+    },
+    {
+      "id": "size-mining-0-4",
+      "label": "Mining \u2014 0\u20134 employees",
+      "division": "Mining",
+      "level": "size",
+      "sizeMin": 0,
+      "sizeMax": 4,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 7.9,
+          "ebitdaMillions": 31795.0,
+          "cells": "B10, W10"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 9.2,
+          "ebitdaMillions": 26313.0,
+          "cells": "C10, X10"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 7.8,
+          "ebitdaMillions": 23194.0,
+          "cells": "D10, Y10"
+        }
+      ]
+    },
+    {
+      "id": "size-manufacturing-0-4",
+      "label": "Manufacturing \u2014 0\u20134 employees",
+      "division": "Manufacturing",
+      "level": "size",
+      "sizeMin": 0,
+      "sizeMax": 4,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 102.6,
+          "ebitdaMillions": 5215.0,
+          "cells": "B11, W11"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 108.2,
+          "ebitdaMillions": 5262.0,
+          "cells": "C11, X11"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 107.6,
+          "ebitdaMillions": 5886.0,
+          "cells": "D11, Y11"
+        }
+      ]
+    },
+    {
+      "id": "size-electricity-gas-water-and-waste-services-0-4",
+      "label": "Electricity, gas, water and waste services \u2014 0\u20134 employees",
+      "division": "Electricity, gas, water and waste services",
+      "level": "size",
+      "sizeMin": 0,
+      "sizeMax": 4,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 8.5,
+          "ebitdaMillions": 3143.0,
+          "cells": "B12, W12"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 8.8,
+          "ebitdaMillions": 2742.0,
+          "cells": "C12, X12"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 17.6,
+          "ebitdaMillions": 3431.0,
+          "cells": "D12, Y12"
+        }
+      ]
+    },
+    {
+      "id": "size-construction-0-4",
+      "label": "Construction \u2014 0\u20134 employees",
+      "division": "Construction",
+      "level": "size",
+      "sizeMin": 0,
+      "sizeMax": 4,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 526.8,
+          "ebitdaMillions": 32891.0,
+          "cells": "B13, W13"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 561.7,
+          "ebitdaMillions": 34153.0,
+          "cells": "C13, X13"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 550.6,
+          "ebitdaMillions": 35355.0,
+          "cells": "D13, Y13"
+        }
+      ]
+    },
+    {
+      "id": "size-wholesale-trade-0-4",
+      "label": "Wholesale trade \u2014 0\u20134 employees",
+      "division": "Wholesale trade",
+      "level": "size",
+      "sizeMin": 0,
+      "sizeMax": 4,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 82.4,
+          "ebitdaMillions": 3905.0,
+          "cells": "B14, W14"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 77.5,
+          "ebitdaMillions": 6354.0,
+          "cells": "C14, X14"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 85.5,
+          "ebitdaMillions": 6522.0,
+          "cells": "D14, Y14"
+        }
+      ]
+    },
+    {
+      "id": "size-retail-trade-0-4",
+      "label": "Retail trade \u2014 0\u20134 employees",
+      "division": "Retail trade",
+      "level": "size",
+      "sizeMin": 0,
+      "sizeMax": 4,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 221.8,
+          "ebitdaMillions": 8531.0,
+          "cells": "B15, W15"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 199.3,
+          "ebitdaMillions": 9397.0,
+          "cells": "C15, X15"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 198.7,
+          "ebitdaMillions": 7916.0,
+          "cells": "D15, Y15"
+        }
+      ]
+    },
+    {
+      "id": "size-accommodation-and-food-services-0-4",
+      "label": "Accommodation and food services \u2014 0\u20134 employees",
+      "division": "Accommodation and food services",
+      "level": "size",
+      "sizeMin": 0,
+      "sizeMax": 4,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 165.1,
+          "ebitdaMillions": 3256.0,
+          "cells": "B16, W16"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 138.9,
+          "ebitdaMillions": 2863.0,
+          "cells": "C16, X16"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 211.9,
+          "ebitdaMillions": 5658.0,
+          "cells": "D16, Y16"
+        }
+      ]
+    },
+    {
+      "id": "size-transport-postal-and-warehousing-0-4",
+      "label": "Transport, postal and warehousing \u2014 0\u20134 employees",
+      "division": "Transport, postal and warehousing",
+      "level": "size",
+      "sizeMin": 0,
+      "sizeMax": 4,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 226.0,
+          "ebitdaMillions": 9984.0,
+          "cells": "B17, W17"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 238.0,
+          "ebitdaMillions": 10506.0,
+          "cells": "C17, X17"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 233.4,
+          "ebitdaMillions": 10596.0,
+          "cells": "D17, Y17"
+        }
+      ]
+    },
+    {
+      "id": "size-information-media-and-telecommunications-0-4",
+      "label": "Information media and telecommunications \u2014 0\u20134 employees",
+      "division": "Information media and telecommunications",
+      "level": "size",
+      "sizeMin": 0,
+      "sizeMax": 4,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 22.2,
+          "ebitdaMillions": 1134.0,
+          "cells": "B18, W18"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 26.1,
+          "ebitdaMillions": 1535.0,
+          "cells": "C18, X18"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 27.9,
+          "ebitdaMillions": 1632.0,
+          "cells": "D18, Y18"
+        }
+      ]
+    },
+    {
+      "id": "size-rental-hiring-and-real-estate-services-0-4",
+      "label": "Rental, hiring and real estate services \u2014 0\u20134 employees",
+      "division": "Rental, hiring and real estate services",
+      "level": "size",
+      "sizeMin": 0,
+      "sizeMax": 4,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 216.5,
+          "ebitdaMillions": 49718.0,
+          "cells": "B19, W19"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 197.3,
+          "ebitdaMillions": 55655.0,
+          "cells": "C19, X19"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 208.5,
+          "ebitdaMillions": 59693.0,
+          "cells": "D19, Y19"
+        }
+      ]
+    },
+    {
+      "id": "size-professional-scientific-and-technical-services-0-4",
+      "label": "Professional, scientific and technical services \u2014 0\u20134 employees",
+      "division": "Professional, scientific and technical services",
+      "level": "size",
+      "sizeMin": 0,
+      "sizeMax": 4,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 343.1,
+          "ebitdaMillions": 24592.0,
+          "cells": "B20, W20"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 381.1,
+          "ebitdaMillions": 26512.0,
+          "cells": "C20, X20"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 384.4,
+          "ebitdaMillions": 27126.0,
+          "cells": "D20, Y20"
+        }
+      ]
+    },
+    {
+      "id": "size-administrative-and-support-services-0-4",
+      "label": "Administrative and support services \u2014 0\u20134 employees",
+      "division": "Administrative and support services",
+      "level": "size",
+      "sizeMin": 0,
+      "sizeMax": 4,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 157.8,
+          "ebitdaMillions": 6821.0,
+          "cells": "B21, W21"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 158.1,
+          "ebitdaMillions": 5998.0,
+          "cells": "C21, X21"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 169.0,
+          "ebitdaMillions": 6688.0,
+          "cells": "D21, Y21"
+        }
+      ]
+    },
+    {
+      "id": "size-public-administration-and-safety-private-0-4",
+      "label": "Public administration and safety (private) \u2014 0\u20134 employees",
+      "division": "Public administration and safety (private)",
+      "level": "size",
+      "sizeMin": 0,
+      "sizeMax": 4,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 16.3,
+          "ebitdaMillions": 482.0,
+          "cells": "B22, W22"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 13.6,
+          "ebitdaMillions": 561.0,
+          "cells": "C22, X22"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 15.5,
+          "ebitdaMillions": 385.0,
+          "cells": "D22, Y22"
+        }
+      ]
+    },
+    {
+      "id": "size-education-and-training-private-0-4",
+      "label": "Education and training (private) \u2014 0\u20134 employees",
+      "division": "Education and training (private)",
+      "level": "size",
+      "sizeMin": 0,
+      "sizeMax": 4,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 54.0,
+          "ebitdaMillions": 2026.0,
+          "cells": "B23, W23"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 55.3,
+          "ebitdaMillions": 1776.0,
+          "cells": "C23, X23"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 48.7,
+          "ebitdaMillions": 1645.0,
+          "cells": "D23, Y23"
+        }
+      ]
+    },
+    {
+      "id": "size-health-care-and-social-assistance-private-0-4",
+      "label": "Health care and social assistance (private) \u2014 0\u20134 employees",
+      "division": "Health care and social assistance (private)",
+      "level": "size",
+      "sizeMin": 0,
+      "sizeMax": 4,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 236.7,
+          "ebitdaMillions": 24212.0,
+          "cells": "B24, W24"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 260.1,
+          "ebitdaMillions": 24078.0,
+          "cells": "C24, X24"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 274.6,
+          "ebitdaMillions": 24015.0,
+          "cells": "D24, Y24"
+        }
+      ]
+    },
+    {
+      "id": "size-arts-and-recreation-services-0-4",
+      "label": "Arts and recreation services \u2014 0\u20134 employees",
+      "division": "Arts and recreation services",
+      "level": "size",
+      "sizeMin": 0,
+      "sizeMax": 4,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 50.8,
+          "ebitdaMillions": 2310.0,
+          "cells": "B25, W25"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 54.1,
+          "ebitdaMillions": 2308.0,
+          "cells": "C25, X25"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 45.7,
+          "ebitdaMillions": 2855.0,
+          "cells": "D25, Y25"
+        }
+      ]
+    },
+    {
+      "id": "size-other-services-0-4",
+      "label": "Other services \u2014 0\u20134 employees",
+      "division": "Other services",
+      "level": "size",
+      "sizeMin": 0,
+      "sizeMax": 4,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 235.2,
+          "ebitdaMillions": 4474.0,
+          "cells": "B26, W26"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 206.4,
+          "ebitdaMillions": 5846.0,
+          "cells": "C26, X26"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 197.9,
+          "ebitdaMillions": 6670.0,
+          "cells": "D26, Y26"
+        }
+      ]
+    },
+    {
+      "id": "size-agriculture-forestry-and-fishing-5-19",
+      "label": "Agriculture, forestry and fishing \u2014 5\u201319 employees",
+      "division": "Agriculture, forestry and fishing",
+      "level": "size",
+      "sizeMin": 5,
+      "sizeMax": 19,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 69.1,
+          "ebitdaMillions": 6568.0,
+          "cells": "B29, W29"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 69.2,
+          "ebitdaMillions": 2812.0,
+          "cells": "C29, X29"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 79.4,
+          "ebitdaMillions": 3976.0,
+          "cells": "D29, Y29"
+        }
+      ]
+    },
+    {
+      "id": "size-mining-5-19",
+      "label": "Mining \u2014 5\u201319 employees",
+      "division": "Mining",
+      "level": "size",
+      "sizeMin": 5,
+      "sizeMax": 19,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 10.0,
+          "ebitdaMillions": 11949.0,
+          "cells": "B30, W30"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 10.7,
+          "ebitdaMillions": 9768.0,
+          "cells": "C30, X30"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 10.8,
+          "ebitdaMillions": 7589.0,
+          "cells": "D30, Y30"
+        }
+      ]
+    },
+    {
+      "id": "size-manufacturing-5-19",
+      "label": "Manufacturing \u2014 5\u201319 employees",
+      "division": "Manufacturing",
+      "level": "size",
+      "sizeMin": 5,
+      "sizeMax": 19,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 159.4,
+          "ebitdaMillions": 5692.0,
+          "cells": "B31, W31"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 149.7,
+          "ebitdaMillions": 6322.0,
+          "cells": "C31, X31"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 160.6,
+          "ebitdaMillions": 6368.0,
+          "cells": "D31, Y31"
+        }
+      ]
+    },
+    {
+      "id": "size-electricity-gas-water-and-waste-services-5-19",
+      "label": "Electricity, gas, water and waste services \u2014 5\u201319 employees",
+      "division": "Electricity, gas, water and waste services",
+      "level": "size",
+      "sizeMin": 5,
+      "sizeMax": 19,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 12.8,
+          "ebitdaMillions": 1261.0,
+          "cells": "B32, W32"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 10.1,
+          "ebitdaMillions": 1135.0,
+          "cells": "C32, X32"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 9.7,
+          "ebitdaMillions": 1736.0,
+          "cells": "D32, Y32"
+        }
+      ]
+    },
+    {
+      "id": "size-construction-5-19",
+      "label": "Construction \u2014 5\u201319 employees",
+      "division": "Construction",
+      "level": "size",
+      "sizeMin": 5,
+      "sizeMax": 19,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 259.6,
+          "ebitdaMillions": 9112.0,
+          "cells": "B33, W33"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 244.3,
+          "ebitdaMillions": 7572.0,
+          "cells": "C33, X33"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 256.4,
+          "ebitdaMillions": 11844.0,
+          "cells": "D33, Y33"
+        }
+      ]
+    },
+    {
+      "id": "size-wholesale-trade-5-19",
+      "label": "Wholesale trade \u2014 5\u201319 employees",
+      "division": "Wholesale trade",
+      "level": "size",
+      "sizeMin": 5,
+      "sizeMax": 19,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 116.3,
+          "ebitdaMillions": 8914.0,
+          "cells": "B34, W34"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 109.5,
+          "ebitdaMillions": 5671.0,
+          "cells": "C34, X34"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 122.6,
+          "ebitdaMillions": 7348.0,
+          "cells": "D34, Y34"
+        }
+      ]
+    },
+    {
+      "id": "size-retail-trade-5-19",
+      "label": "Retail trade \u2014 5\u201319 employees",
+      "division": "Retail trade",
+      "level": "size",
+      "sizeMin": 5,
+      "sizeMax": 19,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 259.1,
+          "ebitdaMillions": 8816.0,
+          "cells": "B35, W35"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 282.2,
+          "ebitdaMillions": 9362.0,
+          "cells": "C35, X35"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 271.9,
+          "ebitdaMillions": 7183.0,
+          "cells": "D35, Y35"
+        }
+      ]
+    },
+    {
+      "id": "size-accommodation-and-food-services-5-19",
+      "label": "Accommodation and food services \u2014 5\u201319 employees",
+      "division": "Accommodation and food services",
+      "level": "size",
+      "sizeMin": 5,
+      "sizeMax": 19,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 359.7,
+          "ebitdaMillions": 2428.0,
+          "cells": "B36, W36"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 346.7,
+          "ebitdaMillions": 3141.0,
+          "cells": "C36, X36"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 293.6,
+          "ebitdaMillions": 2551.0,
+          "cells": "D36, Y36"
+        }
+      ]
+    },
+    {
+      "id": "size-transport-postal-and-warehousing-5-19",
+      "label": "Transport, postal and warehousing \u2014 5\u201319 employees",
+      "division": "Transport, postal and warehousing",
+      "level": "size",
+      "sizeMin": 5,
+      "sizeMax": 19,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 58.0,
+          "ebitdaMillions": 2913.0,
+          "cells": "B37, W37"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 61.4,
+          "ebitdaMillions": 2204.0,
+          "cells": "C37, X37"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 51.8,
+          "ebitdaMillions": 2350.0,
+          "cells": "D37, Y37"
+        }
+      ]
+    },
+    {
+      "id": "size-information-media-and-telecommunications-5-19",
+      "label": "Information media and telecommunications \u2014 5\u201319 employees",
+      "division": "Information media and telecommunications",
+      "level": "size",
+      "sizeMin": 5,
+      "sizeMax": 19,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 15.9,
+          "ebitdaMillions": 310.0,
+          "cells": "B38, W38"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 16.9,
+          "ebitdaMillions": 1044.0,
+          "cells": "C38, X38"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 18.1,
+          "ebitdaMillions": 975.0,
+          "cells": "D38, Y38"
+        }
+      ]
+    },
+    {
+      "id": "size-rental-hiring-and-real-estate-services-5-19",
+      "label": "Rental, hiring and real estate services \u2014 5\u201319 employees",
+      "division": "Rental, hiring and real estate services",
+      "level": "size",
+      "sizeMin": 5,
+      "sizeMax": 19,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 97.9,
+          "ebitdaMillions": 6431.0,
+          "cells": "B39, W39"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 88.2,
+          "ebitdaMillions": 4824.0,
+          "cells": "C39, X39"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 79.7,
+          "ebitdaMillions": 6213.0,
+          "cells": "D39, Y39"
+        }
+      ]
+    },
+    {
+      "id": "size-professional-scientific-and-technical-services-5-19",
+      "label": "Professional, scientific and technical services \u2014 5\u201319 employees",
+      "division": "Professional, scientific and technical services",
+      "level": "size",
+      "sizeMin": 5,
+      "sizeMax": 19,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 257.7,
+          "ebitdaMillions": 5043.0,
+          "cells": "B40, W40"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 241.2,
+          "ebitdaMillions": 11226.0,
+          "cells": "C40, X40"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 238.9,
+          "ebitdaMillions": 4591.0,
+          "cells": "D40, Y40"
+        }
+      ]
+    },
+    {
+      "id": "size-administrative-and-support-services-5-19",
+      "label": "Administrative and support services \u2014 5\u201319 employees",
+      "division": "Administrative and support services",
+      "level": "size",
+      "sizeMin": 5,
+      "sizeMax": 19,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 100.0,
+          "ebitdaMillions": 1971.0,
+          "cells": "B41, W41"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 107.6,
+          "ebitdaMillions": 2271.0,
+          "cells": "C41, X41"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 88.8,
+          "ebitdaMillions": 2213.0,
+          "cells": "D41, Y41"
+        }
+      ]
+    },
+    {
+      "id": "size-public-administration-and-safety-private-5-19",
+      "label": "Public administration and safety (private) \u2014 5\u201319 employees",
+      "division": "Public administration and safety (private)",
+      "level": "size",
+      "sizeMin": 5,
+      "sizeMax": 19,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 8.4,
+          "ebitdaMillions": 188.0,
+          "cells": "B42, W42"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 9.6,
+          "ebitdaMillions": 322.0,
+          "cells": "C42, X42"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 10.1,
+          "ebitdaMillions": 310.0,
+          "cells": "D42, Y42"
+        }
+      ]
+    },
+    {
+      "id": "size-education-and-training-private-5-19",
+      "label": "Education and training (private) \u2014 5\u201319 employees",
+      "division": "Education and training (private)",
+      "level": "size",
+      "sizeMin": 5,
+      "sizeMax": 19,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 67.8,
+          "ebitdaMillions": 526.0,
+          "cells": "B43, W43"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 64.8,
+          "ebitdaMillions": 601.0,
+          "cells": "C43, X43"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 61.4,
+          "ebitdaMillions": 454.0,
+          "cells": "D43, Y43"
+        }
+      ]
+    },
+    {
+      "id": "size-health-care-and-social-assistance-private-5-19",
+      "label": "Health care and social assistance (private) \u2014 5\u201319 employees",
+      "division": "Health care and social assistance (private)",
+      "level": "size",
+      "sizeMin": 5,
+      "sizeMax": 19,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 293.4,
+          "ebitdaMillions": 5131.0,
+          "cells": "B44, W44"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 198.1,
+          "ebitdaMillions": 4523.0,
+          "cells": "C44, X44"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 236.0,
+          "ebitdaMillions": 4681.0,
+          "cells": "D44, Y44"
+        }
+      ]
+    },
+    {
+      "id": "size-arts-and-recreation-services-5-19",
+      "label": "Arts and recreation services \u2014 5\u201319 employees",
+      "division": "Arts and recreation services",
+      "level": "size",
+      "sizeMin": 5,
+      "sizeMax": 19,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 41.2,
+          "ebitdaMillions": 1356.0,
+          "cells": "B45, W45"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 34.9,
+          "ebitdaMillions": 508.0,
+          "cells": "C45, X45"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 44.0,
+          "ebitdaMillions": 813.0,
+          "cells": "D45, Y45"
+        }
+      ]
+    },
+    {
+      "id": "size-other-services-5-19",
+      "label": "Other services \u2014 5\u201319 employees",
+      "division": "Other services",
+      "level": "size",
+      "sizeMin": 5,
+      "sizeMax": 19,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 164.6,
+          "ebitdaMillions": 2252.0,
+          "cells": "B46, W46"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 154.3,
+          "ebitdaMillions": 1599.0,
+          "cells": "C46, X46"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 174.8,
+          "ebitdaMillions": 1138.0,
+          "cells": "D46, Y46"
+        }
+      ]
+    },
+    {
+      "id": "size-agriculture-forestry-and-fishing-20-199",
+      "label": "Agriculture, forestry and fishing \u2014 20\u2013199 employees",
+      "division": "Agriculture, forestry and fishing",
+      "level": "size",
+      "sizeMin": 20,
+      "sizeMax": 199,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 70.6,
+          "ebitdaMillions": 2094.0,
+          "cells": "B49, W49"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 69.5,
+          "ebitdaMillions": 1303.0,
+          "cells": "C49, X49"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 62.7,
+          "ebitdaMillions": 3009.0,
+          "cells": "D49, Y49"
+        }
+      ]
+    },
+    {
+      "id": "size-mining-20-199",
+      "label": "Mining \u2014 20\u2013199 employees",
+      "division": "Mining",
+      "level": "size",
+      "sizeMin": 20,
+      "sizeMax": 199,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 29.0,
+          "ebitdaMillions": 33090.0,
+          "cells": "B50, W50"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 28.1,
+          "ebitdaMillions": 24432.0,
+          "cells": "C50, X50"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 29.9,
+          "ebitdaMillions": 8762.0,
+          "cells": "D50, Y50"
+        }
+      ]
+    },
+    {
+      "id": "size-manufacturing-20-199",
+      "label": "Manufacturing \u2014 20\u2013199 employees",
+      "division": "Manufacturing",
+      "level": "size",
+      "sizeMin": 20,
+      "sizeMax": 199,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 304.3,
+          "ebitdaMillions": 13399.0,
+          "cells": "B51, W51"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 300.7,
+          "ebitdaMillions": 11756.0,
+          "cells": "C51, X51"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 292.5,
+          "ebitdaMillions": 11256.0,
+          "cells": "D51, Y51"
+        }
+      ]
+    },
+    {
+      "id": "size-electricity-gas-water-and-waste-services-20-199",
+      "label": "Electricity, gas, water and waste services \u2014 20\u2013199 employees",
+      "division": "Electricity, gas, water and waste services",
+      "level": "size",
+      "sizeMin": 20,
+      "sizeMax": 199,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 25.0,
+          "ebitdaMillions": 3987.0,
+          "cells": "B52, W52"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 26.5,
+          "ebitdaMillions": 3538.0,
+          "cells": "C52, X52"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 22.2,
+          "ebitdaMillions": 3998.0,
+          "cells": "D52, Y52"
+        }
+      ]
+    },
+    {
+      "id": "size-construction-20-199",
+      "label": "Construction \u2014 20\u2013199 employees",
+      "division": "Construction",
+      "level": "size",
+      "sizeMin": 20,
+      "sizeMax": 199,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 272.4,
+          "ebitdaMillions": 10394.0,
+          "cells": "B53, W53"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 307.9,
+          "ebitdaMillions": 12508.0,
+          "cells": "C53, X53"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 316.7,
+          "ebitdaMillions": 11248.0,
+          "cells": "D53, Y53"
+        }
+      ]
+    },
+    {
+      "id": "size-wholesale-trade-20-199",
+      "label": "Wholesale trade \u2014 20\u2013199 employees",
+      "division": "Wholesale trade",
+      "level": "size",
+      "sizeMin": 20,
+      "sizeMax": 199,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 203.3,
+          "ebitdaMillions": 16135.0,
+          "cells": "B54, W54"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 192.6,
+          "ebitdaMillions": 17978.0,
+          "cells": "C54, X54"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 215.2,
+          "ebitdaMillions": 17503.0,
+          "cells": "D54, Y54"
+        }
+      ]
+    },
+    {
+      "id": "size-retail-trade-20-199",
+      "label": "Retail trade \u2014 20\u2013199 employees",
+      "division": "Retail trade",
+      "level": "size",
+      "sizeMin": 20,
+      "sizeMax": 199,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 260.2,
+          "ebitdaMillions": 7414.0,
+          "cells": "B55, W55"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 275.5,
+          "ebitdaMillions": 5102.0,
+          "cells": "C55, X55"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 267.6,
+          "ebitdaMillions": 8678.0,
+          "cells": "D55, Y55"
+        }
+      ]
+    },
+    {
+      "id": "size-accommodation-and-food-services-20-199",
+      "label": "Accommodation and food services \u2014 20\u2013199 employees",
+      "division": "Accommodation and food services",
+      "level": "size",
+      "sizeMin": 20,
+      "sizeMax": 199,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 355.9,
+          "ebitdaMillions": 6565.0,
+          "cells": "B56, W56"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 364.2,
+          "ebitdaMillions": 5823.0,
+          "cells": "C56, X56"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 314.1,
+          "ebitdaMillions": 5040.0,
+          "cells": "D56, Y56"
+        }
+      ]
+    },
+    {
+      "id": "size-transport-postal-and-warehousing-20-199",
+      "label": "Transport, postal and warehousing \u2014 20\u2013199 employees",
+      "division": "Transport, postal and warehousing",
+      "level": "size",
+      "sizeMin": 20,
+      "sizeMax": 199,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 102.0,
+          "ebitdaMillions": 7101.0,
+          "cells": "B57, W57"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 73.5,
+          "ebitdaMillions": 7197.0,
+          "cells": "C57, X57"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 118.9,
+          "ebitdaMillions": 10056.0,
+          "cells": "D57, Y57"
+        }
+      ]
+    },
+    {
+      "id": "size-information-media-and-telecommunications-20-199",
+      "label": "Information media and telecommunications \u2014 20\u2013199 employees",
+      "division": "Information media and telecommunications",
+      "level": "size",
+      "sizeMin": 20,
+      "sizeMax": 199,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 43.1,
+          "ebitdaMillions": 2627.0,
+          "cells": "B58, W58"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 36.5,
+          "ebitdaMillions": 2788.0,
+          "cells": "C58, X58"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 36.9,
+          "ebitdaMillions": 3820.0,
+          "cells": "D58, Y58"
+        }
+      ]
+    },
+    {
+      "id": "size-rental-hiring-and-real-estate-services-20-199",
+      "label": "Rental, hiring and real estate services \u2014 20\u2013199 employees",
+      "division": "Rental, hiring and real estate services",
+      "level": "size",
+      "sizeMin": 20,
+      "sizeMax": 199,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 62.1,
+          "ebitdaMillions": 5222.0,
+          "cells": "B59, W59"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 84.2,
+          "ebitdaMillions": 5675.0,
+          "cells": "C59, X59"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 72.9,
+          "ebitdaMillions": 4227.0,
+          "cells": "D59, Y59"
+        }
+      ]
+    },
+    {
+      "id": "size-professional-scientific-and-technical-services-20-199",
+      "label": "Professional, scientific and technical services \u2014 20\u2013199 employees",
+      "division": "Professional, scientific and technical services",
+      "level": "size",
+      "sizeMin": 20,
+      "sizeMax": 199,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 391.6,
+          "ebitdaMillions": 7010.0,
+          "cells": "B60, W60"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 379.5,
+          "ebitdaMillions": 3002.0,
+          "cells": "C60, X60"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 384.7,
+          "ebitdaMillions": 6204.0,
+          "cells": "D60, Y60"
+        }
+      ]
+    },
+    {
+      "id": "size-administrative-and-support-services-20-199",
+      "label": "Administrative and support services \u2014 20\u2013199 employees",
+      "division": "Administrative and support services",
+      "level": "size",
+      "sizeMin": 20,
+      "sizeMax": 199,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 296.6,
+          "ebitdaMillions": 3041.0,
+          "cells": "B61, W61"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 297.0,
+          "ebitdaMillions": 2599.0,
+          "cells": "C61, X61"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 274.9,
+          "ebitdaMillions": 2805.0,
+          "cells": "D61, Y61"
+        }
+      ]
+    },
+    {
+      "id": "size-public-administration-and-safety-private-20-199",
+      "label": "Public administration and safety (private) \u2014 20\u2013199 employees",
+      "division": "Public administration and safety (private)",
+      "level": "size",
+      "sizeMin": 20,
+      "sizeMax": 199,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 26.0,
+          "ebitdaMillions": 452.0,
+          "cells": "B62, W62"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 29.2,
+          "ebitdaMillions": 306.0,
+          "cells": "C62, X62"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 25.6,
+          "ebitdaMillions": 397.0,
+          "cells": "D62, Y62"
+        }
+      ]
+    },
+    {
+      "id": "size-education-and-training-private-20-199",
+      "label": "Education and training (private) \u2014 20\u2013199 employees",
+      "division": "Education and training (private)",
+      "level": "size",
+      "sizeMin": 20,
+      "sizeMax": 199,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 184.0,
+          "ebitdaMillions": 2011.0,
+          "cells": "B63, W63"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 168.5,
+          "ebitdaMillions": 2189.0,
+          "cells": "C63, X63"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 180.5,
+          "ebitdaMillions": 2035.0,
+          "cells": "D63, Y63"
+        }
+      ]
+    },
+    {
+      "id": "size-health-care-and-social-assistance-private-20-199",
+      "label": "Health care and social assistance (private) \u2014 20\u2013199 employees",
+      "division": "Health care and social assistance (private)",
+      "level": "size",
+      "sizeMin": 20,
+      "sizeMax": 199,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 376.4,
+          "ebitdaMillions": 4419.0,
+          "cells": "B64, W64"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 492.9,
+          "ebitdaMillions": 4175.0,
+          "cells": "C64, X64"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 576.1,
+          "ebitdaMillions": 6823.0,
+          "cells": "D64, Y64"
+        }
+      ]
+    },
+    {
+      "id": "size-arts-and-recreation-services-20-199",
+      "label": "Arts and recreation services \u2014 20\u2013199 employees",
+      "division": "Arts and recreation services",
+      "level": "size",
+      "sizeMin": 20,
+      "sizeMax": 199,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 64.3,
+          "ebitdaMillions": 406.0,
+          "cells": "B65, W65"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 93.4,
+          "ebitdaMillions": 677.0,
+          "cells": "C65, X65"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 99.9,
+          "ebitdaMillions": 344.0,
+          "cells": "D65, Y65"
+        }
+      ]
+    },
+    {
+      "id": "size-other-services-20-199",
+      "label": "Other services \u2014 20\u2013199 employees",
+      "division": "Other services",
+      "level": "size",
+      "sizeMin": 20,
+      "sizeMax": 199,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 110.1,
+          "ebitdaMillions": -197.0,
+          "cells": "B66, W66"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 141.6,
+          "ebitdaMillions": -889.0,
+          "cells": "C66, X66"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 133.2,
+          "ebitdaMillions": 389.0,
+          "cells": "D66, Y66"
+        }
+      ]
+    },
+    {
+      "id": "size-agriculture-forestry-and-fishing-200-plus",
+      "label": "Agriculture, forestry and fishing \u2014 200+ employees",
+      "division": "Agriculture, forestry and fishing",
+      "level": "size",
+      "sizeMin": 200,
+      "sizeMax": null,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 19.2,
+          "ebitdaMillions": 82.0,
+          "cells": "B69, W69"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 19.5,
+          "ebitdaMillions": 116.0,
+          "cells": "C69, X69"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 22.2,
+          "ebitdaMillions": 652.0,
+          "cells": "D69, Y69"
+        }
+      ]
+    },
+    {
+      "id": "size-mining-200-plus",
+      "label": "Mining \u2014 200+ employees",
+      "division": "Mining",
+      "level": "size",
+      "sizeMin": 200,
+      "sizeMax": null,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 171.9,
+          "ebitdaMillions": 198243.0,
+          "cells": "B70, W70"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 188.5,
+          "ebitdaMillions": 170026.0,
+          "cells": "C70, X70"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 193.0,
+          "ebitdaMillions": 143634.0,
+          "cells": "D70, Y70"
+        }
+      ]
+    },
+    {
+      "id": "size-manufacturing-200-plus",
+      "label": "Manufacturing \u2014 200+ employees",
+      "division": "Manufacturing",
+      "level": "size",
+      "sizeMin": 200,
+      "sizeMax": null,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 326.7,
+          "ebitdaMillions": 25275.0,
+          "cells": "B71, W71"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 340.8,
+          "ebitdaMillions": 24637.0,
+          "cells": "C71, X71"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 340.0,
+          "ebitdaMillions": 25220.0,
+          "cells": "D71, Y71"
+        }
+      ]
+    },
+    {
+      "id": "size-electricity-gas-water-and-waste-services-200-plus",
+      "label": "Electricity, gas, water and waste services \u2014 200+ employees",
+      "division": "Electricity, gas, water and waste services",
+      "level": "size",
+      "sizeMin": 200,
+      "sizeMax": null,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 88.6,
+          "ebitdaMillions": 24424.0,
+          "cells": "B72, W72"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 96.3,
+          "ebitdaMillions": 27813.0,
+          "cells": "C72, X72"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 100.8,
+          "ebitdaMillions": 27765.0,
+          "cells": "D72, Y72"
+        }
+      ]
+    },
+    {
+      "id": "size-construction-200-plus",
+      "label": "Construction \u2014 200+ employees",
+      "division": "Construction",
+      "level": "size",
+      "sizeMin": 200,
+      "sizeMax": null,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 172.7,
+          "ebitdaMillions": 7258.0,
+          "cells": "B73, W73"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 182.6,
+          "ebitdaMillions": 9039.0,
+          "cells": "C73, X73"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 189.3,
+          "ebitdaMillions": 8667.0,
+          "cells": "D73, Y73"
+        }
+      ]
+    },
+    {
+      "id": "size-wholesale-trade-200-plus",
+      "label": "Wholesale trade \u2014 200+ employees",
+      "division": "Wholesale trade",
+      "level": "size",
+      "sizeMin": 200,
+      "sizeMax": null,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 194.9,
+          "ebitdaMillions": 15568.0,
+          "cells": "B74, W74"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 231.5,
+          "ebitdaMillions": 16474.0,
+          "cells": "C74, X74"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 199.1,
+          "ebitdaMillions": 14539.0,
+          "cells": "D74, Y74"
+        }
+      ]
+    },
+    {
+      "id": "size-retail-trade-200-plus",
+      "label": "Retail trade \u2014 200+ employees",
+      "division": "Retail trade",
+      "level": "size",
+      "sizeMin": 200,
+      "sizeMax": null,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 736.9,
+          "ebitdaMillions": 24303.0,
+          "cells": "B75, W75"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 745.0,
+          "ebitdaMillions": 27001.0,
+          "cells": "C75, X75"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 755.5,
+          "ebitdaMillions": 29300.0,
+          "cells": "D75, Y75"
+        }
+      ]
+    },
+    {
+      "id": "size-accommodation-and-food-services-200-plus",
+      "label": "Accommodation and food services \u2014 200+ employees",
+      "division": "Accommodation and food services",
+      "level": "size",
+      "sizeMin": 200,
+      "sizeMax": null,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 319.0,
+          "ebitdaMillions": 5628.0,
+          "cells": "B76, W76"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 354.6,
+          "ebitdaMillions": 5901.0,
+          "cells": "C76, X76"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 417.7,
+          "ebitdaMillions": 6071.0,
+          "cells": "D76, Y76"
+        }
+      ]
+    },
+    {
+      "id": "size-transport-postal-and-warehousing-200-plus",
+      "label": "Transport, postal and warehousing \u2014 200+ employees",
+      "division": "Transport, postal and warehousing",
+      "level": "size",
+      "sizeMin": 200,
+      "sizeMax": null,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 266.1,
+          "ebitdaMillions": 21205.0,
+          "cells": "B77, W77"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 285.8,
+          "ebitdaMillions": 25260.0,
+          "cells": "C77, X77"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 286.9,
+          "ebitdaMillions": 26269.0,
+          "cells": "D77, Y77"
+        }
+      ]
+    },
+    {
+      "id": "size-information-media-and-telecommunications-200-plus",
+      "label": "Information media and telecommunications \u2014 200+ employees",
+      "division": "Information media and telecommunications",
+      "level": "size",
+      "sizeMin": 200,
+      "sizeMax": null,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 107.9,
+          "ebitdaMillions": 17479.0,
+          "cells": "B78, W78"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 107.8,
+          "ebitdaMillions": 18639.0,
+          "cells": "C78, X78"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 101.8,
+          "ebitdaMillions": 20170.0,
+          "cells": "D78, Y78"
+        }
+      ]
+    },
+    {
+      "id": "size-rental-hiring-and-real-estate-services-200-plus",
+      "label": "Rental, hiring and real estate services \u2014 200+ employees",
+      "division": "Rental, hiring and real estate services",
+      "level": "size",
+      "sizeMin": 200,
+      "sizeMax": null,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 48.5,
+          "ebitdaMillions": 7876.0,
+          "cells": "B79, W79"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 45.9,
+          "ebitdaMillions": 8486.0,
+          "cells": "C79, X79"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 52.1,
+          "ebitdaMillions": 8114.0,
+          "cells": "D79, Y79"
+        }
+      ]
+    },
+    {
+      "id": "size-professional-scientific-and-technical-services-200-plus",
+      "label": "Professional, scientific and technical services \u2014 200+ employees",
+      "division": "Professional, scientific and technical services",
+      "level": "size",
+      "sizeMin": 200,
+      "sizeMax": null,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 313.1,
+          "ebitdaMillions": 4776.0,
+          "cells": "B80, W80"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 314.2,
+          "ebitdaMillions": 5004.0,
+          "cells": "C80, X80"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 332.2,
+          "ebitdaMillions": 8207.0,
+          "cells": "D80, Y80"
+        }
+      ]
+    },
+    {
+      "id": "size-administrative-and-support-services-200-plus",
+      "label": "Administrative and support services \u2014 200+ employees",
+      "division": "Administrative and support services",
+      "level": "size",
+      "sizeMin": 200,
+      "sizeMax": null,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 446.8,
+          "ebitdaMillions": 1619.0,
+          "cells": "B81, W81"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 441.2,
+          "ebitdaMillions": 2929.0,
+          "cells": "C81, X81"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 480.4,
+          "ebitdaMillions": 2277.0,
+          "cells": "D81, Y81"
+        }
+      ]
+    },
+    {
+      "id": "size-public-administration-and-safety-private-200-plus",
+      "label": "Public administration and safety (private) \u2014 200+ employees",
+      "division": "Public administration and safety (private)",
+      "level": "size",
+      "sizeMin": 200,
+      "sizeMax": null,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 48.4,
+          "ebitdaMillions": 229.0,
+          "cells": "B82, W82"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 55.1,
+          "ebitdaMillions": 135.0,
+          "cells": "C82, X82"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 56.9,
+          "ebitdaMillions": 461.0,
+          "cells": "D82, Y82"
+        }
+      ]
+    },
+    {
+      "id": "size-education-and-training-private-200-plus",
+      "label": "Education and training (private) \u2014 200+ employees",
+      "division": "Education and training (private)",
+      "level": "size",
+      "sizeMin": 200,
+      "sizeMax": null,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 188.5,
+          "ebitdaMillions": 2627.0,
+          "cells": "B83, W83"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 225.7,
+          "ebitdaMillions": 2748.0,
+          "cells": "C83, X83"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 251.7,
+          "ebitdaMillions": 2951.0,
+          "cells": "D83, Y83"
+        }
+      ]
+    },
+    {
+      "id": "size-health-care-and-social-assistance-private-200-plus",
+      "label": "Health care and social assistance (private) \u2014 200+ employees",
+      "division": "Health care and social assistance (private)",
+      "level": "size",
+      "sizeMin": 200,
+      "sizeMax": null,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 759.9,
+          "ebitdaMillions": 2668.0,
+          "cells": "B84, W84"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 852.5,
+          "ebitdaMillions": 5007.0,
+          "cells": "C84, X84"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 820.0,
+          "ebitdaMillions": 5078.0,
+          "cells": "D84, Y84"
+        }
+      ]
+    },
+    {
+      "id": "size-arts-and-recreation-services-200-plus",
+      "label": "Arts and recreation services \u2014 200+ employees",
+      "division": "Arts and recreation services",
+      "level": "size",
+      "sizeMin": 200,
+      "sizeMax": null,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 100.7,
+          "ebitdaMillions": 3477.0,
+          "cells": "B85, W85"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 96.3,
+          "ebitdaMillions": 3350.0,
+          "cells": "C85, X85"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 99.9,
+          "ebitdaMillions": 3200.0,
+          "cells": "D85, Y85"
+        }
+      ]
+    },
+    {
+      "id": "size-other-services-200-plus",
+      "label": "Other services \u2014 200+ employees",
+      "division": "Other services",
+      "level": "size",
+      "sizeMin": 200,
+      "sizeMax": null,
+      "sheet": "Table_5",
+      "observations": [
+        {
+          "period": "2022-23",
+          "employmentThousands": 75.0,
+          "ebitdaMillions": -525.0,
+          "cells": "B86, W86"
+        },
+        {
+          "period": "2023-24",
+          "employmentThousands": 75.2,
+          "ebitdaMillions": -566.0,
+          "cells": "C86, X86"
+        },
+        {
+          "period": "2024-25",
+          "employmentThousands": 81.6,
+          "ebitdaMillions": -119.0,
+          "cells": "D86, Y86"
+        }
+      ]
+    }
+  ]
+}

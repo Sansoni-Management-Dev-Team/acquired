@@ -10,3 +10,6 @@ coverage/
 /.local-data/*
 !/.local-data/manufacturer-web-discovery.json
 !/.local-data/manufacturing-search-index.json
+
+/.playwright-cli/
+/output/playwright/

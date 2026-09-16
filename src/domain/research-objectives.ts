@@ -1,13 +1,19 @@
 import type { ResearchConfig, ResearchFinding } from './research';
 export const researchFields = ['size', 'revenue', 'people', 'email'] as const;
 export type ResearchField = typeof researchFields[number];
-export const fieldLabels: Record<ResearchField, string> = { size: 'headcount', revenue: 'revenue', people: 'decision-maker', email: 'published decision-maker email' };
+export const fieldLabels: Record<ResearchField, string> = { size: 'headcount', revenue: 'revenue', people: 'owner or director candidate', email: 'published owner or director email' };
 export function objectiveFields(config: Pick<ResearchConfig, 'purpose'>): ResearchField[] {
   return config.purpose === 'firmographics' ? ['size', 'revenue'] : config.purpose === 'people' ? ['people', 'email'] : [];
 }
+// An outreach candidate is a research lead, not proof of ownership or sale authority.
+export function ownershipContact(finding: ResearchFinding) {
+  if (finding.kind !== 'person') return false;
+  const role = (finding.value || '').trim();
+  return /\b(owner|co-owner|founder|co-founder|proprietor|shareholder)\b/i.test(role) || /^(?:(?:managing|executive|non-executive|company)\s+)?director$/i.test(role);
+}
 export function fieldSatisfied(field: ResearchField, findings: ResearchFinding[]) {
-  if (field === 'people') return findings.some(f => f.kind === 'person');
-  if (field === 'email') return findings.some(f => f.kind === 'person' && Boolean(f.email));
+  if (field === 'people') return findings.some(ownershipContact);
+  if (field === 'email') return findings.some(f => ownershipContact(f) && Boolean(f.email));
   return findings.some(f => f.kind === (field === 'size' ? 'headcount' : 'revenue') && f.factMetadata?.basis !== 'search_snippet');
 }
 export function missingResearchFields(config: Pick<ResearchConfig, 'purpose'>, findings: ResearchFinding[]) {

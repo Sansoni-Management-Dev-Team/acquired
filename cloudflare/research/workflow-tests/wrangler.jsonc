@@ -1,0 +1,14 @@
+{
+  "name": "acquire-research-replay",
+  "main": "../index.ts",
+  "compatibility_date": "2026-09-08",
+  "workflows": [{ "name": "acquire-research-replay", "binding": "RESEARCH", "class_name": "AcquireResearch" }],
+  "vars": {
+    "APP_ORIGIN": "http://127.0.0.1:3010",
+    "LOCAL_DEVELOPMENT": "true",
+    "LOCAL_RESEARCH_POLICY": "production",
+    "LOCAL_CRAWL4AI_URL": "http://127.0.0.1:18083",
+    "SERVICE_SECRET": "replay-only",
+    "OPENROUTER_API_KEY": "replay-only"
+  }
+}

@@ -1,0 +1,11 @@
+[mcp_servers.linear]
+url = "https://mcp.linear.app/mcp"
+enabled = false
+
+[mcp_servers.linear-server]
+command = "npx"
+enabled = false
+
+[mcp_servers.linear_mlai]
+url = "https://mcp.linear.app/mcp"
+auth = "oauth"

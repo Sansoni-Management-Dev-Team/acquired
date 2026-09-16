@@ -6,6 +6,20 @@ import {
 } from "./research-runner";
 import type { ResearchConfig } from "./research";
 import { ResearchAiError } from "./research-ai-error";
+it('continues owner searches after a restart leaves only previously visited seeds', async () => {
+  const t = setup();
+  Object.assign(t.config, { mode: 'automatic', purpose: 'people', targetedFollowup: true, maxPeopleSearches: 2, companyName: 'Example Instruments', companyDomain: 'instruments.example.com', runtime: { remaining: [], visited: [...t.config.seeds], attempts: [] } });
+  t.service.discover = vi.fn(async () => ({ seeds: [...t.config.seeds] }));
+  t.service.targetedSearch = vi.fn(async () => ({ seeds: [], exhausted: true }));
+  // Bound diagnostics so a regression fails instead of hanging the test process.
+  let queues = 0;
+  t.service.diagnostic = event => { if (event.event === 'source_queue' && ++queues > 10) throw new Error('No-progress loop'); };
+  await runResearch(t.step, t.service);
+  expect(t.service.targetedSearch).toHaveBeenCalledWith('people', 1);
+  expect(t.service.submit).not.toHaveBeenCalled();
+  expect(queues).toBeLessThan(10);
+  expect(t.progress.mock.calls.at(-1)?.[0].message).not.toContain('No-progress loop');
+});
 it('finds revenue after headcount and completes only when both objectives have evidence', async () => {
   const t = setup();
   Object.assign(t.config, { mode: 'automatic', purpose: 'firmographics', targetedFollowup: true, companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
@@ -351,14 +365,12 @@ it("reads individual people pages without spending requests on crawler submissio
  expect(t.service.submit).not.toHaveBeenCalled(); expect(t.service.poll).not.toHaveBeenCalled();
  expect(t.progress.mock.calls.at(-1)?.[0].pages).toBe(1);
 });
-it("paces follow-up search and rechecks the deadline after waiting",async()=>{
- const t=setup();Object.assign(t.config,{purpose:'people',companyName:'Example Instruments',companyDomain:'instruments.example.com',maxPeopleSearches:2});
+it("uses provider admission without an additional fixed search delay", async () => {
+ const t=setup(); Object.assign(t.config,{purpose:'people',companyName:'Example Instruments',companyDomain:'instruments.example.com',maxPeopleSearches:2});
  t.service.peopleFollowup=vi.fn(async()=>({seeds:[]}));
- vi.mocked(t.step.sleep).mockImplementation(async name=>{if(name==='people-search-spacing')t.setNow(700000);});
  await runResearch(t.step,t.service);
- expect(t.step.sleep).toHaveBeenCalledWith('people-search-spacing',21000);
- expect(t.service.peopleFollowup).not.toHaveBeenCalled();
- expect(t.progress.mock.calls.at(-1)?.[0].status).toBe('partial');
+ expect(t.step.sleep).not.toHaveBeenCalledWith('people-search-spacing',21000);
+ expect(t.service.peopleFollowup).toHaveBeenCalledOnce();
 });
 it("reserves the second search while website pages may reveal the legal operator",async()=>{
  const t=setup();Object.assign(t.config,{purpose:'people',companyName:'Example Instruments',companyDomain:'instruments.example.com',maxPeopleSearches:2});t.config.budget={maxPages:5,maxDomains:1,maxModelCalls:5,maxMinutes:10};
@@ -395,7 +407,7 @@ it("runs one bounded missing-field follow-up and retains direct team evidence wi
  vi.mocked(t.service.poll).mockImplementation(async()=>({status:"completed",page:{url:t.progress.mock.calls.at(-1)?.[0].runtime?.attempts.at(-1)?.url||t.config.seeds[0],markdown:t.progress.mock.calls.at(-1)?.[0].runtime?.attempts.at(-1)?.url.endsWith('/team')?"# Our team\n#### Alex Example\n##### CEO":"Example Instruments builds precision sensors for industry."}}));
  await runResearch(t.step,t.service);
  expect(t.service.planFollowup).toHaveBeenCalledOnce();
- expect(vi.mocked(t.service.targetedSearch).mock.calls.map(([field]) => field)).toEqual(["people", "email", "email"]);
+ expect(vi.mocked(t.service.targetedSearch).mock.calls.map(([field]) => field)).toEqual([...Array(10).fill("people"), "email", "email"]);
  expect(t.progress.mock.calls.at(-1)?.[0].modelCalls).toBeLessThanOrEqual(2);
  expect(t.progress.mock.calls.some(([e])=>e.page?.findings.some(f=>f.name==="Alex Example"))).toBe(true);
 });
@@ -602,4 +614,67 @@ it("collects web discovery delivered in slices before reading pages", async () =
   await runResearch(t.step, t.service);
   expect(t.service.discover).toHaveBeenCalledTimes(3);
   expect(vi.mocked(t.service.readPage).mock.calls.map(c => c[0])).toEqual(["https://one.example.com/", "https://two.example.com/", "https://three.example.com/"]);
+});
+
+it('retains a general manager and continues to find an owner in automatic research', async () => {
+ const t = setup();
+ Object.assign(t.config, {mode:'automatic',purpose:'people',targetedFollowup:true,maxPeopleSearches:2,companyName:'Example Instruments',companyDomain:'instruments.example.com'});
+ t.config.budget={maxPages:4,maxDomains:2,maxModelCalls:0,maxMinutes:10};
+ t.service.readPage=vi.fn(async url=>({status:'completed',page:{url,markdown:url.endsWith('/owner') ? '# Our team\n#### Alex Sampleson\n##### Owner\nalex@instruments.example.com' : '# Our team\n#### Casey Citizen\n##### General Manager\ncasey@instruments.example.com'}}));
+ t.service.targetedSearch=vi.fn(async()=>({seeds:['https://instruments.example.com/owner'],exhausted:true}));
+ await runResearch(t.step,t.service);
+ expect(t.service.targetedSearch).toHaveBeenCalledWith('people',1);
+ const saved=t.progress.mock.calls.flatMap(([event])=>event.page?.findings||[]);
+ expect(saved.map(f=>f.name)).toEqual(expect.arrayContaining(['Casey Citizen','Alex Sampleson']));
+ expect(t.progress.mock.calls.at(-1)?.[0].status).toBe('complete');
+});
+it('carries a newly evidenced legal operator into directory extraction and reopens its searches', async () => {
+ const t=setup();
+ Object.assign(t.config,{purpose:'people',targetedFollowup:true,maxPeopleSearches:2,companyName:'Example Instruments',companyDomain:'instruments.example.com'});
+ t.config.budget={maxPages:4,maxDomains:2,maxModelCalls:4,maxMinutes:10};
+ const profile='https://www.dnb.com/business-directory/company-profiles/example-holdings.123/contacts';
+ const legal='This website is operated by Example Holdings Pty Ltd.';
+ const person='# Example Holdings Pty Ltd\nContacts\nAlex Example\nDirector';
+ t.service.readPage=vi.fn(async url=>({status:'completed',page:{url,markdown:url.endsWith('/privacy')?legal:url===profile?person:'Example Instruments builds precision sensors.'}}));
+ t.service.extract=vi.fn(async messages=>{
+  const context=JSON.parse(messages[1].content);
+  if(context.source.endsWith('/privacy'))return [{kind:'identifier',name:'Legal entity',value:'Example Holdings Pty Ltd',quote:legal,website:context.source}];
+  if(context.source===profile){expect(context.legalEntity).toBe('Example Holdings Pty Ltd');return [{kind:'person',name:'Alex Example',value:'Director',quote:person,website:profile}];}
+  return [];
+ });
+ t.service.targetedSearch=vi.fn().mockResolvedValueOnce({seeds:['https://instruments.example.com/privacy'],exhausted:true}).mockResolvedValueOnce({seeds:[profile],exhausted:true}).mockResolvedValue({seeds:[],exhausted:true});
+ await runResearch(t.step,t.service);
+ expect(vi.mocked(t.service.targetedSearch).mock.calls.map(([field])=>field).slice(0,2)).toEqual(['people','people']);
+ expect(t.progress.mock.calls.flatMap(([event])=>event.page?.findings||[])).toEqual(expect.arrayContaining([expect.objectContaining({name:'Alex Example',value:'Director'})]));
+});
+
+it('lets the discovery coordinator finish its searches without rereading delegated seeds', async () => {
+  const t = setup();
+  Object.assign(t.config, { mode: 'automatic', workflow: 'business', parallelDiscovery: true, targetBusinesses: 20 });
+  t.service.readPage = vi.fn();
+  await runResearch(t.step, t.service);
+  expect(t.service.readPage).not.toHaveBeenCalled();
+  expect(t.service.submit).not.toHaveBeenCalled();
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'complete', pages: 0 });
+  expect(t.progress.mock.calls.at(-1)?.[0].message).toContain('researched in parallel');
+});
+it('uses a cached page before reserving another browser request', async () => {
+  const t = setup(); t.config.budget.maxPages = 1;
+  t.service.cachedPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: 'Example Instruments makes sensors for manufacturers. We supply industrial sensors and calibration equipment throughout Australia.' } }));
+  t.service.readPage = vi.fn();
+  await runResearch(t.step, t.service);
+  expect(t.service.cachedPage).toHaveBeenCalledOnce();
+  expect(t.service.readPage).not.toHaveBeenCalled();
+  expect(t.progress.mock.calls.at(-1)?.[0].pages).toBe(1);
+});
+it('finishes an objective already supported by sibling evidence without another page or model call', async () => {
+  const t = setup();
+  Object.assign(t.config, { mode: 'automatic', purpose: 'people', companyDomain: 'instruments.example.com', companyName: 'Example Instruments', targetedFollowup: true });
+  const original = t.service.control;
+  t.service.control = vi.fn(async () => ({ ...await original(), findings: [{ kind: 'person' as const, name: 'Alex Example', value: 'Director', email: 'alex@instruments.example.com', quote: 'Alex Example Director', website: t.config.seeds[0] }] }));
+  t.service.readPage = vi.fn();
+  await runResearch(t.step, t.service);
+  expect(t.service.readPage).not.toHaveBeenCalled();
+  expect(t.service.extract).not.toHaveBeenCalled();
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'complete', pages: 0 });
 });

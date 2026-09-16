@@ -1,13 +1,17 @@
+import { withLocalProvider } from './local-provider';
+import { providerStep, type Admission } from "./provider-step";
+import type { ResearchProvider } from "../../src/domain/research-provider-queue";
+import { productionPolicy, researchFetch } from "./local-policy";
 import { browserMarkdown } from "./browser-reader";
-import { cachedPage } from "./page-cache";
-import { providerFailure } from "../../src/domain/research-provider-error";
+import { cachedPage, lookupCachedPage } from "./page-cache";
+import { providerFailure, BrowserAdmissionDeferred } from "../../src/domain/research-provider-error";
 import { localRead } from "./local-reader";
 import { localSearch } from "./local-search";
 import { providerJsonRequest } from "../../src/adapters/observability/provider-request";
 import { researchExtractionRequest } from "../../src/domain/research-extraction-schema";
 import { FreeOpenRouter } from "../../src/adapters/ai/free-openrouter";
 import { callbackOrigin } from "./callback-origin";
-import { cancelCrawl, crawlRetryUrl, CrawlerRequestError, requestBudgetStop } from "./runtime-policy";
+import { cancelCrawl, crawlRetryUrl, CrawlerRequestError, requestBudgetStop, stalledResearch } from "./runtime-policy";
 import { targetedPrompt, targetedSchema } from "../../src/domain/targeted-research";
 import { readFallback } from "./fallback";
 import { searchResults } from "../../src/domain/cloudflare-search";
@@ -30,6 +34,7 @@ interface Env {
   SERVICE_SECRET: string;
   APP_ORIGIN: string;
   LOCAL_DEVELOPMENT?: string;
+  LOCAL_RESEARCH_POLICY?: string;
   CF_ACCOUNT_ID?: string;
   CF_BROWSER_TOKEN?: string;
   LOCAL_CRAWL4AI_URL?: string;
@@ -54,14 +59,14 @@ async function authorized(request: Request, secret: string) {
 async function callback(env: Env, id: string, body?: unknown, budget?: { used: number; jobId?: string }) {
   const origin = callbackOrigin(env.APP_ORIGIN, env.LOCAL_DEVELOPMENT === "true");
   if (budget) budget.used++;
-  const r = await fetch(`${origin}/api/research/internal/${id}`, {
+  const r = await researchFetch(env)(`${origin}/api/research/internal/${id}`, {
     method: body ? "POST" : "GET",
     headers: {
       authorization: `Bearer ${env.SERVICE_SECRET}`,
       "Content-Type": "application/json",
     },
     body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout((body as { action?: string } | undefined)?.action === "browser-permit" ? 5000 : body ? 55000 : 10000),
+    signal: AbortSignal.timeout(["browser-permit", "provider-release"].includes((body as { action?: string } | undefined)?.action || "") ? 5000 : body ? 55000 : 10000),
   });
   if (!r.ok) throw new Error(`Callback failed (${r.status})`);
   return r.json();
@@ -85,17 +90,25 @@ async function browser(env: Env, path: string, method = "GET", body?: unknown, b
     throw new CrawlerRequestError(r.status);
   return data.result;
 }
-async function readMarkdown(env: Env, url: string, budget: { used: number; jobId?: string }, fallback = false) {
+async function readMarkdown(env: Env, url: string, budget: { used: number; jobId?: string }, fallback = false, reservation?: string) {
   if (!publicResearchUrl(url)) throw new Error("Unsupported URL");
-  if (env.LOCAL_DEVELOPMENT === "true") {
-    // The local reader is shared by concurrent jobs; a transient failure gets one retry.
-    try { return await localRead(env, url, { jobId: budget.jobId }); }
-    catch { await new Promise(resolve => setTimeout(resolve, 4000)); return localRead(env, url, { jobId: budget.jobId }); }
+  if (!productionPolicy(env)) {
+    const read = (token?: string) => withLocalProvider('page', token,
+      body => callback(env, budget.jobId!, body),
+      () => localRead(env, url, { jobId: budget.jobId }, researchFetch(env)));
+    try { return await read(reservation); }
+    catch (error) {
+      if (error instanceof BrowserAdmissionDeferred) throw error;
+      // Release capacity during the existing transient-failure backoff, then
+      // acquire a fresh single-use reservation for the retry.
+      await new Promise(resolve => setTimeout(resolve, 4000));
+      return read();
+    }
   }
   const markdown = await browserMarkdown(env, url, {
     jobId: budget.jobId, operation: fallback ? "markdown_fallback" : "markdown",
     onRequest: () => { budget.used++; },
-    permit: () => callback(env, budget.jobId!, { action: "browser-permit" }) as Promise<{ granted: boolean; retryAfterMs: number }>,
+    permit: () => callback(env, budget.jobId!, { action: "browser-permit", token: reservation }) as Promise<{ granted: boolean; retryAfterMs: number }>,
   });
   return { status: "completed", page: { url, markdown: markdown.slice(0, 30000), observedAt: new Date().toISOString() } };
 }
@@ -107,8 +120,22 @@ export class AcquireResearch extends WorkflowEntrypoint<
     const id = event.payload.jobId;
     // Leave room for cancellation and final progress below the free-plan limit of 50 external requests.
     const requestBudget = { used: 0, jobId: id };
+    let stateCache: { value: ResearchControl; at: number } | undefined;
+    let browserReservation: string | undefined;
+    const control = async () => {
+      // Adjacent goal, page and extraction guards reuse a freshly checked state.
+      // After network work or durable waiting, cancellation is checked again.
+      if (!stateCache || Date.now() - stateCache.at >= 1000) stateCache = { value: await callback(this.env, id, undefined, requestBudget) as ResearchControl, at: Date.now() };
+      const stopReason = requestBudgetStop(requestBudget.used, !productionPolicy(this.env));
+      return stopReason ? { ...stateCache.value, deadline: 0, stopReason } : stateCache.value;
+    };
+    const checkpoint = async <T>(name: string, run: () => Promise<T>, retry = true): Promise<T> => {
+      const serialized = await step.do(name, { retries: { limit: retry ? 2 : 0, delay: "12 seconds", backoff: "exponential" }, timeout: "120 seconds" }, async () => JSON.stringify(await run()) ?? "null");
+      return JSON.parse(serialized) as T;
+    };
     const ai = new FreeOpenRouter({
       apiKey: this.env.OPENROUTER_API_KEY,
+      fetch: researchFetch(this.env),
       jobId: id,
       onRequest: () => { requestBudget.used++; },
       onUsage: usage => console.info("research-ai", JSON.stringify({ jobId: id, ...usage })),
@@ -121,46 +148,51 @@ export class AcquireResearch extends WorkflowEntrypoint<
           run: () => Promise<T>,
           retry = true,
         ): Promise<T> => {
-          const serialized = await step.do(
-            name,
-            {
-              retries: {
-                limit: retry ? 2 : 0,
-                delay: "12 seconds",
-                backoff: "exponential",
-              },
-              timeout: "120 seconds",
-            },
-            async () => JSON.stringify(await run()) ?? "null",
-          );
-          return JSON.parse(serialized) as T;
+          const config = stateCache?.value.config;
+          const provider: ResearchProvider | undefined = /^read-people-/.test(name) ? 'page'
+            : /^(extract-|company-identity-|headcount-|targeted-plan$)/.test(name) ? 'ai'
+            : /^(targeted-search-|people-followup$)/.test(name) || (/^discover(?:-\d+)?$/.test(name) && config?.discover && !config.targetedFollowup) ? 'search' : undefined;
+          if (!provider) return checkpoint(name, run, retry);
+          const exhausted = requestBudgetStop(requestBudget.used, !productionPolicy(this.env));
+          if (exhausted) throw new BrowserAdmissionDeferred(exhausted);
+          return providerStep({ do: checkpoint, sleep: (label, ms) => step.sleep(label, ms) }, name, provider,
+            token => callback(this.env, id, { action: "provider-reserve", provider, token: `${id}:${token}` }, requestBudget) as Promise<Admission>,
+            async token => {
+              try {
+                const current = await control();
+                if (["cancelled", "complete", "partial", "failed"].includes(current.status) || Date.now() >= current.deadline) throw new BrowserAdmissionDeferred();
+                browserReservation = provider === 'ai' ? undefined : token;
+                return await run();
+              } finally {
+                browserReservation = undefined;
+                if (!productionPolicy(this.env) && provider === 'page') await callback(this.env, id, { action: 'provider-release', token }).catch(() => {});
+              }
+            });
         },
         sleep: (name, ms) => step.sleep(name, ms),
       },
       {
         diagnostic: event => console.info("research-diagnostic", JSON.stringify({ ...event, timestamp: new Date().toISOString(), jobId: id })),
-        control: async () => {
-          const state = await callback(this.env, id, undefined, requestBudget) as ResearchControl;
-          const stopReason = requestBudgetStop(requestBudget.used, this.env.LOCAL_DEVELOPMENT === "true");
-          return stopReason ? { ...state, deadline: 0, stopReason } : state;
-        },
+        control,
         discover: () =>
-          callback(this.env, id, { action: "discover" }, requestBudget) as Promise<{
+          callback(this.env, id, { action: "discover", browserReservation }, requestBudget) as Promise<{
             seeds: string[];
             warning?: string;
           }>,
         progress: async (event) => {
-          await callback(this.env, id, event, requestBudget);
+          const response = await callback(this.env, id, event, requestBudget) as { control?: ResearchControl };
+          stateCache = response.control ? { value: { ...response.control, findings: stateCache?.value.findings }, at: Date.now() } : undefined;
           console.info("research-progress", JSON.stringify({ timestamp: new Date().toISOString(), jobId: id, status: event.status, revision: event.revision, pages: event.pages, modelCalls: event.modelCalls, savedPageFindings: event.page?.findings.length, remainingUrls: event.runtime?.remaining.length }));
         },
-        readPeoplePage: (url) => readMarkdown(this.env, url, requestBudget),
+        cachedPage: async (url) => lookupCachedPage(caches.default, stateCache?.value.config.researchRunId || id, url),
+        readPeoplePage: (url) => readMarkdown(this.env, url, requestBudget, false, browserReservation),
         // Every page read is one synchronous request. The asynchronous crawl job needed a submit
         // plus repeated polls, and a queued crawl could consume an instance's whole request budget
         // before its first page arrived; the crawl path remains only as the fallback below.
         readPage: async (url: string) => {
-          const state = await callback(this.env, id, undefined, requestBudget) as ResearchControl;
-          const read = () => readMarkdown(this.env, url, requestBudget);
-          return this.env.LOCAL_DEVELOPMENT === "true" ? read() : cachedPage(caches.default, state.config.researchRunId || id, url, read);
+          const state = await control();
+          const read = () => readMarkdown(this.env, url, requestBudget, false, browserReservation);
+          return cachedPage(caches.default, state.config.researchRunId || id, url, read);
         },
         ...(this.env.LOCAL_DEVELOPMENT !== "true" && this.env.CRAWL4AI_URL ? { readFallbackPage: async (url: string) => {
           requestBudget.used++;
@@ -245,8 +277,8 @@ export class AcquireResearch extends WorkflowEntrypoint<
           }) as { response?: unknown };
           return typeof output.response === "string" ? JSON.parse(output.response) : output.response;
         },
-        targetedSearch: (field) => callback(this.env, id, { action: "targeted-followup", field }, requestBudget) as Promise<{ seeds: string[]; warning?: string }>,
-        peopleFollowup: () => callback(this.env, id, { action: "people-followup" }, requestBudget) as Promise<{ seeds: string[]; warning?: string }>,
+        targetedSearch: (field) => callback(this.env, id, { action: "targeted-followup", field, browserReservation }, requestBudget) as Promise<{ seeds: string[]; warning?: string }>,
+        peopleFollowup: () => callback(this.env, id, { action: "people-followup", browserReservation }, requestBudget) as Promise<{ seeds: string[]; warning?: string }>,
         now: () => Date.now(),
       },
     ).finally(() => {
@@ -264,33 +296,37 @@ const worker = {
         return Response.json({ error: "Invalid search" }, { status: 400 });
       // Deeper result pages are available from the local search container only.
       const page = typeof body.page === "number" && Number.isInteger(body.page) && body.page >= 1 && body.page <= 3 ? body.page : 1;
-      if ((page > 1 || body.engine && body.engine !== "duckduckgo") && env.LOCAL_DEVELOPMENT !== "true") return Response.json({ error: "Production search supports DuckDuckGo page 1 only", category: "unsupported_search" }, { status: 422 });
+      if ((page > 1 || body.engine && body.engine !== "duckduckgo") && productionPolicy(env)) return Response.json({ error: "Production search supports DuckDuckGo page 1 only", category: "unsupported_search" }, { status: 422 });
       try {
-        if (env.LOCAL_DEVELOPMENT === "true") {
+        if (!productionPolicy(env)) {
           const ids = {
             requestId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-request-id") || "") ? request.headers.get("x-research-request-id")! : undefined,
             jobId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-job-id") || "") ? request.headers.get("x-research-job-id")! : undefined,
           };
-          // OpenSERP returns full snippets; fall back to the rendered HTML endpoint when it is unavailable.
-          try {
-            const local = await localSearch(env, body.query, { ...ids, start: (page - 1) * 10, engine: body.engine === "google" ? "google" : undefined });
-            if (local) return Response.json({ seeds: local.map(r => r.url).slice(0, 6), results: local });
-          } catch (error) { console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), ...ids, event: "local_search_fallback", reason: error instanceof Error ? error.message.slice(0, 120) : "unknown" })); }
-          if (page > 1 || body.engine === "google") return Response.json({ error: "Requested search backend unavailable", category: "unsupported_search" }, { status: 502 });
-          const result = await localRead(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(body.query)}`, {
-            operation: "web_search",
-            requestId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-request-id") || "") ? request.headers.get("x-research-request-id")! : undefined,
-            jobId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-job-id") || "") ? request.headers.get("x-research-job-id")! : undefined,
+          if (!ids.jobId) return Response.json({ error: "A research job is required for rate-controlled search" }, { status: 400 });
+          return await withLocalProvider('search', request.headers.get("x-research-browser-reservation") || undefined,
+            data => callback(env, ids.jobId!, data), async () => {
+              // OpenSERP returns full snippets; fall back to the rendered HTML endpoint when it is unavailable.
+              try {
+                const local = await localSearch(env, body.query, { ...ids, start: (page - 1) * 10, engine: body.engine === "google" ? "google" : undefined }, researchFetch(env));
+                if (local) return Response.json({ seeds: local.map(r => r.url).slice(0, 6), results: local });
+              } catch (error) { console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), ...ids, event: "local_search_fallback", reason: error instanceof Error ? error.message.slice(0, 120) : "unknown" })); }
+              if (page > 1 || body.engine === "google") return Response.json({ error: "Requested search backend unavailable", category: "unsupported_search" }, { status: 502 });
+              const result = await withLocalProvider('page', undefined, data => callback(env, ids.jobId!, data), () => localRead(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(body.query)}`, {
+                operation: "web_search",
+                requestId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-request-id") || "") ? request.headers.get("x-research-request-id")! : undefined,
+                jobId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-job-id") || "") ? request.headers.get("x-research-job-id")! : undefined,
+              }, researchFetch(env)));
+              const results = searchResults(result.page.markdown);
+              if (!results.length && !/no results found|no more results/i.test(result.page.markdown)) return Response.json({ error: "Local search could not be read" }, { status: 502 });
+              return Response.json({ seeds: results.map(r => r.url).slice(0, 6), results });
           });
-          const results = searchResults(result.page.markdown);
-          if (!results.length && !/no results found|no more results/i.test(result.page.markdown)) return Response.json({ error: "Local search could not be read" }, { status: 502 });
-          return Response.json({ seeds: results.map(r => r.url).slice(0, 6), results });
         }
         const jobId = request.headers.get("x-research-job-id") || "";
         if (!/^[0-9a-f-]{36}$/i.test(jobId)) return Response.json({ error: "A research job is required for rate-controlled search" }, { status: 400 });
         const markdown = await browserMarkdown(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(body.query)}`, {
           jobId, operation: "web_search",
-          permit: () => callback(env, jobId, { action: "browser-permit" }) as Promise<{ granted: boolean; retryAfterMs: number }>,
+          permit: () => callback(env, jobId, { action: "browser-permit", token: request.headers.get("x-research-browser-reservation") }) as Promise<{ granted: boolean; retryAfterMs: number }>,
         });
         const results = searchResults(markdown);
         const seeds = results.map(r => r.url).slice(0, 6);
@@ -304,6 +340,14 @@ const worker = {
     if (!match) return Response.json({ error: "Not found" }, { status: 404 });
     const id = match[1];
     if (request.method === "POST") {
+      const payload = await request.json().catch(() => null) as { action?: string } | null;
+      if (payload?.action === "recover-stalled") {
+        const state = await callback(env, id) as { status: string; updatedAt?: string };
+        if (!stalledResearch(state)) return Response.json({ recovered: false });
+        await (await env.RESEARCH.get(id)).terminate();
+        console.info("research-diagnostic", JSON.stringify({ event: "stalled_workflow_terminated", jobId: id, lastProgress: state.updatedAt }));
+        return Response.json({ recovered: true });
+      }
       // Named instances and createBatch make re-dispatch idempotent.
       await env.RESEARCH.createBatch([{ id, params: { jobId: id } }]);
       return Response.json({ id }, { status: 202 });

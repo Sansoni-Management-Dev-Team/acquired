@@ -47,22 +47,24 @@ it("preserves bounds and approximations and rejects malformed counts", () => {
 });
 it("uses matched ABS units and preserves an observed employee range", () => {
   const result = estimateEbitda(saved());
-  expect(result).toMatchObject({ status: "estimated", currency: "AUD", low: Math.round(11 * 48730 * 1000 / 900.8), high: Math.round(50 * 48730 * 1000 / 900.8), benchmark: { period: "2024–25", cells: "B121, H121" } });
+  expect(result).toMatchObject({ status: "estimated", currency: "AUD", low: Math.round(11 * 47977 * 1000 / 899.3), high: Math.round(50 * 49581 * 1000 / 892.9), benchmark: { period: "2024–25", cells: expect.stringContaining("B121, H121") } });
   expect(result.limitations.join(" ")).toContain("actual EBITDA may be negative");
 });
-it("abstains on missing, conflicting, unbounded counts and ambiguous industries", () => {
+it("abstains on unusable headcounts and suggests comparable industries", () => {
   expect(estimateEbitda([]).status).toBe("unavailable");
   expect(estimateEbitda(saved(profile.replace("11-50 employees", "50+ employees"))).status).toBe("unavailable");
-  expect(estimateEbitda([...saved(), ...saved(profile.replace("11-50 employees", "51-200 employees"))]).reason).toContain("Conflicting");
-  expect(estimateEbitda(saved(profile.replace("Manufacturing", "Wholesale"))).status).toBe("unavailable");
+  const averaged = estimateEbitda([...saved(), ...saved(profile.replace("11-50 employees", "51-200 employees"))]);
+  expect(averaged).toMatchObject({ status: "estimated", headcountAggregation: { method: "mean", observations: 2, low: 31, high: 125 } });
+  expect(averaged.limitations.join(" ")).toContain("does not resolve source disagreements");
+  expect(estimateEbitda(saved(profile.replace("Manufacturing", "Wholesale"))).match).toMatchObject({ method: "fuzzy", needsReview: true });
   expect(estimateEbitda(saved(profile.replace("Manufacturing", "Wholesale")), "other-goods-wholesale").status).toBe("estimated");
 });
-it("does not build an EBITDA scenario from a lone third-party headcount estimate", () => {
+it("builds an indicative EBITDA scenario from a third-party headcount estimate", () => {
   const text = "# Example Instruments\nWebsite\n[www.instruments.example.com](//www.instruments.example.com)\n### Employees\n40";
   const facts = observedCompanyFacts(text, "https://www.datanyze.com/companies/example-instruments/123", config).map((evidence, i) => ({ id: String(i), jobId: "job", targetId: "target", sourceUrl: "https://www.datanyze.com/companies/example-instruments/123", observedAt: "2026-09-09T00:00:00Z", confidence: 0.3, evidence }));
   const result = estimateEbitda(facts, "manufacturing");
-  expect(result.status).toBe("unavailable");
-  expect(result.reason).toContain("third-party");
+  expect(result.status).toBe("estimated");
+  expect(result.headcountBasis).toBe("estimated");
 });
 it("follows relevant own-company pages and public company profiles", () => {
   expect(companyFactLinks("[About](/about) [Team](https://au.linkedin.com/company/example-instruments) [News](/news) [Customer about](https://customer.example.com/about)", "https://instruments.example.com/", config, [])).toEqual(["https://instruments.example.com/about", source]);

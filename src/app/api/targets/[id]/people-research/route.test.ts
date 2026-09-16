@@ -1,10 +1,11 @@
 import { beforeEach, expect, it, vi } from "vitest";
-const m = vi.hoisted(() => ({ session: vi.fn(), mandate: vi.fn(), members: vi.fn(), create: vi.fn(), get: vi.fn(), worker: vi.fn(), enabled: vi.fn() }));
+const m = vi.hoisted(() => ({ session: vi.fn(), mandate: vi.fn(), members: vi.fn(), create: vi.fn(), get: vi.fn(), worker: vi.fn(), enabled: vi.fn(), finding: vi.fn(), existing: vi.fn(), values: vi.fn(), audit: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: m.session } } }));
 vi.mock("@/lib/research-service", () => ({ researchEnabled: m.enabled, researchWorker: m.worker }));
-vi.mock("@/db/client", () => ({ requireDb: () => ({}) }));
+vi.mock("@/db/client", () => ({ requireDb: () => ({ select: () => ({ from: () => ({ innerJoin: () => ({ where: () => ({ limit: m.finding }) }), where: m.existing }) }), insert: () => ({ values: m.values }) }) }));
 vi.mock("@/db/acquisition-repository", () => ({ AcquisitionRepository: class { getMandate = m.mandate; memberships = m.members; } }));
 vi.mock("@/db/research-repository", () => ({ ResearchRepository: class { get = m.get; create = m.create; } }));
+vi.mock("@/db/repositories", () => ({ OrganizationRepository: class { appendAudit = m.audit; } }));
 import { POST } from "./route";
 const id = "00000000-0000-4000-8000-000000000001", mandateId = "00000000-0000-4000-8000-000000000002", requestId = "00000000-0000-4000-8000-000000000003";
 const ctx = { params: Promise.resolve({ id }) };
@@ -41,4 +42,22 @@ it("continues server-saved unread pages and legal identity without repeating dis
 it("refuses to continue research from another mandate or company", async () => {
   m.get.mockResolvedValueOnce({ mandateId: "foreign", status: "partial", config: { purpose: "people", targetId: id } });
   expect((await POST(request({ ...body, continueFrom: requestId }), ctx)).status).toBe(409); expect(m.worker).not.toHaveBeenCalled();
+});
+
+it.each([
+  ["apollo", "Apollo", "unverified"],
+  [undefined, "Cloudflare public web research", "published-unverified"],
+])("preserves %s attribution when a research lead becomes a contact", async (provider, source, roleStatus) => {
+  const sourceUrl = provider === "apollo" ? "https://app.apollo.io/#/people/person1" : "https://instruments.example.com/team";
+  m.finding.mockResolvedValue([{ config: { purpose: "people", targetId: id, provider }, finding: {
+    id: requestId, sourceUrl, observedAt: new Date("2026-09-15T00:00:00Z"), confidence: 0.4,
+    evidence: { kind: "person", name: "Alex Example", value: "Owner", quote: "Alex Example is listed as Owner.", website: sourceUrl },
+  } }]);
+  m.existing.mockResolvedValue([]);
+  m.values.mockReturnValue({ returning: async () => [{ id: "contact-id" }] });
+  const response = await POST(request({ action: "save", mandateId, findingId: requestId }), ctx);
+  expect(response.status).toBe(200);
+  expect(m.values).toHaveBeenCalledWith(expect.objectContaining({
+    displayName: "Alex Example", provenance: expect.objectContaining({ source, sourceUrl, roleStatus, findingId: requestId, reviewedBy: "user-a" }),
+  }));
 });

@@ -1,4 +1,5 @@
 import { extractionPrompt, publicResearchUrl, researchDomain, validateFindings, type ResearchConfig, type ResearchFinding } from "./research";
+import { missingResearchFields } from "./research-objectives";
 import { validatePeopleFindings } from "./people-research";
 export function ownCompany(findings: ResearchFinding[], source: string) {
   return findings.find(f => f.kind === "company" && publicResearchUrl(f.website) && researchDomain(f.website) === researchDomain(source));
@@ -36,7 +37,7 @@ export function headingCompanyFinding(markdown: string, source: string): Researc
   return null;
 }
 export function eligibleForPeople(domain: string, stage: string, findings: ResearchFinding[]) {
-  return Boolean(domain) && !["parked", "excluded"].includes(stage) && Boolean(ownCompany(findings, `https://${domain}/`)) && relevantBusiness(findings) && !findings.some(f => f.kind === "person");
+  return Boolean(domain) && !["parked", "excluded"].includes(stage) && Boolean(ownCompany(findings, `https://${domain}/`)) && relevantBusiness(findings) && missingResearchFields({ purpose: "people" }, findings).length > 0;
 }
 export function businessResearchStatus(domain: string, findings: ResearchFinding[], researching: boolean) {
   if (ownCompany(findings, `https://${domain}/`) && relevantBusiness(findings)) return "Ready to review";

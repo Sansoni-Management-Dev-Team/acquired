@@ -1,4 +1,4 @@
-import { ResearchProviderError } from "@/domain/research-provider-error";
+import { ResearchProviderError, BrowserAdmissionDeferred } from "@/domain/research-provider-error";
 import { providerJsonRequest } from "./observability/provider-request";
 import { publicResearchUrl } from "@/domain/research";
 import type { WebSearchResult } from "@/domain/cloudflare-search";
@@ -10,6 +10,7 @@ export async function cloudflareSearchResults(query: string, fetcher: typeof fet
     method: "POST", headers: { authorization: `Bearer ${secret}`, "Content-Type": "application/json", "x-research-request-id": requestId, ...(jobId ? { "x-research-job-id": jobId } : {}) },
     body: JSON.stringify({ query: query.slice(0, 500), ...(page > 1 ? { page } : {}), ...(engine ? { engine } : {}) }), signal: AbortSignal.timeout(50000), cache: "no-store",
   }, { provider: "research-worker", operation: "web_search", requestId, jobId });
+  if (data.category === "browser_admission") throw new BrowserAdmissionDeferred();
   if (!r.ok) throw new ResearchProviderError(data.category || "provider_error", r.status);
   console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), jobId, requestId, event: "search_response", results: Array.isArray(data.results) ? data.results.length : null, seeds: Array.isArray(data.seeds) ? data.seeds.length : null }));
   if (!Array.isArray(data.seeds)) throw new Error("Invalid search response");

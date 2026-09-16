@@ -3,11 +3,11 @@ import { companyFactConflicts } from "@/domain/company-facts";
 import { evidenceLabel, summariseEvidence } from "@/domain/evidence-status";
 import { useCallback, useEffect, useState } from "react";
 import { terminalResearchStates, type SavedResearchFinding } from "@/domain/research";
-import { ebitdaBenchmarks, estimateEbitda } from "@/domain/estimated-ebitda";
+import { EbitdaEstimatePanel } from "./ebitda-estimate-panel";
 type Data = { enabled: boolean; jobs: { id: string; status: string; message: string; config?: { targetedSearches?: string[] } }[]; findings: SavedResearchFinding[] };
 const button = "min-h-12 rounded-md border border-[var(--border)] px-4 py-2 text-sm disabled:opacity-40";
 export function CompanyFactsPanel({ targetId, mandateId }: { targetId: string; mandateId: string }) {
-  const [data, setData] = useState<Data>(), [error, setError] = useState(""), [busy, setBusy] = useState(false), [benchmark, setBenchmark] = useState("");
+  const [data, setData] = useState<Data>(), [error, setError] = useState(""), [busy, setBusy] = useState(false);
   const url = `/api/targets/${targetId}/company-research`;
   const refresh = useCallback(async () => {
     const response = await fetch(`${url}?mandateId=${mandateId}`, { cache: "no-store" });
@@ -33,8 +33,6 @@ export function CompanyFactsPanel({ targetId, mandateId }: { targetId: string; m
   const findings = [...new Map((data?.findings || []).map(f => [JSON.stringify([f.sourceUrl, f.evidence.kind, f.evidence.value, f.evidence.quote]), f])).values()];
   const conflicts = companyFactConflicts(findings);
   const summary = summariseEvidence(findings, { searches: (data?.jobs || []).reduce((sum, j) => sum + (j.config?.targetedSearches?.length || 0), 0), researching: Boolean(active) });
-  const estimate = estimateEbitda(findings, benchmark || undefined);
-  const money = (n: number) => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(n);
   return <section className="space-y-3 rounded-xl border border-[var(--border)] p-4">
     <h3 className="font-semibold">Company details &amp; estimated EBITDA</h3>
     {error && <p role="alert" className="text-sm text-red-200">{error}</p>}
@@ -46,8 +44,7 @@ export function CompanyFactsPanel({ targetId, mandateId }: { targetId: string; m
       {conflicts.length > 0 && <p role="status" className="text-sm">Sources disagree on {conflicts.join(" and ")}. Review the separate observations before screening this business.</p>}
       {findings.some(f => f.evidence.kind === "company_relationship") && <p className="text-sm">A group or brand relationship was found. Check whether these figures cover the target business or a wider group.</p>}
       {!findings.length ? <p className="text-sm">No supported company details found yet.</p> : <ul className="space-y-3">{findings.map(f => <li key={f.id} className="text-sm"><strong>{f.evidence.name}:</strong> {f.evidence.value}<blockquote className="mt-1 text-[var(--muted)]">{f.evidence.quote}</blockquote><a className="underline" href={f.sourceUrl} target="_blank" rel="noreferrer">Source</a><span className="text-xs text-[var(--muted)]"> · Retrieved {new Date(f.observedAt).toLocaleDateString()} · {f.evidence.factMetadata?.basis === "search_snippet" ? "Search-result estimate (unverified)" : f.evidence.factMetadata?.basis === "third_party_estimate" ? "Third-party estimate" : "Published statement"}{f.evidence.factMetadata?.identityNote ? ` · ${f.evidence.factMetadata.identityNote}` : ""} · Scope: {f.evidence.factMetadata?.scope || "unspecified"} · Reporting period: {f.evidence.factMetadata?.period || "unknown"}{f.evidence.kind === "revenue" && ` · Currency: ${f.evidence.factMetadata?.currency || "unspecified"}`}</span></li>)}</ul>}
-      <label className="block text-sm">Comparable industry for EBITDA scenario<select className="mt-1 min-h-12 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2" value={benchmark} onChange={e => setBenchmark(e.target.value)}><option value="">Use an exact sourced industry match</option>{ebitdaBenchmarks.map(b => <option key={b.id} value={b.id}>{b.label}</option>)}</select></label>
-      {estimate.status === "estimated" ? <div className="space-y-2 text-sm"><p><strong>Estimated EBITDA scenario: {money(estimate.low!)}{estimate.high !== estimate.low ? ` – ${money(estimate.high!)}` : ""} AUD</strong></p><p>Published headcount × {money(estimate.benchmark!.perPerson)} EBITDA per person. <a className="underline" href={estimate.benchmark!.sourceUrl} target="_blank" rel="noreferrer">ABS {estimate.benchmark!.period}</a>, {estimate.benchmark!.label}, {estimate.benchmark!.sheet} ({estimate.benchmark!.cells}).</p>{estimate.limitations.map(text => <p className="text-xs text-[var(--muted)]" key={text}>{text}</p>)}</div> : <p className="text-sm">EBITDA estimate unavailable: {estimate.reason}</p>}
+      <EbitdaEstimatePanel key={targetId} findings={findings} />
     </>}
   </section>;
 }

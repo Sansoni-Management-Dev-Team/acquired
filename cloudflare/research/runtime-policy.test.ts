@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import { cancelCrawl, crawlRetryUrl, CrawlerRequestError, requestBudgetStop } from "./runtime-policy";
+import { cancelCrawl, crawlRetryUrl, CrawlerRequestError, requestBudgetStop, stalledResearch } from "./runtime-policy";
 it("keeps the production reserve but lets local research pass it", () => {
   expect(requestBudgetStop(31, false)).toBeUndefined();
   expect(requestBudgetStop(32, false)).toContain("request budget");
@@ -22,4 +22,12 @@ it("retries only crawl navigation errors, never explicit access restrictions", (
   expect(crawlRetryUrl([{url:"https://example.com",status:"errored",metadata:{status:422}}])).toBe("https://example.com");
   expect(crawlRetryUrl([{url:"https://example.com",status:"disallowed",metadata:{status:422}}])).toBeUndefined();
   expect(crawlRetryUrl([{url:"https://example.com",status:"errored",metadata:{status:403}}])).toBeUndefined();
+});
+
+it("recovers only active work without progress beyond all bounded step retries", () => {
+  const now = Date.parse("2026-09-15T08:15:00Z");
+  expect(stalledResearch({status:"crawling",updatedAt:"2026-09-15T07:58:00Z"}, now)).toBe(true);
+  expect(stalledResearch({status:"extracting",updatedAt:"2026-09-15T08:10:00Z"}, now)).toBe(false);
+  for (const status of ["queued","complete","partial","cancelled","failed"]) expect(stalledResearch({status,updatedAt:"2026-09-15T07:58:00Z"}, now)).toBe(false);
+  expect(stalledResearch({status:"crawling"}, now)).toBe(false);
 });

@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { dialogBackdrop } from "./dialog-backdrop";
 import {
   terminalResearchStates,
   groupResearchFindings,
@@ -9,6 +10,7 @@ import {
   type ResearchConfig,
   type SavedResearchFinding,
 } from "@/domain/research";
+import { ResearchRunOutcome } from "./research-run-outcome";
 import { GeographySelect } from "./geography-select";
 import type { AcquisitionBrief } from "@/domain/acquisition";
 const input =
@@ -25,7 +27,7 @@ type Job = {
   config: ResearchConfig;
   seeds: string[];
 };
-type Data = { results?: { jobId: string; added: number; updated: number; people: number }[]; enabled: boolean; jobs: Job[]; peopleJobs?: Job[]; companyJobs?: Job[]; findings: SavedResearchFinding[] };
+type Data = { results?: { jobId: string; businessDomains?: string[]; added: number; updated: number; people: number }[]; enabled: boolean; jobs: Job[]; peopleJobs?: Job[]; companyJobs?: Job[]; findings: SavedResearchFinding[] };
 async function request(url: string, body?: unknown) {
   const r = await fetch(url, {
     method: body ? "POST" : "GET",
@@ -84,7 +86,7 @@ export function ResearchPanel({
     try {
       const next: Data = await request(`/api/mandates/${mandateId}/research`);
       setData(next);
-      const signature = JSON.stringify([next.jobs.map(j => [j.id, j.status, j.pages, j.message]), next.peopleJobs?.map(j => [j.id, j.status, j.pages]), next.companyJobs?.map(j => [j.id, j.status, j.pages]), next.findings.map(f => [f.id, f.targetId])]);
+      const signature = JSON.stringify([next.jobs.map(j => [j.id, j.status, j.pages, j.message, j.config.newBusinessIds]), next.peopleJobs?.map(j => [j.id, j.status, j.pages]), next.companyJobs?.map(j => [j.id, j.status, j.pages]), next.findings.map(f => [f.id, f.targetId]), next.results]);
       if (signatureRef.current && signature !== signatureRef.current) changedRef.current();
       signatureRef.current = signature;
     } catch (e) {
@@ -116,7 +118,11 @@ export function ResearchPanel({
   const finishedEnrichment = [...relatedPeople, ...relatedCompanies].filter(j => terminalResearchStates.includes(j.status));
   const searchLeadCount = new Set(relatedPeople.flatMap(j => (j.config.peopleSearchLeads || []).map(l => `${j.config.targetId}:${l.url}`))).size;
   const peopleFound = (data.results || []).filter(r => runJobs.some(j => j.id === r.jobId)).reduce((sum, r) => sum + r.people, 0);
+  const identifiedBusinessCount = new Set((data.results || []).filter(r => runJobs.some(j => j.id === r.jobId)).flatMap(r => r.businessDomains || [])).size;
   const newBusinessCount = new Set(runJobs.flatMap(j => j.config.newBusinessIds || [])).size;
+  const activeBusinessCount = new Set(runJobs.filter(j => !terminalResearchStates.includes(j.status)).flatMap(j => j.config.companyDomain || j.config.targetId ? [j.config.companyDomain || j.config.targetId] : [])).size;
+  const queuedUrlCount = new Set(runJobs.filter(j => !terminalResearchStates.includes(j.status) && !j.config.parallelDiscovery).flatMap(j => j.config.runtime?.remaining || j.seeds)).size;
+  const waitingJobs = runJobs.filter(j => !terminalResearchStates.includes(j.status) && /Waiting for (?:browser|AI) slot/.test(j.message)).length;
   const runPages = runJobs.reduce((sum, j) => sum + j.pages, 0);
   const termList = terms
     .split("\n")
@@ -194,14 +200,7 @@ export function ResearchPanel({
                 {setup ? "Close setup" : "Find & research businesses"}
               </button>
               {setup && (
-                <dialog ref={setupRef} onPointerDown={e => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  backdropPressed.current = e.target === e.currentTarget && (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom);
-                }} onClick={e => {
-                  const rect = e.currentTarget.getBoundingClientRect();
-                  if (backdropPressed.current && e.target === e.currentTarget && (e.clientX < rect.left || e.clientX > rect.right || e.clientY < rect.top || e.clientY > rect.bottom)) setSetup(false);
-                  backdropPressed.current = false;
-                }} onCancel={() => setSetup(false)} onClose={() => setSetup(false)} aria-labelledby="research-setup-title" className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-dvh w-full max-w-xl overflow-y-auto border-l border-[var(--border)] bg-[var(--panel)] p-6 text-white backdrop:bg-black/70">
+                <dialog ref={setupRef} onPointerDown={event => dialogBackdrop(backdropPressed, () => setSetup(false)).onPointerDown(event)} onPointerCancel={() => { backdropPressed.current = false; }} onClick={event => dialogBackdrop(backdropPressed, () => setSetup(false)).onClick(event)} onCancel={() => setSetup(false)} onClose={() => setSetup(false)} aria-labelledby="research-setup-title" className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-dvh w-full max-w-xl overflow-y-auto border-l border-[var(--border)] bg-[var(--panel)] p-6 text-white backdrop:bg-black/70">
                   <div className="sticky -top-6 z-10 -mx-6 -mt-6 mb-5 flex items-center justify-between gap-4 border-b border-[var(--border)] bg-[var(--panel)] p-6"><h2 id="research-setup-title" className="text-xl font-semibold">{continuation ? "Continue research" : "Find & research businesses"}</h2><button className={button} onClick={() => setSetup(false)} aria-label="Close research settings">Close</button></div>
                   <div className="space-y-4">
                   {continuation && (
@@ -324,16 +323,16 @@ export function ResearchPanel({
           )}
           {currentJob && <div className="space-y-3" role="status">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="font-semibold">{!terminalResearchStates.includes(currentJob.status) ? (currentJob.config.purpose === "firmographics" ? "Researching company details" : currentJob.config.purpose === "people" ? "Finding decision-makers" : currentJob.status === "discovering" ? "Finding businesses" : "Researching businesses") : currentJob.status === "cancelled" ? "Research cancelled" : enriching.length ? "Enriching businesses" : "Latest research run"}</h2>
+              <h2 className="font-semibold">{!terminalResearchStates.includes(currentJob.status) ? (currentJob.config.purpose === "firmographics" ? "Researching company details" : currentJob.config.purpose === "people" ? "Finding decision-makers" : currentJob.status === "discovering" ? "Finding businesses" : "Researching businesses") : currentJob.status === "cancelled" ? "Research cancelled" : enriching.length ? "Enriching businesses" : currentJob.status === "failed" ? "Research failed" : currentJob.status === "complete" ? "Research complete" : "Research paused"}</h2>
               <span className="text-xs text-[var(--muted)]">{new Date(currentJob.createdAt).toLocaleString()}</span>
             </div>
-            <ResearchProgress job={currentJob} count={newBusinessCount} active={Boolean(active)} enriching={enriching.length} />
+            <ResearchProgress job={currentJob} count={newBusinessCount} identified={identifiedBusinessCount} active={Boolean(active)} enriching={enriching.length} />
+            {!currentJob.config.purpose && !terminalResearchStates.includes(currentJob.status) && <p className="text-sm text-[var(--muted)]">{currentJob.status === "discovering" ? "Searching for candidate websites…" : "Reading candidate websites and checking business details…"} The count increases as new businesses are saved to Targets.</p>}
+            <ResearchRunOutcome status={currentJob.status} remaining={remainingFor(currentJob).length} active={Boolean(active)} canResume={!currentJob.config.purpose} busy={busy} onResume={() => resume(currentJob)} />
             <details className="text-sm text-[var(--muted)]"><summary className="min-h-12 cursor-pointer content-center">Details</summary>
-              <p>{enriching.length} enrichment jobs running · {finishedEnrichment.length} finished · {peopleFound} contact leads{searchLeadCount ? ` · ${searchLeadCount} leads to verify` : ""}</p>
-              <p>{runPages} pages read · {currentJob.config.runtime?.remaining.length || 0} URLs remaining</p><p className="mt-2 break-words">{currentJob.message}</p>
+              <p>{activeBusinessCount} businesses in progress · {waitingJobs} jobs waiting for a provider slot · {enriching.length} enrichment jobs running · {finishedEnrichment.length} finished · {peopleFound} contact leads{searchLeadCount ? ` · ${searchLeadCount} leads to verify` : ""}</p>
+              <p>{runPages} pages read · {queuedUrlCount} URLs queued</p><p className="mt-2 break-words">{currentJob.message === "Discovery complete" ? "Website search finished; researching candidate businesses" : currentJob.message}</p>
             </details>
-            {!active && terminalResearchStates.includes(currentJob.status) && Boolean(currentJob.config.runtime?.remaining.length) && <p className="text-sm">This run has stopped; the remaining websites have not all been researched.</p>}
-            {!active && !currentJob.config.purpose && remainingFor(currentJob).length > 0 && <button className={button} disabled={busy} onClick={() => resume(currentJob)}>Continue research</button>}
             {!active && !currentJob.config.purpose && currentJob.config.runtime?.attempts.some(a => a.status === "failed" || /extraction failed/i.test(a.reason)) && <button className={button} disabled={busy} onClick={() => retryFailed(currentJob)}>Retry failed pages</button>}
             {active && <button className={button} disabled={busy} onClick={() => act({action:"cancel"}, active.id)}>Stop research</button>}
             {active?.status === "queued" && <button className={button} disabled={busy} onClick={() => act({action:"retry-dispatch"}, active.id)}>Reconnect job</button>}
@@ -520,11 +519,11 @@ export function TargetResearchEvidence({
   return <ResearchFindings findings={findings} onChanged={() => {}} />;
 }
 
-function ResearchProgress({ job, count, active, enriching }: { job: Job; count: number; active: boolean; enriching: number }) {
+function ResearchProgress({ job, count, identified, active, enriching }: { job: Job; count: number; identified: number; active: boolean; enriching: number }) {
   const goal = !job.config.purpose && job.config.targetBusinesses;
   const discovering = Boolean(goal && !terminalResearchStates.includes(job.status));
   const determinate = Boolean(goal && (discovering || !active));
-  const label = determinate ? `${count} of ${goal} businesses found` : job.config.purpose === "people" ? "Finding decision-makers…" : enriching || job.config.purpose === "firmographics" ? "Researching company details…" : active ? "Researching businesses…" : `Research ${job.status}`;
+  const label = !active && !determinate ? `Research ${job.status}` : determinate ? `${count} of ${goal} new businesses saved` : job.config.purpose === "people" ? "Finding decision-makers…" : enriching || job.config.purpose === "firmographics" ? "Researching company details…" : active ? "Researching businesses…" : `Research ${job.status}`;
   const percentage = determinate ? Math.min(100, Math.max(0, count / Number(goal) * 100)) : undefined;
-  return <div className="space-y-2"><p role="status" aria-live="polite" className="text-sm font-medium">{label}</p>{(active || determinate) && <div role="progressbar" aria-label={label} aria-valuemin={determinate ? 0 : undefined} aria-valuemax={determinate ? 100 : undefined} aria-valuenow={percentage} className="h-2 overflow-hidden rounded-full bg-[var(--panel-raised)]"><div className={`h-full rounded-full bg-[var(--accent)] ${determinate ? "transition-[width]" : "w-1/3 motion-safe:animate-pulse"}`} style={determinate ? { width: `${percentage}%` } : undefined} /></div>}</div>;
+  return <div className="space-y-2">{!job.config.purpose && <p className="text-sm font-medium" aria-live="polite">{identified} {identified === 1 ? "business" : "businesses"} identified <span className="font-normal text-[var(--muted)]">· includes existing businesses</span></p>}<p role="status" aria-live="polite" className="text-sm font-medium">{label}</p>{(active || determinate) && <div role="progressbar" aria-label={label} aria-valuemin={determinate ? 0 : undefined} aria-valuemax={determinate ? 100 : undefined} aria-valuenow={percentage} className="h-2 overflow-hidden rounded-full bg-[var(--panel-raised)]"><div className={`h-full rounded-full bg-[var(--accent)] ${determinate ? "transition-[width]" : "w-1/3 motion-safe:animate-pulse"}`} style={determinate ? { width: `${percentage}%` } : undefined} /></div>}</div>;
 }

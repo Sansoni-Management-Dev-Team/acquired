@@ -23,5 +23,5 @@ export function companyResultMatches(result: WebSearchResult, company: string, d
 }
 export function companyPeopleQuery(company: string, domain: string) {
   const name = publicCompanyName(company.split(/\s+\/\s+/).at(-1)!);
-  return `"${name}" "${domain}" founder director`;
+  return `"${name}" ${name.includes(" ") ? "" : `"${domain}" `}owner`;
 }

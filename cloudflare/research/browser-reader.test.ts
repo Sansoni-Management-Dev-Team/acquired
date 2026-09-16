@@ -18,3 +18,15 @@ it('preserves daily quota classification without repeatedly calling the browser'
   await expect(browserMarkdown(env, 'https://example.com/', { operation: 'markdown', permit: async () => ({ granted: true, retryAfterMs: 0 }) }, fetcher)).rejects.toMatchObject({ category: 'daily_quota', status: 429 });
   expect(fetcher).toHaveBeenCalledOnce();
 });
+
+it('waits for a reserved permit before sending the browser request', async () => {
+  vi.useFakeTimers();
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ success: true, result: 'Company evidence' }));
+  const pending = browserMarkdown(env, 'https://example.com/', {
+    operation: 'markdown', permit: async () => ({ granted: true, retryAfterMs: 11000 }),
+  }, fetcher);
+  await vi.advanceTimersByTimeAsync(10000);
+  expect(fetcher).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1000);
+  await expect(pending).resolves.toBe('Company evidence');
+});
