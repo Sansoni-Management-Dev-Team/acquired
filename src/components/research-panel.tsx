@@ -17,7 +17,7 @@ const input =
   "min-h-12 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2 text-sm";
 const button =
   "min-h-12 rounded-md border border-[var(--border)] px-4 py-2 text-sm disabled:opacity-40";
-type Job = {
+export type ResearchJob = {
   id: string;
   status: string;
   pages: number;
@@ -27,7 +27,7 @@ type Job = {
   config: ResearchConfig;
   seeds: string[];
 };
-type Data = { results?: { jobId: string; businessDomains?: string[]; added: number; updated: number; people: number }[]; enabled: boolean; jobs: Job[]; peopleJobs?: Job[]; companyJobs?: Job[]; findings: SavedResearchFinding[] };
+type Data = { results?: { jobId: string; businessDomains?: string[]; added: number; updated: number; people: number }[]; enabled: boolean; jobs: ResearchJob[]; peopleJobs?: ResearchJob[]; companyJobs?: ResearchJob[]; findings: SavedResearchFinding[] };
 async function request(url: string, body?: unknown) {
   const r = await fetch(url, {
     method: body ? "POST" : "GET",
@@ -67,7 +67,7 @@ export function ResearchPanel({
   );
   const [seeds, setSeeds] = useState(""),
     [discover, setDiscover] = useState(true),
-    [continuation, setContinuation] = useState<Job | null>(null);
+    [continuation, setContinuation] = useState<ResearchJob | null>(null);
   const [targetBusinesses, setTargetBusinesses] = useState<number | "">(20);
   const targetValid = Number.isInteger(targetBusinesses) && Number(targetBusinesses) >= 1 && Number(targetBusinesses) <= 100;
   const backdropPressed = useRef(false);
@@ -105,7 +105,7 @@ export function ResearchPanel({
   );
   const currentJob = data.jobs.find(j => !terminalResearchStates.includes(j.status)) || active || data.jobs[0];
   const runId = currentJob?.config.researchRunId || currentJob?.id;
-  const inRun = (j: Job) => j.id === runId || j.config.researchRunId === runId || j.config.parentJobId === runId;
+  const inRun = (j: ResearchJob) => j.id === runId || j.config.researchRunId === runId || j.config.parentJobId === runId;
   const relatedPeople = (data.peopleJobs || []).filter(inRun);
   const relatedCompanies = (data.companyJobs || []).filter(inRun);
   const runJobs = [...data.jobs, ...relatedPeople, ...relatedCompanies].filter(inRun);
@@ -132,7 +132,7 @@ export function ResearchPanel({
     maxMinutes: 10,
     maxModelCalls: 5,
   };
-  const remainingFor = (job: Job) =>
+  const remainingFor = (job: ResearchJob) =>
     continueResearchConfig(
       job.config,
       job.seeds || [],
@@ -160,7 +160,7 @@ export function ResearchPanel({
       setBusy(false);
     }
   }
-  function resume(job: Job) {
+  function resume(job: ResearchJob) {
     setContinuation(job);
     setTargetBusinesses(job.config.targetBusinesses || 20);
     setTerms(job.config.searchTerms.join("\n"));
@@ -172,7 +172,7 @@ export function ResearchPanel({
     setFindPeople(Boolean(job.config.findPeople));
     setSetup(true);
   }
-  function retryFailed(job: Job) {
+  function retryFailed(job: ResearchJob) {
     setContinuation(null);
     setTerms(job.config.searchTerms.join("\n"));
     setScope(job.config.researchScope || job.config.searchTerms.join("; "));
@@ -338,7 +338,7 @@ export function ResearchPanel({
             {!active && !currentJob.config.purpose && currentJob.config.runtime?.attempts.some(a => a.status === "failed" || /extraction failed/i.test(a.reason)) && <button className={button} disabled={busy} onClick={() => retryFailed(currentJob)}>Retry failed pages</button>}
             {active && <button className={button} disabled={busy} onClick={() => act({action:"cancel"}, active.id)}>Stop research</button>}
             {active?.status === "queued" && <button className={button} disabled={busy} onClick={() => act({action:"retry-dispatch"}, active.id)}>Reconnect job</button>}
-            {[...data.jobs, ...(data.peopleJobs || []), ...(data.companyJobs || [])].filter(job => job.id !== active?.id && !terminalResearchStates.includes(job.status)).map(job => <div key={job.id} className="flex flex-wrap items-center gap-3 text-sm"><span>{job.config.companyName || "Research"} · {job.config.purpose === "people" ? "Finding decision-makers" : "Company research"}</span><button className={button} disabled={busy} onClick={() => act({action:"cancel"}, job.id)}>Stop research</button>{job.status === "queued" && <button className={button} disabled={busy} onClick={() => act({action:"retry-dispatch"}, job.id)}>Reconnect job</button>}</div>)}
+            {[...data.jobs, ...(data.peopleJobs || []), ...(data.companyJobs || [])].filter(job => job.id !== active?.id && !terminalResearchStates.includes(job.status)).map(job => <ActiveResearchJob key={job.id} job={job} busy={busy} onCancel={() => act({action:"cancel"}, job.id)} onRetry={() => act({action:"retry-dispatch"}, job.id)} />)}
           </div>}
 
         </>
@@ -521,7 +521,29 @@ export function TargetResearchEvidence({
   return <ResearchFindings findings={findings} onChanged={() => {}} />;
 }
 
-function ResearchProgress({ job, count, identified, active, enriching }: { job: Job; count: number; identified: number; active: boolean; enriching: number }) {
+export function ActiveResearchJob({ job, busy, onCancel, onRetry }: { job: ResearchJob; busy: boolean; onCancel: () => void; onRetry: () => void }) {
+  const foundUrl = job.seeds[0] || (job.config.companyDomain ? `https://${job.config.companyDomain}/` : "");
+  const stage = job.config.purpose === "people"
+    ? "Finding decision-makers"
+    : job.config.purpose === "firmographics"
+      ? "Researching company details"
+      : job.config.discoveryCandidate
+        ? "Researching candidate website"
+        : "Company research";
+  return <div className="flex flex-wrap items-center gap-3 text-sm">
+    <div className="min-w-0 flex-1">
+      {job.config.companyName && <p className="font-medium">{job.config.companyName}</p>}
+      {foundUrl
+        ? <a className="block break-all underline" href={foundUrl} target="_blank" rel="noreferrer">{foundUrl}</a>
+        : <p className="font-medium">{job.config.companyDomain || job.config.targetId || "Research"}</p>}
+      <p className="text-xs text-[var(--muted)]">{stage}</p>
+    </div>
+    <button className={button} disabled={busy} onClick={onCancel}>Stop research</button>
+    {job.status === "queued" && <button className={button} disabled={busy} onClick={onRetry}>Reconnect job</button>}
+  </div>;
+}
+
+function ResearchProgress({ job, count, identified, active, enriching }: { job: ResearchJob; count: number; identified: number; active: boolean; enriching: number }) {
   const goal = !job.config.purpose && job.config.targetBusinesses;
   const discovering = Boolean(goal && !terminalResearchStates.includes(job.status));
   const determinate = Boolean(goal && (discovering || !active));
