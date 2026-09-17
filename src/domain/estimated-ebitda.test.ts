@@ -82,3 +82,9 @@ it("averages range bounds separately and retains fractional means", () => {
  const fractional = estimateEbitda([findings("10 employees")[0], findings("11 employees")[0]]);
  expect(fractional.benchmark?.headcountLow).toBe(10.5);
 });
+it("uses a preferred Firmable headcount without deleting other observations", () => {
+ const input = [findings("10 employees")[0], findings("30 employees")[0], findings("20 employees", "Manufacturing")[1]];
+ const result = estimateEbitda(input, undefined, { value: 71, source: "Firmable" });
+ expect(result).toMatchObject({ status: "estimated", headcountBasis: "estimated", headcountAggregation: { method: "single", observations: 1, low: 71, high: 71 }, headcountFindingIds: [] });
+ expect(result.limitations.join(" ")).toContain("Uses Firmable headcount as the preferred input");
+});
