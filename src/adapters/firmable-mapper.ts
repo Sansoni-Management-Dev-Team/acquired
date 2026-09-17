@@ -140,7 +140,8 @@ export function mapFirmableCompany(raw: Record<string, unknown>, place: GooglePl
   const capturedAt = new Date().toISOString();
   const states = strings(raw.states);
   const hq = stringValue(raw.hq_location) || place.formattedAddress;
-  const location = place.locality && place.state ? { suburb: place.locality, state: place.state } : locationFrom(place.formattedAddress, states[0]) || locationFrom(hq, states[0]);
+  const discoveryAddress = place.formattedAddress && place.formattedAddress !== place.state ? place.formattedAddress : hq;
+  const location = place.locality && place.state ? { suburb: place.locality, state: place.state } : locationFrom(discoveryAddress, states[0] || place.state);
   const website = stringValue(raw.website) || place.website;
   const headcount = numberValue(raw.au_employee_count) ?? numberValue(raw.employee_count);
   const establishedYear = numberValue(raw.year_founded);
@@ -160,5 +161,27 @@ export function mapFirmableCompany(raw: Record<string, unknown>, place: GooglePl
     signals: [],
     status: "enriched",
     sourceData: sourceData(place, firmableSourceData(raw, firmableId, capturedAt)),
+  };
+}
+
+export function applyStoredFirmableCompany(target: import("@/domain/models").RankedTarget, raw: Record<string, unknown>, capturedAt: string): import("@/domain/models").RankedTarget {
+  const headcount = numberValue(raw.au_employee_count) ?? numberValue(raw.employee_count);
+  const establishedYear = numberValue(raw.year_founded);
+  const website = stringValue(raw.website);
+  const firmableId = stringValue(raw.id);
+  const hq = stringValue(raw.hq_location);
+  const locations = strings(raw.locations);
+  const location = hq ? locationFrom(hq, target.state) : undefined;
+  const company = firmableId ? firmableSourceData(raw, firmableId, capturedAt) : undefined;
+  return {
+    ...target,
+    companyName: stringValue(raw.name) || target.companyName,
+    domain: stringValue(raw.fqdn) || domainFrom(website) || target.domain,
+    suburb: location?.suburb || locations[0]?.split(",")[0] || target.suburb,
+    state: location?.state === "Unknown" ? target.state : location?.state || target.state,
+    revenue: raw.revenue === undefined ? target.revenue : mapFirmableRevenue(raw.revenue, capturedAt),
+    headcount: headcount === undefined ? missing("Not provided by Firmable", "Firmable", capturedAt) : value(headcount, "Firmable", capturedAt, 75, website),
+    establishedYear: establishedYear === undefined ? missing("Not provided by Firmable", "Firmable", capturedAt) : value(establishedYear, "Firmable", capturedAt, 75, website),
+    sourceData: company ? { ...target.sourceData, firmable: company } : target.sourceData,
   };
 }

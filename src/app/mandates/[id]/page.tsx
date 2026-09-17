@@ -6,8 +6,10 @@ import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { acquisitionSession } from "@/lib/acquisition-session";
 import { MandateWorkspace } from "@/components/mandate-workspace";
 import { requireDb } from "@/db/client";
-import { contacts, organization } from "@/db/schema";
+import { organization } from "@/db/schema";
 import { buyerProfileFromMetadata } from "@/domain/buyer-profile";
+import { loadWorkspaceContacts } from "@/db/firmable-read-model";
+import { FirmableHistoryRepository } from "@/db/firmable-history-repository";
 export default async function MandatePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string; targetId?: string }> }) {
   const { id } = await params;
   if (!z.string().uuid().safeParse(id).success) notFound();
@@ -21,7 +23,7 @@ export default async function MandatePage({ params, searchParams }: { params: Pr
   const mandates = await repo.listMandates();
   const mandate = mandates.find(m => m.id === id);
   if (!mandate) notFound();
-  const [memberships, coverage, valuations, contactRows, organizations] = await Promise.all([repo.memberships(id), repo.coverage(id), repo.valuations(id), requireDb().select().from(contacts).where(eq(contacts.organizationId, organizationId)), requireDb().select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, organizationId))]);
-  const initial = { mandate, memberships, coverage, valuations, buyerProfile: buyerProfileFromMetadata(organizations[0]?.metadata), contacts: contactRows.filter(c => memberships.some(m => m.target.id === c.targetId)).map(c => ({ targetId: c.targetId, name: c.displayName, role: c.role, reachable: !c.fictionalised && Boolean((c.personalData as Record<string, unknown>).email) && !(c.personalData as Record<string, unknown>).doNotContact })) };
+  const [memberships, coverage, valuations, organizations] = await Promise.all([repo.memberships(id), repo.coverage(id), repo.valuations(id), requireDb().select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, organizationId))]);
+  const initial = { mandate, memberships, coverage, valuations, buyerProfile: buyerProfileFromMetadata(organizations[0]?.metadata), contacts: await loadWorkspaceContacts(requireDb(), organizationId, memberships), firmableRefreshes: await new FirmableHistoryRepository(requireDb()).latestRuns(organizationId, memberships.map(item => item.target.id)) };
   return <MandateWorkspace key={`${id}:${tab}`} mandates={mandates} initial={initial} tab={tab} />;
 }

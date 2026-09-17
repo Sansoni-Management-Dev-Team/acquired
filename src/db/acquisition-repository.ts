@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { requireDb } from "./client";
 import { coverageRuns, mandates, mandateTargets, targets, valuationObservations, organization, researchFindings } from "./schema";
 import { OrganizationRepository } from "./repositories";
@@ -48,10 +48,15 @@ export class AcquisitionRepository {
     });
   }
   async attach(mandateId: string, targetId: string) {
+    await this.attachMany(mandateId, [targetId]);
+  }
+  async attachMany(mandateId: string, targetIds: string[]) {
+    const uniqueIds = [...new Set(targetIds)];
+    if (!uniqueIds.length) return;
     if (!await this.getMandate(mandateId)) throw new Error("Mandate not found");
-    const [target] = await this.db.select({ id: targets.id }).from(targets).where(and(eq(targets.id, targetId), eq(targets.organizationId, this.org)));
-    if (!target) throw new Error("Target not found");
-    await this.db.insert(mandateTargets).values({ organizationId: this.org, mandateId, targetId, assessment: initialAssessment }).onConflictDoNothing();
+    const valid = await this.db.select({ id: targets.id }).from(targets).where(and(inArray(targets.id, uniqueIds), eq(targets.organizationId, this.org)));
+    if (valid.length !== uniqueIds.length) throw new Error("Target not found");
+    await this.db.insert(mandateTargets).values(valid.map(({ id: targetId }) => ({ organizationId: this.org, mandateId, targetId, assessment: initialAssessment }))).onConflictDoNothing();
   }
   async saveAssessment(mandateId: string, targetId: string, assessment: Assessment, version: number, actorId: string) {
     const rows = await this.db.update(mandateTargets).set({ assessment, version: sql`${mandateTargets.version} + 1`, updatedAt: new Date() }).where(and(eq(mandateTargets.organizationId, this.org), eq(mandateTargets.mandateId, mandateId), eq(mandateTargets.targetId, targetId), eq(mandateTargets.version, version))).returning({ version: mandateTargets.version });

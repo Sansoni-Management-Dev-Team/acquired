@@ -21,6 +21,7 @@ export async function researchWorker(
   path: string,
   method = "GET",
   body?: unknown,
+  timeoutMs = 20000,
 ) {
   const url = process.env.RESEARCH_WORKER_URL;
   if (!url || !process.env.RESEARCH_SERVICE_SECRET)
@@ -32,7 +33,7 @@ export async function researchWorker(
       "Content-Type": "application/json",
     },
     body: body ? JSON.stringify(body) : undefined,
-    signal: AbortSignal.timeout(20000),
+    signal: AbortSignal.timeout(timeoutMs),
     cache: "no-store",
   });
   if (!response.ok)

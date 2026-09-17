@@ -1,0 +1,16 @@
+.git/
+.next/
+node_modules/
+.env*
+.vercel/
+.wrangler/
+.playwright-cli/
+coverage/
+output/playwright/
+tsconfig.tsbuildinfo
+
+# Local captures, database backups, browser state and development runtime data
+# must never be uploaded. The compact manufacturing index is the only runtime
+# input under this otherwise-private directory.
+.local-data/*
+!.local-data/manufacturing-search-index.json

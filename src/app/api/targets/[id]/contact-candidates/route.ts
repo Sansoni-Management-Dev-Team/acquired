@@ -1,7 +1,6 @@
 import { and, eq } from "drizzle-orm";
-import { createTargetDataProvider } from "@/adapters/provider-mode";
-import { targetSearchLog } from "@/adapters/live-target-search";
 import { requireDb } from "@/db/client";
+import { FirmableHistoryRepository } from "@/db/firmable-history-repository";
 import { targets } from "@/db/schema";
 import { auth } from "@/lib/auth";
 
@@ -14,26 +13,15 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const [target] = await requireDb().select().from(targets).where(and(eq(targets.id, id), eq(targets.organizationId, organizationId))).limit(1);
   if (!target) return Response.json({ error: "Target not found." }, { status: 404 });
   const identifiers = target.identifiers as Record<string, unknown>;
-  const firmableId = typeof identifiers.firmableId === "string" ? identifiers.firmableId : "";
+  const history = new FirmableHistoryRepository(requireDb());
+  const matched = target.firmableCompanyId ? undefined : await history.findCompany({ firmableId: typeof identifiers.firmableId === "string" ? identifiers.firmableId : undefined, domain: target.domain, abn: typeof identifiers.abn === "string" ? identifiers.abn : undefined });
+  const firmableId = target.firmableCompanyId || matched?.id || "";
   if (!firmableId) return Response.json({ error: "This target has no Firmable company ID." }, { status: 409 });
 
-  try {
-    const provider = createTargetDataProvider();
-    if (provider.mode === "live" && !provider.firmable.isConfigured()) return Response.json({ error: "Firmable is not configured." }, { status: 503 });
-    targetSearchLog("contact.candidates.request", { targetId: id, providerMode: provider.mode, firmableCompanyId: firmableId, maxCandidates: 5, searchPoolLimit: 50, strategy: "unfiltered_local_ranking" });
-    let requestCount = 0;
-    const candidates = await provider.firmable.searchDecisionMakers(firmableId, {
-      max: 5,
-      onAttempt: (attempt) => {
-        requestCount += 1;
-        targetSearchLog("contact.candidates.attempt", { targetId: id, requestNumber: requestCount, ...attempt });
-      },
-    });
-    targetSearchLog("contact.candidates.complete", { targetId: id, requestCount, count: candidates.length, candidates: candidates.map(({ id: personId, position, seniority, department, emailAvailable, phoneAvailable }) => ({ personId, position, seniority, department, emailAvailable, phoneAvailable })) });
-    return Response.json({ candidates });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Decision-maker search failed";
-    targetSearchLog("contact.candidates.failed", { targetId: id, message });
-    return Response.json({ error: message }, { status: 502 });
-  }
+  const stored = (await history.latestPeople([firmableId])).get(firmableId) || [];
+  const candidates = stored.map(person => {
+    const record = person.searchRecord;
+    return { id: person.personId, position: typeof record.position === "string" ? record.position : undefined, seniority: typeof record.seniority === "string" ? record.seniority : undefined, department: typeof record.department === "string" ? record.department : undefined, emailAvailable: record.has_email === true || record.email_available === true, phoneAvailable: record.has_phone === true || record.phone_available === true };
+  });
+  return Response.json({ candidates });
 }

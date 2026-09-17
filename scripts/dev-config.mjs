@@ -29,7 +29,10 @@ export function localWorkerConfig(production, origin, main, policy) {
     name: "acquire-research-local", main,
     compatibility_date: production.compatibility_date,
     ...(production.compatibility_flags ? { compatibility_flags: production.compatibility_flags } : {}),
-    workflows: [{ name: "acquire-research-local", binding: "RESEARCH", class_name: "AcquireResearch" }],
+    workflows: [
+      { name: "acquire-research-local", binding: "RESEARCH", class_name: "AcquireResearch" },
+      { name: "acquire-firmable-local", binding: "FIRMABLE", class_name: "FirmableRefresh" },
+    ],
     durable_objects: { bindings: [{ name: "PROVIDER_COORDINATOR", class_name: "ProviderCoordinator" }] },
     exports: { ProviderCoordinator: { type: "durable-object", storage: "sqlite" } },
     vars: { APP_ORIGIN: origin, LOCAL_DEVELOPMENT: "true", LOCAL_RESEARCH_POLICY: policy },

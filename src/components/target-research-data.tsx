@@ -37,18 +37,24 @@ export function groupTargetObservations(findings: SavedResearchFinding[], kind: 
 type PreferredObservation = { value: string; source: string; sourceUrl?: string };
 export function TargetResearchData({ findings = [], kind, fallback, preferred }: { findings?: SavedResearchFinding[]; kind: "headcount" | "revenue" | "person"; fallback: ReactNode; preferred?: PreferredObservation }) {
   const groups = groupTargetObservations(findings, kind);
-  if (!groups.length && !preferred) return <span className="text-[var(--muted)]">{fallback}</span>;
+  const savedPeople = kind === "person" && typeof fallback === "string" && fallback !== "Unknown"
+    ? [...new Map(fallback.split(", ").filter(Boolean).map(name => [normalise(name), name])).values()]
+    : [];
+  if (!groups.length && !preferred && !savedPeople.length) return <span className="text-[var(--muted)]">{fallback}</span>;
   const conflicting = kind === "headcount" && new Set(groups.map(g => JSON.stringify(parseHeadcount(g[0].evidence.value) || g[0].evidence.value))).size > 1;
   const label = (f: SavedResearchFinding) => kind === "person" ? f.evidence.name : f.evidence.value;
   const preview = groups.slice(0, 2).map(g => label(g[0])).join(" · ");
+  const peopleCount = savedPeople.length || groups.length;
+  const peoplePreview = savedPeople.length ? savedPeople.slice(0, 2).join(" · ") : preview;
   const summary = preferred?.value || (kind === "revenue" && groups.length > 1 ? averageRevenueLabel(groups) || preview : preview);
   return <div className="max-w-64 space-y-1">
-    {kind === "person" ? <><p className="font-medium">{groups.length} {groups.length === 1 ? "person" : "people"} found</p><p className="line-clamp-2 text-xs text-[var(--muted)]">{preview}{groups.length > 2 ? ` +${groups.length - 2} more` : ""}</p></> : <p className="line-clamp-2 font-medium">{summary}{!preferred && kind !== "revenue" && groups.length > 2 ? ` +${groups.length - 2} more` : ""}</p>}
-    <p className={`text-xs ${!preferred && conflicting ? "text-[var(--status-amber)]" : "text-[var(--muted)]"}`}>{preferred ? `${preferred.source} · preferred` : conflicting ? "Sources disagree" : kind === "person" ? "Roles unverified" : groups.every(g => g.every(f => f.evidence.factMetadata?.basis === "reported")) ? "Reported · awaiting review" : "Estimate · unverified"}</p>
+    {kind === "person" ? <><p className="font-medium">{peopleCount} {peopleCount === 1 ? "person" : "people"} found</p><p className="line-clamp-2 text-xs text-[var(--muted)]">{peoplePreview}{peopleCount > 2 ? ` +${peopleCount - 2} more` : ""}</p></> : <p className="line-clamp-2 font-medium">{summary}{!preferred && kind !== "revenue" && groups.length > 2 ? ` +${groups.length - 2} more` : ""}</p>}
+    <p className={`text-xs ${!preferred && conflicting ? "text-[var(--status-amber)]" : "text-[var(--muted)]"}`}>{savedPeople.length ? "Saved contacts · preferred" : preferred ? `${preferred.source} · preferred` : conflicting ? "Sources disagree" : kind === "person" ? "Roles unverified" : groups.every(g => g.every(f => f.evidence.factMetadata?.basis === "reported")) ? "Reported · awaiting review" : "Estimate · unverified"}</p>
     <details>
-      <summary className={disclosure}>{kind === "person" ? `View ${groups.length === 1 ? "person" : "people"} & sources` : "View observations & sources"}</summary>
+      <summary className={disclosure}>{kind === "person" ? `View ${peopleCount === 1 ? "person" : "people"} & sources` : "View observations & sources"}</summary>
       <div className="max-h-64 space-y-3 overflow-y-auto rounded-md border border-[var(--border)] bg-[var(--panel)] p-3">
         {preferred && <section className="space-y-1"><p className="text-sm font-semibold">{preferred.value}</p><p className="text-xs text-[var(--muted)]">{preferred.source} · preferred source</p>{preferred.sourceUrl && <a className="inline-flex min-h-12 items-center break-all text-xs underline" href={preferred.sourceUrl} target="_blank" rel="noreferrer">Provider-linked company website</a>}</section>}
+        {savedPeople.length > 0 && <section className="space-y-1"><p className="text-sm font-semibold">Saved contacts</p>{savedPeople.map(name => <p className="text-xs" key={normalise(name)}>{name}</p>)}</section>}
         {groups.map(group => <section key={group[0].id} className="space-y-1"><p className="text-sm font-semibold">{label(group[0])}</p>{group.map(f => <div key={`${f.id}:${f.sourceUrl}`} className="text-xs">
           {kind === "person" && <p>{f.evidence.name} — {f.evidence.value}</p>}
           <a className="inline-flex min-h-12 items-center break-all underline" href={f.sourceUrl} target="_blank" rel="noreferrer">{new URL(f.sourceUrl).hostname} · {new Date(f.observedAt).toLocaleDateString("en-AU")}</a>
@@ -59,9 +65,16 @@ export function TargetResearchData({ findings = [], kind, fallback, preferred }:
   </div>;
 }
 
+export function compactAud(value: number) {
+  const absolute = Math.abs(value);
+  const [divisor, suffix] = absolute >= 1_000_000_000 ? [1_000_000_000, "B"] : absolute >= 1_000_000 ? [1_000_000, "M"] : absolute >= 1_000 ? [1_000, "K"] : [1, ""];
+  const amount = Math.round((value / divisor) * 100) / 100;
+  return `$${amount}${suffix}`;
+}
+
 export function TargetEbitdaData({ findings = [], preferredHeadcount }: { findings?: SavedResearchFinding[]; preferredHeadcount?: number }) {
   const estimate = estimateEbitda(findings, undefined, preferredHeadcount === undefined ? undefined : { value: preferredHeadcount, source: "Firmable" });
   if (estimate.status !== "estimated") return <div className="max-w-56"><p className="text-[var(--muted)]">Unavailable</p><details><summary className={disclosure}>Why unavailable?</summary><p className="text-xs text-[var(--muted)]">{estimate.reason}</p></details></div>;
-  const money = (n: number) => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", notation: "compact", maximumFractionDigits: 2 }).format(n);
+  const money = compactAud;
   return <div className="max-w-56"><p className="font-medium">{money(estimate.low!)} – {money(estimate.high!)}</p><p className="text-xs text-[var(--muted)]">Estimated annual EBITDA</p>{preferredHeadcount !== undefined ? <p className="text-xs text-[var(--muted)]">Firmable headcount</p> : estimate.headcountAggregation?.method === "mean" && <p className="text-xs text-[var(--status-amber)]">Averaged headcount</p>}<details><summary className={disclosure}>View calculation</summary><div className="space-y-2 text-xs text-[var(--muted)]"><p>{estimate.benchmark!.label} · {estimate.headcountBasis} headcount</p><a className="inline-flex min-h-12 items-center underline" href={estimate.benchmark!.sourceUrl} target="_blank" rel="noreferrer">ABS {estimate.benchmark!.period}</a>{estimate.match?.needsReview && <p>Industry match needs review</p>}{preferredHeadcount !== undefined ? <p>Firmable preferred headcount: {preferredHeadcount.toLocaleString("en-AU")} people.</p> : estimate.headcountAggregation?.method === "mean" && <p>Mean of {estimate.headcountAggregation.observations} observations: {estimate.headcountAggregation.low.toLocaleString("en-AU", { maximumFractionDigits: 2 })}–{estimate.headcountAggregation.high.toLocaleString("en-AU", { maximumFractionDigits: 2 })} people. Range bounds averaged separately.</p>}<p>Headcount × historical EBITDA per employee. Indicative scenario; not reported earnings.</p></div></details></div>;
 }

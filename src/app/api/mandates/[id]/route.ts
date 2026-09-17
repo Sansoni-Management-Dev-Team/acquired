@@ -2,7 +2,7 @@ import { z } from "zod";
 import { and, eq, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { requireDb } from "@/db/client";
-import { contacts, messages, sequenceEnrolments, organization, targets } from "@/db/schema";
+import { messages, sequenceEnrolments, organization, targets } from "@/db/schema";
 import { buyerProfileFromMetadata } from "@/domain/buyer-profile";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { OrganizationRepository } from "@/db/repositories";
@@ -10,21 +10,44 @@ import { accreditationSchema, assessmentSchema, briefSchema, briefToMandate, sea
 import { rankTarget } from "@/domain/scoring";
 import { discoverMandate } from "@/adapters/mandate-discovery";
 import { createTargetDataProvider } from "@/adapters/provider-mode";
-import { mapFirmableCompany, mapGooglePlace } from "@/adapters/firmable-mapper";
+import { mapGooglePlace } from "@/adapters/firmable-mapper";
 import { acquireTargetSearch, TargetSearchRateLimitError } from "@/adapters/target-search-guard";
+import { FirmableHistoryRepository } from "@/db/firmable-history-repository";
+import { loadWorkspaceContacts } from "@/db/firmable-read-model";
 import { validateCompanyWebsite, validateTargetWebsites } from "@/lib/company-website";
+import { researchEnabled, researchWorker } from "@/lib/research-service";
+
+export const maxDuration = 300;
 
 const importedRecord = z.object({ name: z.string().trim().min(1).max(300), website: z.union([z.string().url(), z.literal("")]), abn: z.string().regex(/^(\d{11})?$/), state: z.string().max(30), description: z.string().max(3000), source: z.string().trim().min(1).max(200), sourceUrl: z.string().url(), sourceId: z.string().trim().min(1).max(200) });
 const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("brief"), brief: briefSchema }),
   z.object({ action: z.literal("discover") }),
   z.object({ action: z.literal("import"), records: z.array(importedRecord).min(1).max(1000) }),
-  z.object({ action: z.literal("enrich"), targetIds: z.array(z.string().uuid()).min(1).max(20) }),
+  z.object({ action: z.literal("enrich"), targetIds: z.array(z.string().uuid()).min(1).max(20), requestId: z.string().uuid().optional() }),
   z.object({ action: z.literal("assessment"), targetId: z.string().uuid(), assessment: assessmentSchema, version: z.number().int().positive() }),
   z.object({ action: z.literal("accreditations"), targetId: z.string().uuid(), accreditations: z.array(accreditationSchema).max(100) }),
   z.object({ action: z.literal("valuation"), observation: valuationSchema }),
   z.object({ action: z.literal("identity"), targetId: z.string().uuid(), website: z.union([z.string().url().refine(url => /^https?:\/\//i.test(url)), z.literal("")]), abn: z.string().regex(/^(\d{11})?$/), source: z.string().trim().min(1).max(500), sourceUrl: z.string().url() }),
 ]);
+
+type RecoverableFirmableRun = { id: string; status: string; updatedAt: Date };
+export async function recoverFirmableRefreshes(history: Pick<FirmableHistoryRepository, "failRun">, runs: RecoverableFirmableRun[], mandateId: string, now = Date.now()) {
+  if (!researchEnabled()) return;
+  await Promise.allSettled(runs.map(async run => {
+    if (run.status === "queued") {
+      await researchWorker(`/firmable/${run.id}`, "POST", { mandateId }, 4_000);
+      return;
+    }
+    if (run.status !== "running" || now - run.updatedAt.getTime() < 120_000) return;
+    try {
+      const worker = await researchWorker(`/firmable/${run.id}`, "GET", undefined, 4_000) as { status?: string };
+      if (["complete", "errored", "terminated"].includes(worker.status || "")) await history.failRun(run.id, "Firmable workflow ended before it could report completion. Start a new refresh to retry.");
+    } catch {
+      if (now - run.updatedAt.getTime() >= 600_000) await history.failRun(run.id, "Firmable workflow timed out. Start a new refresh to retry; saved data remains available.");
+    }
+  }));
+}
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -35,8 +58,14 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const repo = new AcquisitionRepository(org);
   const mandate = await repo.getMandate(id);
   if (!mandate) return Response.json({ error: "Mandate not found" }, { status: 404 });
-  const [memberships, coverage, valuations, contactRows, orgRows] = await Promise.all([repo.memberships(id), repo.coverage(id), repo.valuations(id), requireDb().select().from(contacts).where(eq(contacts.organizationId, org)), requireDb().select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, org))]);
-  return Response.json({ mandate, memberships, coverage, valuations, buyerProfile: buyerProfileFromMetadata(orgRows[0]?.metadata), contacts: contactRows.filter(c => memberships.some(m => m.target.id === c.targetId)).map(c => ({ targetId: c.targetId, name: c.displayName, role: c.role, reachable: !c.fictionalised && Boolean((c.personalData as Record<string, unknown>).email) && !(c.personalData as Record<string, unknown>).doNotContact })) });
+  const [memberships, coverage, valuations, orgRows] = await Promise.all([repo.memberships(id), repo.coverage(id), repo.valuations(id), requireDb().select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, org))]);
+  const history = new FirmableHistoryRepository(requireDb());
+  let firmableRefreshes = await history.latestRuns(org, memberships.map(item => item.target.id));
+  if (researchEnabled()) {
+    await recoverFirmableRefreshes(history, firmableRefreshes, id);
+    firmableRefreshes = await history.latestRuns(org, memberships.map(item => item.target.id));
+  }
+  return Response.json({ mandate, memberships, coverage, valuations, buyerProfile: buyerProfileFromMetadata(orgRows[0]?.metadata), contacts: await loadWorkspaceContacts(requireDb(), org, memberships), firmableRefreshes });
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -136,41 +165,33 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       return Response.json({ ok: true, warnings });
     }
     if (action.action === "enrich") {
-      const companyRepo = new OrganizationRepository(requireDb(), org);
+      if (!researchEnabled()) return Response.json({ error: "Firmable background refresh is awaiting service activation" }, { status: 503 });
+      if (process.env.TARGET_DATA_PROVIDER !== "fixture" && !process.env.FIRMABLE_API_KEY) return Response.json({ error: "Firmable is not configured" }, { status: 503 });
       const memberships = await repo.memberships(id);
       if (action.targetIds.some(targetId => !memberships.some(m => m.target.id === targetId))) return Response.json({ error: "A target does not belong to this mandate" }, { status: 404 });
-      const provider = createTargetDataProvider();
+      const history = new FirmableHistoryRepository(requireDb());
       const warnings: string[] = [];
+      const runs: { id: string; targetId: string; status: string }[] = [];
+      const requestId = action.requestId || crypto.randomUUID();
+      const dispatches: { run: { id: string; targetId: string; status: string }; companyName: string }[] = [];
       for (const targetId of [...new Set(action.targetIds)]) {
         const target = memberships.find(m => m.target.id === targetId)!.target;
         const abn = target.abn || target.sourceData?.manufacturingDirectory?.abn || target.sourceData?.firmable?.abn;
-        if (!target.domain && !abn) { warnings.push(`${target.companyName}: website or ABN required; candidate retained.`); continue; }
+        if (!target.domain && !abn && !target.sourceData?.firmable?.firmableId) { warnings.push(`${target.companyName}: website, ABN or prior Firmable match required; candidate retained.`); continue; }
         try {
-          if (target.domain) {
-            const validation = await validateCompanyWebsite(`https://${target.domain}/`);
-            if (!validation.ok) {
-              await requireDb().update(targets).set({ domain: "", updatedAt: new Date() }).where(and(eq(targets.id, targetId), eq(targets.organizationId, org)));
-              warnings.push(`${target.companyName}: unreachable website removed — ${validation.reason}.`);
-              target.domain = "";
-              if (!abn) continue;
-            }
-          }
-          const company = await provider.firmable.enrichCompany(target.domain ? { fqdn: target.domain } : { abn });
-          const enriched = mapFirmableCompany(company, { id: target.sourceData?.googlePlaces?.placeId || targetId, name: target.companyName, formattedAddress: target.state, website: target.domain ? `https://${target.domain}` : undefined, state: target.state, manufacturingDirectory: target.sourceData?.manufacturingDirectory, discoverySource: target.sourceData?.manufacturingDirectory ? "manufacturing-directory" : "google-places" }, filters, org);
-          // Preserve the selected shared identity even when the enrichment changes the domain.
-          enriched.domain = target.domain || enriched.domain;
-          if (enriched.domain && enriched.domain !== target.domain) {
-            const validation = await validateCompanyWebsite(`https://${enriched.domain}/`);
-            if (!validation.ok) {
-              warnings.push(`${target.companyName}: provider website ignored — ${validation.reason}.`);
-              enriched.domain = "";
-            }
-          }
-          const saved = await companyRepo.upsertEnrichedTarget({ target: rankTarget(enriched, filters), mandateId: id, actorId: session.user.id, existingTargetId: targetId });
-          if (saved) await repo.attach(id, saved.id);
-        } catch { warnings.push(`${target.companyName}: enrichment failed; candidate retained.`); }
+          const run = await history.queueRun({ organizationId: org, actorId: session.user.id, targetId, requestKey: `${requestId}:${targetId}` });
+          const queued = { id: run.id, targetId, status: run.status };
+          runs.push(queued);
+          dispatches.push({ run: queued, companyName: target.companyName });
+        } catch {
+          warnings.push(`${target.companyName}: refresh could not be queued; candidate retained.`);
+        }
       }
-      return Response.json({ ok: true, warnings });
+      const dispatched = await Promise.allSettled(dispatches.map(item => researchWorker(`/firmable/${item.run.id}`, "POST", { mandateId: id }, 4_000)));
+      dispatched.forEach((result, index) => {
+        if (result.status === "rejected") warnings.push(`${dispatches[index].companyName}: refresh saved; dispatch is uncertain and will be retried automatically.`);
+      });
+      return Response.json({ ok: true, warnings, messages: [`${runs.length} Firmable refresh${runs.length === 1 ? "" : "es"} queued.`], refresh: { runs } }, { status: 202 });
     }
     return Response.json({ ok: true });
   } catch (error) {

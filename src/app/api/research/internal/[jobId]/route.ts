@@ -18,7 +18,7 @@ import { peopleWebSearch } from "@/adapters/people-web-search";
 import { z } from "zod";
 import { and, eq, notInArray, sql } from "drizzle-orm";
 import { requireDb } from "@/db/client";
-import { researchJobs, researchFindings } from "@/db/schema";
+import { mandateTargets, researchJobs, researchFindings, targets } from "@/db/schema";
 import { ResearchRepository } from "@/db/research-repository";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { OrganizationRepository } from "@/db/repositories";
@@ -38,6 +38,7 @@ import {
   researchServiceAuthorized,
 } from "@/lib/research-service";
 export const maxDuration = 60;
+const DISCOVERY_PERSIST_BATCH = 8;
 async function getJob(request: Request, jobId: string) {
   if (!researchServiceAuthorized(request) || !researchEnabled()) return null;
   if (!z.string().uuid().safeParse(jobId).success) return null;
@@ -194,6 +195,110 @@ export async function POST(
     }
     catch (error) { return Response.json({ seeds: [], warning: `${error instanceof Error ? error.message : "Targeted people follow-up search unavailable"}; saved website research retained.` }); }
   }
+  if (payload?.action === "discovery-sources") {
+    const config = job.config as ResearchConfig;
+    if (terminalResearchStates.includes(job.status) || config.purpose || config.workflow !== "business" || !config.discover)
+      return Response.json({ pending: false });
+    if (config.discoverySourcesPrepared)
+      return Response.json({ pending: !config.discoverySourceCoverageRecorded || (config.discoverySourceCursor || 0) < (config.discoverySourceCandidates?.length || 0) });
+    const mandate = await new AcquisitionRepository(job.organizationId).getMandate(job.mandateId);
+    if (!mandate) return Response.json({ error: "Mandate unavailable" }, { status: 409 });
+    const filters = briefToMandate(mandate.brief);
+    const provider = createTargetDataProvider();
+    const discovery = await discoverMandate({
+      interleavePlaces: true,
+      directory: {
+        search: () => provider.manufacturingDirectory.search(
+          { ...filters, sectors: researchQueries(config.searchTerms) },
+          Number.MAX_SAFE_INTEGER,
+        ),
+      },
+      places: provider.places,
+      mandate: {
+        ...filters,
+        sectors: researchQueries(config.searchTerms),
+        locations: [/^national$/i.test(config.geography) ? "Australia" : config.geography],
+      },
+      organizationId: job.organizationId,
+    });
+    const linkedTargets = await requireDb().select({ domain: targets.domain }).from(targets).innerJoin(mandateTargets, and(eq(mandateTargets.targetId, targets.id), eq(mandateTargets.organizationId, job.organizationId), eq(mandateTargets.mandateId, job.mandateId))).where(eq(targets.organizationId, job.organizationId));
+    const skipDomains = [...new Set(linkedTargets.flatMap(target => target.domain ? [target.domain.toLowerCase().replace(/^www\./, "")] : []))];
+    const urls = discovery.targets.flatMap(target => {
+      const url = target.domain && publicResearchUrl(`https://${target.domain}/`);
+      return url && !skipDomains.includes(researchDomain(url)) ? [url] : [];
+    });
+    // Google listing content remains transient. Only public URLs and sourced
+    // directory records are staged for resumable persistence.
+    const candidates = discovery.targets.slice(0, 100).flatMap(target => target.sourceData?.manufacturingDirectory ? [{
+      ...target,
+      sourceData: { manufacturingDirectory: target.sourceData.manufacturingDirectory },
+    }] : []);
+    const nextConfig: ResearchConfig = {
+      ...config,
+      discoverySourcesPrepared: true,
+      discoverySourceCandidates: candidates,
+      discoverySourceCursor: 0,
+      discoverySourceCoverage: discovery.sources,
+      discoverySourceCoverageRecorded: false,
+      skipDomains,
+    };
+    const prepared = await requireDb().update(researchJobs).set({
+      discoveryStarted: true,
+      status: "discovering",
+      seeds: [...new Set([...(job.seeds as string[]), ...urls])].slice(0, 1000),
+      config: nextConfig,
+      message: candidates.length ? "Saving discovered businesses" : "Discovery sources searched",
+      updatedAt: new Date(),
+    }).where(and(eq(researchJobs.id, jobId), eq(researchJobs.organizationId, job.organizationId), notInArray(researchJobs.status, terminalResearchStates), eq(researchJobs.discoveryStarted, false))).returning({ id: researchJobs.id });
+    if (!prepared.length) {
+      const current = await repo.get(jobId);
+      const currentConfig = current?.config as ResearchConfig | undefined;
+      return Response.json({ pending: Boolean(currentConfig?.discoverySourcesPrepared && (!currentConfig.discoverySourceCoverageRecorded || (currentConfig.discoverySourceCursor || 0) < (currentConfig.discoverySourceCandidates?.length || 0))) });
+    }
+    return Response.json({ pending: true });
+  }
+  if (payload?.action === "discovery-persist") {
+    const config = job.config as ResearchConfig;
+    if (terminalResearchStates.includes(job.status) || !config.discoverySourcesPrepared) return Response.json({ pending: false });
+    const candidates = config.discoverySourceCandidates || [];
+    const cursor = config.discoverySourceCursor || 0;
+    const batch = candidates.slice(cursor, cursor + DISCOVERY_PERSIST_BATCH);
+    const mandate = await new AcquisitionRepository(job.organizationId).getMandate(job.mandateId);
+    if (!mandate) return Response.json({ error: "Mandate unavailable" }, { status: 409 });
+    const filters = briefToMandate(mandate.brief);
+    const next = cursor + batch.length;
+    let advanced = false;
+    await requireDb().transaction(async tx => {
+      const companies = new OrganizationRepository(tx, job.organizationId);
+      const acquisition = new AcquisitionRepository(job.organizationId, tx);
+      const savedIds: string[] = [];
+      for (const target of batch) {
+        const saved = await companies.upsertEnrichedTarget({ target: rankTarget(target, filters), mandateId: job.mandateId, actorId: job.createdBy });
+        if (saved) savedIds.push(saved.id);
+      }
+      await acquisition.attachMany(job.mandateId, savedIds);
+      const rows = await tx.update(researchJobs).set({
+        config: sql`jsonb_set(${researchJobs.config}, '{discoverySourceCursor}', ${String(next)}::jsonb)`,
+        message: next < candidates.length ? `Saving discovered businesses (${next}/${candidates.length})` : "Discovered businesses saved",
+        updatedAt: new Date(),
+      }).where(and(eq(researchJobs.id, jobId), eq(researchJobs.organizationId, job.organizationId), notInArray(researchJobs.status, terminalResearchStates), sql`COALESCE((${researchJobs.config}->>'discoverySourceCursor')::int, 0) = ${cursor}`)).returning({ id: researchJobs.id });
+      if (!rows.length) return;
+      advanced = true;
+      if (next >= candidates.length && !config.discoverySourceCoverageRecorded) {
+        await acquisition.recordCoverage(job.mandateId, config.discoverySourceCoverage || []);
+        await tx.update(researchJobs).set({
+          config: sql`jsonb_set(${researchJobs.config} - 'discoverySourceCandidates' - 'discoverySourceCoverage', '{discoverySourceCoverageRecorded}', 'true'::jsonb)`,
+          updatedAt: new Date(),
+        }).where(and(eq(researchJobs.id, jobId), eq(researchJobs.organizationId, job.organizationId), notInArray(researchJobs.status, terminalResearchStates)));
+      }
+    });
+    if (!advanced) {
+      const current = await repo.get(jobId);
+      const currentConfig = current?.config as ResearchConfig | undefined;
+      return Response.json({ pending: Boolean(current && !terminalResearchStates.includes(current.status) && (currentConfig?.discoverySourceCursor || 0) < (currentConfig?.discoverySourceCandidates?.length || 0)) });
+    }
+    return Response.json({ pending: next < candidates.length });
+  }
   if (payload?.action === "discover") {
     if (terminalResearchStates.includes(job.status))
       return Response.json({ seeds: job.seeds, stopped: true });
@@ -202,18 +307,19 @@ export async function POST(
     if (control.status === "cancelled" || Date.now() >= control.deadline) return Response.json({ seeds: [], stopped: true, more: false });
     // Web discovery runs in slices: the first call claims discovery and runs the fast
     // sources; each call then runs a few searches and reports whether more remain.
+    const sourcesPrepared = config.discoverySourcesPrepared === true;
     const continuing = typeof config.discoveryCursor === "number";
-    if (!continuing && !(await repo.claimDiscovery(jobId)))
+    if (!sourcesPrepared && !continuing && !(await repo.claimDiscovery(jobId)))
       return Response.json({
         seeds: job.seeds,
         warning: "Discovery already attempted; existing seeds reused.",
       });
-    let seeds = (continuing ? (job.seeds as string[]) : (config.runtime?.remaining || config.seeds))
+    let seeds = (sourcesPrepared || continuing ? (job.seeds as string[]) : (config.runtime?.remaining || config.seeds))
       .map(publicResearchUrl)
       .filter((s): s is string => Boolean(s));
     let warning = "";
     let peopleLeadCount = config.peopleSearchLeads?.length || 0;
-    if (continuing) { /* fast sources ran on the first call */ }
+    if (sourcesPrepared || continuing) { /* durable source discovery already ran */ }
     else if (config.purpose === "firmographics" && config.discover && !config.targetedFollowup) {
       try { const profileResults = await cloudflareSearchResults(companyFactSearchQuery(config.companyName!, config.companyDomain!), searchFetch, job.id); await repo.saveSnippetEstimates(job.id, snippetSizeEstimates(profileResults, config)); seeds.push(...profileResults.filter(r => companyResultMatches(r, config.companyName!, config.companyDomain!, config.legalEntity)).map(r => r.url)); }
       catch { warning = "Public profile search unavailable; company website research continues."; }

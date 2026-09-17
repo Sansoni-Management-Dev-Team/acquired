@@ -1,9 +1,12 @@
-import { and, desc, eq, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
 import type { db as databaseType } from "./client";
-import { auditEvents, mandates, signals, targets } from "./schema";
+import { auditEvents, firmableCompanies, mandates, signals, targets } from "./schema";
 import { targetRecordToRankedTarget } from "./target-record-mapper";
 import type { Mandate, RankedTarget } from "@/domain/models";
 import { targetEvidence } from "@/domain/target-evidence";
+import { FirmableHistoryRepository } from "./firmable-history-repository";
+import { applyStoredFirmableCompany } from "@/adapters/firmable-mapper";
+import { normalizeFirmableAbn, normalizeFirmableDomain } from "@/domain/firmable-history";
 
 type Database = NonNullable<typeof databaseType>;
 
@@ -21,10 +24,27 @@ export class OrganizationRepository {
       this.listTargets(),
       this.database.select().from(signals).where(eq(signals.organizationId, this.organizationId)),
     ]);
-    return targetRows.map((target) => targetRecordToRankedTarget(
+    const explicitIds = targetRows.flatMap(row => row.firmableCompanyId ? [row.firmableCompanyId] : []);
+    const domains = targetRows.flatMap(row => normalizeFirmableDomain(row.domain) ? [normalizeFirmableDomain(row.domain)!] : []);
+    const abns = targetRows.flatMap(row => normalizeFirmableAbn((row.identifiers as Record<string, unknown>).abn as string | undefined) ? [normalizeFirmableAbn((row.identifiers as Record<string, unknown>).abn as string)!] : []);
+    const matchConditions = [explicitIds.length ? inArray(firmableCompanies.id, explicitIds) : undefined, domains.length ? inArray(firmableCompanies.domain, domains) : undefined, abns.length ? inArray(firmableCompanies.abn, abns) : undefined].filter(Boolean);
+    const sharedCompanies = matchConditions.length ? await this.database.select().from(firmableCompanies).where(or(...matchConditions as Parameters<typeof or>)) : [];
+    const resolved = new Map(targetRows.map(row => {
+      const identifiers = row.identifiers as Record<string, unknown>;
+      const domain = normalizeFirmableDomain(row.domain);
+      const abn = normalizeFirmableAbn(typeof identifiers.abn === "string" ? identifiers.abn : undefined);
+      const matches = sharedCompanies.filter(company => company.id === row.firmableCompanyId || (abn && company.abn === abn) || (domain && company.domain === domain));
+      return [row.id, matches.length === 1 ? matches[0].id : undefined];
+    }));
+    const latest = await new FirmableHistoryRepository(this.database).latestCompanyResponses([...new Set([...resolved.values()].filter((id): id is string => Boolean(id)))]);
+    return targetRows.map((target) => {
+      const ranked = targetRecordToRankedTarget(
       target,
       signalRows.filter((signal) => signal.targetId === target.id),
-    ));
+      );
+      const stored = resolved.get(target.id) ? latest.get(resolved.get(target.id)!) : undefined;
+      return stored ? applyStoredFirmableCompany(ranked, stored.response, stored.fetchedAt.toISOString()) : ranked;
+    });
   }
 
   async createMandate(input: { naturalLanguage: string; filters: Mandate; confirmation: string; createdBy: string }) {
@@ -44,10 +64,11 @@ export class OrganizationRepository {
     const firmable = target.sourceData?.firmable;
     const directory = target.sourceData?.manufacturingDirectory;
     const placeId = target.sourceData?.googlePlaces?.placeId;
-    if (!firmable && !directory) return null;
+    const cachedFirmable = firmable ? undefined : await new FirmableHistoryRepository(this.database).findCompany({ domain: target.domain, abn: target.abn || directory?.abn });
+    if (!firmable && !directory && !cachedFirmable) return null;
     const identifiers = {
       googlePlaceId: target.sourceData?.googlePlaces?.placeId,
-      firmableId: firmable?.firmableId,
+      firmableId: firmable?.firmableId || cachedFirmable?.id,
       manufacturingDirectoryRecordId: target.sourceData?.manufacturingDirectory?.recordId,
       abn: (firmable?.abn || directory?.abn)?.replace(/\D/g, ""),
       acn: firmable?.acn,
@@ -85,6 +106,7 @@ export class OrganizationRepository {
     const values = {
       companyName: target.companyName,
       domain: target.domain.toLowerCase(),
+      firmableCompanyId: firmable?.firmableId || cachedFirmable?.id,
       identifiers,
       firmographics,
       fitScore: target.scores.fit,
@@ -109,11 +131,9 @@ export class OrganizationRepository {
     const retained = existing?.firmographics as Record<string, unknown> | undefined;
     const priorDirectory = retained?.manufacturingDirectory as typeof directory;
     const mergedDirectory = directory && priorDirectory ? { ...priorDirectory, ...directory, sourceRecords: [...new Map([...priorDirectory.sourceRecords, ...directory.sourceRecords].map(record => [`${record.source}:${record.sourceId}`, record])).values()] } : directory || priorDirectory;
-    if (existing && target.status !== "enriched" && existing.status !== "identified") {
-      if (mergedDirectory) await this.database.update(targets).set({ firmographics: { ...retained, manufacturingDirectory: mergedDirectory } }).where(and(eq(targets.id, existing.id), eq(targets.organizationId, this.organizationId)));
-      return { id: existing.id };
-    }
-    const storedValues = { ...values, firmographics: { ...retained, ...values.firmographics, manufacturingDirectory: mergedDirectory, ...(retained?.accreditations ? { accreditations: retained.accreditations } : {}) } };
+    // Enrichment updates facts, scores and source data. It must never move a
+    // company backwards (or forwards) in the user's workflow.
+    const storedValues = { ...values, status: existing?.status || values.status, firmographics: { ...retained, ...values.firmographics, manufacturingDirectory: mergedDirectory, ...(retained?.accreditations ? { accreditations: retained.accreditations } : {}) } };
     const [saved] = existing
       ? await this.database.update(targets).set(storedValues).where(and(eq(targets.id, existing.id), eq(targets.organizationId, this.organizationId))).returning({ id: targets.id })
       : await this.database.insert(targets).values({ organizationId: this.organizationId, ...storedValues }).returning({ id: targets.id });

@@ -1,10 +1,12 @@
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
-import { createTargetDataProvider } from "@/adapters/provider-mode";
+import { mapFirmablePerson } from "@/adapters/firmable-client";
 import { targetSearchLog } from "@/adapters/live-target-search";
 import { requireDb } from "@/db/client";
+import { upsertFirmableContact } from "@/db/firmable-contacts";
+import { FirmableHistoryRepository } from "@/db/firmable-history-repository";
 import { OrganizationRepository } from "@/db/repositories";
-import { contacts, targets } from "@/db/schema";
+import { targets } from "@/db/schema";
 import { auth } from "@/lib/auth";
 
 const requestSchema = z.object({ personId: z.string().min(1).optional() });
@@ -19,39 +21,22 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const [target] = await database.select().from(targets).where(and(eq(targets.id, id), eq(targets.organizationId, organizationId))).limit(1);
   if (!target) return Response.json({ error: "Target not found." }, { status: 404 });
   const identifiers = target.identifiers as Record<string, unknown>;
-  const firmableId = typeof identifiers.firmableId === "string" ? identifiers.firmableId : "";
+  const history = new FirmableHistoryRepository(database);
+  const matched = target.firmableCompanyId ? undefined : await history.findCompany({ firmableId: typeof identifiers.firmableId === "string" ? identifiers.firmableId : undefined, domain: target.domain, abn: typeof identifiers.abn === "string" ? identifiers.abn : undefined });
+  const firmableId = target.firmableCompanyId || matched?.id || "";
   if (!firmableId) return Response.json({ error: "This target has no Firmable company ID." }, { status: 409 });
-  const provider = createTargetDataProvider();
-  const firmable = provider.firmable;
-  if (provider.mode === "live" && !firmable.isConfigured()) return Response.json({ error: "Firmable is not configured." }, { status: 503 });
 
   try {
     const parsed = requestSchema.safeParse(await request.json().catch(() => ({})));
     if (!parsed.success) return Response.json({ error: "A valid candidate is required." }, { status: 400 });
-    targetSearchLog("contact.search.request", { targetId: id, providerMode: provider.mode, firmableCompanyId: firmableId, selectedPersonId: parsed.data.personId, maxCandidates: 5, searchPoolLimit: parsed.data.personId ? 0 : 50, strategy: parsed.data.personId ? "selected_candidate" : "unfiltered_local_ranking" });
-    let requestCount = 0;
-    const candidates = parsed.data.personId ? [] : await firmable.searchDecisionMakers(firmableId, {
-      max: 5,
-      onAttempt: (attempt) => {
-        requestCount += 1;
-        targetSearchLog("contact.search.attempt", { targetId: id, requestNumber: requestCount, ...attempt });
-      },
-    });
-    const selectedId = parsed.data.personId || candidates.find((candidate) => candidate.emailAvailable)?.id || candidates.find((candidate) => candidate.phoneAvailable)?.id || candidates[0]?.id;
-    if (!selectedId) return Response.json({ error: "Firmable returned no owner/founder candidates for this company." }, { status: 404 });
-    const person = await firmable.enrichPerson({ id: selectedId });
-    const existingContacts = await database.select().from(contacts).where(and(eq(contacts.organizationId, organizationId), eq(contacts.targetId, id)));
-    const existing = existingContacts.find((candidate) => (candidate.personalData as Record<string, unknown>).firmablePersonId === person.id);
-    const contactValues = {
-      displayName: person.name || "Decision-maker",
-      role: person.position,
-      personalData: { firmablePersonId: person.id, email: person.email, phone: person.phone, emailAvailable: person.emailAvailable, phoneAvailable: person.phoneAvailable, doNotContact: person.doNotContact },
-      provenance: { source: "Firmable People Search + Enrichment", capturedAt: new Date().toISOString(), companyId: firmableId },
-      fictionalised: person.fictionalised,
-    };
-    const [saved] = existing
-      ? await database.update(contacts).set(contactValues).where(and(eq(contacts.id, existing.id), eq(contacts.organizationId, organizationId))).returning({ id: contacts.id })
-      : await database.insert(contacts).values({ organizationId, targetId: id, ...contactValues }).returning({ id: contacts.id });
+    targetSearchLog("contact.search.request", { targetId: id, providerMode: "stored", firmableCompanyId: firmableId, selectedPersonId: parsed.data.personId, strategy: "stored_profile" });
+    const stored = (await history.latestPeople([firmableId])).get(firmableId) || [];
+    const selected = parsed.data.personId ? stored.find(candidate => candidate.personId === parsed.data.personId) : stored.find(candidate => Boolean(candidate.profile)) || stored[0];
+    if (!selected) return Response.json({ error: "No stored Firmable candidates are available. Refresh the company data first." }, { status: 404 });
+    if (!selected.profile) return Response.json({ error: "This Firmable profile was not loaded. Refresh the company data and try again." }, { status: 409 });
+    const person = mapFirmablePerson(selected.profile, { id: selected.personId }, process.env.ALLOW_REAL_PERSONAL_DATA !== "true");
+    const candidate = { id: selected.personId, position: typeof selected.searchRecord.position === "string" ? selected.searchRecord.position : undefined, seniority: typeof selected.searchRecord.seniority === "string" ? selected.searchRecord.seniority : undefined, department: typeof selected.searchRecord.department === "string" ? selected.searchRecord.department : undefined, emailAvailable: selected.searchRecord.has_email === true || selected.searchRecord.email_available === true, phoneAvailable: selected.searchRecord.has_phone === true || selected.searchRecord.phone_available === true, rawResponse: selected.searchRecord };
+    const saved = await upsertFirmableContact({ database, organizationId, targetId: id, companyId: firmableId, person, candidate });
     await new OrganizationRepository(database, organizationId).appendAudit({
       actorId: session.user.id,
       action: "contact.enriched",

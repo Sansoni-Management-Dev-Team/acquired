@@ -669,6 +669,24 @@ it('lets the discovery coordinator finish its searches without rereading delegat
   expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'complete', pages: 0 });
   expect(t.progress.mock.calls.at(-1)?.[0].message).toContain('researched in parallel');
 });
+it('persists prepared discovery sources in durable batches before spending search rounds', async () => {
+  const t = setup();
+  Object.assign(t.config, { discover: true, workflow: 'business', parallelDiscovery: true, targetBusinesses: 20 });
+  const events: string[] = [];
+  t.service.prepareDiscoverySources = vi.fn(async () => { events.push('prepare'); return { pending: true }; });
+  t.service.persistDiscoverySources = vi.fn()
+    .mockImplementationOnce(async () => { events.push('persist-1'); return { pending: true }; })
+    .mockImplementationOnce(async () => { events.push('persist-2'); return { pending: false }; });
+  t.service.discover = vi.fn(async () => { events.push('search'); return { seeds: [] }; });
+  await runResearch(t.step, t.service);
+  expect(events).toEqual(['prepare', 'persist-1', 'persist-2', 'search']);
+  expect(vi.mocked(t.step.do).mock.calls.map(([name]) => name)).toEqual(expect.arrayContaining([
+    'discovery-sources',
+    'discovery-persist-0',
+    'discovery-persist-1',
+    'discover',
+  ]));
+});
 it('uses a cached page before reserving another browser request', async () => {
   const t = setup(); t.config.budget.maxPages = 1;
   t.service.cachedPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: 'Example Instruments makes sensors for manufacturers. We supply industrial sensors and calibration equipment throughout Australia.' } }));

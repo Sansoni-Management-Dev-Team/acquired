@@ -4,7 +4,10 @@
   "account_id": "53019d98ec6f1d1d93112558076ee677",
   "main": "index.ts",
   "compatibility_date": "2026-09-08",
-  "workflows": [{ "name": "acquire-research", "binding": "RESEARCH", "class_name": "AcquireResearch" }],
+  "workflows": [
+    { "name": "acquire-research", "binding": "RESEARCH", "class_name": "AcquireResearch" },
+    { "name": "acquire-firmable-refresh", "binding": "FIRMABLE", "class_name": "FirmableRefresh" }
+  ],
   "durable_objects": { "bindings": [{ "name": "PROVIDER_COORDINATOR", "class_name": "ProviderCoordinator" }] },
   "exports": { "ProviderCoordinator": { "type": "durable-object", "storage": "sqlite" } },
   "vars": { "APP_ORIGIN": "https://project-acquire.vercel.app" },

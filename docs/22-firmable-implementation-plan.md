@@ -1,5 +1,7 @@
 # Firmable implementation plan
 
+> Historical note: the shared, immutable Firmable response store and automatic read-through behavior are specified in [`33-firmable-shared-history-execution-plan.md`](./33-firmable-shared-history-execution-plan.md). That later approved design supersedes this document's earlier recommendation not to persist raw provider responses.
+
 Reviewed against Firmable's published API documentation on 26 Aug 2026:
 
 - [API overview](https://docs.firmable.com/api-reference/overview)

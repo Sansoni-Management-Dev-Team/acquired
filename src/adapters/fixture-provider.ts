@@ -1,4 +1,4 @@
-import { FirmableClient } from "./firmable-client";
+import { FirmableClient, type FirmableClientOptions } from "./firmable-client";
 import { GooglePlacesClient } from "./google-places-client";
 
 const companies = [
@@ -98,9 +98,9 @@ export async function fixtureProviderFetch(input: string | URL | Request, init?:
   throw new Error(`Fixture provider blocked an unexpected request: ${init?.method || "GET"} ${url.pathname}`);
 }
 
-export function createFixtureProviderClients() {
+export function createFixtureProviderClients(firmableOptions: Pick<FirmableClientOptions, "onObservation"> = {}) {
   return {
     places: new GooglePlacesClient({ apiKey: "fixture-only", baseUrl: "https://fixture.invalid/places/v1", fetch: fixtureProviderFetch }),
-    firmable: new FirmableClient({ apiKey: "fixture-only", baseUrl: "https://fixture.invalid/firmable", fetch: fixtureProviderFetch, fictionalise: true, retries: 0 }),
+    firmable: new FirmableClient({ apiKey: "fixture-only", baseUrl: "https://fixture.invalid/firmable", fetch: fixtureProviderFetch, fictionalise: true, retries: 0, ...firmableOptions }),
   };
 }

@@ -1,9 +1,12 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it } from "vitest";
-import { TargetResearchData, TargetEbitdaData, groupTargetObservations } from "./target-research-data";
+import { TargetResearchData, TargetEbitdaData, compactAud, groupTargetObservations } from "./target-research-data";
 import type { SavedResearchFinding } from "@/domain/research";
 const finding = (kind: "headcount" | "revenue" | "person", value: string): SavedResearchFinding => ({ id: value, jobId: "job", targetId: "target", sourceUrl: "https://example.com/team", observedAt: "2026-09-15T00:00:00Z", confidence: 0.2, evidence: { kind, name: kind === "person" ? "Alex Example" : kind, value, quote: "Company source statement", website: "https://example.com", factMetadata: { basis: "search_snippet", sourceKind: "third_party_directory", currency: null, scope: "unspecified", period: null, identityNote: null } } });
+it("formats compact AUD values deterministically across server and browser runtimes", () => {
+ expect(compactAud(1_500_000)).toBe("$1.5M"); expect(compactAud(1_500_500)).toBe("$1.5M"); expect(compactAud(1_555_000)).toBe("$1.56M"); expect(compactAud(999)).toBe("$999");
+});
 it("shows a saved headcount range even when provider fields are unknown", () => {
  const html = renderToStaticMarkup(<TargetResearchData kind="headcount" findings={[finding("headcount", "11–50 employees")]} fallback="Unknown" />);
  expect(html).toContain("11–50 employees"); expect(html).toContain("Search estimate — unverified"); expect(html).toContain('href="https://example.com/team"');
@@ -44,6 +47,13 @@ it("uses Firmable headcount instead of averaging scraped counts for EBITDA", () 
 it("displays researched people without requiring a CRM contact", () => {
  const html = renderToStaticMarkup(<TargetResearchData kind="person" findings={[finding("person", "General Manager")]} fallback="Unknown" />);
  expect(html).toContain("Alex Example — General Manager");
+});
+
+it("prefers the complete stored Firmable people list while retaining public findings", () => {
+ const html = renderToStaticMarkup(<TargetResearchData kind="person" findings={[finding("person", "General Manager")]} fallback="Alex Firmable, Jamie Firmable, Alex Firmable" />);
+ const summary = html.split("<details>")[0];
+ expect(summary).toContain("2 people found"); expect(summary).toContain("Alex Firmable · Jamie Firmable"); expect(summary).toContain("Saved contacts · preferred");
+ expect(summary).not.toContain("Alex Example"); expect(html).toContain("Alex Example — General Manager");
 });
 
 it("collapses repeated people across sources without losing roles or links", () => {

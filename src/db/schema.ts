@@ -55,18 +55,63 @@ export const mandates = pgTable("mandates", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [index("mandates_organization_idx").on(table.organizationId)]);
 
+// Firmable identities and observations are shared across organisations. Buyer
+// workflow state continues to live on organisation-scoped targets and contacts.
+export const firmableCompanies = pgTable("firmable_companies", {
+  id: text("id").primaryKey(), name: text("name"), domain: text("domain"), abn: text("abn"), acn: text("acn"), peopleGeneration: integer("people_generation").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [index("firmable_companies_domain_idx").on(table.domain), index("firmable_companies_abn_idx").on(table.abn)]);
+
+export const firmablePeople = pgTable("firmable_people", {
+  id: text("id").primaryKey(), name: text("name"), linkedin: text("linkedin"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [index("firmable_people_linkedin_idx").on(table.linkedin)]);
+
 export const targets = pgTable("targets", {
   id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id), mandateId: uuid("mandate_id").references(() => mandates.id),
-  companyName: text("company_name").notNull(), domain: text("domain"), identifiers: jsonb("identifiers").notNull().default({}), firmographics: jsonb("firmographics").notNull(),
+  companyName: text("company_name").notNull(), domain: text("domain"), firmableCompanyId: text("firmable_company_id").references(() => firmableCompanies.id), identifiers: jsonb("identifiers").notNull().default({}), firmographics: jsonb("firmographics").notNull(),
   fitScore: integer("fit_score"), ripenessScore: integer("ripeness_score"), financeabilityScore: integer("financeability_score"), confidenceScore: integer("confidence_score"), band: targetBand("band"), qualification: opportunityQualification("qualification"), status: targetStatus("status").notNull().default("identified"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("targets_org_band_idx").on(table.organizationId, table.band)]);
+}, (table) => [index("targets_org_band_idx").on(table.organizationId, table.band), index("targets_firmable_company_idx").on(table.firmableCompanyId)]);
 
 export const contacts = pgTable("contacts", {
   id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id), targetId: uuid("target_id").notNull().references(() => targets.id, { onDelete: "cascade" }),
-  displayName: text("display_name").notNull(), role: text("role"), personalData: jsonb("personal_data").notNull().default({}), provenance: jsonb("provenance").notNull(),
+  firmablePersonId: text("firmable_person_id").references(() => firmablePeople.id), displayName: text("display_name").notNull(), role: text("role"), personalData: jsonb("personal_data").notNull().default({}), provenance: jsonb("provenance").notNull(),
   fictionalised: boolean("fictionalised").notNull().default(true), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("contacts_org_target_idx").on(table.organizationId, table.targetId)]);
+}, (table) => [index("contacts_org_target_idx").on(table.organizationId, table.targetId), index("contacts_firmable_person_idx").on(table.firmablePersonId), uniqueIndex("contacts_target_firmable_person_unique_idx").on(table.organizationId, table.targetId, table.firmablePersonId).where(sql`${table.firmablePersonId} IS NOT NULL`)]);
+
+export const firmableSyncRuns = pgTable("firmable_sync_runs", {
+  id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id), actorId: text("actor_id").notNull().references(() => user.id),
+  targetId: uuid("target_id").notNull().references(() => targets.id, { onDelete: "cascade" }), firmableCompanyId: text("firmable_company_id").references(() => firmableCompanies.id),
+  requestKey: text("request_key").notNull(), trigger: text("trigger").notNull().default("manual"), status: text("status").notNull().default("queued"), generation: integer("generation").notNull().default(1),
+  companyStatus: text("company_status").notNull().default("pending"), searchStatus: text("search_status").notNull().default("pending"), profilesFound: integer("profiles_found").notNull().default(0), profilesSaved: integer("profiles_saved").notNull().default(0), profilesFailed: integer("profiles_failed").notNull().default(0),
+  message: text("message").notNull().default("Queued"), error: jsonb("error"), startedAt: timestamp("started_at", { withTimezone: true }), completedAt: timestamp("completed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [uniqueIndex("firmable_sync_runs_request_idx").on(table.organizationId, table.requestKey), uniqueIndex("firmable_sync_runs_active_target_unique_idx").on(table.organizationId, table.targetId).where(sql`${table.status} IN ('queued', 'running')`), index("firmable_sync_runs_target_idx").on(table.organizationId, table.targetId, table.createdAt), index("firmable_sync_runs_company_idx").on(table.firmableCompanyId, table.createdAt)]);
+
+export const firmableCompanyResponses = pgTable("firmable_company_responses", {
+  id: uuid("id").primaryKey().defaultRandom(), runId: uuid("run_id").references(() => firmableSyncRuns.id, { onDelete: "set null" }), firmableCompanyId: text("firmable_company_id").references(() => firmableCompanies.id),
+  logicalCallId: text("logical_call_id").notNull(), attempt: integer("attempt").notNull().default(1), request: jsonb("request").notNull().default({}), response: jsonb("response"), responseText: text("response_text"), httpStatus: integer("http_status"), successful: boolean("successful").notNull().default(false), validationError: text("validation_error"), responseHash: text("response_hash"),
+  requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(), fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [uniqueIndex("firmable_company_attempt_idx").on(table.runId, table.logicalCallId, table.attempt), uniqueIndex("firmable_company_backfill_idx").on(table.logicalCallId).where(sql`${table.runId} IS NULL`), index("firmable_company_latest_idx").on(table.firmableCompanyId, table.successful, table.fetchedAt)]);
+
+export const firmablePeopleSearches = pgTable("firmable_people_searches", {
+  id: uuid("id").primaryKey().defaultRandom(), runId: uuid("run_id").references(() => firmableSyncRuns.id, { onDelete: "set null" }), firmableCompanyId: text("firmable_company_id").references(() => firmableCompanies.id),
+  logicalCallId: text("logical_call_id").notNull(), attempt: integer("attempt").notNull().default(1), request: jsonb("request").notNull().default({}), response: jsonb("response"), responseText: text("response_text"), httpStatus: integer("http_status"), successful: boolean("successful").notNull().default(false), validationError: text("validation_error"), responseHash: text("response_hash"), offset: integer("offset"), requestedSize: integer("requested_size"), returnedCount: integer("returned_count"), reportedTotal: integer("reported_total"),
+  requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(), fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [uniqueIndex("firmable_people_search_attempt_idx").on(table.runId, table.logicalCallId, table.attempt), uniqueIndex("firmable_people_search_backfill_idx").on(table.logicalCallId).where(sql`${table.runId} IS NULL`), index("firmable_people_search_latest_idx").on(table.firmableCompanyId, table.successful, table.fetchedAt)]);
+
+export const firmablePersonResponses = pgTable("firmable_person_responses", {
+  id: uuid("id").primaryKey().defaultRandom(), runId: uuid("run_id").references(() => firmableSyncRuns.id, { onDelete: "set null" }), firmablePersonId: text("firmable_person_id").references(() => firmablePeople.id),
+  logicalCallId: text("logical_call_id").notNull(), attempt: integer("attempt").notNull().default(1), request: jsonb("request").notNull().default({}), response: jsonb("response"), responseText: text("response_text"), httpStatus: integer("http_status"), successful: boolean("successful").notNull().default(false), validationError: text("validation_error"), responseHash: text("response_hash"), privacyMode: text("privacy_mode").notNull().default("real"),
+  requestedAt: timestamp("requested_at", { withTimezone: true }).notNull(), fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [uniqueIndex("firmable_person_attempt_idx").on(table.runId, table.logicalCallId, table.attempt), uniqueIndex("firmable_person_backfill_idx").on(table.logicalCallId).where(sql`${table.runId} IS NULL`), index("firmable_person_latest_idx").on(table.firmablePersonId, table.successful, table.fetchedAt)]);
+
+export const firmableCompanyPeople = pgTable("firmable_company_people", {
+  firmableCompanyId: text("firmable_company_id").notNull().references(() => firmableCompanies.id, { onDelete: "cascade" }), firmablePersonId: text("firmable_person_id").notNull().references(() => firmablePeople.id, { onDelete: "cascade" }),
+  latestSearchId: uuid("latest_search_id").references(() => firmablePeopleSearches.id, { onDelete: "set null" }), searchRecord: jsonb("search_record").notNull().default({}), active: boolean("active").notNull().default(true), generation: integer("generation").notNull().default(1),
+  firstSeenAt: timestamp("first_seen_at", { withTimezone: true }).notNull(), lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [primaryKey({ columns: [table.firmableCompanyId, table.firmablePersonId] }), index("firmable_company_people_active_idx").on(table.firmableCompanyId, table.active)]);
 
 export const signals = pgTable("signals", {
   id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id), targetId: uuid("target_id").notNull().references(() => targets.id, { onDelete: "cascade" }),

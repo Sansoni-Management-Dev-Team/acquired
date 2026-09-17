@@ -28,6 +28,15 @@ export function CompanyReviewPanel({ mandate, initial, onClose, onChanged, onNex
   const [outreach, setOutreach] = useState<OutreachData>();
   const [worksheetOpened, setWorksheetOpened] = useState(false);
   useEffect(() => { const el = dialog.current!; el.showModal(); return () => el.close(); }, []);
+  useEffect(() => {
+    if (dirty || worksheetDirty || outreachDirty) return;
+    const update = window.setTimeout(() => {
+      setMember(initial);
+      setReason(initial.assessment.reason);
+      setNextAction(initial.assessment.nextAction);
+    }, 0);
+    return () => window.clearTimeout(update);
+  }, [initial, dirty, worksheetDirty, outreachDirty]);
   async function refresh() {
     const [workspace, messages] = await Promise.all([jsonRequest(`/api/mandates/${mandate.id}`), jsonRequest(`/api/mandates/${mandate.id}/outreach`)]);
     setMember(workspace.memberships.find((m: MembershipView) => m.target.id === initial.target.id)); setOutreach(messages); await onChanged();

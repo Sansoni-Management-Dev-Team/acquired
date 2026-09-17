@@ -1,4 +1,6 @@
 import type { PeopleSearchLead } from "./people-search-results";
+import type { TargetCandidate } from "./models";
+import type { CoverageSource } from "./acquisition";
 import { z } from "zod";
 import { relevantExcerpt } from "./page-content";
 
@@ -166,7 +168,7 @@ export function continueResearchConfig(
 export type ResearchConfig = Omit<
   z.infer<typeof researchStartSchema>,
   "requestId" | "continueFrom"
-> & { adaptiveDiscovery?: boolean; discoveryStopReason?: string; admissionContinuations?: number; parallelDiscovery?: boolean; discoveryCandidate?: boolean; executionSlot?: number | string; researchRunId?: string; automaticPageLimit?: number; automaticPagesUsed?: number; automaticDeadline?: number; newBusinessIds?: string[]; businessTargetStartedAt?: string; targetedFollowup?: boolean; targetedSearches?: string[]; targetedSearchAttempts?: import("./research-objectives").SearchAttempt[]; skipDomains?: string[]; companyLocation?: string; discoveryCursor?: number; discoveryPending?: boolean; discoveryAttempts?: import("./adaptive-discovery").DiscoveryAttempt[]; autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
+> & { adaptiveDiscovery?: boolean; discoveryStopReason?: string; admissionContinuations?: number; parallelDiscovery?: boolean; discoveryCandidate?: boolean; executionSlot?: number | string; researchRunId?: string; automaticPageLimit?: number; automaticPagesUsed?: number; automaticDeadline?: number; newBusinessIds?: string[]; businessTargetStartedAt?: string; targetedFollowup?: boolean; targetedSearches?: string[]; targetedSearchAttempts?: import("./research-objectives").SearchAttempt[]; skipDomains?: string[]; companyLocation?: string; discoveryCursor?: number; discoveryPending?: boolean; discoveryAttempts?: import("./adaptive-discovery").DiscoveryAttempt[]; discoverySourcesPrepared?: boolean; discoverySourceCandidates?: TargetCandidate[]; discoverySourceCursor?: number; discoverySourceCoverage?: CoverageSource[]; discoverySourceCoverageRecorded?: boolean; autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
 export const findingSchema = z.object({
   kind: z.enum([
     "company",

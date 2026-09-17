@@ -32,6 +32,7 @@ import {
 } from "../../src/domain/research";
 interface Env {
   RESEARCH: Workflow;
+  FIRMABLE: Workflow;
   PROVIDER_COORDINATOR?: DurableObjectNamespace<ProviderCoordinator>;
   OPENROUTER_API_KEY: string;
   SERVICE_SECRET: string;
@@ -89,6 +90,21 @@ async function callback(env: Env, id: string, body?: unknown, budget?: { used: n
   });
   if (!r.ok) throw new Error(`Callback failed (${r.status})`);
   return r.json();
+}
+
+async function firmableCallback<T>(env: Env, id: string, body: unknown): Promise<T> {
+  const origin = callbackOrigin(env.APP_ORIGIN, env.LOCAL_DEVELOPMENT === "true");
+  const response = await researchFetch(env)(`${origin}/api/firmable/internal/${id}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${env.SERVICE_SECRET}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(55_000),
+  });
+  if (!response.ok) throw new Error(`Firmable callback failed (${response.status})`);
+  return response.json() as Promise<T>;
 }
 async function browser(env: Env, path: string, method = "GET", body?: unknown, budget?: { used: number; jobId?: string }) {
   if (env.LOCAL_DEVELOPMENT === "true") throw new Error("Cloudflare browser API is disabled in local development");
@@ -200,6 +216,8 @@ export class AcquireResearch extends WorkflowEntrypoint<
         diagnostic: event => console.info("research-diagnostic", JSON.stringify({ ...event, timestamp: new Date().toISOString(), jobId: id })),
         control,
         discoveryContext: () => callback(this.env, id, { action: "discovery-context" }, requestBudget) as Promise<DiscoveryContext>,
+        prepareDiscoverySources: () => callback(this.env, id, { action: "discovery-sources" }, requestBudget) as Promise<{ pending: boolean }>,
+        persistDiscoverySources: () => callback(this.env, id, { action: "discovery-persist" }, requestBudget) as Promise<{ pending: boolean }>,
         planDiscovery: async context => {
           const output = await ai.complete({ messages: discoveryPrompt(context), operation: "followup_planning", max_tokens: 500, reasoning_effort: "none", temperature: 0.3,
             response_format: { type: "json_schema", json_schema: discoveryOutputSchema } });
@@ -321,6 +339,51 @@ export class AcquireResearch extends WorkflowEntrypoint<
     });
   }
 }
+
+export class FirmableRefresh extends WorkflowEntrypoint<Env, { runId: string; mandateId: string }> {
+  async run(event: WorkflowEvent<{ runId: string; mandateId: string }>, step: WorkflowStep) {
+    const { runId, mandateId } = event.payload;
+    const checkpoint = async <T>(name: string, body: unknown): Promise<T> => {
+      const serialized = await step.do(name, {
+        retries: { limit: 2, delay: "10 seconds", backoff: "exponential" },
+        timeout: "90 seconds",
+      }, async () => JSON.stringify(await firmableCallback<T>(this.env, runId, body)));
+      return JSON.parse(serialized) as T;
+    };
+    try {
+      await checkpoint<{ companyId?: string }>("company", { action: "company", mandateId });
+      let found = 0;
+      let searchComplete = false;
+      for (let offset = 0; offset < 10_000; offset += 100) {
+        const page = await checkpoint<{ complete: boolean; nextOffset: number; found: number }>(`people-page-${offset}`, { action: "people-page", offset });
+        found = page.found;
+        if (page.complete) { searchComplete = true; break; }
+        if (page.nextOffset !== offset + 100) throw new Error("Firmable people pagination did not advance");
+      }
+      if (!searchComplete) throw new Error("Firmable people search exceeded the pagination safety limit");
+      for (let offset = 0;;) {
+        const finalized = await checkpoint<{ found: number; nextOffset: number; complete: boolean }>(`people-finalize-${offset}`, { action: "finalize-search", offset });
+        found = finalized.found;
+        if (finalized.complete) break;
+        if (finalized.nextOffset <= offset) throw new Error("Firmable relationship pagination did not advance");
+        offset = finalized.nextOffset;
+      }
+      for (let offset = 0; offset < found;) {
+        const profiles = await checkpoint<{ nextOffset: number; complete: boolean }>(`profiles-${offset}`, { action: "profiles", offset });
+        if (profiles.nextOffset <= offset) throw new Error("Firmable profile pagination did not advance");
+        offset = profiles.nextOffset;
+        if (profiles.complete) break;
+      }
+      return await checkpoint("complete", { action: "complete", mandateId });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Firmable refresh failed";
+      // Give the terminal callback extra durable attempts. If the application is
+      // still unreachable its stale-run recovery will close the run later.
+      await step.do("fail", { retries: { limit: 5, delay: "15 seconds", backoff: "exponential" }, timeout: "90 seconds" }, () => firmableCallback(this.env, runId, { action: "fail", message })).catch(() => undefined);
+      return { status: "failed", message };
+    }
+  }
+}
 const worker = {
   async fetch(request: Request, env: Env) {
     if (!(await authorized(request, env.SERVICE_SECRET)))
@@ -371,6 +434,18 @@ const worker = {
         if (!seeds.length && !/no results found|no more results/i.test(markdown)) throw new Error("Search could not be read");
         return Response.json({ seeds, results });
       } catch (error) { const failure = providerFailure(error); return Response.json({ error: failure.message, category: failure.category }, { status: failure.status >= 400 ? failure.status : 502 }); }
+    }
+    const firmableMatch = new URL(request.url).pathname.match(/^\/firmable\/([0-9a-f-]{36})$/i);
+    if (firmableMatch) {
+      const id = firmableMatch[1];
+      if (request.method === "POST") {
+        const body = await request.json().catch(() => null) as { mandateId?: unknown } | null;
+        if (typeof body?.mandateId !== "string" || !/^[0-9a-f-]{36}$/i.test(body.mandateId)) return Response.json({ error: "Invalid mandate" }, { status: 400 });
+        await env.FIRMABLE.createBatch([{ id, params: { runId: id, mandateId: body.mandateId } }]);
+        return Response.json({ id }, { status: 202 });
+      }
+      if (request.method === "GET") return Response.json(await (await env.FIRMABLE.get(id)).status());
+      return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
     const match = new URL(request.url).pathname.match(
       /^\/jobs\/([0-9a-f-]{36})$/i,

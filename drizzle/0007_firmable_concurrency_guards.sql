@@ -1,0 +1,4 @@
+DROP INDEX "contacts_target_firmable_person_idx";--> statement-breakpoint
+ALTER TABLE "firmable_companies" ADD COLUMN "people_generation" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "contacts_target_firmable_person_unique_idx" ON "contacts" USING btree ("organization_id","target_id","firmable_person_id") WHERE "contacts"."firmable_person_id" IS NOT NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX "firmable_sync_runs_active_target_unique_idx" ON "firmable_sync_runs" USING btree ("organization_id","target_id") WHERE "firmable_sync_runs"."status" IN ('queued', 'running');

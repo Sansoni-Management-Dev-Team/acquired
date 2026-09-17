@@ -40,4 +40,14 @@ describe("Firmable mapping", () => {
     expect(target.suburb).toBe("West Footscray");
     expect(target.sector).toEqual(expect.objectContaining({ value: "industrials", provenance: expect.objectContaining({ source: "Google Places query match" }) }));
   });
+
+  it("uses Firmable headquarters when an imported target only has a state placeholder", () => {
+    const mandate = parseMandate("Find businesses in Victoria");
+    const target = mapFirmableCompany({ id: "f3", name: "Example", hq_location: "Melbourne, Victoria, Australia", states: null }, {
+      id: "imported-1", name: "Example", formattedAddress: "VIC", state: "VIC",
+    }, mandate, "org-1");
+
+    expect(target.suburb).toBe("Melbourne");
+    expect(target.state).toBe("VIC");
+  });
 });

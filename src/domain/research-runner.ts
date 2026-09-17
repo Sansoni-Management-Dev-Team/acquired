@@ -43,6 +43,8 @@ export interface ResearchServices {
   control(): Promise<ResearchControl>;
   discoveryContext?(): Promise<DiscoveryContext>;
   planDiscovery?(context: DiscoveryContext): Promise<unknown>;
+  prepareDiscoverySources?(): Promise<{ pending: boolean }>;
+  persistDiscoverySources?(): Promise<{ pending: boolean }>;
   discover(decision?: unknown): Promise<{ seeds: string[]; warning?: string; peopleLeadCount?: number; skipDomains?: string[]; more?: boolean }>;
   progress(event: {
     revision: number;
@@ -133,6 +135,19 @@ export async function runResearch(
         ? "Finding starting websites"
         : "Resuming approved websites",
     );
+    if (initial.config.discover && initial.config.workflow === "business" && !initial.config.purpose && service.prepareDiscoverySources && service.persistDiscoverySources) {
+      let sourceState = await step.do("discovery-sources", () => service.prepareDiscoverySources!());
+      for (let batch = 0; sourceState.pending && batch < 20; batch++) {
+        const current = await check(`discovery-persist-${batch}`);
+        if (terminalResearchStates.includes(current.status)) return;
+        if (current.expired) break;
+        sourceState = await step.do(`discovery-persist-${batch}`, () => service.persistDiscoverySources!());
+      }
+      if (sourceState.pending) {
+        await publish("partial", "Discovery candidates saved; remaining candidates will continue in the next run");
+        return;
+      }
+    }
     const discoverRound = async (round: number) => {
       let decision: unknown;
       let attemptIndex: number | undefined;

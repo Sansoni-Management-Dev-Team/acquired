@@ -2,7 +2,10 @@
   "name": "acquire-research-replay",
   "main": "../index.ts",
   "compatibility_date": "2026-09-08",
-  "workflows": [{ "name": "acquire-research-replay", "binding": "RESEARCH", "class_name": "AcquireResearch" }],
+  "workflows": [
+    { "name": "acquire-research-replay", "binding": "RESEARCH", "class_name": "AcquireResearch" },
+    { "name": "acquire-firmable-replay", "binding": "FIRMABLE", "class_name": "FirmableRefresh" }
+  ],
   "vars": {
     "APP_ORIGIN": "http://127.0.0.1:3010",
     "LOCAL_DEVELOPMENT": "true",

@@ -41,6 +41,8 @@ function replay(options: { pages?: number; cancelled?: boolean; failProgress?: b
       const data = JSON.parse(String(init.body));
       callbacks.push(data);
       if (data.action === "discovery-context") return Response.json({ scope: "industrial cleaning", startingTerms: [], regions: ["Victoria"], target: 20, found: 0, remainingSearches: 12, attempts: [], candidates: [] });
+      if (data.action === "discovery-sources") return Response.json({ pending: true });
+      if (data.action === "discovery-persist") return Response.json({ pending: callbacks.filter(c => c.action === "discovery-persist").length < 2 });
       if (data.action === "discover") return Response.json({ seeds: [] });
       if (data.action === "provider-reserve") return Response.json({ granted: !options.denyPermit, retryAfterMs: 0, after: Date.now(), until: Date.now() + 2000, token: data.token });
       if (data.action === "browser-permit" && options.expireFirstPermit && !expiredPermit) { expiredPermit = true; return Response.json({ granted: false, retryAfterMs: 0, expired: true }); }
@@ -211,6 +213,75 @@ it("plans adaptive discovery in a real Workflow with AI admission and model acco
   await instance.waitForStatus("complete");
   expect(t.progress.at(-1)).toMatchObject({ status: "complete", pages: 0, modelCalls: 1 });
   expect(t.callbacks.find(c => c.action === "discover")).toMatchObject({ decision: { planning: { query: "decontamination contractors", region: "Victoria" }, attemptIndex: 0 } });
+  expect(t.callbacks.filter(c => c.action === "discovery-persist")).toHaveLength(2);
+  expect(t.callbacks.findIndex(c => c.action === "discovery-persist")).toBeLessThan(t.callbacks.findIndex(c => c.action === "discover"));
   expect(t.callbacks.some(c => c.action === "provider-reserve" && c.provider === "ai")).toBe(true);
   expect(t.requests.filter(url => url.includes("openrouter.ai"))).toHaveLength(1);
 });
+
+it("runs a Firmable refresh as bounded, resumable callback steps", async () => {
+  const id = crypto.randomUUID();
+  const mandateId = crypto.randomUUID();
+  const actions: Array<{ action: string; offset?: number }> = [];
+  let profileCalls = 0;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url !== `http://127.0.0.1:3010/api/firmable/internal/${id}`) throw new Error(`Unmocked request: ${url}`);
+    const body = JSON.parse(String(init?.body)) as { action: string; offset?: number };
+    actions.push(body);
+    if (body.action === "company") return Response.json({ companyId: "firmable-company" });
+    if (body.action === "people-page") return Response.json({ complete: true, nextOffset: 100, found: 7 });
+    if (body.action === "finalize-search") return Response.json({ found: 7, nextOffset: 7, complete: true });
+    if (body.action === "profiles") {
+      profileCalls++;
+      if (profileCalls === 1) return new Response("Temporary failure", { status: 503 });
+      const nextOffset = Math.min((body.offset || 0) + 5, 7);
+      return Response.json({ nextOffset, complete: nextOffset >= 7 });
+    }
+    if (body.action === "complete") return Response.json({ found: 7, saved: 7, failed: 0 });
+    return Response.json({ ok: true });
+  });
+  await using instance = await introspectWorkflowInstance(bindings.FIRMABLE, id);
+  await instance.modify(m => m.disableSleeps());
+  const response = await worker.fetch(new Request(`http://worker/firmable/${id}`, {
+    method: "POST",
+    headers: { authorization: "Bearer replay-only", "Content-Type": "application/json" },
+    body: JSON.stringify({ mandateId }),
+  }), bindings);
+  expect(response.status).toBe(202);
+  await instance.waitForStatus("complete");
+  expect(actions.map(action => `${action.action}:${action.offset ?? ""}`)).toEqual([
+    "company:",
+    "people-page:0",
+    "finalize-search:0",
+    "profiles:0",
+    "profiles:0",
+    "profiles:5",
+    "complete:",
+  ]);
+  expect(JSON.parse(await instance.waitForStepResult({ name: "complete" }) as string)).toEqual({ found: 7, saved: 7, failed: 0 });
+});
+
+it("records failure and stops after a later Firmable people page exhausts retries", async () => {
+  const id = crypto.randomUUID();
+  const mandateId = crypto.randomUUID();
+  const actions: Array<{ action: string; offset?: number }> = [];
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (url !== `http://127.0.0.1:3010/api/firmable/internal/${id}`) throw new Error(`Unmocked request: ${url}`);
+    const body = JSON.parse(String(init?.body)) as { action: string; offset?: number };
+    actions.push(body);
+    if (body.action === "company") return Response.json({ companyId: "firmable-company" });
+    if (body.action === "people-page" && body.offset === 0) return Response.json({ complete: false, nextOffset: 100, found: 100 });
+    if (body.action === "people-page") return new Response("Temporary failure", { status: 503 });
+    if (body.action === "fail") return Response.json({ ok: true });
+    throw new Error(`Unexpected Firmable action: ${body.action}`);
+  });
+  await using instance = await introspectWorkflowInstance(bindings.FIRMABLE, id);
+  await instance.modify(m => m.disableSleeps());
+  await bindings.FIRMABLE.create({ id, params: { runId: id, mandateId } });
+  await instance.waitForStatus("complete");
+  expect(actions.filter(action => action.action === "people-page" && action.offset === 100)).toHaveLength(3);
+  expect(actions.at(-1)?.action).toBe("fail");
+  expect(actions.some(action => ["finalize-search", "profiles", "complete"].includes(action.action))).toBe(false);
+}, 45_000);

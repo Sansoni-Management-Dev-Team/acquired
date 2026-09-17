@@ -6,7 +6,7 @@ describe("targetRecordToRankedTarget", () => {
     const capturedAt = "2026-08-31T00:00:00.000Z";
     const row = {
       id: "00000000-0000-4000-8000-000000000001", organizationId: "org-1", mandateId: null,
-      companyName: "Example Industrial", domain: "example.com",
+      companyName: "Example Industrial", domain: "example.com", firmableCompanyId: "firmable-1",
       identifiers: { googlePlaceId: "place-1", firmableId: "firmable-1" },
       firmographics: {
         suburb: "Melbourne", state: "VIC",
