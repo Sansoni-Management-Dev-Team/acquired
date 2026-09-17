@@ -50,4 +50,17 @@ describe("Firmable mapping", () => {
     expect(target.suburb).toBe("Melbourne");
     expect(target.state).toBe("VIC");
   });
+
+  it("marks a missing Firmable headcount as checked but unavailable", () => {
+    const mandate = parseMandate("Find businesses in Victoria");
+    const target = mapFirmableCompany({ id: "f4", name: "No Count Example", employee_count: null, company_size: "No data available" }, {
+      id: "p4", name: "No Count Example", formattedAddress: "VIC", state: "VIC",
+    }, mandate, "org-1");
+
+    expect(target.headcount).toEqual(expect.objectContaining({
+      value: null,
+      missingReason: "Not provided by Firmable",
+      provenance: expect.objectContaining({ source: "Firmable" }),
+    }));
+  });
 });

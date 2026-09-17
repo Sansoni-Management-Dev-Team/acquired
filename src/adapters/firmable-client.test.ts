@@ -151,11 +151,19 @@ describe("FirmableClient", () => {
     expect(protectedPerson.linkedinUrl).toBeUndefined();
   });
 
-  it("rejects Firmable's HTTP 200 unsuccessful people-search response", async () => {
+  it("treats Firmable's zero-people response as a complete empty search", async () => {
     const fetcher = vi.fn().mockResolvedValueOnce(response({ success: false, totalPeople: 0 }));
     const client = new FirmableClient({ apiKey: "test", fetch: fetcher });
 
-    await expect(client.searchPeople("c1", { seniority: "2" })).rejects.toMatchObject({
+    await expect(client.searchPeoplePage("c1", { seniority: "2" })).resolves.toEqual({ records: [], total: 0 });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
+  it("still rejects an unsuccessful people search that is not a confirmed empty result", async () => {
+    const fetcher = vi.fn().mockResolvedValueOnce(response({ success: false, totalPeople: 2 }));
+    const client = new FirmableClient({ apiKey: "test", fetch: fetcher });
+
+    await expect(client.searchPeople("c1")).rejects.toMatchObject({
       endpoint: "/people/search",
       status: 200,
     });

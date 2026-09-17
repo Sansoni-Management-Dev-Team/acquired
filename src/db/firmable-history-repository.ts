@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, inArray, isNotNull, lt, lte, max, notInArray, or, sql } from "drizzle-orm";
-import { mapFirmableCandidate, type FirmableHttpObservation } from "@/adapters/firmable-client";
+import { isEmptyFirmablePeopleSearchResponse, mapFirmableCandidate, type FirmableHttpObservation } from "@/adapters/firmable-client";
 import type { PersonCandidate } from "@/adapters/source-contracts";
 import { normalizeFirmableAbn, normalizeFirmableDomain, responseHash } from "@/domain/firmable-history";
 import { requireDb } from "./client";
@@ -172,7 +172,7 @@ export class FirmableHistoryRepository {
       : observation.endpoint === "/people"
         ? Boolean(text(payload?.id))
         : observation.endpoint === "/people/search"
-          ? Array.isArray(observation.response) || (payload?.success !== false && (Array.isArray(payload?.records) || Array.isArray(payload?.data)))
+          ? Array.isArray(observation.response) || isEmptyFirmablePeopleSearchResponse(observation.response) || (payload?.success !== false && (Array.isArray(payload?.records) || Array.isArray(payload?.data)))
           : Boolean(payload);
     const httpSuccessful = httpOk && schemaValid;
     const common = {
@@ -205,7 +205,7 @@ export class FirmableHistoryRepository {
       const companyId = text(requestBody?.companyId);
       const records = Array.isArray(observation.response) ? observation.response : Array.isArray(payload?.records) ? payload.records : Array.isArray(payload?.data) ? payload.data : [];
       const storedResponse = options.retainPersonalData ? observation.response : { success: httpSuccessful, total: number(payload?.total), records: records.map(record => { const item = object(record) || {}; return { person_id: text(item.person_id) || text(item.id), position: text(item.position) || text(item.title), seniority: text(item.seniority), department: text(item.department), has_email: Boolean(item.has_email || item.email_available), has_phone: Boolean(item.has_phone || item.phone_available) }; }) };
-      await this.database.insert(firmablePeopleSearches).values({ ...common, firmableCompanyId: companyId, response: storedResponse, responseHash: responseHash(storedResponse), offset: Number(text(requestBody?.from) || 0), requestedSize: Number(text(requestBody?.size) || 0), returnedCount: records.length, reportedTotal: number(payload?.total) }).onConflictDoNothing();
+      await this.database.insert(firmablePeopleSearches).values({ ...common, firmableCompanyId: companyId, response: storedResponse, responseHash: responseHash(storedResponse), offset: Number(text(requestBody?.from) || 0), requestedSize: Number(text(requestBody?.size) || 0), returnedCount: records.length, reportedTotal: number(payload?.total) ?? (isEmptyFirmablePeopleSearchResponse(observation.response) ? 0 : undefined) }).onConflictDoNothing();
       return;
     }
 

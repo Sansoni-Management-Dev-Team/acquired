@@ -35,12 +35,15 @@ export function groupTargetObservations(findings: SavedResearchFinding[], kind: 
   return [...groups.values()];
 }
 type PreferredObservation = { value: string; source: string; sourceUrl?: string };
-export function TargetResearchData({ findings = [], kind, fallback, preferred }: { findings?: SavedResearchFinding[]; kind: "headcount" | "revenue" | "person"; fallback: ReactNode; preferred?: PreferredObservation }) {
+type ConfirmedMissingObservation = { label: string; source: string };
+export function TargetResearchData({ findings = [], kind, fallback, preferred, confirmedMissing }: { findings?: SavedResearchFinding[]; kind: "headcount" | "revenue" | "person"; fallback: ReactNode; preferred?: PreferredObservation; confirmedMissing?: ConfirmedMissingObservation }) {
   const groups = groupTargetObservations(findings, kind);
   const savedPeople = kind === "person" && typeof fallback === "string" && fallback !== "Unknown"
     ? [...new Map(fallback.split(", ").filter(Boolean).map(name => [normalise(name), name])).values()]
     : [];
-  if (!groups.length && !preferred && !savedPeople.length) return <span className="text-[var(--muted)]">{fallback}</span>;
+  if (!groups.length && !preferred && !savedPeople.length) return confirmedMissing
+    ? <div className="max-w-48"><p className="font-medium text-[var(--foreground)]">{confirmedMissing.label}</p><p className="text-xs text-[var(--status-amber)]">{confirmedMissing.source} · checked</p></div>
+    : <span className="text-[var(--muted)]">{fallback}</span>;
   const conflicting = kind === "headcount" && new Set(groups.map(g => JSON.stringify(parseHeadcount(g[0].evidence.value) || g[0].evidence.value))).size > 1;
   const label = (f: SavedResearchFinding) => kind === "person" ? f.evidence.name : f.evidence.value;
   const preview = groups.slice(0, 2).map(g => label(g[0])).join(" · ");

@@ -11,6 +11,12 @@ it("shows a saved headcount range even when provider fields are unknown", () => 
  const html = renderToStaticMarkup(<TargetResearchData kind="headcount" findings={[finding("headcount", "11–50 employees")]} fallback="Unknown" />);
  expect(html).toContain("11–50 employees"); expect(html).toContain("Search estimate — unverified"); expect(html).toContain('href="https://example.com/team"');
 });
+it("distinguishes a checked Firmable headcount with no available value from an unchecked unknown", () => {
+ const checked = renderToStaticMarkup(<TargetResearchData kind="headcount" fallback="Unknown" confirmedMissing={{ label: "No data available", source: "Firmable" }} />);
+ const unchecked = renderToStaticMarkup(<TargetResearchData kind="headcount" fallback="Unknown" />);
+ expect(checked).toContain("No data available"); expect(checked).toContain("Firmable · checked"); expect(checked).not.toContain("Unknown");
+ expect(unchecked).toContain("Unknown"); expect(unchecked).not.toContain("Firmable · checked");
+});
 it("exposes conflicting counts while labelling the averaged EBITDA estimate", () => {
  const findings = [finding("headcount", "10"), finding("headcount", "30")];
  expect(renderToStaticMarkup(<TargetResearchData kind="headcount" findings={findings} fallback="Unknown" />)).toContain("Sources disagree");

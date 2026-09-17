@@ -124,6 +124,22 @@ describe.skipIf(!enabled)("Firmable history PostgreSQL integration", () => {
     await repository.finishRun(run.id, { found: 2, saved: 1, failed: 1 });
   });
 
+  it("persists Firmable's confirmed zero-people response as a successful empty page", async () => {
+    const companyId = `firmable-company-${crypto.randomUUID()}`;
+    const run = await repository.startRun({ organizationId, actorId, targetId, requestKey: crypto.randomUUID() });
+    await repository.recordObservation(run.id, observation("empty-company", "/company", { id: companyId, name: "Empty People Example" }, 200), { retainPersonalData: true });
+    await repository.recordObservation(run.id, observation("empty-people-search", "/people/search", { success: false, totalPeople: 0 }, 200, undefined, { companyId, from: "0", size: "100" }), { retainPersonalData: true });
+
+    expect(await repository.successfulSearchPage(run.id, 0)).toEqual(expect.objectContaining({
+      successful: true,
+      returnedCount: 0,
+      reportedTotal: 0,
+      validationError: null,
+    }));
+    expect(await repository.searchCandidates(run.id)).toEqual(expect.objectContaining({ candidates: [], reportedTotal: 0 }));
+    await repository.finishRun(run.id, { found: 0, saved: 0, failed: 0 });
+  });
+
   it("deduplicates active queued work and reconstructs durable page and profile progress", async () => {
     const queuedTargetId = crypto.randomUUID();
     await client.query("insert into targets (id, organization_id, company_name, domain, firmographics) values ($1, $2, $3, $4, $5::jsonb)", [queuedTargetId, organizationId, "Queued Example", "queued.example", "{}"]);

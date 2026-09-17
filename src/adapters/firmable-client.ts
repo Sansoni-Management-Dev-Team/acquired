@@ -96,6 +96,12 @@ export type FirmableHttpObservation = {
   error?: string;
 };
 
+export function isEmptyFirmablePeopleSearchResponse(value: unknown): value is { success: false; totalPeople: 0 } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const response = value as Record<string, unknown>;
+  return response.success === false && response.totalPeople === 0;
+}
+
 export class FirmableClient {
   private apiKey: string;
   private baseUrl: string;
@@ -169,7 +175,7 @@ export class FirmableClient {
       method: "POST",
       body: JSON.stringify({ companyId, selectedCountry: "AU", position: filters.position, seniority: filters.seniority, department: filters.department, from: String(filters.from || 0), size: String(size) }),
     }));
-    if (!Array.isArray(raw) && "success" in raw && raw.success === false) {
+    if (!Array.isArray(raw) && "success" in raw && raw.success === false && !isEmptyFirmablePeopleSearchResponse(raw)) {
       throw new FirmableError("/people/search", 200, "Firmable people search was not successful");
     }
     const records: Array<Record<string, unknown>> = Array.isArray(raw)
@@ -184,7 +190,11 @@ export class FirmableClient {
       const candidate = mapFirmableCandidate(record);
       if (candidate) deduplicated.set(candidate.id, candidate);
     }
-    const total = !Array.isArray(raw) && "total" in raw && typeof raw.total === "number" ? raw.total : undefined;
+    const total = !Array.isArray(raw) && "total" in raw && typeof raw.total === "number"
+      ? raw.total
+      : isEmptyFirmablePeopleSearchResponse(raw)
+        ? raw.totalPeople
+        : undefined;
     return { records: [...deduplicated.values()], total };
   }
 

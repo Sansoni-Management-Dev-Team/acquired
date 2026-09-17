@@ -202,7 +202,16 @@ export async function completeFirmableRefresh(runId: string, mandateId: string) 
   const materializedIds = new Set(materialized.flatMap(row => row.personId ? [row.personId] : []));
   const missing = [...successfulIds].filter(id => !materializedIds.has(id));
   if (missing.length) throw new Error(`${missing.length} successful Firmable profiles were not saved as contacts`);
-  await history.finishRun(runId, { ...counts, searchComplete: true, partial: run.companyStatus === "failed", message: run.companyStatus === "failed" ? "People refreshed from the last known Firmable company; the company refresh failed" : undefined });
+  await history.finishRun(runId, {
+    ...counts,
+    searchComplete: true,
+    partial: run.companyStatus === "failed",
+    message: run.companyStatus === "failed"
+      ? "People refreshed from the last known Firmable company; the company refresh failed"
+      : counts.found === 0
+        ? "Company data saved; Firmable found no people"
+        : undefined,
+  });
   await new OrganizationRepository(database, run.organizationId).appendAudit({
     actorId: run.actorId,
     action: "target.firmable_people_synced",
