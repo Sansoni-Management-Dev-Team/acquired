@@ -11,8 +11,33 @@ export const DEFAULT_SEQUENCE: SequenceStep[] = [
   { step: 7, businessDay: 35, purpose: "Close the loop" },
 ];
 
-export type DraftMessage = { step: number; subject: string; body: string; signalIds: string[]; scheduledFor: Date; approved: boolean };
+export const OUTREACH_CHANNELS = ["email", "linkedin", "whatsapp"] as const;
+export type OutreachChannel = (typeof OUTREACH_CHANNELS)[number];
+export type OutreachChannelCopy = { subject?: string; body: string };
+export type OutreachChannelCopies = Record<OutreachChannel, OutreachChannelCopy>;
+export type DraftMessage = { step: number; subject: string; body: string; channels: OutreachChannelCopies; signalIds: string[]; scheduledFor: Date; approved: boolean };
+export type StoredOutreachMetadata = { signalIds: string[]; channels: Partial<Pick<OutreachChannelCopies, "linkedin" | "whatsapp">> };
 export type SendContext = { approved: boolean; suppressed: boolean; replied: boolean; stopped: boolean; sentToday: number; dailyCap: number };
+
+export function readOutreachMetadata(value: unknown): StoredOutreachMetadata {
+  if (Array.isArray(value)) return { signalIds: value.filter((id): id is string => typeof id === "string"), channels: {} };
+  if (!value || typeof value !== "object") return { signalIds: [], channels: {} };
+  const stored = value as Record<string, unknown>;
+  const channelValue = stored.channels && typeof stored.channels === "object" ? stored.channels as Record<string, unknown> : {};
+  const readChannel = (channel: "linkedin" | "whatsapp") => {
+    const copy = channelValue[channel];
+    if (!copy || typeof copy !== "object" || typeof (copy as Record<string, unknown>).body !== "string") return undefined;
+    return { body: (copy as Record<string, unknown>).body as string };
+  };
+  return {
+    signalIds: Array.isArray(stored.signalIds) ? stored.signalIds.filter((id): id is string => typeof id === "string") : [],
+    channels: { linkedin: readChannel("linkedin"), whatsapp: readChannel("whatsapp") },
+  };
+}
+
+export function writeOutreachMetadata(signalIds: string[], channels: Partial<Pick<OutreachChannelCopies, "linkedin" | "whatsapp">>) {
+  return { signalIds, channels };
+}
 
 export function addBusinessDays(date: Date, count: number) {
   const output = new Date(date);
@@ -53,5 +78,14 @@ export function draftSequence(companyName: string, firstName: string, signals: S
     `Hi ${firstName}, I will close the loop after this note. If succession ever becomes relevant, I would welcome a conversation and will leave the door open.`,
   ];
   const schedules = scheduleSequence(start);
-  return bodies.map((body, index) => ({ step: index + 1, subject: index ? `Re: ${companyName}` : `A confidential conversation about ${companyName}`, body, signalIds: strongest ? [strongest.id] : [], scheduledFor: schedules[index].scheduledFor, approved: false }));
+  return bodies.map((body, index) => {
+    const subject = index ? `Re: ${companyName}` : `A confidential conversation about ${companyName}`;
+    const linkedin = index === 0
+      ? `Hi ${firstName}, I came across ${companyName} and wanted to introduce myself. I am looking to acquire and operate one Australian business for the long term. Open to a brief, private chat?`
+      : `Hi ${firstName}, just following up on my note about ${companyName}. I would be glad to share why the business stood out and keep the conversation exploratory.`;
+    const whatsapp = index === 0
+      ? `Hi ${firstName}, it’s a private note about ${companyName}. I’m looking to acquire and operate one Australian business for the long term. Would a quick introductory call be okay?`
+      : `Hi ${firstName}, just a quick follow-up about ${companyName}. Would a short, private introduction be useful?`;
+    return { step: index + 1, subject, body, channels: { email: { subject, body }, linkedin: { body: linkedin }, whatsapp: { body: whatsapp } }, signalIds: strongest ? [strongest.id] : [], scheduledFor: schedules[index].scheduledFor, approved: false };
+  });
 }

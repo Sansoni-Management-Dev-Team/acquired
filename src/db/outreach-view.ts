@@ -7,6 +7,7 @@ import { contacts, messages, mailboxConnections, organization, sequenceEnrolment
 import { accreditationSignals } from "@/domain/accreditation-evidence";
 import { buyerProfileFromMetadata } from "@/domain/buyer-profile";
 import { AcquisitionRepository } from "./acquisition-repository";
+import { readOutreachMetadata } from "@/domain/outreach";
 export async function loadOutreach(organizationId: string, mandateId: string, userId?: string) {
   const acquisition = new AcquisitionRepository(organizationId);
   const memberships = await acquisition.memberships(mandateId);
@@ -33,7 +34,10 @@ export async function loadOutreach(organizationId: string, mandateId: string, us
       establishedYear: typeof established === "number" ? established : undefined, firmableId: typeof identifiers.firmableId === "string" ? identifiers.firmableId : undefined,
       contacts: contactRows.filter((row) => row.targetId === target.id).map((row) => { const personal = row.personalData as Record<string, unknown>; return { id: row.id, displayName: row.displayName, role: row.role || undefined, email: typeof personal.email === "string" ? personal.email : undefined, emailStatus: typeof personal.emailStatus === "string" ? personal.emailStatus : "provider-supplied", sourceUrl: typeof (row.provenance as Record<string, unknown>).sourceUrl === "string" ? (row.provenance as Record<string, unknown>).sourceUrl as string : undefined, fictionalised: row.fictionalised, doNotContact: personal.doNotContact === true }; }),
       signals: [...reviewedOutreachSignals(memberships.find(m => m.target.id === target.id)), ...accreditationSignals(memberships.find(m => m.target.id === target.id)?.accreditations || []), ...signalRows.filter((row) => row.targetId === target.id).map((row) => ({ id: row.id, kind: row.kind, value: row.value, weight: row.weight === "very_high" ? "very-high" as const : row.weight, direction: row.direction === "negative" ? "negative" as const : "positive" as const, provenance: { source: row.source, sourceUrl: row.sourceUrl || undefined, capturedAt: row.capturedAt.toISOString(), confidence: row.confidence } }))],
-      drafts: messageRows.filter((row) => enrolments.get(row.enrolmentId)?.targetId === target.id).map((row) => ({ id: row.id, contactId: enrolments.get(row.enrolmentId)?.contactId || undefined, step: row.stepNumber, subject: row.subject, body: row.body, signalIds: Array.isArray(row.signalIds) ? row.signalIds.filter((id): id is string => typeof id === "string") : [], scheduledFor: row.scheduledFor?.toISOString(), state: row.state, gmailDraftSaved: Boolean(row.providerMessageId) })).sort((left, right) => left.step - right.step),
+      drafts: messageRows.filter((row) => enrolments.get(row.enrolmentId)?.targetId === target.id).map((row) => {
+        const metadata = readOutreachMetadata(row.signalIds);
+        return { id: row.id, contactId: enrolments.get(row.enrolmentId)?.contactId || undefined, step: row.stepNumber, subject: row.subject, body: row.body, channels: { email: { subject: row.subject, body: row.body }, ...metadata.channels }, signalIds: metadata.signalIds, scheduledFor: row.scheduledFor?.toISOString(), state: row.state, gmailDraftSaved: Boolean(row.providerMessageId) };
+      }).sort((left, right) => left.step - right.step),
     };
   });
   const [connection] = userId ? await database.select().from(mailboxConnections).where(and(eq(mailboxConnections.organizationId, organizationId), eq(mailboxConnections.userId, userId), eq(mailboxConnections.provider, "gmail"))).limit(1) : [];

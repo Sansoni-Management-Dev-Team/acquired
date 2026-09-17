@@ -6,7 +6,7 @@ import { requireDb } from "@/db/client";
 import { OrganizationRepository } from "@/db/repositories";
 import { contacts, messages, sequenceEnrolments, sequences, signals, targets } from "@/db/schema";
 import { organization } from "@/db/schema";
-import { DEFAULT_SEQUENCE } from "@/domain/outreach";
+import { DEFAULT_SEQUENCE, readOutreachMetadata, writeOutreachMetadata } from "@/domain/outreach";
 import { buyerProfileFromMetadata, publicBuyerProfile } from "@/domain/buyer-profile";
 import { createOutreachDraftingProvider } from "@/adapters/outreach-drafting";
 import type { Signal } from "@/domain/models";
@@ -46,8 +46,12 @@ export async function POST(request: Request) {
   if (!buyerProfile.publicProfileApproved) return Response.json({ error: "Approve the public buyer profile before drafting." }, { status: 409 });
   const existingEnrolments = await database.select({ id: sequenceEnrolments.id, sequenceId: sequenceEnrolments.sequenceId }).from(sequenceEnrolments).where(and(eq(sequenceEnrolments.organizationId, organizationId), eq(sequenceEnrolments.targetId, target.id), eq(sequenceEnrolments.mandateId, mandate.id), ...(contact ? [eq(sequenceEnrolments.contactId, contact.id)] : [])));
   if (existingEnrolments.length) {
-    const existingMessages = await database.select({ providerMessageId: messages.providerMessageId, id: messages.id }).from(messages).where(and(eq(messages.organizationId, organizationId), eq(messages.enrolmentId, existingEnrolments[0].id)));
-    if (!parsed.data.preview && parsed.data.reuseExisting && existingMessages.length === DEFAULT_SEQUENCE.length) return Response.json({ enrolmentId: existingEnrolments[0].id, messageCount: existingMessages.length, reused: true });
+    const existingMessages = await database.select({ providerMessageId: messages.providerMessageId, id: messages.id, signalIds: messages.signalIds }).from(messages).where(and(eq(messages.organizationId, organizationId), eq(messages.enrolmentId, existingEnrolments[0].id)));
+    const hasAllChannelCopy = existingMessages.every((message) => {
+      const metadata = readOutreachMetadata(message.signalIds);
+      return Boolean(metadata.channels.linkedin?.body && metadata.channels.whatsapp?.body);
+    });
+    if (!parsed.data.preview && parsed.data.reuseExisting && existingMessages.length === DEFAULT_SEQUENCE.length && hasAllChannelCopy) return Response.json({ enrolmentId: existingEnrolments[0].id, messageCount: existingMessages.length, reused: true });
     if (!parsed.data.preview && existingMessages.some((item) => item.providerMessageId)) return Response.json({ error: "Revoke approved Gmail drafts before regenerating this sequence." }, { status: 409 });
   }
 
@@ -96,12 +100,12 @@ export async function POST(request: Request) {
 
   for (const draft of drafts) {
     const purpose = DEFAULT_SEQUENCE.find((step) => step.step === draft.step)?.purpose || "Evidence-led outreach";
-    const values = { purpose, subject: draft.subject, body: draft.body, signalIds: draft.signalIds, state: "draft" as const, scheduledFor: draft.scheduledFor, updatedAt: new Date() };
+    const values = { purpose, subject: draft.subject, body: draft.body, signalIds: writeOutreachMetadata(draft.signalIds, { linkedin: draft.channels.linkedin, whatsapp: draft.channels.whatsapp }), state: "draft" as const, scheduledFor: draft.scheduledFor, updatedAt: new Date() };
     const [existing] = await database.select({ id: messages.id }).from(messages).where(and(eq(messages.enrolmentId, enrolment.id), eq(messages.stepNumber, draft.step))).limit(1);
     if (existing && parsed.data.reuseExisting) continue;
     if (existing) await database.update(messages).set(values).where(eq(messages.id, existing.id));
     else await database.insert(messages).values({ organizationId, enrolmentId: enrolment.id, stepNumber: draft.step, ...values }).onConflictDoNothing();
   }
-  await new OrganizationRepository(database, organizationId).appendAudit({ actorId: session.user.id, action: "outreach.drafts_generated", entityType: "target", entityId: target.id, metadata: { mandateId: mandate.id, contactId: contact.id, sequenceId: enrolment.sequenceId, messageCount: drafts.length, draftingMode: provider.mode, draftingProvider: provider.providerName, evidenceIds: evidence.map(({ id }) => id), liveDelivery: false } });
+  await new OrganizationRepository(database, organizationId).appendAudit({ actorId: session.user.id, action: "outreach.drafts_generated", entityType: "target", entityId: target.id, metadata: { mandateId: mandate.id, contactId: contact.id, sequenceId: enrolment.sequenceId, messageCount: drafts.length, channels: ["email", "linkedin", "whatsapp"], draftingMode: provider.mode, draftingProvider: provider.providerName, evidenceIds: evidence.map(({ id }) => id), liveDelivery: false } });
   return Response.json({ enrolmentId: enrolment.id, messageCount: drafts.length });
 }
