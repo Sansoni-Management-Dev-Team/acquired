@@ -170,7 +170,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
           retry = true,
         ): Promise<T> => {
           const config = stateCache?.value.config;
-          const provider: ResearchProvider | undefined = /^read-people-/.test(name) ? 'page'
+          const provider: ResearchProvider | undefined = /^read-(?:people|site)-/.test(name) ? 'page'
             : /^(extract-|company-identity-|headcount-|discovery-plan-|targeted-plan$)/.test(name) ? 'ai'
             : /^(targeted-search-|people-followup$)/.test(name) || (/^discover(?:-\d+)?$/.test(name) && config?.discover && !config.targetedFollowup) ? 'search' : undefined;
           if (!provider) return checkpoint(name, run, retry);
@@ -224,6 +224,10 @@ export class AcquireResearch extends WorkflowEntrypoint<
           const state = await control();
           const read = () => readMarkdown(this.env, url, requestBudget, false, browserReservation);
           return cachedPage(caches.default, state.config.researchRunId || id, url, read);
+        },
+        readSiteFile: async (url: string) => {
+          const state = await control();
+          return cachedPage(caches.default, state.config.researchRunId || id, url, () => readMarkdown(this.env, url, requestBudget, false, browserReservation));
         },
         ...(this.env.LOCAL_DEVELOPMENT !== "true" && this.env.CRAWL4AI_URL ? { readFallbackPage: async (url: string) => {
           requestBudget.used++;

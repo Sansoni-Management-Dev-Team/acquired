@@ -12,6 +12,7 @@ import { discoverMandate } from "@/adapters/mandate-discovery";
 import { createTargetDataProvider } from "@/adapters/provider-mode";
 import { mapFirmableCompany, mapGooglePlace } from "@/adapters/firmable-mapper";
 import { acquireTargetSearch, TargetSearchRateLimitError } from "@/adapters/target-search-guard";
+import { validateCompanyWebsite, validateTargetWebsites } from "@/lib/company-website";
 
 const importedRecord = z.object({ name: z.string().trim().min(1).max(300), website: z.union([z.string().url(), z.literal("")]), abn: z.string().regex(/^(\d{11})?$/), state: z.string().max(30), description: z.string().max(3000), source: z.string().trim().min(1).max(200), sourceUrl: z.string().url(), sourceId: z.string().trim().min(1).max(200) });
 const actionSchema = z.discriminatedUnion("action", [
@@ -74,6 +75,10 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     }
     if (action.action === "identity") {
       if (!(await repo.memberships(id)).some(m => m.target.id === action.targetId)) return Response.json({ error: "Target not found in mandate" }, { status: 404 });
+      if (action.website) {
+        const validation = await validateCompanyWebsite(action.website);
+        if (!validation.ok) return Response.json({ error: `Website could not be verified: ${validation.reason}.` }, { status: 422 });
+      }
       const domain = action.website ? new URL(action.website).hostname.replace(/^www\./, "").toLowerCase() : "";
       if (domain) {
         const [existing] = await requireDb().select({ id: targets.id }).from(targets).where(and(eq(targets.organizationId, org), eq(targets.domain, domain)));
@@ -96,23 +101,39 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       const companyRepo = new OrganizationRepository(requireDb(), org);
       const provider = createTargetDataProvider();
       const result = await discoverMandate({ directory: provider.manufacturingDirectory, places: provider.places, mandate: filters, organizationId: org });
-      for (const target of result.targets) {
+      const checked = await validateTargetWebsites(result.targets);
+      const warnings: string[] = [];
+      for (const { target, validation } of checked) {
+        if (validation && !validation.ok) {
+          warnings.push(`${target.companyName}: website removed — ${validation.reason}.`);
+          target.domain = "";
+        }
         const saved = await companyRepo.upsertEnrichedTarget({ target: rankTarget(target, filters), mandateId: id, actorId: session.user.id });
         if (saved) await repo.attach(id, saved.id);
       }
       await repo.recordCoverage(id, result.sources);
+      return Response.json({ ok: true, warnings });
     }
     if (action.action === "import") {
       const companyRepo = new OrganizationRepository(requireDb(), org);
       let added = 0;
       const before = new Set((await repo.memberships(id)).map(m => m.target.id));
-      for (const record of action.records) {
+      const candidates = action.records.map(record => {
         const directory = { recordId: `${record.source}:${record.sourceId}`, name: record.name, website: record.website || undefined, abn: record.abn || undefined, state: record.state, description: record.description, categories: [], keywords: [], capabilities: [], sourceRecords: [{ source: record.source, sourceId: record.sourceId, sourceUrl: record.sourceUrl }] };
-        const target = mapGooglePlace({ id: directory.recordId, name: record.name, formattedAddress: record.state, website: record.website || undefined, state: record.state, discoverySource: "manufacturing-directory", manufacturingDirectory: directory }, filters, org, "Imported discovery record — enrichment pending");
+        return mapGooglePlace({ id: directory.recordId, name: record.name, formattedAddress: record.state, website: record.website || undefined, state: record.state, discoverySource: "manufacturing-directory", manufacturingDirectory: directory }, filters, org, "Imported discovery record — enrichment pending");
+      });
+      const checked = await validateTargetWebsites(candidates);
+      const warnings: string[] = [];
+      for (const { target, validation } of checked) {
+        if (validation && !validation.ok) {
+          warnings.push(`${target.companyName}: website removed — ${validation.reason}.`);
+          target.domain = "";
+        }
         const saved = await companyRepo.upsertEnrichedTarget({ target: rankTarget(target, filters), mandateId: id, actorId: session.user.id });
         if (saved) { await repo.attach(id, saved.id); if (!before.has(saved.id)) { added++; before.add(saved.id); } }
       }
       await repo.recordCoverage(id, [{ name: "Sourced record import", status: "partial", discovered: action.records.length, unique: added, overlap: action.records.length - added, checkedAt: new Date().toISOString(), note: "User-supplied records; source population completeness has not been established." }]);
+      return Response.json({ ok: true, warnings });
     }
     if (action.action === "enrich") {
       const companyRepo = new OrganizationRepository(requireDb(), org);
@@ -125,10 +146,26 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         const abn = target.abn || target.sourceData?.manufacturingDirectory?.abn || target.sourceData?.firmable?.abn;
         if (!target.domain && !abn) { warnings.push(`${target.companyName}: website or ABN required; candidate retained.`); continue; }
         try {
+          if (target.domain) {
+            const validation = await validateCompanyWebsite(`https://${target.domain}/`);
+            if (!validation.ok) {
+              await requireDb().update(targets).set({ domain: "", updatedAt: new Date() }).where(and(eq(targets.id, targetId), eq(targets.organizationId, org)));
+              warnings.push(`${target.companyName}: unreachable website removed — ${validation.reason}.`);
+              target.domain = "";
+              if (!abn) continue;
+            }
+          }
           const company = await provider.firmable.enrichCompany(target.domain ? { fqdn: target.domain } : { abn });
           const enriched = mapFirmableCompany(company, { id: target.sourceData?.googlePlaces?.placeId || targetId, name: target.companyName, formattedAddress: target.state, website: target.domain ? `https://${target.domain}` : undefined, state: target.state, manufacturingDirectory: target.sourceData?.manufacturingDirectory, discoverySource: target.sourceData?.manufacturingDirectory ? "manufacturing-directory" : "google-places" }, filters, org);
           // Preserve the selected shared identity even when the enrichment changes the domain.
           enriched.domain = target.domain || enriched.domain;
+          if (enriched.domain && enriched.domain !== target.domain) {
+            const validation = await validateCompanyWebsite(`https://${enriched.domain}/`);
+            if (!validation.ok) {
+              warnings.push(`${target.companyName}: provider website ignored — ${validation.reason}.`);
+              enriched.domain = "";
+            }
+          }
           const saved = await companyRepo.upsertEnrichedTarget({ target: rankTarget(enriched, filters), mandateId: id, actorId: session.user.id, existingTargetId: targetId });
           if (saved) await repo.attach(id, saved.id);
         } catch { warnings.push(`${target.companyName}: enrichment failed; candidate retained.`); }

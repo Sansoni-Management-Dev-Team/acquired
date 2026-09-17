@@ -32,6 +32,17 @@ it('finds revenue after headcount and completes only when both objectives have e
   expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'complete', pages: 2 });
   expect(t.progress.mock.calls.flatMap(([event]) => event.page?.findings || []).some(f => f.kind === 'revenue' && f.factMetadata?.currency === 'AUD')).toBe(true);
 });
+it('reads the first-party sitemap and adds relevant company pages to the research queue', async () => {
+  const t = setup();
+  Object.assign(t.config, { mode: 'automatic', purpose: 'firmographics', targetedFollowup: false, companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
+  t.config.budget = { maxPages: 2, maxDomains: 1, maxMinutes: 10, maxModelCalls: 0 };
+  t.service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: url.endsWith('/team/') ? '# Example Instruments team\nWe employ 50 employees across Australia.' : '# Example Instruments\nWe manufacture precision sensors and calibration equipment for Australian industry.' } }));
+  t.service.readSiteFile = vi.fn(async url => ({ status: 'completed', page: { url, markdown: url.endsWith('/robots.txt') ? 'Sitemap: https://instruments.example.com/sitemap.xml' : '<urlset><url><loc>https://instruments.example.com/team/</loc></url></urlset>' } }));
+  await runResearch(t.step, t.service);
+  expect(t.service.readSiteFile).toHaveBeenCalledTimes(2);
+  expect(t.service.readPage).toHaveBeenCalledWith('https://instruments.example.com/team/');
+  expect(t.progress.mock.calls.flatMap(([event]) => event.page?.findings || []).some(f => f.kind === 'headcount')).toBe(true);
+});
 it('searches for a published email after finding a director without rereading the team page', async () => {
   const t = setup();
   Object.assign(t.config, { mode: 'automatic', purpose: 'people', targetedFollowup: true, maxPeopleSearches: 2, companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });

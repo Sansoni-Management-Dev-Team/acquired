@@ -9,6 +9,7 @@ import { unusablePage } from "./page-quality";
 import { businessPrompt, headingCompanyFinding, ownCompany, relevantBusiness, validateBusinessFindings } from "./business-research";
 import { companyHeadcountPrompt, companyFactDiagnostics, observedCompanyFacts, companyFactLinks, orderCompanyFactQueue, modelHeadcountFinding } from "./company-facts";
 import { peoplePrompt, validatePeopleFindings, peopleFollowUpLinks, orderPeopleQueue } from "./people-research";
+import { sitemapDocument, sitemapMarkdown, sitemapUrls } from "./sitemap";
 import {
   extractionPrompt,
   catalogueProductFindings,
@@ -69,6 +70,7 @@ export interface ResearchServices {
   readPeoplePage?(url: string): Promise<{ status: string; page?: { url: string; markdown: string; title?: string; observedAt?: string }; warning?: string }>;
   cachedPage?(url: string): Promise<Awaited<ReturnType<ResearchServices["poll"]>> | null>;
   readPage?(url: string): ReturnType<ResearchServices["poll"]>;
+  readSiteFile?(url: string): ReturnType<ResearchServices["poll"]>;
   readFallbackPage?(url: string): ReturnType<ResearchServices["poll"]>;
   peopleFollowup?(): Promise<{ seeds: string[]; legalEntity?: string; warning?: string }>;
   planFollowup?(plan: TargetedPlan): Promise<unknown>;
@@ -182,6 +184,38 @@ export async function runResearch(
     if (await finishAtGoal("discovery-goal")) return;
     const domains = new Set<string>(initial.config.autoDomains || []),
       budget = initial.config.budget;
+    const sitemapChecked = new Set<string>();
+    const discoverSitemap = async (sourceUrl: string, attempt: number) => {
+      if (!service.readSiteFile) return [];
+      const domain = researchDomain(sourceUrl);
+      if (sitemapChecked.has(domain)) return [];
+      sitemapChecked.add(domain);
+      const origin = new URL(sourceUrl).origin;
+      const documents: string[] = [];
+      const pages: string[] = [];
+      try {
+        const robotsUrl = new URL("/robots.txt", origin).href;
+        const robots = await step.do(`read-site-robots-${attempt}`, () => service.readSiteFile!(robotsUrl), false);
+        if (robots.status === "completed" && robots.page) documents.push(...sitemapUrls(robots.page.markdown, sourceUrl).filter(sitemapDocument));
+      } catch { /* Missing or blocked robots.txt falls back to conventional sitemap paths. */ }
+      if (!documents.length) documents.push(new URL("/sitemap.xml", origin).href);
+      const seen = new Set<string>();
+      for (let index = 0; index < documents.length && seen.size < 3; index++) {
+        const document = documents[index];
+        if (seen.has(document)) continue;
+        seen.add(document);
+        try {
+          const result = await step.do(`read-site-sitemap-${attempt}-${seen.size}`, () => service.readSiteFile!(document), false);
+          if (result.status !== "completed" || !result.page) continue;
+          const urls = sitemapUrls(result.page.markdown, sourceUrl);
+          pages.push(...urls.filter(url => !sitemapDocument(url)));
+          documents.push(...urls.filter(sitemapDocument));
+        } catch { /* A missing sitemap must not prevent ordinary page research. */ }
+      }
+      const unique = uniqueResearchUrls(pages).slice(0, 500);
+      trace("sitemap_discovery", { source: origin, documents: seen.size, urls: unique.length });
+      return unique;
+    };
     let priorityUrl: string | undefined;
     const collected: ResearchPage["findings"] = [...(initial.findings || [])];
     let peopleFollowupAttempted = Boolean(initial.config.peopleFollowupStarted || initial.config.targetedFollowup);
@@ -435,6 +469,10 @@ export async function runResearch(
           await publish("crawling", entry.reason);
           continue;
         }
+        // Broad search coordination preserves its request budget. A bounded candidate
+        // investigation and its paired company/people enrichment use the sitemap.
+        const firstParty = Boolean((initial.config.purpose || initial.config.discoveryCandidate) && initial.config.companyDomain && researchDomain(sourceUrl) === initial.config.companyDomain);
+        const sitemapLinks = firstParty ? await discoverSitemap(sourceUrl, attempt) : [];
         pages++;
         entry.status = "read";
         entry.finalUrl = sourceUrl;
@@ -447,11 +485,12 @@ export async function runResearch(
         ]).slice(-1000);
         // Drop navigation runs and form scaffolding before the saved-page limit so evidence sections survive.
         const markdown = `${result.page.title ? `# ${result.page.title}\n\n` : ""}${stripBoilerplate(result.page.markdown, { keepImages: true })}`.slice(0, 24000);
+        const navigation = `${markdown}\n${sitemapMarkdown(sitemapLinks)}`;
         runtime.remaining = orderResearchQueue(
           [
             ...runtime.remaining,
-            ...(initial.config.purpose === "firmographics" ? companyFactLinks(markdown, sourceUrl, initial.config, runtime.visited) : initial.config.purpose === "people" ? peopleFollowUpLinks(markdown, sourceUrl, runtime.visited, initial.config) : followUpLinks(
-              markdown,
+            ...(initial.config.purpose === "firmographics" ? companyFactLinks(navigation, sourceUrl, initial.config, runtime.visited) : initial.config.purpose === "people" ? peopleFollowUpLinks(navigation, sourceUrl, runtime.visited, initial.config) : followUpLinks(
+              navigation,
               sourceUrl,
               initial.config.searchTerms,
               runtime.visited,
