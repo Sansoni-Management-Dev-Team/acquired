@@ -42,11 +42,10 @@ export function assertMaySend(context: SendContext) {
 
 export function draftSequence(companyName: string, firstName: string, signals: Signal[], start: Date): DraftMessage[] {
   const strongest = signals.find((signal) => signal.direction === "positive");
-  if (!strongest) throw new Error("At least one evidence signal is required to draft outreach");
-  const evidence = strongest.value.toLowerCase();
+  const evidence = strongest?.value.toLowerCase();
   const bodies = [
-    `Hi ${firstName}, I came across ${companyName} and noticed ${evidence}. I am looking to acquire and operate one Australian business for the long term. Would a discreet 15-minute conversation be unreasonable?`,
-    `Hi ${firstName}, one reason ${companyName} stood out is ${evidence}. We are seeing durable demand for well-run operators in this sector and I would be glad to share the perspective behind our interest.`,
+    `Hi ${firstName}, I came across ${companyName}${evidence ? ` and noticed ${evidence}` : " and wanted to introduce myself"}. I am looking to acquire and operate one Australian business for the long term. Would a discreet 15-minute conversation be unreasonable?`,
+    `Hi ${firstName}, ${evidence ? `one reason ${companyName} stood out is ${evidence}` : `${companyName} appears relevant to the kind of business I hope to own and operate`}. I would be glad to share the perspective behind my interest.`,
     `Hi ${firstName}, for context, this is a principal-led search rather than a broker campaign. We can move carefully, protect confidentiality and keep the initial conversation exploratory.`,
     `I appreciate you may not be considering a sale. Many useful first conversations are simply about succession options and what a good outcome could look like over time.`,
     `If useful, I can outline how buyers typically think about an indicative valuation range for a business like ${companyName}, without obligation or a formal process.`,
@@ -54,5 +53,5 @@ export function draftSequence(companyName: string, firstName: string, signals: S
     `Hi ${firstName}, I will close the loop after this note. If succession ever becomes relevant, I would welcome a conversation and will leave the door open.`,
   ];
   const schedules = scheduleSequence(start);
-  return bodies.map((body, index) => ({ step: index + 1, subject: index ? `Re: ${companyName}` : `A confidential conversation about ${companyName}`, body, signalIds: [strongest.id], scheduledFor: schedules[index].scheduledFor, approved: false }));
+  return bodies.map((body, index) => ({ step: index + 1, subject: index ? `Re: ${companyName}` : `A confidential conversation about ${companyName}`, body, signalIds: strongest ? [strongest.id] : [], scheduledFor: schedules[index].scheduledFor, approved: false }));
 }

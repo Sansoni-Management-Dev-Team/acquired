@@ -18,6 +18,17 @@ describe("fixture outreach drafting", () => {
     expect(drafts.every((draft) => draft.body.endsWith(request.buyerProfile.signature))).toBe(true);
   });
 
+  it("generates editable drafts from saved company data without evidence signals", async () => {
+    const drafts = await new FixtureOutreachDraftingProvider().generateSequence({
+      ...request,
+      signals: [],
+      companyProfile: { industries: ["Industrial services"] },
+    });
+    expect(drafts).toHaveLength(7);
+    expect(drafts.every((draft) => draft.signalIds.length === 0)).toBe(true);
+    expect(drafts[0].body).toContain("researching businesses in Industrial services");
+  });
+
   it("fails closed instead of silently selecting a live provider", () => {
     expect(() => createOutreachDraftingProvider(undefined)).toThrow(/explicitly set/);
     expect(() => createOutreachDraftingProvider("live")).toThrow(/fixture.*ai/);
@@ -64,5 +75,18 @@ describe("fixture outreach drafting", () => {
     };
 
     await expect(new AiOutreachDraftingProvider(ai).generateSequence(request)).rejects.toThrow(/unknown evidence signal/);
+  });
+
+  it("allows AI drafts with no signal citations when only company profile data is available", async () => {
+    const generateStructured = vi.fn().mockResolvedValue({
+      json: { drafts: Array.from({ length: 7 }, (_, index) => ({ step: index + 1, subject: "Subject", body: "Body", signalIds: [] })) },
+      model: "test/model",
+      usage: { inputTokens: 1, outputTokens: 1 },
+    });
+    const ai: AiProvider = { name: "test-ai", model: "test/model", isConfigured: () => true, generateStructured };
+    const drafts = await new AiOutreachDraftingProvider(ai).generateSequence({ ...request, signals: [], companyProfile: { industries: ["Industrial services"] } });
+    expect(drafts).toHaveLength(7);
+    expect(drafts.every((draft) => draft.signalIds.length === 0)).toBe(true);
+    expect(generateStructured.mock.calls[0][0].schema.properties.drafts.items.properties.signalIds).toMatchObject({ maxItems: 0 });
   });
 });

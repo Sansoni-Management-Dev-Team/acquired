@@ -40,7 +40,6 @@ export async function POST(request: Request) {
   const signalRows = await database.select().from(signals).where(and(eq(signals.organizationId, organizationId), eq(signals.targetId, target.id)));
   const evidence: Signal[] = signalRows.map((row) => ({ id: row.id, kind: row.kind, value: row.value, weight: row.weight === "very_high" ? "very-high" : row.weight, direction: row.direction === "negative" ? "negative" : "positive", provenance: { source: row.source, sourceUrl: row.sourceUrl || undefined, capturedAt: row.capturedAt.toISOString(), confidence: row.confidence } }));
   evidence.push(...accreditationSignals(member.accreditations), ...reviewedOutreachSignals(member));
-  if (!evidence.some((signal) => signal.direction === "positive")) return Response.json({ error: "At least one positive evidence signal is required." }, { status: 409 });
   const [organizationRow] = await database.select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, organizationId)).limit(1);
   const buyerProfile = buyerProfileFromMetadata(organizationRow?.metadata);
   if (!buyerProfile) return Response.json({ error: "Complete and save the buyer profile before generating outreach." }, { status: 409 });
@@ -63,6 +62,15 @@ export async function POST(request: Request) {
       companyName: target.companyName,
       contactFirstName: contact?.displayName.split(/\s+/)[0] || "there",
       companyDescription: typeof outreachContext.description === "string" ? outreachContext.description : undefined,
+      companyProfile: {
+        domain: typeof outreachContext.domain === "string" ? outreachContext.domain : target.domain || undefined,
+        tagline: typeof outreachContext.tagline === "string" ? outreachContext.tagline : undefined,
+        industries: Array.isArray(outreachContext.industries) ? outreachContext.industries.filter((value): value is string => typeof value === "string") : undefined,
+        keywords: Array.isArray(outreachContext.keywords) ? outreachContext.keywords.filter((value): value is string => typeof value === "string") : undefined,
+        headquarters: typeof outreachContext.headquarters === "string" ? outreachContext.headquarters : undefined,
+        locations: Array.isArray(outreachContext.locations) ? outreachContext.locations.filter((value): value is string => typeof value === "string") : undefined,
+        yearFounded: typeof outreachContext.yearFounded === "number" ? outreachContext.yearFounded : undefined,
+      },
       buyerProfile: publicBuyerProfile(buyerProfile, mandate.brief.outreachPositioning),
       signals: evidence,
       start: new Date(),

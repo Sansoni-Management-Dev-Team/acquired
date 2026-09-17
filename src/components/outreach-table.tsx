@@ -50,7 +50,6 @@ export function OutreachTable({ mandateId, initialTargets, initialBuyerProfile, 
     if (row.contact?.doNotContact) return "Do not contact";
     if (row.contact?.fictionalised) return "Real contact needed";
     if (!row.contact?.email) return "Work email needed";
-    if (!row.target.signals.some(signal => signal.direction === "positive")) return "Review company evidence";
     return "Ready";
   }
   async function batch(action: "generate" | "save-gmail") {

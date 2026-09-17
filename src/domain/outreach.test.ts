@@ -17,6 +17,13 @@ describe("outreach", () => {
     expect(drafts.every((draft) => draft.signalIds.includes("s1"))).toBe(true);
   });
 
+  it("creates generic editable drafts when no evidence signal exists", () => {
+    const drafts = draftSequence("Northstar", "Alex", [], new Date("2026-08-26T09:00:00Z"));
+    expect(drafts).toHaveLength(7);
+    expect(drafts.every((draft) => draft.signalIds.length === 0)).toBe(true);
+    expect(drafts[0].body).toContain("wanted to introduce myself");
+  });
+
   it.each([
     [{ approved: false, suppressed: false, replied: false, stopped: false, sentToday: 0, dailyCap: 100 }, "approval"],
     [{ approved: true, suppressed: true, replied: false, stopped: false, sentToday: 0, dailyCap: 100 }, "suppressed"],
