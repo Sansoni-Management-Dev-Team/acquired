@@ -18,7 +18,7 @@ export function SidebarRegistration({ value }: { value: SidebarState }) {
   return null;
 }
 
-export function AppShell({ children, providerMode }: { children: React.ReactNode; providerMode: string }) {
+export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [sidebarJson, setSidebarJson] = useState('{"mandates":[],"tab":"brief"}');
@@ -63,7 +63,6 @@ export function AppShell({ children, providerMode }: { children: React.ReactNode
             <Link href="/settings" title="Settings" onClick={() => setMobileOpen(false)} className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-sm text-[var(--muted)] hover:text-[var(--foreground)] ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><Settings size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>Settings</span></Link>
             <button onClick={signOut} title="Sign out" className={`flex min-h-12 w-full items-center gap-3 rounded-md px-3 text-sm text-[var(--muted)] hover:text-[var(--foreground)] ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><LogOut size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>Sign out</span></button>
           </nav>
-          {!collapsed && <div className="mt-10 hidden rounded-lg border border-[var(--border)] p-3 text-xs text-[var(--muted)] lg:block"><span className="mb-2 block uppercase tracking-[.16em]">Environment</span><span className="flex items-center gap-2 text-[var(--foreground)]"><i className="size-2 rounded-full bg-lime-400" />{providerMode}</span></div>}
         </div>
       </aside>
       <main className="min-w-0">{children}</main>
