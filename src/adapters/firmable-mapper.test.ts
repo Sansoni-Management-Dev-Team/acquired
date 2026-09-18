@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mapFirmableCompany, mapFirmableRevenue } from "./firmable-mapper";
+import { applyStoredFirmableCompany, mapFirmableCompany, mapFirmableRevenue } from "./firmable-mapper";
 import { parseMandate } from "@/domain/mandate";
 
 describe("Firmable mapping", () => {
@@ -29,6 +29,52 @@ describe("Firmable mapping", () => {
       capturedAt: expect.any(String),
       rawResponse: response,
     }));
+  });
+
+  it("does not replace a discovered company name with a Firmable SEO title", () => {
+    const mandate = parseMandate("Find cabinetry manufacturers in New South Wales");
+    const response = {
+      id: "f-spaceworks",
+      name: "luxury wardrobes, custom quality cabinets sydney, home office design - spaceworks design",
+      fqdn: "spaceworksdesign.com.au",
+      industries: ["Design services"],
+    };
+    const target = mapFirmableCompany(response, {
+      id: "spaceworks-directory",
+      name: "Spaceworks Design",
+      formattedAddress: "NSW",
+      website: "https://spaceworksdesign.com.au",
+      state: "NSW",
+      discoverySource: "manufacturing-directory",
+      manufacturingDirectory: {
+        recordId: "spaceworks-directory",
+        name: "Spaceworks Design",
+        categories: [],
+        keywords: [],
+        capabilities: [],
+        sourceRecords: [],
+      },
+    }, mandate, "org-1");
+
+    expect(target.companyName).toBe("Spaceworks Design");
+    expect(target.sourceData?.firmable?.name).toBe(response.name);
+
+    const replayed = applyStoredFirmableCompany({
+      ...target,
+      companyName: response.name,
+      scores: {
+        fit: 0,
+        ripeness: 0,
+        financeability: null,
+        confidence: 0,
+        band: "cold",
+        qualification: "research",
+        tensions: [],
+        reasons: [],
+      },
+    }, response, "2026-09-18T00:00:00.000Z");
+
+    expect(replayed.companyName).toBe("Spaceworks Design");
   });
 
   it("uses structured Google locality and query evidence when Firmable returns a broad sector", () => {

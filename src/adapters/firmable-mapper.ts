@@ -149,7 +149,9 @@ export function mapFirmableCompany(raw: Record<string, unknown>, place: GooglePl
   return {
     id: `firmable-${firmableId}`,
     organisationId,
-    companyName: stringValue(raw.name) || place.name,
+    // Enrichment adds facts to a discovered company; it must not replace the
+    // discovery identity with a provider value that may be an SEO page title.
+    companyName: place.name,
     domain: stringValue(raw.fqdn) || domainFrom(website),
     suburb: location.suburb,
     state: location.state,
@@ -173,9 +175,16 @@ export function applyStoredFirmableCompany(target: import("@/domain/models").Ran
   const locations = strings(raw.locations);
   const location = hq ? locationFrom(hq, target.state) : undefined;
   const company = firmableId ? firmableSourceData(raw, firmableId, capturedAt) : undefined;
+  const providerName = stringValue(raw.name);
+  const directoryName = target.sourceData?.manufacturingDirectory?.name;
   return {
     ...target,
-    companyName: stringValue(raw.name) || target.companyName,
+    // Older enrichment writes may have persisted the provider name. Recover a
+    // retained discovery name only when the stored target still exactly matches
+    // that provider value; otherwise preserve the target (including user edits).
+    companyName: providerName && target.companyName === providerName && directoryName
+      ? directoryName
+      : target.companyName,
     domain: stringValue(raw.fqdn) || domainFrom(website) || target.domain,
     suburb: location?.suburb || locations[0]?.split(",")[0] || target.suburb,
     state: location?.state === "Unknown" ? target.state : location?.state || target.state,
