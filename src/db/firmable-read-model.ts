@@ -32,7 +32,7 @@ export function storedFirmableContactData(person: StoredFirmablePerson): StoredF
   const linkedinUrl = [profile.linkedin, profile.linkedin_url].find(value => typeof value === "string" && value.trim()) as string | undefined;
   const name = [profile.name, profile.full_name, search.name, search.pName].find(value => typeof value === "string" && value.trim()) as string | undefined;
   const role = [profile.position, search.position, profile.headline].find(value => typeof value === "string" && value.trim()) as string | undefined;
-  return { name: name || "Firmable candidate", role: role || null, email, phone, linkedinUrl, doNotContact: phones.some(item => item.is_dnd === true) || profile.is_dnd === true };
+  return { name: name || "Decision-maker candidate", role: role || null, email, phone, linkedinUrl, doNotContact: phones.some(item => item.is_dnd === true) || profile.is_dnd === true };
 }
 
 export function storedFirmableContactSummary(person: StoredFirmablePerson, targetId: string): WorkspaceContactSummary {

@@ -2,6 +2,7 @@ import { and, eq, isNotNull, sql } from "drizzle-orm";
 import type { PersonCandidate, PersonDetail } from "@/adapters/source-contracts";
 import { requireDb } from "./client";
 import { contacts } from "./schema";
+import { COMPANY_DATA_SOURCE } from "@/domain/provider-display";
 
 type Database = ReturnType<typeof requireDb>;
 
@@ -20,7 +21,7 @@ export function firmableContactValues(person: PersonDetail, candidate: PersonCan
       phoneAvailable: person.phoneAvailable || candidate?.phoneAvailable || false,
       doNotContact: person.doNotContact,
     },
-    provenance: { source: "Firmable People Search + Enrichment", capturedAt: new Date().toISOString(), companyId },
+    provenance: { source: COMPANY_DATA_SOURCE, capturedAt: new Date().toISOString(), companyId },
     fictionalised: person.fictionalised,
   };
 }

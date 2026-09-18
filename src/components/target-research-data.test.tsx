@@ -11,11 +11,11 @@ it("shows a saved headcount range even when provider fields are unknown", () => 
  const html = renderToStaticMarkup(<TargetResearchData kind="headcount" findings={[finding("headcount", "11–50 employees")]} fallback="Unknown" />);
  expect(html).toContain("11–50 employees"); expect(html).toContain("Search estimate — unverified"); expect(html).toContain('href="https://example.com/team"');
 });
-it("distinguishes a checked Firmable headcount with no available value from an unchecked unknown", () => {
+it("distinguishes a checked company-data headcount with no available value from an unchecked unknown", () => {
  const checked = renderToStaticMarkup(<TargetResearchData kind="headcount" fallback="Unknown" confirmedMissing={{ label: "No data available", source: "Firmable" }} />);
  const unchecked = renderToStaticMarkup(<TargetResearchData kind="headcount" fallback="Unknown" />);
- expect(checked).toContain("No data available"); expect(checked).toContain("Firmable · checked"); expect(checked).not.toContain("Unknown");
- expect(unchecked).toContain("Unknown"); expect(unchecked).not.toContain("Firmable · checked");
+ expect(checked).toContain("No data available"); expect(checked).toContain("Company data · checked"); expect(checked).not.toContain("Unknown");
+ expect(unchecked).toContain("Unknown"); expect(unchecked).not.toContain("Company data · checked");
 });
 it("exposes conflicting counts while labelling the averaged EBITDA estimate", () => {
  const findings = [finding("headcount", "10"), finding("headcount", "30")];
@@ -43,12 +43,12 @@ it("prefers Firmable summaries and keeps scraped observations in the disclosure"
  const revenue = renderToStaticMarkup(<TargetResearchData kind="revenue" findings={scraped} fallback="Unknown" preferred={{ value: "$5M–$10M", source: "Firmable" }} />);
  expect(headcount.split("<details>")[0]).toContain("71"); expect(headcount).toContain("51–200 employees");
  expect(revenue.split("<details>")[0]).toContain("$5M–$10M"); expect(revenue).toContain("$4.7 M");
- expect(headcount).toContain("Firmable · preferred");
+ expect(headcount).toContain("Company data · preferred");
 });
 it("uses Firmable headcount instead of averaging scraped counts for EBITDA", () => {
  const findings = [finding("headcount", "51–200 employees"), finding("headcount", "71")];
  const html = renderToStaticMarkup(<TargetEbitdaData findings={findings} preferredHeadcount={71} />);
- expect(html).toContain("Firmable headcount"); expect(html).toContain("Firmable preferred headcount: 71 people"); expect(html).not.toContain("Averaged headcount");
+ expect(html).toContain("Preferred company headcount"); expect(html).toContain("Preferred company headcount: 71 people"); expect(html).not.toContain("Averaged headcount");
 });
 it("displays researched people without requiring a CRM contact", () => {
  const html = renderToStaticMarkup(<TargetResearchData kind="person" findings={[finding("person", "General Manager")]} fallback="Unknown" />);

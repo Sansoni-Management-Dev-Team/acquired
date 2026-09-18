@@ -16,7 +16,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const history = new FirmableHistoryRepository(requireDb());
   const matched = target.firmableCompanyId ? undefined : await history.findCompany({ firmableId: typeof identifiers.firmableId === "string" ? identifiers.firmableId : undefined, domain: target.domain, abn: typeof identifiers.abn === "string" ? identifiers.abn : undefined });
   const firmableId = target.firmableCompanyId || matched?.id || "";
-  if (!firmableId) return Response.json({ error: "This target has no Firmable company ID." }, { status: 409 });
+  if (!firmableId) return Response.json({ error: "This target has no enriched company profile." }, { status: 409 });
 
   const stored = (await history.latestPeople([firmableId])).get(firmableId) || [];
   const candidates = stored.map(person => {

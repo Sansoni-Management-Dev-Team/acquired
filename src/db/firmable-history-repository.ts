@@ -35,12 +35,12 @@ export class FirmableHistoryRepository {
       trigger: input.trigger || "manual",
       generation: input.generation || 1,
       status,
-      message: status === "queued" ? "Firmable refresh queued" : "Refreshing Firmable company data",
+      message: status === "queued" ? "Company data refresh queued" : "Refreshing company data",
       startedAt: status === "running" ? new Date() : undefined,
     }).onConflictDoNothing().returning();
     if (run) return run;
     const [existing] = await this.database.select().from(firmableSyncRuns).where(and(eq(firmableSyncRuns.organizationId, input.organizationId), eq(firmableSyncRuns.requestKey, requestKey))).limit(1);
-    if (!existing) throw new Error("Unable to create Firmable sync run");
+    if (!existing) throw new Error("Unable to create company data refresh");
     return existing;
   }
 
@@ -74,7 +74,7 @@ export class FirmableHistoryRepository {
       trigger: input.trigger || "manual",
       status: "queued",
       generation,
-      message: "Firmable refresh queued",
+      message: "Company data refresh queued",
     }).onConflictDoNothing().returning();
     if (created) return created;
     const [winner] = await this.database.select().from(firmableSyncRuns).where(and(
@@ -82,7 +82,7 @@ export class FirmableHistoryRepository {
       eq(firmableSyncRuns.targetId, input.targetId),
       inArray(firmableSyncRuns.status, ["queued", "running"]),
     )).orderBy(desc(firmableSyncRuns.createdAt)).limit(1);
-    if (!winner) throw new Error("Unable to queue Firmable sync run");
+    if (!winner) throw new Error("Unable to queue company data refresh");
     return winner;
   }
 
@@ -108,7 +108,7 @@ export class FirmableHistoryRepository {
     )).orderBy(firmableSyncRuns.targetId, desc(firmableSyncRuns.createdAt), desc(firmableSyncRuns.id));
   }
 
-  async markRunning(runId: string, message = "Refreshing Firmable company data") {
+  async markRunning(runId: string, message = "Refreshing company data") {
     await this.database.update(firmableSyncRuns).set({ status: "running", message, startedAt: sql`coalesce(${firmableSyncRuns.startedAt}, now())`, completedAt: null, updatedAt: new Date() }).where(and(eq(firmableSyncRuns.id, runId), inArray(firmableSyncRuns.status, ["queued", "running"])));
   }
 
@@ -120,7 +120,7 @@ export class FirmableHistoryRepository {
     const [existing] = await this.database.select({ firmableCompanyId: firmableSyncRuns.firmableCompanyId, companyStatus: firmableSyncRuns.companyStatus }).from(firmableSyncRuns).where(eq(firmableSyncRuns.id, runId)).limit(1);
     if (existing?.firmableCompanyId === companyId && existing.companyStatus === companyStatus) return;
     const [company] = await this.database.update(firmableCompanies).set({ peopleGeneration: sql`${firmableCompanies.peopleGeneration} + 1`, updatedAt: new Date() }).where(eq(firmableCompanies.id, companyId)).returning({ generation: firmableCompanies.peopleGeneration });
-    if (!company) throw new Error("Firmable company not found");
+    if (!company) throw new Error("Company data record not found");
     const [run] = await this.database.update(firmableSyncRuns).set({ firmableCompanyId: companyId, companyStatus, generation: company.generation, updatedAt: new Date() }).where(and(eq(firmableSyncRuns.id, runId), inArray(firmableSyncRuns.status, ["queued", "running"]))).returning({ targetId: firmableSyncRuns.targetId });
     if (run) await this.database.update(targets).set({ firmableCompanyId: companyId, updatedAt: new Date() }).where(eq(targets.id, run.targetId));
   }
@@ -183,7 +183,7 @@ export class FirmableHistoryRepository {
       responseText: observation.responseText,
       httpStatus: observation.httpStatus,
       successful: httpSuccessful,
-      validationError: observation.error || (!httpOk && observation.httpStatus ? `Firmable request failed (${observation.httpStatus})` : httpOk && !schemaValid ? "Firmable response failed validation" : undefined),
+      validationError: observation.error || (!httpOk && observation.httpStatus ? `Company data request failed (${observation.httpStatus})` : httpOk && !schemaValid ? "Company data response failed validation" : undefined),
       requestedAt: observation.requestedAt,
       fetchedAt: observation.fetchedAt,
     };
@@ -238,7 +238,7 @@ export class FirmableHistoryRepository {
 
   async completePeopleReconciliation(runId: string, companyId: string, personIds: string[]) {
     const [run] = await this.database.select({ generation: firmableSyncRuns.generation }).from(firmableSyncRuns).where(eq(firmableSyncRuns.id, runId)).limit(1);
-    if (!run) throw new Error("Firmable refresh run not found");
+    if (!run) throw new Error("Company data refresh not found");
     await this.database.update(firmableCompanyPeople).set({ active: false, updatedAt: new Date() }).where(and(
       eq(firmableCompanyPeople.firmableCompanyId, companyId),
       lte(firmableCompanyPeople.generation, run.generation),
@@ -248,7 +248,7 @@ export class FirmableHistoryRepository {
 
   async finishRun(runId: string, result: { found: number; saved: number; failed: number; searchComplete?: boolean; message?: string; partial?: boolean }) {
     const partial = result.partial === true || result.failed > 0 || result.searchComplete === false;
-    await this.database.update(firmableSyncRuns).set({ status: partial ? "partial" : "complete", searchStatus: result.searchComplete === false ? "incomplete" : "complete", profilesFound: result.found, profilesSaved: result.saved, profilesFailed: result.failed, message: result.message || (partial ? "Firmable refresh completed with partial results" : "Firmable refresh complete"), completedAt: new Date(), updatedAt: new Date() }).where(and(eq(firmableSyncRuns.id, runId), inArray(firmableSyncRuns.status, ["queued", "running"])));
+    await this.database.update(firmableSyncRuns).set({ status: partial ? "partial" : "complete", searchStatus: result.searchComplete === false ? "incomplete" : "complete", profilesFound: result.found, profilesSaved: result.saved, profilesFailed: result.failed, message: result.message || (partial ? "Company data refresh completed with partial results" : "Company data refresh complete"), completedAt: new Date(), updatedAt: new Date() }).where(and(eq(firmableSyncRuns.id, runId), inArray(firmableSyncRuns.status, ["queued", "running"])));
   }
 
   async failRun(runId: string, message: string) {

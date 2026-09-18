@@ -148,7 +148,7 @@ export class OrganizationRepository {
         providers: [
           ...(target.sourceData?.googlePlaces ? ["Google Places"] : []),
           ...(target.sourceData?.manufacturingDirectory ? ["Australian Manufacturing directories"] : []),
-          ...(firmable ? ["Firmable"] : []),
+          ...(firmable ? ["Company data"] : []),
         ],
         googleContentPersisted: target.sourceData?.googlePlaces ? ["placeId"] : [],
         personalDataPersisted: false,

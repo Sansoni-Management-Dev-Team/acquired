@@ -26,14 +26,14 @@ async function context(runId: string, mandateId?: string) {
   const database = requireDb();
   const history = new FirmableHistoryRepository(database);
   const run = await history.run(runId);
-  if (!run) throw new Error("Firmable refresh run not found");
+  if (!run) throw new Error("Company data refresh not found");
   if (mandateId) {
     const [membership] = await database.select({ targetId: mandateTargets.targetId }).from(mandateTargets).where(and(
       eq(mandateTargets.organizationId, run.organizationId),
       eq(mandateTargets.mandateId, mandateId),
       eq(mandateTargets.targetId, run.targetId),
     )).limit(1);
-    if (!membership) throw new Error("Firmable refresh target is not in this mandate");
+    if (!membership) throw new Error("Company data refresh target is not in this mandate");
   }
   return { database, history, run };
 }
@@ -60,7 +60,7 @@ export async function refreshFirmableCompany(runId: string, mandateId: string) {
   const fixtureMode = process.env.TARGET_DATA_PROVIDER === "fixture";
   const cached = await history.findCompany({ firmableId: run.firmableCompanyId || target.sourceData?.firmable?.firmableId, domain: target.domain, abn });
   const knownCompanyId = run.firmableCompanyId || target.sourceData?.firmable?.firmableId || cached?.id;
-  if (!target.domain && !abn && !knownCompanyId) throw new Error("A website, ABN or existing Firmable company is required for Firmable enrichment");
+  if (!target.domain && !abn && !knownCompanyId) throw new Error("A website, ABN or existing company match is required for enrichment");
 
   let verifiedDomain = target.domain;
   if (target.domain && !fixtureMode) {
@@ -80,7 +80,7 @@ export async function refreshFirmableCompany(runId: string, mandateId: string) {
   } catch (error) {
     if (!knownCompanyId) throw error;
     await history.linkRunCompany(runId, knownCompanyId, "failed");
-    await history.updateProgress(runId, { companyStatus: "failed", searchStatus: "running", message: "Company refresh failed; loading people from the last known Firmable company" });
+    await history.updateProgress(runId, { companyStatus: "failed", searchStatus: "running", message: "Company refresh failed; loading people from the last known company profile" });
     return { companyId: knownCompanyId, companyFailed: true };
   }
   const filters = briefToMandate(mandate.brief);
@@ -102,56 +102,56 @@ export async function refreshFirmableCompany(runId: string, mandateId: string) {
   const saved = await companyRepo.upsertEnrichedTarget({ target: rankTarget(enriched, filters), mandateId, actorId: run.actorId, existingTargetId: run.targetId });
   if (saved) await repo.attach(mandateId, saved.id);
   const companyId = String(company.id);
-  await history.updateProgress(runId, { companyStatus: "complete", searchStatus: "running", message: "Company saved; finding Firmable people" });
+  await history.updateProgress(runId, { companyStatus: "complete", searchStatus: "running", message: "Company saved; finding people" });
   return { companyId };
 }
 
 export async function refreshFirmablePeoplePage(runId: string, offset: number) {
-  if (!Number.isInteger(offset) || offset < 0 || offset >= 10_000 || offset % PAGE_SIZE) throw new Error("Invalid Firmable people offset");
+  if (!Number.isInteger(offset) || offset < 0 || offset >= 10_000 || offset % PAGE_SIZE) throw new Error("Invalid people search offset");
   const { history, run } = await context(runId);
-  if (!run.firmableCompanyId) throw new Error("Firmable company has not been saved");
+  if (!run.firmableCompanyId) throw new Error("Company data has not been saved");
   const before = await history.searchCandidates(runId, offset);
   let page = await history.successfulSearchPage(runId, offset);
   if (!page) {
     await client(history, runId).searchPeoplePage(run.firmableCompanyId, { max: PAGE_SIZE, from: offset });
     page = await history.successfulSearchPage(runId, offset);
   }
-  if (!page) throw new Error("Firmable people page was not persisted");
+  if (!page) throw new Error("People search page was not persisted");
   const progress = await history.searchCandidates(runId);
   const returned = page.returnedCount || 0;
-  if (progress.reportedTotals.length > 1) throw new Error("Firmable people search returned inconsistent totals");
-  if (progress.malformedCount > 0) throw new Error("Firmable people search returned records without person IDs");
-  if (progress.reportedTotal !== undefined && progress.candidates.length > progress.reportedTotal) throw new Error("Firmable people search returned more unique people than its reported total");
+  if (progress.reportedTotals.length > 1) throw new Error("People search returned inconsistent totals");
+  if (progress.malformedCount > 0) throw new Error("People search returned records without person IDs");
+  if (progress.reportedTotal !== undefined && progress.candidates.length > progress.reportedTotal) throw new Error("People search returned more unique people than its reported total");
   const complete = progress.reportedTotal !== undefined
     ? progress.candidates.length === progress.reportedTotal
     : returned < PAGE_SIZE;
-  if (!complete && returned < PAGE_SIZE) throw new Error("Firmable people search ended before its reported total");
-  if (!complete && progress.candidates.length <= before.candidates.length) throw new Error("Firmable people pagination did not advance");
+  if (!complete && returned < PAGE_SIZE) throw new Error("People search ended before its reported total");
+  if (!complete && progress.candidates.length <= before.candidates.length) throw new Error("People search pagination did not advance");
   await history.updateProgress(runId, {
     searchStatus: complete ? "complete" : "running",
     profilesFound: progress.candidates.length,
-    message: complete ? `Found ${progress.candidates.length} Firmable people` : `Finding Firmable people (${progress.candidates.length} found)`,
+    message: complete ? `Found ${progress.candidates.length} people` : `Finding people (${progress.candidates.length} found)`,
   });
   return { complete, nextOffset: offset + PAGE_SIZE, found: progress.candidates.length };
 }
 
 export async function finalizeFirmablePeopleSearch(runId: string, offset = 0) {
-  if (!Number.isInteger(offset) || offset < 0 || offset >= 10_000) throw new Error("Invalid Firmable relationship offset");
+  if (!Number.isInteger(offset) || offset < 0 || offset >= 10_000) throw new Error("Invalid relationship offset");
   const { history, run } = await context(runId);
-  if (!run.firmableCompanyId) throw new Error("Firmable company has not been saved");
+  if (!run.firmableCompanyId) throw new Error("Company data has not been saved");
   const progress = await history.searchCandidates(runId);
   const nextOffset = Math.min(offset + RELATIONSHIP_BATCH_SIZE, progress.candidates.length);
   const complete = nextOffset >= progress.candidates.length;
   await history.reconcilePeople(runId, run.firmableCompanyId, progress.candidates.slice(offset, nextOffset), false, process.env.ALLOW_REAL_PERSONAL_DATA === "true");
   if (complete) await history.completePeopleReconciliation(runId, run.firmableCompanyId, progress.candidates.map(candidate => candidate.id));
-  await history.updateProgress(runId, { searchStatus: complete ? "complete" : "reconciling", profilesFound: progress.candidates.length, message: complete ? `Loading ${progress.candidates.length} Firmable profiles` : `Saving Firmable people (${nextOffset}/${progress.candidates.length})` });
+  await history.updateProgress(runId, { searchStatus: complete ? "complete" : "reconciling", profilesFound: progress.candidates.length, message: complete ? `Loading ${progress.candidates.length} profiles` : `Saving people (${nextOffset}/${progress.candidates.length})` });
   return { found: progress.candidates.length, nextOffset, complete };
 }
 
 export async function refreshFirmableProfileBatch(runId: string, offset: number) {
-  if (!Number.isInteger(offset) || offset < 0 || offset >= 10_000) throw new Error("Invalid Firmable profile offset");
+  if (!Number.isInteger(offset) || offset < 0 || offset >= 10_000) throw new Error("Invalid profile offset");
   const { database, history, run } = await context(runId);
-  if (!run.firmableCompanyId) throw new Error("Firmable company has not been saved");
+  if (!run.firmableCompanyId) throw new Error("Company data has not been saved");
   const { candidates } = await history.searchCandidates(runId);
   const batch = candidates.slice(offset, offset + PROFILE_BATCH_SIZE);
   const existingContacts = batch.length ? await database.select({ personId: contacts.firmablePersonId }).from(contacts).where(and(
@@ -183,7 +183,7 @@ export async function refreshFirmableProfileBatch(runId: string, offset: number)
     profilesFound: counts.found,
     profilesSaved: counts.saved,
     profilesFailed: counts.failed,
-    message: `Loaded ${nextOffset} of ${candidates.length} Firmable profiles`,
+    message: `Loaded ${nextOffset} of ${candidates.length} profiles`,
   });
   return { ...counts, nextOffset, complete: nextOffset >= candidates.length };
 }
@@ -192,7 +192,7 @@ export async function completeFirmableRefresh(runId: string, mandateId: string) 
   const { database, history, run } = await context(runId, mandateId);
   const { candidates } = await history.searchCandidates(runId);
   const counts = await history.profileProgress(runId, candidates.map(candidate => candidate.id));
-  if (counts.pending) throw new Error(`${counts.pending} Firmable profiles were not attempted`);
+  if (counts.pending) throw new Error(`${counts.pending} profiles were not attempted`);
   const successfulIds = new Set((await Promise.all(candidates.map(async candidate => await history.successfulPersonResponse(runId, candidate.id) ? candidate.id : undefined))).filter((id): id is string => Boolean(id)));
   const materialized = successfulIds.size ? await database.select({ personId: contacts.firmablePersonId }).from(contacts).where(and(
     eq(contacts.organizationId, run.organizationId),
@@ -201,15 +201,15 @@ export async function completeFirmableRefresh(runId: string, mandateId: string) 
   )) : [];
   const materializedIds = new Set(materialized.flatMap(row => row.personId ? [row.personId] : []));
   const missing = [...successfulIds].filter(id => !materializedIds.has(id));
-  if (missing.length) throw new Error(`${missing.length} successful Firmable profiles were not saved as contacts`);
+  if (missing.length) throw new Error(`${missing.length} successful profiles were not saved as contacts`);
   await history.finishRun(runId, {
     ...counts,
     searchComplete: true,
     partial: run.companyStatus === "failed",
     message: run.companyStatus === "failed"
-      ? "People refreshed from the last known Firmable company; the company refresh failed"
+      ? "People refreshed from the last known company profile; the company refresh failed"
       : counts.found === 0
-        ? "Company data saved; Firmable found no people"
+        ? "Company data saved; no people found"
         : undefined,
   });
   await new OrganizationRepository(database, run.organizationId).appendAudit({

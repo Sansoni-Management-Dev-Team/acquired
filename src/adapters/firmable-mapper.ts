@@ -1,9 +1,10 @@
 import type { GooglePlaceCandidate } from "./google-places-client";
 import type { DerivedValue, FinancialValue, Mandate, TargetCandidate } from "@/domain/models";
+import { COMPANY_DATA_SOURCE } from "@/domain/provider-display";
 
 export function mapFirmableRevenue(value: unknown, capturedAt = new Date().toISOString()): DerivedValue<FinancialValue> {
-  const provenance = { source: "Firmable", capturedAt, confidence: 70 };
-  if (typeof value !== "string" || !value.trim()) return { value: null, missingReason: "Not provided by Firmable", provenance };
+  const provenance = { source: COMPANY_DATA_SOURCE, capturedAt, confidence: 70 };
+  if (typeof value !== "string" || !value.trim()) return { value: null, missingReason: "Not provided by the company data service", provenance };
   return { value: { kind: "band", label: value.trim() }, provenance };
 }
 
@@ -76,10 +77,10 @@ function sectorEvidence(raw: Record<string, unknown>, place: GooglePlaceCandidat
     const left = industry.toLowerCase(); const right = sector.toLowerCase();
     return left.includes(right) || right.includes(left);
   }));
-  if (exact) return value(exact, "Firmable", capturedAt, 75, website);
+  if (exact) return value(exact, COMPANY_DATA_SOURCE, capturedAt, 75, website);
   const searchable = `${place.name} ${place.primaryType || ""} ${(place.types || []).join(" ")}`.toLowerCase().replace(/_/g, " ");
   const queryMatch = mandate.sectors.find((sector) => sector.toLowerCase().split(/\s+/).some((token) => searchable.includes(token.replace(/s$/, ""))));
-  return value(queryMatch || bestSector(raw, mandate), queryMatch ? "Google Places query match" : "Firmable", capturedAt, queryMatch ? 65 : 60, website);
+  return value(queryMatch || bestSector(raw, mandate), queryMatch ? "Google Places query match" : COMPANY_DATA_SOURCE, capturedAt, queryMatch ? 65 : 60, website);
 }
 
 function firmableSourceData(raw: Record<string, unknown>, fallbackId: string, capturedAt: string) {
@@ -115,7 +116,7 @@ function firmableSourceData(raw: Record<string, unknown>, fallbackId: string, ca
   };
 }
 
-export function mapGooglePlace(place: GooglePlaceCandidate, _mandate: Mandate, organisationId: string, enrichmentReason = "Firmable enrichment not attempted") : TargetCandidate {
+export function mapGooglePlace(place: GooglePlaceCandidate, _mandate: Mandate, organisationId: string, enrichmentReason = "Company data enrichment not attempted") : TargetCandidate {
   const capturedAt = new Date().toISOString();
   const location = place.locality && place.state ? { suburb: place.locality, state: place.state } : locationFrom(place.formattedAddress, place.state);
   return {
@@ -126,10 +127,10 @@ export function mapGooglePlace(place: GooglePlaceCandidate, _mandate: Mandate, o
     suburb: location.suburb,
     state: location.state,
     sector: place.manufacturingDirectory?.categories[0] || place.primaryType ? value(place.manufacturingDirectory?.categories[0] || place.primaryType!, place.discoverySource === "manufacturing-directory" ? "Register / directory classification" : "Google Places classification", capturedAt, 60, place.manufacturingDirectory?.sourceRecords[0]?.sourceUrl || place.website) : missing("Sub-sector requires review", "Discovery", capturedAt),
-    revenue: missing(enrichmentReason, "Firmable", capturedAt),
-    ebitda: missing("Firmable does not provide EBITDA", "Firmable", capturedAt),
-    headcount: missing(enrichmentReason, "Firmable", capturedAt),
-    establishedYear: missing(enrichmentReason, "Firmable", capturedAt),
+    revenue: missing(enrichmentReason, COMPANY_DATA_SOURCE, capturedAt),
+    ebitda: missing("Company data does not include EBITDA", COMPANY_DATA_SOURCE, capturedAt),
+    headcount: missing(enrichmentReason, COMPANY_DATA_SOURCE, capturedAt),
+    establishedYear: missing(enrichmentReason, COMPANY_DATA_SOURCE, capturedAt),
     signals: [],
     status: "identified",
     sourceData: sourceData(place),
@@ -157,9 +158,9 @@ export function mapFirmableCompany(raw: Record<string, unknown>, place: GooglePl
     state: location.state,
     sector: sectorEvidence(raw, place, mandate, capturedAt, website),
     revenue: mapFirmableRevenue(raw.revenue, capturedAt),
-    ebitda: missing("Firmable does not provide EBITDA", "Firmable", capturedAt),
-    headcount: headcount === undefined ? missing("Not provided by Firmable", "Firmable", capturedAt) : value(headcount, "Firmable", capturedAt, 75, website),
-    establishedYear: establishedYear === undefined ? missing("Not provided by Firmable", "Firmable", capturedAt) : value(establishedYear, "Firmable", capturedAt, 75, website),
+    ebitda: missing("Company data does not include EBITDA", COMPANY_DATA_SOURCE, capturedAt),
+    headcount: headcount === undefined ? missing("Not provided by the company data service", COMPANY_DATA_SOURCE, capturedAt) : value(headcount, COMPANY_DATA_SOURCE, capturedAt, 75, website),
+    establishedYear: establishedYear === undefined ? missing("Not provided by the company data service", COMPANY_DATA_SOURCE, capturedAt) : value(establishedYear, COMPANY_DATA_SOURCE, capturedAt, 75, website),
     signals: [],
     status: "enriched",
     sourceData: sourceData(place, firmableSourceData(raw, firmableId, capturedAt)),
@@ -189,8 +190,8 @@ export function applyStoredFirmableCompany(target: import("@/domain/models").Ran
     suburb: location?.suburb || locations[0]?.split(",")[0] || target.suburb,
     state: location?.state === "Unknown" ? target.state : location?.state || target.state,
     revenue: raw.revenue === undefined ? target.revenue : mapFirmableRevenue(raw.revenue, capturedAt),
-    headcount: headcount === undefined ? missing("Not provided by Firmable", "Firmable", capturedAt) : value(headcount, "Firmable", capturedAt, 75, website),
-    establishedYear: establishedYear === undefined ? missing("Not provided by Firmable", "Firmable", capturedAt) : value(establishedYear, "Firmable", capturedAt, 75, website),
+    headcount: headcount === undefined ? missing("Not provided by the company data service", COMPANY_DATA_SOURCE, capturedAt) : value(headcount, COMPANY_DATA_SOURCE, capturedAt, 75, website),
+    establishedYear: establishedYear === undefined ? missing("Not provided by the company data service", COMPANY_DATA_SOURCE, capturedAt) : value(establishedYear, COMPANY_DATA_SOURCE, capturedAt, 75, website),
     sourceData: company ? { ...target.sourceData, firmable: company } : target.sourceData,
   };
 }

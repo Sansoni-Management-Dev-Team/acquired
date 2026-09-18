@@ -17,6 +17,6 @@ describe("targetEvidence", () => {
     const evidence = targetEvidence(target);
     expect(evidence.map(({ kind }) => kind)).toEqual(["company_longevity", "industry_focus", "operating_scale", "headquarters", "company_positioning"]);
     expect(JSON.stringify(evidence).toLowerCase()).not.toMatch(/owner|sale|succession|revenue|ebitda/);
-    expect(evidence.every((item) => item.source === "Firmable" && item.sourceUrl === "https://example.com")).toBe(true);
+    expect(evidence.every((item) => item.source === "Company data" && item.sourceUrl === "https://example.com")).toBe(true);
   });
 });

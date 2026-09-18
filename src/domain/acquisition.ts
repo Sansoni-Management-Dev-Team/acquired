@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Mandate, RankedTarget } from "./models";
+import { providerNeutralText } from "./provider-display";
 
 export const criterionDefinitions = [
   ["subsectors", "Sub-sectors and capabilities", "discovery", "Financial screen"],
@@ -121,14 +122,14 @@ export function transitionErrors(brief: AcquisitionBrief, assessment: Assessment
 export function worksheet(brief: AcquisitionBrief, target: RankedTarget, assessment: Assessment): CriterionEvidence[] {
   return brief.criteria.map(c => {
     const saved = assessment.evidence.find(e => e.criterionKey === c.key);
-    if (saved) return saved;
+    if (saved) return { ...saved, value: providerNeutralText(saved.value), source: providerNeutralText(saved.source), nextStep: providerNeutralText(saved.nextStep) };
     if (c.key === "accreditations" && target.accreditations?.length) {
       const today = new Date().toISOString().slice(0,10);
       const current = target.accreditations.filter(a => a.status === "current" && a.verifiedAt <= today && (!a.expiresAt || a.expiresAt >= today));
       if (current.length) return { criterionKey: c.key, assessment: "potential" as const, kind: "register" as const, value: current.map(a => `${a.issuer}: ${a.scope}${a.site ? ` (${a.site})` : ""}`).join("; "), source: current[0].source, sourceUrl: current[0].sourceUrl, capturedAt: `${current[0].verifiedAt}T00:00:00.000Z`, confidence: Math.min(...current.map(a => a.confidence)), nextStep: "Check required accreditation, scope and site against each linked record" };
     }
     const field = c.key === "revenue" ? target.revenue : c.key === "headcount" ? target.headcount : c.key === "ebitda" ? target.ebitda : c.key === "subsectors" ? target.sector : null;
-    return { criterionKey: c.key, assessment: field?.value != null ? "potential" : "unknown", kind: c.key === "revenue" ? "modelled" : "inferred", value: field?.value == null ? "" : typeof field.value === "object" ? (field.value.kind === "band" ? field.value.label : `$${field.value.min.toLocaleString("en-AU")}–$${field.value.max.toLocaleString("en-AU")}`) : String(field.value), source: field?.provenance.source || "", sourceUrl: field?.provenance.sourceUrl || "", capturedAt: field?.provenance.capturedAt || new Date(0).toISOString(), confidence: field?.value == null ? 0 : field.provenance.confidence, nextStep: criterionDefinitions.find(([key]) => key === c.key)![2] === "contact" ? "Ask the owner and record supporting evidence" : "Verify relevance and source" };
+    return { criterionKey: c.key, assessment: field?.value != null ? "potential" : "unknown", kind: c.key === "revenue" ? "modelled" : "inferred", value: field?.value == null ? "" : typeof field.value === "object" ? (field.value.kind === "band" ? field.value.label : `$${field.value.min.toLocaleString("en-AU")}–$${field.value.max.toLocaleString("en-AU")}`) : String(field.value), source: providerNeutralText(field?.provenance.source || ""), sourceUrl: field?.provenance.sourceUrl || "", capturedAt: field?.provenance.capturedAt || new Date(0).toISOString(), confidence: field?.value == null ? 0 : field.provenance.confidence, nextStep: criterionDefinitions.find(([key]) => key === c.key)![2] === "contact" ? "Ask the owner and record supporting evidence" : "Verify relevance and source" };
   });
 }
 export const valuationSchema = z.object({

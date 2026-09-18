@@ -5,7 +5,7 @@ import type { SavedResearchFinding } from "@/domain/research";
 
 export function EbitdaEstimatePanel({ findings, preferredHeadcount }: { findings: SavedResearchFinding[]; preferredHeadcount?: number }) {
   const [benchmark, setBenchmark] = useState("");
-  const estimate = estimateEbitda(findings, benchmark || undefined, preferredHeadcount === undefined ? undefined : { value: preferredHeadcount, source: "Firmable" });
+  const estimate = estimateEbitda(findings, benchmark || undefined, preferredHeadcount === undefined ? undefined : { value: preferredHeadcount, source: "company data" });
   const money = (n: number) => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(n);
   return (
       <div className="space-y-3 rounded-lg border border-[var(--border)] bg-[var(--panel)] p-4">
@@ -14,7 +14,7 @@ export function EbitdaEstimatePanel({ findings, preferredHeadcount }: { findings
         <label className="block text-sm">Comparable industry<select className="mt-1 min-h-12 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2" value={benchmark} onChange={e => setBenchmark(e.target.value)}><option value="">Suggest from the business industry</option>{[["Industry subsectors", "subdivision"], ["Broad industries", "division"], ["Industries by employee range", "size"], ["Fallback", "economy"]].map(([label, level]) => <optgroup key={level} label={label}>{ebitdaBenchmarks.filter(b => b.level === level).map(b => <option key={b.id} value={b.id}>{b.label}</option>)}</optgroup>)}</select></label>
         {estimate.status === "estimated" ? <>
           <p className="text-xs text-[var(--muted)]">{estimate.headcountBasis === "estimated" ? "Based on estimated headcount · indicative EBITDA" : "Based on reported headcount · indicative EBITDA"}</p>
-          {preferredHeadcount !== undefined ? <p className="text-xs text-[var(--muted)]">Using Firmable preferred headcount: {preferredHeadcount.toLocaleString("en-AU")}.</p> : estimate.headcountAggregation?.method === "mean" && <p className="text-xs text-[var(--status-amber)]">Averaged headcount from {estimate.headcountAggregation.observations} observations; lower and upper bounds averaged separately.</p>}
+          {preferredHeadcount !== undefined ? <p className="text-xs text-[var(--muted)]">Using preferred company headcount: {preferredHeadcount.toLocaleString("en-AU")}.</p> : estimate.headcountAggregation?.method === "mean" && <p className="text-xs text-[var(--status-amber)]">Averaged headcount from {estimate.headcountAggregation.observations} observations; lower and upper bounds averaged separately.</p>}
           <p className="text-lg font-semibold">{money(estimate.low!)} – {money(estimate.high!)} AUD / year</p>
           <p className={`text-sm ${estimate.match?.needsReview ? "text-[var(--status-amber)]" : "text-[var(--muted)]"}`}>{estimate.match?.description}</p>
           <p className="text-sm">{estimate.benchmark!.headcountLow}–{estimate.benchmark!.headcountHigh} people × {money(estimate.benchmark!.perPersonLow)}–{money(estimate.benchmark!.perPersonHigh)} EBITDA per person.</p>

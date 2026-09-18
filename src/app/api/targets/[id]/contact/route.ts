@@ -24,7 +24,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const history = new FirmableHistoryRepository(database);
   const matched = target.firmableCompanyId ? undefined : await history.findCompany({ firmableId: typeof identifiers.firmableId === "string" ? identifiers.firmableId : undefined, domain: target.domain, abn: typeof identifiers.abn === "string" ? identifiers.abn : undefined });
   const firmableId = target.firmableCompanyId || matched?.id || "";
-  if (!firmableId) return Response.json({ error: "This target has no Firmable company ID." }, { status: 409 });
+  if (!firmableId) return Response.json({ error: "This target has no enriched company profile." }, { status: 409 });
 
   try {
     const parsed = requestSchema.safeParse(await request.json().catch(() => ({})));
@@ -32,8 +32,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     targetSearchLog("contact.search.request", { targetId: id, providerMode: "stored", firmableCompanyId: firmableId, selectedPersonId: parsed.data.personId, strategy: "stored_profile" });
     const stored = (await history.latestPeople([firmableId])).get(firmableId) || [];
     const selected = parsed.data.personId ? stored.find(candidate => candidate.personId === parsed.data.personId) : stored.find(candidate => Boolean(candidate.profile)) || stored[0];
-    if (!selected) return Response.json({ error: "No stored Firmable candidates are available. Refresh the company data first." }, { status: 404 });
-    if (!selected.profile) return Response.json({ error: "This Firmable profile was not loaded. Refresh the company data and try again." }, { status: 409 });
+    if (!selected) return Response.json({ error: "No stored contact candidates are available. Refresh the company data first." }, { status: 404 });
+    if (!selected.profile) return Response.json({ error: "This contact profile was not loaded. Refresh the company data and try again." }, { status: 409 });
     const person = mapFirmablePerson(selected.profile, { id: selected.personId }, process.env.ALLOW_REAL_PERSONAL_DATA !== "true");
     const candidate = { id: selected.personId, position: typeof selected.searchRecord.position === "string" ? selected.searchRecord.position : undefined, seniority: typeof selected.searchRecord.seniority === "string" ? selected.searchRecord.seniority : undefined, department: typeof selected.searchRecord.department === "string" ? selected.searchRecord.department : undefined, emailAvailable: selected.searchRecord.has_email === true || selected.searchRecord.email_available === true, phoneAvailable: selected.searchRecord.has_phone === true || selected.searchRecord.phone_available === true, rawResponse: selected.searchRecord };
     const saved = await upsertFirmableContact({ database, organizationId, targetId: id, companyId: firmableId, person, candidate });
@@ -42,7 +42,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       action: "contact.enriched",
       entityType: "contact",
       entityId: saved.id,
-      metadata: { targetId: id, provider: "Firmable", fictionalised: person.fictionalised, doNotContact: person.doNotContact, personalFieldsStored: ["email", "phone"] },
+      metadata: { targetId: id, provider: "Company data", fictionalised: person.fictionalised, doNotContact: person.doNotContact, personalFieldsStored: ["email", "phone"] },
     });
     targetSearchLog("contact.search.complete", { targetId: id, contactId: saved.id, fictionalised: person.fictionalised, emailAvailable: person.emailAvailable, phoneAvailable: person.phoneAvailable, doNotContact: person.doNotContact });
     return Response.json({ contactId: saved.id, fictionalised: person.fictionalised, doNotContact: person.doNotContact });

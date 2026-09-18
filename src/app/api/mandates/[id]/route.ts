@@ -42,9 +42,9 @@ export async function recoverFirmableRefreshes(history: Pick<FirmableHistoryRepo
     if (run.status !== "running" || now - run.updatedAt.getTime() < 120_000) return;
     try {
       const worker = await researchWorker(`/firmable/${run.id}`, "GET", undefined, 4_000) as { status?: string };
-      if (["complete", "errored", "terminated"].includes(worker.status || "")) await history.failRun(run.id, "Firmable workflow ended before it could report completion. Start a new refresh to retry.");
+      if (["complete", "errored", "terminated"].includes(worker.status || "")) await history.failRun(run.id, "Company data refresh ended before it could report completion. Start a new refresh to retry.");
     } catch {
-      if (now - run.updatedAt.getTime() >= 600_000) await history.failRun(run.id, "Firmable workflow timed out. Start a new refresh to retry; saved data remains available.");
+      if (now - run.updatedAt.getTime() >= 600_000) await history.failRun(run.id, "Company data refresh timed out. Start a new refresh to retry; saved data remains available.");
     }
   }));
 }
@@ -165,8 +165,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       return Response.json({ ok: true, warnings });
     }
     if (action.action === "enrich") {
-      if (!researchEnabled()) return Response.json({ error: "Firmable background refresh is awaiting service activation" }, { status: 503 });
-      if (process.env.TARGET_DATA_PROVIDER !== "fixture" && !process.env.FIRMABLE_API_KEY) return Response.json({ error: "Firmable is not configured" }, { status: 503 });
+      if (!researchEnabled()) return Response.json({ error: "Company data refresh is awaiting service activation" }, { status: 503 });
+      if (process.env.TARGET_DATA_PROVIDER !== "fixture" && !process.env.FIRMABLE_API_KEY) return Response.json({ error: "Company data enrichment is not configured" }, { status: 503 });
       const memberships = await repo.memberships(id);
       if (action.targetIds.some(targetId => !memberships.some(m => m.target.id === targetId))) return Response.json({ error: "A target does not belong to this mandate" }, { status: 404 });
       const history = new FirmableHistoryRepository(requireDb());
@@ -177,7 +177,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       for (const targetId of [...new Set(action.targetIds)]) {
         const target = memberships.find(m => m.target.id === targetId)!.target;
         const abn = target.abn || target.sourceData?.manufacturingDirectory?.abn || target.sourceData?.firmable?.abn;
-        if (!target.domain && !abn && !target.sourceData?.firmable?.firmableId) { warnings.push(`${target.companyName}: website, ABN or prior Firmable match required; candidate retained.`); continue; }
+        if (!target.domain && !abn && !target.sourceData?.firmable?.firmableId) { warnings.push(`${target.companyName}: website, ABN or prior company match required; candidate retained.`); continue; }
         try {
           const run = await history.queueRun({ organizationId: org, actorId: session.user.id, targetId, requestKey: `${requestId}:${targetId}` });
           const queued = { id: run.id, targetId, status: run.status };
@@ -191,7 +191,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       dispatched.forEach((result, index) => {
         if (result.status === "rejected") warnings.push(`${dispatches[index].companyName}: refresh saved; dispatch is uncertain and will be retried automatically.`);
       });
-      return Response.json({ ok: true, warnings, messages: [`${runs.length} Firmable refresh${runs.length === 1 ? "" : "es"} queued.`], refresh: { runs } }, { status: 202 });
+      return Response.json({ ok: true, warnings, messages: [`${runs.length} company data refresh${runs.length === 1 ? "" : "es"} queued.`], refresh: { runs } }, { status: 202 });
     }
     return Response.json({ ok: true });
   } catch (error) {

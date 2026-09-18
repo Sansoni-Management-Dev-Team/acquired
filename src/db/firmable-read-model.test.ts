@@ -9,6 +9,6 @@ describe("stored Firmable contact projection", () => {
   });
 
   it("keeps a search-only candidate visible without claiming it is reachable", () => {
-    expect(storedFirmableContactSummary({ companyId: "c1", personId: "p2", searchRecord: { position: "Director" } }, "target-1")).toEqual({ targetId: "target-1", name: "Firmable candidate", role: "Director", reachable: false });
+    expect(storedFirmableContactSummary({ companyId: "c1", personId: "p2", searchRecord: { position: "Director" } }, "target-1")).toEqual({ targetId: "target-1", name: "Decision-maker candidate", role: "Director", reachable: false });
   });
 });

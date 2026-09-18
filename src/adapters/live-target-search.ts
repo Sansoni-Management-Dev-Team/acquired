@@ -130,7 +130,7 @@ export async function searchAndEnrichTargets(options: {
     if (firmablePaused) {
       enrichmentFailed += 1;
       targetSearchLog("firmable.skipped", { placeId: place.id, name: place.name, fqdn: domain, reason: "Provider calls paused" });
-      targets.push(mapGooglePlace(place, mandate, organisationId, "Firmable enrichment paused after a provider error"));
+      targets.push(mapGooglePlace(place, mandate, organisationId, "Company data enrichment paused after a provider error"));
       continue;
     }
     try {
@@ -157,13 +157,13 @@ export async function searchAndEnrichTargets(options: {
         name: place.name,
         identifier,
         status: error instanceof FirmableError ? error.status : undefined,
-        message: error instanceof Error ? error.message : "Unknown Firmable error",
+        message: error instanceof Error ? error.message : "Unknown company data error",
       });
-      warnings.push(`${place.name}: Firmable enrichment was unavailable; showing Google Places data only.`);
-      targets.push(mapGooglePlace(place, mandate, organisationId, "Firmable enrichment failed"));
+      warnings.push(`${place.name}: company data enrichment was unavailable; showing discovery data only.`);
+      targets.push(mapGooglePlace(place, mandate, organisationId, "Company data enrichment failed"));
       if (error instanceof FirmableError && [401, 403, 429].includes(error.status)) {
         firmablePaused = true;
-        warnings.push("Further Firmable calls were paused to avoid repeated authentication or rate-limit failures.");
+        warnings.push("Further company data requests were paused to avoid repeated authentication or rate-limit failures.");
       }
     }
   }
