@@ -10,8 +10,8 @@ export const FREE_RESEARCH_MODELS = [
   "nvidia/nemotron-3-super-120b-a12b:free",
 ] as const;
 
-export const FREE_MANDATE_MODELS = ["dots-studio/dots-3-note-preview:free", "nex-agi/nex-n2.5-mini:free"] as const;
-const supportsDisabledReasoning = (model: string) => model.startsWith("nex-agi/") || model === FREE_MANDATE_MODELS[0];
+export const FREE_MANDATE_MODELS = ["dots-studio/dots-3-note-preview:free", "nex-agi/nex-n2.5-mini:free", "qwen/qwen3.8-27b:free"] as const;
+const supportsDisabledReasoning = (model: string) => model.startsWith("nex-agi/") || model.startsWith("qwen/") || model === "dots-studio/dots-3-note-preview:free";
 
 export const MERCURY_FALLBACK_MODEL = "inception/mercury-2.5";
 // USD per million tokens. Fail closed if current promotional pricing increases.
