@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { researchActive } from "./research";
+import { researchActive, researchJobRunning, STALE_RESEARCH_JOB_MS } from "./research";
 
 const now = 1_000_000;
 describe("researchActive", () => {
@@ -24,5 +24,13 @@ describe("researchActive", () => {
       { status: "complete", config: { discoveryCandidate: true, mode: "automatic", automaticDeadline: now + 60_000 } },
       { status: "complete", config: {} },
     ], now)).toBe(false);
+  });
+  it("treats a job the worker abandoned as inactive once it goes stale", () => {
+    const fresh = { status: "crawling", updatedAt: new Date(now - 60_000), config: {} };
+    const stale = { status: "extracting", updatedAt: new Date(now - STALE_RESEARCH_JOB_MS), config: {} };
+    expect(researchJobRunning(fresh, now)).toBe(true);
+    expect(researchJobRunning(stale, now)).toBe(false);
+    expect(researchActive([stale], now)).toBe(false);
+    expect(researchActive([stale, fresh], now)).toBe(true);
   });
 });

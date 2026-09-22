@@ -66,7 +66,7 @@ export async function GET(
     });
   }
   return Response.json(
-    { enabled: true, active: researchActive(jobs.map(j => ({ status: j.status, config: j.config as ResearchConfig }))), results, evidence, jobs: jobs.filter(j => !(j.config as ResearchConfig).purpose), companyJobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "firmographics"), peopleJobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).parentJobId), findings: findings.filter(f => (f.evidence as { kind?: string }).kind !== "person") },
+    { enabled: true, active: researchActive(jobs.map(j => ({ status: j.status, updatedAt: j.updatedAt, config: j.config as ResearchConfig }))), results, evidence, jobs: jobs.filter(j => !(j.config as ResearchConfig).purpose), companyJobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "firmographics"), peopleJobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).parentJobId), findings: findings.filter(f => (f.evidence as { kind?: string }).kind !== "person") },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

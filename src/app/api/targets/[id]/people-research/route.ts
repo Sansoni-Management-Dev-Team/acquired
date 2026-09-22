@@ -8,7 +8,7 @@ import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { ResearchRepository } from "@/db/research-repository";
 import { OrganizationRepository } from "@/db/repositories";
 import { researchEnabled, researchWorker } from "@/lib/research-service";
-import { findingSchema, publicResearchUrl, researchUrlKey, uniqueResearchUrls, terminalResearchStates, type ResearchConfig } from "@/domain/research";
+import { findingSchema, publicResearchUrl, researchUrlKey, uniqueResearchUrls, researchJobRunning, terminalResearchStates, type ResearchConfig } from "@/domain/research";
 async function context(request: Request, id: string, mandateId: unknown) {
   const session = await auth.api.getSession({ headers: request.headers });
   const org = session?.session.activeOrganizationId;
@@ -40,7 +40,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     } catch { /* Preserve running state when the status check is unavailable. */ }
   }
   const searchLeads = mergePeopleSearchLeads(jobs.flatMap(j => (j.config as ResearchConfig).peopleSearchLeads || []));
-  return Response.json({ searchLeads, enabled: researchEnabled(), webSearchEnabled: researchEnabled(), active: jobs.some(j => !terminalResearchStates.includes(j.status)), jobs, findings }, { headers: { "Cache-Control": "no-store" } });
+  return Response.json({ searchLeads, enabled: researchEnabled(), webSearchEnabled: researchEnabled(), active: jobs.some(j => researchJobRunning(j)), jobs, findings }, { headers: { "Cache-Control": "no-store" } });
 }
 const inputSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("start"), mandateId: z.string().uuid(), requestId: z.string().uuid(), continueFrom: z.string().uuid().optional(), approved: z.literal(true) }),
