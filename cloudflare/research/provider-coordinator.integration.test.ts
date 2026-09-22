@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { expect, it } from "vitest";
 import type { ProviderCoordinator } from "./provider-coordinator";
+import { PAID_PAGE_SLOTS, PAID_START_SPACING_MS } from "../../src/domain/research-provider-queue";
 
 const bindings = env as unknown as {
   PROVIDER_COORDINATOR: DurableObjectNamespace<ProviderCoordinator>;
@@ -45,8 +46,18 @@ it("returns a queued answer when the hold expires without capacity", async () =>
 
 it("admits several page waiters at once while slots are free", async () => {
   const coordinator = bindings.PROVIDER_COORDINATOR.getByName(crypto.randomUUID());
-  const results = await Promise.all(["a", "b", "c", "d"].map(job => coordinator.reserve({ jobId: job, token: job, provider: "page" })));
-  expect(results.filter(result => result.granted)).toHaveLength(4);
-  expect(await coordinator.reserve({ jobId: "e", token: "e", provider: "page" })).toMatchObject({ granted: false, queued: true });
-  expect((await coordinator.reserve({ jobId: "s", token: "s", provider: "search" })).granted).toBe(true);
+  const jobs = Array.from({ length: PAID_PAGE_SLOTS }, (_, index) => `page-${index}`);
+  const results = await Promise.all(jobs.map(job => coordinator.reserve({ jobId: job, token: job, provider: "page" })));
+  // Starts are staggered 350 ms apart and never booked more than ten seconds ahead,
+  // so a burst of 32 admits at least 28 at once; the rest are queued, not refused.
+  const granted = results.filter(result => result.granted);
+  expect(granted.length).toBeGreaterThanOrEqual(Math.floor(10000 / PAID_START_SPACING_MS));
+  expect(granted.length).toBeLessThanOrEqual(PAID_PAGE_SLOTS);
+  expect(results.filter(result => !result.granted).every(result => result.queued && result.retryAfterMs > 0)).toBe(true);
+  const after = granted.map(result => result.after!).sort((a, b) => a - b);
+  expect(after.every((value, index) => index === 0 || value - after[index - 1] >= PAID_START_SPACING_MS)).toBe(true);
+  // The start stagger is account-wide: a search arriving behind the burst is
+  // queued behind the booked starts rather than refused or admitted early.
+  const search = await coordinator.reserve({ jobId: "s", token: "s", provider: "search" });
+  expect(search.granted || (search.queued && search.retryAfterMs > 0)).toBe(true);
 });

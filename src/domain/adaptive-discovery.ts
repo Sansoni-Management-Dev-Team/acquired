@@ -52,7 +52,10 @@ export function resolveDiscoveryDecision(output: unknown, context: DiscoveryCont
   const tried = new Set(context.attempts.map(a => queryKey(a.query)));
   if (parsed.success) {
     const decision = parsed.data;
-    if (decision.stop && context.attempts.filter(a => a.status === "succeeded").length >= 3) return { stop: true, reason: decision.reason };
+    // A planner stop is accepted only once recent successful searches have stopped
+    // surfacing new websites; otherwise the scope-based ladder continues below.
+    const succeeded = context.attempts.filter(a => a.status === "succeeded");
+    if (decision.stop && succeeded.length >= 3 && succeeded.slice(-2).every(a => (a.newDomains ?? 0) === 0)) return { stop: true, reason: decision.reason };
     if (!decision.stop && decision.query.length >= 3 && context.regions.includes(decision.region) && !/[\r\n]/.test(decision.query)) {
       const query = `${decision.query} ${decision.region}`;
       if (!tried.has(queryKey(query))) return { query, reason: decision.reason, stop: false };

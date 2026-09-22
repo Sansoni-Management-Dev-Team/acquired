@@ -41,7 +41,7 @@ export function reserveProvider(queue: ProviderQueue, jobId: string, token: stri
 export function consumeProvider(queue: ProviderQueue, token: string, jobId: string, now: number, domain?: string) {
   const reservation = queue.reservations?.find(r => r.token === token && r.jobId === jobId && !r.consumed && r.after <= now && r.until >= now);
   if (!reservation || providerConsumedAfter(queue, reservation, domain) > now) return null;
-  return { ...queue, ...(reservation.provider !== 'ai' && !(reservation.local && reservation.provider === 'page') ? { [reservation.local ? 'localSearchConsumedAfter' : 'browserConsumedAfter']: now + (reservation.paid ? 1000 : reservation.local ? LOCAL_SEARCH_CONSUMED_MS : 10000) } : {}), ...(reservation.paid && domain ? { domainAfter: { ...queue.domainAfter, [domain]: now + 3000 } } : {}), reservations: queue.reservations!.map(r => r === reservation ? { ...r, consumed: true, ...((r.local && r.provider === 'page') || r.paid ? { until: now + LOCAL_PAGE_LEASE_MS, ...(domain ? { domain } : {}) } : {}) } : r) };
+  return { ...queue, ...(reservation.provider !== 'ai' && !(reservation.local && reservation.provider === 'page') ? { [reservation.local ? 'localSearchConsumedAfter' : 'browserConsumedAfter']: now + (reservation.paid ? PAID_START_SPACING_MS : reservation.local ? LOCAL_SEARCH_CONSUMED_MS : 10000) } : {}), ...(reservation.paid && domain ? { domainAfter: { ...queue.domainAfter, [domain]: now + 3000 } } : {}), reservations: queue.reservations!.map(r => r === reservation ? { ...r, consumed: true, ...((r.local && r.provider === 'page') || r.paid ? { until: now + LOCAL_PAGE_LEASE_MS, ...(domain ? { domain } : {}) } : {}) } : r) };
 }
 
 // A slightly early wake-up retains its place instead of joining the queue again.
@@ -79,12 +79,17 @@ function reserveManagedAi(queue: ProviderQueue, jobId: string, token: string, no
 }
 
 
-// Four page slots plus two search slots prevent either workload monopolising the pool.
+// Separate page and search slot counts prevent either workload monopolising the pool.
 // Any waiter is admitted while its workload has free capacity; FIFO order only
 // decides who takes the last free slot, so a slot never idles waiting for the
 // head of the queue to poll again. No long future bookings.
-export const PAID_PAGE_SLOTS = 4;
-export const PAID_SEARCH_SLOTS = 2;
+// Demand tops out near 24 concurrent reads per run (8 candidates plus 8 businesses
+// with paired jobs); 32 page slots cover a run plus a second mandate. Browser
+// Rendering allows 200 concurrent sessions and 3 new browsers a second, so starts
+// are staggered 350 ms apart instead of one second.
+export const PAID_PAGE_SLOTS = 32;
+export const PAID_SEARCH_SLOTS = 4;
+export const PAID_START_SPACING_MS = 350;
 export const PAID_BROWSER_SLOTS = PAID_PAGE_SLOTS + PAID_SEARCH_SLOTS;
 function reservePaidBrowser(queue: ProviderQueue, jobId: string, token: string, provider: ResearchProvider, now: number) {
   const reservations = (queue.reservations || []).filter(r => r.until >= now);
@@ -94,15 +99,15 @@ function reservePaidBrowser(queue: ProviderQueue, jobId: string, token: string, 
   if (!waiters.some(w => w.jobId === jobId && w.provider === provider)) waiters.push({ jobId, provider, since: now });
   const rank = waiters.filter(w => w.provider === provider).findIndex(w => w.jobId === jobId);
   const free = Math.min(PAID_BROWSER_SLOTS - active.length, (provider === 'search' ? PAID_SEARCH_SLOTS : PAID_PAGE_SLOTS) - active.filter(r => r.provider === provider).length);
-  // Browser starts are staggered one second apart by scheduling the start time
-  // into the grant instead of refusing the poller; the Workflow sleeps briefly.
+  // Browser starts are staggered by scheduling the start time into the grant
+  // instead of refusing the poller; the Workflow sleeps briefly.
   const start = Math.max(now, queue.browserConsumedAfter || 0, queue.browserCooldownUntil || 0, queue.browserStartAfter || 0);
   const next = { ...queue, reservations, domainAfter: Object.fromEntries(Object.entries(queue.domainAfter || {}).filter(([, after]) => after > now)), browserWaiters: waiters.map(w => w.jobId === jobId && w.provider === provider ? { ...w, since: now } : w) };
   if (free <= 0 || rank >= free || start - now > 10000) return { queue: next, queued: true, retryAfterMs: Math.max(1000, Math.min(30000, start - now)) };
   // A Vercel discovery callback can perform database coordination before it
   // reaches the nested browser request, especially when many jobs wake at once.
   const reservation: ProviderReservation = { token, jobId, provider, paid: true, after: start, until: start + 90000 };
-  return { queue: { ...next, browserStartAfter: start + 1000, reservations: [...reservations, reservation], browserWaiters: waiters.filter(w => w.jobId !== jobId || w.provider !== provider) }, reservation, retryAfterMs: start - now };
+  return { queue: { ...next, browserStartAfter: start + PAID_START_SPACING_MS, reservations: [...reservations, reservation], browserWaiters: waiters.filter(w => w.jobId !== jobId || w.provider !== provider) }, reservation, retryAfterMs: start - now };
 }
 export function coolDownBrowser(queue: ProviderQueue, now: number, retryAfterMs: number): ProviderQueue {
   return { ...queue, browserCooldownUntil: Math.max(queue.browserCooldownUntil || 0, now + Math.max(1000, Math.min(300000, retryAfterMs))) };

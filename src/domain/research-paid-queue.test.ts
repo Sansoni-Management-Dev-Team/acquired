@@ -1,26 +1,27 @@
 import { expect, it } from 'vitest';
-import { consumeProvider, coolDownBrowser, releaseProvider, reservationDelay, reserveProvider, type ProviderQueue } from './research-provider-queue';
+import { consumeProvider, coolDownBrowser, releaseProvider, reservationDelay, reserveProvider, PAID_PAGE_SLOTS, PAID_SEARCH_SLOTS, PAID_START_SPACING_MS, type ProviderQueue } from './research-provider-queue';
 const reserve = (q: ProviderQueue, job: string, provider: 'page'|'search'|'ai', now: number, token = job) => reserveProvider(q, job, token, provider, now, undefined, false, true);
-it('allows four concurrent pages and reserves a fifth slot for search; starts are spaced one second', () => {
+it('fills the page slots, keeps search slots separate, and staggers starts', () => {
   let queue: ProviderQueue = {};
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < PAID_PAGE_SLOTS; i++) {
     const now = 1000 + i * 1000;
     const r = reserve(queue, `p${i}`, 'page', now);
     expect(r.reservation).toBeDefined();
-    queue = consumeProvider(r.queue, `p${i}`, `p${i}`, now, `site${i}.com`)!;
-    // A start inside the one-second spacing is scheduled, never refused.
-    expect(reserve(queue, 'early', 'search', now + 999).reservation?.after).toBeGreaterThanOrEqual(now + 1000);
+    queue = consumeProvider(r.queue, `p${i}`, `p${i}`, r.reservation!.after, `site${i}.com`)!;
+    // A start inside the spacing window is scheduled, never refused.
+    expect(reserve(queue, 'early', 'search', now + 100).reservation?.after).toBeGreaterThanOrEqual(now + PAID_START_SPACING_MS);
   }
-  expect(reserve(queue, 'extra', 'page', 5000)).toMatchObject({ queued: true });
-  const search = reserve(queue, 'early', 'search', 5000);
-  expect(search.reservation).toBeDefined();
-  queue = consumeProvider(search.queue, 'early', 'early', 5000, 'duckduckgo.com')!;
-  // Two search slots: a second search is admitted, a third waits.
-  const second = reserve(queue, 'second-search', 'search', 6000); queue = second.queue;
-  expect(second.reservation).toBeDefined();
-  expect(reserve(queue, 'third-search', 'search', 6000).reservation).toBeUndefined();
+  const later = 1000 + PAID_PAGE_SLOTS * 1000;
+  expect(reserve(queue, 'extra', 'page', later)).toMatchObject({ queued: true });
+  // Searches share one host, so consecutive starts stay three seconds apart.
+  for (let i = 0; i < PAID_SEARCH_SLOTS; i++) {
+    const search = reserve(queue, `s${i}`, 'search', later + i * 4000);
+    expect(search.reservation).toBeDefined();
+    queue = consumeProvider(search.queue, `s${i}`, `s${i}`, search.reservation!.after, 'duckduckgo.com')!;
+  }
+  expect(reserve(queue, 'extra-search', 'search', later + 20000).reservation).toBeUndefined();
   queue = releaseProvider(queue, 'p0', 'p0');
-  expect(reserve(queue, 'next', 'page', 6000).reservation).toBeDefined();
+  expect(reserve(queue, 'next', 'page', later + 20000).reservation).toBeDefined();
 });
 it('keeps a paid reservation live while a coordinated callback reaches the browser', () => {
   const result=reserve({},'job','search',1000);
@@ -43,14 +44,15 @@ it('releases managed AI capacity immediately and preserves FIFO waits', () => {
 });
 it('preserves FIFO page waits and prevents wrong-job releases', () => {
   let queue: ProviderQueue = {};
-  for (let i=0;i<4;i++) { const r=reserve(queue, `p${i}`, 'page', 1000+i*1000); queue=consumeProvider(r.queue,`p${i}`,`p${i}`,1000+i*1000)!; }
-  queue=reserve(queue,'first','page',5000).queue;
-  queue=reserve(queue,'second','page',5000).queue;
+  for (let i=0;i<PAID_PAGE_SLOTS;i++) { const r=reserve(queue, `p${i}`, 'page', 1000+i*1000); queue=consumeProvider(r.queue,`p${i}`,`p${i}`,r.reservation!.after)!; }
+  const t = 1000 + PAID_PAGE_SLOTS * 1000;
+  queue=reserve(queue,'first','page',t).queue;
+  queue=reserve(queue,'second','page',t).queue;
   queue=releaseProvider(queue,'p0','wrong');
-  expect(reserve(queue,'first','page',6000).reservation).toBeUndefined();
+  expect(reserve(queue,'first','page',t+1000).reservation).toBeUndefined();
   queue=releaseProvider(queue,'p0','p0');
-  expect(reserve(queue,'second','page',6000).reservation).toBeUndefined();
-  expect(reserve(queue,'first','page',6000).reservation).toBeDefined();
+  expect(reserve(queue,'second','page',t+1000).reservation).toBeUndefined();
+  expect(reserve(queue,'first','page',t+1000).reservation).toBeDefined();
 });
 it('paces each domain and prevents overlapping reads until release', () => {
   const a=reserve({},'a','page',1000);
@@ -79,31 +81,33 @@ it('respects legacy in-flight browser pacing during rolling deployment', () => {
 });
 it('admits every waiter that fits free capacity in the same tick and keeps FIFO for the last slot', () => {
   let queue: ProviderQueue = {};
-  // Three jobs poll while all four page slots are free: none should be refused.
-  for (const job of ['a', 'b', 'c']) { const r = reserve(queue, job, 'page', 1000); queue = r.queue; expect(r.reservation, job).toBeDefined(); }
+  // Fill all but one page slot; every poller is admitted while capacity remains.
+  for (let i = 0; i < PAID_PAGE_SLOTS - 1; i++) { const r = reserve(queue, `p${i}`, 'page', 1000 + i * 1000); queue = r.queue; expect(r.reservation, `p${i}`).toBeDefined(); }
+  const t = 1000 + PAID_PAGE_SLOTS * 1000;
   // Two more wait for the single remaining slot; the earlier waiter wins it.
-  queue = reserve(queue, 'd', 'page', 1100).queue;
-  queue = reserve(queue, 'e', 'page', 1200).queue;
-  expect(reserve(queue, 'e', 'page', 1300).reservation).toBeUndefined();
-  const d = reserve(queue, 'd', 'page', 1300); queue = d.queue;
+  queue = reserve(queue, 'd', 'page', t).queue;
+  queue = reserve(queue, 'e', 'page', t + 100).queue;
+  expect(reserve(queue, 'e', 'page', t + 200).reservation).toBeUndefined();
+  const d = reserve(queue, 'd', 'page', t + 200); queue = d.queue;
   expect(d.reservation).toBeDefined();
-  expect(reserve(queue, 'e', 'page', 1400)).toMatchObject({ queued: true });
+  expect(reserve(queue, 'e', 'page', t + 300)).toMatchObject({ queued: true });
   // Search capacity is independent of page waiters.
-  expect(reserve(queue, 's', 'search', 1400).reservation).toBeDefined();
+  expect(reserve(queue, 's', 'search', t + 300).reservation).toBeDefined();
 });
 it('lets any poller take a released slot instead of idling until the head waiter returns', () => {
   let queue: ProviderQueue = {};
-  for (let i = 0; i < 4; i++) { const r = reserve(queue, `p${i}`, 'page', 1000); queue = consumeProvider(r.queue, `p${i}`, `p${i}`, r.reservation!.after)!; }
-  queue = reserve(queue, 'head', 'page', 5000).queue;
-  queue = reserve(queue, 'second', 'page', 5100).queue;
+  for (let i = 0; i < PAID_PAGE_SLOTS; i++) { const r = reserve(queue, `p${i}`, 'page', 1000 + i * 1000); queue = consumeProvider(r.queue, `p${i}`, `p${i}`, r.reservation!.after)!; }
+  const t = 1000 + PAID_PAGE_SLOTS * 1000;
+  queue = reserve(queue, 'head', 'page', t).queue;
+  queue = reserve(queue, 'second', 'page', t + 100).queue;
   queue = releaseProvider(queue, 'p0', 'p0');
   queue = releaseProvider(queue, 'p1', 'p1');
   // Two slots free: the second waiter is admitted even though it polls first.
-  const second = reserve(queue, 'second', 'page', 6000); queue = second.queue;
+  const second = reserve(queue, 'second', 'page', t + 1000); queue = second.queue;
   expect(second.reservation).toBeDefined();
-  const head = reserve(queue, 'head', 'page', 6100); queue = head.queue;
+  const head = reserve(queue, 'head', 'page', t + 1100); queue = head.queue;
   expect(head.reservation).toBeDefined();
-  expect(reserve(queue, 'third', 'page', 6200)).toMatchObject({ queued: true });
+  expect(reserve(queue, 'third', 'page', t + 1200)).toMatchObject({ queued: true });
 });
 it('sustains near slot capacity under polling contention', () => {
   // Discrete-event model: each job reserves, reads for 3.2 s, releases, then re-polls; refused jobs poll again after 3.6 s.
@@ -122,9 +126,9 @@ it('sustains near slot capacity under polling contention', () => {
     }
     return reads;
   };
-  // Four slots at 3.8 s per read allow about 630 reads in ten minutes; the old head-of-line gate managed about 165.
+  // Start spacing of 350 ms allows about 1,700 reads in ten minutes; the old head-of-line gate managed about 165.
   expect(simulate(4)).toBeGreaterThan(500);
-  expect(simulate(23)).toBeGreaterThan(450);
+  expect(simulate(23)).toBeGreaterThan(1500);
 });
 
 it('lets two searches overlap on the search host while page reads on one website still cannot', () => {

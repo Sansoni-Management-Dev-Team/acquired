@@ -31,3 +31,13 @@ it("provides results and candidate outcomes as untrusted feedback without privat
   expect(prompt[1].content).toContain("Remediation contractors");
   expect(prompt[1].content).toContain('"newDomains":0');
 });
+
+it("ignores a planner stop while recent searches still surface new websites", () => {
+  const stop = { query: "", region: "", reason: "Thoroughly explored.", stop: true };
+  const productive = ["a", "b", "c"].map(query => ({ query, status: "succeeded" as const, resultCount: 10, newDomains: 6 }));
+  const decision = resolveDiscoveryDecision(stop, { ...context, attempts: productive }, ["cleaners NSW"]);
+  expect(decision.stop).toBe(false);
+  expect(decision.query).toBe("cleaners NSW");
+  const dry = [...productive.slice(0, 1), ...["d", "e"].map(query => ({ query, status: "succeeded" as const, resultCount: 10, newDomains: 0 }))];
+  expect(resolveDiscoveryDecision(stop, { ...context, attempts: dry }, ["cleaners NSW"]).stop).toBe(true);
+});
