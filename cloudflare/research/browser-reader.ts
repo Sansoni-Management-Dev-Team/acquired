@@ -4,6 +4,9 @@ import { localReaderEndpoint, type LocalReaderEnv } from './local-reader';
 import { publicResearchUrl } from '../../src/domain/research';
 import { researchFetch } from './local-policy';
 
+// Claims retry for up to 20 seconds (at most six attempts) inside one admitted request.
+export const ADMISSION_WINDOW_MS = 20000;
+export const MAX_ADMISSION_ATTEMPTS = 6;
 export type BrowserReaderEnv = LocalReaderEnv & { CF_ACCOUNT_ID?: string; CF_BROWSER_TOKEN?: string };
 export async function browserMarkdown(env: BrowserReaderEnv, url: string, options: {
   jobId?: string; requestId?: string; operation: string;
@@ -23,9 +26,12 @@ export async function browserMarkdown(env: BrowserReaderEnv, url: string, option
     operation: options.operation, provider: local ? 'local-crawl4ai' : 'cloudflare-browser',
     failureOrigin: 'application_admission', event, elapsedMs: Date.now() - started, ...fields,
   }));
-  // Rate admission occurs before every attempt, across all app jobs. Keep a
-  // single call below the app callback deadline; retries happen in the workflow.
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // Rate admission occurs before every attempt, across all app jobs. A granted
+  // reservation stays valid for 90 seconds, so claims retry within a bounded
+  // window (below the app callback deadline) rather than a fixed two attempts:
+  // concurrent searches on the shared host push each other's start back.
+  const admissionDeadline = started + ADMISSION_WINDOW_MS;
+  for (let attempt = 0; ; attempt++) {
     options.onRequest?.();
     let permit: Awaited<ReturnType<typeof options.permit>>;
     try { permit = await options.permit(); }
@@ -38,11 +44,12 @@ export async function browserMarkdown(env: BrowserReaderEnv, url: string, option
       if (permit.retryAfterMs > 0) await new Promise(resolve => setTimeout(resolve, Math.min(22000, permit.retryAfterMs)));
       break;
     }
-    if (permit.expired || attempt === 1) {
+    const delay = Math.min(11000, Math.max(250, permit.retryAfterMs));
+    if (permit.expired || attempt + 1 >= MAX_ADMISSION_ATTEMPTS || Date.now() + delay > admissionDeadline) {
       admissionLog('admission_deferred', { reason: permit.expired ? 'reservation_expired' : 'permit_attempts_exhausted', upstreamRequestSent: false });
       throw new BrowserAdmissionDeferred();
     }
-    await new Promise(resolve => setTimeout(resolve, Math.min(11000, permit.retryAfterMs)));
+    await new Promise(resolve => setTimeout(resolve, delay));
   }
   options.onRequest?.();
   try {

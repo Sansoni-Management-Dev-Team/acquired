@@ -78,3 +78,28 @@ it('releases capacity after a successful page read', async () => {
   await browserMarkdown(env,'https://example.com/',{operation:'markdown',permit:async()=>({granted:true,retryAfterMs:0}),release},async()=>Response.json({success:true,result:'evidence'}));
   expect(release).toHaveBeenCalledOnce();
 });
+
+it('keeps claiming a still-valid reservation when concurrent searches push its start back', async () => {
+  vi.useFakeTimers();
+  const permit = vi.fn().mockResolvedValueOnce({ granted: false, retryAfterMs: 3000 }).mockResolvedValueOnce({ granted: false, retryAfterMs: 2500 }).mockResolvedValueOnce({ granted: false, retryAfterMs: 1000 }).mockResolvedValue({ granted: true, retryAfterMs: 0 });
+  const fetcher = vi.fn(async () => Response.json({ success: true, result: '## [Result](https://example.com/)' }));
+  const pending = browserMarkdown({ CF_ACCOUNT_ID: 'acc', CF_BROWSER_TOKEN: 'token' }, 'https://html.duckduckgo.com/html/?q=test', { operation: 'web_search', permit }, fetcher as unknown as typeof fetch);
+  await vi.advanceTimersByTimeAsync(7000);
+  await expect(pending).resolves.toContain('Result');
+  expect(permit).toHaveBeenCalledTimes(4);
+  expect(fetcher).toHaveBeenCalledOnce();
+  vi.useRealTimers();
+});
+
+it('defers instead of waiting past the admission window', async () => {
+  vi.useFakeTimers();
+  const permit = vi.fn().mockResolvedValue({ granted: false, retryAfterMs: 11000 });
+  const fetcher = vi.fn();
+  const pending = browserMarkdown({ CF_ACCOUNT_ID: 'acc', CF_BROWSER_TOKEN: 'token' }, 'https://example.com/', { operation: 'markdown', permit }, fetcher as unknown as typeof fetch).catch(error => error);
+  await vi.advanceTimersByTimeAsync(25000);
+  const { BrowserAdmissionDeferred } = await import('../../src/domain/research-provider-error');
+  expect(await pending).toBeInstanceOf(BrowserAdmissionDeferred);
+  expect(permit.mock.calls.length).toBeLessThanOrEqual(3);
+  expect(fetcher).not.toHaveBeenCalled();
+  vi.useRealTimers();
+});
