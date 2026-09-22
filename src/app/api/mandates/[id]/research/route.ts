@@ -8,6 +8,7 @@ import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { ResearchRepository } from "@/db/research-repository";
 import {
   researchStartSchema,
+  researchActive,
   terminalResearchStates,
   continueResearchConfig,
   type ResearchConfig,
@@ -23,7 +24,7 @@ export async function GET(
   if (!session?.session.activeOrganizationId)
     return Response.json({ error: "Sign in first" }, { status: 401 });
   if (!researchEnabled())
-    return Response.json({ enabled: false, jobs: [], findings: [] });
+    return Response.json({ enabled: false, active: false, jobs: [], findings: [] });
   const { id } = await context.params;
   if (!z.string().uuid().safeParse(id).success)
     return Response.json({ error: "Invalid mandate" }, { status: 400 });
@@ -65,7 +66,7 @@ export async function GET(
     });
   }
   return Response.json(
-    { enabled: true, results, evidence, jobs: jobs.filter(j => !(j.config as ResearchConfig).purpose), companyJobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "firmographics"), peopleJobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).parentJobId), findings: findings.filter(f => (f.evidence as { kind?: string }).kind !== "person") },
+    { enabled: true, active: researchActive(jobs.map(j => ({ status: j.status, config: j.config as ResearchConfig }))), results, evidence, jobs: jobs.filter(j => !(j.config as ResearchConfig).purpose), companyJobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "firmographics"), peopleJobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).parentJobId), findings: findings.filter(f => (f.evidence as { kind?: string }).kind !== "person") },
     { headers: { "Cache-Control": "no-store" } },
   );
 }

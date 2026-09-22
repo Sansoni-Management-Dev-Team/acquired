@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dialogBackdrop } from "./dialog-backdrop";
+import { useActivePolling } from "./use-active-polling";
 import {
   terminalResearchStates,
   groupResearchFindings,
@@ -27,7 +28,7 @@ export type ResearchJob = {
   config: ResearchConfig;
   seeds: string[];
 };
-type Data = { results?: { jobId: string; businessDomains?: string[]; added: number; updated: number; people: number }[]; enabled: boolean; jobs: ResearchJob[]; peopleJobs?: ResearchJob[]; companyJobs?: ResearchJob[]; findings: SavedResearchFinding[] };
+type Data = { active?: boolean; results?: { jobId: string; businessDomains?: string[]; added: number; updated: number; people: number }[]; enabled: boolean; jobs: ResearchJob[]; peopleJobs?: ResearchJob[]; companyJobs?: ResearchJob[]; findings: SavedResearchFinding[] };
 async function request(url: string, body?: unknown) {
   const r = await fetch(url, {
     method: body ? "POST" : "GET",
@@ -90,16 +91,7 @@ export function ResearchPanel({
       setLoading(false);
     }
   }, [mandateId]);
-  useEffect(() => {
-    const first = setTimeout(() => void refresh(), 0);
-    const timer = setInterval(() => {
-      if (!document.hidden) void refresh();
-    }, 5000);
-    return () => {
-      clearTimeout(first);
-      clearInterval(timer);
-    };
-  }, [refresh]);
+  useActivePolling(refresh, { active: Boolean(data.active), intervalMs: 5000 });
   const active = [...data.jobs, ...(data.peopleJobs || []), ...(data.companyJobs || [])].find(
     (j) => !terminalResearchStates.includes(j.status),
   );

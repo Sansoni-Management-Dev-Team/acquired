@@ -1,11 +1,12 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useActivePolling } from "./use-active-polling";
 import { peopleRoleConflicts } from "@/domain/people-research";
 import { evidenceLabel } from "@/domain/evidence-status";
 import type { ResearchFinding } from "@/domain/research";
 import { terminalResearchStates } from "@/domain/research";
 import { buttonClass, jsonRequest } from "./mandate-workspace";
-type Result = { searchLeads?: import("@/domain/people-search-results").PeopleSearchLead[]; enabled: boolean; webSearchEnabled: boolean; jobs: { id: string; status: string; message: string; pages: number; config?: { targetedSearches?: string[]; runtime?: { remaining?: string[]; attempts?: { status: string; url: string; reason: string }[] } } }[]; findings: { id: string; sourceUrl: string; observedAt: string; confidence: number; evidence: ResearchFinding }[] };
+type Result = { active?: boolean; searchLeads?: import("@/domain/people-search-results").PeopleSearchLead[]; enabled: boolean; webSearchEnabled: boolean; jobs: { id: string; status: string; message: string; pages: number; config?: { targetedSearches?: string[]; runtime?: { remaining?: string[]; attempts?: { status: string; url: string; reason: string }[] } } }[]; findings: { id: string; sourceUrl: string; observedAt: string; confidence: number; evidence: ResearchFinding }[] };
 export function PeopleSearch({ mandateId, targetId, onSaved }: { mandateId: string; targetId: string; onSaved: () => void }) {
   const [data, setData] = useState<Result>();
   const [busy, setBusy] = useState(false);
@@ -13,12 +14,8 @@ export function PeopleSearch({ mandateId, targetId, onSaved }: { mandateId: stri
   const [notice, setNotice] = useState("");
   const url = `/api/targets/${targetId}/people-research`;
   const load = () => jsonRequest(`${url}?mandateId=${mandateId}`).then(setData);
-  useEffect(() => {
-    let live = true;
-    const refresh = () => { void jsonRequest(`${url}?mandateId=${mandateId}`).then(d => { if (live) setData(d); }).catch(() => { if (live) setError("Could not refresh public web research. Reopen this company to retry."); }); };
-    refresh(); const timer = setInterval(refresh, 8000);
-    return () => { live = false; clearInterval(timer); };
-  }, [url, mandateId]);
+  const refresh = useCallback(() => jsonRequest(`${url}?mandateId=${mandateId}`).then(setData).catch(() => setError("Could not refresh public web research. Reopen this company to retry.")), [url, mandateId]);
+  useActivePolling(refresh, { active: Boolean(data?.active), intervalMs: 8000, key: `${url}:${mandateId}` });
   async function act(endpoint: string, body: unknown, saved = false) {
     setBusy(true); setError(""); setNotice("");
     try { const result = await jsonRequest(endpoint, body); await load(); if (saved) { onSaved(); setNotice(result.message || "Contact saved. Published details still need verification."); } }

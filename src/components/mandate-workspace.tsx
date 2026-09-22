@@ -16,7 +16,8 @@ import { ResearchPanel } from "./research-panel";
 
 import { SidebarRegistration } from "./app-shell";
 import { useRouter } from "next/navigation";
-import { useState, useEffect, useRef } from "react";
+import { useCallback, useState, useRef } from "react";
+import { useActivePolling } from "./use-active-polling";
 import { AcquisitionBrief, criterionDefinitions, emptyBrief, type CoverageRun, type MandateView, type MembershipView, type ValuationObservation } from "@/domain/acquisition";
 import { parseMandate } from "@/domain/mandate";
 import { BuyerProfile } from "@/domain/buyer-profile";
@@ -88,25 +89,21 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
   const [reviewQueue, setReviewQueue] = useState<string[]>([]);
   const [reviewId, setReviewId] = useState<string | null>(null);
   const id = data.mandate.id;
-  const [research, setResearch] = useState<{findings: SavedResearchFinding[]; jobs: {status: string; seeds: string[]; config: ResearchConfig}[]; evidence?: Record<string, EvidenceCounts>}>({findings:[], jobs:[]});
+  const [research, setResearch] = useState<{findings: SavedResearchFinding[]; jobs: {status: string; seeds: string[]; config: ResearchConfig}[]; evidence?: Record<string, EvidenceCounts>; active?: boolean}>({findings:[], jobs:[]});
   const refreshSequence = useRef(0);
   const activeFirmable = data.firmableRefreshes.filter(run => run.status === "queued" || run.status === "running");
   const visibleFirmable = data.firmableRefreshes.filter(run => activeFirmable.includes(run) || selected.includes(run.targetId));
-  useEffect(() => {
-    if (tab !== "targets" && tab !== "pipeline") return;
-    let current = true;
-    const refresh = async () => {
-      if (document.hidden) return;
-      const sequence = ++refreshSequence.current;
-      const [workspace, evidence] = await Promise.allSettled([jsonRequest(`/api/mandates/${id}`), jsonRequest(`/api/mandates/${id}/research`)]);
-      if (!current || sequence !== refreshSequence.current) return;
-      if (workspace.status === "fulfilled") setData(workspace.value);
-      if (evidence.status === "fulfilled") setResearch(evidence.value);
-    };
-    void refresh();
-    const timer = setInterval(() => void refresh(), 5000);
-    return () => { current = false; clearInterval(timer); };
-  }, [id, tab]);
+  const polling = tab === "targets" || tab === "pipeline";
+  const refresh = useCallback(async () => {
+    if (!polling) return;
+    const sequence = ++refreshSequence.current;
+    const [workspace, evidence] = await Promise.allSettled([jsonRequest(`/api/mandates/${id}`), jsonRequest(`/api/mandates/${id}/research`)]);
+    if (sequence !== refreshSequence.current) return;
+    if (workspace.status === "fulfilled") setData(workspace.value);
+    if (evidence.status === "fulfilled") setResearch(evidence.value);
+  }, [id, polling]);
+  // Poll only while research or a company data refresh is still running.
+  useActivePolling(refresh, { active: polling && (Boolean(research.active) || activeFirmable.length > 0), intervalMs: 5000, key: `${id}:${tab}` });
   const researchStatus = (m: MembershipView) => businessResearchStatus(m.target.domain, research.findings.filter(f => f.targetId === m.target.id || researchDomain(f.sourceUrl) === m.target.domain).map(f => f.evidence), research.jobs.some(j => !terminalResearchStates.includes(j.status) && [...j.seeds, ...j.config.seeds].some(url => researchDomain(url) === m.target.domain)));
 
   async function act(body: unknown) { setBusy(true); setError(""); setNotice(""); try { const result = await jsonRequest(`/api/mandates/${id}`, body); setData(await jsonRequest(`/api/mandates/${id}`)); setNotice([...(result.messages || []), ...(result.warnings || [])].filter(Boolean).join(" ") || "Saved."); } catch(e) { setError((e as Error).message); } finally { setBusy(false); } }

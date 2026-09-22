@@ -1,10 +1,11 @@
 "use client";
 import { companyFactConflicts } from "@/domain/company-facts";
 import { evidenceLabel, summariseEvidence } from "@/domain/evidence-status";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useActivePolling } from "./use-active-polling";
 import { terminalResearchStates, type SavedResearchFinding } from "@/domain/research";
 import { EbitdaEstimatePanel } from "./ebitda-estimate-panel";
-type Data = { enabled: boolean; jobs: { id: string; status: string; message: string; config?: { targetedSearches?: string[] } }[]; findings: SavedResearchFinding[] };
+type Data = { enabled: boolean; active?: boolean; jobs: { id: string; status: string; message: string; config?: { targetedSearches?: string[] } }[]; findings: SavedResearchFinding[] };
 const button = "min-h-12 rounded-md border border-[var(--border)] px-4 py-2 text-sm disabled:opacity-40";
 export function CompanyFactsPanel({ targetId, mandateId, preferredHeadcount }: { targetId: string; mandateId: string; preferredHeadcount?: number }) {
   const [data, setData] = useState<Data>(), [error, setError] = useState(""), [busy, setBusy] = useState(false);
@@ -15,11 +16,8 @@ export function CompanyFactsPanel({ targetId, mandateId, preferredHeadcount }: {
     if (!response.ok) throw new Error(result.error || "Could not load company details");
     setData(result);
   }, [url, mandateId]);
-  useEffect(() => {
-    const load = () => { void refresh().catch(e => setError(e.message)); };
-    const first = setTimeout(load, 0), timer = setInterval(() => { if (!document.hidden) load(); }, 5000);
-    return () => { clearTimeout(first); clearInterval(timer); };
-  }, [refresh]);
+  const load = useCallback(() => refresh().catch(e => setError(e.message)), [refresh]);
+  useActivePolling(load, { active: Boolean(data?.active), intervalMs: 5000 });
   const active = data?.jobs.find(j => !terminalResearchStates.includes(j.status));
   async function act(action: "start" | "cancel" | "retry-dispatch") {
     setBusy(true); setError("");

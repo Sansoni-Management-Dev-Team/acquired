@@ -15,14 +15,16 @@ export class OrganizationRepository {
     if (!organizationId) throw new Error("organizationId is required for every repository");
   }
 
-  listTargets() {
-    return this.database.select().from(targets).where(eq(targets.organizationId, this.organizationId)).orderBy(desc(targets.createdAt));
+  // Optional target ids keep mandate reads from shipping every target in the organisation.
+  listTargets(targetIds?: string[]) {
+    return this.database.select().from(targets).where(and(eq(targets.organizationId, this.organizationId), targetIds ? inArray(targets.id, targetIds) : undefined)).orderBy(desc(targets.createdAt));
   }
 
-  async listRankedTargets() {
+  async listRankedTargets(targetIds?: string[]) {
+    if (targetIds && !targetIds.length) return [];
     const [targetRows, signalRows] = await Promise.all([
-      this.listTargets(),
-      this.database.select().from(signals).where(eq(signals.organizationId, this.organizationId)),
+      this.listTargets(targetIds),
+      this.database.select().from(signals).where(and(eq(signals.organizationId, this.organizationId), targetIds ? inArray(signals.targetId, targetIds) : undefined)),
     ]);
     const explicitIds = targetRows.flatMap(row => row.firmableCompanyId ? [row.firmableCompanyId] : []);
     const domains = targetRows.flatMap(row => normalizeFirmableDomain(row.domain) ? [normalizeFirmableDomain(row.domain)!] : []);

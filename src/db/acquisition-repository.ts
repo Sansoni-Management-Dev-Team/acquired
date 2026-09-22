@@ -29,22 +29,26 @@ export class AcquisitionRepository {
     await new OrganizationRepository(this.db, this.org).appendAudit({ actorId, action: "mandate.brief_saved", entityType: "mandate", entityId: id });
     return id;
   }
-  async memberships(mandateId: string): Promise<MembershipView[]> {
+  // Reads are scoped to the mandate's targets: the workspace polls this, so every
+  // byte here is multiplied by open tabs. Optional target ids narrow it further.
+  async memberships(mandateId: string, targetIds?: string[]): Promise<MembershipView[]> {
     const mandate = await this.getMandate(mandateId);
     if (!mandate) throw new Error("Mandate not found");
-    const [links, ranked, rows, orgRows, findings] = await Promise.all([
-      this.db.select().from(mandateTargets).where(and(eq(mandateTargets.organizationId, this.org), eq(mandateTargets.mandateId, mandateId))),
-      new OrganizationRepository(this.db, this.org).listRankedTargets(),
-      this.db.select({ id: targets.id, data: targets.firmographics }).from(targets).where(eq(targets.organizationId, this.org)),
+    const links = await this.db.select().from(mandateTargets).where(and(eq(mandateTargets.organizationId, this.org), eq(mandateTargets.mandateId, mandateId), targetIds ? inArray(mandateTargets.targetId, targetIds) : undefined));
+    const ids = links.map(link => link.targetId);
+    if (!ids.length) return [];
+    const [ranked, rows, orgRows, findings] = await Promise.all([
+      new OrganizationRepository(this.db, this.org).listRankedTargets(ids),
+      this.db.select({ id: targets.id, accreditations: sql<Accreditation[] | null>`${targets.firmographics}->'accreditations'` }).from(targets).where(and(eq(targets.organizationId, this.org), inArray(targets.id, ids))),
       this.db.select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, this.org)),
-      this.db.select({ finding: researchFindings }).from(researchFindings).innerJoin(mandateTargets, and(eq(mandateTargets.targetId, researchFindings.targetId), eq(mandateTargets.organizationId, researchFindings.organizationId))).where(and(eq(mandateTargets.mandateId, mandateId), eq(researchFindings.organizationId, this.org))).orderBy(desc(researchFindings.observedAt)),
+      this.db.select({ finding: researchFindings }).from(researchFindings).where(and(eq(researchFindings.organizationId, this.org), inArray(researchFindings.targetId, ids))).orderBy(desc(researchFindings.observedAt)),
     ]);
     return links.flatMap(link => {
       const target = ranked.find(t => t.id === link.targetId);
       if (!target) return [];
       const assessment = assessmentSchema.safeParse(link.assessment);
-      const data = rows.find(r => r.id === target.id)?.data as { accreditations?: Accreditation[] } | undefined;
-      return [{ researchFindings: findings.filter(({ finding }) => finding.targetId === target.id).map(({ finding }) => ({ ...finding, evidence: finding.evidence as import("@/domain/research").ResearchFinding, observedAt: finding.observedAt.toISOString() })), target: assessMembership(target, mandate.brief, assessment.success ? assessment.data : initialAssessment, buyerProfileFromMetadata(orgRows[0]?.metadata)), assessment: assessment.success ? assessment.data : { ...initialAssessment }, accreditations: data?.accreditations || [], version: link.version }];
+      const accreditations = rows.find(r => r.id === target.id)?.accreditations;
+      return [{ researchFindings: findings.filter(({ finding }) => finding.targetId === target.id).map(({ finding }) => ({ ...finding, evidence: finding.evidence as import("@/domain/research").ResearchFinding, observedAt: finding.observedAt.toISOString() })), target: assessMembership(target, mandate.brief, assessment.success ? assessment.data : initialAssessment, buyerProfileFromMetadata(orgRows[0]?.metadata)), assessment: assessment.success ? assessment.data : { ...initialAssessment }, accreditations: Array.isArray(accreditations) ? accreditations : [], version: link.version }];
     });
   }
   async attach(mandateId: string, targetId: string) {
@@ -65,7 +69,7 @@ export class AcquisitionRepository {
     return rows[0].version;
   }
   async saveAccreditations(mandateId: string, targetId: string, accreditations: Accreditation[]) {
-    if (!(await this.memberships(mandateId)).some(m => m.target.id === targetId)) throw new Error("Target not found in mandate");
+    if (!(await this.memberships(mandateId, [targetId])).length) throw new Error("Target not found in mandate");
     await this.db.update(targets).set({ firmographics: sql`jsonb_set(${targets.firmographics}, '{accreditations}', ${JSON.stringify(accreditations)}::jsonb)`, updatedAt: new Date() }).where(and(eq(targets.id, targetId), eq(targets.organizationId, this.org)));
   }
   async coverage(mandateId: string): Promise<CoverageRun[]> {

@@ -20,6 +20,14 @@ export const terminalResearchStates = [
   "failed",
   "cancelled",
 ];
+// Research can still change on its own while a job runs, or while an automatic
+// run is inside its deadline and may dispatch continuation or enrichment children.
+// Clients poll only while this is true; jobs are expected newest first.
+export function researchActive(jobs: { status: string; config: { mode?: string; purpose?: string; discoveryCandidate?: boolean; automaticDeadline?: number } }[], now = Date.now()) {
+  if (jobs.some(j => !terminalResearchStates.includes(j.status))) return true;
+  const root = jobs.find(j => !j.config.purpose && !j.config.discoveryCandidate);
+  return Boolean(root && root.config.mode === "automatic" && root.status !== "cancelled" && now < (root.config.automaticDeadline || 0));
+}
 export function publicResearchUrl(value: string): string | null {
   try {
     const url = new URL(value);

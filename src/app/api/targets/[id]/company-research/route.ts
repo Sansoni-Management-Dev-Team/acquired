@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { auth } from "@/lib/auth";
 import { requireDb } from "@/db/client";
@@ -7,6 +7,7 @@ import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { ResearchRepository } from "@/db/research-repository";
 import { researchEnabled, researchWorker } from "@/lib/research-service";
 import { publicResearchUrl, researchUrlKey, uniqueResearchUrls, terminalResearchStates, type ResearchConfig } from "@/domain/research";
+const companyFactKinds = ["headcount", "revenue", "company_relationship", "company_contact", "founded_year", "location", "industry"];
 async function context(request: Request, id: string, mandateId: unknown) {
   const session = await auth.api.getSession({ headers: request.headers });
   const org = session?.session.activeOrganizationId;
@@ -14,7 +15,7 @@ async function context(request: Request, id: string, mandateId: unknown) {
   if (!z.string().uuid().safeParse(id).success || !z.string().uuid().safeParse(mandateId).success) return { error: Response.json({ error: "Invalid company or mandate" }, { status: 400 }) };
   const repo = new AcquisitionRepository(org);
   if (!await repo.getMandate(mandateId as string)) return { error: Response.json({ error: "Mandate not found" }, { status: 404 }) };
-  const member = (await repo.memberships(mandateId as string)).find(m => m.target.id === id);
+  const [member] = await repo.memberships(mandateId as string, [id]);
   if (!member) return { error: Response.json({ error: "Company not found" }, { status: 404 }) };
   return { org, session, member, mandateId: mandateId as string };
 }
@@ -25,7 +26,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   const db = requireDb();
   const [jobs, findings] = await Promise.all([
     db.select().from(researchJobs).where(and(eq(researchJobs.organizationId, c.org), eq(researchJobs.mandateId, c.mandateId), sql`${researchJobs.config}->>'purpose' = 'firmographics'`, sql`${researchJobs.config}->>'targetId' = ${id}`)).orderBy(desc(researchJobs.createdAt)).limit(20),
-    db.select().from(researchFindings).where(and(eq(researchFindings.organizationId, c.org), eq(researchFindings.mandateId, c.mandateId), eq(researchFindings.targetId, id))),
+    db.select().from(researchFindings).where(and(eq(researchFindings.organizationId, c.org), eq(researchFindings.mandateId, c.mandateId), eq(researchFindings.targetId, id), inArray(sql`${researchFindings.evidence}->>'kind'`, companyFactKinds))),
   ]);
   for (const job of jobs.filter(j => !terminalResearchStates.includes(j.status) && Date.now() - j.updatedAt.getTime() > 90000)) {
     try {
@@ -37,7 +38,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
       }
     } catch { /* Preserve running state when the status check is unavailable. */ }
   }
-  return Response.json({ enabled: researchEnabled(), webSearchEnabled: researchEnabled(), jobs: jobs.filter(j => (j.config as ResearchConfig).purpose === "firmographics" && (j.config as ResearchConfig).targetId === id), findings: findings.filter(f => ["headcount", "revenue", "company_relationship", "company_contact", "founded_year", "location", "industry"].includes((f.evidence as { kind: string }).kind)) }, { headers: { "Cache-Control": "no-store" } });
+  return Response.json({ enabled: researchEnabled(), webSearchEnabled: researchEnabled(), active: jobs.some(j => !terminalResearchStates.includes(j.status)), jobs, findings }, { headers: { "Cache-Control": "no-store" } });
 }
 const inputSchema = z.object({ action: z.literal("start"), mandateId: z.string().uuid(), requestId: z.string().uuid(), continueFrom: z.string().uuid().optional(), approved: z.literal(true) });
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
