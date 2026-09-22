@@ -747,3 +747,26 @@ it("preserves pages for continuation when the fallback reader is busy", async ()
   expect(last?.runtime?.attempts[0].status).toBe("pending");
   expect(t.step.sleep).toHaveBeenCalledWith("fallback-backoff-1", 30000);
 });
+it('serves robots and sitemap documents from the run cache before asking for a provider read', async () => {
+  const t = setup();
+  Object.assign(t.config, { mode: 'automatic', purpose: 'people', targetedFollowup: false, companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
+  t.config.budget = { maxPages: 1, maxDomains: 1, maxMinutes: 10, maxModelCalls: 0 };
+  t.service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: '# Example Instruments\nOur team\n\nJane Citizen, Managing Director' } }));
+  t.service.cachedPage = vi.fn(async url => url.endsWith('/robots.txt') ? { status: 'completed', page: { url, markdown: 'Sitemap: https://instruments.example.com/sitemap.xml' } } : url.endsWith('/sitemap.xml') ? { status: 'completed', page: { url, markdown: '<urlset><url><loc>https://instruments.example.com/team/</loc></url></urlset>' } } : null);
+  t.service.readSiteFile = vi.fn(async url => ({ status: 'completed', page: { url, markdown: '' } }));
+  await runResearch(t.step, t.service);
+  expect(t.service.cachedPage).toHaveBeenCalledWith('https://instruments.example.com/robots.txt');
+  expect(t.service.cachedPage).toHaveBeenCalledWith('https://instruments.example.com/sitemap.xml');
+  expect(t.service.readSiteFile).not.toHaveBeenCalled();
+  expect(t.progress.mock.calls.at(-1)?.[0].runtime?.remaining).toContain('https://instruments.example.com/team/');
+});
+it('publishes the browser-wait notice as a heartbeat rather than once per page', async () => {
+  const t = setup();
+  t.config.seeds = ['https://a.example.com/', 'https://b.example.com/', 'https://c.example.com/'];
+  t.config.budget = { maxPages: 3, maxDomains: 3, maxMinutes: 10, maxModelCalls: 0 };
+  t.service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: 'Example Instruments makes sensors for industry.' } }));
+  await runResearch(t.step, t.service);
+  const waiting = t.progress.mock.calls.filter(([event]) => event.message.startsWith('Waiting for browser slot'));
+  expect(waiting).toHaveLength(1);
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'complete', pages: 3 });
+});

@@ -10,7 +10,7 @@ export async function withLocalProvider<T>(provider: 'page' | 'search', token: s
   try {
     if (!token) {
       const permit = await callback({ action: 'provider-reserve', provider, token: reservedToken }) as Admission;
-      if (!permit.granted || permit.retryAfterMs > 20000) throw new BrowserAdmissionDeferred();
+      if (!permit.granted || permit.retryAfterMs > 35000) throw new BrowserAdmissionDeferred();
       if (permit.retryAfterMs > 0) await new Promise(resolve => setTimeout(resolve, permit.retryAfterMs));
     }
     const permit = await callback({ action: 'browser-permit', token: reservedToken }) as Admission;

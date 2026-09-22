@@ -60,7 +60,7 @@ it('fills three local page slots immediately and refills a released slot while s
   const search = reserveProvider(queue, 'search', 'search', 'search', 1001, 480000, true);
   expect(search.reservation?.after).toBe(1001);
   queue = consumeProvider(search.queue, 'search', 'search', 1001)!;
-  expect(reserveProvider(queue, 'search2', 'search2', 'search', 1001, 480000, true).reservation?.after).toBe(13001);
+  expect(reserveProvider(queue, 'search2', 'search2', 'search', 1001, 480000, true).reservation?.after).toBe(7001);
   queue = releaseProvider(queue, 'page-0', 'wrong-job');
   expect(reserveProvider(queue, 'fourth', 'fourth', 'page', 1002, 480000, true).reservation).toBeUndefined();
   queue = releaseProvider(queue, 'page-0', 'job-0');

@@ -91,10 +91,20 @@ try {
   assert.equal(second.status, 202); active.add(cancelId); report.jobs.push(cancelId);
   assert.equal((await request(app, `/api/research/${cancelId}`, { action: 'cancel' })).status, 200);
   assert.equal((await waitForJob(cancelId)).status, 'cancelled');
-  const workflow = await request(worker, `/jobs/${cancelId}`, undefined, 'service');
+  // The saved job is cancelled immediately; the Workflow notices at its next
+  // control check, which can be after an in-flight page read finishes.
+  let workflow;
+  for (const deadline = Date.now() + 60000; ; ) {
+    workflow = await request(worker, `/jobs/${cancelId}`, undefined, 'service');
+    assert.equal(workflow.status, 200);
+    if (['terminated', 'complete', 'errored'].includes(workflow.data.status) || Date.now() > deadline) break;
+    await new Promise(resolve => setTimeout(resolve, 2000));
+  }
   report.cancelledWorkflow = workflow.data;
-  assert.equal(workflow.status, 200);
-  assert.ok(['terminated', 'complete'].includes(workflow.data.status));
+  assert.ok(['terminated', 'complete'].includes(workflow.data.status), `Workflow still ${workflow.data.status} 60 s after cancellation`);
+  const afterCancel = await row(cancelId);
+  assert.equal(afterCancel.status, 'cancelled');
+  assert.equal(afterCancel.pages, 0, 'Progress must not be recorded after cancellation');
   passed('Cancellation persists and stops the real Workflow');
   report.success = true;
 } catch (error) {

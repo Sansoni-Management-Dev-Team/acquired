@@ -2,8 +2,11 @@
 // use three completion-released slots; local search and AI have separate limits.
 export type ResearchProvider = 'page' | 'search' | 'ai';
 export type ProviderReservation = { token: string; jobId: string; provider: ResearchProvider; after: number; until: number; consumed?: boolean; local?: boolean; released?: boolean; paid?: boolean; domain?: string };
-export type ProviderQueue = { localSearchAfter?: number; localSearchConsumedAfter?: number; browserAfter?: number; browserConsumedAfter?: number; aiAfter?: number[]; reservations?: ProviderReservation[]; browserCooldownUntil?: number; domainAfter?: Record<string, number>; browserWaiters?: { jobId: string; provider: ResearchProvider; since: number }[]; aiWaiters?: { jobId: string; since: number }[] };
+export type ProviderQueue = { localSearchAfter?: number; localSearchConsumedAfter?: number; browserAfter?: number; browserConsumedAfter?: number; aiAfter?: number[]; reservations?: ProviderReservation[]; browserCooldownUntil?: number; browserStartAfter?: number; domainAfter?: Record<string, number>; browserWaiters?: { jobId: string; provider: ResearchProvider; since: number }[]; aiWaiters?: { jobId: string; since: number }[] };
 export const BROWSER_SPACING_MS = 12000;
+// Local OpenSERP tolerates closer spacing than the rendered DuckDuckGo page.
+export const LOCAL_SEARCH_SPACING_MS = 6000;
+const LOCAL_SEARCH_CONSUMED_MS = 5000;
 export const AI_CONCURRENCY = 8;
 export const LOCAL_PAGE_CONCURRENCY = 3;
 // Longer than a local read's 45-second deadline; abandoned slots recover automatically.
@@ -33,12 +36,12 @@ export function reserveProvider(queue: ProviderQueue, jobId: string, token: stri
   const reservation: ProviderReservation = { token, jobId, provider, ...(local ? { local: true } : {}), after, until: after + (provider === 'ai' ? 90000 : 10000) };
   // An AI operation, including fallback, has a 45-second wall-clock deadline.
   if (provider === 'ai') lanes[lane] = after + 47000;
-  return { queue: { ...queue, ...(provider === 'ai' ? { aiAfter: lanes } : { [local ? 'localSearchAfter' : 'browserAfter']: after + BROWSER_SPACING_MS }), reservations: [...reservations.filter(r => r.token !== token), reservation] }, reservation, retryAfterMs: after - now };
+  return { queue: { ...queue, ...(provider === 'ai' ? { aiAfter: lanes } : { [local ? 'localSearchAfter' : 'browserAfter']: after + (local ? LOCAL_SEARCH_SPACING_MS : BROWSER_SPACING_MS) }), reservations: [...reservations.filter(r => r.token !== token), reservation] }, reservation, retryAfterMs: after - now };
 }
 export function consumeProvider(queue: ProviderQueue, token: string, jobId: string, now: number, domain?: string) {
   const reservation = queue.reservations?.find(r => r.token === token && r.jobId === jobId && !r.consumed && r.after <= now && r.until >= now);
   if (!reservation || providerConsumedAfter(queue, reservation, domain) > now) return null;
-  return { ...queue, ...(reservation.provider !== 'ai' && !(reservation.local && reservation.provider === 'page') ? { [reservation.local ? 'localSearchConsumedAfter' : 'browserConsumedAfter']: now + (reservation.paid ? 1000 : 10000) } : {}), ...(reservation.paid && domain ? { domainAfter: { ...queue.domainAfter, [domain]: now + 3000 } } : {}), reservations: queue.reservations!.map(r => r === reservation ? { ...r, consumed: true, ...((r.local && r.provider === 'page') || r.paid ? { until: now + LOCAL_PAGE_LEASE_MS, ...(domain ? { domain } : {}) } : {}) } : r) };
+  return { ...queue, ...(reservation.provider !== 'ai' && !(reservation.local && reservation.provider === 'page') ? { [reservation.local ? 'localSearchConsumedAfter' : 'browserConsumedAfter']: now + (reservation.paid ? 1000 : reservation.local ? LOCAL_SEARCH_CONSUMED_MS : 10000) } : {}), ...(reservation.paid && domain ? { domainAfter: { ...queue.domainAfter, [domain]: now + 3000 } } : {}), reservations: queue.reservations!.map(r => r === reservation ? { ...r, consumed: true, ...((r.local && r.provider === 'page') || r.paid ? { until: now + LOCAL_PAGE_LEASE_MS, ...(domain ? { domain } : {}) } : {}) } : r) };
 }
 
 // A slightly early wake-up retains its place instead of joining the queue again.
@@ -75,22 +78,29 @@ function reserveManagedAi(queue: ProviderQueue, jobId: string, token: string, no
 
 
 // Four page slots plus one search slot prevent either workload monopolising the pool.
-// Waiting jobs keep FIFO order within their workload; no long future bookings.
+// Any waiter is admitted while its workload has free capacity; FIFO order only
+// decides who takes the last free slot, so a slot never idles waiting for the
+// head of the queue to poll again. No long future bookings.
+export const PAID_PAGE_SLOTS = 4;
+export const PAID_SEARCH_SLOTS = 1;
+export const PAID_BROWSER_SLOTS = PAID_PAGE_SLOTS + PAID_SEARCH_SLOTS;
 function reservePaidBrowser(queue: ProviderQueue, jobId: string, token: string, provider: ResearchProvider, now: number) {
   const reservations = (queue.reservations || []).filter(r => r.until >= now);
   if (reservations.some(r => r.token === token && r.jobId === jobId)) return { queue, queued: true, retryAfterMs: 3000 };
   const active = reservations.filter(r => !r.released && !r.local && r.provider !== 'ai');
   const waiters = (queue.browserWaiters || []).filter(w => w.since > now - 60000);
   if (!waiters.some(w => w.jobId === jobId && w.provider === provider)) waiters.push({ jobId, provider, since: now });
-  const first = waiters.find(w => w.provider === provider);
-  const busy = active.length >= 5 || active.filter(r => r.provider === provider).length >= (provider === 'search' ? 1 : 4);
-  const after = Math.max(now, queue.browserConsumedAfter || 0, queue.browserCooldownUntil || 0);
+  const rank = waiters.filter(w => w.provider === provider).findIndex(w => w.jobId === jobId);
+  const free = Math.min(PAID_BROWSER_SLOTS - active.length, (provider === 'search' ? PAID_SEARCH_SLOTS : PAID_PAGE_SLOTS) - active.filter(r => r.provider === provider).length);
+  // Browser starts are staggered one second apart by scheduling the start time
+  // into the grant instead of refusing the poller; the Workflow sleeps briefly.
+  const start = Math.max(now, queue.browserConsumedAfter || 0, queue.browserCooldownUntil || 0, queue.browserStartAfter || 0);
   const next = { ...queue, reservations, domainAfter: Object.fromEntries(Object.entries(queue.domainAfter || {}).filter(([, after]) => after > now)), browserWaiters: waiters.map(w => w.jobId === jobId && w.provider === provider ? { ...w, since: now } : w) };
-  if (busy || first?.jobId !== jobId || after > now) return { queue: next, queued: true, retryAfterMs: Math.max(3000, Math.min(30000, after - now)) };
+  if (free <= 0 || rank >= free || start - now > 10000) return { queue: next, queued: true, retryAfterMs: Math.max(1000, Math.min(30000, start - now)) };
   // A Vercel discovery callback can perform database coordination before it
   // reaches the nested browser request, especially when many jobs wake at once.
-  const reservation: ProviderReservation = { token, jobId, provider, paid: true, after: now, until: now + 90000 };
-  return { queue: { ...next, reservations: [...reservations, reservation], browserWaiters: waiters.filter(w => w.jobId !== jobId || w.provider !== provider) }, reservation, retryAfterMs: 0 };
+  const reservation: ProviderReservation = { token, jobId, provider, paid: true, after: start, until: start + 90000 };
+  return { queue: { ...next, browserStartAfter: start + 1000, reservations: [...reservations, reservation], browserWaiters: waiters.filter(w => w.jobId !== jobId || w.provider !== provider) }, reservation, retryAfterMs: start - now };
 }
 export function coolDownBrowser(queue: ProviderQueue, now: number, retryAfterMs: number): ProviderQueue {
   return { ...queue, browserCooldownUntil: Math.max(queue.browserCooldownUntil || 0, now + Math.max(1000, Math.min(300000, retryAfterMs))) };

@@ -123,9 +123,13 @@ it("retains unprocessed URLs when the paid request guard is reached", async () =
   await instance.waitForStatus("complete");
   const last = t.progress.at(-1)!;
   expect(last.status).toBe("partial");
-  expect(last.message).toContain("Browser admission deferred");
-  expect(last.runtime?.remaining).toContain("https://instruments46.example.com/");
-  expect(last.runtime?.visited).not.toContain("https://instruments46.example.com/");
+  // The guard can trip in the admission wrapper or in a control check; either way
+  // unread seeds stay queued and unvisited for the continuation.
+  expect(last.message).toMatch(/Browser admission deferred|Worker request budget reached/);
+  expect(last.pages).toBeLessThan(pages);
+  const pending = last.runtime!.remaining[0];
+  expect(pending).toMatch(/^https:\/\/instruments\d+\.example\.com\/$/);
+  expect(last.runtime?.visited).not.toContain(pending);
   const config = automaticContinuation({
     id: t.id, status: last.status, message: last.message, createdAt: new Date(),
     modelCalls: last.modelCalls, config: { ...t.config, runtime: last.runtime },
@@ -137,7 +141,7 @@ it("retains unprocessed URLs when the paid request guard is reached", async () =
   await bindings.RESEARCH.create({ id: resumed.id, params: { jobId: resumed.id } });
   await next.waitForStatus("complete");
   expect(resumed.requests).toContain("http://127.0.0.1:18083/crawl");
-  expect(resumed.progress.some(p => p.page?.url === "https://instruments46.example.com/")).toBe(true);
+  expect(resumed.progress.some(p => p.page?.url === pending)).toBe(true);
 });
 
 it("defers admission contention and completes the page when admission is available", async () => {

@@ -18,6 +18,7 @@ import { peopleWebSearch } from "@/adapters/people-web-search";
 import { z } from "zod";
 import { and, eq, notInArray, sql } from "drizzle-orm";
 import { requireDb } from "@/db/client";
+import { directorySource } from "@/domain/discovery-sources";
 import { mandateTargets, researchJobs, researchFindings, targets } from "@/db/schema";
 import { ResearchRepository } from "@/db/research-repository";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
@@ -479,7 +480,10 @@ export async function POST(
   try {
     if ((job.config as ResearchConfig).mode === "automatic") {
       if (["complete", "partial"].includes(event.data.status)) await dispatchContinuation(job.organizationId, jobId);
-      if (event.data.page || ["complete", "partial", "failed"].includes(event.data.status)) {
+      // Refill work only when a page produced evidence or directory links, or the job ended;
+      // status-only heartbeats must stay cheap.
+      const pageMatters = Boolean(event.data.page && (event.data.page.findings.length > 0 || directorySource(event.data.page.url, event.data.page.markdown)));
+      if (pageMatters || ["complete", "partial", "failed"].includes(event.data.status)) {
         await dispatchDiscoveryCandidates(job.organizationId, jobId);
         await dispatchAutomaticEnrichment(job.organizationId, jobId);
       }

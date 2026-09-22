@@ -16,5 +16,5 @@ it('returns expiry for durable rebooking instead of joining the synchronous queu
 it('keeps bounded synchronous admission for callers without a reservation',async()=>{
  m.reserve.mockResolvedValue({granted:false,retryAfterMs:30000});
  await researchBrowserPermit('job');
- expect(m.reserve).toHaveBeenCalledWith('job',expect.any(String),'search',22000);
+ expect(m.reserve).toHaveBeenCalledWith('job',expect.any(String),'search',35000);
 });

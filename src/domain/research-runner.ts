@@ -92,6 +92,7 @@ export async function runResearch(
   const source = (value: string) => { try { const url = new URL(value); return `${url.origin}${url.pathname}`; } catch { return "invalid_url"; } };
   const trace = (event: string, details: Record<string, unknown>) => service.diagnostic?.({ event, ...details });
   let runtime: ResearchRuntime = { remaining: [], visited: [], attempts: [] };
+  let lastPublishAt = service.now();
   // A host that returns no readable content is skipped for the rest of the job.
   const blockedDomains = new Set<string>();
   const publish = async (
@@ -110,6 +111,7 @@ export async function runResearch(
       ...(page ? { page } : {}),
     };
     await step.do(`progress-${revision}`, () => service.progress(event));
+    lastPublishAt = service.now();
   };
   const check = async (label: string) =>
     step.do(`control-${label}`, async () => {
@@ -200,6 +202,12 @@ export async function runResearch(
     const domains = new Set<string>(initial.config.autoDomains || []),
       budget = initial.config.budget;
     const sitemapChecked = new Set<string>();
+    // Site files are static text: the run cache is consulted before any provider
+    // admission so a second job on the same website never waits for a slot.
+    const readSite = async (label: string, url: string) => {
+      const cached = service.cachedPage ? await step.do(`cached-site-${label}`, () => service.cachedPage!(url), false) : null;
+      return cached || step.do(`read-site-${label}`, () => service.readSiteFile!(url), false);
+    };
     const discoverSitemap = async (sourceUrl: string, attempt: number) => {
       if (!service.readSiteFile) return [];
       const domain = researchDomain(sourceUrl);
@@ -210,7 +218,7 @@ export async function runResearch(
       const pages: string[] = [];
       try {
         const robotsUrl = new URL("/robots.txt", origin).href;
-        const robots = await step.do(`read-site-robots-${attempt}`, () => service.readSiteFile!(robotsUrl), false);
+        const robots = await readSite(`robots-${attempt}`, robotsUrl);
         if (robots.status === "completed" && robots.page) documents.push(...sitemapUrls(robots.page.markdown, sourceUrl).filter(sitemapDocument));
       } catch { /* Missing or blocked robots.txt falls back to conventional sitemap paths. */ }
       if (!documents.length) documents.push(new URL("/sitemap.xml", origin).href);
@@ -220,7 +228,7 @@ export async function runResearch(
         if (seen.has(document)) continue;
         seen.add(document);
         try {
-          const result = await step.do(`read-site-sitemap-${attempt}-${seen.size}`, () => service.readSiteFile!(document), false);
+          const result = await readSite(`sitemap-${attempt}-${seen.size}`, document);
           if (result.status !== "completed" || !result.page) continue;
           const urls = sitemapUrls(result.page.markdown, sourceUrl);
           pages.push(...urls.filter(url => !sitemapDocument(url)));
@@ -365,7 +373,9 @@ export async function runResearch(
         runtime.remaining = uniqueResearchUrls([url, ...runtime.remaining]).slice(0, 1000);
         warnings.push(reason);
       };
-      await publish(
+      // A waiting notice is a heartbeat, not a per-page event: publish it for the
+      // first page and whenever saved progress is older than a minute.
+      if (attempt === 1 || service.now() - lastPublishAt > 60000) await publish(
         "crawling",
         `Waiting for browser slot — website ${domains.size}, page attempt ${attempt} of ${budget.maxPages}`,
       );

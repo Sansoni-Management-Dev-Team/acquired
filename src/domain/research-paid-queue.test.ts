@@ -8,7 +8,8 @@ it('allows four concurrent pages and reserves a fifth slot for search; starts ar
     const r = reserve(queue, `p${i}`, 'page', now);
     expect(r.reservation).toBeDefined();
     queue = consumeProvider(r.queue, `p${i}`, `p${i}`, now, `site${i}.com`)!;
-    expect(reserve(queue, 'early', 'search', now + 999).reservation).toBeUndefined();
+    // A start inside the one-second spacing is scheduled, never refused.
+    expect(reserve(queue, 'early', 'search', now + 999).reservation?.after).toBeGreaterThanOrEqual(now + 1000);
   }
   expect(reserve(queue, 'extra', 'page', 5000)).toMatchObject({ queued: true });
   const search = reserve(queue, 'early', 'search', 5000);
@@ -70,6 +71,55 @@ it('recovers abandoned leases, rejects token reuse and honours rate-limit cooldo
 it('respects legacy in-flight browser pacing during rolling deployment', () => {
   const old=reserveProvider({},'old','old','page',1000);
   const q=consumeProvider(old.queue,'old','old',1000)!;
-  expect(reserve(q,'new','search',2000).reservation).toBeUndefined();
-  expect(reserve(q,'new','search',11000).reservation).toBeDefined();
+  expect(reserve(q,'new','search',2000).reservation?.after).toBe(11000);
+  expect(reserve(q,'new','search',11000).reservation?.after).toBe(11000);
+});
+it('admits every waiter that fits free capacity in the same tick and keeps FIFO for the last slot', () => {
+  let queue: ProviderQueue = {};
+  // Three jobs poll while all four page slots are free: none should be refused.
+  for (const job of ['a', 'b', 'c']) { const r = reserve(queue, job, 'page', 1000); queue = r.queue; expect(r.reservation, job).toBeDefined(); }
+  // Two more wait for the single remaining slot; the earlier waiter wins it.
+  queue = reserve(queue, 'd', 'page', 1100).queue;
+  queue = reserve(queue, 'e', 'page', 1200).queue;
+  expect(reserve(queue, 'e', 'page', 1300).reservation).toBeUndefined();
+  const d = reserve(queue, 'd', 'page', 1300); queue = d.queue;
+  expect(d.reservation).toBeDefined();
+  expect(reserve(queue, 'e', 'page', 1400)).toMatchObject({ queued: true });
+  // Search capacity is independent of page waiters.
+  expect(reserve(queue, 's', 'search', 1400).reservation).toBeDefined();
+});
+it('lets any poller take a released slot instead of idling until the head waiter returns', () => {
+  let queue: ProviderQueue = {};
+  for (let i = 0; i < 4; i++) { const r = reserve(queue, `p${i}`, 'page', 1000); queue = consumeProvider(r.queue, `p${i}`, `p${i}`, r.reservation!.after)!; }
+  queue = reserve(queue, 'head', 'page', 5000).queue;
+  queue = reserve(queue, 'second', 'page', 5100).queue;
+  queue = releaseProvider(queue, 'p0', 'p0');
+  queue = releaseProvider(queue, 'p1', 'p1');
+  // Two slots free: the second waiter is admitted even though it polls first.
+  const second = reserve(queue, 'second', 'page', 6000); queue = second.queue;
+  expect(second.reservation).toBeDefined();
+  const head = reserve(queue, 'head', 'page', 6100); queue = head.queue;
+  expect(head.reservation).toBeDefined();
+  expect(reserve(queue, 'third', 'page', 6200)).toMatchObject({ queued: true });
+});
+it('sustains near slot capacity under polling contention', () => {
+  // Discrete-event model: each job reserves, reads for 3.2 s, releases, then re-polls; refused jobs poll again after 3.6 s.
+  const simulate = (jobs: number) => {
+    let queue: ProviderQueue = {}; let reads = 0; let now = 0;
+    const next = Array.from({ length: jobs }, (_, i) => ({ id: `job-${i}`, at: i * 50, token: 0 }));
+    while (now < 600000) {
+      next.sort((a, b) => a.at - b.at); const j = next[0]; now = j.at; if (now >= 600000) break;
+      const token = `${j.id}:${j.token++}`;
+      const r = reserve(queue, j.id, 'page', now, token); queue = r.queue;
+      // A granted start in the near future is a short Workflow sleep before the claim.
+      const startAt = r.reservation ? Math.max(now, r.reservation.after) : now;
+      const consumed = r.reservation ? consumeProvider(queue, token, j.id, startAt, `${j.id}.example.com`) : null;
+      if (consumed) { queue = releaseProvider(consumed, token, j.id); reads++; j.at = startAt + 3800; continue; }
+      j.at = now + 3600;
+    }
+    return reads;
+  };
+  // Four slots at 3.8 s per read allow about 630 reads in ten minutes; the old head-of-line gate managed about 165.
+  expect(simulate(4)).toBeGreaterThan(500);
+  expect(simulate(23)).toBeGreaterThan(450);
 });

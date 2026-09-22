@@ -15,6 +15,7 @@ import { callbackOrigin } from "./callback-origin";
 import { cancelCrawl, crawlRetryUrl, CrawlerRequestError, requestBudgetStop, stalledResearch } from "./runtime-policy";
 import { targetedPrompt, targetedSchema } from "../../src/domain/targeted-research";
 import { readFallback } from "./fallback";
+import { readSiteText } from "./site-file";
 import { ProviderCoordinator } from "./provider-coordinator";
 import { searchResults } from "../../src/domain/cloudflare-search";
 import {
@@ -50,7 +51,9 @@ const coordinator = (env: Env) => env.PROVIDER_COORDINATOR?.getByName("account-w
 async function providerAction(env: Env, jobId: string, body: { action: string; token?: string | null; provider?: ResearchProvider; retryAfterMs?: number; url?: string }, budget?: { used: number; jobId?: string }) {
   const stub = coordinator(env);
   if (!stub) return callback(env, jobId, body.action === "provider-reserve" ? { ...body, policy: "paid-v1" } : body, budget);
-  if (body.action === "provider-reserve" && body.token && body.provider) return stub.reserve({ jobId, token: body.token, provider: body.provider, local: !productionPolicy(env) });
+  // The coordinator holds the request while capacity is busy, so one admission
+  // step usually replaces a series of sleep-and-poll rounds.
+  if (body.action === "provider-reserve" && body.token && body.provider) return stub.reserve({ jobId, token: body.token, provider: body.provider, local: !productionPolicy(env), holdMs: 20000 });
   if (body.action === "browser-permit" && body.token) return stub.claim(jobId, body.token, body.url ? new URL(body.url).hostname.replace(/^www\./, "") : undefined);
   if (body.action === "provider-release" && body.token) return stub.release(jobId, body.token).then(() => ({ ok: true }));
   if (body.action === "browser-cooldown") return stub.cooldown(body.retryAfterMs || 30000).then(() => ({ ok: true }));
@@ -186,7 +189,8 @@ export class AcquireResearch extends WorkflowEntrypoint<
           retry = true,
         ): Promise<T> => {
           const config = stateCache?.value.config;
-          const provider: ResearchProvider | undefined = /^read-(?:people|site)-/.test(name) ? 'page'
+          // Site files need browser admission only when a local reader serves them.
+          const provider: ResearchProvider | undefined = /^read-people-/.test(name) || (/^read-site-/.test(name) && this.env.LOCAL_DEVELOPMENT === "true") ? 'page'
             : /^(extract-|company-identity-|headcount-|discovery-plan-|targeted-plan$)/.test(name) ? 'ai'
             : /^(targeted-search-|people-followup$)/.test(name) || (/^discover(?:-\d+)?$/.test(name) && config?.discover && !config.targetedFollowup) ? 'search' : undefined;
           if (!provider) return checkpoint(name, run, retry);
@@ -245,7 +249,11 @@ export class AcquireResearch extends WorkflowEntrypoint<
         },
         readSiteFile: async (url: string) => {
           const state = await control();
-          return cachedPage(caches.default, state.config.researchRunId || id, url, () => readMarkdown(this.env, url, requestBudget, false, browserReservation));
+          // Production reads robots and sitemap documents directly; local modes keep
+          // the allowlisted reader because ordinary outbound requests are blocked.
+          return cachedPage(caches.default, state.config.researchRunId || id, url, () => this.env.LOCAL_DEVELOPMENT === "true"
+            ? readMarkdown(this.env, url, requestBudget, false, browserReservation)
+            : readSiteText(url, fetch, () => { requestBudget.used++; }));
         },
         ...(this.env.LOCAL_DEVELOPMENT !== "true" && this.env.CRAWL4AI_URL ? { readFallbackPage: async (url: string) => {
           requestBudget.used++;
