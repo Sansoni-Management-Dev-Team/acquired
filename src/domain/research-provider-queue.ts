@@ -55,7 +55,9 @@ function providerConsumedAfter(queue: ProviderQueue, r: ProviderReservation, dom
   if (r.provider === 'ai' || (r.local && r.provider === 'page')) return 0;
   const shared = (r.local ? queue.localSearchConsumedAfter : queue.browserConsumedAfter) || 0;
   if (!r.paid) return shared;
-  const activeDomain = domain ? (queue.reservations || []).filter(x => x.token !== r.token && x.domain === domain && x.consumed && !x.released).reduce((end, x) => Math.max(end, x.until), 0) : 0;
+  // Company websites never receive overlapping reads. Searches all target the
+  // one search host, so they may overlap while keeping the start spacing.
+  const activeDomain = domain && r.provider !== 'search' ? (queue.reservations || []).filter(x => x.token !== r.token && x.domain === domain && x.consumed && !x.released).reduce((end, x) => Math.max(end, x.until), 0) : 0;
   return Math.max(shared, queue.browserCooldownUntil || 0, domain ? queue.domainAfter?.[domain] || 0 : 0, activeDomain);
 }
 export function releaseProvider(queue: ProviderQueue, token: string, jobId: string): ProviderQueue {
@@ -77,12 +79,12 @@ function reserveManagedAi(queue: ProviderQueue, jobId: string, token: string, no
 }
 
 
-// Four page slots plus one search slot prevent either workload monopolising the pool.
+// Four page slots plus two search slots prevent either workload monopolising the pool.
 // Any waiter is admitted while its workload has free capacity; FIFO order only
 // decides who takes the last free slot, so a slot never idles waiting for the
 // head of the queue to poll again. No long future bookings.
 export const PAID_PAGE_SLOTS = 4;
-export const PAID_SEARCH_SLOTS = 1;
+export const PAID_SEARCH_SLOTS = 2;
 export const PAID_BROWSER_SLOTS = PAID_PAGE_SLOTS + PAID_SEARCH_SLOTS;
 function reservePaidBrowser(queue: ProviderQueue, jobId: string, token: string, provider: ResearchProvider, now: number) {
   const reservations = (queue.reservations || []).filter(r => r.until >= now);

@@ -113,6 +113,12 @@ export async function runResearch(
     await step.do(`progress-${revision}`, () => service.progress(event));
     lastPublishAt = service.now();
   };
+  // Intermediate status text is a liveness heartbeat, not an event: it is
+  // saved only when the last saved progress is older than a minute. Pages,
+  // failures and terminal states always publish.
+  const heartbeat = async (status: string, message: string) => {
+    if (service.now() - lastPublishAt > 60000) await publish(status, message);
+  };
   const check = async (label: string) =>
     step.do(`control-${label}`, async () => {
       const data = await service.control();
@@ -165,7 +171,7 @@ export async function runResearch(
             if (error instanceof BrowserAdmissionDeferred) { modelCalls--; return { seeds: [], more: true }; }
             warnings.push("AI search planner unavailable; using scope-based searches");
           }
-          await publish("discovering", "Adapting search strategy from research results");
+          await heartbeat("discovering", "Adapting search strategy from research results");
         }
       }
       return step.do(round ? `discover-${round}` : "discover", () => service.discover(attemptIndex === undefined ? undefined : { planning: decision, attemptIndex }));
@@ -273,7 +279,7 @@ export async function runResearch(
           const current = await check(`targeted-followup-${followup.rounds}`);
           if (terminalResearchStates.includes(current.status)) return;
           if (current.expired) { warnings.push(current.stopReason || "Time limit reached before targeted follow-up"); break; }
-          await publish("extracting", `Researching the remaining gap: ${plan.missing}`);
+          await heartbeat("extracting", `Researching the remaining gap: ${plan.missing}`);
           let choice = nextTargetedAction(plan, { readsSinceSearch: followup.readsSinceSearch, searchAvailable: !followup.searchesExhausted });
           if (!followup.plannerUsed && service.planFollowup && modelCalls < budget.maxModelCalls) {
             followup.plannerUsed = true;
@@ -373,12 +379,9 @@ export async function runResearch(
         runtime.remaining = uniqueResearchUrls([url, ...runtime.remaining]).slice(0, 1000);
         warnings.push(reason);
       };
-      // A waiting notice is a heartbeat, not a per-page event: publish it for the
-      // first page and whenever saved progress is older than a minute.
-      if (attempt === 1 || service.now() - lastPublishAt > 60000) await publish(
-        "crawling",
-        `Waiting for browser slot — website ${domains.size}, page attempt ${attempt} of ${budget.maxPages}`,
-      );
+      // The first page announces the wait; later pages only refresh liveness.
+      if (attempt === 1) await publish("crawling", `Waiting for browser slot — website ${domains.size}, page attempt ${attempt} of ${budget.maxPages}`);
+      else await heartbeat("crawling", `Waiting for browser slot — website ${domains.size}, page attempt ${attempt} of ${budget.maxPages}`);
       try {
         let result: Awaited<ReturnType<ResearchServices["poll"]>> | undefined;
         const directReader = service.readPage || (["people", "firmographics"].includes(initial.config.purpose || "") ? service.readPeoplePage : undefined);
@@ -530,7 +533,7 @@ export async function runResearch(
           findings = observedCompanyFacts(markdown, sourceUrl, initial.config);
           if (initial.config.mode === "automatic" && researchDomain(sourceUrl) === initial.config.companyDomain && !ownCompany(collected, sourceUrl) && modelCalls < budget.maxModelCalls) {
             modelCalls++;
-            await publish("extracting", "Checking company identity and products alongside company details");
+            await heartbeat("extracting", "Checking company identity and products alongside company details");
             try {
               const business = await step.do(`company-identity-${attempt}`, async () => {
                 const current = await service.control();
@@ -546,7 +549,7 @@ export async function runResearch(
           const diagnostics = companyFactDiagnostics(markdown, sourceUrl, initial.config);
           if (!extractionDeferred && !findings.some(f => f.kind === "headcount") && diagnostics.eligibleSource && diagnostics.employmentLanguage && service.extractHeadcount && modelCalls < budget.maxModelCalls) {
             modelCalls++;
-            await publish("extracting", `Checking ${new URL(sourceUrl).hostname} for a stated headcount`);
+            await heartbeat("extracting", `Checking ${new URL(sourceUrl).hostname} for a stated headcount`);
             try {
               const located = await step.do(`headcount-${attempt}`, async () => {
                 const current = await service.control();
@@ -567,7 +570,7 @@ export async function runResearch(
           entry.reason = "Named role directly supported by company page; no AI extraction needed";
         } else if (modelCalls < budget.maxModelCalls) {
           modelCalls++;
-          await publish(
+          await heartbeat(
             "extracting",
             initial.config.purpose === "people" ? `Looking for named decision-makers on website ${domains.size}` : `Assessing products and business role on website ${domains.size}`,
           );

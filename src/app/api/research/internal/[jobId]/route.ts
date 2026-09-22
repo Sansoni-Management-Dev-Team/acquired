@@ -15,6 +15,7 @@ import { cloudflareSearchResults } from "@/adapters/cloudflare-web-search";
 import { discoveryQueryPlan, runDiscoveryQueries } from "@/adapters/business-web-search";
 import { dispatchBusinessPeople } from "@/lib/business-research-people";
 import { peopleWebSearch } from "@/adapters/people-web-search";
+import { after } from "next/server";
 import { z } from "zod";
 import { and, eq, notInArray, sql } from "drizzle-orm";
 import { requireDb } from "@/db/client";
@@ -475,22 +476,26 @@ export async function POST(
       { status: 409 },
     );
   }
-  // Progress is saved above. A dispatch failure must not make the worker retry
-  // and then fail a healthy run; the next callback or poll refills the queue.
-  try {
-    if ((job.config as ResearchConfig).mode === "automatic") {
-      if (["complete", "partial"].includes(event.data.status)) await dispatchContinuation(job.organizationId, jobId);
-      // Refill work only when a page produced evidence or directory links, or the job ended;
-      // status-only heartbeats must stay cheap.
-      const pageMatters = Boolean(event.data.page && (event.data.page.findings.length > 0 || directorySource(event.data.page.url, event.data.page.markdown)));
-      if (pageMatters || ["complete", "partial", "failed"].includes(event.data.status)) {
+  // Progress is saved above. Queue refills run after the response so the
+  // Workflow is not held for coordination queries. A dispatch failure must not
+  // make the worker retry and then fail a healthy run; the next callback or
+  // poll refills the queue.
+  const status = event.data.status, page = event.data.page;
+  // Refill work only when a page produced evidence or directory links, or the job ended;
+  // status-only heartbeats must stay cheap.
+  const pageMatters = Boolean(page && (page.findings.length > 0 || directorySource(page.url, page.markdown)));
+  const terminal = ["complete", "partial", "failed"].includes(status);
+  if (pageMatters || terminal) after(async () => {
+    try {
+      if ((job.config as ResearchConfig).mode === "automatic") {
+        if (["complete", "partial"].includes(status)) await dispatchContinuation(job.organizationId, jobId);
         await dispatchDiscoveryCandidates(job.organizationId, jobId);
         await dispatchAutomaticEnrichment(job.organizationId, jobId);
-      }
-    } else if (["complete", "partial", "failed"].includes(event.data.status) && !await dispatchContinuation(job.organizationId, jobId)) await dispatchBusinessPeople(job.organizationId, jobId);
-  } catch (error) {
-    console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), jobId, event: "dispatch_deferred", reason: error instanceof Error ? error.message.slice(0, 200) : "unknown" }));
-  }
+      } else if (terminal && !await dispatchContinuation(job.organizationId, jobId)) await dispatchBusinessPeople(job.organizationId, jobId);
+    } catch (error) {
+      console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), jobId, event: "dispatch_deferred", reason: error instanceof Error ? error.message.slice(0, 200) : "unknown" }));
+    }
+  });
   const saved = await repo.get(jobId);
   return Response.json({ ok: true, ...(saved ? { control: await controlSnapshot(saved) } : {}) });
 }

@@ -111,7 +111,8 @@ it("allows a normal paid-plan Workflow to finish below its request guard", async
 });
 
 it("retains unprocessed URLs when the paid request guard is reached", async () => {
-  const pages = 60;
+  // About seven requests per page after the heartbeat change; 90 pages exceed the 512 budget.
+  const pages = 90;
   const t = replay({ config: {
     seeds: Array.from({ length: pages }, (_, i) => `https://instruments${i}.example.com/`),
     searchTerms: ["sensors"], geography: "Australia", approved: true, discover: false,

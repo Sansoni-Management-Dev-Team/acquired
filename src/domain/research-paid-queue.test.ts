@@ -15,7 +15,10 @@ it('allows four concurrent pages and reserves a fifth slot for search; starts ar
   const search = reserve(queue, 'early', 'search', 5000);
   expect(search.reservation).toBeDefined();
   queue = consumeProvider(search.queue, 'early', 'early', 5000, 'duckduckgo.com')!;
-  expect(reserve(queue, 'second-search', 'search', 6000).reservation).toBeUndefined();
+  // Two search slots: a second search is admitted, a third waits.
+  const second = reserve(queue, 'second-search', 'search', 6000); queue = second.queue;
+  expect(second.reservation).toBeDefined();
+  expect(reserve(queue, 'third-search', 'search', 6000).reservation).toBeUndefined();
   queue = releaseProvider(queue, 'p0', 'p0');
   expect(reserve(queue, 'next', 'page', 6000).reservation).toBeDefined();
 });
@@ -122,4 +125,18 @@ it('sustains near slot capacity under polling contention', () => {
   // Four slots at 3.8 s per read allow about 630 reads in ten minutes; the old head-of-line gate managed about 165.
   expect(simulate(4)).toBeGreaterThan(500);
   expect(simulate(23)).toBeGreaterThan(450);
+});
+
+it('lets two searches overlap on the search host while page reads on one website still cannot', () => {
+  const a = reserve({}, 'a', 'search', 1000);
+  let queue: ProviderQueue = consumeProvider(a.queue, 'a', 'a', 1000, 'duckduckgo.com')!;
+  const b = reserve(queue, 'b', 'search', 2000); queue = b.queue;
+  expect(b.reservation).toBeDefined();
+  // Start spacing on the host still applies (three seconds), overlap does not block.
+  expect(consumeProvider(queue, 'b', 'b', 2000, 'duckduckgo.com')).toBeNull();
+  expect(consumeProvider(queue, 'b', 'b', 4000, 'duckduckgo.com')).not.toBeNull();
+  const p1 = reserve({}, 'p1', 'page', 1000);
+  let pages: ProviderQueue = consumeProvider(p1.queue, 'p1', 'p1', 1000, 'example.com')!;
+  pages = reserve(pages, 'p2', 'page', 5000).queue;
+  expect(consumeProvider(pages, 'p2', 'p2', 5000, 'example.com')).toBeNull();
 });

@@ -387,7 +387,7 @@ export class FirmableRefresh extends WorkflowEntrypoint<Env, { runId: string; ma
       const message = error instanceof Error ? error.message : "Firmable refresh failed";
       // Give the terminal callback extra durable attempts. If the application is
       // still unreachable its stale-run recovery will close the run later.
-      await step.do("fail", { retries: { limit: 5, delay: "15 seconds", backoff: "exponential" }, timeout: "90 seconds" }, () => firmableCallback(this.env, runId, { action: "fail", message })).catch(() => undefined);
+      await step.do("fail", { retries: { limit: 5, delay: "15 seconds", backoff: "exponential" }, timeout: "90 seconds" }, async () => JSON.stringify(await firmableCallback(this.env, runId, { action: "fail", message })) ?? "null").catch(() => undefined);
       return { status: "failed", message };
     }
   }
