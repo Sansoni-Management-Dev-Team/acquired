@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dialogBackdrop } from "./dialog-backdrop";
 import { useActivePolling } from "./use-active-polling";
@@ -101,6 +102,7 @@ export function ResearchPanel({
   const relatedPeople = (data.peopleJobs || []).filter(inRun);
   const relatedCompanies = (data.companyJobs || []).filter(inRun);
   const runJobs = [...data.jobs, ...relatedPeople, ...relatedCompanies].filter(inRun);
+  const candidateJobs = runJobs.filter(j => j.config.discoveryCandidate);
   const discoveryJobs = runJobs.filter(j => !j.config.purpose && !j.config.discoveryCandidate);
   const searchHistory = discoveryJobs.reduce<NonNullable<ResearchConfig["discoveryAttempts"]>>((history, j) => (j.config.discoveryAttempts?.length || 0) > history.length ? j.config.discoveryAttempts! : history, []);
   const searchStopReason = discoveryJobs.find(j => j.config.discoveryStopReason)?.config.discoveryStopReason;
@@ -312,6 +314,7 @@ export function ResearchPanel({
               <span className="text-xs text-[var(--muted)]">{new Date(currentJob.createdAt).toLocaleString()}</span>
             </div>
             <ResearchProgress job={currentJob} count={newBusinessCount} identified={identifiedBusinessCount} active={Boolean(active)} enriching={enriching.length} />
+            {currentJob.config.mode === "automatic" && <DiscoveryCandidateList mandateId={mandateId} jobs={candidateJobs} searching={Boolean(active)} />}
             {!currentJob.config.purpose && !terminalResearchStates.includes(currentJob.status) && <p className="text-sm text-[var(--muted)]">{currentJob.status === "discovering" ? "Searching for candidate websites…" : "Reading candidate websites and checking business details…"} The count increases as new businesses are saved to Targets.</p>}
             <ResearchRunOutcome status={currentJob.status} remaining={remainingFor(currentJob).length} active={Boolean(active)} canResume={!currentJob.config.purpose} busy={busy} onResume={() => resume(currentJob)} />
             <details className="text-sm text-[var(--muted)]"><summary className="min-h-12 cursor-pointer content-center">Details</summary>
@@ -343,6 +346,33 @@ export function ResearchPanel({
       )}
     </section>
   );
+}
+
+export function DiscoveryCandidateList({ mandateId, jobs, searching }: { mandateId: string; jobs: ResearchJob[]; searching: boolean }) {
+  const active = jobs.filter(job => !terminalResearchStates.includes(job.status));
+  const savedJobs = jobs.filter(job => terminalResearchStates.includes(job.status) && (job.config.newBusinessIds?.length || 0) > 0).reverse();
+  const recent = jobs.filter(job => terminalResearchStates.includes(job.status) && !(job.config.newBusinessIds?.length || 0)).slice(-3).reverse();
+  const saved = jobs.filter(job => (job.config.newBusinessIds?.length || 0) > 0).length;
+  const visible = [...active, ...savedJobs, ...recent];
+
+  return <section className="rounded-lg border border-[var(--border)] bg-[var(--panel-raised)] p-4" aria-label="Discovery candidates">
+    <div className="flex flex-wrap items-baseline justify-between gap-2">
+      <h3 className="font-semibold">Websites found</h3>
+      <p className="text-xs text-[var(--muted)]" aria-live="polite">{jobs.length} found · {active.length} being checked · {saved} saved</p>
+    </div>
+    {visible.length ? <ul className="mt-3 max-h-96 space-y-2 overflow-y-auto text-sm">
+      {visible.map(job => {
+        const url = job.seeds[0] || job.config.seeds[0] || (job.config.companyDomain ? `https://${job.config.companyDomain}/` : "");
+        const found = (job.config.newBusinessIds?.length || 0) > 0;
+        const status = found ? "Business saved" : job.status === "queued" ? "Queued for review" : terminalResearchStates.includes(job.status) ? "Checked · no business saved" : "Checking website";
+        return <li key={job.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-[var(--border)] pt-2">
+          <a className="min-w-0 break-all underline" href={url} target="_blank" rel="noreferrer">{job.config.companyDomain || url}</a>
+          <span className={found ? "text-[var(--accent)]" : "text-[var(--muted)]"}>{status}{found && <Link className="ml-2 underline" href={`/mandates/${mandateId}/targets/${job.config.newBusinessIds![0]}`}>View business</Link>}</span>
+        </li>;
+      })}
+    </ul> : <p className="mt-3 text-sm text-[var(--muted)]">{searching ? "Searching for the first candidate websites…" : "No candidate websites found in this run."}</p>}
+    {jobs.length > visible.length && <p className="mt-2 text-xs text-[var(--muted)]">Showing active and recent websites · {jobs.length - visible.length} earlier checked</p>}
+  </section>;
 }
 function ResearchFindings({
   findings,
