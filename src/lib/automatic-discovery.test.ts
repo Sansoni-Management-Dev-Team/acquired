@@ -27,8 +27,8 @@ it('keeps discovery full while enrichment occupies all business slots', async ()
   expect(mocks.create).toHaveBeenCalledTimes(8);
   expect(mocks.create.mock.calls.map(call => call[3].executionSlot)).toEqual(Array.from({ length: 8 }, (_, index) => `mandate:discovery-${index + 1}`));
 });
-it('can replace thirty exhausted candidates but stops at the expanded run ceiling', async () => {
-  const completed = Array.from({ length: 30 }, (_, index) => ({
+it('can replace sixty exhausted candidates but stops at the expanded run ceiling', async () => {
+  const completed = Array.from({ length: 60 }, (_, index) => ({
     id: `completed-${index}`, status: 'complete', pages: 1,
     config: { discoveryCandidate: true, companyDomain: `old-${index}.example.com`, budget: { maxPages: 2 } },
   }));
@@ -37,7 +37,7 @@ it('can replace thirty exhausted candidates but stops at the expanded run ceilin
   expect(mocks.create).toHaveBeenCalledTimes(8);
   vi.clearAllMocks();
   mocks.get.mockResolvedValue(root);
-  mocks.where.mockResolvedValue([root, ...completed, ...Array.from({ length: DISCOVERY_CANDIDATE_LIMIT - 30 }, (_, index) => ({
+  mocks.where.mockResolvedValue([root, ...completed, ...Array.from({ length: DISCOVERY_CANDIDATE_LIMIT - 60 }, (_, index) => ({
     id: `more-${index}`, status: 'complete', pages: 1,
     config: { discoveryCandidate: true, companyDomain: `more-${index}.example.com`, budget: { maxPages: 2 } },
   }))]);
