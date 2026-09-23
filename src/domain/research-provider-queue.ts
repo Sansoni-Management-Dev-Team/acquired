@@ -7,7 +7,7 @@ export const BROWSER_SPACING_MS = 12000;
 // Local OpenSERP tolerates closer spacing than the rendered DuckDuckGo page.
 export const LOCAL_SEARCH_SPACING_MS = 6000;
 const LOCAL_SEARCH_CONSUMED_MS = 5000;
-export const AI_CONCURRENCY = 8;
+export const AI_CONCURRENCY = 32;
 export const LOCAL_PAGE_CONCURRENCY = 3;
 // Longer than a local read's 45-second deadline; abandoned slots recover automatically.
 export const LOCAL_PAGE_LEASE_MS = 60000;

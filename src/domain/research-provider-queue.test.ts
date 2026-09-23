@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { reserveProvider, consumeProvider, reservationDelay, type ProviderQueue } from './research-provider-queue';
+import { reserveProvider, consumeProvider, reservationDelay, AI_CONCURRENCY, type ProviderQueue } from './research-provider-queue';
 it('queues 40 page/search operations across mandates at safe account-wide intervals', () => {
   let queue: ProviderQueue = {};
   const starts: number[] = [];
@@ -15,11 +15,11 @@ it('queues 40 page/search operations across mandates at safe account-wide interv
 it('keeps legacy AI lane scheduling separate from browser admission', () => {
   let queue: ProviderQueue = { browserAfter: 400000 };
   const starts = [];
-  for (let i = 0; i < 9; i++) {
+  for (let i = 0; i < AI_CONCURRENCY + 1; i++) {
     const r = reserveProvider(queue, 'job', `ai-${i}`, 'ai', 1000);
     queue = r.queue; starts.push(r.reservation!.after);
   }
-  expect(starts).toEqual([1000, 1000, 1000, 1000, 1000, 1000, 1000, 1000, 48000]);
+  expect(starts).toEqual([...Array(AI_CONCURRENCY).fill(1000), 48000]);
   expect(queue.reservations?.every(reservation => reservation.until - reservation.after === 90000)).toBe(true);
   expect(queue.browserAfter).toBe(400000);
 });

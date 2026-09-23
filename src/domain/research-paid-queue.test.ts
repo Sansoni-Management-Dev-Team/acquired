@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { consumeProvider, coolDownBrowser, releaseProvider, reservationDelay, reserveProvider, PAID_PAGE_SLOTS, PAID_SEARCH_SLOTS, PAID_START_SPACING_MS, PAID_SEARCH_HOST_SPACING_MS, type ProviderQueue } from './research-provider-queue';
+import { consumeProvider, coolDownBrowser, releaseProvider, reservationDelay, reserveProvider, AI_CONCURRENCY, PAID_PAGE_SLOTS, PAID_SEARCH_SLOTS, PAID_START_SPACING_MS, PAID_SEARCH_HOST_SPACING_MS, type ProviderQueue } from './research-provider-queue';
 const reserve = (q: ProviderQueue, job: string, provider: 'page'|'search'|'ai', now: number, token = job) => reserveProvider(q, job, token, provider, now, undefined, false, true);
 it('fills the page slots, keeps search slots separate, and staggers starts', () => {
   let queue: ProviderQueue = {};
@@ -30,7 +30,7 @@ it('keeps a paid reservation live while a coordinated callback reaches the brows
 });
 it('releases managed AI capacity immediately and preserves FIFO waits', () => {
   let queue: ProviderQueue={};
-  for(let i=0;i<8;i++){
+  for(let i=0;i<AI_CONCURRENCY;i++){
     const result=reserve(queue,`ai-${i}`,'ai',1000);
     queue=result.queue;
     expect(result.reservation).toBeDefined();

@@ -1,15 +1,15 @@
 import { env } from "cloudflare:workers";
 import { expect, it } from "vitest";
 import type { ProviderCoordinator } from "./provider-coordinator";
-import { PAID_PAGE_SLOTS, PAID_START_SPACING_MS } from "../../src/domain/research-provider-queue";
+import { AI_CONCURRENCY, PAID_PAGE_SLOTS, PAID_START_SPACING_MS } from "../../src/domain/research-provider-queue";
 
 const bindings = env as unknown as {
   PROVIDER_COORDINATOR: DurableObjectNamespace<ProviderCoordinator>;
 };
 
-it("coordinates and immediately refills eight AI slots through Durable Object RPC", async () => {
+it("coordinates and immediately refills the AI pool through Durable Object RPC", async () => {
   const coordinator = bindings.PROVIDER_COORDINATOR.getByName(crypto.randomUUID());
-  const granted = await Promise.all(Array.from({ length: 8 }, (_, index) =>
+  const granted = await Promise.all(Array.from({ length: AI_CONCURRENCY }, (_, index) =>
     coordinator.reserve({ jobId: `job-${index}`, token: `token-${index}`, provider: "ai" }),
   ));
   expect(granted.every(result => result.granted)).toBe(true);
@@ -24,7 +24,7 @@ it("coordinates and immediately refills eight AI slots through Durable Object RP
 
 it("holds a queued reservation until another job releases capacity", async () => {
   const coordinator = bindings.PROVIDER_COORDINATOR.getByName(crypto.randomUUID());
-  for (let index = 0; index < 8; index++) await coordinator.reserve({ jobId: `job-${index}`, token: `token-${index}`, provider: "ai" });
+  for (let index = 0; index < AI_CONCURRENCY; index++) await coordinator.reserve({ jobId: `job-${index}`, token: `token-${index}`, provider: "ai" });
   const started = Date.now();
   const held = coordinator.reserve({ jobId: "waiting", token: "waiting", provider: "ai", holdMs: 5000 });
   await new Promise(resolve => setTimeout(resolve, 600));
@@ -37,7 +37,7 @@ it("holds a queued reservation until another job releases capacity", async () =>
 
 it("returns a queued answer when the hold expires without capacity", async () => {
   const coordinator = bindings.PROVIDER_COORDINATOR.getByName(crypto.randomUUID());
-  for (let index = 0; index < 8; index++) await coordinator.reserve({ jobId: `job-${index}`, token: `token-${index}`, provider: "ai" });
+  for (let index = 0; index < AI_CONCURRENCY; index++) await coordinator.reserve({ jobId: `job-${index}`, token: `token-${index}`, provider: "ai" });
   const started = Date.now();
   const result = await coordinator.reserve({ jobId: "waiting", token: "waiting", provider: "ai", holdMs: 700 });
   expect(result).toMatchObject({ granted: false, queued: true });
