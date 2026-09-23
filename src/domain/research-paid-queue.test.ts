@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { consumeProvider, coolDownBrowser, releaseProvider, reservationDelay, reserveProvider, PAID_PAGE_SLOTS, PAID_SEARCH_SLOTS, PAID_START_SPACING_MS, type ProviderQueue } from './research-provider-queue';
+import { consumeProvider, coolDownBrowser, releaseProvider, reservationDelay, reserveProvider, PAID_PAGE_SLOTS, PAID_SEARCH_SLOTS, PAID_START_SPACING_MS, PAID_SEARCH_HOST_SPACING_MS, type ProviderQueue } from './research-provider-queue';
 const reserve = (q: ProviderQueue, job: string, provider: 'page'|'search'|'ai', now: number, token = job) => reserveProvider(q, job, token, provider, now, undefined, false, true);
 it('fills the page slots, keeps search slots separate, and staggers starts', () => {
   let queue: ProviderQueue = {};
@@ -13,7 +13,7 @@ it('fills the page slots, keeps search slots separate, and staggers starts', () 
   }
   const later = 1000 + PAID_PAGE_SLOTS * 1000;
   expect(reserve(queue, 'extra', 'page', later)).toMatchObject({ queued: true });
-  // Searches share one host, so consecutive starts stay three seconds apart.
+  // Searches share one host, so consecutive starts stay one second apart.
   for (let i = 0; i < PAID_SEARCH_SLOTS; i++) {
     const search = reserve(queue, `s${i}`, 'search', later + i * 4000);
     expect(search.reservation).toBeDefined();
@@ -131,14 +131,19 @@ it('sustains near slot capacity under polling contention', () => {
   expect(simulate(23)).toBeGreaterThan(1500);
 });
 
-it('lets two searches overlap on the search host while page reads on one website still cannot', () => {
+it('starts four overlapping searches one second apart while page reads on one website still cannot overlap', () => {
   const a = reserve({}, 'a', 'search', 1000);
   let queue: ProviderQueue = consumeProvider(a.queue, 'a', 'a', 1000, 'duckduckgo.com')!;
-  const b = reserve(queue, 'b', 'search', 2000); queue = b.queue;
-  expect(b.reservation).toBeDefined();
-  // Start spacing on the host still applies (three seconds), overlap does not block.
-  expect(consumeProvider(queue, 'b', 'b', 2000, 'duckduckgo.com')).toBeNull();
-  expect(consumeProvider(queue, 'b', 'b', 4000, 'duckduckgo.com')).not.toBeNull();
+  for (let i = 1; i < PAID_SEARCH_SLOTS; i++) {
+    const at = 1000 + i * PAID_SEARCH_HOST_SPACING_MS;
+    const job = `search-${i}`;
+    const result = reserve(queue, job, 'search', at - 1);
+    queue = result.queue;
+    expect(result.reservation).toBeDefined();
+    expect(consumeProvider(queue, job, job, at - 1, 'duckduckgo.com')).toBeNull();
+    queue = consumeProvider(queue, job, job, at, 'duckduckgo.com')!;
+    expect(queue).not.toBeNull();
+  }
   const p1 = reserve({}, 'p1', 'page', 1000);
   let pages: ProviderQueue = consumeProvider(p1.queue, 'p1', 'p1', 1000, 'example.com')!;
   pages = reserve(pages, 'p2', 'page', 5000).queue;

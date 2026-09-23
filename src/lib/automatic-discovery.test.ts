@@ -4,6 +4,7 @@ vi.mock('@/db/client', () => ({ requireDb: () => ({ select: () => ({ from: () =>
 vi.mock('@/db/research-repository', () => ({ ResearchRepository: class { get = mocks.get; create = mocks.create; cancelRun = mocks.cancelRun; cancelDiscoveryCandidates = mocks.cancelDiscoveryCandidates; } }));
 vi.mock('./research-service', () => ({ researchWorker: mocks.worker }));
 import { dispatchDiscoveryCandidates, rankDiscoveryCandidateUrls } from './automatic-discovery';
+import { DISCOVERY_CANDIDATE_LIMIT } from '@/domain/automatic-research';
 const seeds = Array.from({ length: 25 }, (_, i) => `https://instruments${i}.example.com/`);
 const root = { id: 'root', status: 'discovering', mandateId: 'mandate', createdBy: 'user', seeds, config: { parallelDiscovery: true, targetBusinesses: 20, automaticDeadline: Date.now() + 3600000, automaticPageLimit: 100, businessTargetStartedAt: new Date().toISOString(), seeds: [], budget: { maxPages: 10 } } };
 beforeEach(() => { vi.resetAllMocks(); mocks.get.mockResolvedValue(root); mocks.where.mockResolvedValue([root]); mocks.create.mockImplementation(async id => ({ id, status: 'queued' })); });
@@ -25,6 +26,23 @@ it('keeps discovery full while enrichment occupies all business slots', async ()
   await dispatchDiscoveryCandidates('org', 'root');
   expect(mocks.create).toHaveBeenCalledTimes(8);
   expect(mocks.create.mock.calls.map(call => call[3].executionSlot)).toEqual(Array.from({ length: 8 }, (_, index) => `mandate:discovery-${index + 1}`));
+});
+it('can replace thirty exhausted candidates but stops at the expanded run ceiling', async () => {
+  const completed = Array.from({ length: 30 }, (_, index) => ({
+    id: `completed-${index}`, status: 'complete', pages: 1,
+    config: { discoveryCandidate: true, companyDomain: `old-${index}.example.com`, budget: { maxPages: 2 } },
+  }));
+  mocks.where.mockResolvedValue([root, ...completed]);
+  await dispatchDiscoveryCandidates('org', 'root');
+  expect(mocks.create).toHaveBeenCalledTimes(8);
+  vi.clearAllMocks();
+  mocks.get.mockResolvedValue(root);
+  mocks.where.mockResolvedValue([root, ...completed, ...Array.from({ length: DISCOVERY_CANDIDATE_LIMIT - 30 }, (_, index) => ({
+    id: `more-${index}`, status: 'complete', pages: 1,
+    config: { discoveryCandidate: true, companyDomain: `more-${index}.example.com`, budget: { maxPages: 2 } },
+  }))]);
+  await dispatchDiscoveryCandidates('org', 'root');
+  expect(mocks.create).not.toHaveBeenCalled();
 });
 it('reserves only remaining target capacity and does not repeat researched websites', async () => {
   const limited = { ...root, config: { ...root.config, newBusinessIds: Array.from({ length: 18 }, (_, i) => `target${i}`) } };

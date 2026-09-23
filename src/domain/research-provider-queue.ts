@@ -11,6 +11,8 @@ export const AI_CONCURRENCY = 8;
 export const LOCAL_PAGE_CONCURRENCY = 3;
 // Longer than a local read's 45-second deadline; abandoned slots recover automatically.
 export const LOCAL_PAGE_LEASE_MS = 60000;
+export const PAID_SEARCH_HOST_SPACING_MS = 1000;
+const PAID_PAGE_DOMAIN_SPACING_MS = 3000;
 export function localProviderPolicy(env: { NODE_ENV?: string; LOCAL_DEVELOPMENT?: string; LOCAL_RESEARCH_POLICY?: string }) {
   return env.NODE_ENV === 'development' && env.LOCAL_DEVELOPMENT === 'true' && env.LOCAL_RESEARCH_POLICY === 'development';
 }
@@ -41,7 +43,7 @@ export function reserveProvider(queue: ProviderQueue, jobId: string, token: stri
 export function consumeProvider(queue: ProviderQueue, token: string, jobId: string, now: number, domain?: string) {
   const reservation = queue.reservations?.find(r => r.token === token && r.jobId === jobId && !r.consumed && r.after <= now && r.until >= now);
   if (!reservation || providerConsumedAfter(queue, reservation, domain) > now) return null;
-  return { ...queue, ...(reservation.provider !== 'ai' && !(reservation.local && reservation.provider === 'page') ? { [reservation.local ? 'localSearchConsumedAfter' : 'browserConsumedAfter']: now + (reservation.paid ? PAID_START_SPACING_MS : reservation.local ? LOCAL_SEARCH_CONSUMED_MS : 10000) } : {}), ...(reservation.paid && domain ? { domainAfter: { ...queue.domainAfter, [domain]: now + 3000 } } : {}), reservations: queue.reservations!.map(r => r === reservation ? { ...r, consumed: true, ...((r.local && r.provider === 'page') || r.paid ? { until: now + LOCAL_PAGE_LEASE_MS, ...(domain ? { domain } : {}) } : {}) } : r) };
+  return { ...queue, ...(reservation.provider !== 'ai' && !(reservation.local && reservation.provider === 'page') ? { [reservation.local ? 'localSearchConsumedAfter' : 'browserConsumedAfter']: now + (reservation.paid ? PAID_START_SPACING_MS : reservation.local ? LOCAL_SEARCH_CONSUMED_MS : 10000) } : {}), ...(reservation.paid && domain ? { domainAfter: { ...queue.domainAfter, [domain]: now + (reservation.provider === 'search' ? PAID_SEARCH_HOST_SPACING_MS : PAID_PAGE_DOMAIN_SPACING_MS) } } : {}), reservations: queue.reservations!.map(r => r === reservation ? { ...r, consumed: true, ...((r.local && r.provider === 'page') || r.paid ? { until: now + LOCAL_PAGE_LEASE_MS, ...(domain ? { domain } : {}) } : {}) } : r) };
 }
 
 // A slightly early wake-up retains its place instead of joining the queue again.
