@@ -14,7 +14,6 @@ import {
 import { ResearchRunOutcome } from "./research-run-outcome";
 import { GeographySelect } from "./geography-select";
 import type { AcquisitionBrief } from "@/domain/acquisition";
-import { researchEfforts } from "@/domain/adaptive-discovery";
 const input =
   "min-h-12 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2 text-sm";
 const button =
@@ -61,7 +60,6 @@ export function ResearchPanel({
     [setup, setSetup] = useState(false);
   const [scope, setScope] = useState(brief.criteria.find(c => c.key === "subsectors")?.value || "");
   const [terms, setTerms] = useState("");
-  const [effort, setEffort] = useState<keyof typeof researchEfforts>("standard");
   const [geography, setGeography] = useState(
     brief.criteria.find((c) => c.key === "geography")?.state === "unrestricted"
       ? "National"
@@ -159,7 +157,6 @@ export function ResearchPanel({
     setTargetBusinesses(job.config.targetBusinesses || 20);
     setTerms(job.config.searchTerms.join("\n"));
     setScope(job.config.researchScope || job.config.searchTerms.join("; "));
-    setEffort(job.config.researchEffort || "standard");
     setGeography(job.config.geography);
     setSeeds(remainingFor(job).slice(0, 10).join("\n"));
     setDiscover(false);
@@ -170,7 +167,6 @@ export function ResearchPanel({
     setContinuation(null);
     setTerms(job.config.searchTerms.join("\n"));
     setScope(job.config.researchScope || job.config.searchTerms.join("; "));
-    setEffort(job.config.researchEffort || "standard");
     setGeography(job.config.geography);
     setSeeds((job.config.runtime?.attempts || []).filter(a => a.status === "failed" || /extraction failed/i.test(a.reason)).map(a => a.finalUrl || a.url).slice(0, 10).join("\n"));
     setDiscover(false);
@@ -217,15 +213,6 @@ export function ResearchPanel({
                     <span id="research-scope-help" className="block text-xs text-[var(--muted)]">Describe the businesses and services to find. AI generates searches and adapts them as it learns. Financial fit and sale intentions are assessed separately when evidence is available.</span>
                   </label>
                   <GeographySelect className={input} disabled={Boolean(continuation)} value={geography} onChange={setGeography} />
-                  <label className="block space-y-2 text-sm">
-                    <span>Research budget</span>
-                    <select className={input} value={effort} disabled={Boolean(continuation)} onChange={e => setEffort(e.target.value as keyof typeof researchEfforts)}>
-                      <option value="focused">Focused · up to 12 discovery searches / 30 minutes</option>
-                      <option value="standard">Standard · up to 24 discovery searches / 60 minutes</option>
-                      <option value="thorough">Thorough · up to 48 discovery searches / 120 minutes</option>
-                    </select>
-                    <span className="block text-xs text-[var(--muted)]">Limits search effort and run duration. Company and owner follow-ups have separate bounded searches. Provider charges vary; this is not a monetary spending cap.</span>
-                  </label>
                   <details className="rounded-lg border border-[var(--border)] p-3">
                     <summary className="min-h-12 cursor-pointer content-center text-sm font-medium">Advanced search settings</summary>
                     <div className="space-y-4 pt-3">
@@ -291,7 +278,6 @@ export function ResearchPanel({
                           .filter(Boolean),
                         searchTerms: termList,
                         researchScope: scope.trim(),
-                        researchEffort: effort,
                         geography,
                         approved: true,
                         discover,
