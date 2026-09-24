@@ -4,11 +4,10 @@ import { createContext, useContext, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Building2, LogOut, Settings, Plus, PanelLeftClose, PanelLeftOpen, Menu } from "lucide-react";
-import { authClient } from "@/lib/auth-client";
+import { Building2, Settings, Plus, PanelLeftClose, PanelLeftOpen, Menu, FileText, ListFilter, Send } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
 
-import { mandateTabHref } from "./mandate-tabs";
+import { mandateTabHref } from "@/domain/mandate-navigation";
 type SidebarState = { mandates: { id: string; name: string }[]; selected?: string; tab: string };
 const SidebarContext = createContext<(value: string) => void>(() => {});
 export function SidebarRegistration({ value }: { value: SidebarState }) {
@@ -27,16 +26,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const sidebar: SidebarState = JSON.parse(sidebarJson);
   if (["/sign-in", "/sign-up", "/forgot-password", "/reset-password", "/onboarding", "/auth/complete"].includes(pathname)) return <><div className="absolute right-4 top-4"><ThemeToggle /></div><main>{children}</main></>;
 
-  async function signOut() {
-    await authClient.signOut();
-    setSidebarJson('{"mandates":[],"tab":"brief"}');
-    router.replace("/sign-in");
-    router.refresh();
-  }
-
   return (
     <SidebarContext.Provider value={setSidebarJson}><div className={`min-h-screen lg:grid ${collapsed ? "lg:grid-cols-[80px_minmax(0,1fr)]" : "lg:grid-cols-[272px_minmax(0,1fr)]"}`}>
-      <aside className={`border-b border-[var(--border)] bg-[var(--background)] p-4 lg:min-h-screen lg:border-b-0 lg:border-r ${collapsed ? "lg:px-3" : "lg:p-5"}`}>
+      <aside className={`border-b border-[var(--border)] bg-[var(--background)] p-4 lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:border-b-0 lg:border-r ${collapsed ? "lg:px-3" : "lg:p-5"}`}>
         <div className={`flex items-center justify-between gap-2 ${collapsed ? "lg:flex-col" : ""}`}>
           <Link href="/mandates" aria-label="Acquired — all mandates" className="flex min-h-12 min-w-0 items-center gap-3">
             <Image src="/acquired-crown.png" width={42} height={42} alt="" className="size-10 shrink-0 object-contain theme-logo" priority />
@@ -45,23 +37,25 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <button aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"} aria-expanded={!collapsed} aria-controls="desktop-mandate-selector" onClick={() => setCollapsed(value => !value)} className="hidden size-11 shrink-0 items-center justify-center rounded-md hover:bg-[var(--panel-raised)] lg:flex">{collapsed ? <PanelLeftOpen size={20} /> : <PanelLeftClose size={20} />}</button>
           <button aria-label={mobileOpen ? "Close navigation" : "Open navigation"} aria-expanded={mobileOpen} aria-controls="sidebar-navigation" onClick={() => setMobileOpen(value => !value)} className="flex size-12 items-center justify-center rounded-md lg:hidden"><Menu size={22} /></button>
         </div>
-        <div id="sidebar-navigation" className={`${mobileOpen ? "block" : "hidden"} mt-5 lg:block`}>
+        <div id="sidebar-navigation" className={`${mobileOpen ? "block" : "hidden"} mt-5 lg:flex lg:min-h-0 lg:flex-1 lg:flex-col`}>
           <div id="desktop-mandate-selector" className={collapsed ? "lg:hidden" : ""}>
-            <label className="block text-xs font-medium text-[var(--muted)]">Active mandate
-              <select aria-label="Active mandate" value={sidebar.selected || ""} onChange={e => { router.push(mandateTabHref(e.target.value, sidebar.tab)); setMobileOpen(false); }} className="mt-2 min-h-12 w-full min-w-0 rounded-lg border border-[var(--border)] bg-[var(--panel-raised)] px-3 text-sm text-[var(--foreground)]">
+            <label className="sr-only" htmlFor="mandate-selector">Select a mandate</label>
+              <select id="mandate-selector" aria-label="Active mandate" value={sidebar.selected || ""} onChange={e => { router.push(e.target.value === "__new__" ? "/mandates/new" : mandateTabHref(e.target.value, sidebar.tab)); setMobileOpen(false); }} className="min-h-12 w-full min-w-0 rounded-lg border border-[var(--border)] bg-[var(--panel-raised)] px-3 text-sm text-[var(--foreground)]">
                 <option value="" disabled>Select a mandate</option>
                 {sidebar.mandates.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                <option value="__new__">+ Create new mandate</option>
               </select>
-            </label>
           </div>
           <nav aria-label="Mandates" className="mt-3 space-y-1">
             <Link href="/mandates" title="All mandates" onClick={() => setMobileOpen(false)} className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-sm text-[var(--muted)] hover:text-[var(--foreground)] ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><Building2 size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>All mandates</span></Link>
-            <Link href="/mandates/new" title="New mandate" onClick={() => setMobileOpen(false)} className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-sm text-[var(--muted)] hover:text-[var(--foreground)] ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><Plus size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>New mandate</span></Link>
+            {collapsed && <Link href="/mandates/new" title="New mandate" onClick={() => setMobileOpen(false)} className="hidden min-h-12 items-center justify-center rounded-md text-[var(--muted)] hover:text-[var(--foreground)] lg:flex"><Plus size={20} /><span className="sr-only">New mandate</span></Link>}
           </nav>
-          <nav aria-label="Account" className="mt-6 space-y-1 border-t border-[var(--border)] pt-4">
-            <ThemeToggle collapsed={collapsed} />
+          {sidebar.selected && <nav aria-label="Mandate sections" className="mt-6 space-y-1 border-t border-[var(--border)] pt-4">
+            {([["brief", "Brief", FileText], ["targets", "Targets", ListFilter], ["outreach", "Outreach", Send]] as const).map(([tab, label, Icon]) => <Link key={tab} href={mandateTabHref(sidebar.selected!, tab)} aria-current={sidebar.tab === tab ? "page" : undefined} title={label} onClick={() => setMobileOpen(false)} className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-sm hover:bg-[var(--panel-raised)] ${sidebar.tab === tab ? "bg-[var(--panel-raised)] font-semibold text-[var(--foreground)]" : "text-[var(--muted)] hover:text-[var(--foreground)]"} ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><Icon size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>{label}</span></Link>)}
+          </nav>}
+          <nav aria-label="Account" className="mt-6 space-y-1 border-t border-[var(--border)] pt-4 lg:mt-auto">
             <Link href="/settings" title="Settings" onClick={() => setMobileOpen(false)} className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-sm text-[var(--muted)] hover:text-[var(--foreground)] ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><Settings size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>Settings</span></Link>
-            <button onClick={signOut} title="Sign out" className={`flex min-h-12 w-full items-center gap-3 rounded-md px-3 text-sm text-[var(--muted)] hover:text-[var(--foreground)] ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><LogOut size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>Sign out</span></button>
+            <ThemeToggle collapsed={collapsed} subtle />
           </nav>
         </div>
       </aside>

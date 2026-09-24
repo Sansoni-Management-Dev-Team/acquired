@@ -28,6 +28,15 @@ export type ResearchJob = {
   config: ResearchConfig;
   seeds: string[];
 };
+export function candidatesArrivedForRun(jobs: ResearchJob[], startedJobId: string) {
+  const root = jobs.find(job => job.id === startedJobId);
+  if (!root) return false;
+  const runId = root.config.researchRunId || root.id;
+  return jobs.some(job =>
+    (job.config.researchRunId === runId || job.config.parentJobId === startedJobId) &&
+    (job.config.discoveryCandidate || (job.config.newBusinessIds?.length || 0) > 0),
+  );
+}
 type Data = { active?: boolean; results?: { jobId: string; businessDomains?: string[]; added: number; updated: number; people: number }[]; enabled: boolean; jobs: ResearchJob[]; peopleJobs?: ResearchJob[]; companyJobs?: ResearchJob[]; findings: SavedResearchFinding[] };
 async function request(url: string, body?: unknown) {
   const r = await fetch(url, {
@@ -44,10 +53,14 @@ export function ResearchPanel({
   mandateId,
   brief,
   onResultsChanged,
+  showStartAction = true,
+  onCandidatesFound,
 }: {
   mandateId: string;
   brief: AcquisitionBrief;
   onResultsChanged: () => void;
+  showStartAction?: boolean;
+  onCandidatesFound?: () => void;
 }) {
   const [data, setData] = useState<Data>({
     enabled: false,
@@ -69,6 +82,7 @@ export function ResearchPanel({
     [discover, setDiscover] = useState(true),
     [continuation, setContinuation] = useState<ResearchJob | null>(null);
   const [targetBusinesses, setTargetBusinesses] = useState<number | "">(20);
+  const startedJobId = useRef<string | null>(null);
   const targetValid = Number.isInteger(targetBusinesses) && Number(targetBusinesses) >= 1 && Number(targetBusinesses) <= 100;
   const backdropPressed = useRef(false);
   const [findPeople, setFindPeople] = useState(true);
@@ -101,6 +115,13 @@ export function ResearchPanel({
   const relatedCompanies = (data.companyJobs || []).filter(inRun);
   const runJobs = [...data.jobs, ...relatedPeople, ...relatedCompanies].filter(inRun);
   const candidateJobs = runJobs.filter(j => j.config.discoveryCandidate);
+  useEffect(() => {
+    if (!startedJobId.current || !onCandidatesFound) return;
+    if (candidatesArrivedForRun(data.jobs, startedJobId.current)) {
+      startedJobId.current = null;
+      onCandidatesFound();
+    }
+  }, [data.jobs, onCandidatesFound]);
   const discoveryJobs = runJobs.filter(j => !j.config.purpose && !j.config.discoveryCandidate);
   const searchHistory = discoveryJobs.reduce<NonNullable<ResearchConfig["discoveryAttempts"]>>((history, j) => (j.config.discoveryAttempts?.length || 0) > history.length ? j.config.discoveryAttempts! : history, []);
   const searchStopReason = discoveryJobs.find(j => j.config.discoveryStopReason)?.config.discoveryStopReason;
@@ -132,16 +153,17 @@ export function ResearchPanel({
       budget,
       job.id,
     ).runtime!.remaining;
-  async function act(body: unknown, jobId?: string) {
+  async function act(body: unknown, jobId?: string, navigateOnCandidates = false) {
     setBusy(true);
     setError("");
     try {
-      await request(
+      const result = await request(
         jobId
           ? `/api/research/${jobId}`
           : `/api/mandates/${mandateId}/research`,
         body,
       );
+      if (navigateOnCandidates && result.jobId) startedJobId.current = result.jobId;
       await refresh();
       onResultsChanged();
       setSetup(false);
@@ -172,6 +194,7 @@ export function ResearchPanel({
     setDiscover(false);
     setSetup(true);
   }
+  if (!showStartAction && !loading && data.enabled && !currentJob) return null;
   return (
     <section className="space-y-5 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5">
       {loading ? (
@@ -180,7 +203,7 @@ export function ResearchPanel({
         <p>Website research is awaiting activation.</p>
       ) : (
         <>
-          {(!active || setup) && (
+          {(!active || setup) && (showStartAction || setup) && (
             <>
               <button
                 className={button}
@@ -283,7 +306,7 @@ export function ResearchPanel({
                         discover,
                         budget,
                         strategy: "discover",
-                      })
+                      }, undefined, Boolean(onCandidatesFound))
                     }
                   >
                     {continuation ? "Continue research" : "Find & research businesses"}
@@ -341,7 +364,7 @@ export function DiscoveryCandidateList({ mandateId, jobs, searching }: { mandate
   const saved = jobs.filter(job => (job.config.newBusinessIds?.length || 0) > 0).length;
   const visible = [...active, ...savedJobs, ...recent];
 
-  return <section className="rounded-lg border border-[var(--border)] bg-[var(--panel-raised)] p-4" aria-label="Discovery candidates">
+  return <section className="rounded-lg border border-[var(--border)] bg-[var(--panel-raised)] p-4" aria-label="Incoming candidates">
     <div className="flex flex-wrap items-baseline justify-between gap-2">
       <h3 className="font-semibold">Websites found</h3>
       <p className="text-xs text-[var(--muted)]" aria-live="polite">{jobs.length} found · {active.length} being checked · {saved} saved</p>

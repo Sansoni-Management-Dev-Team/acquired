@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { ActiveResearchJob, DiscoveryCandidateList, type ResearchJob } from "./research-panel";
+import { ActiveResearchJob, candidatesArrivedForRun, DiscoveryCandidateList, type ResearchJob } from "./research-panel";
 
 function job(overrides: Partial<ResearchJob> = {}): ResearchJob {
   return {
@@ -44,6 +44,14 @@ describe("active research job", () => {
 });
 
 describe("discovery candidate list", () => {
+  it("opens Targets only when a candidate belongs to the research run just started", () => {
+    const root = job({ id: "new-run", config: { ...job().config, discoveryCandidate: false, researchRunId: "new-run" } });
+    const older = job({ id: "old-candidate", config: { ...job().config, researchRunId: "old-run" } });
+    const incoming = job({ id: "new-candidate", config: { ...job().config, researchRunId: "new-run", parentJobId: "new-run" } });
+    expect(candidatesArrivedForRun([root, older], "new-run")).toBe(false);
+    expect(candidatesArrivedForRun([root, older, incoming], "new-run")).toBe(true);
+  });
+
   it("shows URLs while they are checked and retains saved businesses", () => {
     const html = renderToStaticMarkup(<DiscoveryCandidateList mandateId="mandate-1" searching jobs={[
       job({ id: "queued", status: "queued", config: { ...job().config, companyDomain: "queued.example" }, seeds: ["https://queued.example/"] }),
