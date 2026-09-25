@@ -173,6 +173,64 @@ export const dailySendCounters = pgTable("daily_send_counters", {
   mailboxConnectionId: uuid("mailbox_connection_id").notNull().references(() => mailboxConnections.id), date: text("date").notNull(), count: integer("count").notNull().default(0),
 }, (table) => [primaryKey({ columns: [table.mailboxConnectionId, table.date] })]);
 
+// Campaign automation is deliberately separate from the legacy draft-only
+// sequences above. Published versions are immutable snapshots; enrolments
+// retain their version even when the editable sequence is republished.
+export const campaignSequences = pgTable("campaign_sequences", {
+  id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id),
+  ownerUserId: text("owner_user_id").notNull().references(() => user.id), mandateId: uuid("mandate_id").notNull().references(() => mandates.id),
+  name: text("name").notNull(), draft: jsonb("draft").notNull(), publishedVersion: integer("published_version").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [index("campaign_sequences_owner_idx").on(table.organizationId, table.ownerUserId, table.mandateId)]);
+
+export const campaignSequenceVersions = pgTable("campaign_sequence_versions", {
+  id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id),
+  ownerUserId: text("owner_user_id").notNull().references(() => user.id), sequenceId: uuid("sequence_id").notNull().references(() => campaignSequences.id),
+  version: integer("version").notNull(), definition: jsonb("definition").notNull(), publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [uniqueIndex("campaign_sequence_version_idx").on(table.sequenceId, table.version)]);
+
+export const campaignEnrolments = pgTable("campaign_enrolments", {
+  id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id),
+  ownerUserId: text("owner_user_id").notNull().references(() => user.id), sequenceId: uuid("sequence_id").notNull().references(() => campaignSequences.id),
+  versionId: uuid("version_id").notNull().references(() => campaignSequenceVersions.id), mandateId: uuid("mandate_id").notNull().references(() => mandates.id),
+  contactId: uuid("contact_id").notNull().references(() => contacts.id), mailboxConnectionId: uuid("mailbox_connection_id").notNull().references(() => mailboxConnections.id),
+  recipientEmail: text("recipient_email").notNull(), state: text("state").notNull().default("active"), stopReason: text("stop_reason"),
+  initialConversationReviewed: boolean("initial_conversation_reviewed").notNull().default(false),
+  lastReplyCheckedAt: timestamp("last_reply_checked_at", { withTimezone: true }),
+  stepIndex: integer("step_index").notNull().default(0), nextStepAt: timestamp("next_step_at", { withTimezone: true }),
+  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [
+  uniqueIndex("campaign_enrolment_active_idx").on(table.organizationId, table.contactId, table.sequenceId).where(sql`${table.state} IN ('active', 'paused', 'needs_review')`),
+  index("campaign_enrolment_due_idx").on(table.state, table.nextStepAt),
+  index("campaign_enrolment_contact_idx").on(table.organizationId, table.contactId),
+]);
+
+export const campaignSendAttempts = pgTable("campaign_send_attempts", {
+  id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id),
+  ownerUserId: text("owner_user_id").notNull().references(() => user.id), enrolmentId: uuid("enrolment_id").notNull().references(() => campaignEnrolments.id),
+  stepIndex: integer("step_index").notNull(), state: text("state").notNull().default("claimed"), rfcMessageId: text("rfc_message_id").notNull(),
+  providerMessageId: text("provider_message_id"), providerThreadId: text("provider_thread_id"), error: text("error"),
+  claimedAt: timestamp("claimed_at", { withTimezone: true }).notNull().defaultNow(), sentAt: timestamp("sent_at", { withTimezone: true }),
+}, table => [uniqueIndex("campaign_send_step_idx").on(table.enrolmentId, table.stepIndex), uniqueIndex("campaign_send_rfc_id_idx").on(table.rfcMessageId)]);
+
+export const campaignInboundEvents = pgTable("campaign_inbound_events", {
+  id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id),
+  ownerUserId: text("owner_user_id").notNull().references(() => user.id), contactId: uuid("contact_id").notNull().references(() => contacts.id),
+  channel: text("channel").notNull(), providerEventId: text("provider_event_id").notNull(), fromIdentity: text("from_identity").notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [uniqueIndex("campaign_inbound_provider_idx").on(table.ownerUserId, table.channel, table.providerEventId), index("campaign_inbound_contact_idx").on(table.organizationId, table.contactId)]);
+
+export const campaignContactHolds = pgTable("campaign_contact_holds", {
+  id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id),
+  email: text("email").notNull(), reason: text("reason").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [uniqueIndex("campaign_contact_hold_email_idx").on(table.organizationId, table.email)]);
+
+export const campaignContactAssignments = pgTable("campaign_contact_assignments", {
+  id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id),
+  contactId: uuid("contact_id").notNull().references(() => contacts.id), email: text("email").notNull(), ownerUserId: text("owner_user_id").notNull().references(() => user.id),
+  assignedAt: timestamp("assigned_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [uniqueIndex("campaign_contact_assignment_unique_idx").on(table.organizationId, table.contactId), uniqueIndex("campaign_contact_assignment_email_idx").on(table.organizationId, table.email)]);
+
 // A company is shared; all buyer decisions belong to its mandate membership.
 export const mandateTargets = pgTable("mandate_targets", {
   organizationId: text("organization_id").notNull().references(() => organization.id),

@@ -11,6 +11,7 @@ Evidence-led SME acquisition sourcing, ranking, and outreach. This repository is
 - seven-step evidence-grounded outreach with persisted editing, per-message approval, and Gmail Drafts synchronization
 - mock and Gmail mailbox adapters, delegated OAuth with PKCE, encrypted refresh-token storage
 - signed inbound reply routing that stops a sequence atomically
+- Gmail-first campaign studio with immutable published sequence versions, contact subscription confirmation, owner-bound sending, pause/resume, and an n8n-triggered worker (prepared but not activated; see [`docs/campaign-automation.md`](docs/campaign-automation.md))
 - Google Places natural-language company discovery followed by bounded, sequential Firmable website enrichment
 - ranked `/targets` table with saved-target hydration, search limits, band filters, provenance, and evidence breakdown
 - persisted Firmable company profiles, outreach context, decision-maker contacts, evidence signals, and seven-step draft sequences using the existing database schema
@@ -43,7 +44,7 @@ Copy `.env.example` to `.env.local`. Local development explicitly uses `TARGET_D
 
 Target searches emit structured `[target-search]` logs from `pnpm dev`, including the parsed mandate, Google query/results, Firmable domain lookups, safe enrichment summaries, errors, and ranked output. Development logging is enabled by default. Set `TARGET_SEARCH_VERBOSE_LOGGING=true` to enable it outside development or `false` to silence it explicitly. Secrets, authorization headers, emails, phone numbers, and raw Firmable payloads are never logged.
 
-Successful Firmable enrichments are upserted by organisation and domain. Google content remains transient except for its Place ID; safe Firmable company data is stored in `targets.identifiers` and `targets.firmographics`. Saved targets, exact score explanations, and evidence survive refresh. Outreach requires explicit candidate review before one fictionalised or live decision-maker is enriched and saved. A stored buyer profile plus factual company evidence feeds seven database-backed, editable drafts. Approval creates or updates a Gmail draft using the separately granted `gmail.compose` scope; revocation deletes that Gmail draft. Approving all seven moves the enrolment only to `manual_confirmation`. Nothing sends automatically.
+Successful Firmable enrichments are upserted by organisation and domain. Google content remains transient except for its Place ID; safe Firmable company data is stored in `targets.identifiers` and `targets.firmographics`. Saved targets, exact score explanations, and evidence survive refresh. Outreach requires explicit candidate review before one fictionalised or live decision-maker is enriched and saved. A stored buyer profile plus factual company evidence feeds seven database-backed, editable drafts. Approval creates or updates a Gmail draft using the separately granted `gmail.compose` scope; revocation deletes that Gmail draft. Approving all seven moves the legacy enrolment only to `manual_confirmation`. That legacy path never sends automatically. The separate campaign studio can send after its migrations, Gmail read-only reconnect, worker secret, and scheduler are explicitly activated; subscribing a contact confirms that automation will start.
 
 ## Database safety
 

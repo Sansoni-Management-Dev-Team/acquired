@@ -1,0 +1,165 @@
+"use client";
+
+import "@xyflow/react/dist/style.css";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ReactFlow, Background, Controls, type Edge, type Node } from "@xyflow/react";
+import { ArrowLeft, Check, Clock3, Mail, Pause, Play, Plus, Send, ShieldAlert, Users, X } from "lucide-react";
+import { campaignDefinition, type CampaignDefinition, type CampaignStep } from "@/domain/campaign";
+
+type SequenceView = { id: string; name: string; draft: CampaignDefinition; publishedDefinition: CampaignDefinition | null; publishedVersion: number; updatedAt: string };
+type EnrolmentView = { id: string; sequenceId: string; sequenceName: string; version: number; contactId: string; state: string; stopReason: string | null; stepIndex: number; nextStepAt: string | null; nextStepTitle: string | null; totalSteps: number; recipientEmail: string; startedAt: string; lastSentAt: string | null; activity: { action: string; at: string }[] };
+type ContactView = { id: string; name: string; company: string; email: string | null; fictionalised: boolean; doNotContact: boolean };
+type StudioData = { sequences: SequenceView[]; enrolments: EnrolmentView[]; contacts: ContactView[]; mailbox: { address: string | null; ready: boolean; dailyCap: number } | null };
+type EditableDefinition = { steps: CampaignStep[]; schemaVersion?: 1 };
+
+const card = "rounded-2xl border border-[var(--border)] bg-[var(--panel)]";
+const button = "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--panel)] px-4 text-sm font-medium hover:bg-[var(--panel-raised)] disabled:cursor-not-allowed disabled:opacity-40";
+const primary = "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-[var(--accent)] px-4 text-sm font-semibold text-[var(--on-accent)] hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:opacity-40";
+
+function newDefinition(): CampaignDefinition {
+  return { schemaVersion: 1, steps: [
+    { id: crypto.randomUUID(), kind: "email", title: "First introduction", subject: "A private introduction to {{company_name}}", body: "Hi {{first_name}},\n\nI wanted to introduce myself regarding {{company_name}}. Would you be open to a brief, confidential conversation?\n\nBest regards" },
+    { id: crypto.randomUUID(), kind: "wait", title: "Wait three days", days: 3 },
+    { id: crypto.randomUUID(), kind: "email", title: "Thoughtful follow-up", subject: "Following up on {{company_name}}", body: "Hi {{first_name}},\n\nI wanted to follow up on my note about {{company_name}}. If a conversation would be useful, I would be glad to arrange one.\n\nBest regards" },
+  ] };
+}
+
+async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(url, { ...init, cache: "no-store", headers: { "Content-Type": "application/json", ...init?.headers } });
+  const payload = await response.json().catch(() => ({})) as T & { error?: string };
+  if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
+  return payload;
+}
+
+function dateLabel(value: string | null) { return value ? new Date(value).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" }) : "—"; }
+function statusLabel(enrolment: EnrolmentView) {
+  if (enrolment.state === "needs_review") return enrolment.stopReason === "existing_conversation" ? "Existing conversation" : "Needs review";
+  if (enrolment.state === "stopped" && enrolment.stopReason === "reply_received") return "Replied — stopped";
+  return enrolment.state.charAt(0).toUpperCase() + enrolment.state.slice(1);
+}
+
+export function CampaignStudio({ mandateId, mandateName }: { mandateId: string; mandateName: string }) {
+  const [data, setData] = useState<StudioData | null>(null);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [view, setView] = useState<"contacts" | "sequences">("contacts");
+  const [selectedSequenceId, setSelectedSequenceId] = useState<string | null>(null);
+  const [draftName, setDraftName] = useState("");
+  const [draft, setDraft] = useState<EditableDefinition | null>(null);
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const [selectedContactIds, setSelectedContactIds] = useState<string[]>([]);
+  const [enrolOpen, setEnrolOpen] = useState(false);
+  const [enrolSequenceId, setEnrolSequenceId] = useState("");
+  const [search, setSearch] = useState("");
+  const [openContactId, setOpenContactId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const next = await requestJson<StudioData>(`/api/mandates/${mandateId}/campaigns`);
+    setData(next);
+    return next;
+  }, [mandateId]);
+  useEffect(() => {
+    const controller = new AbortController();
+    requestJson<StudioData>(`/api/mandates/${mandateId}/campaigns`, { signal: controller.signal })
+      .then(next => { if (!controller.signal.aborted) setData(next); })
+      .catch(cause => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Could not load campaigns"); });
+    return () => controller.abort();
+  }, [mandateId]);
+
+  const chooseSequence = useCallback((sequence: SequenceView) => {
+    setSelectedSequenceId(sequence.id);
+    setDraftName(sequence.name);
+    setDraft(structuredClone(sequence.draft));
+    setSelectedStepId(sequence.draft.steps[0]?.id || null);
+    setView("sequences");
+  }, []);
+
+  const selectedSequence = data?.sequences.find(sequence => sequence.id === selectedSequenceId);
+  const selectedStep = draft?.steps.find(step => step.id === selectedStepId);
+  const enrolledByContact = useMemo(() => new Map((data?.enrolments || []).filter(item => ["active", "paused", "needs_review"].includes(item.state)).map(item => [item.contactId, item])), [data]);
+  const visibleContacts = useMemo(() => (data?.contacts || []).filter(contact => `${contact.name} ${contact.company} ${contact.email || ""}`.toLowerCase().includes(search.toLowerCase())), [data, search]);
+  const openContact = data?.contacts.find(contact => contact.id === openContactId);
+  const openEnrolment = openContact ? enrolledByContact.get(openContact.id) || data?.enrolments.find(item => item.contactId === openContact.id) : undefined;
+  const published = data?.sequences.filter(sequence => sequence.publishedVersion > 0) || [];
+  const enrolSequence = published.find(sequence => sequence.id === enrolSequenceId) || published[0];
+  const firstStep = enrolSequence?.publishedDefinition?.steps[0];
+  const selectedContacts = (data?.contacts || []).filter(contact => selectedContactIds.includes(contact.id));
+
+  const graph = useMemo(() => {
+    if (!draft) return { nodes: [] as Node[], edges: [] as Edge[] };
+    const nodes: Node[] = [
+      { id: "start", position: { x: 80, y: 0 }, data: { label: "Contact subscribes" }, style: { borderRadius: 14, border: "1px solid var(--border)", background: "var(--panel)", color: "var(--foreground)", padding: 12, width: 220 } },
+      ...draft.steps.map((step, index) => ({ id: step.id, position: { x: 80, y: 110 + index * 120 }, data: { label: `${step.kind === "email" ? "✉" : "◷"}  ${step.title}` }, style: { borderRadius: 14, border: step.id === selectedStepId ? "2px solid var(--accent)" : "1px solid var(--border)", background: "var(--panel)", color: "var(--foreground)", padding: 12, width: 220 } })),
+      { id: "end", position: { x: 80, y: 110 + draft.steps.length * 120 }, data: { label: "Complete · or stop on reply" }, style: { borderRadius: 14, border: "1px solid var(--border)", background: "var(--panel)", color: "var(--foreground)", padding: 12, width: 220 } },
+    ];
+    const edges = nodes.slice(1).map((node, index) => ({ id: `edge-${index}`, source: nodes[index].id, target: node.id, animated: index === 0 }));
+    return { nodes, edges };
+  }, [draft, selectedStepId]);
+
+  async function perform(work: () => Promise<string>) {
+    setBusy(true); setError(""); setNotice("");
+    try { const message = await work(); setNotice(message); await load(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Request failed"); }
+    finally { setBusy(false); }
+  }
+
+  function updateStep(next: CampaignStep) { setDraft(current => current ? { ...current, steps: current.steps.map(step => step.id === next.id ? next : step) } : current); }
+
+  async function createSequence() {
+    const definition = newDefinition();
+    await perform(async () => {
+      const created = await requestJson<SequenceView>(`/api/mandates/${mandateId}/campaigns`, { method: "POST", body: JSON.stringify({ mandateId, name: "New introduction sequence", definition }) });
+      setSelectedSequenceId(created.id); setDraftName(created.name); setDraft(definition); setSelectedStepId(definition.steps[0].id); setView("sequences");
+      return "Sequence created as a draft. Publish it before adding contacts.";
+    });
+  }
+
+  async function saveSequence(publish: boolean) {
+    if (!selectedSequenceId || !draft) return;
+    const parsed = campaignDefinition.safeParse({ ...draft, schemaVersion: 1 });
+    if (!parsed.success) { setError(parsed.error.issues.map(issue => issue.message).join(". ")); return; }
+    await perform(async () => {
+      await requestJson(`/api/campaigns/${selectedSequenceId}`, { method: "PUT", body: JSON.stringify({ name: draftName, definition: parsed.data }) });
+      if (publish) {
+        const snapshot = await requestJson<{ version: number }>(`/api/campaigns/${selectedSequenceId}/publish`, { method: "POST" });
+        return `Published version ${snapshot.version}. Existing contacts remain on their original version.`;
+      }
+      return "Draft saved. Existing contacts remain on their published version.";
+    });
+  }
+
+  async function subscribe() {
+    if (!enrolSequence || !selectedContactIds.length) return;
+    await perform(async () => {
+      const result = await requestJson<{ enrolments: { state: string }[] }>(`/api/campaigns/${enrolSequence.id}/enrolments`, { method: "POST", body: JSON.stringify({ contactIds: selectedContactIds, confirmation: true }) });
+      setEnrolOpen(false); setSelectedContactIds([]);
+      const held = result.enrolments.filter(item => item.state === "needs_review").length;
+      return held ? `${result.enrolments.length - held} contact(s) scheduled. ${held} held for an existing conversation.` : `${result.enrolments.length} contact(s) subscribed. Their first email is now scheduled.`;
+    });
+  }
+
+  async function action(enrolment: EnrolmentView, kind: "pause" | "resume" | "stop" | "review_existing_conversation") {
+    await perform(async () => {
+      await requestJson(`/api/campaign-enrolments/${enrolment.id}/action`, { method: "POST", body: JSON.stringify({ action: kind }) });
+      return kind === "review_existing_conversation" ? "Conversation reviewed; automation resumed." : `Automation ${kind === "pause" ? "paused" : kind === "resume" ? "resumed" : "stopped"}.`;
+    });
+  }
+
+  return <div className="mx-auto max-w-[1680px] space-y-6 p-5 sm:p-8">
+    <Link href={`/mandates/${mandateId}/outreach`} className="inline-flex items-center gap-2 text-sm text-[var(--muted)] hover:text-[var(--foreground)]"><ArrowLeft size={16} /> Back to outreach</Link>
+    <header className="flex flex-wrap items-end justify-between gap-5"><div><p className="text-xs font-semibold uppercase tracking-[.18em] text-[var(--muted)]">{mandateName} / Outreach</p><h1 className="mt-2 text-3xl font-semibold sm:text-4xl">Campaign studio</h1><p className="mt-2 text-sm text-[var(--muted)]">Publish a sequence, subscribe contacts, and follow every send, hold, and reply.</p></div><div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 text-sm"><p className="font-semibold">Your sending mailbox</p><p className="mt-1 text-[var(--muted)]">{data?.mailbox?.address || "Not connected"} · {data?.mailbox?.ready ? "Ready" : "Reconnect required"}</p></div></header>
+    {!data?.mailbox?.ready && <div role="alert" className="flex gap-3 rounded-xl border border-[var(--border)] bg-[var(--accent-soft)] p-4 text-sm"><ShieldAlert size={19} /><p>Connect your own Gmail with compose and read-only access before subscribing contacts. <Link href="/settings" className="underline">Open Settings</Link></p></div>}
+    {error && <div role="alert" className="rounded-xl border border-red-800 bg-[var(--error-surface)] p-4 text-sm text-[var(--status-red)]">{error}</div>}
+    {notice && <div role="status" className="rounded-xl border border-emerald-800 bg-[var(--success-surface)] p-4 text-sm text-[var(--status-emerald)]">{notice}</div>}
+    <div className="flex gap-6 border-b border-[var(--border)]"><button type="button" onClick={() => setView("contacts")} className={`flex min-h-12 items-center gap-2 border-b-2 text-sm ${view === "contacts" ? "border-[var(--accent)]" : "border-transparent text-[var(--muted)]"}`}><Users size={17} /> Contacts</button><button type="button" onClick={() => setView("sequences")} className={`flex min-h-12 items-center gap-2 border-b-2 text-sm ${view === "sequences" ? "border-[var(--accent)]" : "border-transparent text-[var(--muted)]"}`}><Mail size={17} /> Sequences</button></div>
+    {!data ? <p className="py-12 text-sm text-[var(--muted)]">Loading campaign studio…</p> : view === "contacts" ? <div className="space-y-5">
+      <div className="grid gap-3 sm:grid-cols-3">{[["Active", data.enrolments.filter(item => item.state === "active").length], ["Paused or review", data.enrolments.filter(item => ["paused", "needs_review"].includes(item.state)).length], ["Replied", data.enrolments.filter(item => item.stopReason === "reply_received").length]].map(([label, value]) => <div key={label} className={`${card} p-4`}><p className="text-xs uppercase tracking-wider text-[var(--muted)]">{label}</p><p className="mt-2 text-3xl font-semibold">{value}</p></div>)}</div>
+      <section className={`${card} overflow-hidden`}><div className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--border)] p-5"><div><h2 className="text-xl font-semibold">Contacts and progress</h2><p className="mt-1 text-sm text-[var(--muted)]">Only sequences using your own connected mailbox appear here.</p></div><button type="button" className={primary} disabled={!selectedContactIds.length || !published.length || !data.mailbox?.ready} onClick={() => { setEnrolSequenceId(published[0]?.id || ""); setEnrolOpen(true); }}><Plus size={17} /> Subscribe {selectedContactIds.length || "selected"}</button></div><div className="border-b border-[var(--border)] p-4"><input aria-label="Search contacts" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search contacts or companies" className="min-h-11 w-full max-w-md rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm" /></div><div className="overflow-x-auto"><table className="w-full min-w-[850px] text-left text-sm"><thead className="bg-[var(--panel-raised)] text-xs uppercase tracking-wider text-[var(--muted)]"><tr>{["Select", "Contact", "Sequence", "Status", "Current action", "Next"].map(heading => <th key={heading} className="p-4">{heading}</th>)}</tr></thead><tbody>{visibleContacts.map(contact => { const enrolment = enrolledByContact.get(contact.id) || data.enrolments.find(item => item.contactId === contact.id); const selectable = Boolean(contact.email && !contact.fictionalised && !contact.doNotContact && !enrolledByContact.has(contact.id)); return <tr key={contact.id} className="border-t border-[var(--border)]"><td className="p-4"><input type="checkbox" aria-label={`Select ${contact.name}`} disabled={!selectable} checked={selectedContactIds.includes(contact.id)} onChange={event => setSelectedContactIds(current => event.target.checked ? [...current, contact.id] : current.filter(id => id !== contact.id))} /></td><td className="p-4"><button type="button" className="text-left font-semibold underline underline-offset-4" onClick={() => setOpenContactId(contact.id)}>{contact.name}</button><p className="mt-1 text-xs text-[var(--muted)]">{contact.company} · {contact.email || "No email"}</p></td><td className="p-4">{enrolment ? `${enrolment.sequenceName} · v${enrolment.version}` : "—"}</td><td className="p-4">{enrolment ? statusLabel(enrolment) : "Not enrolled"}</td><td className="p-4">{enrolment?.state === "active" ? enrolment.nextStepTitle : enrolment?.stopReason?.replaceAll("_", " ") || "—"}</td><td className="p-4">{dateLabel(enrolment?.nextStepAt || null)}</td></tr>; })}</tbody></table>{!visibleContacts.length && <p className="p-8 text-center text-sm text-[var(--muted)]">No contacts found.</p>}</div></section>
+    </div> : <div className="space-y-5"><div className="flex flex-wrap items-end justify-between gap-4"><div><h2 className="text-xl font-semibold">Your sequences</h2><p className="mt-1 text-sm text-[var(--muted)]">Publishing creates a new immutable version; subscribed contacts continue on theirs.</p></div><button type="button" className={button} disabled={busy} onClick={createSequence}><Plus size={17} /> New sequence</button></div><div className="grid gap-4 xl:grid-cols-[235px_minmax(0,1fr)]"><aside className={`${card} h-fit p-3`}><p className="px-2 py-2 text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">Sequences</p>{data.sequences.map(sequence => <button key={sequence.id} type="button" className={`mt-1 w-full rounded-xl border p-3 text-left ${selectedSequenceId === sequence.id ? "border-[var(--accent)] bg-[var(--panel-raised)]" : "border-transparent hover:bg-[var(--panel-raised)]"}`} onClick={() => chooseSequence(sequence)}><span className="block text-sm font-semibold">{sequence.name}</span><span className="mt-1 block text-xs text-[var(--muted)]">{sequence.publishedVersion ? `Published v${sequence.publishedVersion}` : "Draft"}</span></button>)}{!data.sequences.length && <p className="px-2 py-4 text-xs text-[var(--muted)]">No sequences yet.</p>}</aside>{draft && selectedSequence ? <section className={`${card} min-w-0 overflow-hidden`}><div className="flex flex-wrap items-end justify-between gap-3 border-b border-[var(--border)] p-5"><label className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">Sequence name<input value={draftName} onChange={event => setDraftName(event.target.value)} className="mt-2 block min-h-11 w-72 max-w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-base font-semibold normal-case text-[var(--foreground)]" /></label><div className="flex gap-2"><button type="button" className={button} disabled={busy} onClick={() => saveSequence(false)}>Save draft</button><button type="button" className={primary} disabled={busy} onClick={() => saveSequence(true)}><Check size={16} /> Publish new version</button></div></div><div className="grid lg:grid-cols-[minmax(0,1fr)_320px]"><div className="h-[650px] bg-[var(--background)]"><ReactFlow nodes={graph.nodes} edges={graph.edges} fitView fitViewOptions={{ padding: 0.15 }} nodesDraggable={false} nodesConnectable={false} elementsSelectable onNodeClick={(_event, node) => setSelectedStepId(node.id)}><Background color="var(--border)" /><Controls showInteractive={false} /></ReactFlow></div><div className="space-y-4 border-l border-[var(--border)] p-5"><h3 className="text-sm font-semibold">Step settings</h3>{selectedStep ? <><label className="block text-xs font-medium">Name<input value={selectedStep.title} onChange={event => updateStep({ ...selectedStep, title: event.target.value })} className="mt-1 min-h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm" /></label>{selectedStep.kind === "email" ? <><label className="block text-xs font-medium">Subject<input value={selectedStep.subject} onChange={event => updateStep({ ...selectedStep, subject: event.target.value })} className="mt-1 min-h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm" /></label><label className="block text-xs font-medium">Body<textarea value={selectedStep.body} onChange={event => updateStep({ ...selectedStep, body: event.target.value })} rows={10} className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm" /></label><p className="text-xs text-[var(--muted)]">Use {"{{first_name}}"}, {"{{full_name}}"}, or {"{{company_name}}"}.</p></> : <label className="block text-xs font-medium">Days to wait<input type="number" min={1} max={30} value={selectedStep.days} onChange={event => updateStep({ ...selectedStep, days: Number(event.target.value) })} className="mt-1 min-h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm" /></label>}</> : <p className="text-xs text-[var(--muted)]">Select an email or wait step.</p>}<div className="border-t border-[var(--border)] pt-4"><button type="button" className={`${button} w-full`} onClick={() => setDraft(current => current ? { steps: [...current.steps, { id: crypto.randomUUID(), kind: "wait", title: "Wait three days", days: 3 }, { id: crypto.randomUUID(), kind: "email", title: "Follow-up", subject: "Following up with {{company_name}}", body: "Hi {{first_name}},\n\nJust following up on my note.\n\nBest regards" }] } : current)}><Plus size={16} /> Add wait and email</button>{draft.steps.length > 1 && <button type="button" className={`${button} mt-2 w-full`} onClick={() => { setDraft(current => current ? { steps: current.steps.slice(0, -2) } : current); setSelectedStepId(draft.steps[0].id); }}>Remove last follow-up</button>}</div><p className="text-xs text-[var(--muted)]">Current published version: {selectedSequence.publishedVersion || "none"}. Changes are saved as a draft until you publish.</p></div></div></section> : <div className={`${card} grid min-h-72 place-items-center p-8 text-sm text-[var(--muted)]`}>Select or create a sequence.</div>}</div></div>}
+    {openContact && <div className="fixed inset-0 z-50 flex justify-end bg-black/60" onMouseDown={event => { if (event.target === event.currentTarget) setOpenContactId(null); }}><section role="dialog" aria-modal="true" aria-label={`${openContact.name} automation`} className="h-full w-full max-w-lg overflow-y-auto border-l border-[var(--border)] bg-[var(--background)] p-6"><div className="flex items-start justify-between gap-3"><div><p className="text-xs uppercase tracking-wider text-[var(--muted)]">Contact automation</p><h2 className="mt-2 text-2xl font-semibold">{openContact.name}</h2><p className="text-sm text-[var(--muted)]">{openContact.company} · {openContact.email}</p></div><button type="button" className={button} aria-label="Close" onClick={() => setOpenContactId(null)}><X size={16} /></button></div>{openEnrolment ? <><div className={`${card} mt-6 space-y-3 p-4 text-sm`}><p><strong>Sequence:</strong> {openEnrolment.sequenceName} · version {openEnrolment.version}</p><p><strong>Status:</strong> {statusLabel(openEnrolment)}</p><p><strong>Position:</strong> step {Math.min(openEnrolment.stepIndex + 1, openEnrolment.totalSteps)} of {openEnrolment.totalSteps}</p><p><strong>Next action:</strong> {openEnrolment.nextStepTitle || "None"}</p><p><strong>Scheduled:</strong> {dateLabel(openEnrolment.nextStepAt)}</p><p><strong>Last sent:</strong> {dateLabel(openEnrolment.lastSentAt)}</p>{openEnrolment.stopReason && <p><strong>Reason:</strong> {openEnrolment.stopReason.replaceAll("_", " ")}</p>}</div><div className="mt-5 flex flex-wrap gap-2">{openEnrolment.state === "active" && <button type="button" className={button} disabled={busy} onClick={() => action(openEnrolment, "pause")}><Pause size={16} /> Pause</button>}{openEnrolment.state === "paused" && <button type="button" className={primary} disabled={busy} onClick={() => action(openEnrolment, "resume")}><Play size={16} /> Resume</button>}{openEnrolment.state === "needs_review" && openEnrolment.stopReason === "existing_conversation" && <button type="button" className={primary} disabled={busy} onClick={() => action(openEnrolment, "review_existing_conversation")}><Check size={16} /> Reviewed; resume</button>}{["active", "paused", "needs_review"].includes(openEnrolment.state) && <button type="button" className={button} disabled={busy} onClick={() => action(openEnrolment, "stop")}>Stop permanently</button>}</div><h3 className="mt-8 text-sm font-semibold">Activity</h3><ol className="mt-3 space-y-3 border-l border-[var(--border)] pl-4">{openEnrolment.activity.map((event, index) => <li key={`${event.action}-${index}`} className="text-sm"><p className="font-medium">{event.action.replace(/^campaign\./, "").replaceAll("_", " ")}</p><p className="text-xs text-[var(--muted)]">{dateLabel(event.at)}</p></li>)}</ol></> : <p className="mt-6 text-sm text-[var(--muted)]">This contact has not been subscribed to one of your sequences.</p>}</section></div>}
+    {enrolOpen && enrolSequence && <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onMouseDown={event => { if (event.target === event.currentTarget) setEnrolOpen(false); }}><section role="dialog" aria-modal="true" aria-label="Confirm automation" className={`${card} w-full max-w-xl p-6 shadow-2xl`}><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">Start automation</p><h2 className="mt-1 text-xl font-semibold">Subscribe {selectedContacts.length} contact{selectedContacts.length === 1 ? "" : "s"}</h2></div><button type="button" className={button} aria-label="Close" onClick={() => setEnrolOpen(false)}><X size={16} /></button></div><p className="mt-3 text-sm text-[var(--muted)]">Confirming starts this published sequence for each selected contact. Emails will send automatically during the sending window unless paused or a reply is found.</p><label className="mt-5 block text-sm font-medium">Sequence<select value={enrolSequence.id} onChange={event => setEnrolSequenceId(event.target.value)} className="mt-2 min-h-11 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3">{published.map(sequence => <option key={sequence.id} value={sequence.id}>{sequence.name} · v{sequence.publishedVersion}</option>)}</select></label><div className={`${card} mt-5 p-4`}><p className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">First action</p><p className="mt-2 flex items-center gap-2 text-sm font-semibold"><Send size={16} /> {firstStep?.kind === "email" ? `Send email: ${firstStep.title}` : "Invalid sequence"}</p><p className="mt-2 text-xs text-[var(--muted)]">From {data?.mailbox?.address}. Existing conversations are checked before subscription and again immediately before sending.</p></div><div className="mt-4 max-h-32 overflow-y-auto text-sm">{selectedContacts.map(contact => <p key={contact.id} className="py-1">{contact.name} · <span className="text-[var(--muted)]">{contact.email}</span></p>)}</div><div className="mt-6 flex justify-end gap-2"><button type="button" className={button} onClick={() => setEnrolOpen(false)}>Cancel</button><button type="button" className={primary} disabled={busy} onClick={subscribe}><Play size={16} /> Confirm and start</button></div></section></div>}
+    <p className="flex items-center gap-2 text-xs text-[var(--muted)]"><Clock3 size={14} /> Sending window: weekdays, 9 am–5 pm Melbourne time. This Gmail-first build does not enable LinkedIn or WhatsApp sends.</p>
+  </div>;
+}

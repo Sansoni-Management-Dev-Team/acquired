@@ -15,6 +15,11 @@ export function connectionCanCompose(connection: GmailConnectionGrant) {
     && Boolean(connection.scopes?.some((scope) => scope === "https://www.googleapis.com/auth/gmail.compose"));
 }
 
+export function connectionCanMonitorReplies(connection: GmailConnectionGrant) {
+  return connectionCanCompose(connection)
+    && Boolean(connection.scopes?.some((scope) => scope === "https://www.googleapis.com/auth/gmail.readonly"));
+}
+
 export function mailboxForConnection(connection: GmailConnectionGrant) {
   if (!connectionCanCompose(connection) || !connection.encryptedRefreshToken) {
     throw new Error("Connect Gmail with draft permission before approving outreach.");

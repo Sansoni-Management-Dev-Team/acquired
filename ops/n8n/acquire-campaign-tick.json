@@ -1,0 +1,37 @@
+{
+  "name": "Acquire campaign scheduler",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": { "interval": [{ "field": "minutes", "minutesInterval": 1 }] }
+      },
+      "id": "c1be71d6-68cb-4ff5-a44f-e7679485ce11",
+      "name": "Every minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 280]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://project-acquire.vercel.app/api/internal/campaigns/tick",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": { "timeout": 30000 }
+      },
+      "id": "a6254dbe-0542-44b6-bf53-12ea0e7607c7",
+      "name": "Ask Acquire to process due sends",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 280]
+    }
+  ],
+  "connections": {
+    "Every minute": {
+      "main": [[{ "node": "Ask Acquire to process due sends", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1", "timezone": "Australia/Melbourne" },
+  "pinData": {}
+}

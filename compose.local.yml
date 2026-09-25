@@ -51,7 +51,49 @@ services:
       retries: 10
       start_period: 5s
     restart: unless-stopped
+  campaign-sink:
+    image: node:22-alpine
+    container_name: project-acquire-campaign-sink
+    command: ["node", "/app/campaign-sink.mjs"]
+    volumes:
+      - ./scripts/campaign-sink.mjs:/app/campaign-sink.mjs:ro
+    ports:
+      - "127.0.0.1:18094:8080"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+  n8n:
+    image: n8nio/n8n:2.1.5
+    container_name: project-acquire-n8n
+    environment:
+      N8N_HOST: localhost
+      N8N_PORT: "5678"
+      N8N_PROTOCOL: http
+      N8N_SECURE_COOKIE: "false"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      N8N_DIAGNOSTICS_ENABLED: "false"
+      GENERIC_TIMEZONE: Australia/Melbourne
+      OUTREACH_WORKER_SECRET: ${OUTREACH_WORKER_SECRET:-local-campaign-test-only}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - project-acquire-n8n-data:/home/node/.n8n
+      - ./ops/n8n/acquire-campaign-local.json:/home/node/workflows/acquire-campaign-local.json:ro
+    ports:
+      - "127.0.0.1:5679:5678"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5678/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
 
 volumes:
   project-acquire-postgres-data:
     name: project-acquire-postgres-data
+  project-acquire-n8n-data:
+    name: project-acquire-n8n-data

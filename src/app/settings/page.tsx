@@ -26,6 +26,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
 
   const notice = await searchParams;
   const gmailConnected = Boolean(gmail && !gmail.reconnectRequired && gmail.scopes?.some((scope) => scope.endsWith("/gmail.compose")));
+  const campaignReady = gmailConnected && Boolean(gmail?.scopes?.some(scope => scope.endsWith("/gmail.readonly")));
 
   return <div className="p-6 md:p-8">
     <p className="text-xs uppercase tracking-[.18em] text-[var(--accent)]">Account</p>
@@ -35,12 +36,13 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
     {notice.gmail === "error" && <p role="alert" className="mb-5 rounded-md border border-red-900 bg-[var(--error-surface)] px-4 py-3 text-sm text-[var(--status-red)]">Gmail connection failed{notice.reason ? `: ${notice.reason}` : "."}</p>}
     <div className="grid max-w-3xl gap-5">
       <section className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-6">
-        <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">Sending mailbox</h2><p className="mt-2 text-sm text-[var(--muted)]">Gmail uses a separate delegated grant with the <code>gmail.compose</code> scope so approved outreach can be saved as Gmail drafts.</p></div><span className={`mt-1 shrink-0 text-xs ${gmailConnected ? "text-[var(--status-emerald)]" : "text-[var(--status-amber)]"}`}>{gmailConnected ? "Connected" : gmail ? "Reconnect required" : "Not connected"}</span></div>
+        <div className="flex items-start justify-between gap-4"><div><h2 className="text-lg font-semibold">Sending mailbox</h2><p className="mt-2 text-sm text-[var(--muted)]">Campaigns need Gmail compose permission to send and read-only permission to check for existing conversations and replies.</p></div><span className={`mt-1 shrink-0 text-xs ${gmailConnected ? "text-[var(--status-emerald)]" : "text-[var(--status-amber)]"}`}>{gmailConnected ? "Connected" : gmail ? "Reconnect required" : "Not connected"}</span></div>
         <dl className="my-5 space-y-3 text-sm">
           <div className="flex justify-between gap-4"><dt className="text-[var(--muted)]">Gmail account</dt><dd className="max-w-72 truncate font-medium">{gmail?.address || (gmail ? "Connected address unavailable" : "—")}</dd></div>
           <div className="flex justify-between"><dt className="text-[var(--muted)]">Daily cap</dt><dd>{gmail?.dailyCap ?? 100}</dd></div>
           <div className="flex justify-between"><dt className="text-[var(--muted)]">Permission</dt><dd className={gmail?.scopes?.some((scope) => scope.endsWith("/gmail.compose")) ? "text-[var(--status-emerald)]" : "text-[var(--muted)]"}>gmail.compose</dd></div>
-          <div className="flex justify-between"><dt className="text-[var(--muted)]">Live sends</dt><dd className="text-[var(--status-amber)]">Disabled</dd></div>
+          <div className="flex justify-between"><dt className="text-[var(--muted)]">Reply monitoring</dt><dd className={campaignReady ? "text-[var(--status-emerald)]" : "text-[var(--status-amber)]"}>{campaignReady ? "Ready" : "Reconnect for read-only access"}</dd></div>
+          <div className="flex justify-between"><dt className="text-[var(--muted)]">Live sends</dt><dd>Only after campaign subscription confirmation</dd></div>
           {gmail?.updatedAt && <div className="flex justify-between"><dt className="text-[var(--muted)]">Connected</dt><dd>{gmail.updatedAt.toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short", timeZone: "Australia/Melbourne" })}</dd></div>}
         </dl>
         <a href="/api/mailbox/google/connect" className="inline-flex rounded-md border border-[var(--border)] px-4 py-2.5 text-sm hover:border-[var(--accent)]">{gmail ? "Reconnect Gmail" : "Connect Gmail"}</a>

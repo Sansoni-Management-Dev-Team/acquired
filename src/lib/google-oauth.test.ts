@@ -8,6 +8,7 @@ describe("Google mailbox OAuth", () => {
     const url = new URL(auth.url);
     expect(url.searchParams.get("redirect_uri")).toBe("http://localhost:3000/api/mailbox/google/callback");
     expect(url.searchParams.get("scope")).toContain("gmail.compose");
+    expect(url.searchParams.get("scope")).toContain("gmail.readonly");
     expect(url.searchParams.get("scope")).not.toContain("gmail.send");
     expect(verifyGoogleState(auth.state, 1001).userId).toBe("u1");
   });

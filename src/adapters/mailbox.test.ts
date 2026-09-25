@@ -55,4 +55,49 @@ describe("mailboxes", () => {
     await expect(mailbox.deleteDraft("draft/1")).resolves.toBeUndefined();
     expect(fetcher.mock.calls.map((call) => call[1]?.method)).toEqual(["PUT", "DELETE"]);
   });
+
+  it("holds a send if Gmail already has a conversation", async () => {
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      const query = new URL(String(url)).searchParams.get("q");
+      return new Response(JSON.stringify({ messages: query?.includes("from:") ? [{ id: "existing", threadId: "thread" }] : [] }), { status: 200 });
+    });
+    await expect(new GmailMailbox(async () => "access", fetcher).hasConversation("A@Example.com")).resolves.toBe(true);
+    expect(new URL(String(fetcher.mock.calls[0][0])).searchParams.get("q")).toContain("a@example.com");
+  });
+
+  it("fails closed when Gmail cannot check prior conversations", async () => {
+    const mailbox = new GmailMailbox(async () => "access", vi.fn(async () => new Response(null, { status: 403 })));
+    await expect(mailbox.hasConversation("a@example.com")).rejects.toThrow("conversation check failed");
+  });
+
+  it("places a stable Message-ID on outbound Gmail mail", async () => {
+    const fetcher = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const raw = Buffer.from(JSON.parse(String(init?.body)).raw, "base64url").toString();
+      expect(raw).toContain("Message-ID: <attempt@acquire.mlai.au>");
+      return new Response(JSON.stringify({ id: "sent", threadId: "thread" }), { status: 200 });
+    });
+    await new GmailMailbox(async () => "access", fetcher).send("owner", { to: "a@example.com", subject: "Hello", text: "Hi", messageId: "<attempt@acquire.mlai.au>" });
+  });
+
+  it("finds outbound mail for a final manual-conversation check", async () => {
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      expect(new URL(String(url)).searchParams.get("q")).toContain("to:a@example.com");
+      return new Response(JSON.stringify({ messages: [{ id: "manual-1", threadId: "thread-1" }] }), { status: 200 });
+    });
+    await expect(new GmailMailbox(async () => "access", fetcher).outboundToSince("A@Example.com", new Date("2026-09-25T00:00:00Z"))).resolves.toEqual(["manual-1"]);
+  });
+
+  it("checks every Gmail search page before clearing outbound history", async () => {
+    const fetcher = vi.fn(async (url: string | URL | Request) => {
+      const page = new URL(String(url)).searchParams.get("pageToken");
+      return new Response(JSON.stringify(page ? { messages: [{ id: "second", threadId: "t2" }] } : { messages: [{ id: "first", threadId: "t1" }], nextPageToken: "next" }), { status: 200 });
+    });
+    await expect(new GmailMailbox(async () => "access", fetcher).outboundToSince("a@example.com", new Date())).resolves.toEqual(["first", "second"]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails closed if Gmail history cannot be fully paginated", async () => {
+    const fetcher = vi.fn(async () => new Response(JSON.stringify({ messages: [], nextPageToken: "more" }), { status: 200 }));
+    await expect(new GmailMailbox(async () => "access", fetcher).outboundToSince("a@example.com", new Date())).rejects.toThrow("safety-check limit");
+  });
 });

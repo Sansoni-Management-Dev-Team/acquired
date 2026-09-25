@@ -12,7 +12,7 @@ export function SignInForm({ redirectTo = "/targets" }: { redirectTo?: string })
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setLoading(true); setError("");
     const data = new FormData(event.currentTarget);
-    const result = await authClient.signIn.email({ email: String(data.get("email")), password: String(data.get("password")), callbackURL: "/targets" });
+    const result = await authClient.signIn.email({ email: String(data.get("email")), password: String(data.get("password")) });
     if (result.error) {
       setError(result.error.message || "Sign in failed");
       setLoading(false);

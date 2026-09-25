@@ -57,6 +57,41 @@
       "when": 1789625918335,
       "tag": "0007_firmable_concurrency_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790288695818,
+      "tag": "0008_campaign_automation",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790288872004,
+      "tag": "0009_campaign_contact_safety",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790289964000,
+      "tag": "0010_campaign_contact_ownership",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790290034183,
+      "tag": "0011_campaign_email_ownership",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790290186732,
+      "tag": "0012_campaign_rls_roles",
+      "breakpoints": true
     }
   ]
 }

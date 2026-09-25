@@ -4,7 +4,7 @@ import { requireDb } from "@/db/client";
 import { mailboxConnections } from "@/db/schema";
 import { encryptToken } from "@/lib/token-crypto";
 import { exchangeGoogleCode, fetchGoogleUserInfo, verifyGoogleState } from "@/lib/google-oauth";
-import { connectionCanCompose } from "@/lib/gmail-connection";
+import { connectionCanMonitorReplies } from "@/lib/gmail-connection";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -18,8 +18,10 @@ export async function GET(request: Request) {
     const profile = await fetchGoogleUserInfo(token.access_token);
     const database = requireDb();
     const scopes = token.scope.split(" ");
-    if (!connectionCanCompose({ encryptedRefreshToken: token.refresh_token, reconnectRequired: false, scopes })) throw new Error("Google did not grant Gmail draft permission");
-    const existing = await database.select({ id: mailboxConnections.id }).from(mailboxConnections).where(and(eq(mailboxConnections.userId, state.userId), eq(mailboxConnections.provider, "gmail"))).limit(1);
+    if (!connectionCanMonitorReplies({ encryptedRefreshToken: token.refresh_token, reconnectRequired: false, scopes })) throw new Error("Google did not grant Gmail compose and read-only permissions");
+    const existing = await database.select({ id: mailboxConnections.id, address: mailboxConnections.address, organizationId: mailboxConnections.organizationId }).from(mailboxConnections).where(and(eq(mailboxConnections.userId, state.userId), eq(mailboxConnections.provider, "gmail"))).limit(1);
+    if (existing[0]?.address && existing[0].address.toLowerCase() !== profile.email.toLowerCase()) throw new Error("This user's sending account is already bound to a different Gmail address. Disconnect or transfer it explicitly before changing senders.");
+    if (existing[0] && existing[0].organizationId !== state.organizationId) throw new Error("This Gmail account is bound to another organization. It cannot be silently reassigned while campaigns may use it.");
     const values = { organizationId: state.organizationId, userId: state.userId, provider: "gmail" as const, address: profile.email, encryptedRefreshToken: encryptToken(token.refresh_token), keyVersion: "v1", scopes, expiresAt: new Date(Date.now() + token.expires_in * 1000), reconnectRequired: false };
     if (existing[0]) await database.update(mailboxConnections).set(values).where(eq(mailboxConnections.id, existing[0].id));
     else await database.insert(mailboxConnections).values(values);

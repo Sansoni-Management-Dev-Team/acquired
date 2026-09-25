@@ -1,0 +1,44 @@
+{
+  "name": "Acquire campaign scheduler (local no-send)",
+  "id": "acquireCampaignLocal",
+  "versionId": "a9b126e6-76eb-4b99-a189-c944fab3c627",
+  "nodes": [
+    {
+      "parameters": { "rule": { "interval": [{ "field": "minutes", "minutesInterval": 1 }] } },
+      "id": "524b9f29-f43c-4b44-b8a1-93c6d9d3462e",
+      "name": "Every minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 280]
+    },
+    {
+      "parameters": {},
+      "id": "29931c93-8d4b-4f11-8eb5-5ba5edb25725",
+      "name": "Local test trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [240, 460]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://host.docker.internal:3010/api/internal/campaigns/tick",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{ 'Bearer ' + $env.OUTREACH_WORKER_SECRET }}" }] },
+        "options": { "timeout": 30000 }
+      },
+      "id": "1f40df4c-6fa1-4bcc-8e72-29bbf18cc0d0",
+      "name": "Run local Acquire worker",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [500, 280]
+    }
+  ],
+  "connections": {
+    "Every minute": { "main": [[{ "node": "Run local Acquire worker", "type": "main", "index": 0 }]] },
+    "Local test trigger": { "main": [[{ "node": "Run local Acquire worker", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1", "timezone": "Australia/Melbourne" },
+  "pinData": {}
+}
