@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, integer, jsonb, pgEnum, pgTable, primaryKey, real, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, index, integer, jsonb, pgEnum, pgTable, primaryKey, real, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 export const targetBand = pgEnum("target_band", ["cold", "warm", "hot", "excluded"]);
 export const opportunityQualification = pgEnum("opportunity_qualification", ["priority", "develop", "research", "excluded"]);
@@ -186,8 +186,8 @@ export const campaignSequences = pgTable("campaign_sequences", {
 export const campaignSequenceVersions = pgTable("campaign_sequence_versions", {
   id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id),
   ownerUserId: text("owner_user_id").notNull().references(() => user.id), sequenceId: uuid("sequence_id").notNull().references(() => campaignSequences.id),
-  version: integer("version").notNull(), definition: jsonb("definition").notNull(), publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(),
-}, table => [uniqueIndex("campaign_sequence_version_idx").on(table.sequenceId, table.version)]);
+  version: integer("version").notNull(), definition: jsonb("definition").notNull(), n8nWorkflowId: text("n8n_workflow_id"), publishedAt: timestamp("published_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [uniqueIndex("campaign_sequence_version_idx").on(table.sequenceId, table.version), uniqueIndex("campaign_version_n8n_workflow_idx").on(table.n8nWorkflowId).where(sql`${table.n8nWorkflowId} IS NOT NULL`)]);
 
 export const campaignEnrolments = pgTable("campaign_enrolments", {
   id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id),
@@ -196,6 +196,7 @@ export const campaignEnrolments = pgTable("campaign_enrolments", {
   contactId: uuid("contact_id").notNull().references(() => contacts.id), mailboxConnectionId: uuid("mailbox_connection_id").notNull().references(() => mailboxConnections.id),
   recipientEmail: text("recipient_email").notNull(), state: text("state").notNull().default("active"), stopReason: text("stop_reason"),
   initialConversationReviewed: boolean("initial_conversation_reviewed").notNull().default(false),
+  runtime: text("runtime").notNull().default("legacy"), n8nStartedAt: timestamp("n8n_started_at", { withTimezone: true }),
   lastReplyCheckedAt: timestamp("last_reply_checked_at", { withTimezone: true }),
   stepIndex: integer("step_index").notNull().default(0), nextStepAt: timestamp("next_step_at", { withTimezone: true }),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -203,6 +204,8 @@ export const campaignEnrolments = pgTable("campaign_enrolments", {
   uniqueIndex("campaign_enrolment_active_idx").on(table.organizationId, table.contactId, table.sequenceId).where(sql`${table.state} IN ('active', 'paused', 'needs_review')`),
   index("campaign_enrolment_due_idx").on(table.state, table.nextStepAt),
   index("campaign_enrolment_contact_idx").on(table.organizationId, table.contactId),
+  index("campaign_n8n_dispatch_idx").on(table.startedAt).where(sql`${table.runtime} = 'n8n' AND ${table.n8nStartedAt} IS NULL AND ${table.state} IN ('active', 'paused', 'needs_review')`),
+  check("campaign_enrolment_runtime_check", sql`${table.runtime} IN ('legacy', 'n8n')`),
 ]);
 
 export const campaignSendAttempts = pgTable("campaign_send_attempts", {

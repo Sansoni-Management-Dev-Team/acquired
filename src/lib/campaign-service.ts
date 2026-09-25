@@ -5,11 +5,12 @@ import { rows, withCampaignDb, withCampaignWorker, type CampaignActor } from "@/
 import { campaignDefinition, campaignSendWindowOpen, nextAllowedCampaignSend, nextEmailAfter, normalizeEmail, renderCampaignTemplate, type CampaignDefinition } from "@/domain/campaign";
 import { connectionCanMonitorReplies } from "@/lib/gmail-connection";
 import { campaignMailboxForConnection, campaignTestSendAnytime } from "@/lib/campaign-mailbox";
+import { n8nCampaignEnabled, provisionSequenceWorkflow, removeSequenceWorkflow, startSequenceContact } from "@/lib/campaign-n8n";
 import type { PoolClient } from "pg";
 
-type SequenceRow = { id: string; organization_id: string; owner_user_id: string; mandate_id: string; name: string; draft: unknown; published_definition?: unknown; published_version: number; updated_at: Date };
-type VersionRow = { id: string; sequence_id: string; version: number; definition: unknown };
-type EnrolmentRow = { id: string; organization_id: string; owner_user_id: string; sequence_id: string; version_id: string; mandate_id: string; contact_id: string; mailbox_connection_id: string; recipient_email: string; state: string; stop_reason: string | null; initial_conversation_reviewed: boolean; step_index: number; next_step_at: Date | null; started_at: Date; last_reply_checked_at: Date | null };
+type SequenceRow = { id: string; organization_id: string; owner_user_id: string; mandate_id: string; name: string; draft: unknown; published_definition?: unknown; n8n_workflow_id?: string | null; published_version: number; updated_at: Date };
+type VersionRow = { id: string; sequence_id: string; version: number; definition: unknown; n8n_workflow_id: string | null };
+type EnrolmentRow = { id: string; organization_id: string; owner_user_id: string; sequence_id: string; version_id: string; mandate_id: string; contact_id: string; mailbox_connection_id: string; recipient_email: string; state: string; stop_reason: string | null; initial_conversation_reviewed: boolean; step_index: number; next_step_at: Date | null; started_at: Date; last_reply_checked_at: Date | null; runtime: "legacy" | "n8n"; n8n_started_at: Date | null };
 type ContactRow = { id: string; display_name: string; company_name: string; personal_data: unknown; fictionalised: boolean };
 type MailboxRow = { id: string; organization_id: string; user_id: string; address: string | null; encrypted_refresh_token: string | null; reconnect_required: boolean; scopes: string[] | null; daily_cap: number };
 
@@ -28,6 +29,11 @@ function emailForContact(contact: ContactRow) {
 
 function nextSendAt(input: Date) { return campaignTestSendAnytime() ? input : nextAllowedCampaignSend(input); }
 function sendWindowOpen(input: Date) { return campaignTestSendAnytime() || campaignSendWindowOpen(input); }
+function nextCampaignEmail(definition: CampaignDefinition, sentIndex: number, sentAt: Date) {
+  const next = nextEmailAfter(definition, sentIndex, sentAt);
+  if (next && campaignTestSendAnytime() && process.env.CAMPAIGN_TEST_FAST_WAITS === "true") next.at = new Date(sentAt.getTime() + 3000);
+  return next;
+}
 
 async function ownMailbox(client: PoolClient, actor: CampaignActor) {
   const [mailbox] = await rows<MailboxRow>(client, "SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE organization_id = $1 AND user_id = $2 AND provider = 'gmail' LIMIT 1", [actor.organizationId, actor.userId]);
@@ -55,14 +61,14 @@ async function assertContactAllowed(client: PoolClient, actor: CampaignActor, em
 export async function listCampaignStudio(actor: CampaignActor, mandateId: string) {
   return withCampaignDb(actor, async client => {
     const [sequences, enrolments, contactRows, mailbox] = await Promise.all([
-      rows<SequenceRow>(client, "SELECT s.*, (SELECT v.definition FROM campaign_sequence_versions v WHERE v.sequence_id = s.id AND v.version = s.published_version) AS published_definition FROM campaign_sequences s WHERE s.organization_id = $1 AND s.owner_user_id = $2 AND s.mandate_id = $3 ORDER BY s.updated_at DESC", [actor.organizationId, actor.userId, mandateId]),
+      rows<SequenceRow>(client, "SELECT s.*, (SELECT v.definition FROM campaign_sequence_versions v WHERE v.sequence_id = s.id AND v.version = s.published_version) AS published_definition, (SELECT v.n8n_workflow_id FROM campaign_sequence_versions v WHERE v.sequence_id = s.id AND v.version = s.published_version) AS n8n_workflow_id FROM campaign_sequences s WHERE s.organization_id = $1 AND s.owner_user_id = $2 AND s.mandate_id = $3 ORDER BY s.updated_at DESC", [actor.organizationId, actor.userId, mandateId]),
       rows<EnrolmentRow & { sequence_name: string; version: number; version_definition: unknown; last_sent_at: Date | null }>(client, "SELECT e.*, s.name AS sequence_name, v.version, v.definition AS version_definition, (SELECT max(a.sent_at) FROM campaign_send_attempts a WHERE a.enrolment_id = e.id AND a.state = 'sent') AS last_sent_at FROM campaign_enrolments e JOIN campaign_sequences s ON s.id = e.sequence_id JOIN campaign_sequence_versions v ON v.id = e.version_id WHERE e.organization_id = $1 AND e.owner_user_id = $2 AND e.mandate_id = $3 ORDER BY e.started_at DESC", [actor.organizationId, actor.userId, mandateId]),
       rows<ContactRow>(client, "SELECT c.id, c.display_name, c.personal_data, c.fictionalised, t.company_name FROM contacts c JOIN targets t ON t.id = c.target_id JOIN mandate_targets mt ON mt.target_id = t.id AND mt.organization_id = c.organization_id WHERE c.organization_id = $1 AND mt.mandate_id = $2 ORDER BY t.company_name, c.display_name", [actor.organizationId, mandateId]),
       rows<MailboxRow>(client, "SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE organization_id = $1 AND user_id = $2 AND provider = 'gmail'", [actor.organizationId, actor.userId]),
     ]);
     const activity = enrolments.length ? await rows<{ entity_id: string; action: string; created_at: Date }>(client, "SELECT entity_id, action, created_at FROM audit_events WHERE organization_id = $1 AND actor_id = $2 AND entity_type = 'campaign_enrolment' AND entity_id = ANY($3::text[]) ORDER BY created_at DESC LIMIT 1000", [actor.organizationId, actor.userId, enrolments.map(row => row.id)]) : [];
     return {
-      sequences: sequences.map(row => ({ id: row.id, name: row.name, draft: parseDefinition(row.draft), publishedDefinition: row.published_definition ? parseDefinition(row.published_definition) : null, publishedVersion: row.published_version, updatedAt: row.updated_at })),
+      sequences: sequences.map(row => ({ id: row.id, name: row.name, draft: parseDefinition(row.draft), publishedDefinition: row.published_definition ? parseDefinition(row.published_definition) : null, publishedVersion: row.published_version, n8nWorkflowId: row.n8n_workflow_id || null, updatedAt: row.updated_at })),
       enrolments: enrolments.map(row => ({ id: row.id, sequenceId: row.sequence_id, sequenceName: row.sequence_name, version: row.version, contactId: row.contact_id, state: row.state, stopReason: row.stop_reason, stepIndex: row.step_index, nextStepAt: row.next_step_at, nextStepTitle: parseDefinition(row.version_definition).steps[row.step_index]?.title || null, totalSteps: parseDefinition(row.version_definition).steps.length, recipientEmail: row.recipient_email, startedAt: row.started_at, lastSentAt: row.last_sent_at, activity: activity.filter(event => event.entity_id === row.id).map(event => ({ action: event.action, at: event.created_at })) })),
       contacts: contactRows.map(row => ({ id: row.id, name: row.display_name, company: row.company_name, email: z.email().safeParse(personalData(row.personal_data).email).success ? normalizeEmail(String(personalData(row.personal_data).email)) : null, fictionalised: row.fictionalised, doNotContact: personalData(row.personal_data).doNotContact === true })),
       mailbox: mailbox[0] ? { address: mailbox[0].address, ready: connectionCanMonitorReplies({ encryptedRefreshToken: mailbox[0].encrypted_refresh_token, reconnectRequired: mailbox[0].reconnect_required, scopes: mailbox[0].scopes }), dailyCap: mailbox[0].daily_cap } : null,
@@ -88,15 +94,23 @@ export async function saveCampaign(actor: CampaignActor, sequenceId: string, nam
 }
 
 export async function publishCampaign(actor: CampaignActor, sequenceId: string) {
-  return withCampaignDb(actor, async client => {
+  const prepared = await withCampaignDb(actor, async client => {
+    const [sequence] = await rows<SequenceRow>(client, "SELECT * FROM campaign_sequences WHERE id = $3 AND organization_id = $1 AND owner_user_id = $2", [actor.organizationId, actor.userId, sequenceId]);
+    if (!sequence) throw new CampaignError("Sequence not found", 404);
+    return { definition: parseDefinition(sequence.draft), name: sequence.name, version: sequence.published_version + 1, updatedAt: sequence.updated_at };
+  });
+  const versionId = randomUUID();
+  const workflowId = n8nCampaignEnabled() ? await provisionSequenceWorkflow({ versionId, sequenceName: prepared.name, version: prepared.version, definition: prepared.definition }) : null;
+  try { return await withCampaignDb(actor, async client => {
     const [sequence] = await rows<SequenceRow>(client, "SELECT * FROM campaign_sequences WHERE id = $3 AND organization_id = $1 AND owner_user_id = $2 FOR UPDATE", [actor.organizationId, actor.userId, sequenceId]);
     if (!sequence) throw new CampaignError("Sequence not found", 404);
+    if (sequence.published_version + 1 !== prepared.version || sequence.updated_at.getTime() !== prepared.updatedAt.getTime()) throw new CampaignError("Sequence changed during publishing; try again");
     const definition = parseDefinition(sequence.draft);
     const version = sequence.published_version + 1;
-    const [snapshot] = await rows<VersionRow>(client, "INSERT INTO campaign_sequence_versions (organization_id, owner_user_id, sequence_id, version, definition) VALUES ($1, $2, $3, $4, $5) RETURNING *", [actor.organizationId, actor.userId, sequenceId, version, JSON.stringify(definition)]);
+    const [snapshot] = await rows<VersionRow>(client, "INSERT INTO campaign_sequence_versions (id, organization_id, owner_user_id, sequence_id, version, definition, n8n_workflow_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *", [versionId, actor.organizationId, actor.userId, sequenceId, version, JSON.stringify(definition), workflowId]);
     await client.query("UPDATE campaign_sequences SET published_version = $2, updated_at = now() WHERE id = $1", [sequenceId, version]);
     return { id: snapshot.id, version };
-  });
+  }); } catch (error) { if (workflowId) await removeSequenceWorkflow(workflowId).catch(() => undefined); throw error; }
 }
 
 export async function enrolContacts(actor: CampaignActor, sequenceId: string, contactIds: string[]) {
@@ -106,6 +120,7 @@ export async function enrolContacts(actor: CampaignActor, sequenceId: string, co
     if (!sequence || !sequence.published_version) throw new CampaignError("Publish this sequence before adding contacts");
     const [version] = await rows<VersionRow>(client, "SELECT * FROM campaign_sequence_versions WHERE sequence_id = $1 AND version = $2", [sequenceId, sequence.published_version]);
     if (!version) throw new CampaignError("Published version is missing");
+    if (n8nCampaignEnabled() && !version.n8n_workflow_id) throw new CampaignError("This published version must be synced to n8n before new contacts can be added");
     const definition = parseDefinition(version.definition);
     const mailbox = await ownMailbox(client, actor);
     const contacts = [] as { contact: ContactRow; email: string }[];
@@ -139,7 +154,7 @@ export async function enrolContacts(actor: CampaignActor, sequenceId: string, co
       if (!assignment) throw new CampaignError(`${contact.display_name} is assigned to another sender`);
       const existing = conversationChecks.find(check => check.email === email)?.existing || false;
       const nextAt = existing ? null : nextSendAt(new Date());
-      const [enrolment] = await rows<EnrolmentRow>(client, `INSERT INTO campaign_enrolments (organization_id, owner_user_id, sequence_id, version_id, mandate_id, contact_id, mailbox_connection_id, recipient_email, state, stop_reason, next_step_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`, [actor.organizationId, actor.userId, sequenceId, prepared.version.id, prepared.sequence.mandate_id, contact.id, prepared.mailbox.id, email, existing ? "needs_review" : "active", existing ? "existing_conversation" : null, nextAt]);
+      const [enrolment] = await rows<EnrolmentRow>(client, `INSERT INTO campaign_enrolments (organization_id, owner_user_id, sequence_id, version_id, mandate_id, contact_id, mailbox_connection_id, recipient_email, state, stop_reason, next_step_at, runtime) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`, [actor.organizationId, actor.userId, sequenceId, prepared.version.id, prepared.sequence.mandate_id, contact.id, prepared.mailbox.id, email, existing ? "needs_review" : "active", existing ? "existing_conversation" : null, nextAt, n8nCampaignEnabled() ? "n8n" : "legacy"]);
       await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,'campaign.subscribed','campaign_enrolment',$3,$4)", [actor.organizationId, actor.userId, enrolment.id, JSON.stringify({ sequenceId, version: prepared.version.version, contactId: contact.id, firstAction: prepared.definition.steps[0].title, existingConversation: existing })]);
       results.push({ id: enrolment.id, contactId: contact.id, state: enrolment.state, nextStepAt: enrolment.next_step_at, firstAction: existing ? "Existing Gmail conversation found — review before sending" : `Send email: ${prepared.definition.steps[0].title}` });
     }
@@ -274,7 +289,7 @@ export async function processCampaignEnrolment(actor: CampaignActor, enrolmentId
     try {
       const templateContact = { displayName: contact.display_name, companyName: contact.company_name };
       const delivery = await checked.gmail.send(actor.userId, { to: enrolment.recipient_email, subject: renderCampaignTemplate(step.subject, templateContact), text: renderCampaignTemplate(step.body, templateContact), messageId: claim.messageId });
-      const next = nextEmailAfter(definition, enrolment.step_index, delivery.sentAt);
+      const next = nextCampaignEmail(definition, enrolment.step_index, delivery.sentAt);
       await withCampaignDb(actor, async client => {
         await client.query("UPDATE campaign_send_attempts SET state = 'sent', provider_message_id = $2, provider_thread_id = $3, sent_at = $4 WHERE id = $1 AND state = 'claimed'", [claim.attemptId, delivery.providerMessageId, delivery.providerThreadId, delivery.sentAt]);
         await client.query("UPDATE campaign_enrolments SET state = $2, step_index = $3, next_step_at = $4, updated_at = now() WHERE id = $1 AND state = 'active' AND step_index = $5", [enrolment.id, next ? "active" : "completed", next?.index ?? enrolment.step_index + 1, next ? nextSendAt(next.at) : null, enrolment.step_index]);
@@ -298,6 +313,21 @@ export async function processCampaignEnrolment(actor: CampaignActor, enrolmentId
   }
 }
 
+export async function processN8nCampaignStep(enrolmentId: string, versionId: string, stepIndex: number) {
+  const [job] = await withCampaignWorker(client => rows<EnrolmentRow>(client, "SELECT * FROM campaign_enrolments WHERE id = $1 AND version_id = $2 AND runtime = 'n8n'", [enrolmentId, versionId]));
+  if (!job) throw new CampaignError("n8n enrolment not found", 404);
+  const retryAt = () => new Date(Date.now() + (campaignTestSendAnytime() && process.env.CAMPAIGN_TEST_FAST_WAITS === "true" ? 3000 : 60 * 60_000));
+  if (job.state === "stopped" || job.state === "completed") return { outcome: "finished" as const, nextStepAt: null };
+  if (job.step_index > stepIndex) return { outcome: "sent" as const, nextStepAt: job.next_step_at };
+  if (job.step_index < stepIndex) return { outcome: "finished" as const, nextStepAt: null };
+  if (job.state !== "active") return { outcome: "retry" as const, nextStepAt: retryAt() };
+  const result = await processCampaignEnrolment({ organizationId: job.organization_id, userId: job.owner_user_id }, enrolmentId);
+  const [current] = await withCampaignWorker(client => rows<EnrolmentRow>(client, "SELECT * FROM campaign_enrolments WHERE id = $1", [enrolmentId]));
+  if (result.outcome === "sent" || current.step_index > stepIndex) return { outcome: "sent" as const, nextStepAt: current.next_step_at };
+  if (current.state === "stopped" || current.state === "completed") return { outcome: "finished" as const, nextStepAt: null };
+  return { outcome: "retry" as const, nextStepAt: current.state === "active" && current.next_step_at && current.next_step_at > new Date() ? current.next_step_at : retryAt() };
+}
+
 async function reconcileUnknownAttempt(actor: CampaignActor, attemptId: string) {
   const loaded = await withCampaignDb(actor, async client => {
     const [attempt] = await rows<{ id: string; enrolment_id: string; step_index: number; rfc_message_id: string; state: string }>(client, "SELECT * FROM campaign_send_attempts WHERE id = $1 AND state = 'unknown'", [attemptId]);
@@ -313,7 +343,7 @@ async function reconcileUnknownAttempt(actor: CampaignActor, attemptId: string) 
   const gmail = campaignMailboxForConnection({ encryptedRefreshToken: loaded.mailbox.encrypted_refresh_token, reconnectRequired: loaded.mailbox.reconnect_required, scopes: loaded.mailbox.scopes }, loaded.mailbox.id);
   const found = await gmail.findByRfcMessageId(loaded.attempt.rfc_message_id);
   if (!found) return false;
-  const next = nextEmailAfter(parseDefinition(loaded.version.definition), loaded.attempt.step_index, new Date());
+  const next = nextCampaignEmail(parseDefinition(loaded.version.definition), loaded.attempt.step_index, new Date());
   await withCampaignDb(actor, async client => {
     await client.query("UPDATE campaign_send_attempts SET state = 'sent', provider_message_id = $2, provider_thread_id = $3, sent_at = now(), error = NULL WHERE id = $1 AND state = 'unknown'", [attemptId, found.id, found.threadId]);
     const [hold] = await rows<{ id: string }>(client, "SELECT id FROM campaign_contact_holds WHERE organization_id = $1 AND email = $2", [actor.organizationId, loaded.enrolment.recipient_email]);
@@ -323,7 +353,14 @@ async function reconcileUnknownAttempt(actor: CampaignActor, attemptId: string) 
 }
 
 export async function runCampaignTick(limit = 3) {
-  const jobs = await withCampaignWorker(client => rows<{ id: string; organization_id: string; owner_user_id: string }>(client, "SELECT id, organization_id, owner_user_id FROM campaign_enrolments WHERE state = 'active' AND next_step_at <= now() ORDER BY next_step_at LIMIT $1", [limit]));
+  const dispatch = await withCampaignWorker(client => rows<{ id: string; version_id: string }>(client, "SELECT id, version_id FROM campaign_enrolments WHERE runtime = 'n8n' AND n8n_started_at IS NULL AND state IN ('active','paused','needs_review') ORDER BY started_at LIMIT $1", [limit]));
+  for (const job of dispatch) {
+    try {
+      await startSequenceContact(job.version_id, job.id);
+      await withCampaignWorker(client => client.query("UPDATE campaign_enrolments SET n8n_started_at = now() WHERE id = $1 AND n8n_started_at IS NULL", [job.id]).then(() => undefined));
+    } catch { /* Keep unstarted for the next scheduler pass. */ }
+  }
+  const jobs = await withCampaignWorker(client => rows<{ id: string; organization_id: string; owner_user_id: string }>(client, "SELECT id, organization_id, owner_user_id FROM campaign_enrolments WHERE runtime = 'legacy' AND state = 'active' AND next_step_at <= now() ORDER BY next_step_at LIMIT $1", [limit]));
   const results = [] as { id: string; outcome: string }[];
   for (const job of jobs) {
     try {
@@ -354,5 +391,21 @@ export async function runCampaignTick(limit = 3) {
     try { await reconcileUnknownAttempt({ organizationId: attempt.organization_id, userId: attempt.owner_user_id }, attempt.id); }
     catch { /* Unknown remains held; it is never retried as a send. */ }
   }
-  return { processed: results.length, results, replyScans: scans.length, unknownChecks: unknown.length };
+  return { processed: results.length, results, n8nDispatches: dispatch.length, replyScans: scans.length, unknownChecks: unknown.length };
+}
+
+// Called once at cutover for versions published before n8n owned the runtime.
+// Existing enrolments retain their legacy runtime and version pin.
+export async function syncPublishedCampaignWorkflows() {
+  const versions = await withCampaignWorker(client => rows<VersionRow & { sequence_name: string }>(client, "SELECT v.*, s.name AS sequence_name FROM campaign_sequence_versions v JOIN campaign_sequences s ON s.id = v.sequence_id WHERE v.n8n_workflow_id IS NULL ORDER BY v.published_at"));
+  const synced = [] as { versionId: string; workflowId: string }[];
+  for (const version of versions) {
+    const workflowId = await provisionSequenceWorkflow({ versionId: version.id, sequenceName: version.sequence_name, version: version.version, definition: parseDefinition(version.definition) });
+    try {
+      const updated = await withCampaignWorker(client => client.query("UPDATE campaign_sequence_versions SET n8n_workflow_id = $2 WHERE id = $1 AND n8n_workflow_id IS NULL", [version.id, workflowId]).then(result => result.rowCount));
+      if (!updated) { await removeSequenceWorkflow(workflowId); continue; }
+      synced.push({ versionId: version.id, workflowId });
+    } catch (error) { await removeSequenceWorkflow(workflowId).catch(() => undefined); throw error; }
+  }
+  return { synced };
 }
