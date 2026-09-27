@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Building2, Settings, Plus, PanelLeftClose, PanelLeftOpen, Menu, FileText, ListFilter, Send } from "lucide-react";
+import { Building2, House, Settings, Plus, PanelLeftClose, PanelLeftOpen, Menu, FileText, ListFilter, Send } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
 
 import { mandateTabHref } from "@/domain/mandate-navigation";
@@ -30,7 +30,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     <SidebarContext.Provider value={setSidebarJson}><div className={`min-h-screen lg:grid ${collapsed ? "lg:grid-cols-[80px_minmax(0,1fr)]" : "lg:grid-cols-[272px_minmax(0,1fr)]"}`}>
       <aside className={`border-b border-[var(--border)] bg-[var(--background)] p-4 lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:border-b-0 lg:border-r ${collapsed ? "lg:px-3" : "lg:p-5"}`}>
         <div className={`flex items-center justify-between gap-2 ${collapsed ? "lg:flex-col" : ""}`}>
-          <Link href="/mandates" aria-label="Acquired — all mandates" className="flex min-h-12 min-w-0 items-center gap-3">
+          <Link href="/" aria-label="Acquired — home" className="flex min-h-12 min-w-0 items-center gap-3">
             <Image src="/acquired-crown.png" width={42} height={42} alt="" className="size-10 shrink-0 object-contain theme-logo" priority />
             <span className={collapsed ? "lg:hidden" : ""}><strong className="block text-sm tracking-[.16em]">ACQUIRED</strong></span>
           </Link>
@@ -47,6 +47,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </select>
           </div>
           <nav aria-label="Mandates" className="mt-3 space-y-1">
+            <Link href="/" title="Home" aria-current={pathname === "/" ? "page" : undefined} onClick={() => setMobileOpen(false)} className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-sm hover:bg-[var(--panel-raised)] ${pathname === "/" ? "bg-[var(--panel-raised)] font-semibold text-[var(--foreground)]" : "text-[var(--muted)] hover:text-[var(--foreground)]"} ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><House size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>Home</span></Link>
             <Link href="/mandates" title="All mandates" onClick={() => setMobileOpen(false)} className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-sm text-[var(--muted)] hover:text-[var(--foreground)] ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><Building2 size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>All mandates</span></Link>
             {collapsed && <Link href="/mandates/new" title="New mandate" onClick={() => setMobileOpen(false)} className="hidden min-h-12 items-center justify-center rounded-md text-[var(--muted)] hover:text-[var(--foreground)] lg:flex"><Plus size={20} /><span className="sr-only">New mandate</span></Link>}
           </nav>

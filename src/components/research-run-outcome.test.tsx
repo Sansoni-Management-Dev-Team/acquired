@@ -28,7 +28,7 @@ describe("research outcome shown for saved unfinished URLs", () => {
   it("distinguishes failure from cancellation and makes the error discoverable", () => {
     const { html } = render({ status: "failed" });
     expect(html).toContain("Research failed — 6 URLs remaining");
-    expect(html).toContain("Check Details for the error");
+    expect(html).toContain("You can retry the run");
     expect(html).not.toContain("cancelled");
   });
   it("does not call a completed run paused just because unused URLs remain", () => {

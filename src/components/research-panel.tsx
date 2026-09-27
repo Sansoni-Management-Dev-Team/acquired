@@ -126,15 +126,8 @@ export function ResearchPanel({
   const searchHistory = discoveryJobs.reduce<NonNullable<ResearchConfig["discoveryAttempts"]>>((history, j) => (j.config.discoveryAttempts?.length || 0) > history.length ? j.config.discoveryAttempts! : history, []);
   const searchStopReason = discoveryJobs.find(j => j.config.discoveryStopReason)?.config.discoveryStopReason;
   const enriching = [...relatedPeople, ...relatedCompanies].filter(j => !terminalResearchStates.includes(j.status));
-  const finishedEnrichment = [...relatedPeople, ...relatedCompanies].filter(j => terminalResearchStates.includes(j.status));
-  const searchLeadCount = new Set(relatedPeople.flatMap(j => (j.config.peopleSearchLeads || []).map(l => `${j.config.targetId}:${l.url}`))).size;
-  const peopleFound = (data.results || []).filter(r => runJobs.some(j => j.id === r.jobId)).reduce((sum, r) => sum + r.people, 0);
   const identifiedBusinessCount = new Set((data.results || []).filter(r => runJobs.some(j => j.id === r.jobId)).flatMap(r => r.businessDomains || [])).size;
   const newBusinessCount = new Set(runJobs.flatMap(j => j.config.newBusinessIds || [])).size;
-  const activeBusinessCount = new Set(runJobs.filter(j => !terminalResearchStates.includes(j.status)).flatMap(j => j.config.companyDomain || j.config.targetId ? [j.config.companyDomain || j.config.targetId] : [])).size;
-  const queuedUrlCount = new Set(runJobs.filter(j => !terminalResearchStates.includes(j.status) && !j.config.parallelDiscovery).flatMap(j => j.config.runtime?.remaining || j.seeds)).size;
-  const waitingJobs = runJobs.filter(j => !terminalResearchStates.includes(j.status) && /Waiting for (?:browser|AI) slot/.test(j.message)).length;
-  const runPages = runJobs.reduce((sum, j) => sum + j.pages, 0);
   const termList = terms
     .split("\n")
     .map((s) => s.trim())
@@ -326,10 +319,7 @@ export function ResearchPanel({
             {currentJob.config.mode === "automatic" && <DiscoveryCandidateList mandateId={mandateId} jobs={candidateJobs} searching={Boolean(active)} />}
             {!currentJob.config.purpose && !terminalResearchStates.includes(currentJob.status) && <p className="text-sm text-[var(--muted)]">{currentJob.status === "discovering" ? "Searching for candidate websites…" : "Reading candidate websites and checking business details…"} The count increases as new businesses are saved to Targets.</p>}
             <ResearchRunOutcome status={currentJob.status} remaining={remainingFor(currentJob).length} active={Boolean(active)} canResume={!currentJob.config.purpose} busy={busy} onResume={() => resume(currentJob)} />
-            <details className="text-sm text-[var(--muted)]"><summary className="min-h-12 cursor-pointer content-center">Details</summary>
-              <p>{activeBusinessCount} businesses in progress · {waitingJobs} jobs waiting for a provider slot · {enriching.length} enrichment jobs running · {finishedEnrichment.length} finished · {peopleFound} contact leads{searchLeadCount ? ` · ${searchLeadCount} leads to verify` : ""}</p>
-              <p>{runPages} pages read · {queuedUrlCount} URLs queued</p><p className="mt-2 break-words">{currentJob.message === "Discovery complete" ? "Website search finished; researching candidate businesses" : currentJob.message}</p>
-            </details>
+            {(currentJob.status === "failed" || currentJob.status === "partial" || currentJob.status === "cancelled") && currentJob.message && <p className="break-words text-sm text-[var(--muted)]">{currentJob.message}</p>}
             {searchHistory.length > 0 && <details className="rounded-lg border border-[var(--border)] p-3 text-sm">
               <summary className="min-h-12 cursor-pointer content-center">Search activity · {searchHistory.length} attempts</summary>
               <ol className="space-y-3 pt-2">{searchHistory.map((attempt, i) => <li key={`${i}:${attempt.query}`}>

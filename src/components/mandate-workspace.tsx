@@ -13,7 +13,7 @@ import { ResearchPanel } from "./research-panel";
 
 import { SidebarRegistration } from "./app-shell";
 import { useRouter } from "next/navigation";
-import { useCallback, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useActivePolling } from "./use-active-polling";
 import { AcquisitionBrief, criterionDefinitions, emptyBrief, type CoverageRun, type MandateView, type MembershipView, type ValuationObservation } from "@/domain/acquisition";
 import { parseMandate } from "@/domain/mandate";
@@ -55,16 +55,44 @@ function captureBrief(current: AcquisitionBrief): AcquisitionBrief {
   }
   return { ...current, criteria: current.criteria.map(c => values[c.key] ? { ...c, value: values[c.key], state: "specified", origin: "inferred", confirmed: false } : c) };
 }
-export function BriefEditor({ initial, onSave, busy }: { initial: AcquisitionBrief; onSave: (brief: AcquisitionBrief) => void; busy: boolean }) {
+export function BriefEditor({ initial, onSave, busy, autoSave = false }: { initial: AcquisitionBrief; onSave: (brief: AcquisitionBrief) => Promise<void> | void; busy: boolean; autoSave?: boolean }) {
   const [brief, setBrief] = useState(initial);
   const [generating, setGenerating] = useState(false);
   const [generationError, setGenerationError] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [saveStatus, setSaveStatus] = useState("");
+  const savedBrief = useRef(JSON.stringify(initial));
+  const failedBrief = useRef("");
+  const briefJson = JSON.stringify(brief);
+  useEffect(() => {
+    if (!autoSave || busy || generating || briefJson === savedBrief.current || briefJson === failedBrief.current || !brief.name.trim()) return;
+    const timeout = window.setTimeout(async () => {
+      setSaveStatus("Saving…");
+      setSaveError("");
+      try {
+        await onSave(brief);
+        savedBrief.current = briefJson;
+        failedBrief.current = "";
+        setSaveStatus("Saved");
+      } catch (error) {
+        failedBrief.current = briefJson;
+        setSaveStatus("");
+        setSaveError(error instanceof Error ? error.message : "Brief could not be saved.");
+      }
+    }, 700);
+    return () => window.clearTimeout(timeout);
+  }, [autoSave, brief, briefJson, busy, generating, onSave]);
+  function updateBrief(next: AcquisitionBrief) {
+    setBrief(next);
+    setSaveStatus("");
+    setSaveError("");
+  }
   async function generateTestMandate() {
     setGenerating(true);
     setGenerationError("");
     try {
       const result = await jsonRequest("/api/mandates/generate", {});
-      setBrief(result.brief);
+      updateBrief(result.brief);
     } catch (error) {
       setGenerationError(error instanceof Error ? error.message : "Could not generate a brief. Please try again.");
     } finally {
@@ -72,10 +100,10 @@ export function BriefEditor({ initial, onSave, busy }: { initial: AcquisitionBri
     }
   }
 
-  const update = (key: keyof AcquisitionBrief, value: unknown) => setBrief(b => ({ ...b, [key]: value }));
-  return <form onSubmit={e => { e.preventDefault(); onSave(brief); }} className="space-y-5"><fieldset disabled={generating} className="min-w-0 space-y-5"><div className={panelClass}><label className="text-sm">Mandate name<input required maxLength={100} className={fieldClass} value={brief.name} onChange={e => update("name", e.target.value)} /></label><label className="mt-4 block text-sm">Describe the acquisition brief<textarea className={`${fieldClass} min-h-28`} value={brief.naturalLanguage} onChange={e => update("naturalLanguage", e.target.value)} /></label><div className="mt-3 flex flex-wrap gap-2"><button type="button" className={buttonClass} onClick={() => setBrief(captureBrief(brief))}>Extract draft criteria</button><button type="button" disabled={busy || generating} className={buttonClass} onClick={generateTestMandate}>{generating ? "Generating…" : "Generate test mandate"}</button></div>{generationError && <p role="alert" className="mt-2 text-sm text-[var(--status-red)]">{generationError}</p>}<p role="status" className="mt-2 text-xs text-[var(--muted)]">{generating ? "Creating a new acquisition brief with AI…" : "Generate a new AI test brief, then review and save it."}</p><p className="mt-2 text-xs text-[var(--muted)]">Review every extracted field. Unrecognised details stay in the original brief; enter them below. Separate alternative sub-sectors with semicolons. Use National or Australian states for geography.</p></div>
+  const update = (key: keyof AcquisitionBrief, value: unknown) => updateBrief({ ...brief, [key]: value });
+  return <form onSubmit={e => { e.preventDefault(); if (!autoSave) void onSave(brief); }} className="space-y-5"><fieldset disabled={generating} className="min-w-0 space-y-5"><div className={panelClass}><label className="text-sm">Mandate name<input required maxLength={100} className={fieldClass} value={brief.name} onChange={e => update("name", e.target.value)} /></label><label className="mt-4 block text-sm">Describe the acquisition brief<textarea className={`${fieldClass} min-h-28`} value={brief.naturalLanguage} onChange={e => update("naturalLanguage", e.target.value)} /></label><div className="mt-3 flex flex-wrap gap-2"><button type="button" className={buttonClass} onClick={() => updateBrief(captureBrief(brief))}>Extract draft criteria</button><button type="button" disabled={busy || generating} className={buttonClass} onClick={generateTestMandate}>{generating ? "Generating…" : "Generate test mandate"}</button></div>{generationError && <p role="alert" className="mt-2 text-sm text-[var(--status-red)]">{generationError}</p>}<p className="mt-2 text-xs text-[var(--muted)]">{generating ? "Creating a new acquisition brief with AI…" : autoSave ? "Changes to this brief save automatically." : "Generate a new AI test brief, then review and save it."}</p><p className="mt-2 text-xs text-[var(--muted)]">Review every extracted field. Unrecognised details stay in the original brief; enter them below. Separate alternative sub-sectors with semicolons. Use National or Australian states for geography.</p></div>
     <BriefCriteria criteria={brief.criteria} onChange={criteria => update("criteria", criteria)} />
-    <button disabled={busy} className={`${buttonClass} bg-[var(--accent)] text-[var(--on-accent)]`}>{busy ? "Saving…" : "Save reviewed brief"}</button></fieldset></form>;
+    {autoSave ? <div aria-live="polite" className="text-sm text-[var(--muted)]">{saveError ? <><span role="alert" className="text-[var(--status-red)]">{saveError}</span> <button type="button" className="underline" onClick={() => { failedBrief.current = ""; setSaveError(""); setSaveStatus(""); }}>Retry save</button></> : saveStatus}</div> : <button disabled={busy} className={`${buttonClass} bg-[var(--accent)] text-[var(--on-accent)]`}>{busy ? "Saving…" : "Save reviewed brief"}</button>}</fieldset></form>;
 }
 export function NewMandate({ mandates }: { mandates: MandateView[] }) {
   const router = useRouter(); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
@@ -105,10 +133,23 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
   const researchStatus = (m: MembershipView) => businessResearchStatus(m.target.domain, research.findings.filter(f => f.targetId === m.target.id || researchDomain(f.sourceUrl) === m.target.domain).map(f => f.evidence), research.jobs.some(j => !terminalResearchStates.includes(j.status) && [...j.seeds, ...j.config.seeds].some(url => researchDomain(url) === m.target.domain)));
 
   async function act(body: unknown) { setBusy(true); setError(""); setNotice(""); try { const result = await jsonRequest(`/api/mandates/${id}`, body); setData(await jsonRequest(`/api/mandates/${id}`)); setNotice([...(result.messages || []), ...(result.warnings || [])].filter(Boolean).join(" ") || "Saved."); } catch(e) { setError((e as Error).message); } finally { setBusy(false); } }
+  async function saveBrief(brief: AcquisitionBrief) {
+    setBusy(true);
+    setError("");
+    try {
+      await jsonRequest(`/api/mandates/${id}`, { action: "brief", brief });
+      setData(current => ({ ...current, mandate: { ...current.mandate, brief } }));
+    } catch (caught) {
+      setError((caught as Error).message);
+      throw caught;
+    } finally {
+      setBusy(false);
+    }
+  }
   const filtered = data.memberships.filter(m => `${m.target.companyName} ${m.target.sector.value || ""}`.toLowerCase().includes(filter.toLowerCase()) && (stage === "all" || m.assessment.stage === stage) && (!certFilter || m.accreditations.some(a => `${a.issuer} ${a.scope}`.toLowerCase().includes(certFilter.toLowerCase()))));
   const openReview = (targetId: string) => { setReviewQueue(filtered.map(m => m.target.id)); setReviewId(targetId); };
-  return <><MandateNavigation mandates={mandates.map(m => m.id === id ? data.mandate : m)} selected={id} tab={tab} /><div className="space-y-5 p-5 sm:p-8"><header><p className="text-xs uppercase tracking-widest text-[var(--accent)]">Acquisition workspace</p><h1 className="mt-2 text-3xl font-semibold">{data.mandate.brief.name}</h1><p className="mt-2 text-sm text-[var(--muted)]">{data.memberships.length} companies · {data.memberships.filter(m => m.assessment.stage === "shortlisted").length} shortlisted · {data.mandate.brief.criteria.filter(c => c.state === "unknown").length} unanswered brief criteria</p></header>{error && <p role="alert" className="rounded border border-red-400 p-3 text-[var(--status-red)]">{error}</p>}{notice && <p role="status" className="text-sm text-[var(--accent)]">{notice}</p>}
-    {tab === "brief" && <><BriefEditor key={data.mandate.createdAt} initial={data.mandate.brief} busy={busy} onSave={brief => act({ action: "brief", brief })} /><BuyerProfileEditor initial={data.buyerProfile} onSaved={buyerProfile => setData(current => ({ ...current, buyerProfile }))} /><div><h2 className="text-xl font-semibold">Find businesses</h2><p className="mt-2 text-sm text-[var(--muted)]">Start research from your brief. Targets will show candidate websites as they arrive and move each saved business into the table.</p></div><ResearchPanel mandateId={id} brief={data.mandate.brief} onResultsChanged={() => { void jsonRequest(`/api/mandates/${id}`).then(setData).catch(() => {}); }} onCandidatesFound={() => router.push(mandateTabHref(id, "targets"))} /><ImportPanel busy={busy} onImport={records => act({ action: "import", records })} /></>}
+  return <><MandateNavigation mandates={mandates.map(m => m.id === id ? data.mandate : m)} selected={id} tab={tab} /><div className="space-y-5 p-5 sm:p-8"><header><p className="text-xs uppercase tracking-widest text-[var(--accent)]">Acquisition workspace</p><h1 className="mt-2 text-3xl font-semibold">{data.mandate.brief.name}</h1></header>{error && <p role="alert" className="rounded border border-red-400 p-3 text-[var(--status-red)]">{error}</p>}{notice && <p role="status" className="text-sm text-[var(--accent)]">{notice}</p>}
+    {tab === "brief" && <><BriefEditor key={data.mandate.createdAt} initial={data.mandate.brief} busy={busy} autoSave onSave={saveBrief} /><BuyerProfileEditor initial={data.buyerProfile} onSaved={buyerProfile => setData(current => ({ ...current, buyerProfile }))} /><div><h2 className="text-xl font-semibold">Find businesses</h2><p className="mt-2 text-sm text-[var(--muted)]">Start research from your brief. Targets will show candidate websites as they arrive and move each saved business into the table.</p></div><ResearchPanel mandateId={id} brief={data.mandate.brief} onResultsChanged={() => { void jsonRequest(`/api/mandates/${id}`).then(setData).catch(() => {}); }} onCandidatesFound={() => router.push(mandateTabHref(id, "targets"))} /><ImportPanel busy={busy} onImport={records => act({ action: "import", records })} /></>}
     {tab === "targets" && <><ResearchPanel mandateId={id} brief={data.mandate.brief} showStartAction={false} onResultsChanged={() => { void jsonRequest(`/api/mandates/${id}`).then(setData).catch(() => {}); }} /><div><div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Targets</h2><Link className={buttonClass} href={mandateTabHref(id, "brief")}>Find businesses</Link></div><button disabled={!filtered.length} className={`${buttonClass} mt-3 min-h-12`} onClick={() => openReview(filtered[0].target.id)}>Start review queue</button><p className="mt-2 text-sm text-[var(--muted)]">Screen and enrich the full company list. Open a company to review evidence, make a decision and find contacts in one place.</p></div><div className="flex flex-wrap items-end gap-3"><label className="flex-1 text-xs">Find company<input className={fieldClass} value={filter} onChange={e => setFilter(e.target.value)} /></label><label className="text-xs">Stage<select className={fieldClass} value={stage} onChange={e => setStage(e.target.value)}>{["all", "identified", "reviewing", "shortlisted", "outreach-approved", "contacted", "in-conversation", "qualified", "parked", "excluded"].map(s => <option key={s}>{s}</option>)}</select></label><label className="text-xs">Accreditation<input className={fieldClass} value={certFilter} onChange={e => setCertFilter(e.target.value)} /></label><CompanyDataAction selectedCount={selected.length} busy={busy} onClick={() => act({ action: "enrich", targetIds: selected, requestId: crypto.randomUUID() })} /></div>{selected.length > 0 && <p className="text-xs text-[var(--muted)]">Company enrichment loads company data and every available person profile, so each company may consume multiple credits. Unknowns stay on the list.</p>}{visibleFirmable.length > 0 && <p role="status" className="text-sm text-[var(--accent)]">{visibleFirmable.map(run => `${data.memberships.find(item => item.target.id === run.targetId)?.target.companyName || "Company"}: ${providerNeutralText(run.message)}${run.profilesFound ? ` (${run.profilesSaved}/${run.profilesFound} profiles saved${run.profilesFailed ? `, ${run.profilesFailed} failed` : ""})` : ""}`).join(" · ")}</p>}<div className="overflow-x-auto rounded-lg border border-[var(--border)]"><table className="w-full min-w-[1200px] text-left text-sm [&_td]:align-top"><thead className="bg-[var(--panel)]"><tr>{["Select", "Company", "Stage", "Fit", "Headcount", "Revenue (source currency)", "Estimated EBITDA (AUD)", "Key decision-makers", "Evidence"].map(h => <th className="p-3" key={h}>{h}</th>)}</tr></thead><tbody>{filtered.map(m => <TargetReviewRow key={m.target.id} companyName={m.target.companyName} onReview={() => openReview(m.target.id)}><td className="p-3"><input aria-label={`Select ${m.target.companyName}`} type="checkbox" checked={selected.includes(m.target.id)} onChange={e => setSelected(s => e.target.checked ? [...s,m.target.id] : s.filter(id => id !== m.target.id))} /></td><td className="w-64 min-w-56 p-3"><button className="min-h-12 text-left font-semibold underline decoration-[var(--border)]" onClick={() => openReview(m.target.id)}>{m.target.companyName}</button><p className="mt-1 text-xs text-[var(--muted)]">{m.target.state} · {m.target.sector.value || "Classification unresolved"}</p><p className="mt-1 text-xs text-[var(--accent)]">{researchStatus(m)}</p><div className="mt-1 max-w-56 truncate text-xs"><CompanyWebsite domain={m.target.domain} /></div><details className="mt-1 text-xs"><summary className="min-h-12 cursor-pointer content-center underline decoration-[var(--border)]">Company details</summary><p>ABN: {m.target.abn || "Unknown"}</p><EvidenceChips summary={research.evidence?.[m.target.id]} /></details></td><td className="p-3">{m.assessment.stage}</td><td className="p-3">{m.target.scores.fit}</td><td className="p-3"><TargetResearchData findings={m.researchFindings} kind="headcount" fallback={m.target.headcount.value?.toLocaleString() ?? "Unknown"} confirmedMissing={m.target.headcount.value === null && isCompanyDataSource(m.target.headcount.provenance.source) ? { label: "No data available", source: COMPANY_DATA_SOURCE } : undefined} preferred={m.target.headcount.value !== null && isCompanyDataSource(m.target.headcount.provenance.source) ? { value: m.target.headcount.value.toLocaleString("en-AU"), source: COMPANY_DATA_SOURCE, sourceUrl: m.target.headcount.provenance.sourceUrl } : undefined} /></td><td className="p-3"><TargetResearchData findings={m.researchFindings} kind="revenue" fallback={m.target.revenue.value == null ? "Unknown" : `${financialValue(m.target.revenue.value)} AUD`} preferred={m.target.revenue.value !== null && isCompanyDataSource(m.target.revenue.provenance.source) ? { value: financialValue(m.target.revenue.value), source: COMPANY_DATA_SOURCE, sourceUrl: m.target.revenue.provenance.sourceUrl } : undefined} /></td><td className="p-3"><TargetEbitdaData findings={m.researchFindings} preferredHeadcount={m.target.headcount.value !== null && isCompanyDataSource(m.target.headcount.provenance.source) ? m.target.headcount.value : undefined} /></td><td className="p-3"><TargetResearchData findings={m.researchFindings} kind="person" fallback={data.contacts.filter(c => c.targetId === m.target.id && c.name?.trim()).map(c => c.name).join(", ") || "Unknown"} /></td><td className="p-3">{m.assessment.evidence.filter(e => e.assessment !== "unknown").length}/{criterionDefinitions.length} tested</td></TargetReviewRow>)}</tbody></table>{!filtered.length && <p className="p-8 text-[var(--muted)]">{data.memberships.length ? "No companies match these filters. Try another company name, stage or accreditation." : <>No targets yet. <Link className="underline" href={mandateTabHref(id, "brief")}>Find businesses or import sourced records in Brief</Link> to start your review.</>}</p>}</div></>}
   </div>{reviewId && data.memberships.find(m => m.target.id === reviewId) && <CompanyReviewPanel key={reviewId} mandate={data.mandate} initial={data.memberships.find(m => m.target.id === reviewId)!} position={`Company ${reviewQueue.indexOf(reviewId) + 1} of ${reviewQueue.length}`} onClose={() => setReviewId(null)} onChanged={async () => setData(await jsonRequest(`/api/mandates/${id}`))} onNext={reviewQueue.indexOf(reviewId) < reviewQueue.length - 1 ? () => setReviewId(reviewQueue[reviewQueue.indexOf(reviewId) + 1]) : undefined} />}</>;
 }

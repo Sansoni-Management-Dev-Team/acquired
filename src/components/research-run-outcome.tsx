@@ -8,10 +8,10 @@ export function ResearchRunOutcome({ status, remaining, active, canResume, busy,
   const detail = status === "cancelled"
     ? "Automatic research stopped when this run was cancelled. Saved results are retained."
     : status === "failed"
-      ? "Research could not finish. Check Details for the error before retrying."
+      ? "Research could not finish. You can retry the run."
       : status === "complete"
         ? "This run finished. Saved results are ready to review."
-        : "This run ended before all work was finished. Check Details for the stopping reason.";
+        : "This run ended before all work was finished. You can continue the run.";
   return <div className="space-y-3">
     <p role="status" className="text-sm font-medium">{title}{remaining > 0 ? ` — ${remaining} ${remaining === 1 ? "URL" : "URLs"} remaining` : ""}</p>
     <p className="text-sm text-[var(--muted)]">{detail}</p>
