@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { MandateNavigation } from "@/components/mandate-workspace";
 import { CampaignStudio } from "@/components/campaign-studio";
+import { listCampaignStudio } from "@/lib/campaign-service";
 
 export default async function CampaignsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -13,8 +14,11 @@ export default async function CampaignsPage({ params }: { params: Promise<{ id: 
   if (!session) redirect(`/sign-in?next=${encodeURIComponent(`/mandates/${id}/outreach/campaigns`)}`);
   const organizationId = session.session.activeOrganizationId;
   if (!organizationId) redirect("/onboarding");
-  const mandates = await new AcquisitionRepository(organizationId).listMandates();
+  const [mandates, initialData] = await Promise.all([
+    new AcquisitionRepository(organizationId).listMandates(),
+    listCampaignStudio({ organizationId, userId: session.user.id }, id),
+  ]);
   const mandate = mandates.find(item => item.id === id);
   if (!mandate) notFound();
-  return <><MandateNavigation mandates={mandates} selected={id} tab="outreach" /><CampaignStudio mandateId={id} mandateName={mandate.brief.name} /></>;
+  return <><MandateNavigation mandates={mandates} selected={id} tab="outreach" /><CampaignStudio mandateId={id} mandateName={mandate.brief.name} initialData={initialData} /></>;
 }
