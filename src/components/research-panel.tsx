@@ -1,7 +1,6 @@
 "use client";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { dialogBackdrop } from "./dialog-backdrop";
 import { useActivePolling } from "./use-active-polling";
 import {
   terminalResearchStates,
@@ -12,10 +11,7 @@ import {
   type SavedResearchFinding,
 } from "@/domain/research";
 import { ResearchRunOutcome } from "./research-run-outcome";
-import { GeographySelect } from "./geography-select";
 import type { AcquisitionBrief } from "@/domain/acquisition";
-const input =
-  "min-h-12 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2 text-sm";
 const button =
   "min-h-12 rounded-md border border-[var(--border)] px-4 py-2 text-sm disabled:opacity-40";
 export type ResearchJob = {
@@ -69,28 +65,11 @@ export function ResearchPanel({
   });
   const [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
-    [busy, setBusy] = useState(false),
-    [setup, setSetup] = useState(false);
-  const [scope, setScope] = useState(brief.criteria.find(c => c.key === "subsectors")?.value || "");
-  const [terms, setTerms] = useState("");
-  const [geography, setGeography] = useState(
-    brief.criteria.find((c) => c.key === "geography")?.state === "unrestricted"
-      ? "National"
-      : brief.criteria.find((c) => c.key === "geography")?.value || "",
-  );
-  const [seeds, setSeeds] = useState(""),
-    [discover, setDiscover] = useState(true),
-    [continuation, setContinuation] = useState<ResearchJob | null>(null);
-  const [targetBusinesses, setTargetBusinesses] = useState<number | "">(20);
+    [busy, setBusy] = useState(false);
   const startedJobId = useRef<string | null>(null);
-  const targetValid = Number.isInteger(targetBusinesses) && Number(targetBusinesses) >= 1 && Number(targetBusinesses) <= 100;
-  const backdropPressed = useRef(false);
-  const [findPeople, setFindPeople] = useState(true);
   const changedRef = useRef(onResultsChanged);
   useEffect(() => { changedRef.current = onResultsChanged; }, [onResultsChanged]);
   const signatureRef = useRef("");
-  const setupRef = useRef<HTMLDialogElement>(null);
-  useEffect(() => { if (setup && setupRef.current && !setupRef.current.open) setupRef.current.showModal(); }, [setup]);
   const refresh = useCallback(async () => {
     try {
       const next: Data = await request(`/api/mandates/${mandateId}/research`);
@@ -128,10 +107,6 @@ export function ResearchPanel({
   const enriching = [...relatedPeople, ...relatedCompanies].filter(j => !terminalResearchStates.includes(j.status));
   const identifiedBusinessCount = new Set((data.results || []).filter(r => runJobs.some(j => j.id === r.jobId)).flatMap(r => r.businessDomains || [])).size;
   const newBusinessCount = new Set(runJobs.flatMap(j => j.config.newBusinessIds || [])).size;
-  const termList = terms
-    .split("\n")
-    .map((s) => s.trim())
-    .filter(Boolean);
   const budget = {
     maxPages: 5,
     maxDomains: 5,
@@ -159,8 +134,6 @@ export function ResearchPanel({
       if (navigateOnCandidates && result.jobId) startedJobId.current = result.jobId;
       await refresh();
       onResultsChanged();
-      setSetup(false);
-      setContinuation(null);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -168,24 +141,11 @@ export function ResearchPanel({
     }
   }
   function resume(job: ResearchJob) {
-    setContinuation(job);
-    setTargetBusinesses(job.config.targetBusinesses || 20);
-    setTerms(job.config.searchTerms.join("\n"));
-    setScope(job.config.researchScope || job.config.searchTerms.join("; "));
-    setGeography(job.config.geography);
-    setSeeds(remainingFor(job).slice(0, 10).join("\n"));
-    setDiscover(false);
-    setFindPeople(Boolean(job.config.findPeople));
-    setSetup(true);
+    void act({ ...job.config, requestId: crypto.randomUUID(), continueFrom: job.id, seeds: remainingFor(job).slice(0, 10), approved: true, budget });
   }
   function retryFailed(job: ResearchJob) {
-    setContinuation(null);
-    setTerms(job.config.searchTerms.join("\n"));
-    setScope(job.config.researchScope || job.config.searchTerms.join("; "));
-    setGeography(job.config.geography);
-    setSeeds((job.config.runtime?.attempts || []).filter(a => a.status === "failed" || /extraction failed/i.test(a.reason)).map(a => a.finalUrl || a.url).slice(0, 10).join("\n"));
-    setDiscover(false);
-    setSetup(true);
+    const seeds = (job.config.runtime?.attempts || []).filter(a => a.status === "failed" || /extraction failed/i.test(a.reason)).map(a => a.finalUrl || a.url).slice(0, 10);
+    void act({ ...job.config, requestId: crypto.randomUUID(), seeds, approved: true, discover: false, budget });
   }
   if (!showStartAction && !loading && data.enabled && !currentJob) return null;
   return (
@@ -196,119 +156,13 @@ export function ResearchPanel({
         <p>Website research is awaiting activation.</p>
       ) : (
         <>
-          {(!active || setup) && (showStartAction || setup) && (
-            <>
-              <button
-                className={button}
-                onClick={() => {
-                  setSetup(!setup);
-                  setContinuation(null);
-                }}
-              >
-                {setup ? "Close setup" : "Find & research businesses"}
+          {!active && showStartAction && (
+            <div className="space-y-2">
+              <button className={button} disabled={busy || !brief.naturalLanguage.trim() && !brief.criteria.find(c => c.key === "subsectors")?.value.trim()} onClick={() => void act({ requestId: crypto.randomUUID(), fromBrief: true }, undefined, Boolean(onCandidatesFound))}>
+                Find & research businesses
               </button>
-              {setup && (
-                <dialog ref={setupRef} onPointerDown={event => dialogBackdrop(backdropPressed, () => setSetup(false)).onPointerDown(event)} onPointerCancel={() => { backdropPressed.current = false; }} onClick={event => dialogBackdrop(backdropPressed, () => setSetup(false)).onClick(event)} onCancel={() => setSetup(false)} onClose={() => setSetup(false)} aria-labelledby="research-setup-title" className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-dvh w-full max-w-xl overflow-y-auto border-l border-[var(--border)] bg-[var(--panel)] p-6 text-[var(--foreground)] backdrop:bg-black/70">
-                  <div className="sticky -top-6 z-10 -mx-6 -mt-6 mb-5 flex items-center justify-between gap-4 border-b border-[var(--border)] bg-[var(--panel)] p-6"><h2 id="research-setup-title" className="text-xl font-semibold">{continuation ? "Continue research" : "Find & research businesses"}</h2><button className={button} onClick={() => setSetup(false)} aria-label="Close research settings">Close</button></div>
-                  <div className="space-y-4">
-                  {continuation && (
-                    <p className="font-medium">
-                      Continue {remainingFor(continuation).length} saved URLs
-                      automatically. Completed pages are skipped.
-                    </p>
-                  )}
-                  <label className="block space-y-2 text-sm">
-                    <span className="font-semibold">Target new businesses</span>
-                    <input className={input} type="number" min="1" max="100" step="1" value={targetBusinesses} disabled={Boolean(continuation)} aria-describedby="business-target-help" aria-invalid={!targetValid} onChange={e => setTargetBusinesses(e.target.value === "" ? "" : Number(e.target.value))} />
-                    <span id="business-target-help" className="block text-xs text-[var(--muted)]">Aim for this many new, distinct businesses. Existing targets and duplicates don’t count. Research continues automatically through available sources; duplicates do not use up your target.</span>
-                    {!targetValid && <span role="alert" className="block text-sm text-[var(--status-amber)]">Enter a whole number from 1 to 100.</span>}
-                  </label>
-                  <label className="block space-y-2 text-sm">
-                    <span>Research scope</span>
-                    <textarea className={input} rows={3} maxLength={960} disabled={Boolean(continuation)} value={scope} onChange={e => setScope(e.target.value)} aria-describedby="research-scope-help" />
-                    <span id="research-scope-help" className="block text-xs text-[var(--muted)]">Describe the businesses and services to find. AI generates searches and adapts them as it learns. Financial fit and sale intentions are assessed separately when evidence is available.</span>
-                  </label>
-                  <GeographySelect className={input} disabled={Boolean(continuation)} value={geography} onChange={setGeography} />
-                  <details className="rounded-lg border border-[var(--border)] p-3">
-                    <summary className="min-h-12 cursor-pointer content-center text-sm font-medium">Advanced search settings</summary>
-                    <div className="space-y-4 pt-3">
-                      <label className="block text-sm">Starting search terms (optional, up to six; one per line)
-                        <textarea className={input} rows={3} disabled={Boolean(continuation)} value={terms} onChange={e => setTerms(e.target.value)} />
-                      </label>
-                      {(termList.length > 6 || termList.some(t => t.length < 2 || t.length > 160)) && <p role="alert" className="text-xs text-[var(--status-amber)]">Use up to six starting terms, each between 2 and 160 characters.</p>}
-                      <p className="text-xs text-[var(--muted)]">These are hints. The agent can generate different queries within your research scope.</p>
-                  {!continuation && (
-                    <>
-                      <label className="block text-sm">
-                        Starting websites (optional, one URL per line)
-                        <textarea
-                          className={input}
-                          rows={3}
-                          value={seeds}
-                          onChange={(e) => {
-                            setSeeds(e.target.value);
-                          }}
-                        />
-                      </label>
-                      <label className="flex min-h-12 items-center gap-3 text-sm">
-                        <input
-                          type="checkbox"
-                          checked={discover}
-                          onChange={(e) => {
-                            setDiscover(e.target.checked);
-                          }}
-                        />
-                        Find websites using directories, Google Places and web search
-                      </label>
-                    </>
-                  )}
-                  {discover && !continuation && <p className="text-sm text-[var(--muted)]">Directories and maps provide initial leads. Web searches adapt to results, duplicates and candidate research. You can review attempted queries and their rationale during the run.</p>}
-                    </div>
-                  </details>
-                  <label className="flex min-h-12 items-center gap-3 text-sm"><input type="checkbox" checked={findPeople} onChange={e => setFindPeople(e.target.checked)} />Find owners and decision-makers</label>
-                  <p className="text-sm text-[var(--muted)]">Company details are researched automatically. Unsupported facts stay unknown.</p>
-                  <div className="sticky -bottom-6 -mx-6 border-t border-[var(--border)] bg-[var(--panel)] p-6 space-y-3">
-                  <p className="text-sm text-[var(--muted)]">
-                    Research runs until the target or a safety limit is reached. Stop at any time. Provider charges may apply.
-                  </p>
-                  <p className="text-xs text-[var(--muted)]">Starting research shares this public research scope, generated queries, URLs and page content with the research providers. Keep confidential buyer details out of the search settings.</p>
-                  <button
-                    className={`${button} w-full bg-[var(--accent)] font-semibold text-[var(--on-accent)]`}
-                    disabled={busy || !targetValid || scope.trim().length < 2 || termList.length > 6 || termList.some(t => t.length < 2 || t.length > 160) || geography.trim().length < 2}
-                    onClick={() =>
-                      act({
-                        requestId: crypto.randomUUID(),
-                        workflow: "business",
-                        targetBusinesses,
-                        mode: "automatic",
-                        companyBudget: { maxCompanies: 2, maxPages: 3 },
-                        findPeople,
-                        peopleSearchesPerCompany: 2,
-                        ...(findPeople ? { peopleBudget: { maxCompanies: Number(targetBusinesses), maxPages: 12 } } : {}),
-                        ...(continuation
-                          ? { continueFrom: continuation.id }
-                          : {}),
-                        seeds: seeds
-                          .split("\n")
-                          .map((s) => s.trim())
-                          .filter(Boolean),
-                        searchTerms: termList,
-                        researchScope: scope.trim(),
-                        geography,
-                        approved: true,
-                        discover,
-                        budget,
-                        strategy: "discover",
-                      }, undefined, Boolean(onCandidatesFound))
-                    }
-                  >
-                    {continuation ? "Continue research" : "Find & research businesses"}
-                  </button>
-                  </div>
-                  </div>
-                </dialog>
-              )}
-            </>
+              <p className="text-xs text-[var(--muted)]">AI uses the saved brief to plan searches. Research providers receive search terms, source URLs and public page content. Provider charges may apply.</p>
+            </div>
           )}
           {currentJob && <div className="space-y-3" role="status">
             <div className="flex flex-wrap items-center justify-between gap-3">

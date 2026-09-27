@@ -11,7 +11,12 @@ const mocks = vi.hoisted(() => ({
   get: vi.fn(),
   hasOtherActive: vi.fn(),
   concurrentResearchReady: vi.fn(),
+  scope: vi.fn(),
+  geography: vi.fn(),
+  sources: vi.fn(),
 }));
+vi.mock("@/db/client", () => ({ requireDb: () => ({ select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ metadata: JSON.stringify({ researchSettings: { defaultTargetBusinesses: 30 } }) }] }) }) }) }) }));
+vi.mock("@/lib/brief-research", () => ({ generateBriefResearchScope: mocks.scope, briefResearchGeography: mocks.geography, briefResearchSources: mocks.sources }));
 vi.mock("@/lib/automatic-discovery", () => ({ dispatchDiscoveryCandidates: vi.fn() }));
 vi.mock("@/lib/automatic-enrichment", () => ({ dispatchAutomaticEnrichment: vi.fn() }));
 vi.mock("@/lib/research-continuation", () => ({ dispatchContinuation: vi.fn() }));
@@ -67,6 +72,10 @@ beforeEach(() => {
   mocks.enabled.mockReturnValue(true);
   mocks.mandate.mockResolvedValue({ id });
   mocks.create.mockResolvedValue({ id: jobId, status: "queued" });
+  mocks.scope.mockResolvedValue("Specialist Australian manufacturers");
+  mocks.geography.mockReturnValue("VIC, NSW");
+  mocks.sources.mockReturnValue(["https://directory.example.org/"]);
+  mocks.concurrentResearchReady.mockResolvedValue(true);
 });
 describe("research API isolation and dispatch", () => {
   it("does not access new tables while feature is disabled", async () => {
@@ -111,6 +120,18 @@ describe("research API isolation and dispatch", () => {
     mocks.create.mockResolvedValue({ id: jobId, status: "complete" });
     expect((await POST(request(body), context)).status).toBe(202);
     expect(mocks.worker).not.toHaveBeenCalled();
+  });
+  it("starts brief-driven research with saved settings, sources and people lookup", async () => {
+    mocks.mandate.mockResolvedValue({ id, brief: { naturalLanguage: "Manufacturers" } });
+    const response = await POST(request({ requestId: jobId, fromBrief: true }), context);
+    expect(response.status).toBe(202);
+    expect(mocks.create).toHaveBeenCalledWith(jobId, id, "user-a", expect.objectContaining({
+      researchScope: "Specialist Australian manufacturers",
+      geography: "VIC, NSW",
+      seeds: ["https://directory.example.org/"],
+      targetBusinesses: 30,
+      findPeople: true,
+    }));
   });
 });
 

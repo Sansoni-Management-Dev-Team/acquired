@@ -3,7 +3,10 @@ import { dispatchAutomaticEnrichment } from "@/lib/automatic-enrichment";
 import { dispatchContinuation } from "@/lib/research-continuation";
 import { automaticResearchConfig } from "@/domain/automatic-research";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
+import { requireDb } from "@/db/client";
+import { organization } from "@/db/schema";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { ResearchRepository } from "@/db/research-repository";
 import {
@@ -16,6 +19,9 @@ import {
 } from "@/domain/research";
 import { summariseEvidence, type EvidenceCounts } from "@/domain/evidence-status";
 import { researchEnabled, researchWorker } from "@/lib/research-service";
+import { briefResearchGeography, briefResearchSources, generateBriefResearchScope } from "@/lib/brief-research";
+import { researchSettingsFromMetadata } from "@/domain/research-settings";
+export const maxDuration = 300;
 export async function GET(
   request: Request,
   context: { params: Promise<{ id: string }> },
@@ -82,21 +88,52 @@ export async function POST(
       { error: "Research is awaiting service activation" },
       { status: 503 },
     );
-  const parsed = researchStartSchema.safeParse(
-    await request.json().catch(() => null),
-  );
-  if (!parsed.success)
+  const body = await request.json().catch(() => null);
+  const briefStart = z.object({ requestId: z.string().uuid(), fromBrief: z.literal(true) }).safeParse(body);
+  const parsed = briefStart.success ? null : researchStartSchema.safeParse(body);
+  if (!briefStart.success && !parsed?.success)
     return Response.json(
-      { error: parsed.error.issues.map((i) => i.message).join("; ") },
+      { error: parsed?.error.issues.map((i) => i.message).join("; ") || "Invalid research request" },
       { status: 400 },
     );
   const { id } = await context.params;
   const org = session.session.activeOrganizationId;
   if (!z.string().uuid().safeParse(id).success)
     return Response.json({ error: "Invalid mandate" }, { status: 400 });
-  if (!(await new AcquisitionRepository(org).getMandate(id)))
+  const mandate = await new AcquisitionRepository(org).getMandate(id);
+  if (!mandate)
     return Response.json({ error: "Mandate not found" }, { status: 404 });
-  const { requestId, continueFrom, ...submitted } = parsed.data;
+  let input: z.infer<typeof researchStartSchema>;
+  if (briefStart.success) {
+    try {
+      const [row] = await requireDb().select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, org)).limit(1);
+      const targetBusinesses = researchSettingsFromMetadata(row?.metadata).defaultTargetBusinesses;
+      const geography = briefResearchGeography(mandate.brief);
+      const seeds = briefResearchSources(mandate.brief);
+      const scope = await generateBriefResearchScope(mandate.brief);
+      input = researchStartSchema.parse({
+        requestId: briefStart.data.requestId,
+        seeds,
+        searchTerms: [],
+        researchScope: scope,
+        geography,
+        discover: true,
+        strategy: "discover",
+        workflow: "business",
+        mode: "automatic",
+        targetBusinesses,
+        findPeople: true,
+        peopleSearchesPerCompany: 2,
+        peopleBudget: { maxCompanies: targetBusinesses, maxPages: 12 },
+        companyBudget: { maxCompanies: 2, maxPages: 3 },
+        approved: true,
+        budget: { maxPages: 5, maxDomains: 5, maxMinutes: 10, maxModelCalls: 5 },
+      });
+    } catch (error) {
+      return Response.json({ error: error instanceof Error ? error.message : "Could not prepare research from the brief." }, { status: 422 });
+    }
+  } else input = parsed!.data!;
+  const { requestId, continueFrom, ...submitted } = input;
   let config: ResearchConfig = { ...submitted, searchTerms: submitted.searchTerms.length ? submitted.searchTerms : submitted.researchScope!.split(/[;\n]/).map(s => s.trim().slice(0, 160)).filter(s => s.length >= 2).slice(0, 6) };
   if (continueFrom) {
     const repo = new ResearchRepository(org);
@@ -136,6 +173,10 @@ export async function POST(
         },
         { status: 409 },
       );
+  }
+  if (config.mode === "automatic" && config.workflow === "business") {
+    config.findPeople = true;
+    config.peopleBudget = { maxCompanies: config.targetBusinesses || 20, maxPages: 12 };
   }
   config = automaticResearchConfig(config);
   if (config.mode === "automatic") config.researchRunId = requestId;

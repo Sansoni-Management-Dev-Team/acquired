@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Mandate, RankedTarget } from "./models";
 import { providerNeutralText } from "./provider-display";
+import { publicResearchUrl } from "./research";
 
 export const criterionDefinitions = [
   ["subsectors", "Sub-sectors and capabilities", "discovery", "Financial screen"],
@@ -35,6 +36,7 @@ export const criterionSchema = z.object({
 export const briefSchema = z.object({
   name: z.string().trim().min(1).max(100),
   naturalLanguage: z.string().max(10000),
+  researchSources: z.array(z.string().url().refine(value => Boolean(publicResearchUrl(value)), "Use a public HTTPS URL without credentials")).max(10).default([]),
   investmentThesis: z.string().max(1500),
   outreachPositioning: z.string().max(1500),
   disclosureApproved: z.boolean(),
@@ -62,7 +64,7 @@ export const briefSchema = z.object({
 export type AcquisitionBrief = z.infer<typeof briefSchema>;
 export type Criterion = z.infer<typeof criterionSchema>;
 export function emptyBrief(): AcquisitionBrief {
-  return { name: "New mandate", naturalLanguage: "", investmentThesis: "", outreachPositioning: "", disclosureApproved: false, criteria: criterionDefinitions.map(([key]) => ({ key, value: "", importance: "preference", origin: "supplied", state: "unknown", confirmed: false })) };
+  return { name: "New mandate", naturalLanguage: "", researchSources: [], investmentThesis: "", outreachPositioning: "", disclosureApproved: false, criteria: criterionDefinitions.map(([key]) => ({ key, value: "", importance: "preference", origin: "supplied", state: "unknown", confirmed: false })) };
 }
 export function criterion(brief: AcquisitionBrief, key: CriterionKey) { return brief.criteria.find(c => c.key === key)!; }
 export function searchReadiness(brief: AcquisitionBrief) {
