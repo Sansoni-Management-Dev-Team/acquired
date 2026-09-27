@@ -17,4 +17,9 @@ describe("company data action", () => {
     expect(html).toContain("Find more company data (2/20)");
     expect(html).not.toContain('disabled=""');
   });
+  it("explains the 20-business limit when all matching businesses exceed it", () => {
+    const html = renderToStaticMarkup(<CompanyDataAction selectedCount={25} busy={false} onClick={vi.fn()} />);
+    expect(html).toContain("Select 20 or fewer businesses (25 selected)");
+    expect(html).toContain("disabled");
+  });
 });

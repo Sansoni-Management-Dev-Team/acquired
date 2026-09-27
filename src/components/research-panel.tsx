@@ -1,5 +1,4 @@
 "use client";
-import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useActivePolling } from "./use-active-polling";
 import {
@@ -12,6 +11,7 @@ import {
 } from "@/domain/research";
 import { ResearchRunOutcome } from "./research-run-outcome";
 import type { AcquisitionBrief } from "@/domain/acquisition";
+import { candidateStatus } from "@/domain/target-candidates";
 const button =
   "min-h-12 rounded-md border border-[var(--border)] px-4 py-2 text-sm disabled:opacity-40";
 export type ResearchJob = {
@@ -170,7 +170,7 @@ export function ResearchPanel({
               <span className="text-xs text-[var(--muted)]">{new Date(currentJob.createdAt).toLocaleString()}</span>
             </div>
             <ResearchProgress job={currentJob} count={newBusinessCount} identified={identifiedBusinessCount} active={Boolean(active)} enriching={enriching.length} />
-            {currentJob.config.mode === "automatic" && <DiscoveryCandidateList mandateId={mandateId} jobs={candidateJobs} searching={Boolean(active)} />}
+            {currentJob.config.mode === "automatic" && <DiscoveryCandidateList jobs={candidateJobs} searching={Boolean(active)} />}
             {!currentJob.config.purpose && !terminalResearchStates.includes(currentJob.status) && <p className="text-sm text-[var(--muted)]">{currentJob.status === "discovering" ? "Searching for candidate websites…" : "Reading candidate websites and checking business details…"} The count increases as new businesses are saved to Targets.</p>}
             <ResearchRunOutcome status={currentJob.status} remaining={remainingFor(currentJob).length} active={Boolean(active)} canResume={!currentJob.config.purpose} busy={busy} onResume={() => resume(currentJob)} />
             {(currentJob.status === "failed" || currentJob.status === "partial" || currentJob.status === "cancelled") && currentJob.message && <p className="break-words text-sm text-[var(--muted)]">{currentJob.message}</p>}
@@ -186,7 +186,7 @@ export function ResearchPanel({
             {!active && !currentJob.config.purpose && currentJob.config.runtime?.attempts.some(a => a.status === "failed" || /extraction failed/i.test(a.reason)) && <button className={button} disabled={busy} onClick={() => retryFailed(currentJob)}>Retry failed pages</button>}
             {active && <button className={button} disabled={busy} onClick={() => act({action:"cancel"}, active.id)}>Stop research</button>}
             {active?.status === "queued" && <button className={button} disabled={busy} onClick={() => act({action:"retry-dispatch"}, active.id)}>Reconnect job</button>}
-            {[...data.jobs, ...(data.peopleJobs || []), ...(data.companyJobs || [])].filter(job => job.id !== active?.id && !terminalResearchStates.includes(job.status)).map(job => <ActiveResearchJob key={job.id} job={job} busy={busy} onCancel={() => act({action:"cancel"}, job.id)} onRetry={() => act({action:"retry-dispatch"}, job.id)} />)}
+            {[...data.jobs, ...(data.peopleJobs || []), ...(data.companyJobs || [])].filter(job => job.id !== active?.id && !job.config.discoveryCandidate && !terminalResearchStates.includes(job.status)).map(job => <ActiveResearchJob key={job.id} job={job} busy={busy} onCancel={() => act({action:"cancel"}, job.id)} onRetry={() => act({action:"retry-dispatch"}, job.id)} />)}
           </div>}
 
         </>
@@ -201,30 +201,32 @@ export function ResearchPanel({
   );
 }
 
-export function DiscoveryCandidateList({ mandateId, jobs, searching }: { mandateId: string; jobs: ResearchJob[]; searching: boolean }) {
-  const active = jobs.filter(job => !terminalResearchStates.includes(job.status));
-  const savedJobs = jobs.filter(job => terminalResearchStates.includes(job.status) && (job.config.newBusinessIds?.length || 0) > 0).reverse();
-  const recent = jobs.filter(job => terminalResearchStates.includes(job.status) && !(job.config.newBusinessIds?.length || 0)).slice(-3).reverse();
-  const saved = jobs.filter(job => (job.config.newBusinessIds?.length || 0) > 0).length;
-  const visible = [...active, ...savedJobs, ...recent];
-
-  return <section className="rounded-lg border border-[var(--border)] bg-[var(--panel-raised)] p-4" aria-label="Incoming candidates">
-    <div className="flex flex-wrap items-baseline justify-between gap-2">
-      <h3 className="font-semibold">Websites found</h3>
-      <p className="text-xs text-[var(--muted)]" aria-live="polite">{jobs.length} found · {active.length} being checked · {saved} saved</p>
+export function DiscoveryCandidateList({ jobs, searching }: { jobs: ResearchJob[]; searching: boolean }) {
+  const seen = new Set<string>();
+  const unique = jobs.filter(job => {
+    const domain = (job.config.companyDomain || job.seeds[0] || job.id).replace(/^www\./, "").toLowerCase();
+    if (seen.has(domain)) return false;
+    seen.add(domain);
+    return true;
+  });
+  const active = unique.filter(job => !terminalResearchStates.includes(job.status));
+  const saved = unique.filter(job => (job.config.newBusinessIds?.length || 0) > 0).length;
+  const reading = active.filter(job => ["crawling", "reading"].includes(job.status)).length;
+  const extracting = active.filter(job => job.status === "extracting").length;
+  const queued = active.filter(job => job.status === "queued").length;
+  const visible = active.slice(0, 5);
+  return <section className="rounded-lg border border-[var(--border)] bg-[var(--panel-raised)] px-3 py-2 text-sm" aria-label="Research activity">
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h3 className="font-semibold">Research activity</h3>
+      <p className="text-xs text-[var(--muted)]" aria-live="polite">{unique.length} found · {queued} queued · {reading} reading · {extracting} extracting · {saved} saved</p>
     </div>
-    {visible.length ? <ul className="mt-3 max-h-96 space-y-2 overflow-y-auto text-sm">
-      {visible.map(job => {
-        const url = job.seeds[0] || job.config.seeds[0] || (job.config.companyDomain ? `https://${job.config.companyDomain}/` : "");
-        const found = (job.config.newBusinessIds?.length || 0) > 0;
-        const status = found ? "Business saved" : job.status === "queued" ? "Queued for review" : terminalResearchStates.includes(job.status) ? "Checked · no business saved" : "Checking website";
-        return <li key={job.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t border-[var(--border)] pt-2">
-          <a className="min-w-0 break-all underline" href={url} target="_blank" rel="noreferrer">{job.config.companyDomain || url}</a>
-          <span className={found ? "text-[var(--accent)]" : "text-[var(--muted)]"}>{status}{found && <Link className="ml-2 underline" href={`/mandates/${mandateId}/targets/${job.config.newBusinessIds![0]}`}>View business</Link>}</span>
-        </li>;
-      })}
-    </ul> : <p className="mt-3 text-sm text-[var(--muted)]">{searching ? "Searching for the first candidate websites…" : "No candidate websites found in this run."}</p>}
-    {jobs.length > visible.length && <p className="mt-2 text-xs text-[var(--muted)]">Showing active and recent websites · {jobs.length - visible.length} earlier checked</p>}
+    {visible.length ? <ul className="mt-2 space-y-1">
+      {visible.map(job => <li key={job.id} className="flex min-w-0 items-center justify-between gap-3 border-t border-[var(--border)] pt-1 text-xs">
+        <span className="truncate">{job.config.companyDomain || job.seeds[0] || "Candidate website"}</span>
+        <span className="shrink-0 text-[var(--muted)]">Found → {candidateStatus(job.status, false)}</span>
+      </li>)}
+    </ul> : <p className="mt-1 text-xs text-[var(--muted)]">{searching ? "Finding websites…" : "No websites currently being checked. See Targets for the businesses and candidate websites found."}</p>}
+    {active.length > visible.length && <p className="mt-1 text-xs text-[var(--muted)]">+{active.length - visible.length} more being checked</p>}
   </section>;
 }
 function ResearchFindings({

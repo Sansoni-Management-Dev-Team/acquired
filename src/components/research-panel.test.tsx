@@ -52,31 +52,31 @@ describe("discovery candidate list", () => {
     expect(candidatesArrivedForRun([root, older, incoming], "new-run")).toBe(true);
   });
 
-  it("shows URLs while they are checked and retains saved businesses", () => {
-    const html = renderToStaticMarkup(<DiscoveryCandidateList mandateId="mandate-1" searching jobs={[
+  it("shows compact stages for the websites currently being checked", () => {
+    const html = renderToStaticMarkup(<DiscoveryCandidateList searching jobs={[
       job({ id: "queued", status: "queued", config: { ...job().config, companyDomain: "queued.example" }, seeds: ["https://queued.example/"] }),
       job({ id: "reading", status: "reading", config: { ...job().config, companyDomain: "reading.example" }, seeds: ["https://reading.example/"] }),
       job({ id: "saved", status: "complete", config: { ...job().config, companyDomain: "saved.example", newBusinessIds: ["target-1"] }, seeds: ["https://saved.example/"] }),
     ]} />);
 
-    expect(html).toContain('href="https://queued.example/"');
-    expect(html).toContain("Queued for review");
-    expect(html).toContain("Checking website");
-    expect(html).toContain("Business saved");
-    expect(html).toContain('href="/mandates/mandate-1/targets/target-1"');
-    expect(html).toContain("3 found · 2 being checked · 1 saved");
+    expect(html).toContain("queued.example");
+    expect(html).toContain("Found → Queued");
+    expect(html).toContain("Found → Reading website");
+    expect(html).toContain("3 found · 1 queued · 1 reading · 0 extracting · 1 saved");
+    expect(html).not.toContain("saved.example");
   });
 
   it("explains the empty state while discovery searches continue", () => {
-    expect(renderToStaticMarkup(<DiscoveryCandidateList mandateId="mandate-1" searching jobs={[]} />)).toContain("Searching for the first candidate websites…");
+    expect(renderToStaticMarkup(<DiscoveryCandidateList searching jobs={[]} />)).toContain("Finding websites…");
   });
 
-  it("keeps saved businesses visible after later candidates finish", () => {
+  it("keeps finished websites out of the activity list", () => {
     const saved = job({ id: "saved", status: "complete", config: { ...job().config, companyDomain: "saved.example", newBusinessIds: ["target-1"] }, seeds: ["https://saved.example/"] });
     const later = Array.from({ length: 5 }, (_, index) => job({ id: `later-${index}`, status: "partial", config: { ...job().config, companyDomain: `later-${index}.example` }, seeds: [`https://later-${index}.example/`] }));
-    const html = renderToStaticMarkup(<DiscoveryCandidateList mandateId="mandate-1" searching={false} jobs={[saved, ...later]} />);
+    const html = renderToStaticMarkup(<DiscoveryCandidateList searching={false} jobs={[saved, ...later]} />);
 
-    expect(html).toContain("saved.example");
+    expect(html).toContain("See Targets for the businesses and candidate websites found");
+    expect(html).not.toContain("saved.example");
     expect(html).not.toContain("later-0.example");
   });
 });
