@@ -21,7 +21,7 @@ describe("fixture outreach drafting", () => {
     const drafts = await new FixtureOutreachDraftingProvider().generateSequence(request);
     expect(drafts).toHaveLength(7);
     expect(drafts[0]).toMatchObject({ step: 1, signalIds: ["signal-1"], approved: false });
-    expect(drafts[0].body).toContain(request.buyerProfile.operatingIntent);
+    expect(drafts[0].body).toContain(request.buyerProfile.background);
     expect(drafts.every((draft) => draft.body.endsWith(request.buyerProfile.signature))).toBe(true);
     expect(drafts.every((draft) => draft.channels.linkedin.body && draft.channels.whatsapp.body)).toBe(true);
   });

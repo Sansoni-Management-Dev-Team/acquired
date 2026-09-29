@@ -88,7 +88,7 @@ describe("mandate journey", () => {
   it("allows only approved public fields into the drafting payload", () => {
     const profile = { senderName: "Alex", signature: "Alex", background: "Operator", investmentThesis: "Public introduction", operatingIntent: "Long-term operation", callToAction: "Talk?", capitalAvailable: "PRIVATE AMOUNT", fundingForm: "PRIVATE FUNDING", buyerType: "trade" as const };
     const output = publicBuyerProfile(profile, "Approved adjacency");
-    expect(JSON.stringify(output)).not.toContain("PRIVATE"); expect(output.investmentThesis).toBe("Approved adjacency");
+    expect(JSON.stringify(output)).not.toContain("PRIVATE"); expect(output.about).toContain("Approved adjacency");
   });
   it("calculates indicative multiples without conflating earnings bases", () => {
     expect(indicativeMultiple({ price: 9e6, earnings: 1.5e6 } as Parameters<typeof indicativeMultiple>[0])).toBe(6);

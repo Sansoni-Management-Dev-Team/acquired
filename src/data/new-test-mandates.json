@@ -1,0 +1,2432 @@
+[
+  {
+    "name": "Test mandate — Fire Protection Maintenance",
+    "naturalLanguage": "Seeking to acquire an established fire protection maintenance business in VIC. Target annual revenue of AUD 3,500,000–12,000,000, EBITDA of AUD 500,000–2,100,000, and approximately 18–90 employees. Prefer recurring inspection and compliance work. All details are fictional testing assumptions to review before research or outreach.",
+    "researchSources": [],
+    "investmentThesis": "Acquire and support a durable fire protection maintenance business with recurring inspection and compliance work.",
+    "outreachPositioning": "Explore a private, introductory conversation with owners of fire protection maintenance businesses; do not imply they are looking to sell.",
+    "disclosureApproved": false,
+    "criteria": [
+      {
+        "key": "subsectors",
+        "value": "Fire protection maintenance",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "geography",
+        "value": "VIC",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenue",
+        "value": "3500000–12000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenueCeiling",
+        "value": "12000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "headcount",
+        "value": "18–90",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "ebitda",
+        "value": "500000–2100000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "margin",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "accreditations",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "management",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "ownerDependence",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "multiple",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "payback",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "vendorMotivation",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "sellerEngagement",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "property",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "structure",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "concentration",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "timing",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "dealBreakers",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      }
+    ]
+  },
+  {
+    "name": "Test mandate — Commercial Plumbing Services",
+    "naturalLanguage": "Seeking to acquire an established commercial plumbing services business in NSW. Target annual revenue of AUD 4,000,000–15,000,000, EBITDA of AUD 600,000–2,600,000, and approximately 20–100 employees. Prefer contracted maintenance for commercial customers. All details are fictional testing assumptions to review before research or outreach.",
+    "researchSources": [],
+    "investmentThesis": "Acquire and support a durable commercial plumbing services business with contracted maintenance for commercial customers.",
+    "outreachPositioning": "Explore a private, introductory conversation with owners of commercial plumbing services businesses; do not imply they are looking to sell.",
+    "disclosureApproved": false,
+    "criteria": [
+      {
+        "key": "subsectors",
+        "value": "Commercial plumbing services",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "geography",
+        "value": "NSW",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenue",
+        "value": "4000000–15000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenueCeiling",
+        "value": "15000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "headcount",
+        "value": "20–100",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "ebitda",
+        "value": "600000–2600000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "margin",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "accreditations",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "management",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "ownerDependence",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "multiple",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "payback",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "vendorMotivation",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "sellerEngagement",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "property",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "structure",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "concentration",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "timing",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "dealBreakers",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      }
+    ]
+  },
+  {
+    "name": "Test mandate — Industrial Electrical Services",
+    "naturalLanguage": "Seeking to acquire an established industrial electrical services business in QLD. Target annual revenue of AUD 5,000,000–18,000,000, EBITDA of AUD 750,000–3,200,000, and approximately 25–120 employees. Prefer industrial maintenance and shutdown capability. All details are fictional testing assumptions to review before research or outreach.",
+    "researchSources": [],
+    "investmentThesis": "Acquire and support a durable industrial electrical services business with industrial maintenance and shutdown capability.",
+    "outreachPositioning": "Explore a private, introductory conversation with owners of industrial electrical services businesses; do not imply they are looking to sell.",
+    "disclosureApproved": false,
+    "criteria": [
+      {
+        "key": "subsectors",
+        "value": "Industrial electrical services",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "geography",
+        "value": "QLD",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenue",
+        "value": "5000000–18000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenueCeiling",
+        "value": "18000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "headcount",
+        "value": "25–120",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "ebitda",
+        "value": "750000–3200000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "margin",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "accreditations",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "management",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "ownerDependence",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "multiple",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "payback",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "vendorMotivation",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "sellerEngagement",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "property",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "structure",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "concentration",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "timing",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "dealBreakers",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      }
+    ]
+  },
+  {
+    "name": "Test mandate — Food Packaging Manufacturers",
+    "naturalLanguage": "Seeking to acquire an established food packaging manufacturers business in VIC, SA. Target annual revenue of AUD 6,000,000–22,000,000, EBITDA of AUD 900,000–3,800,000, and approximately 30–140 employees. Prefer diverse food-sector customers and repeat orders. All details are fictional testing assumptions to review before research or outreach.",
+    "researchSources": [],
+    "investmentThesis": "Acquire and support a durable food packaging manufacturers business with diverse food-sector customers and repeat orders.",
+    "outreachPositioning": "Explore a private, introductory conversation with owners of food packaging manufacturers businesses; do not imply they are looking to sell.",
+    "disclosureApproved": false,
+    "criteria": [
+      {
+        "key": "subsectors",
+        "value": "Food packaging manufacturers",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "geography",
+        "value": "VIC, SA",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenue",
+        "value": "6000000–22000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenueCeiling",
+        "value": "22000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "headcount",
+        "value": "30–140",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "ebitda",
+        "value": "900000–3800000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "margin",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "accreditations",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "management",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "ownerDependence",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "multiple",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "payback",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "vendorMotivation",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "sellerEngagement",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "property",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "structure",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "concentration",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "timing",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "dealBreakers",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      }
+    ]
+  },
+  {
+    "name": "Test mandate — Veterinary Diagnostics Laboratories",
+    "naturalLanguage": "Seeking to acquire an established veterinary diagnostics laboratories business in NSW, QLD. Target annual revenue of AUD 3,000,000–11,000,000, EBITDA of AUD 450,000–1,900,000, and approximately 15–75 employees. Prefer specialist laboratory capability and referral relationships. All details are fictional testing assumptions to review before research or outreach.",
+    "researchSources": [],
+    "investmentThesis": "Acquire and support a durable veterinary diagnostics laboratories business with specialist laboratory capability and referral relationships.",
+    "outreachPositioning": "Explore a private, introductory conversation with owners of veterinary diagnostics laboratories businesses; do not imply they are looking to sell.",
+    "disclosureApproved": false,
+    "criteria": [
+      {
+        "key": "subsectors",
+        "value": "Veterinary diagnostics laboratories",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "geography",
+        "value": "NSW, QLD",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenue",
+        "value": "3000000–11000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenueCeiling",
+        "value": "11000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "headcount",
+        "value": "15–75",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "ebitda",
+        "value": "450000–1900000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "margin",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "accreditations",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "management",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "ownerDependence",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "multiple",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "payback",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "vendorMotivation",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "sellerEngagement",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "property",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "structure",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "concentration",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "timing",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "dealBreakers",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      }
+    ]
+  },
+  {
+    "name": "Test mandate — Fleet Servicing Workshops",
+    "naturalLanguage": "Seeking to acquire an established fleet servicing workshops business in WA. Target annual revenue of AUD 4,500,000–16,000,000, EBITDA of AUD 650,000–2,800,000, and approximately 25–110 employees. Prefer commercial fleet contracts and multi-site potential. All details are fictional testing assumptions to review before research or outreach.",
+    "researchSources": [],
+    "investmentThesis": "Acquire and support a durable fleet servicing workshops business with commercial fleet contracts and multi-site potential.",
+    "outreachPositioning": "Explore a private, introductory conversation with owners of fleet servicing workshops businesses; do not imply they are looking to sell.",
+    "disclosureApproved": false,
+    "criteria": [
+      {
+        "key": "subsectors",
+        "value": "Fleet servicing workshops",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "geography",
+        "value": "WA",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenue",
+        "value": "4500000–16000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenueCeiling",
+        "value": "16000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "headcount",
+        "value": "25–110",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "ebitda",
+        "value": "650000–2800000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "margin",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "accreditations",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "management",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "ownerDependence",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "multiple",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "payback",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "vendorMotivation",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "sellerEngagement",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "property",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "structure",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "concentration",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "timing",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "dealBreakers",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      }
+    ]
+  },
+  {
+    "name": "Test mandate — Environmental Testing Businesses",
+    "naturalLanguage": "Seeking to acquire an established environmental testing businesses business in National. Target annual revenue of AUD 5,500,000–20,000,000, EBITDA of AUD 800,000–3,400,000, and approximately 25–130 employees. Prefer accredited testing and recurring regulatory demand. All details are fictional testing assumptions to review before research or outreach.",
+    "researchSources": [],
+    "investmentThesis": "Acquire and support a durable environmental testing businesses business with accredited testing and recurring regulatory demand.",
+    "outreachPositioning": "Explore a private, introductory conversation with owners of environmental testing businesses businesses; do not imply they are looking to sell.",
+    "disclosureApproved": false,
+    "criteria": [
+      {
+        "key": "subsectors",
+        "value": "Environmental testing businesses",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "geography",
+        "value": "National",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenue",
+        "value": "5500000–20000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenueCeiling",
+        "value": "20000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "headcount",
+        "value": "25–130",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "ebitda",
+        "value": "800000–3400000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "margin",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "accreditations",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "management",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "ownerDependence",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "multiple",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "payback",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "vendorMotivation",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "sellerEngagement",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "property",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "structure",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "concentration",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "timing",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "dealBreakers",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      }
+    ]
+  },
+  {
+    "name": "Test mandate — Medical Equipment Calibration",
+    "naturalLanguage": "Seeking to acquire an established medical equipment calibration business in VIC. Target annual revenue of AUD 2,500,000–9,000,000, EBITDA of AUD 350,000–1,600,000, and approximately 12–65 employees. Prefer technical service contracts and calibration expertise. All details are fictional testing assumptions to review before research or outreach.",
+    "researchSources": [],
+    "investmentThesis": "Acquire and support a durable medical equipment calibration business with technical service contracts and calibration expertise.",
+    "outreachPositioning": "Explore a private, introductory conversation with owners of medical equipment calibration businesses; do not imply they are looking to sell.",
+    "disclosureApproved": false,
+    "criteria": [
+      {
+        "key": "subsectors",
+        "value": "Medical equipment calibration",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "geography",
+        "value": "VIC",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenue",
+        "value": "2500000–9000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenueCeiling",
+        "value": "9000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "headcount",
+        "value": "12–65",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "ebitda",
+        "value": "350000–1600000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "margin",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "accreditations",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "management",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "ownerDependence",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "multiple",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "payback",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "vendorMotivation",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "sellerEngagement",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "property",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "structure",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "concentration",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "timing",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "dealBreakers",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      }
+    ]
+  },
+  {
+    "name": "Test mandate — Regional Childcare Operators",
+    "naturalLanguage": "Seeking to acquire an established regional childcare operators business in SA. Target annual revenue of AUD 4,000,000–14,000,000, EBITDA of AUD 500,000–2,200,000, and approximately 40–160 employees. Prefer established centres and stable local demand. All details are fictional testing assumptions to review before research or outreach.",
+    "researchSources": [],
+    "investmentThesis": "Acquire and support a durable regional childcare operators business with established centres and stable local demand.",
+    "outreachPositioning": "Explore a private, introductory conversation with owners of regional childcare operators businesses; do not imply they are looking to sell.",
+    "disclosureApproved": false,
+    "criteria": [
+      {
+        "key": "subsectors",
+        "value": "Regional childcare operators",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "geography",
+        "value": "SA",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenue",
+        "value": "4000000–14000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenueCeiling",
+        "value": "14000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "headcount",
+        "value": "40–160",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "ebitda",
+        "value": "500000–2200000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "margin",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "accreditations",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "management",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "ownerDependence",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "multiple",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "payback",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "vendorMotivation",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "sellerEngagement",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "property",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "structure",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "concentration",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "timing",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "dealBreakers",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      }
+    ]
+  },
+  {
+    "name": "Test mandate — Water Treatment Maintenance",
+    "naturalLanguage": "Seeking to acquire an established water treatment maintenance business in QLD. Target annual revenue of AUD 3,500,000–13,000,000, EBITDA of AUD 550,000–2,400,000, and approximately 18–95 employees. Prefer recurring service agreements and technical expertise. All details are fictional testing assumptions to review before research or outreach.",
+    "researchSources": [],
+    "investmentThesis": "Acquire and support a durable water treatment maintenance business with recurring service agreements and technical expertise.",
+    "outreachPositioning": "Explore a private, introductory conversation with owners of water treatment maintenance businesses; do not imply they are looking to sell.",
+    "disclosureApproved": false,
+    "criteria": [
+      {
+        "key": "subsectors",
+        "value": "Water treatment maintenance",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "geography",
+        "value": "QLD",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenue",
+        "value": "3500000–13000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenueCeiling",
+        "value": "13000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "headcount",
+        "value": "18–95",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "ebitda",
+        "value": "550000–2400000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "margin",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "accreditations",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "management",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "ownerDependence",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "multiple",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "payback",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "vendorMotivation",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "sellerEngagement",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "property",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "structure",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "concentration",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "timing",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "dealBreakers",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      }
+    ]
+  },
+  {
+    "name": "Test mandate — Precision Metal Fabrication",
+    "naturalLanguage": "Seeking to acquire an established precision metal fabrication business in NSW. Target annual revenue of AUD 5,000,000–19,000,000, EBITDA of AUD 700,000–3,000,000, and approximately 28–130 employees. Prefer repeat industrial customers and specialist machinery. All details are fictional testing assumptions to review before research or outreach.",
+    "researchSources": [],
+    "investmentThesis": "Acquire and support a durable precision metal fabrication business with repeat industrial customers and specialist machinery.",
+    "outreachPositioning": "Explore a private, introductory conversation with owners of precision metal fabrication businesses; do not imply they are looking to sell.",
+    "disclosureApproved": false,
+    "criteria": [
+      {
+        "key": "subsectors",
+        "value": "Precision metal fabrication",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "geography",
+        "value": "NSW",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenue",
+        "value": "5000000–19000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenueCeiling",
+        "value": "19000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "headcount",
+        "value": "28–130",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "ebitda",
+        "value": "700000–3000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "margin",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "accreditations",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "management",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "ownerDependence",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "multiple",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "payback",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "vendorMotivation",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "sellerEngagement",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "property",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "structure",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "concentration",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "timing",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "dealBreakers",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      }
+    ]
+  },
+  {
+    "name": "Test mandate — Cold-Chain Logistics Providers",
+    "naturalLanguage": "Seeking to acquire an established cold-chain logistics providers business in VIC, TAS. Target annual revenue of AUD 6,500,000–24,000,000, EBITDA of AUD 950,000–4,200,000, and approximately 35–170 employees. Prefer temperature-controlled distribution contracts. All details are fictional testing assumptions to review before research or outreach.",
+    "researchSources": [],
+    "investmentThesis": "Acquire and support a durable cold-chain logistics providers business with temperature-controlled distribution contracts.",
+    "outreachPositioning": "Explore a private, introductory conversation with owners of cold-chain logistics providers businesses; do not imply they are looking to sell.",
+    "disclosureApproved": false,
+    "criteria": [
+      {
+        "key": "subsectors",
+        "value": "Cold-chain logistics providers",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "geography",
+        "value": "VIC, TAS",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenue",
+        "value": "6500000–24000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenueCeiling",
+        "value": "24000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "headcount",
+        "value": "35–170",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "ebitda",
+        "value": "950000–4200000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "margin",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "accreditations",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "management",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "ownerDependence",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "multiple",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "payback",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "vendorMotivation",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "sellerEngagement",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "property",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "structure",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "concentration",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "timing",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "dealBreakers",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      }
+    ]
+  },
+  {
+    "name": "Test mandate — Aged Care Software Support",
+    "naturalLanguage": "Seeking to acquire an established aged care software support business in National. Target annual revenue of AUD 3,000,000–12,000,000, EBITDA of AUD 500,000–2,500,000, and approximately 18–85 employees. Prefer subscription revenue and implementation services. All details are fictional testing assumptions to review before research or outreach.",
+    "researchSources": [],
+    "investmentThesis": "Acquire and support a durable aged care software support business with subscription revenue and implementation services.",
+    "outreachPositioning": "Explore a private, introductory conversation with owners of aged care software support businesses; do not imply they are looking to sell.",
+    "disclosureApproved": false,
+    "criteria": [
+      {
+        "key": "subsectors",
+        "value": "Aged care software support",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "geography",
+        "value": "National",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenue",
+        "value": "3000000–12000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenueCeiling",
+        "value": "12000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "headcount",
+        "value": "18–85",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "ebitda",
+        "value": "500000–2500000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "margin",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "accreditations",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "management",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "ownerDependence",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "multiple",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "payback",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "vendorMotivation",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "sellerEngagement",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "property",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "structure",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "concentration",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "timing",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "dealBreakers",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      }
+    ]
+  },
+  {
+    "name": "Test mandate — Mining Equipment Refurbishment",
+    "naturalLanguage": "Seeking to acquire an established mining equipment refurbishment business in WA. Target annual revenue of AUD 7,000,000–26,000,000, EBITDA of AUD 1,000,000–4,500,000, and approximately 32–150 employees. Prefer repair capability and long-term mining customers. All details are fictional testing assumptions to review before research or outreach.",
+    "researchSources": [],
+    "investmentThesis": "Acquire and support a durable mining equipment refurbishment business with repair capability and long-term mining customers.",
+    "outreachPositioning": "Explore a private, introductory conversation with owners of mining equipment refurbishment businesses; do not imply they are looking to sell.",
+    "disclosureApproved": false,
+    "criteria": [
+      {
+        "key": "subsectors",
+        "value": "Mining equipment refurbishment",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "geography",
+        "value": "WA",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenue",
+        "value": "7000000–26000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenueCeiling",
+        "value": "26000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "headcount",
+        "value": "32–150",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "ebitda",
+        "value": "1000000–4500000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "margin",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "accreditations",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "management",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "ownerDependence",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "multiple",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "payback",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "vendorMotivation",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "sellerEngagement",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "property",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "structure",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "concentration",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "timing",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "dealBreakers",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      }
+    ]
+  },
+  {
+    "name": "Test mandate — Commercial Cleaning Contracts",
+    "naturalLanguage": "Seeking to acquire an established commercial cleaning contracts business in ACT, NSW. Target annual revenue of AUD 3,500,000–14,000,000, EBITDA of AUD 450,000–2,400,000, and approximately 60–220 employees. Prefer recurring commercial contracts and local management. All details are fictional testing assumptions to review before research or outreach.",
+    "researchSources": [],
+    "investmentThesis": "Acquire and support a durable commercial cleaning contracts business with recurring commercial contracts and local management.",
+    "outreachPositioning": "Explore a private, introductory conversation with owners of commercial cleaning contracts businesses; do not imply they are looking to sell.",
+    "disclosureApproved": false,
+    "criteria": [
+      {
+        "key": "subsectors",
+        "value": "Commercial cleaning contracts",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "geography",
+        "value": "ACT, NSW",
+        "importance": "requirement",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenue",
+        "value": "3500000–14000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "revenueCeiling",
+        "value": "14000000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "headcount",
+        "value": "60–220",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "ebitda",
+        "value": "450000–2400000",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "specified",
+        "confirmed": false
+      },
+      {
+        "key": "margin",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "accreditations",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "management",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "ownerDependence",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "multiple",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "payback",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "vendorMotivation",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "sellerEngagement",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "property",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "structure",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "concentration",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "timing",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      },
+      {
+        "key": "dealBreakers",
+        "value": "",
+        "importance": "preference",
+        "origin": "assumed",
+        "state": "unknown",
+        "confirmed": false
+      }
+    ]
+  }
+]

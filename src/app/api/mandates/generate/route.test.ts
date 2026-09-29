@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({ session: vi.fn(), generate: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: mocks.session } } }));
 vi.mock("@/adapters/mandate-generation", () => ({ generateMandate: mocks.generate }));
 import { POST } from "./route";
-const request = () => new Request("http://localhost/api/mandates/generate", { method: "POST" });
+const request = () => new Request("http://localhost/api/mandates/generate", { method: "POST", body: JSON.stringify({ description: "Commercial service businesses in Victoria" }) });
 beforeEach(() => { vi.clearAllMocks(); mocks.session.mockResolvedValue({ session: { activeOrganizationId: "org-a" } }); });
 it("requires an authenticated organisation before invoking AI", async () => {
   mocks.session.mockResolvedValue(null);
@@ -14,6 +14,7 @@ it("requires an authenticated organisation before invoking AI", async () => {
 it("returns the generated draft", async () => {
   mocks.generate.mockResolvedValue(emptyBrief());
   expect(await (await POST(request())).json()).toEqual({ brief: emptyBrief() });
+  expect(mocks.generate).toHaveBeenCalledWith("Commercial service businesses in Victoria");
 });
 it("returns a retryable error without exposing provider internals", async () => {
   mocks.generate.mockRejectedValue(new Error("provider details"));

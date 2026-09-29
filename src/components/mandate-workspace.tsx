@@ -20,6 +20,7 @@ import { AcquisitionBrief, criterionDefinitions, emptyBrief, type CoverageRun, t
 import { parseMandate } from "@/domain/mandate";
 import { BuyerProfile } from "@/domain/buyer-profile";
 import { COMPANY_DATA_SOURCE, isCompanyDataSource, providerNeutralText } from "@/domain/provider-display";
+import { nextTestMandate } from "@/domain/test-mandates";
 
 export const fieldClass = "mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2 text-sm text-[var(--foreground)]";
 export const buttonClass = "rounded-md border border-[var(--border)] px-3 py-2 text-sm hover:bg-[var(--panel-raised)] disabled:opacity-40";
@@ -60,7 +61,7 @@ export function BriefEditor({ initial, onSave, onImport, busy, autoSave = false 
   const [sourceText, setSourceText] = useState((initial.researchSources || []).join("\n"));
   const [recordsText, setRecordsText] = useState("");
   const [recordsError, setRecordsError] = useState("");
-  const [generating, setGenerating] = useState(false);
+
   const [generationError, setGenerationError] = useState("");
   const [saveError, setSaveError] = useState("");
   const [saveStatus, setSaveStatus] = useState("");
@@ -68,7 +69,7 @@ export function BriefEditor({ initial, onSave, onImport, busy, autoSave = false 
   const failedBrief = useRef("");
   const briefJson = JSON.stringify(brief);
   useEffect(() => {
-    if (!autoSave || busy || generating || briefJson === savedBrief.current || briefJson === failedBrief.current || !brief.name.trim()) return;
+    if (!autoSave || busy || briefJson === savedBrief.current || briefJson === failedBrief.current || !brief.name.trim()) return;
     const timeout = window.setTimeout(async () => {
       setSaveStatus("Saving…");
       setSaveError("");
@@ -84,28 +85,21 @@ export function BriefEditor({ initial, onSave, onImport, busy, autoSave = false 
       }
     }, 700);
     return () => window.clearTimeout(timeout);
-  }, [autoSave, brief, briefJson, busy, generating, onSave]);
+  }, [autoSave, brief, briefJson, busy, onSave]);
   function updateBrief(next: AcquisitionBrief, preserveSourceText = false) {
     setBrief(next);
     if (!preserveSourceText) setSourceText((next.researchSources || []).join("\n"));
     setSaveStatus("");
     setSaveError("");
   }
-  async function generateTestMandate() {
-    setGenerating(true);
+  function generateTestMandate() {
     setGenerationError("");
-    try {
-      const result = await jsonRequest("/api/mandates/generate", {});
-      updateBrief(result.brief);
-    } catch (error) {
-      setGenerationError(error instanceof Error ? error.message : "Could not generate a brief. Please try again.");
-    } finally {
-      setGenerating(false);
-    }
+    try { updateBrief(nextTestMandate()); }
+    catch (error) { setGenerationError(error instanceof Error ? error.message : "Could not load a test mandate."); }
   }
 
   const update = (key: keyof AcquisitionBrief, value: unknown) => updateBrief({ ...brief, [key]: value });
-  return <form onSubmit={e => { e.preventDefault(); if (!autoSave) void onSave(brief); }} className="space-y-5"><fieldset disabled={generating} className="min-w-0 space-y-5"><div className={panelClass}><label className="text-sm">Mandate name<input required maxLength={100} className={fieldClass} value={brief.name} onChange={e => update("name", e.target.value)} /></label><label className="mt-4 block text-sm">Describe the acquisition brief<textarea className={`${fieldClass} min-h-28`} value={brief.naturalLanguage} onChange={e => update("naturalLanguage", e.target.value)} /></label><label className="mt-4 block text-sm">Research sources (one public HTTPS URL per line)<textarea className={`${fieldClass} min-h-24`} value={sourceText} onChange={e => { const text = e.target.value; setSourceText(text); updateBrief({ ...brief, researchSources: text.split("\n").map(source => source.trim()).filter(Boolean) }, true); }} placeholder="https://www.australianmanufacturing.com.au/australian-manufacturing-directory/" /></label><p className="mt-1 text-xs text-[var(--muted)]">Add directories, registers or other public sources. Research will attempt to read these and find candidate businesses.</p>{onImport && <details className="mt-4 border-t border-[var(--border)] pt-3"><summary className="cursor-pointer text-sm font-medium">Import sourced records</summary><p className="mt-2 text-xs text-[var(--muted)]">Paste a JSON array of sourced register, web or provider records to add candidates directly.</p><textarea aria-label="Sourced records JSON" className={`${fieldClass} min-h-28 font-mono`} value={recordsText} onChange={event => setRecordsText(event.target.value)} />{recordsError && <p role="alert" className="mt-2 text-sm text-[var(--status-red)]">{recordsError}</p>}<button type="button" className={`${buttonClass} mt-2`} disabled={busy || !recordsText.trim()} onClick={() => { try { const records = JSON.parse(recordsText); if (!Array.isArray(records)) throw new Error("Use a JSON array."); setRecordsError(""); void onImport(records); } catch (error) { setRecordsError(error instanceof Error ? error.message : "Invalid JSON."); } }}>Import records</button></details>}<div className="mt-3 flex flex-wrap gap-2"><button type="button" className={buttonClass} onClick={() => updateBrief(captureBrief(brief))}>Extract draft criteria</button><button type="button" disabled={busy || generating} className={buttonClass} onClick={generateTestMandate}>{generating ? "Generating…" : "Generate test mandate"}</button></div>{generationError && <p role="alert" className="mt-2 text-sm text-[var(--status-red)]">{generationError}</p>}{(generating || !autoSave) && <p className="mt-2 text-xs text-[var(--muted)]">{generating ? "Creating a new acquisition brief with AI…" : "Generate a new AI test brief, then review and save it."}</p>}</div>
+  return <form onSubmit={e => { e.preventDefault(); if (!autoSave) void onSave(brief); }} className="space-y-5"><fieldset className="min-w-0 space-y-5"><div className={panelClass}><label className="text-sm">Mandate name<input required maxLength={100} className={fieldClass} value={brief.name} onChange={e => update("name", e.target.value)} /></label><label className="mt-4 block text-sm">Describe the acquisition brief<textarea className={`${fieldClass} min-h-28`} value={brief.naturalLanguage} onChange={e => update("naturalLanguage", e.target.value)} /></label><label className="mt-4 block text-sm">Research sources (one public HTTPS URL per line)<textarea className={`${fieldClass} min-h-24`} value={sourceText} onChange={e => { const text = e.target.value; setSourceText(text); updateBrief({ ...brief, researchSources: text.split("\n").map(source => source.trim()).filter(Boolean) }, true); }} placeholder="https://www.australianmanufacturing.com.au/australian-manufacturing-directory/" /></label><p className="mt-1 text-xs text-[var(--muted)]">Add directories, registers or other public sources. Research will attempt to read these and find candidate businesses.</p>{onImport && <details className="mt-4 border-t border-[var(--border)] pt-3"><summary className="cursor-pointer text-sm font-medium">Import sourced records</summary><p className="mt-2 text-xs text-[var(--muted)]">Paste a JSON array of sourced register, web or provider records to add candidates directly.</p><textarea aria-label="Sourced records JSON" className={`${fieldClass} min-h-28 font-mono`} value={recordsText} onChange={event => setRecordsText(event.target.value)} />{recordsError && <p role="alert" className="mt-2 text-sm text-[var(--status-red)]">{recordsError}</p>}<button type="button" className={`${buttonClass} mt-2`} disabled={busy || !recordsText.trim()} onClick={() => { try { const records = JSON.parse(recordsText); if (!Array.isArray(records)) throw new Error("Use a JSON array."); setRecordsError(""); void onImport(records); } catch (error) { setRecordsError(error instanceof Error ? error.message : "Invalid JSON."); } }}>Import records</button></details>}<div className="mt-3 flex flex-wrap gap-2"><button type="button" className={buttonClass} onClick={() => updateBrief(captureBrief(brief))}>Extract draft criteria</button><button type="button" disabled={busy} className={buttonClass} onClick={generateTestMandate}>Generate test mandate</button></div>{generationError && <p role="alert" className="mt-2 text-sm text-[var(--status-red)]">{generationError}</p>}{!autoSave && <p className="mt-2 text-xs text-[var(--muted)]">Choose a saved test brief, then review and save it.</p>}</div>
     <BriefCriteria criteria={brief.criteria} onChange={criteria => update("criteria", criteria)} />
     {autoSave ? <div aria-live="polite" className="text-sm text-[var(--muted)]">{saveError ? <><span role="alert" className="text-[var(--status-red)]">{saveError}</span> <button type="button" className="underline" onClick={() => { failedBrief.current = ""; setSaveError(""); setSaveStatus(""); }}>Retry save</button></> : saveStatus}</div> : <button disabled={busy} className={`${buttonClass} bg-[var(--accent)] text-[var(--on-accent)]`}>{busy ? "Saving…" : "Save reviewed brief"}</button>}</fieldset></form>;
 }
@@ -171,11 +165,11 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
   const allMatchingSelected = matchingIds.length > 0 && matchingIds.every(targetId => selected.includes(targetId));
   const openReview = (targetId: string) => { setReviewQueue(filtered.map(m => m.target.id)); setReviewId(targetId); };
   return <><MandateNavigation mandates={mandates.map(m => m.id === id ? data.mandate : m)} selected={id} tab={tab} /><div className="space-y-5 p-5 sm:p-8"><header><p className="text-xs uppercase tracking-widest text-[var(--accent)]">Acquisition workspace</p><h1 className="mt-2 text-3xl font-semibold">{data.mandate.brief.name}</h1></header>{error && <p role="alert" className="rounded border border-red-400 p-3 text-[var(--status-red)]">{error}</p>}{notice && <p role="status" className="text-sm text-[var(--accent)]">{notice}</p>}
-    {tab === "brief" && <><BriefEditor key={data.mandate.createdAt} initial={data.mandate.brief} busy={busy} autoSave onSave={saveBrief} onImport={records => act({ action: "import", records })} /><div><h2 className="text-xl font-semibold">Find businesses</h2><p className="mt-2 text-sm text-[var(--muted)]">Start research from your brief. Targets will show candidate websites as they arrive and move each saved business into the table.</p></div><ResearchPanel mandateId={id} brief={data.mandate.brief} onResultsChanged={() => { void jsonRequest(`/api/mandates/${id}`).then(setData).catch(() => {}); }} onCandidatesFound={() => router.push(mandateTabHref(id, "targets"))} /></>}
+    {tab === "brief" && <><BriefEditor key={data.mandate.createdAt} initial={data.mandate.brief} busy={busy} autoSave onSave={saveBrief} onImport={records => act({ action: "import", records })} /><div><h2 className="text-xl font-semibold">Find businesses</h2><p className="mt-2 text-sm text-[var(--muted)]">Start research from your brief. Companies will show candidate websites as they arrive and move each saved business into the table.</p></div><ResearchPanel mandateId={id} brief={data.mandate.brief} onResultsChanged={() => { void jsonRequest(`/api/mandates/${id}`).then(setData).catch(() => {}); }} onCandidatesFound={() => router.push(mandateTabHref(id, "targets"))} /></>}
     {tab === "targets" && <>
       <ResearchPanel mandateId={id} brief={data.mandate.brief} showStartAction={false} onResultsChanged={() => { void refresh(); }} />
       <section className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Targets</h2><Link className={buttonClass} href={mandateTabHref(id, "brief")}>Find businesses</Link></div>
+        <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Companies</h2><Link className={buttonClass} href={mandateTabHref(id, "brief")}>Find businesses</Link></div>
         <p className="text-sm text-[var(--muted)]">Candidate websites appear here as they are found. Researched details fill in as businesses are saved.</p>
         <div className="flex flex-wrap items-center gap-3"><button disabled={!filtered.length} className={`${buttonClass} min-h-12`} onClick={() => openReview(filtered[0].target.id)}>Start review queue</button><p className="text-xs text-[var(--muted)]">{candidates.length} candidate websites · {filtered.length} saved businesses matching filters · {selected.length} selected</p></div>
       </section>
@@ -213,7 +207,7 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
           <td className="p-3"><TargetResearchData findings={m.researchFindings} kind="person" fallback={data.contacts.filter(c => c.targetId === m.target.id && c.name?.trim()).map(c => c.name).join(", ") || "Unknown"} /></td>
           <td className="p-3">{m.assessment.evidence.filter(e => e.assessment !== "unknown").length}/{criterionDefinitions.length} tested</td>
         </TargetReviewRow>)}
-        {!candidates.length && !filtered.length && <tr><td colSpan={8} className="p-8 text-[var(--muted)]">{data.memberships.length || research.jobs.length ? "No businesses match these filters. Try a different name or filter." : <>No targets yet. <Link className="underline" href={mandateTabHref(id, "brief")}>Find businesses or import sourced records in Brief</Link> to start your review.</>}</td></tr>}
+        {!candidates.length && !filtered.length && <tr><td colSpan={8} className="p-8 text-[var(--muted)]">{data.memberships.length || research.jobs.length ? "No businesses match these filters. Try a different name or filter." : <>No companies yet. <Link className="underline" href={mandateTabHref(id, "brief")}>Find businesses or import sourced records in Brief</Link> to start your review.</>}</td></tr>}
       </tbody></table></div>
     </>}
   </div>{reviewId && data.memberships.find(m => m.target.id === reviewId) && <CompanyReviewPanel key={reviewId} mandate={data.mandate} initial={data.memberships.find(m => m.target.id === reviewId)!} position={`Company ${reviewQueue.indexOf(reviewId) + 1} of ${reviewQueue.length}`} onClose={() => setReviewId(null)} onChanged={async () => setData(await jsonRequest(`/api/mandates/${id}`))} onNext={reviewQueue.indexOf(reviewId) < reviewQueue.length - 1 ? () => setReviewId(reviewQueue[reviewQueue.indexOf(reviewId) + 1]) : undefined} />}</>;

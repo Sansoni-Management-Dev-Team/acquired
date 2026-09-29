@@ -3,5 +3,5 @@ import { auth } from "@/lib/auth";
 export async function POST(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return Response.json({ error: "You must be signed in." }, { status: 401 });
-  return Response.json({ error: "Create or select a mandate, review its brief, then find businesses in Targets." }, { status: 409 });
+  return Response.json({ error: "Create or select a mandate, review its brief, then find businesses in Companies." }, { status: 409 });
 }

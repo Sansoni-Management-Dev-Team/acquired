@@ -75,7 +75,7 @@ describe("discovery candidate list", () => {
     const later = Array.from({ length: 5 }, (_, index) => job({ id: `later-${index}`, status: "partial", config: { ...job().config, companyDomain: `later-${index}.example` }, seeds: [`https://later-${index}.example/`] }));
     const html = renderToStaticMarkup(<DiscoveryCandidateList searching={false} jobs={[saved, ...later]} />);
 
-    expect(html).toContain("See Targets for the businesses and candidate websites found");
+    expect(html).toContain("See Companies for the businesses and candidate websites found");
     expect(html).not.toContain("saved.example");
     expect(html).not.toContain("later-0.example");
   });

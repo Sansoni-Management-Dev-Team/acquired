@@ -37,13 +37,13 @@ it("previews from saved company data when no positive evidence signal exists", a
   expect((await POST(request(true))).status).toBe(200);
   expect(m.generate).toHaveBeenCalledWith(expect.objectContaining({ signals: [] }));
 });
-it("still requires approval of the public buyer profile", async () => {
+it("allows preview without the removed profile approval checkbox", async () => {
   m.select.mockReturnValue({ from: (table: unknown) => ({ where: () => {
     const rows = table === targets ? [{ id, companyName: "Example Instruments", firmographics: {} }] : table === organization ? [{ metadata: JSON.stringify({ buyerProfile: { ...publicProfile, publicProfileApproved: false } }) }] : table === signals ? [{ id: "signal", kind: "capability", value: "Makes instruments", weight: "medium", direction: "positive", capturedAt: new Date(), source: "Company website", confidence: 70 }] : [];
     return { limit: async () => rows, then: (resolve: (rows: unknown[]) => unknown) => Promise.resolve(rows).then(resolve) };
   } }) });
-  expect((await POST(request(true))).status).toBe(409);
-  expect(m.generate).not.toHaveBeenCalled();
+  expect((await POST(request(true))).status).toBe(200);
+  expect(m.generate).toHaveBeenCalled();
 });
 
 it("returns a readable error when the drafting provider cannot initialise", async () => {

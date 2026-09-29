@@ -171,10 +171,10 @@ export function ResearchPanel({
             </div>
             <ResearchProgress job={currentJob} count={newBusinessCount} identified={identifiedBusinessCount} active={Boolean(active)} enriching={enriching.length} />
             {currentJob.config.mode === "automatic" && <DiscoveryCandidateList jobs={candidateJobs} searching={Boolean(active)} />}
-            {!currentJob.config.purpose && !terminalResearchStates.includes(currentJob.status) && <p className="text-sm text-[var(--muted)]">{currentJob.status === "discovering" ? "Searching for candidate websites…" : "Reading candidate websites and checking business details…"} The count increases as new businesses are saved to Targets.</p>}
-            <ResearchRunOutcome status={currentJob.status} remaining={remainingFor(currentJob).length} active={Boolean(active)} canResume={!currentJob.config.purpose} busy={busy} onResume={() => resume(currentJob)} />
-            {(currentJob.status === "failed" || currentJob.status === "partial" || currentJob.status === "cancelled") && currentJob.message && <p className="break-words text-sm text-[var(--muted)]">{currentJob.message}</p>}
-            {searchHistory.length > 0 && <details className="rounded-lg border border-[var(--border)] p-3 text-sm">
+            {!currentJob.config.purpose && !terminalResearchStates.includes(currentJob.status) && <p className="text-sm text-[var(--muted)]">{currentJob.status === "discovering" ? "Searching for candidate websites…" : "Reading candidate websites and checking business details…"} The count increases as new businesses are saved to Companies.</p>}
+            {showStartAction && <ResearchRunOutcome status={currentJob.status} remaining={remainingFor(currentJob).length} active={Boolean(active)} canResume={!currentJob.config.purpose} busy={busy} onResume={() => resume(currentJob)} />}
+            {showStartAction && (currentJob.status === "failed" || currentJob.status === "partial" || currentJob.status === "cancelled") && currentJob.message && <p className="break-words text-sm text-[var(--muted)]">{currentJob.message}</p>}
+            {showStartAction && searchHistory.length > 0 && <details className="rounded-lg border border-[var(--border)] p-3 text-sm">
               <summary className="min-h-12 cursor-pointer content-center">Search activity · {searchHistory.length} attempts</summary>
               <ol className="space-y-3 pt-2">{searchHistory.map((attempt, i) => <li key={`${i}:${attempt.query}`}>
                 <p className="font-medium">{attempt.query}</p>
@@ -183,10 +183,10 @@ export function ResearchPanel({
               </li>)}</ol>
               {searchStopReason && <p className="mt-3 text-[var(--muted)]">{searchStopReason}</p>}
             </details>}
-            {!active && !currentJob.config.purpose && currentJob.config.runtime?.attempts.some(a => a.status === "failed" || /extraction failed/i.test(a.reason)) && <button className={button} disabled={busy} onClick={() => retryFailed(currentJob)}>Retry failed pages</button>}
-            {active && <button className={button} disabled={busy} onClick={() => act({action:"cancel"}, active.id)}>Stop research</button>}
-            {active?.status === "queued" && <button className={button} disabled={busy} onClick={() => act({action:"retry-dispatch"}, active.id)}>Reconnect job</button>}
-            {[...data.jobs, ...(data.peopleJobs || []), ...(data.companyJobs || [])].filter(job => job.id !== active?.id && !job.config.discoveryCandidate && !terminalResearchStates.includes(job.status)).map(job => <ActiveResearchJob key={job.id} job={job} busy={busy} onCancel={() => act({action:"cancel"}, job.id)} onRetry={() => act({action:"retry-dispatch"}, job.id)} />)}
+            {showStartAction && !active && !currentJob.config.purpose && currentJob.config.runtime?.attempts.some(a => a.status === "failed" || /extraction failed/i.test(a.reason)) && <button className={button} disabled={busy} onClick={() => retryFailed(currentJob)}>Retry failed pages</button>}
+            {showStartAction && active && <button className={button} disabled={busy} onClick={() => act({action:"cancel"}, active.id)}>Stop research</button>}
+            {showStartAction && active?.status === "queued" && <button className={button} disabled={busy} onClick={() => act({action:"retry-dispatch"}, active.id)}>Reconnect job</button>}
+            {(showStartAction ? [...data.jobs, ...(data.peopleJobs || []), ...(data.companyJobs || [])] : []).filter(job => job.id !== active?.id && !job.config.discoveryCandidate && !terminalResearchStates.includes(job.status)).map(job => <ActiveResearchJob key={job.id} job={job} busy={busy} onCancel={() => act({action:"cancel"}, job.id)} onRetry={() => act({action:"retry-dispatch"}, job.id)} />)}
           </div>}
 
         </>
@@ -225,7 +225,7 @@ export function DiscoveryCandidateList({ jobs, searching }: { jobs: ResearchJob[
         <span className="truncate">{job.config.companyDomain || job.seeds[0] || "Candidate website"}</span>
         <span className="shrink-0 text-[var(--muted)]">Found → {candidateStatus(job.status, false)}</span>
       </li>)}
-    </ul> : <p className="mt-1 text-xs text-[var(--muted)]">{searching ? "Finding websites…" : "No websites currently being checked. See Targets for the businesses and candidate websites found."}</p>}
+    </ul> : <p className="mt-1 text-xs text-[var(--muted)]">{searching ? "Finding websites…" : "No websites currently being checked. See Companies for the businesses and candidate websites found."}</p>}
     {active.length > visible.length && <p className="mt-1 text-xs text-[var(--muted)]">+{active.length - visible.length} more being checked</p>}
   </section>;
 }
@@ -349,14 +349,14 @@ function ResearchFindings({
                 assessment.
               </p>
             )}
-            {group.findings.some(f => f.targetId) && <p className="mt-3 text-sm">In Targets · {relevant ? "Ready to review" : "Needs more evidence"}</p>}
+            {group.findings.some(f => f.targetId) && <p className="mt-3 text-sm">In Companies · {relevant ? "Ready to review" : "Needs more evidence"}</p>}
             {company && !group.findings.some((f) => f.targetId) && (
               <button
                 className={`${button} mt-3`}
                 disabled={Boolean(busy)}
                 onClick={() => accept(company)}
               >
-                {busy === company.id ? "Adding…" : "Add company to targets"}
+                {busy === company.id ? "Adding…" : "Add company to mandate"}
               </button>
             )}
           </article>

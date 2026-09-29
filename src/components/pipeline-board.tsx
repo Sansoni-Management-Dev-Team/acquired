@@ -45,12 +45,12 @@ export function PipelineBoard({ mandateId, memberships, onReview, onShortlist, b
   return <section aria-labelledby="pipeline-heading" className="space-y-5">
     <div className="flex flex-wrap items-start justify-between gap-4">
       <div><h2 id="pipeline-heading" className="text-xl font-semibold">Pipeline</h2><p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">Drag a business from Found into Shortlisted, or use its Shortlist button. Open a company to review evidence, contacts and drafts.</p></div>
-      <Link href={`/mandates/${mandateId}?tab=targets`} className="rounded-md border border-[var(--border)] px-3 py-2 text-sm">Review targets</Link>
+      <Link href={`/mandates/${mandateId}?tab=targets`} className="rounded-md border border-[var(--border)] px-3 py-2 text-sm">Review companies</Link>
     </div>
     <p className="text-sm text-[var(--muted)]">{active.length} active deals · {archived.length} parked or excluded</p>
     {active.length === 0 ? <div className="rounded-xl border border-dashed border-[var(--border)] p-8">
       <h3 className="font-semibold">No businesses found yet</h3>
-      <p className="mt-2 text-sm text-[var(--muted)]">Find or import businesses in Targets. They will appear in Found, ready to review and shortlist.</p>
+      <p className="mt-2 text-sm text-[var(--muted)]">Find or import businesses in Companies. They will appear in Found, ready to review and shortlist.</p>
     </div> : <>
       <label className="block max-w-sm text-xs">Find a deal<input value={query} onChange={event => setQuery(event.target.value)} className="mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2 text-sm text-[var(--foreground)]" /></label>
       {query && !active.some(matches) && <p role="status" className="text-sm text-[var(--muted)]">No active deals match “{query}”.</p>}

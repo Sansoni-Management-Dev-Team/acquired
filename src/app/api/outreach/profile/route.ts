@@ -21,7 +21,7 @@ export async function PUT(request: Request) {
   const organizationId = session.session.activeOrganizationId;
   if (!organizationId) return Response.json({ error: "Select an organisation first." }, { status: 403 });
   const parsed = buyerProfileSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return Response.json({ error: "Complete every buyer profile field before saving." }, { status: 400 });
+  if (!parsed.success) return Response.json({ error: parsed.error.issues.map(issue => issue.message).join(". ") }, { status: 400 });
   const database = requireDb();
   const [row] = await database.select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, organizationId)).limit(1);
   if (!row) return Response.json({ error: "Organisation not found." }, { status: 404 });

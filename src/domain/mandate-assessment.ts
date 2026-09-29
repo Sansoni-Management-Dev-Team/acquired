@@ -3,7 +3,8 @@ import { briefToMandate, criterionDefinitions, type AcquisitionBrief, type Asses
 import type { RankedTarget, FinanceabilityEvidence } from "./models";
 import { rankTarget } from "./scoring";
 
-export function assessMembership(target: RankedTarget, brief: AcquisitionBrief, assessment: Assessment, buyer: BuyerProfile | null): RankedTarget {
+export function assessMembership(target: RankedTarget, brief: AcquisitionBrief, assessment: Assessment, _buyer: BuyerProfile | null): RankedTarget {
+  void _buyer; // Keep the existing call signature while legacy buyer capital fields are phased out.
   const finance = assessment.financeReview;
   const financeability: FinanceabilityEvidence = {};
   if (finance?.source) {
@@ -37,9 +38,9 @@ export function assessMembership(target: RankedTarget, brief: AcquisitionBrief, 
   const hardFailure = relevant.some(c => c.importance === "requirement" && assessment.evidence.some(e => e.criterionKey === c.key && e.assessment === "fails" && ["register", "owner-stated", "document-verified"].includes(e.kind) && e.confidence >= 80));
   if (hardFailure || assessment.stage === "excluded") { ranked.scores.band = "excluded"; ranked.scores.qualification = "excluded"; }
   else { ranked.scores.band = "cold"; ranked.scores.qualification = assessment.stage === "qualified" ? "priority" : ["shortlisted", "outreach-approved", "contacted", "in-conversation"].includes(assessment.stage) ? "develop" : "research"; }
-  if (!buyer?.capitalConfirmed || !finance?.structureReviewed) {
+  if (!finance?.structureReviewed) {
     ranked.scores.financeability = null;
-    ranked.scores.tensions.push("Bankability requires confirmed buyer capital and a reviewed deal structure alongside target evidence.");
+    ranked.scores.tensions.push("Bankability requires a reviewed deal structure alongside target evidence.");
   }
   ranked.scores.confidence = Math.round((ranked.scores.axisConfidence!.fit + ranked.scores.axisConfidence!.ripeness + ranked.scores.axisConfidence!.bankability) / 3);
   return ranked;

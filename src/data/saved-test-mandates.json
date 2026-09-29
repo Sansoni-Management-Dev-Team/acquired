@@ -1,0 +1,2418 @@
+[
+  {
+    "name": "Test mandate — Commercial Refrigeration Service Businesses",
+    "criteria": [
+      {
+        "key": "subsectors",
+        "state": "specified",
+        "value": "Commercial refrigeration inspection and maintenance; supermarket and food-retail refrigeration service; cold-storage and food-distribution refrigeration maintenance",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "geography",
+        "state": "specified",
+        "value": "QLD, NSW",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenue",
+        "state": "specified",
+        "value": "4000000–12000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenueCeiling",
+        "state": "specified",
+        "value": "15000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "headcount",
+        "state": "specified",
+        "value": "15–55",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ebitda",
+        "state": "specified",
+        "value": "700000–2000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "margin",
+        "state": "specified",
+        "value": "Sustainable EBITDA margin of 12–18%, supported by repeat service work and normalised owner remuneration.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "accreditations",
+        "state": "specified",
+        "value": "Appropriate ARCtick refrigerant handling authorisations and relevant state electrical contractor licences; documented safety systems and technician qualifications preferred.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "management",
+        "state": "specified",
+        "value": "Established service manager or supervisors able to coordinate technicians and customers; willingness to retain key staff is important.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ownerDependence",
+        "state": "specified",
+        "value": "Low to moderate. A defined owner transition is acceptable, but day-to-day dispatch, technical sign-off and key customer relationships should not depend solely on the owner.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "multiple",
+        "state": "specified",
+        "value": "Indicative 3.5–5.0x maintainable EBITDA, assessed on a debt-free, cash-free basis and subject to diligence.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "payback",
+        "state": "specified",
+        "value": "Target 4–6 years from maintainable post-acquisition cash flow, before financing and subject to growth and capital expenditure.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "vendorMotivation",
+        "state": "specified",
+        "value": "Retirement or succession planning; desire for a gradual transition; partial liquidity or de-risking while retaining a continuing role; broader strategic or personal reasons.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "sellerEngagement",
+        "state": "specified",
+        "value": "Open to confidential, exploratory discussions and reasonable financial and operational diligence; no immediate sale process required.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "property",
+        "state": "specified",
+        "value": "Operating premises may be leased or owned. Open to acquiring suitable freehold property alongside the business, but property ownership is not required.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "structure",
+        "state": "specified",
+        "value": "Open to a full acquisition or majority acquisition with a defined owner transition; staged consideration or vendor finance may be considered where aligned with verified performance.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "concentration",
+        "state": "specified",
+        "value": "Prefer no single customer above 20% of revenue; any exposure above this level requires strong contract visibility and a credible diversification plan.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "timing",
+        "state": "specified",
+        "value": "Flexible on timing; prefer an orderly process with sufficient time for confidential diligence, customer and employee transition planning, and any required licence or contract consents.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "dealBreakers",
+        "state": "specified",
+        "value": "Material unremediated safety or licensing deficiencies; revenue predominantly from one-off installation projects; customer concentration that cannot be mitigated; EBITDA dependent on unsustainable add-backs; unresolved material litigation or tax issues; business viability reliant on the owner with no credible transition plan.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      }
+    ],
+    "naturalLanguage": "We are exploring the acquisition of an established Australian commercial refrigeration service business operating in Queensland or New South Wales. The preferred business focuses on recurring inspection, maintenance and repair for supermarkets, food distributors, hospitality groups or other commercial customers, rather than relying heavily on large installation projects. We are seeking revenue of AUD 4–12 million, sustainable EBITDA of AUD 700,000–2 million and a team of 15–55 people. A capable management layer, diversified customers and relevant refrigeration and electrical licences are important. We are open to a full or majority acquisition, including a sensible transition period for the owner, and may consider property as part of a transaction where it supports the operating business.",
+    "researchSources": [],
+    "investmentThesis": "Build a resilient service platform around contracted and repeat commercial refrigeration maintenance, where response capability, technical compliance and customer retention support dependable cash flow. Prefer businesses with a strong field team and established supervisors, then pursue measured growth through deeper coverage of existing customer accounts and adjacent service areas. Avoid strategies dependent on speculative project work, heavy customer concentration or the founder personally holding critical technical and customer relationships.",
+    "disclosureApproved": false,
+    "outreachPositioning": "Initial contact should be discreet, respectful and exploratory. Position the approach as an opportunity to understand the owner’s goals and whether a long-term transition could suit them and their team. Emphasise continuity for customers and employees, willingness to discuss different transaction structures, and a practical handover period. Do not imply an existing relationship, buyer credentials or a guaranteed offer."
+  },
+  {
+    "name": "Test mandate Aurora Build Services",
+    "criteria": [
+      {
+        "key": "subsectors",
+        "state": "specified",
+        "value": "Residential building and renovation; commercial fit-out and maintenance; electrical services; plumbing and gasfitting; HVAC and building services; specialist façade, roofing and waterproofing contractors.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "geography",
+        "state": "specified",
+        "value": "NSW, VIC, QLD",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenue",
+        "state": "specified",
+        "value": "12000000–45000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenueCeiling",
+        "state": "specified",
+        "value": "50000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "headcount",
+        "state": "specified",
+        "value": "40–160",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ebitda",
+        "state": "specified",
+        "value": "800000–3000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "margin",
+        "state": "specified",
+        "value": "Sustainable EBITDA margin of 12%–22%; gross margin must be stable for at least three years and not rely on unsustainable subcontracting or delayed expenses.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "accreditations",
+        "state": "specified",
+        "value": "Relevant state licences and insurer-approved scope for the proposed services; current public liability, professional indemnity and workers compensation cover; NCC Accredited Contractor Level 1 certification where relevant; safe work method statements; no unresolved regulator findings.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "management",
+        "state": "specified",
+        "value": "Experienced operations and finance leadership in place; owner must support a 6–12 month transition; no critical dependency on one employee.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ownerDependence",
+        "state": "specified",
+        "value": "Low to moderate owner dependence; sales, delivery and compliance must continue without daily owner involvement.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "multiple",
+        "state": "specified",
+        "value": "8.0–11.0x verified recurring EBITDA, subject to deal structure, working-capital adjustments and quality-of-earnings findings.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "payback",
+        "state": "specified",
+        "value": "Target payback within 5–7 years on unlevered EBITDA, with annual debt service coverage above 1.5x.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "vendorMotivation",
+        "state": "specified",
+        "value": "Succession and retirement planning; desire for a scalable platform and professional management; liquidity while preserving legacy and employees; funding for growth, technology and market expansion; orderly exit from a fragmented or cyclical operation.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "sellerEngagement",
+        "state": "specified",
+        "value": "Open to confidential discussions, management presentations, non-disclosure agreements and indicative offers; willing to consider phased vendor rollover and earn-out components.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "property",
+        "state": "specified",
+        "value": "Favourable owner-occupied premises or long-dated leases with renewal options; no material freehold premium unless it supports a clear strategic benefit.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "structure",
+        "state": "specified",
+        "value": "Preference for 100% equity purchase with rolled equity and earn-out; asset purchase acceptable where tax and licensing outcomes are efficient.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "concentration",
+        "state": "specified",
+        "value": "No single customer above 20% of revenue or 25% of EBITDA; the five largest customers combined must not exceed 55% of revenue.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "timing",
+        "state": "specified",
+        "value": "Target announcement within 3–6 months and completion within 90–150 days; exclusivity and due diligence must allow verification of licences, contracts, workforce, property and working capital.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "dealBreakers",
+        "state": "specified",
+        "value": "Unresolved regulatory or safety breach; materially inaccurate financial statements; material undisclosed litigation, tax, environmental or related-party exposure; owner unwilling to provide transition support; revenue or EBITDA cannot be independently verified; customer or employee attrition above the stated limits; property title or lease defects.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      }
+    ],
+    "naturalLanguage": "Aurora Build Services is a fictional Australian acquisition mandate for a mid-market buyer seeking a profitable building-services business in New South Wales, Victoria or Queensland. The strategy targets established contractors with recurring commercial maintenance, fit-out, renovation and specialist building-service work. Aurora Build Services will prioritise businesses with audited or reviewed financials, documented estimating and project controls, licensed trades, strong safety records and a management team able to operate without daily owner involvement. The buyer is prepared to pay a premium for recurring work and low owner dependence, provided due diligence confirms sustainable margins, clean compliance, manageable customer concentration and an orderly vendor transition.",
+    "investmentThesis": "Test mandate Aurora Build Services seeks to acquire a profitable, professionally managed building-services business operating in NSW, VIC or QLD. The target should provide repeat commercial maintenance, fit-out and renovation work, with standardised estimating, field supervision, licensed subcontractor management and defensible local relationships. A small acquisition premium may be paid for recurring revenue, safety performance and a capable management team, but the business must demonstrate sustainable cash conversion and limited dependence on the vendor.",
+    "disclosureApproved": false,
+    "outreachPositioning": "Approach vendors as a long-term strategic partner offering capital, operational discipline and continuity for employees and customers. Emphasise confidential discussions, respect for the business's licences, brand and local market, and a transition plan that preserves key relationships. Initial messaging should focus on succession readiness, professional growth, repeat-work visibility and the opportunity to combine the target's field capabilities with stronger estimating, procurement, technology and regional expansion."
+  },
+  {
+    "name": "Test mandate — National Building Diagnostics Acquisition",
+    "criteria": [
+      {
+        "key": "subsectors",
+        "state": "specified",
+        "value": "Specialist building inspection and property testing for residential and light commercial assets; NATA-accredited materials, soils and building diagnostics; strata, defect and compliance testing; environmental and geotechnical testing for selected projects",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "geography",
+        "state": "specified",
+        "value": "National or VIC, SA, TAS",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenue",
+        "state": "specified",
+        "value": "10000000–28000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenueCeiling",
+        "state": "specified",
+        "value": "30000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "headcount",
+        "state": "specified",
+        "value": "40–110",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ebitda",
+        "state": "specified",
+        "value": "1000000–2500000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "margin",
+        "state": "specified",
+        "value": "Sustainable EBITDA margin of 12%–20%, supported by recurring work, productive technicians and controlled subcontractor costs",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "accreditations",
+        "state": "specified",
+        "value": "NATA accreditation for selected testing and inspection services, or documented plans to obtain and maintain it; no unresolved accreditation scope limitations",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "management",
+        "state": "specified",
+        "value": "Experienced general manager and service delivery leads in place, with the owner willing to support a transition period of up to 12 months",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ownerDependence",
+        "state": "specified",
+        "value": "Low to moderate owner dependence; sales, technical delivery and regulatory compliance must not rely solely on the owner",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "multiple",
+        "state": "specified",
+        "value": "Up to 7.0x normalised EBITDA, with up to 20% of consideration held as an earn-out linked to customer retention and EBITDA performance",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "payback",
+        "state": "specified",
+        "value": "Target cash payback within 5–7 years, subject to leverage, working capital and transition costs",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "vendorMotivation",
+        "state": "specified",
+        "value": "Planned retirement or succession; desire for an exit while preserving staff and brand; need for capital to expand laboratories or enter new states; ambition to consolidate fragmented competitors; willingness to retain a role during transition; desire for a buyer able to support long-term contracts and technical hiring; possibility of a partial exit with growth capital",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "sellerEngagement",
+        "state": "specified",
+        "value": "Positive to open to informal discussions, management presentations and confidential due diligence; flexible about timing and structure",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "property",
+        "state": "specified",
+        "value": "Preference for owned premises or long-term leased sites with transferable terms; up to 40% of total consideration may relate to land and buildings",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "structure",
+        "state": "specified",
+        "value": "Open to 100% equity purchases, minority acquisitions with growth capital, or seller-roll structures; cash-free, debt-free pricing is preferred",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "concentration",
+        "state": "specified",
+        "value": "Largest customer no more than 25% of revenue and no more than 30% of EBITDA; no customer representing more than 5% of revenue without documented renewal security",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "timing",
+        "state": "specified",
+        "value": "Target announcements within 3–6 months; expect conditional offers within 6–10 weeks after access to records; settlement within 90–150 days, subject to due diligence, financing and any required consent",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "dealBreakers",
+        "state": "specified",
+        "value": "Unresolved regulatory or accreditation breaches; materially unreliable financial records; undisclosed litigation, tax liabilities or related-party arrangements; unresolved workforce entitlements; inability to complete a clean handover; material customer loss before settlement",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      }
+    ],
+    "naturalLanguage": "Test mandate seeking an Australian specialist building inspection, property testing and diagnostics business with a credible pathway to national expansion. The preferred acquisition would be a profitable, professionally managed operation serving Victoria, South Australia and Tasmania, with NATA accreditation for selected testing and inspection services and the capability to support residential, light commercial, strata, defect and compliance work. The business should generate revenue of $10 million to $28 million, with a revenue ceiling of $30 million, and EBITDA of $1 million to $2.5 million. It should employ between 40 and 110 people, maintain a sustainable EBITDA margin of 12% to 20%, and demonstrate low to moderate owner dependence through capable management and technical leaders. The buyer is open to full equity purchases, minority investments with growth capital, or seller-roll structures, and would consider up to 40% of total consideration for land and buildings. The preferred outcome is a clean handover, a transition period of up to 12 months, and a transaction that can be announced within 3 to 6 months and settled within 90 to 150 days.",
+    "investmentThesis": "Acquire a profitable, NATA-accredited testing and inspection business serving Victoria, South Australia and Tasmania, with a credible pathway to national expansion. The target should combine recurring building, strata, materials, soils and selected environmental work with a skilled technical team and repeat customers. Growth would come from laboratory capability, cross-selling, disciplined acquisition of small local operators and stronger enterprise contracts. The strategy favours businesses where professional management reduces owner dependence and where quality, compliance and technical reputation support durable margins.",
+    "disclosureApproved": false,
+    "outreachPositioning": "Approach operators as attractive, specialist Australian testing and inspection businesses with room to grow beyond their current state footprint. Position the buyer as a long-term platform for accredited technical teams, enterprise contracts and orderly succession, while making clear that this is a fictional testing mandate and not an actual offer or expression of interest. Emphasise respect for brand, staff, quality standards and customer relationships, and invite confidential discussions about retirement, growth, consolidation or partnership options."
+  },
+  {
+    "name": "Test mandate — Regional commercial laundry and linen services",
+    "criteria": [
+      {
+        "key": "subsectors",
+        "state": "specified",
+        "value": "Commercial laundry and linen processing; linen hire and rental; healthcare and institutional textile services",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "geography",
+        "state": "specified",
+        "value": "TAS, VIC",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenue",
+        "state": "specified",
+        "value": "6000000–18000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenueCeiling",
+        "state": "specified",
+        "value": "22000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "headcount",
+        "state": "specified",
+        "value": "30–120",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ebitda",
+        "state": "specified",
+        "value": "1000000–3000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "margin",
+        "state": "specified",
+        "value": "Sustainable EBITDA margin of 12–20%, supported by reliable contract revenue and realistic maintenance and replacement capex.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "accreditations",
+        "state": "specified",
+        "value": "Relevant workplace health and safety, environmental, water-discharge and customer-required quality systems; healthcare textile handling standards where applicable. Accreditations and permits must be current and appropriate to the actual service scope.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "management",
+        "state": "specified",
+        "value": "Prefer a capable operations lead and supervisory team in place, with documented procedures and customer relationships not held solely by the owner.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ownerDependence",
+        "state": "specified",
+        "value": "Low to moderate; a transition period is acceptable, but routine scheduling, production and key-account management should be transferable.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "multiple",
+        "state": "specified",
+        "value": "Indicative 4–6x maintainable EBITDA, assessed on a debt-free, cash-free basis and subject to diligence, capex requirements and working capital.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "payback",
+        "state": "specified",
+        "value": "Target 5–7 years based on maintainable earnings and prudent assumptions; not a guaranteed outcome.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "vendorMotivation",
+        "state": "specified",
+        "value": "Preference order: succession or retirement planning; orderly full or partial exit; strategic transition with a defined handover; other mutually suitable ownership transition.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "sellerEngagement",
+        "state": "specified",
+        "value": "Open to confidential, exploratory discussions with owners considering a future sale or transition; no requirement for a formal sale process.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "property",
+        "state": "specified",
+        "value": "Leasehold premises preferred where the lease is secure and suitable for laundry operations; consider freehold alongside the operating business if the site, water and effluent infrastructure are appropriate.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "structure",
+        "state": "specified",
+        "value": "Open to share or asset transactions, full or staged ownership transition, and a reasonable vendor handover; structure remains subject to diligence and agreement.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "concentration",
+        "state": "specified",
+        "value": "Prefer no single customer to exceed 20% of revenue; higher concentration is a concern and requires compelling contract quality and mitigants.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "timing",
+        "state": "specified",
+        "value": "Flexible for an orderly process, subject to diligence, required approvals, lease or property arrangements and a practical transition plan.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "dealBreakers",
+        "state": "specified",
+        "value": "Unresolved material environmental, water-discharge or safety breaches; unsustainable or materially unverified earnings; severe plant or infrastructure deficiencies without a credible remediation plan; customer concentration materially above the stated preference without adequate protection; or dependence on the owner that cannot be transitioned.",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      }
+    ],
+    "naturalLanguage": "Explore the acquisition of an established commercial laundry or linen-hire business serving healthcare, hospitality and other institutional customers in Tasmania or Victoria. The preferred business has annual revenue of AUD 6–18 million, with a ceiling of AUD 22 million, EBITDA of AUD 1–3 million and 30–120 employees. Favour recurring customer contracts, efficient processing capacity, dependable service and a capable management team that can operate without day-to-day reliance on the owner. The strategy is to support measured growth through improved plant utilisation, route density and contract retention. Property can be leased or acquired where suitable; any transaction is subject to commercial, operational and financial diligence.",
+    "investmentThesis": "Commercial laundry and linen services can benefit from repeat service needs and durable customer relationships. A well-run regional operator with a diversified customer base and suitable processing facilities may offer opportunities to improve utilisation, strengthen contract retention and expand routes within Tasmania and Victoria. The mandate favours sustainable earnings, sound operating systems and management continuity over turnaround situations or expansion dependent on a single customer.",
+    "disclosureApproved": false,
+    "outreachPositioning": "Initial conversations are exploratory and confidential. The approach is to understand the owner’s objectives, the business’s operations and any potential succession or ownership transition, without implying a committed buyer, funding certainty or predetermined transaction. A respectful process could consider a full sale, staged transition or continued involvement if aligned with the vendor’s preferences and diligence findings."
+  },
+  {
+    "name": "Test mandate 88cc3c6b-34a2-4c54-8f4b-4cbdcd3bda7d",
+    "criteria": [
+      {
+        "key": "subsectors",
+        "state": "specified",
+        "value": "Industrial laundry services; commercial cleaning services; waste management logistics",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "geography",
+        "state": "specified",
+        "value": "National",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenue",
+        "state": "specified",
+        "value": "10000000–25000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenueCeiling",
+        "state": "specified",
+        "value": "25000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "headcount",
+        "state": "specified",
+        "value": "20–60",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ebitda",
+        "state": "specified",
+        "value": "1500000–3500000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "margin",
+        "state": "specified",
+        "value": "12%–18% sustainable EBITDA margin",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "accreditations",
+        "state": "specified",
+        "value": "ISO 9001, ISO 14001, Safe Work Australia, WorkCover NSW compliance, and ISO 45001 (preferred)",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "management",
+        "state": "specified",
+        "value": "Experienced operations manager and finance lead in place; CEO may transition post-acquisition",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ownerDependence",
+        "state": "specified",
+        "value": "Moderate – owner involved in daily operations but not critical to client relationships",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "multiple",
+        "state": "specified",
+        "value": "6.0–8.5x EBITDA, based on trailing 12-month financials",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "payback",
+        "state": "specified",
+        "value": "5–7 years",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "vendorMotivation",
+        "state": "specified",
+        "value": "Retirement planning; succession fatigue; desire to consolidate personal assets; lack of next-generation leadership",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "sellerEngagement",
+        "state": "specified",
+        "value": "High – vendor open to structured exit with earn-out or phased transition",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "property",
+        "state": "specified",
+        "value": "Leased industrial premises acceptable; own freehold preferred but not required",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "structure",
+        "state": "specified",
+        "value": "Asset purchase preferred; share purchase acceptable with clean due diligence",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "concentration",
+        "state": "specified",
+        "value": "No single customer exceeding 25% of total revenue",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "timing",
+        "state": "specified",
+        "value": "Completion within 12 months; target closing Q2–Q4 2025",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "dealBreakers",
+        "state": "specified",
+        "value": "Non-compliant safety records, outstanding WorkCover NSW breaches, lack of ISO 9001 certification, or revenue concentration above 25%",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      }
+    ],
+    "naturalLanguage": "We are seeking to acquire a medium-sized Australian industrial services business operating nationally across industrial laundry, commercial cleaning, or waste management logistics. Target revenue between AUD 10M and AUD 25M, with EBITDA of AUD 1.5M to AUD 3.5M and headcount of 20–60 staff. The business must hold ISO 9001 and ISO 14001 certifications, with strong compliance under Safe Work Australia and WorkCover NSW. No customer should exceed 25% of total revenue. Vendor motivation should include retirement, succession planning, or desire for liquidity. We prefer asset purchases with experienced management in place and moderate owner dependence. Target a payback period of 5–7 years at an entry multiple of 6.0–8.5x EBITDA. Property preference is flexible, but leased premises are acceptable. Deal breakers include safety non-compliance, lack of ISO 9001, or excessive customer concentration. Ideal timing is completion by Q4 2025, with high seller engagement and openness to structured exit terms.",
+    "investmentThesis": "Acquire a mid-sized, nationally operating industrial services business with strong compliance credentials and diversified client base. Target companies in the industrial laundry, commercial cleaning, or waste logistics subsectors that demonstrate stable revenue streams, scalable operations, and professional management. Leverage operational synergies across acquired entities to drive margin expansion and EBITDA growth. Focus on businesses with ISO certifications and strong safety records to ensure long-term sustainability and regulatory compliance. Exit via strategic consolidation or secondary buyout within 5–7 years.",
+    "disclosureApproved": false,
+    "outreachPositioning": "We are a strategic acquirer focused on consolidating the Australian industrial services sector. We offer a reliable, structured exit path for business owners seeking retirement or liquidity, with a commitment to operational continuity, employee retention, and regulatory excellence. Our approach is collaborative, respectful, and focused on long-term value creation. We are actively engaging with owners of compliant, well-managed businesses in the industrial laundry, commercial cleaning, and waste logistics space across Australia."
+  },
+  {
+    "name": "Test mandate a5268cf1",
+    "criteria": [
+      {
+        "key": "subsectors",
+        "state": "specified",
+        "value": "Industrial laundry services; commercial cleaning; waste management; facility maintenance",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "geography",
+        "state": "specified",
+        "value": "National",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenue",
+        "state": "specified",
+        "value": "12000000–22000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenueCeiling",
+        "state": "specified",
+        "value": "</arg_value>25000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "headcount",
+        "state": "specified",
+        "value": "30–80",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ebitda",
+        "state": "specified",
+        "value": "2500000–6000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "margin",
+        "state": "specified",
+        "value": "18 %–25 %",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "accreditations",
+        "state": "specified",
+        "value": "ISO 9001; ISO 14001; AS/NZS 4801; Safe Work Australia accredited",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "management",
+        "state": "specified",
+        "value": "Experienced general manager and finance lead retained",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ownerDependence",
+        "state": "specified",
+        "value": "Low; owner works < 20 hrs/week",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "multiple",
+        "state": "specified",
+        "value": "6.0–8.0× EBITDA",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "payback",
+        "state": "specified",
+        "value": "≤ 4.5 years",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "vendorMotivation",
+        "state": "specified",
+        "value": "Retirement; succession planning; strategic refocus",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "sellerEngagement",
+        "state": "specified",
+        "value": "High; vendor open to structured exit",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "property",
+        "state": "specified",
+        "value": "Leased premises acceptable; own site not required",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "structure",
+        "state": "specified",
+        "value": "Asset or share purchase; comfortable with earn-out",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "concentration",
+        "state": "specified",
+        "value": "No single customer > 25 % of revenue",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "timing",
+        "state": "specified",
+        "value": "12–18 months; flexible on completion date",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "dealBreakers",
+        "state": "specified",
+        "value": "Unresolved legal claims; non-compliant safety records; missing financials; undisclosed related-party transactions",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      }
+    ],
+    "naturalLanguage": "We are seeking a national Australian services business in the industrial laundry, commercial cleaning, waste management or facility maintenance space with annual revenue between $12 m and $22 m and EBITDA of $2.5 m–$6 m. The ideal asset has 30–80 staff, ISO 9001, ISO 14001 and AS/NZS 4801 accreditations, and a sustainable gross margin of 18–25 %. Management should already be in place, and the owner should be working less than 20 hours per week. We are comfortable with asset or share structures and will consider earn-outs. Vendor motivation should be retirement or succession, and they must be willing to engage openly. No single customer may exceed 25 % of revenue, and we will not proceed if there are unresolved legal issues, non-compliant safety records, missing financials or undisclosed related-party deals. We aim for payback within 4.5 years and a purchase multiple of 6–8× EBITDA. Geography must be national, and timing is flexible over the next 12–18 months. Leased premises are acceptable; owning real estate is not required.",
+    "investmentThesis": "Acquire a national-scale service business in the essential facilities and hygiene sector that delivers stable, recurring revenue through long-term contracts with commercial and government clients. The target should demonstrate resilient margins, low owner dependence and a fragmented market ripe for consolidation. Our thesis is to leverage operational excellence and bolt-on acquisitions to build a platform that can be sold to a larger strategic or PE fund within 5–7 years, delivering a 2.5–3× money multiple.",
+    "disclosureApproved": false,
+    "outreachPositioning": "We are a mid-market private investor focused on acquiring essential services businesses with strong compliance and recurring revenue. We are known for decisive, confidential processes and flexible deal structures including earn-outs. We will position ourselves as a responsible, long-term operator who retains existing management and invests in safety and systems to grow the platform."
+  },
+  {
+    "name": "Test mandate: Australian Mid-Market Industrial Services Acquisition",
+    "criteria": [
+      {
+        "key": "subsectors",
+        "state": "specified",
+        "value": "Specialty food manufacturing; industrial packaging; commercial cleaning and sanitation services",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "geography",
+        "state": "specified",
+        "value": "NSW, VIC, QLD",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenue",
+        "state": "specified",
+        "value": "8000000–18000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenueCeiling",
+        "state": "specified",
+        "value": "20000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "headcount",
+        "state": "specified",
+        "value": "20–80",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ebitda",
+        "state": "specified",
+        "value": "1500000–4500000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "margin",
+        "state": "specified",
+        "value": "18–25%",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "accreditations",
+        "state": "specified",
+        "value": "ISO 9001, AS/NZS 4801, or equivalent quality management certification; ISO 14001 environmental management; WorkSafe or state-level safety compliance",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "management",
+        "state": "specified",
+        "value": "Experienced operational management team in place; CEO or GM with at least 5 years tenure",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ownerDependence",
+        "state": "specified",
+        "value": "Moderate to low; owner primarily involved in strategic direction, not day-to-day operations",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "multiple",
+        "state": "specified",
+        "value": "6–9x EBITDA, based on trailing 12-month performance",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "payback",
+        "state": "specified",
+        "value": "5–7 years",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "vendorMotivation",
+        "state": "specified",
+        "value": "Retirement; strategic exit to focus on other ventures; succession planning",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "sellerEngagement",
+        "state": "specified",
+        "value": "High; vendor open to transition support and earn-out structures",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "property",
+        "state": "specified",
+        "value": "Leased or owned industrial/commercial premises preferred; no major capital expenditure required",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "structure",
+        "state": "specified",
+        "value": "Asset or share acquisition; preference for share purchase to retain licences and contracts",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "concentration",
+        "state": "specified",
+        "value": "No single customer exceeding 25% of annual revenue",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "timing",
+        "state": "specified",
+        "value": "Transaction to be completed within 12–18 months; vendor willing to sign exclusivity for 90 days",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "dealBreakers",
+        "state": "specified",
+        "value": "Non-compliant safety records; unresolved environmental breaches; lack of audited financials; owner-operated with no management team; significant pending litigation",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      }
+    ],
+    "naturalLanguage": "Acquisition Brief: Test mandate – Australian Mid-Market Industrial Services Acquisition. We are seeking to acquire a small to medium enterprise operating in the industrial services or specialty manufacturing space across New South Wales, Victoria, or Queensland. Target businesses should generate annual revenue between AUD 8 million and 18 million, with EBITDA margins between 18% and 25%, and a sustainable earnings multiple of 6–9x. Ideal candidates operate in subsectors such as specialty food manufacturing, industrial packaging, or commercial cleaning and sanitation services, with 20–80 employees and a professional management team already in place. The business must demonstrate low to moderate owner dependence, hold relevant accreditations (e.g., ISO 9001, AS/NZS 4801), and maintain customer concentration below 25%. We prefer asset or share acquisitions with flexible property arrangements—leased or owned facilities are acceptable, provided no major capex is imminent. Vendor motivation should align with retirement, strategic exit, or succession planning, with high willingness to engage in negotiations and consider transition support or earn-out structures. Transaction timing should allow for completion within 12–18 months, with exclusivity periods of up to 90 days. Hard deal breakers include non-compliance with safety or environmental regulations, lack of audited financials, unresolved litigation, or absence of a successor management team. Our investment thesis focuses on acquiring resilient, well-operated businesses with strong compliance records and growth potential, with a target payback period of 5–7 years and exit via trade sale or secondary buyout.",
+    "investmentThesis": "Target mid-sized Australian businesses in resilient, non-cyclical sectors with strong operational fundamentals and scalable models. Focus on companies with established customer bases, compliant operations, and professional management teams that can be leveraged for organic growth and margin expansion. The investment strategy centres on acquiring businesses with stable cash flows, moderate owner dependence, and clear pathways to EBITDA growth through operational optimisation and strategic market positioning. Exit potential via trade sale or secondary buyout within 5–7 years, supported by strong industry multiples and consolidation trends.",
+    "disclosureApproved": false,
+    "outreachPositioning": "We are a privately backed Australian investment group focused on mid-market industrial and services acquisitions. We seek collaborative, long-term partnerships with business owners looking to transition their operations while preserving legacy and employee stability. Our approach is professional, discreet, and respectful of existing operations. We offer structured deals with earn-outs, vendor financing, and transition support where appropriate. We are not a quick-flip operator; we are a responsible custodian of business value."
+  },
+  {
+    "name": "Test mandate 2f0f680d",
+    "criteria": [
+      {
+        "key": "subsectors",
+        "state": "specified",
+        "value": "Industrial laundry services; commercial kitchen equipment maintenance; specialty packaging distribution",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "geography",
+        "state": "specified",
+        "value": "NSW, QLD",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenue",
+        "state": "specified",
+        "value": "12000000–25000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenueCeiling",
+        "state": "specified",
+        "value": "25000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "headcount",
+        "state": "specified",
+        "value": "40–90",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ebitda",
+        "state": "specified",
+        "value": "3000000–6000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "margin",
+        "state": "specified",
+        "value": "≥ 18 % EBITDA margin sustained for 3 years",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "accreditations",
+        "state": "specified",
+        "value": "ISO 9001, ISO 27001, Safe Work NSW, Australian Made",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "management",
+        "state": "specified",
+        "value": "Key manager(s) willing to stay 2+ years post-acquisition",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ownerDependence",
+        "state": "specified",
+        "value": "Owner involved ≤ 2 days/week operationally",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "multiple",
+        "state": "specified",
+        "value": "6.0–8.0× EBITDA, based on trailing twelve months",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "payback",
+        "state": "specified",
+        "value": "≤ 4.5 years via cash-flow",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "vendorMotivation",
+        "state": "specified",
+        "value": "Succession planning; retirement; diversification; debt reduction",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "sellerEngagement",
+        "state": "specified",
+        "value": "Open to competitive process, indicative offer within 30 days",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "property",
+        "state": "specified",
+        "value": "Leasehold or owned industrial strata title preferred; no major redevelopment required",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "structure",
+        "state": "specified",
+        "value": "Asset purchase or share purchase; comfortable with 70 % bank debt",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "concentration",
+        "state": "specified",
+        "value": "No single customer > 20 % of revenue",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "timing",
+        "state": "specified",
+        "value": "Prefer closing Q2–Q3 FY2025; no rushed exclusivity",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "dealBreakers",
+        "state": "specified",
+        "value": "No unlicensed labour hire, no active WHS prosecutions, no material contingent liabilities",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      }
+    ],
+    "naturalLanguage": "Acquisition Brief – Test mandate 2f0f680d. We seek an Australian mid-market industrial services or specialty trade business with revenue of AUD 12–25 M and EBITDA of AUD 3–6 M. Ideal targets operate in NSW or QLD, employ 40–90 staff and hold ISO 9001, ISO 27001 or equivalent certifications. The owner should be semi-detached and willing to remain post-transaction. We prefer asset-light leasehold or owned strata-titled premises and require no single customer above 20 % of revenue. Vendor motivation should centre on succession, retirement or balance-sheet repair. We aim for a 6–8× EBITDA entry multiple, 70 % bank debt and full payback within 4.5 years. Sub-sectors of interest include industrial laundry services, commercial kitchen equipment maintenance and specialty packaging distribution. Process timing targets Q2–Q3 FY2025 closing, with willingness to engage in a competitive process and provide indicative offer within 30 days. Hard deal breakers are unlicensed labour hire, active WHS prosecutions or material contingent liabilities.",
+    "investmentThesis": "Acquire a cash-generative, mid-market services business in the industrial or specialty trade sector that benefits from recurring revenue, high barriers to entry and fragmented competition. Target an operator with strong customer contracts, modern facilities and a transferable skill base. Deploy operational improvements and selective add-on consolidation to lift EBITDA margins toward 25 %, then exit via strategic sale or secondary buy-out within 4–5 years.",
+    "disclosureApproved": false,
+    "outreachPositioning": "We are a private Australian fund focused on mid-market industrial services. Our approach is collaborative: we present a clear strategic vision, offer management equity incentives and provide immediate access to growth capital for bolt-on acquisitions. We respect existing culture, retain key staff and move quickly with indicative offers and conditional exclusivity."
+  },
+  {
+    "name": "Test mandate 92b84080",
+    "criteria": [
+      {
+        "key": "subsectors",
+        "state": "specified",
+        "value": "Specialty bakery production; artisanal condiment manufacturing; gluten-free or allergen-free food production; chilled/frozen meal kit preparation",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "geography",
+        "state": "specified",
+        "value": "NSW, VIC, QLD",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenue",
+        "state": "specified",
+        "value": "8000000–18000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenueCeiling",
+        "state": "specified",
+        "value": "==18000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "headcount",
+        "state": "specified",
+        "value": "20–60",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ebitda",
+        "state": "specified",
+        "value": "1500000–3500000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "margin",
+        "state": "specified",
+        "value": "18–28%",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "accreditations",
+        "state": "specified",
+        "value": "ISO 9001:2015 quality management; ISO 14001:2015 environmental management; AS/NZS 4801:2007 occupational health and safety; HACCP food safety certification; AQF Level 4 or higher staff qualifications",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "management",
+        "state": "specified",
+        "value": "Experienced operations manager and quality assurance lead in place; owner willing to transition or retain key staff for 12–24 months post-acquisition",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ownerDependence",
+        "state": "specified",
+        "value": "Moderate: owner involved in daily operations but systems and SOPs are documented and transferable",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "multiple",
+        "state": "specified",
+        "value": "6.0–9.0x EBITDA, based on trailing twelve months' adjusted earnings",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "payback",
+        "state": "specified",
+        "value": "4.5–6.5 years",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "vendorMotivation",
+        "state": "specified",
+        "value": "Retirement planning; succession lack; strategic pivot to new product lines; capital reallocation to higher-growth ventures",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "sellerEngagement",
+        "state": "specified",
+        "value": "High: vendor open to earn-out structures or phased transition; responsive to due diligence requests",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "property",
+        "state": "specified",
+        "value": "Leased or owned commercial kitchen/processing facility with cold storage capacity; located within 50km of major distribution hubs",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "structure",
+        "state": "specified",
+        "value": "Asset purchase preferred; open to share sale if liabilities are clearly defined and indemnified",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "concentration",
+        "state": "specified",
+        "value": "No single customer exceeding 25% of total revenue; top five customers combined <60%",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "timing",
+        "state": "specified",
+        "value": "Completion preferred within 9–15 months; target signing by Q2 2026",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "dealBreakers",
+        "state": "specified",
+        "value": "Active litigation involving food safety violations; non-compliant waste disposal practices; failure to hold current food safety certifications; presence of unlicensed subcontractors handling core production",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      }
+    ],
+    "naturalLanguage": "Acquisition brief for a specialty food production business in Eastern Australia. We seek a compliant, mid-market manufacturer with annual revenue between $8M and $18M, operating in NSW, VIC, or QLD. The business should have 20–60 employees, EBITDA of $1.5M–$3.5M, and sustainable gross margins of 18–28%. Ideal subsectors include artisanal baking, condiment production, allergen-free manufacturing, or chilled meal kit preparation. The target must hold ISO 9001, ISO 14001, AS/NZS 4801, and HACCP certifications, with no single customer accounting for more than 25% of revenue. The owner should be moderately dependent but with documented systems in place. We prefer asset purchases, with flexibility for share sales under clear indemnities. Vendor motivation should include retirement, succession gaps, or strategic reallocation. The business must be willing to engage in due diligence and consider earn-outs. Property preference is for leased or owned commercial kitchens with cold storage, located near major transport corridors. Deal breakers include food safety litigation, regulatory non-compliance, or unlicensed subcontracting. Target completion within 9–15 months, with signing ideally by Q2 2026. We seek a multiple of 6–9x EBITDA with a payback period of 4.5–6.5 years.",
+    "investmentThesis": "Acquire a mid-sized, accredited Australian specialty food producer with strong compliance posture and diversified customer base. Target businesses with scalable production systems, modern facilities, and proven margins in high-demand niche segments such as allergen-free or artisanal products. Leverage operational improvements, supply chain optimisation, and brand expansion to drive EBITDA growth, targeting a 20–25% IRR over a 5–7 year hold period.",
+    "disclosureApproved": false,
+    "outreachPositioning": "We are a private investment group focused on acquiring established Australian specialty food producers with strong compliance and operational foundations. We offer a structured, collaborative transition with vendor support, including potential earn-outs and retention of key staff. Our approach is long-term and relationship-driven, prioritising continuity, quality, and regulatory excellence."
+  },
+  {
+    "name": "Test mandate 0bac8137-5e47-4f77-9307-4ccc71173bc3",
+    "criteria": [
+      {
+        "key": "subsectors",
+        "state": "specified",
+        "value": "Industrial electrical contracting; commercial HVAC installation and maintenance; renewable energy system integration (solar, battery storage); facility management services; building services engineering",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "geography",
+        "state": "specified",
+        "value": "QLD, NSW, VIC",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenue",
+        "state": "specified",
+        "value": "10000000–25000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenueCeiling",
+        "state": "specified",
+        "value": "25000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "headcount",
+        "state": "specified",
+        "value": "20–60",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ebitda",
+        "state": "specified",
+        "value": "2000000–5000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "margin",
+        "state": "specified",
+        "value": "12%–18% EBITDA margin, stable or improving trend over 3 years",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "accreditations",
+        "state": "specified",
+        "value": "ISO 9001, ISO 45001, ISO 14001, Australian Building Codes Board (ABCB) compliance, Safe Work Australia accreditation",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "management",
+        "state": "specified",
+        "value": "Experienced operational management team with at least 5 years industry experience; CEO or GM must remain post-acquisition for minimum 24 months",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ownerDependence",
+        "state": "specified",
+        "value": "Moderate to high; owner actively involved in operations and client relationships; transition plan required",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "multiple",
+        "state": "specified",
+        "value": "6.0x–8.5x EBITDA, based on trailing 12-month financials",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "payback",
+        "state": "specified",
+        "value": "5–7 years",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "vendorMotivation",
+        "state": "specified",
+        "value": "Retirement; succession planning; capital realisation; strategic exit to larger consolidator",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "sellerEngagement",
+        "state": "specified",
+        "value": "Open to strategic sale; motivated by retirement or succession planning; willing to provide transition support",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "property",
+        "state": "specified",
+        "value": "Leased or owned commercial facilities preferred; must include workshop, storage, and office space; located in industrial or commercial zones with logistics access",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "structure",
+        "state": "specified",
+        "value": "Prefer asset purchase or share purchase with earn-out structure; flexible on consideration mix (cash + vendor note)",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "concentration",
+        "state": "specified",
+        "value": "No single customer exceeding 15% of total revenue",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "timing",
+        "state": "specified",
+        "value": "Target completion within 9–12 months; vendor open to exclusive negotiations for 60 days post-LOI",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "dealBreakers",
+        "state": "specified",
+        "value": "Non-compliance with Australian Work Health and Safety (WHS) regulations; unresolved legal disputes; lack of audited financials for the last 2 years; failure to demonstrate environmental sustainability practices",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      }
+    ],
+    "naturalLanguage": "We are seeking to acquire a mid-sized Australian business in the building services sector, specifically targeting industrial electrical contracting, commercial HVAC systems, renewable energy integration, facility management, or building services engineering. The ideal candidate operates in Queensland, New South Wales, or Victoria, with annual revenue between AUD 10 million and 25 million, and EBITDA between AUD 2 million and 5 million. The business should have 20 to 60 employees, maintain EBITDA margins of 12% to 18%, and hold key accreditations including ISO 9001, ISO 45001, ISO 14001, and Safe Work Australia compliance. We prefer targets with experienced management teams, moderate to high owner dependence (with a clear transition plan), and no customer concentration above 15%. The acquisition structure should allow for asset or share purchase, with flexibility on payment terms including earn-outs. We are targeting a multiple of 6.0x to 8.5x EBITDA and a payback period of 5 to 7 years. The vendor should be motivated by retirement or succession, and willing to engage in exclusive negotiations. Property preference is for leased or owned industrial/commercial facilities with logistical access. Timing is flexible but we aim to complete within 9–12 months. Hard deal breakers include regulatory non-compliance, lack of audited financials, unresolved legal issues, or absence of sustainability practices.",
+    "investmentThesis": "Acquire a well-established, compliant, and profitable Australian building services provider operating across Queensland, New South Wales, and Victoria. The target must demonstrate strong recurring revenue from maintenance and service contracts, robust safety and quality accreditations, and a skilled workforce. Our strategy is to consolidate fragmented service providers in the commercial and industrial sectors, leveraging operational efficiencies, cross-selling opportunities, and digital transformation to drive EBITDA growth. We seek businesses with moderate owner dependence but strong management depth, enabling a smooth transition and value creation through scale and operational excellence.",
+    "disclosureApproved": false,
+    "outreachPositioning": "We are a strategic acquirer focused on consolidating the Australian building services sector. We work collaboratively with business owners seeking a sustainable exit, offering a structured transition with management retention, earn-out opportunities, and operational support. Our approach is respectful, confidential, and aligned with the vendor’s goals—whether retirement, succession, or capital realisation. We are not a quick flip; we are a long-term partner committed to preserving the business’s reputation, workforce, and client relationships while driving growth through scale, technology, and best practices."
+  },
+  {
+    "name": "Test mandate c3c550f0-18b4-4908-8227-a1aecec6e001",
+    "criteria": [
+      {
+        "key": "subsectors",
+        "state": "specified",
+        "value": "Managed IT Services; Cybersecurity Solutions; Cloud Migration and Management; Business Process Outsourcing (BPO) for SMEs",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "geography",
+        "state": "specified",
+        "value": "NSW, VIC, QLD",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenue",
+        "state": "specified",
+        "value": "15000000–35000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenueCeiling",
+        "state": "specified",
+        "value": "35000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "headcount",
+        "state": "specified",
+        "value": "30–120",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ebitda",
+        "state": "specified",
+        "value": "2500000–6000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "margin",
+        "state": "specified",
+        "value": "18%–30% sustainable EBITDA margin",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "accreditations",
+        "state": "specified",
+        "value": "ISO 9001, ISO 27001, Australian Cyber Security Centre (ACSC) Essential Eight compliance; optional: RTO (Registered Training Organisation) status",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "management",
+        "state": "specified",
+        "value": "Proven operational management team with at least 3 years tenure; CEO or GM must be retained for minimum 24 months post-acquisition",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ownerDependence",
+        "state": "specified",
+        "value": "Low to moderate; owner involved in strategic direction and key client relationships but not in daily operations",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "multiple",
+        "state": "specified",
+        "value": "8.0x–12.0x EBITDA (based on trailing 12-month financials, adjusted for non-recurring items)",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "payback",
+        "state": "specified",
+        "value": "5.0–7.0 years (based on projected cash flows, unlevered)",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "vendorMotivation",
+        "state": "specified",
+        "value": "Retirement (age 60+); succession planning failure; desire to de-risk personal exposure; interest in partial liquidity with vendor note; geographic relocation",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "sellerEngagement",
+        "state": "specified",
+        "value": "High; vendor open to structured exit with earn-out or vendor financing; indicative indicative process timeline of 90–120 days",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "property",
+        "state": "specified",
+        "value": "Leased premises preferred; owned commercial property acceptable if located in major metro hubs (Sydney, Melbourne, Brisbane CBD or inner suburbs) with current market valuation below $8M",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "structure",
+        "state": "specified",
+        "value": "Asset purchase or share purchase acceptable; preference for share purchase to retain licences, contracts and employee continuity",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "concentration",
+        "state": "specified",
+        "value": "No single customer exceeding 25% of total revenue; no single industry sector above 40% of total revenue",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "timing",
+        "state": "specified",
+        "value": "Target completion by Q2 2025; vendor must provide full data room access by 30 November 2024; indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative indicative",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "dealBreakers",
+        "state": "specified",
+        "value": "No active legal disputes or regulatory investigations; no material environmental contamination or heritage listing on owned property; no reliance on sole-source proprietary technology without documented succession plan; must be GST-registered and compliant with ATO reporting obligations",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      }
+    ],
+    "naturalLanguage": "We are seeking to acquire a mid-market Australian technology services business operating in the managed IT, cybersecurity, cloud migration, or SME-focused BPO space. The target should serve small to medium enterprises across NSW, Victoria, and Queensland, with annual revenues between AUD 15M and AUD 35M and EBITDA margins of 18% to 30%. We require a business with 30 to 120 employees, ISO 9001 and/or ISO 27001 certification, and compliance with ACSC Essential Eight. The ideal vendor is a founder or family-owned business looking to retire or transition ownership, with a willingness to engage in a structured sale process, potentially including vendor financing or earn-out. The business must have low owner dependence, a stable management team, and no customer or industry concentration exceeding defined thresholds. We prefer leased commercial premises in major metropolitan areas but will consider owned property under AUD 8M. The acquisition will be structured as a share purchase to preserve licences and contracts. We seek a payback period of 5 to 7 years and an entry multiple of 8x to 12x EBITDA. Transaction must close by Q2 2025, with data room access by November 2024. Hard deal breakers include legal disputes, regulatory non-compliance, environmental liabilities, or over-reliance on proprietary technology without succession planning.",
+    "investmentThesis": "Acquire a scalable, professional services firm in the Australian SME technology sector with strong recurring revenue, high-margin contracts, and a diversified client base. The target should demonstrate operational maturity, qualified management, and compliance with national security and quality standards. Investment rationale includes: (1) secular demand for managed IT and cybersecurity services among SMEs; (2) fragmentation of the market creating consolidation opportunities; (3) ability to leverage economies of scale in procurement, licensing, and delivery; (4) potential for organic growth via service expansion and cross-selling; (5) attractive cash-on-cash returns with moderate leverage and a clear path to operational integration. Exit potential via strategic sale to private equity or larger IT services group within 5–7 years.",
+    "disclosureApproved": false,
+    "outreachPositioning": "We are a private investment group focused on acquiring and scaling professional services businesses in Australia’s technology sector. We offer a patient capital approach with operational support, access to growth capital, and a clear path to strategic exit. We are not a trade buyer or distressed acquirer; we are a long-term steward of the business, committed to retaining staff, preserving client relationships, and enhancing service delivery. We are actively engaging with business owners seeking a structured, confidential, and dignified exit. We value transparency, professionalism, and operational excellence. Our process is efficient, well-resourced, and designed to respect the vendor’s timeline and legacy."
+  },
+  {
+    "name": "Test mandate: Industrial Services Consolidation Play",
+    "criteria": [
+      {
+        "key": "subsectors",
+        "state": "specified",
+        "value": "Waste management and recycling services; industrial cleaning and decontamination services",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "geography",
+        "state": "specified",
+        "value": "NSW, VIC, QLD",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenue",
+        "state": "specified",
+        "value": "15000000–25000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenueCeiling",
+        "state": "specified",
+        "value": "25000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "headcount",
+        "state": "specified",
+        "value": "20–60",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ebitda",
+        "state": "specified",
+        "value": "3000000–6000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "margin",
+        "state": "specified",
+        "value": "20% or higher sustainable EBITDA margin",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "accreditations",
+        "state": "specified",
+        "value": "ISO 9001, ISO 14001, AS/NZS 4801, Safe Work Australia accredited",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "management",
+        "state": "specified",
+        "value": "Experienced operations manager and qualified safety officer already in place",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ownerDependence",
+        "state": "specified",
+        "value": "Low to moderate; owner primarily involved in strategic oversight and client relationships, not daily operations",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "multiple",
+        "state": "specified",
+        "value": "6–9x EBITDA, based on trailing 12-month financials",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "payback",
+        "state": "specified",
+        "value": "5–7 years via operational synergies and margin expansion",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "vendorMotivation",
+        "state": "specified",
+        "value": "Retirement and estate planning; succession planning for family-run business; interest in partial liquidity with earn-out structure",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "sellerEngagement",
+        "state": "specified",
+        "value": "Open to structured earn-outs or phased transition; responsive to due diligence requests",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "property",
+        "state": "specified",
+        "value": "Leased or owned industrial facility preferred; must include compliant workshop, storage, and administrative space",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "structure",
+        "state": "specified",
+        "value": "Asset purchase or share purchase acceptable; preference for share purchase to retain licences and contracts",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "concentration",
+        "state": "specified",
+        "value": "No single customer exceeding 15% of total revenue",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "timing",
+        "state": "specified",
+        "value": "Transaction to be completed within 12 months; vendor willing to sign exclusivity for 90 days post-LOI",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "dealBreakers",
+        "state": "specified",
+        "value": "No pending regulatory investigations; no reliance on sole-source suppliers without contingency; no non-compliant waste disposal practices",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      }
+    ],
+    "naturalLanguage": "We are seeking to acquire a small to medium-sized business in the industrial services sector, specifically within waste management and recycling or industrial cleaning and decontamination. The target should be based in New South Wales, Victoria, or Queensland, generating annual revenue between AUD 15 million and 25 million, with EBITDA in the range of AUD 3 million to 6 million. The business must have a headcount of 20 to 60 employees, with key management already in place to ensure continuity. We require a sustainable EBITDA margin of 20% or higher, and the vendor should be motivated by retirement or succession planning, open to structured negotiations including earn-outs. The business must hold relevant accreditations such as ISO 9001, ISO 14001, or Safe Work Australia compliance, and must not have any single customer accounting for more than 15% of revenue. We prefer a share purchase structure and are targeting a payback period of 5 to 7 years through operational synergies and margin improvement. The vendor must be willing to engage in due diligence and sign exclusivity post-LOI. Property should be either leased or owned, with adequate industrial facilities. No pending regulatory issues or sole-source supplier dependencies are acceptable. Transaction timing should allow for completion within 12 months.",
+    "investmentThesis": "Acquire a mid-sized Australian waste management or industrial cleaning business with strong compliance credentials and stable revenue streams. The target should operate in high-demand sectors such as construction waste, hazardous material handling, or commercial facility decontamination. Our strategy is to consolidate fragmented regional operators, standardise operations, and leverage economies of scale to expand margins. The business must demonstrate a sustainable EBITDA margin of at least 20%, low customer concentration, and minimal owner dependence, enabling a smooth transition post-acquisition. We will apply operational improvements, digitalise scheduling and compliance tracking, and pursue cross-selling opportunities with our existing portfolio to drive value creation.",
+    "disclosureApproved": false,
+    "outreachPositioning": "We are a strategic buyer focused on long-term value creation in the industrial services sector. We offer a stable transition for owners seeking retirement or partial liquidity, with flexibility in deal structure and potential earn-out arrangements. Our approach is collaborative, respecting existing management and operational practices while introducing scale-driven efficiencies and compliance enhancements."
+  },
+  {
+    "name": "Test mandate 94a59287-d140-4f46-89cb-c73f7954b6ed",
+    "criteria": [
+      {
+        "key": "subsectors",
+        "state": "specified",
+        "value": "commercial vehicle servicing; industrial equipment maintenance",
+        "origin": "inferred",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "geography",
+        "state": "specified",
+        "value": "NSW, VIC, QLD",
+        "origin": "inferred",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenue",
+        "state": "specified",
+        "value": "12000000–25000000",
+        "origin": "inferred",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenueCeiling",
+        "state": "specified",
+        "value": "25000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "headcount",
+        "state": "specified",
+        "value": "30–80",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ebitda",
+        "state": "specified",
+        "value": "2500000–6000000",
+        "origin": "inferred",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "margin",
+        "state": "specified",
+        "value": "12%–18%",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "accreditations",
+        "state": "specified",
+        "value": "ISO 9001, ISO 14001, AS/NZS 4801, Safe Work NSW accredited; scope includes workshop, warehouse, and fleet maintenance operations",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "management",
+        "state": "specified",
+        "value": "Experienced operations manager and certified workshop supervisor in place; owner willing to stay 12–24 months post-acquisition",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ownerDependence",
+        "state": "specified",
+        "value": "Moderate – owner involved in client relationships and strategic planning but not in daily operations",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "multiple",
+        "state": "specified",
+        "value": "6.0x–9.0x EBITDA, based on trailing 12-month financials",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "payback",
+        "state": "specified",
+        "value": "4–6 years",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "vendorMotivation",
+        "state": "specified",
+        "value": "Retirement; succession planning; lack of family successor; desire to realise capital for personal investments",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "sellerEngagement",
+        "state": "specified",
+        "value": "High – seller open to structured exit with earn-out; responsive to due diligence requests",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "property",
+        "state": "specified",
+        "value": "Leased premises acceptable; preferred if located within 50km of major transport corridors (M1, M7, or Bruce Highway)",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "structure",
+        "state": "specified",
+        "value": "Asset purchase preferred; open to share sale if no hidden liabilities",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "concentration",
+        "state": "specified",
+        "value": "No single customer exceeding 20% of total revenue; diversified across logistics, manufacturing, and construction clients",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "timing",
+        "state": "specified",
+        "value": "Completion within 6–9 months; vendor flexible on exclusivity period up to 90 days",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "dealBreakers",
+        "state": "specified",
+        "value": "No pending regulatory investigations; no material environmental liabilities; no outstanding WHS fines exceeding $50,000; must be operating profitably for last 3 consecutive years",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      }
+    ],
+    "naturalLanguage": "Acquisition Brief: Test mandate 94a59287-d140-4f46-89cb-c73f7954b6ed. We are seeking a mid-sized commercial vehicle servicing or industrial equipment maintenance business operating across Queensland, New South Wales, or Victoria. The target should generate annual revenue between $12M and $25M, with EBITDA of $2.5M to $6M, and a sustainable operating margin between 12% and 18%. Headcount must fall within 30–80 employees, with experienced management already in place and moderate owner dependence. The business must hold relevant accreditations including ISO 9001, AS/NZS 4801, and Safe Work NSW certification, covering workshop, warehouse, and fleet operations. Customer concentration must be limited, with no single client accounting for more than 20% of revenue. We are open to asset or share sale structures, with a preference for asset transactions. Leased premises are acceptable, ideally located near major transport corridors. The vendor should be motivated by retirement or succession planning, with a willingness to engage in a transparent, structured exit including potential earn-out. Desired payback period is 4–6 years, with an acquisition multiple of 6.0x–9.0x EBITDA. Transaction completion is targeted within 6–9 months. Hard deal breakers include regulatory investigations, environmental liabilities, or WHS fines over $50,000. The business must have demonstrated profitability for the past three years. Our exploratory outreach will position us as a strategic, long-term operator committed to preserving the business’s reputation, investing in technology, and expanding service offerings across regional Australia.",
+    "investmentThesis": "The target operates in the essential services sector, providing critical maintenance and repair capabilities for commercial and industrial assets. With increasing regulatory scrutiny on vehicle safety and equipment compliance, demand for certified, scalable maintenance services is growing. The business benefits from recurring revenue contracts, strong client retention, and a skilled workforce. Our strategy is to acquire a well-established operator, professionalise governance, and scale through regional expansion and digital service offerings, targeting a 15% IRR over a 5-year hold period.",
+    "disclosureApproved": false,
+    "outreachPositioning": "We are a strategic Australian private equity-backed operator focused on consolidating essential maintenance services. We are not a financial flipper – we invest in people, systems, and growth. We respect legacy, value workforce expertise, and aim to enhance, not dismantle, the business. We are patient, professional, and committed to transparent, respectful engagement with vendors seeking a dignified exit."
+  },
+  {
+    "name": "Test mandate 9db57e07-e31a-4b2a-ada5-4fa7a84cacd5",
+    "criteria": [
+      {
+        "key": "subsectors",
+        "state": "specified",
+        "value": "to acquire a small to medium sized Australian",
+        "origin": "inferred",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "geography",
+        "state": "specified",
+        "value": "NSW, VIC, ACT, NT, QLD, SA, TAS, WA",
+        "origin": "inferred",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenue",
+        "state": "specified",
+        "value": "8000000–15000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "revenueCeiling",
+        "state": "specified",
+        "value": "15000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "headcount",
+        "state": "specified",
+        "value": "20–60",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ebitda",
+        "state": "specified",
+        "value": "2000000–5000000",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "margin",
+        "state": "specified",
+        "value": "15–25%",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "accreditations",
+        "state": "specified",
+        "value": "ISO 9001, ISO 27001, or equivalent quality and information security certifications; must include at least one externally audited standard",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "management",
+        "state": "specified",
+        "value": "Existing senior management team in place with minimum 3 years tenure; CEO or GM must be willing to remain post-acquisition",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "ownerDependence",
+        "state": "specified",
+        "value": "Low to moderate; owner not involved in daily operations or key client relationships",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "multiple",
+        "state": "specified",
+        "value": "6–10x EBITDA",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "payback",
+        "state": "specified",
+        "value": "5–7 years",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "vendorMotivation",
+        "state": "specified",
+        "value": "Retirement; succession planning; strategic pivot; desire to consolidate or exit non-core assets",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "sellerEngagement",
+        "state": "specified",
+        "value": "High; vendor open to structured negotiations and willing to sign NDAs and provide due diligence access",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "property",
+        "state": "specified",
+        "value": "Leased premises preferred; no requirement to acquire freehold unless strategically justified",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "structure",
+        "state": "specified",
+        "value": "Acquisition of 100% equity via share purchase agreement; open to earn-outs or vendor notes for up to 30% of consideration",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "concentration",
+        "state": "specified",
+        "value": "No single customer exceeding 20% of total revenue",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "timing",
+        "state": "specified",
+        "value": "Completion within 12 months; target signing within 6 months",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      },
+      {
+        "key": "dealBreakers",
+        "state": "specified",
+        "value": "No material legal disputes, no unresolved regulatory investigations, no significant environmental liabilities, and no ongoing collective bargaining agreements",
+        "origin": "assumed",
+        "confirmed": false,
+        "importance": "preference"
+      }
+    ],
+    "naturalLanguage": "Acquisition Brief: We are seeking to acquire a small to medium-sized Australian business operating in the sustainable consumer goods sector, with a focus on specialty food manufacturing, artisanal beverage production, or sustainable packaging solutions. The target should be nationally distributed or have clear national expansion potential, with operations based in NSW or VIC, or operating nationally. Revenue should fall within the range of AUD 8 million to 15 million, with EBITDA between AUD 2 million and 5 million, reflecting sustainable margins of 15–25%. The business must have a headcount of 20–60 employees, a qualified and stable management team (ideally with the current CEO/GM staying on), and must not be overly dependent on the current owner for operations or customer relationships. Accreditations such as ISO 9001 or ISO 27001 are preferred, reflecting operational maturity and quality standards. Customer concentration must be limited—no single client should account for more than 20% of revenue. We are open to structured deals including earn-outs or vendor financing, but require a clear path to full ownership. Vendor motivation should align with retirement, succession, or strategic exit. The ideal vendor is engaged, cooperative, and prepared for thorough due diligence. We prefer leased premises but are open to property acquisition if strategically justified. The transaction should be completed within 12 months, with signing targeted within 6 months. Hard deal breakers include unresolved legal disputes, regulatory issues, environmental liabilities, or active industrial disputes. Our desired payback period is 5–7 years, with an earnings multiple of 6–10x EBITDA. We are prioritising vendors who are motivated, transparent, and open to a collaborative transition.",
+    "investmentThesis": "Target mid-sized Australian businesses in the sustainable consumer goods space—specifically specialty food manufacturing, artisanal beverage production, or sustainable packaging solutions—with strong brand equity, scalable production, and alignment with growing ESG consumer demand. The investment strategy focuses on acquiring profitable, owner-light platforms with solid operational foundations, then applying sector-specific growth levers: product portfolio expansion, national distribution scaling, and digital commerce integration. Emphasis on businesses with verifiable quality certifications and diversified customer bases to mitigate concentration risk. The goal is to build a resilient, multi-brand platform that can be further consolidated or exited via trade sale or IPO within a 5–7 year horizon.",
+    "disclosureApproved": false,
+    "outreachPositioning": "We are a strategic Australian investment group focused on building enduring, ESG-aligned consumer brands. We are not a quick flip operator—we are a long-term partner committed to preserving the legacy of the business while accelerating growth through operational excellence, distribution innovation, and brand elevation. We respect the founder’s vision and aim to empower the existing team, not replace it. Our outreach will be respectful, confidential, and solution-oriented, emphasising continuity, cultural fit, and shared values around sustainability and quality. We will position ourselves as a responsible, experienced custodian capable of scaling the business without disrupting its core identity."
+  },
+  {
+    "name": "Test mandate — Accredited Laboratory Consolidation",
+    "criteria": [
+      {
+        "key": "subsectors",
+        "state": "specified",
+        "value": "Environmental and water testing; construction-materials and geotechnical testing; food and forensic laboratory testing",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      },
+      {
+        "key": "geography",
+        "state": "specified",
+        "value": "NSW, VIC",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      },
+      {
+        "key": "revenue",
+        "state": "specified",
+        "value": "6000000–30000000",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      },
+      {
+        "key": "revenueCeiling",
+        "state": "specified",
+        "value": "35000000",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      },
+      {
+        "key": "headcount",
+        "state": "specified",
+        "value": "25–120",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      },
+      {
+        "key": "ebitda",
+        "state": "specified",
+        "value": "750000–2500000",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      },
+      {
+        "key": "margin",
+        "state": "specified",
+        "value": "Sustainable EBITDA margin of 15%–25% based on at least two years of recurring revenue.",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      },
+      {
+        "key": "accreditations",
+        "state": "specified",
+        "value": "NATA-accredited laboratory with scope covering water, soil and construction-material testing; current scope must be documented and not dependent on undocumented subcontracting.",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      },
+      {
+        "key": "management",
+        "state": "specified",
+        "value": "Experienced general manager or operations manager capable of running day-to-day laboratory and commercial functions with limited vendor involvement.",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      },
+      {
+        "key": "ownerDependence",
+        "state": "specified",
+        "value": "Vendor contribution to revenue of no more than 15%; no exclusive reliance on vendor relationships, technical expertise or regulatory approvals.",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      },
+      {
+        "key": "multiple",
+        "state": "specified",
+        "value": "Up to 8.0x adjusted EBITDA for quality recurring revenue; up to 10.0x only for a defensible NATA moat and low customer concentration; basis is forward annualised EBITDA, net-debt free with normal working capital.",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      },
+      {
+        "key": "payback",
+        "state": "specified",
+        "value": "Target payback within 6.0 years at the base-case purchase multiple; up to 7.0 years for a rare strategic acquisition.",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      },
+      {
+        "key": "vendorMotivation",
+        "state": "specified",
+        "value": "Planned retirement or succession; desire to access growth capital; need for specialist consolidation support; partnership or exit after a funding or ownership change; desire to reduce operational workload while retaining legacy relationships.",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      },
+      {
+        "key": "sellerEngagement",
+        "state": "specified",
+        "value": "Open to confidential discussions, non-binding indications and due diligence; motivated vendors willing to provide customer-level revenue, margin, recurring-revenue and contract data.",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      },
+      {
+        "key": "property",
+        "state": "specified",
+        "value": "Owns or controls a freehold or long-lease laboratory site in a major metro area; premises must support at least 20% operational expansion.",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      },
+      {
+        "key": "structure",
+        "state": "specified",
+        "value": "Prefers 100% share acquisition; open to seller rollover of at least 25% of proceeds and an earn-out linked to customer retention and EBITDA delivery.",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      },
+      {
+        "key": "concentration",
+        "state": "specified",
+        "value": "Largest customer no more than 18% of revenue; top five customers no more than 45% of revenue; no customer contract terminable on 30 days' notice.",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      },
+      {
+        "key": "timing",
+        "state": "specified",
+        "value": "Targets with an exit, succession, partnership or consolidation trigger within 0–24 months; transaction should be capable of signing within 120 days and completion within 180 days, subject to due diligence and financing.",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      },
+      {
+        "key": "dealBreakers",
+        "state": "specified",
+        "value": "Unresolved NATA scope suspension; materially incomplete test-result traceability; customer contracts with change-of-control termination rights; owner-controlled off-book liabilities; or inability to complete a clean sale of the business and client relationships.",
+        "origin": "assumed",
+        "confirmed": true,
+        "importance": "preference"
+      }
+    ],
+    "naturalLanguage": "The buyer is seeking an owner-operated or founder-led environmental, construction-materials or specialist laboratory business in New South Wales or Victoria. The ideal opportunity has recurring compliance-driven demand, a current NATA scope, professional management and limited dependence on its vendor. The target should generate at least $6 million and no more than $30 million in annual revenue, with EBITDA between $750,000 and $2.5 million. It should be able to deliver a sustainable 15%–25% EBITDA margin and has room to expand through additional methods, capacity utilisation, cross-selling and selected acquisitions.",
+    "investmentThesis": "This mandate targets profitable, NATA-accredited testing laboratories in New South Wales and Victoria. Recurring compliance work, technical accreditation, specialist equipment and established customer relationships create durable barriers to entry. Growth can come from underused laboratory capacity, additional accredited methods, cross-selling to existing accounts and bolt-on acquisitions, while disciplined pricing and labour utilisation should protect margins.",
+    "disclosureApproved": false,
+    "outreachPositioning": "Approach vendors as a patient, specialist consolidator offering confidentiality, speed and operational continuity. Emphasise support for the management team, investment in accredited capacity and technology, and a respectful transition for long-standing customers. Avoid implying that the buyer owns a real fund, has made prior acquisitions or can guarantee regulatory approval or financing."
+  }
+]

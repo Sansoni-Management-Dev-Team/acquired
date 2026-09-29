@@ -36,7 +36,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const mandate = await acquisition.getMandate(enrolment.mandateId);
     const member = mandate && (await acquisition.memberships(mandate.id)).find(m => m.target.id === enrolment.targetId);
     const [buyer] = await database.select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, organizationId));
-    if (!buyerProfileFromMetadata(buyer?.metadata)?.publicProfileApproved) return approvalConflict(id, "disclosure_not_approved", "Approve the public buyer profile before approval.");
+    if (!buyerProfileFromMetadata(buyer?.metadata)) return approvalConflict(id, "profile_required", "Complete the outreach profile in Settings before approval.");
     if (!member || ["excluded", "parked"].includes(member.assessment.stage)) return approvalConflict(id, "inactive_target", "The target is not active in this mandate.");
     if (!enrolment?.contactId) return approvalConflict(id, "missing_contact", "The outreach sequence has no selected contact.");
     const [contact] = await database.select().from(contacts).where(and(eq(contacts.id, enrolment.contactId), eq(contacts.organizationId, organizationId))).limit(1);

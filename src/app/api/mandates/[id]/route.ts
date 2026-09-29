@@ -86,8 +86,6 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (action.action === "assessment") {
       const errors = transitionErrors(mandate.brief, action.assessment);
       if (action.assessment.stage === "qualified") {
-        const [buyer] = await requireDb().select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, org));
-        if (!buyerProfileFromMetadata(buyer?.metadata)?.capitalConfirmed) errors.push("Confirm buyer capital and funding form before qualification.");
         if (!action.assessment.financeReview?.structureReviewed) errors.push("Review the proposed deal structure before qualification.");
       }
       if (action.assessment.stage === "outreach-approved") {

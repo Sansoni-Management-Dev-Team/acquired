@@ -4,19 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { buyerProfileSchema, type BuyerProfile } from "@/domain/buyer-profile";
 
-const fieldClass = "mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2 text-sm";
-const publicFields = [
-  ["senderName", "Sender name", "Your name", 100],
-  ["background", "Operating background", "Your relevant operating and professional background", 500],
-  ["investmentThesis", "Buyer introduction", "A general introduction to you as a buyer", 500],
-  ["operatingIntent", "Operating intent and staff continuity", "How you intend to run the business and support its staff", 500],
-  ["callToAction", "Call to action", "The next step you want to request", 240],
-  ["signature", "Signature", "Your name and sign-off", 300],
-] as const;
-const emptyProfile: BuyerProfile = {
-  senderName: "", background: "", investmentThesis: "", operatingIntent: "", callToAction: "", signature: "",
-  buyerType: "trade", capitalAvailable: "Unknown", fundingForm: "Unknown", capitalConfirmed: false, publicProfileApproved: false,
-};
+const fieldClass = "mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--panel-raised)] px-3 py-3 text-sm";
+const emptyProfile: BuyerProfile = { senderName: "", about: "", exampleEmail: "", signature: "" };
 
 export function BuyerProfileEditor({ initial, onSaved, onDirtyChange }: {
   initial: BuyerProfile | null;
@@ -24,16 +13,20 @@ export function BuyerProfileEditor({ initial, onSaved, onDirtyChange }: {
   onDirtyChange?: (dirty: boolean) => void;
 }) {
   const router = useRouter();
-  const [profile, setProfile] = useState<BuyerProfile>(initial || emptyProfile);
+  const [profile, setProfile] = useState<BuyerProfile>(() => initial ? {
+    senderName: initial.senderName,
+    about: initial.about || [initial.background, initial.investmentThesis, initial.operatingIntent].filter(Boolean).join(" ").slice(0, 1500),
+    exampleEmail: initial.exampleEmail || "",
+    signature: initial.signature,
+  } : emptyProfile);
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(Boolean(initial));
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  function update<K extends keyof BuyerProfile>(key: K, value: BuyerProfile[K]) {
-    const isPublic = key === "buyerType" || publicFields.some(([field]) => field === key);
-    setProfile(current => ({ ...current, [key]: value, ...(isPublic ? { publicProfileApproved: false } : {}) }));
+  function update(key: "senderName" | "about" | "exampleEmail" | "signature", value: string) {
+    setProfile(current => ({ ...current, [key]: value }));
     setDirty(true);
     setStatus("");
     setError("");
@@ -44,10 +37,7 @@ export function BuyerProfileEditor({ initial, onSaved, onDirtyChange }: {
     setError("");
     const parsed = buyerProfileSchema.safeParse(profile);
     if (!parsed.success) {
-      setError(parsed.error.issues.map(issue => {
-        const label = publicFields.find(([key]) => key === issue.path[0])?.[1];
-        return label ? `${label}: ${issue.message}` : issue.message;
-      }).join(". "));
+      setError(parsed.error.issues.map(issue => issue.message).join(". "));
       return;
     }
     setBusy(true);
@@ -60,7 +50,7 @@ export function BuyerProfileEditor({ initial, onSaved, onDirtyChange }: {
       setProfile(result.profile);
       setDirty(false);
       setSaved(true);
-      setStatus("Buyer profile saved.");
+      setStatus("Outreach profile saved.");
       onDirtyChange?.(false);
       onSaved?.(result.profile);
       router.refresh();
@@ -71,36 +61,29 @@ export function BuyerProfileEditor({ initial, onSaved, onDirtyChange }: {
     }
   }
 
-  return <details open={!saved || !profile.publicProfileApproved} className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5">
-    <summary className="min-h-12 cursor-pointer py-3 text-sm font-semibold">Buyer profile<span className="ml-2 text-xs font-normal text-[var(--muted)]">{dirty ? "Unsaved changes" : saved ? profile.publicProfileApproved ? "Approved" : "Needs approval" : "Required"}</span></summary>
-    <p className="mt-3 text-sm text-[var(--muted)]">Shared across all mandates. Changes saved here also appear in Brief and Outreach.</p>
-    <form className="mt-4" onSubmit={event => { event.preventDefault(); void save(); }}>
-      <fieldset disabled={busy} className="min-w-0 space-y-4 disabled:opacity-60">
-        <fieldset className="min-w-0 space-y-4">
-          <legend className="mb-3 text-sm font-semibold">Public profile</legend>
-          <label className="block text-sm">Buyer type<select className={fieldClass} value={profile.buyerType || ""} onChange={event => update("buyerType", event.target.value as BuyerProfile["buyerType"])}>
-            <option value="" disabled>Select buyer type</option><option value="trade">Trade buyer</option><option value="financial">Financial buyer</option><option value="individual">Individual buyer</option>
-          </select></label>
-          {publicFields.map(([key, label, placeholder, maxLength]) => <label key={key} className="block text-sm">{label}
-            {key === "senderName"
-              ? <input required maxLength={maxLength} className={fieldClass} value={profile[key]} placeholder={placeholder} onChange={event => update(key, event.target.value)} />
-              : <textarea required rows={2} maxLength={maxLength} className={`${fieldClass} resize-y`} value={profile[key]} placeholder={placeholder} onChange={event => update(key, event.target.value)} />}
-          </label>)}
-          <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={profile.publicProfileApproved || false} onChange={event => update("publicProfileApproved", event.target.checked)} />I approve sharing this public profile with the drafting provider and outreach recipients.</label>
-          <p className="text-xs text-[var(--muted)]">Changes to public fields require approval again before generating drafts.</p>
-        </fieldset>
-        <details className="border-t border-[var(--border)] pt-4">
-          <summary className="cursor-pointer text-sm font-semibold">Private capital details</summary>
-          <p className="mt-2 text-xs text-[var(--muted)]">Never included in outreach. Leave as Unknown if unanswered.</p>
-          <div className="mt-3 space-y-4">
-            {([["capitalAvailable", "Capital available"], ["fundingForm", "Funding form"]] as const).map(([key, label]) => <label key={key} className="block text-sm">{label}<input className={fieldClass} maxLength={1000} value={profile[key] || ""} placeholder="Unknown" onChange={event => update(key, event.target.value)} /></label>)}
-            <label className="flex items-start gap-2 text-sm"><input type="checkbox" className="mt-1" checked={profile.capitalConfirmed || false} onChange={event => update("capitalConfirmed", event.target.checked)} />Capital amount and funding form confirmed</label>
-          </div>
-        </details>
-        <button disabled={busy || (saved && !dirty)} className="min-h-12 rounded-md border border-[var(--border)] px-3 py-2 text-sm font-semibold disabled:opacity-40">{busy ? "Saving…" : "Save buyer profile"}</button>
+  return <section className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-6" aria-labelledby="buyer-profile-heading">
+    <h2 id="buyer-profile-heading" className="text-lg font-semibold">Outreach profile</h2>
+    <p className="mt-2 text-sm text-[var(--muted)]">These details are shared across your mandates and help personalize outreach drafts.</p>
+    <form className="mt-5" onSubmit={event => { event.preventDefault(); void save(); }}>
+      <fieldset disabled={busy} className="min-w-0 space-y-5 disabled:opacity-60">
+        <label className="block text-sm font-medium">Sender name
+          <input required maxLength={100} className={fieldClass} value={profile.senderName} placeholder="Your name" onChange={event => update("senderName", event.target.value)} />
+        </label>
+        <label className="block text-sm font-medium">Tell us a bit about yourself
+          <textarea required rows={4} maxLength={1500} className={`${fieldClass} resize-y`} value={profile.about || ""} placeholder="Your background and why you are interested in acquiring a business" onChange={event => update("about", event.target.value)} />
+          <span className="mt-1 block text-xs font-normal text-[var(--muted)]">We use this to personalize outreach. Only include details you are comfortable sharing with recipients.</span>
+        </label>
+        <label className="block text-sm font-medium">Example outreach email
+          <textarea rows={7} maxLength={5000} className={`${fieldClass} resize-y`} value={profile.exampleEmail || ""} placeholder="Paste an email that captures your preferred tone and style" onChange={event => update("exampleEmail", event.target.value)} />
+          <span className="mt-1 block text-xs font-normal text-[var(--muted)]">Used as a style reference, not as a source of facts about you or a company.</span>
+        </label>
+        <label className="block text-sm font-medium">Email sign-off
+          <textarea required rows={3} maxLength={300} className={`${fieldClass} resize-y`} value={profile.signature} placeholder="Kind regards, ..." onChange={event => update("signature", event.target.value)} />
+        </label>
+        <button disabled={busy || (saved && !dirty)} className="min-h-12 rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--on-accent)] disabled:opacity-40">{busy ? "Saving…" : "Save outreach profile"}</button>
       </fieldset>
       {error && <p role="alert" className="mt-3 text-sm text-[var(--status-red)]">{error}</p>}
       {status && <p role="status" className="mt-3 text-sm text-[var(--muted)]">{status}</p>}
     </form>
-  </details>;
+  </section>;
 }

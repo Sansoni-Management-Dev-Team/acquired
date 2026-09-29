@@ -11,7 +11,7 @@ const generatedSchema = z.object({
   criteria: z.object(Object.fromEntries(criterionDefinitions.map(([key]) => [key, z.string().min(1).max(1500)]))),
 });
 
-export async function generateMandate() {
+export async function generateMandate(description?: string) {
   const ai = new FreeOpenRouter({
     apiKey: process.env.OPENROUTER_API_KEY || "",
     models: FREE_MANDATE_MODELS,
@@ -19,8 +19,8 @@ export async function generateMandate() {
     sequentialFreeFallback: true,
   });
   const messages = [
-    { role: "system", content: `Create a fresh, fictional acquisition mandate for testing an Australian business acquisition app. Choose a specific small or medium business sector and a coherent investment strategy. Vary sector, geography and financial ranges each time. Do not name real targets or claim actual buyer credentials. Use Australian English and AUD. Return the requested JSON with a name beginning "Test mandate", a readable acquisition brief, investment thesis, exploratory outreach positioning and every criterion. The prose and criteria must agree. Separate alternative subsectors with semicolons. Geography must use National or comma-separated Australian state codes. Revenue, revenueCeiling, ebitda and headcount must use numeric values or ranges (e.g. 5000000–20000000); ensure ascending ranges, revenueCeiling >= revenue maximum and EBITDA below revenue. Criteria: ${criterionDefinitions.map(([key, label]) => `${key}: ${label}`).join("; ")}.` },
-    { role: "user", content: `Generate a new acquisition brief. Variation seed: ${crypto.randomUUID()}` },
+    { role: "system", content: `${description ? "Create an Australian acquisition mandate from the user's description. Generate a concise, descriptive mandate name and a coherent first-draft brief. Do not invent buyer credentials or named target companies." : "Create a fresh, fictional acquisition mandate for testing an Australian business acquisition app. Choose a specific small or medium business sector and a coherent investment strategy. Vary sector, geography and financial ranges each time. Do not name real targets or claim actual buyer credentials. Begin the name with Test mandate."} Use Australian English and AUD. Return the requested JSON with a readable acquisition brief, investment thesis, exploratory outreach positioning and every criterion. The prose and criteria must agree. Separate alternative subsectors with semicolons. Geography must use National or comma-separated Australian state codes. Revenue, revenueCeiling, ebitda and headcount must use numeric values or ranges (e.g. 5000000–20000000); ensure ascending ranges, revenueCeiling >= revenue maximum and EBITDA below revenue. Criteria: ${criterionDefinitions.map(([key, label]) => `${key}: ${label}`).join("; ")}.` },
+    { role: "user", content: description ? `Create a mandate from this buyer description: ${description}` : `Generate a new acquisition brief. Variation seed: ${crypto.randomUUID()}` },
   ];
   const json_schema = z.toJSONSchema(generatedSchema);
   let result: { response: unknown };

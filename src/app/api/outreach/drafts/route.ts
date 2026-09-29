@@ -43,7 +43,6 @@ export async function POST(request: Request) {
   const [organizationRow] = await database.select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, organizationId)).limit(1);
   const buyerProfile = buyerProfileFromMetadata(organizationRow?.metadata);
   if (!buyerProfile) return Response.json({ error: "Complete and save the buyer profile before generating outreach." }, { status: 409 });
-  if (!buyerProfile.publicProfileApproved) return Response.json({ error: "Approve the public buyer profile before drafting." }, { status: 409 });
   const existingEnrolments = await database.select({ id: sequenceEnrolments.id, sequenceId: sequenceEnrolments.sequenceId }).from(sequenceEnrolments).where(and(eq(sequenceEnrolments.organizationId, organizationId), eq(sequenceEnrolments.targetId, target.id), eq(sequenceEnrolments.mandateId, mandate.id), ...(contact ? [eq(sequenceEnrolments.contactId, contact.id)] : [])));
   if (existingEnrolments.length) {
     const existingMessages = await database.select({ providerMessageId: messages.providerMessageId, id: messages.id, signalIds: messages.signalIds }).from(messages).where(and(eq(messages.organizationId, organizationId), eq(messages.enrolmentId, existingEnrolments[0].id)));
