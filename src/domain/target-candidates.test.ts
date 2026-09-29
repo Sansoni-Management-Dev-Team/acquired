@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { MembershipView } from "./acquisition";
 import type { ResearchConfig, SavedResearchFinding } from "./research";
-import { candidateWebsites, toggleMatchingTargets } from "./target-candidates";
+import { candidateWebsites, orderCompanyRows, toggleMatchingTargets, type CandidateWebsite } from "./target-candidates";
 
 function job(id: string, domain: string, status: string, targetId?: string) {
   return {
@@ -32,4 +32,23 @@ describe("candidate websites in Targets", () => {
 it("select all changes only businesses matching the current filters", () => {
   expect(toggleMatchingTargets(["hidden"], ["a", "b"], true)).toEqual(["hidden", "a", "b"]);
   expect(toggleMatchingTargets(["hidden", "a", "b"], ["a", "b"], false)).toEqual(["hidden"]);
+});
+
+it("shows companies with more researched data before pending candidates", () => {
+  const candidate = (domain: string, kinds: string[] = []) => ({
+    domain, url: `https://${domain}`, name: domain, status: "Queued",
+    findings: kinds.map(kind => ({ evidence: { kind } })),
+  }) as CandidateWebsite;
+  const membership = (id: string, headcount: number | null, revenue: number | null) => ({
+    target: { id, headcount: { value: headcount }, revenue: { value: revenue } }, researchFindings: [],
+  }) as unknown as MembershipView;
+
+  const rows = orderCompanyRows(
+    [candidate("pending.test"), candidate("some-data.test", ["headcount"])],
+    [membership("rich", 100, 5_000_000), membership("empty", null, null)],
+    [{ targetId: "rich", name: "Director" }],
+  );
+
+  expect(rows.map(row => row.kind === "candidate" ? row.candidate.domain : row.membership.target.id))
+    .toEqual(["rich", "some-data.test", "pending.test", "empty"]);
 });

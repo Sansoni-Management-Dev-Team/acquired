@@ -12,6 +12,27 @@ export type CandidateWebsite = {
   findings: SavedResearchFinding[];
 };
 
+export type CompanyRow =
+  | { kind: "candidate"; candidate: CandidateWebsite }
+  | { kind: "saved"; membership: MembershipView };
+
+export function orderCompanyRows(candidates: CandidateWebsite[], memberships: MembershipView[], contacts: { targetId: string; name: string }[]): CompanyRow[] {
+  const rows: CompanyRow[] = [
+    ...candidates.map(candidate => ({ kind: "candidate" as const, candidate })),
+    ...memberships.map(membership => ({ kind: "saved" as const, membership })),
+  ];
+  const dataCount = (row: CompanyRow) => {
+    const findings = (row.kind === "candidate" ? row.candidate.findings : row.membership.researchFindings) || [];
+    const hasFinding = (kind: "headcount" | "revenue" | "person") => findings.some(finding => finding.evidence.kind === kind);
+    if (row.kind === "candidate") return Number(hasFinding("headcount")) + Number(hasFinding("revenue")) + Number(hasFinding("person"));
+    const { target } = row.membership;
+    return Number(target.headcount.value !== null || hasFinding("headcount"))
+      + Number(target.revenue.value !== null || hasFinding("revenue"))
+      + Number(hasFinding("person") || contacts.some(contact => contact.targetId === target.id && contact.name.trim()));
+  };
+  return rows.sort((a, b) => dataCount(b) - dataCount(a));
+}
+
 export function candidateStatus(status: string, saved: boolean) {
   if (saved) return "Business saved";
   if (status === "queued") return "Queued";
