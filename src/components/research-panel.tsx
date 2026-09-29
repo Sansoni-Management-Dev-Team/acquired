@@ -167,12 +167,13 @@ export function ResearchPanel({
           )}
           {currentJob && <div className="space-y-3" role="status">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="font-semibold">{!terminalResearchStates.includes(currentJob.status) ? (currentJob.config.purpose === "firmographics" ? "Researching company details" : currentJob.config.purpose === "people" ? "Finding decision-makers" : currentJob.status === "discovering" ? "Finding businesses" : "Researching businesses") : currentJob.status === "cancelled" ? "Research cancelled" : enriching.length ? "Enriching businesses" : currentJob.status === "failed" ? "Research failed" : finishedBelowGoal ? "Research finished below goal" : currentJob.status === "complete" ? "Research complete" : "Research paused"}</h2>
+              <h2 className="font-semibold">{!terminalResearchStates.includes(currentJob.status) ? (currentJob.config.purpose === "firmographics" ? "Researching company details" : currentJob.config.purpose === "people" ? "Finding decision-makers" : currentJob.status === "discovering" ? "Finding businesses" : "Researching businesses") : currentJob.status === "cancelled" ? "Research cancelled" : enriching.length ? "Enriching businesses" : currentJob.status === "failed" ? "Research failed" : finishedBelowGoal ? "Research finished" : currentJob.status === "complete" ? "Research complete" : "Research paused"}</h2>
+              {finishedBelowGoal && <span className="rounded-full bg-[var(--panel-raised)] px-2.5 py-1 text-xs font-medium text-[var(--status-amber)]">Below goal</span>}
             </div>
             <ResearchProgress job={currentJob} count={newBusinessCount} identified={identifiedBusinessCount} active={Boolean(active)} enriching={enriching.length} />
             {currentJob.config.mode === "automatic" && <DiscoveryCandidateList jobs={candidateJobs} searching={Boolean(active)} />}
-            {!currentJob.config.purpose && !terminalResearchStates.includes(currentJob.status) && <p className="text-sm text-[var(--muted)]">{currentJob.status === "discovering" ? "Searching for candidate websites…" : "Reading candidate websites and checking business details…"} The count increases as new businesses are saved to Companies.</p>}
-            {showStartAction && <ResearchRunOutcome status={currentJob.status} remaining={remainingFor(currentJob).length} active={Boolean(active)} canResume={!currentJob.config.purpose} busy={busy} onResume={() => resume(currentJob)} goal={currentJob.config.targetBusinesses} saved={newBusinessCount} />}
+            {!currentJob.config.purpose && !terminalResearchStates.includes(currentJob.status) && <p className="text-sm text-[var(--muted)]">{currentJob.status === "discovering" ? "Finding websites…" : "Checking business details…"}</p>}
+            {showStartAction && <ResearchRunOutcome showSummary={false} status={currentJob.status} remaining={remainingFor(currentJob).length} active={Boolean(active)} canResume={!currentJob.config.purpose} busy={busy} onResume={() => resume(currentJob)} goal={currentJob.config.targetBusinesses} saved={newBusinessCount} />}
             {showStartAction && (currentJob.status === "failed" || currentJob.status === "partial" || currentJob.status === "cancelled") && currentJob.message && <p className="break-words text-sm text-[var(--muted)]">{currentJob.message}</p>}
             {showStartAction && searchHistory.length > 0 && <details className="rounded-lg border border-[var(--border)] p-3 text-sm">
               <summary className="min-h-12 cursor-pointer content-center">Search activity · {searchHistory.length} attempts</summary>
@@ -215,17 +216,26 @@ export function DiscoveryCandidateList({ jobs, searching }: { jobs: ResearchJob[
   const extracting = active.filter(job => job.status === "extracting").length;
   const queued = active.filter(job => job.status === "queued").length;
   const visible = active.slice(0, 5);
+  const stages = [
+    queued > 0 && `${queued} queued`,
+    reading > 0 && `${reading} reading`,
+    extracting > 0 && `${extracting} extracting`,
+  ].filter(Boolean).join(" · ");
+  if (!searching && !active.length) return <details className="border-t border-[var(--border)] text-xs text-[var(--muted)]">
+    <summary className="min-h-12 cursor-pointer content-center">Activity · {unique.length} websites found</summary>
+    <p className="pb-2">{saved} saved · Results in Companies</p>
+  </details>;
   return <section className="rounded-lg border border-[var(--border)] bg-[var(--panel-raised)] px-3 py-2 text-sm" aria-label="Research activity">
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <h3 className="font-semibold">Research activity</h3>
-      <p className="text-xs text-[var(--muted)]" aria-live="polite">{unique.length} found · {queued} queued · {reading} reading · {extracting} extracting · {saved} saved</p>
+      <h3 className="font-semibold">Activity</h3>
+      <p className="text-xs text-[var(--muted)]" aria-live="polite">{stages || "Finding websites…"}</p>
     </div>
-    {visible.length ? <ul className="mt-2 space-y-1">
+    {visible.length > 0 && <ul className="mt-2 space-y-1">
       {visible.map(job => <li key={job.id} className="flex min-w-0 items-center justify-between gap-3 border-t border-[var(--border)] pt-1 text-xs">
         <span className="truncate">{job.config.companyDomain || job.seeds[0] || "Candidate website"}</span>
-        <span className="shrink-0 text-[var(--muted)]">Found → {candidateStatus(job.status, false)}</span>
+        <span className="shrink-0 text-[var(--muted)]">{candidateStatus(job.status, false)}</span>
       </li>)}
-    </ul> : <p className="mt-1 text-xs text-[var(--muted)]">{searching ? "Finding websites…" : "No websites currently being checked. See Companies for the businesses and candidate websites found."}</p>}
+    </ul>}
     {active.length > visible.length && <p className="mt-1 text-xs text-[var(--muted)]">+{active.length - visible.length} more being checked</p>}
   </section>;
 }
@@ -426,6 +436,14 @@ export function ResearchProgress({ job, count, identified, active, enriching }: 
   const determinate = Boolean(goal && (discovering || !active));
   const label = !active && !determinate ? `Research ${job.status}` : determinate ? `${count} of ${goal} new businesses saved` : job.config.purpose === "people" ? "Finding decision-makers…" : enriching || job.config.purpose === "firmographics" ? "Researching company details…" : active ? "Researching businesses…" : `Research ${job.status}`;
   const percentage = determinate ? Math.min(100, Math.max(0, count / Number(goal) * 100)) : undefined;
-  const finishedBelowGoal = job.status === "complete" && !active && determinate && count < Number(goal);
-  return <div className="space-y-2">{!job.config.purpose && <p className="text-sm font-medium" aria-live="polite">{identified} {identified === 1 ? "business" : "businesses"} identified <span className="font-normal text-[var(--muted)]">· includes existing businesses</span></p>}<p role="status" aria-live="polite" className="text-sm font-medium">{label}{determinate ? <span className="font-normal text-[var(--muted)]"> · {Math.round(percentage!)}% of goal</span> : null}</p>{(active || determinate) && <div role="progressbar" aria-label={`${label} · ${determinate ? `${Math.round(percentage!)}% of goal` : "in progress"}`} aria-valuemin={determinate ? 0 : undefined} aria-valuemax={determinate ? 100 : undefined} aria-valuenow={percentage} className="h-2 overflow-hidden rounded-full bg-[var(--panel-raised)]"><div className={`h-full rounded-full bg-[var(--accent)] ${determinate ? "transition-[width]" : "w-1/3 motion-safe:animate-pulse"}`} style={determinate ? { width: `${percentage}%` } : undefined} /></div>}{finishedBelowGoal && <p className="text-sm text-[var(--status-amber)]">Search finished before the goal was reached. No research is running.</p>}</div>;
+  return <div className="space-y-2">
+    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+      <p role="status" aria-live="polite" className="text-sm font-medium">{label}</p>
+      {determinate && <span className="text-xs tabular-nums text-[var(--muted)]">{Math.round(percentage!)}%</span>}
+    </div>
+    {(active || determinate) && <div role="progressbar" aria-label={label} aria-valuemin={determinate ? 0 : undefined} aria-valuemax={determinate ? 100 : undefined} aria-valuenow={percentage} className="h-1.5 overflow-hidden rounded-full bg-[var(--panel-raised)]">
+      <div className={`h-full rounded-full bg-[var(--accent)] ${determinate ? "transition-[width]" : "w-1/3 motion-safe:animate-pulse"}`} style={determinate ? { width: `${percentage}%` } : undefined} />
+    </div>}
+    {!job.config.purpose && <p className="text-xs text-[var(--muted)]" title="Includes existing businesses" aria-label={`${identified} ${identified === 1 ? "business" : "businesses"} identified, including existing businesses`}>{identified} {identified === 1 ? "business" : "businesses"} identified</p>}
+  </div>;
 }

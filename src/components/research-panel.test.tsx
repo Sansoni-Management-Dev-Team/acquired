@@ -60,10 +60,11 @@ describe("discovery candidate list", () => {
     ]} />);
 
     expect(html).toContain("queued.example");
-    expect(html).toContain("Found → Queued");
-    expect(html).toContain("Found → Reading website");
-    expect(html).toContain("3 found · 1 queued · 1 reading · 0 extracting · 1 saved");
+    expect(html).toContain("Queued");
+    expect(html).toContain("Reading website");
+    expect(html).toContain("1 queued · 1 reading");
     expect(html).not.toContain("saved.example");
+    expect(html).not.toContain("0 extracting");
   });
 
   it("explains the empty state while discovery searches continue", () => {
@@ -75,7 +76,9 @@ describe("discovery candidate list", () => {
     const later = Array.from({ length: 5 }, (_, index) => job({ id: `later-${index}`, status: "partial", config: { ...job().config, companyDomain: `later-${index}.example` }, seeds: [`https://later-${index}.example/`] }));
     const html = renderToStaticMarkup(<DiscoveryCandidateList searching={false} jobs={[saved, ...later]} />);
 
-    expect(html).toContain("See Companies for the businesses and candidate websites found");
+    expect(html).toContain("Results in Companies");
+    expect(html).toContain("<details");
+    expect(html).not.toContain("0 queued");
     expect(html).not.toContain("saved.example");
     expect(html).not.toContain("later-0.example");
   });
@@ -87,8 +90,8 @@ describe("research goal progress", () => {
     const html = renderToStaticMarkup(<ResearchProgress job={completed} count={7} identified={31} active={false} enriching={0} />);
 
     expect(html).toContain("7 of 20 new businesses saved");
-    expect(html).toContain("35% of goal");
-    expect(html).toContain("Search finished before the goal was reached. No research is running.");
+    expect(html).toContain("35%");
+    expect(html).not.toContain("No research is running");
     expect(html).toContain('aria-valuenow="35"');
     expect(renderToStaticMarkup(<ResearchProgress job={completed} count={7} identified={31} active enriching={1} />)).not.toContain("No research is running");
   });

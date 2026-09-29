@@ -50,6 +50,13 @@ describe("research outcome shown for saved unfinished URLs", () => {
     expect(render({ remaining: 0 }).html).not.toContain("<button");
     expect(render({ canResume: false }).html).not.toContain("<button");
   });
+  it("keeps continuation without repeating the panel summary", () => {
+    const { html } = render({ showSummary: false });
+    expect(html).toContain("Resume cancelled research");
+    expect(html).not.toContain('role="status"');
+    expect(html).not.toContain("Saved results");
+    expect(render({ showSummary: false, remaining: 0 }).html).toBe("");
+  });
   it("disables resumption while a request is pending", () => {
     expect(render({ busy: true }).html).toContain('disabled=""');
   });
