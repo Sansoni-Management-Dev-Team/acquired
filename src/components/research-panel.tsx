@@ -151,7 +151,7 @@ export function ResearchPanel({
   return (
     <section className="space-y-5 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5">
       {loading ? (
-        <p role="status">Checking research service…</p>
+        <p role="status">reviewing research</p>
       ) : !data.enabled ? (
         <p>Website research is awaiting activation.</p>
       ) : (
