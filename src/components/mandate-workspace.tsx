@@ -2,6 +2,7 @@
 
 import { TargetResearchData, TargetEbitdaData } from "./target-research-data";
 import { CandidateResearchCells } from "./candidate-research-cells";
+import { MandateFitCells } from "./mandate-fit-cells";
 import { TargetReviewRow } from "./target-review-row";
 import { CompanyReviewPanel } from "./company-review-panel";
 import Link from "next/link";
@@ -108,14 +109,15 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
       <div className="flex flex-wrap items-center gap-3"><CompanyDataAction selectedCount={selected.length} busy={busy} onClick={() => act({ action: "enrich", targetIds: selected, requestId: crypto.randomUUID() })} />{selected.length > 0 && <button type="button" className="text-xs underline" onClick={() => setSelected([])}>Clear selection</button>}</div>
       {selected.length > 0 && <p className="text-xs text-[var(--muted)]">Company enrichment loads company data and every available person profile. Select up to 20 saved businesses; each may consume multiple credits.</p>}
       {visibleFirmable.length > 0 && <p role="status" className="text-sm text-[var(--accent)]">{visibleFirmable.map(run => `${data.memberships.find(item => item.target.id === run.targetId)?.target.companyName || "Company"}: ${providerNeutralText(run.message)}${run.profilesFound ? ` (${run.profilesSaved}/${run.profilesFound} profiles saved${run.profilesFailed ? `, ${run.profilesFailed} failed` : ""})` : ""}`).join(" · ")}</p>}
-      <div className="overflow-x-auto rounded-lg border border-[var(--border)]"><table className="w-full min-w-[1120px] text-left text-sm [&_td]:align-top"><thead className="bg-[var(--panel)]"><tr>
+      <div className="overflow-x-auto rounded-lg border border-[var(--border)]"><table className="w-full min-w-[1520px] text-left text-sm [&_td]:align-top"><thead className="bg-[var(--panel)]"><tr>
         <th className="p-3"><label className="flex items-center gap-2"><input type="checkbox" aria-label="Select all matching businesses" disabled={!matchingIds.length} checked={allMatchingSelected} onChange={e => setSelected(current => toggleMatchingTargets(current, matchingIds, e.target.checked))} />Select</label></th>
-        {["Company", "Stage", "Headcount", "Revenue (source currency)", "Estimated EBITDA (AUD)", "Key decision-makers", "Evidence"].map(label => <th className="p-3" key={label}>{label}</th>)}
+        {["Company", "Stage", "Fit", "Reason for fit", "Headcount", "Revenue (source currency)", "Estimated EBITDA (AUD)", "Key decision-makers", "Evidence"].map(label => <th className="p-3" key={label}>{label}</th>)}
       </tr></thead><tbody>
         {companyRows.map(row => { if (row.kind === "candidate") return <tr key={`candidate:${row.candidate.domain}`} className="border-t border-[var(--border)] bg-[var(--panel-raised)]/40">
           <td className="p-3 text-xs text-[var(--muted)]">—</td>
           <td className="w-64 min-w-56 p-3"><p className="font-semibold">{row.candidate.name}</p><a className="mt-1 block break-all text-xs underline" href={row.candidate.url} target="_blank" rel="noreferrer">{row.candidate.domain}</a>{row.candidate.targetId && <Link className="mt-2 block text-xs underline" href={`/mandates/${id}/targets/${row.candidate.targetId}`}>View business</Link>}</td>
           <td className="p-3"><p>Candidate</p><p className="mt-1 text-xs text-[var(--muted)]">{row.candidate.status}</p></td>
+          <td className="p-3 text-[var(--muted)]">Pending</td><td className="min-w-64 p-3 text-xs text-[var(--muted)]">Fit is assessed when the business is saved.</td>
           <CandidateResearchCells candidate={row.candidate} />
         </tr>;
         const m = row.membership;
@@ -123,13 +125,14 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
           <td className="p-3"><input aria-label={`Select ${m.target.companyName}`} type="checkbox" checked={selected.includes(m.target.id)} onChange={e => setSelected(current => e.target.checked ? [...new Set([...current, m.target.id])] : current.filter(targetId => targetId !== m.target.id))} /></td>
           <td className="w-64 min-w-56 p-3"><button className="min-h-12 text-left font-semibold underline decoration-[var(--border)]" onClick={() => openReview(m.target.id)}>{m.target.companyName}</button><p className="mt-1 text-xs text-[var(--muted)]">{m.target.state} · {m.target.sector.value || "Classification unresolved"}</p><p className="mt-1 text-xs text-[var(--accent)]">{researchStatus(m)}</p><div className="mt-1 max-w-56 truncate text-xs"><CompanyWebsite domain={m.target.domain} /></div><details className="mt-1 text-xs"><summary className="min-h-12 cursor-pointer content-center underline decoration-[var(--border)]">Company details</summary><p>ABN: {m.target.abn || "Unknown"}</p><EvidenceChips summary={research.evidence?.[m.target.id]} /></details></td>
           <td className="p-3">{m.assessment.stage}</td>
+          <MandateFitCells brief={data.mandate.brief} member={m} />
           <td className="p-3"><TargetResearchData findings={m.researchFindings} kind="headcount" fallback={m.target.headcount.value?.toLocaleString() ?? "Unknown"} confirmedMissing={m.target.headcount.value === null && isCompanyDataSource(m.target.headcount.provenance.source) ? { label: "No data available", source: COMPANY_DATA_SOURCE } : undefined} preferred={m.target.headcount.value !== null && isCompanyDataSource(m.target.headcount.provenance.source) ? { value: m.target.headcount.value.toLocaleString("en-AU"), source: COMPANY_DATA_SOURCE, sourceUrl: m.target.headcount.provenance.sourceUrl } : undefined} /></td>
           <td className="p-3"><TargetResearchData findings={m.researchFindings} kind="revenue" fallback={m.target.revenue.value == null ? "Unknown" : `${financialValue(m.target.revenue.value)} AUD`} preferred={m.target.revenue.value !== null && isCompanyDataSource(m.target.revenue.provenance.source) ? { value: financialValue(m.target.revenue.value), source: COMPANY_DATA_SOURCE, sourceUrl: m.target.revenue.provenance.sourceUrl } : undefined} /></td>
           <td className="p-3"><TargetEbitdaData findings={m.researchFindings} preferredHeadcount={m.target.headcount.value !== null && isCompanyDataSource(m.target.headcount.provenance.source) ? m.target.headcount.value : undefined} /></td>
           <td className="p-3"><TargetResearchData findings={m.researchFindings} kind="person" fallback={data.contacts.filter(c => c.targetId === m.target.id && c.name?.trim()).map(c => c.name).join(", ") || "Unknown"} /></td>
           <td className="p-3">{m.assessment.evidence.filter(e => e.assessment !== "unknown").length}/{criterionDefinitions.length} tested</td>
         </TargetReviewRow>; })}
-        {!candidates.length && !filtered.length && <tr><td colSpan={8} className="p-8 text-[var(--muted)]">{data.memberships.length || research.jobs.length ? "No businesses match these filters. Try a different name or filter." : <>No companies yet. <Link className="underline" href={mandateTabHref(id, "brief")}>Find businesses or import sourced records in Brief</Link> to start your review.</>}</td></tr>}
+        {!candidates.length && !filtered.length && <tr><td colSpan={10} className="p-8 text-[var(--muted)]">{data.memberships.length || research.jobs.length ? "No businesses match these filters. Try a different name or filter." : <>No companies yet. <Link className="underline" href={mandateTabHref(id, "brief")}>Find businesses or import sourced records in Brief</Link> to start your review.</>}</td></tr>}
       </tbody></table></div>
     </>}
   </div>{reviewId && data.memberships.find(m => m.target.id === reviewId) && <CompanyReviewPanel key={reviewId} mandate={data.mandate} initial={data.memberships.find(m => m.target.id === reviewId)!} position={`Company ${reviewQueue.indexOf(reviewId) + 1} of ${reviewQueue.length}`} onClose={() => setReviewId(null)} onChanged={async () => setData(await jsonRequest(`/api/mandates/${id}`))} onNext={reviewQueue.indexOf(reviewId) < reviewQueue.length - 1 ? () => setReviewId(reviewQueue[reviewQueue.indexOf(reviewId) + 1]) : undefined} />}</>;

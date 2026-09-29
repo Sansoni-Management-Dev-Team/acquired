@@ -1,9 +1,11 @@
+import { reviewMandateFit } from "./mandate-fit";
+import type { SavedResearchFinding } from "./research";
 import type { BuyerProfile } from "./buyer-profile";
-import { briefToMandate, criterionDefinitions, type AcquisitionBrief, type Assessment } from "./acquisition";
+import { briefToMandate, type AcquisitionBrief, type Assessment } from "./acquisition";
 import type { RankedTarget, FinanceabilityEvidence } from "./models";
 import { rankTarget } from "./scoring";
 
-export function assessMembership(target: RankedTarget, brief: AcquisitionBrief, assessment: Assessment, _buyer: BuyerProfile | null): RankedTarget {
+export function assessMembership(target: RankedTarget, brief: AcquisitionBrief, assessment: Assessment, _buyer: BuyerProfile | null, findings: SavedResearchFinding[] = []): RankedTarget {
   void _buyer; // Keep the existing call signature while legacy buyer capital fields are phased out.
   const finance = assessment.financeReview;
   const financeability: FinanceabilityEvidence = {};
@@ -17,15 +19,12 @@ export function assessMembership(target: RankedTarget, brief: AcquisitionBrief, 
   const ranked = rankTarget({ ...target, signals: ripenessSignals, financeability: Object.keys(financeability).length ? financeability : target.financeability }, briefToMandate(brief));
   ranked.signals = target.signals;
   const relevant = brief.criteria.filter(c => c.state === "specified" && c.confirmed);
-  const fitCriteria = relevant.filter(c => !["vendorMotivation", "sellerEngagement", "timing"].includes(c.key));
-  const tested = fitCriteria.flatMap(c => assessment.evidence.filter(e => e.criterionKey === c.key && e.assessment !== "unknown"));
-  if (assessment.evidence.length) {
-    ranked.scores.fit = fitCriteria.length ? Math.round(tested.reduce((s,e) => s + (e.assessment === "supported" ? 1 : e.assessment === "potential" ? 0.5 : 0), 0) / fitCriteria.length * 100) : 0;
-    ranked.scores.completeness!.fit = fitCriteria.length ? Math.round(tested.length / fitCriteria.length * 100) : 0;
-    ranked.scores.axisConfidence!.fit = tested.length ? Math.round(tested.reduce((s,e) => s + e.confidence, 0) / tested.length) : 0;
-    ranked.scores.reasons = ranked.scores.reasons.filter(r => r.axis !== "fit");
-    ranked.scores.reasons.push(...tested.map(e => ({ axis: "fit" as const, label: `${criterionDefinitions.find(([key]) => key === e.criterionKey)![1]}: ${e.assessment}`, contribution: e.assessment === "supported" ? 1 : 0, source: e.source, sourceUrl: e.sourceUrl || undefined })));
-  }
+  const fit = reviewMandateFit(brief, target, assessment, findings);
+  ranked.scores.fit = fit.score;
+  ranked.scores.completeness!.fit = fit.completeness;
+  ranked.scores.axisConfidence!.fit = fit.rows.length ? Math.round(fit.rows.reduce((sum, row) => sum + (assessment.evidence.find(e => e.criterionKey === row.key)?.confidence ?? (row.status === "unknown" ? 0 : 50)), 0) / fit.rows.length) : 0;
+  ranked.scores.reasons = ranked.scores.reasons.filter(r => r.axis !== "fit");
+  ranked.scores.reasons.push(...fit.rows.map(row => ({ axis: "fit" as const, label: `${row.label}: ${row.reason}`, contribution: row.weight * (row.status === "supported" ? 1 : row.status === "potential" ? 0.5 : 0), source: "Mandate review matrix", sourceUrl: row.sources[0] })));
   const engagement = assessment.evidence.find(e => e.criterionKey === "sellerEngagement" && ["owner-stated", "document-verified"].includes(e.kind) && ["supported", "fails"].includes(e.assessment));
   if (engagement) {
     ranked.scores.ripeness = engagement.assessment === "supported" ? 100 : 0;

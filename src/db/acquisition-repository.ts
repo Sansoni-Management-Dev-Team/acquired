@@ -48,7 +48,8 @@ export class AcquisitionRepository {
       if (!target) return [];
       const assessment = assessmentSchema.safeParse(link.assessment);
       const accreditations = rows.find(r => r.id === target.id)?.accreditations;
-      return [{ researchFindings: findings.filter(({ finding }) => finding.targetId === target.id).map(({ finding }) => ({ ...finding, evidence: finding.evidence as import("@/domain/research").ResearchFinding, observedAt: finding.observedAt.toISOString() })), target: assessMembership(target, mandate.brief, assessment.success ? assessment.data : initialAssessment, buyerProfileFromMetadata(orgRows[0]?.metadata)), assessment: assessment.success ? assessment.data : { ...initialAssessment }, accreditations: Array.isArray(accreditations) ? accreditations : [], version: link.version }];
+      const targetFindings = findings.filter(({ finding }) => finding.targetId === target.id).map(({ finding }) => ({ ...finding, evidence: finding.evidence as import("@/domain/research").ResearchFinding, observedAt: finding.observedAt.toISOString() }));
+      return [{ researchFindings: targetFindings, target: assessMembership(target, mandate.brief, assessment.success ? assessment.data : initialAssessment, buyerProfileFromMetadata(orgRows[0]?.metadata), targetFindings), assessment: assessment.success ? assessment.data : { ...initialAssessment }, accreditations: Array.isArray(accreditations) ? accreditations : [], version: link.version }];
     });
   }
   async attach(mandateId: string, targetId: string) {
