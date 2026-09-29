@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, Clock3 } from "lucide-react";
 import type { AcquisitionBrief, MandateView } from "@/domain/acquisition";
+import { nextTestMandate } from "@/domain/test-mandates";
 
 export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
   const router = useRouter();
@@ -14,22 +15,29 @@ export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
   const [error, setError] = useState("");
   const [progress, setProgress] = useState("");
 
-  async function create() {
+  async function create(mode: "custom" | "demo" = "custom") {
     setError("");
     setBusy(true);
-    setProgress("Generating your mandate…");
+    setProgress(mode === "demo" ? "Loading a demo mandate…" : "Generating your mandate…");
     try {
       let id = createdId;
       if (!id) {
-        const generated = await fetch("/api/mandates/generate", {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ description }),
-          signal: AbortSignal.timeout(45000),
-        });
-        const draft = await generated.json() as { brief?: AcquisitionBrief; error?: string };
-        if (!generated.ok || !draft.brief) throw new Error(draft.error || "Could not create a mandate from your description.");
+        let brief: AcquisitionBrief;
+        if (mode === "demo") {
+          brief = nextTestMandate();
+          setDescription(brief.naturalLanguage);
+        } else {
+          const generated = await fetch("/api/mandates/generate", {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ description }),
+            signal: AbortSignal.timeout(45000),
+          });
+          const draft = await generated.json() as { brief?: AcquisitionBrief; error?: string };
+          if (!generated.ok || !draft.brief) throw new Error(draft.error || "Could not create a mandate from your description.");
+          brief = draft.brief;
+        }
         setProgress("Saving your mandate…");
         const saved = await fetch("/api/mandates", {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(draft.brief),
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(brief),
           signal: AbortSignal.timeout(15000),
         });
         const result = await saved.json() as { id?: string; error?: string };
@@ -65,7 +73,7 @@ export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
           {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
           {progress && <p role="status" className="mt-3 text-sm text-slate-600">{progress}</p>}
           {createdId && error && <Link href={`/mandates/${createdId}?tab=targets`} className="mt-2 inline-block text-sm text-blue-700 underline">Open your saved mandate</Link>}
-          <div className="mt-4 flex justify-end"><button disabled={busy || description.trim().length < 10} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Working…" : createdId ? "Retry company research" : "Create mandate"}<ArrowRight size={17} /></button></div>
+          <div className="mt-4 flex flex-wrap justify-end gap-3"><button type="button" disabled={busy || Boolean(createdId)} onClick={() => void create("demo")} className="min-h-12 rounded-xl border border-slate-300 px-5 text-sm font-semibold text-slate-800 disabled:opacity-50">Run demo</button><button disabled={busy || description.trim().length < 10} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Working…" : createdId ? "Retry company research" : "Create mandate"}<ArrowRight size={17} /></button></div>
         </form>
       </div>
     </section>
