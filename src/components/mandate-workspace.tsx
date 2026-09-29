@@ -1,6 +1,7 @@
 "use client";
 
 import { TargetResearchData, TargetEbitdaData } from "./target-research-data";
+import { CandidateResearchCells } from "./candidate-research-cells";
 import { TargetReviewRow } from "./target-review-row";
 import { CompanyReviewPanel } from "./company-review-panel";
 import Link from "next/link";
@@ -115,11 +116,7 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
           <td className="p-3 text-xs text-[var(--muted)]">—</td>
           <td className="w-64 min-w-56 p-3"><p className="font-semibold">{row.candidate.name}</p><a className="mt-1 block break-all text-xs underline" href={row.candidate.url} target="_blank" rel="noreferrer">{row.candidate.domain}</a>{row.candidate.targetId && <Link className="mt-2 block text-xs underline" href={`/mandates/${id}/targets/${row.candidate.targetId}`}>View business</Link>}</td>
           <td className="p-3"><p>Candidate</p><p className="mt-1 text-xs text-[var(--muted)]">{row.candidate.status}</p></td>
-          <td className="p-3"><TargetResearchData findings={row.candidate.findings} kind="headcount" fallback="Pending" /></td>
-          <td className="p-3"><TargetResearchData findings={row.candidate.findings} kind="revenue" fallback="Pending" /></td>
-          <td className="p-3">{hasData(row.candidate.findings, "headcount") ? <TargetEbitdaData findings={row.candidate.findings} /> : <span className="text-[var(--muted)]">Pending</span>}</td>
-          <td className="p-3 text-[var(--muted)]">Pending</td>
-          <td className="p-3">{row.candidate.findings.length ? `${row.candidate.findings.length} findings` : "Checking"}</td>
+          <CandidateResearchCells candidate={row.candidate} />
         </tr>;
         const m = row.membership;
         return <TargetReviewRow key={m.target.id} companyName={m.target.companyName} onReview={() => openReview(m.target.id)}>
