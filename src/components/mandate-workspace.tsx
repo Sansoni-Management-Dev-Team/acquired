@@ -8,7 +8,7 @@ import { mandateTabHref } from "@/domain/mandate-navigation";
 import { businessResearchStatus } from "@/domain/business-research";
 import { evidenceLabel, type EvidenceCounts } from "@/domain/evidence-status";
 import { researchDomain, terminalResearchStates, type SavedResearchFinding } from "@/domain/research";
-import { ResearchPanel, type ResearchJob } from "./research-panel";
+import { ResearchPanel, type ResearchJob, type ResearchPanelData } from "./research-panel";
 import { MandateBriefForm } from "./mandate-brief-form";
 import { candidateWebsites, toggleMatchingTargets } from "@/domain/target-candidates";
 
@@ -51,13 +51,18 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
   const refresh = useCallback(async () => {
     if (!polling) return;
     const sequence = ++refreshSequence.current;
-    const [workspace, evidence] = await Promise.allSettled([jsonRequest(`/api/mandates/${id}`), jsonRequest(`/api/mandates/${id}/research`)]);
-    if (sequence !== refreshSequence.current) return;
-    if (workspace.status === "fulfilled") setData(workspace.value);
-    if (evidence.status === "fulfilled") setResearch(evidence.value);
+    try {
+      const workspace = await jsonRequest(`/api/mandates/${id}`);
+      if (sequence !== refreshSequence.current) return;
+      setData(workspace);
+    } catch { /* Keep the last usable workspace until the next refresh. */ }
   }, [id, polling]);
-  // Poll only while research or a company data refresh is still running.
-  useActivePolling(refresh, { active: polling && (Boolean(research.active) || activeFirmable.length > 0), intervalMs: 5000, key: `${id}:${tab}` });
+  // ResearchPanel owns research polling; refresh workspace data while company data is running.
+  useActivePolling(refresh, { active: polling && activeFirmable.length > 0, intervalMs: 5000, key: `${id}:${tab}`, initial: false });
+  const onResearchResults = useCallback((next: ResearchPanelData, changed: boolean) => {
+    setResearch({ findings: next.findings, jobs: next.jobs, evidence: next.evidence, active: next.active });
+    if (changed) void refresh();
+  }, [refresh]);
   const researchStatus = (m: MembershipView) => businessResearchStatus(m.target.domain, research.findings.filter(f => f.targetId === m.target.id || researchDomain(f.sourceUrl) === m.target.domain).map(f => f.evidence), research.jobs.some(j => !terminalResearchStates.includes(j.status) && [...j.seeds, ...j.config.seeds].some(url => researchDomain(url) === m.target.domain)));
 
   async function act(body: unknown) { setBusy(true); setError(""); setNotice(""); try { const result = await jsonRequest(`/api/mandates/${id}`, body); setData(await jsonRequest(`/api/mandates/${id}`)); setNotice([...(result.messages || []), ...(result.warnings || [])].filter(Boolean).join(" ") || "Saved."); } catch(e) { setError((e as Error).message); } finally { setBusy(false); } }
@@ -84,7 +89,7 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
   return <><MandateNavigation mandates={mandates.map(m => m.id === id ? data.mandate : m)} selected={id} tab={tab} /><div className="space-y-5 p-5 sm:p-8">{tab !== "brief" && <header><p className="text-xs uppercase tracking-widest text-[var(--accent)]">Acquisition workspace</p><h1 className="mt-2 text-3xl font-semibold">{data.mandate.brief.name}</h1></header>}{error && <p role="alert" className="rounded border border-red-400 p-3 text-[var(--status-red)]">{error}</p>}{notice && <p role="status" className="text-sm text-[var(--accent)]">{notice}</p>}
     {tab === "brief" && <MandateBriefForm mandateId={id} brief={data.mandate.brief} />}
     {tab === "targets" && <>
-      <ResearchPanel mandateId={id} brief={data.mandate.brief} showStartAction={false} onResultsChanged={() => { void refresh(); }} />
+      <ResearchPanel mandateId={id} brief={data.mandate.brief} showStartAction={false} onResultsChanged={onResearchResults} />
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Companies</h2><Link className={buttonClass} href={mandateTabHref(id, "brief")}>Find businesses</Link></div>
         <p className="text-sm text-[var(--muted)]">Candidate websites appear here as they are found. Researched details fill in as businesses are saved.</p>

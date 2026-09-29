@@ -17,9 +17,11 @@ export default async function OutreachPage({ params, searchParams }: { params: P
   if (!session) redirect(`/sign-in?next=${encodeURIComponent(mandateOutreachHref(id, targetId))}`);
   const organizationId = session.session.activeOrganizationId;
   if (!organizationId) redirect("/onboarding");
-  const mandates = await new AcquisitionRepository(organizationId).listMandates();
+  const [mandates, { views, buyerProfile, canCompose }] = await Promise.all([
+    new AcquisitionRepository(organizationId).listMandates(),
+    loadOutreach(organizationId, id, session.user.id),
+  ]);
   const mandate = mandates.find(m => m.id === id);
   if (!mandate) notFound();
-  const { views, buyerProfile, canCompose } = await loadOutreach(organizationId, id, session.user.id);
   return <><MandateNavigation mandates={mandates} selected={id} tab="outreach" /><div className="space-y-5 p-5 sm:p-8"><header className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs uppercase tracking-widest text-[var(--accent)]">Acquisition workspace</p><h1 className="mt-2 text-3xl font-semibold">{mandate.brief.name}</h1></div>{process.env.NODE_ENV === "development" && <Link href={`/mandates/${id}/outreach/prototype`} className="rounded-lg border border-[var(--border)] bg-[var(--panel)] px-4 py-2 text-sm font-medium hover:bg-[var(--panel-raised)]">Preview campaign UI</Link>}</header><OutreachTable key={id} mandateId={id} initialTargets={views} initialBuyerProfile={buyerProfile} initialTargetId={targetId} canCompose={canCompose} /></div></>;
 }

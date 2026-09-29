@@ -33,7 +33,8 @@ export function candidatesArrivedForRun(jobs: ResearchJob[], startedJobId: strin
     (job.config.discoveryCandidate || (job.config.newBusinessIds?.length || 0) > 0),
   );
 }
-type Data = { active?: boolean; results?: { jobId: string; businessDomains?: string[]; added: number; updated: number; people: number }[]; enabled: boolean; jobs: ResearchJob[]; peopleJobs?: ResearchJob[]; companyJobs?: ResearchJob[]; findings: SavedResearchFinding[] };
+export type ResearchPanelData = { active?: boolean; results?: { jobId: string; businessDomains?: string[]; added: number; updated: number; people: number }[]; enabled: boolean; jobs: ResearchJob[]; peopleJobs?: ResearchJob[]; companyJobs?: ResearchJob[]; findings: SavedResearchFinding[]; evidence?: Record<string, import("@/domain/evidence-status").EvidenceCounts> };
+type Data = ResearchPanelData;
 async function request(url: string, body?: unknown) {
   const r = await fetch(url, {
     method: body ? "POST" : "GET",
@@ -54,7 +55,7 @@ export function ResearchPanel({
 }: {
   mandateId: string;
   brief: AcquisitionBrief;
-  onResultsChanged: () => void;
+  onResultsChanged: (data: ResearchPanelData, changed: boolean) => void;
   showStartAction?: boolean;
   onCandidatesFound?: () => void;
 }) {
@@ -75,7 +76,7 @@ export function ResearchPanel({
       const next: Data = await request(`/api/mandates/${mandateId}/research`);
       setData(next);
       const signature = JSON.stringify([next.jobs.map(j => [j.id, j.status, j.pages, j.message, j.config.newBusinessIds]), next.peopleJobs?.map(j => [j.id, j.status, j.pages]), next.companyJobs?.map(j => [j.id, j.status, j.pages]), next.findings.map(f => [f.id, f.targetId]), next.results]);
-      if (signatureRef.current && signature !== signatureRef.current) changedRef.current();
+      changedRef.current(next, Boolean(signatureRef.current && signature !== signatureRef.current));
       signatureRef.current = signature;
     } catch (e) {
       setError((e as Error).message);
@@ -133,7 +134,6 @@ export function ResearchPanel({
       );
       if (navigateOnCandidates && result.jobId) startedJobId.current = result.jobId;
       await refresh();
-      onResultsChanged();
     } catch (e) {
       setError((e as Error).message);
     } finally {

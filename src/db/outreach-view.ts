@@ -1,6 +1,6 @@
 import { connectionCanCompose } from "@/lib/gmail-connection";
 import { reviewedOutreachSignals } from "@/domain/reviewed-outreach-evidence";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { OutreachTargetView } from "@/components/outreach-queue";
 import { requireDb } from "./client";
 import { contacts, messages, mailboxConnections, organization, sequenceEnrolments, signals, targets } from "./schema";
@@ -14,17 +14,21 @@ export async function loadOutreach(organizationId: string, mandateId: string, us
   const acquisition = new AcquisitionRepository(organizationId);
   const memberships = await acquisition.memberships(mandateId);
   const membershipIds = new Set(memberships.map(m => m.target.id));
+  const targetIds = [...membershipIds];
   const database = requireDb();
-  const [targetRows, contactRows, signalRows, enrolmentRows, messageRows, organizationRows] = await Promise.all([
-    database.select().from(targets).where(eq(targets.organizationId, organizationId)),
-    database.select().from(contacts).where(eq(contacts.organizationId, organizationId)),
-    database.select().from(signals).where(eq(signals.organizationId, organizationId)),
+  const [targetRows, contactRows, signalRows, enrolmentRows, organizationRows] = await Promise.all([
+    targetIds.length ? database.select().from(targets).where(and(eq(targets.organizationId, organizationId), inArray(targets.id, targetIds))) : [],
+    targetIds.length ? database.select().from(contacts).where(and(eq(contacts.organizationId, organizationId), inArray(contacts.targetId, targetIds))) : [],
+    targetIds.length ? database.select().from(signals).where(and(eq(signals.organizationId, organizationId), inArray(signals.targetId, targetIds))) : [],
     database.select().from(sequenceEnrolments).where(and(eq(sequenceEnrolments.organizationId, organizationId), eq(sequenceEnrolments.mandateId, mandateId))),
-    database.select().from(messages).where(eq(messages.organizationId, organizationId)),
     database.select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, organizationId)).limit(1),
   ]);
   const firmableCompanyIds = [...new Set(memberships.flatMap(member => member.target.sourceData?.firmable?.firmableId ? [member.target.sourceData.firmable.firmableId] : []))];
-  const sharedPeople = await new FirmableHistoryRepository(database).latestPeople(firmableCompanyIds);
+  const [sharedPeople, messageRows, mailboxRows] = await Promise.all([
+    new FirmableHistoryRepository(database).latestPeople(firmableCompanyIds),
+    enrolmentRows.length ? database.select().from(messages).where(and(eq(messages.organizationId, organizationId), inArray(messages.enrolmentId, enrolmentRows.map(row => row.id)))) : [],
+    userId ? database.select().from(mailboxConnections).where(and(eq(mailboxConnections.organizationId, organizationId), eq(mailboxConnections.userId, userId), eq(mailboxConnections.provider, "gmail"))).limit(1) : [],
+  ]);
   const enrolments = new Map(enrolmentRows.map((row) => [row.id, row]));
   const views: OutreachTargetView[] = targetRows.filter(target => membershipIds.has(target.id)).map((target) => {
     const membership = memberships.find(member => member.target.id === target.id);
@@ -55,6 +59,6 @@ export async function loadOutreach(organizationId: string, mandateId: string, us
       }).sort((left, right) => left.step - right.step),
     };
   });
-  const [connection] = userId ? await database.select().from(mailboxConnections).where(and(eq(mailboxConnections.organizationId, organizationId), eq(mailboxConnections.userId, userId), eq(mailboxConnections.provider, "gmail"))).limit(1) : [];
+  const [connection] = mailboxRows;
   return { canCompose: Boolean(connection && connectionCanCompose(connection)), views, buyerProfile: buyerProfileFromMetadata(organizationRows[0]?.metadata) };
 }
