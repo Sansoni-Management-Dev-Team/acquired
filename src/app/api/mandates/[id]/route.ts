@@ -16,12 +16,14 @@ import { FirmableHistoryRepository } from "@/db/firmable-history-repository";
 import { loadWorkspaceContacts } from "@/db/firmable-read-model";
 import { validateCompanyWebsite, validateTargetWebsites } from "@/lib/company-website";
 import { researchEnabled, researchWorker } from "@/lib/research-service";
+import { generateMandate } from "@/adapters/mandate-generation";
 
 export const maxDuration = 300;
 
 const importedRecord = z.object({ name: z.string().trim().min(1).max(300), website: z.union([z.string().url(), z.literal("")]), abn: z.string().regex(/^(\d{11})?$/), state: z.string().max(30), description: z.string().max(3000), source: z.string().trim().min(1).max(200), sourceUrl: z.string().url(), sourceId: z.string().trim().min(1).max(200) });
 const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("brief"), brief: briefSchema }),
+  z.object({ action: z.literal("brief-description"), description: z.string().trim().min(10).max(10000) }),
   z.object({ action: z.literal("discover") }),
   z.object({ action: z.literal("import"), records: z.array(importedRecord).min(1).max(1000) }),
   z.object({ action: z.literal("enrich"), targetIds: z.array(z.string().uuid()).min(1).max(20), requestId: z.string().uuid().optional() }),
@@ -82,6 +84,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   if (!mandate) return Response.json({ error: "Mandate not found" }, { status: 404 });
   let release: (() => void) | undefined;
   try {
+    if (action.action === "brief-description") {
+      if (action.description === mandate.brief.naturalLanguage) return Response.json({ ok: true });
+      let generated;
+      try { generated = await generateMandate(action.description); }
+      catch { return Response.json({ error: "Could not update the search from your description. Please try again." }, { status: 503 }); }
+      const brief = { ...generated, naturalLanguage: action.description, researchSources: mandate.brief.researchSources, disclosureApproved: mandate.brief.disclosureApproved };
+      await repo.saveBrief(brief, session.user.id, id);
+      return Response.json({ ok: true });
+    }
     if (action.action === "brief") await repo.saveBrief(action.brief, session.user.id, id);
     if (action.action === "assessment") {
       const errors = transitionErrors(mandate.brief, action.assessment);

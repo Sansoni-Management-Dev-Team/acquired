@@ -9,29 +9,48 @@ import type { AcquisitionBrief, MandateView } from "@/domain/acquisition";
 export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
   const router = useRouter();
   const [description, setDescription] = useState("");
+  const [createdId, setCreatedId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [progress, setProgress] = useState("");
 
   async function create() {
     setError("");
     setBusy(true);
+    setProgress("Generating your mandate…");
     try {
-      const generated = await fetch("/api/mandates/generate", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ description }),
+      let id = createdId;
+      if (!id) {
+        const generated = await fetch("/api/mandates/generate", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ description }),
+          signal: AbortSignal.timeout(45000),
+        });
+        const draft = await generated.json() as { brief?: AcquisitionBrief; error?: string };
+        if (!generated.ok || !draft.brief) throw new Error(draft.error || "Could not create a mandate from your description.");
+        setProgress("Saving your mandate…");
+        const saved = await fetch("/api/mandates", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(draft.brief),
+          signal: AbortSignal.timeout(15000),
+        });
+        const result = await saved.json() as { id?: string; error?: string };
+        if (!saved.ok || !result.id) throw new Error(result.error || "Could not save the mandate.");
+        id = result.id;
+        setCreatedId(id);
+      }
+      setProgress("Starting company research…");
+      const research = await fetch(`/api/mandates/${id}/research`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId: crypto.randomUUID(), fromBrief: true }),
+        signal: AbortSignal.timeout(30000),
       });
-      const draft = await generated.json() as { brief?: AcquisitionBrief; error?: string };
-      if (!generated.ok || !draft.brief) throw new Error(draft.error || "Could not create a mandate from your description.");
-      const saved = await fetch("/api/mandates", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(draft.brief),
-      });
-      const result = await saved.json() as { id?: string; error?: string };
-      if (!saved.ok || !result.id) throw new Error(result.error || "Could not save the mandate.");
-      router.push(`/mandates/${result.id}`);
+      const researchResult = await research.json() as { error?: string };
+      if (!research.ok && !(research.status === 409 && researchResult.error?.includes("already running"))) throw new Error(researchResult.error || "Could not start company research.");
+      router.push(`/mandates/${id}?tab=targets`);
       router.refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not create the mandate.");
+      setError(cause instanceof Error && cause.name === "TimeoutError" ? "This is taking longer than expected. Please try again." : cause instanceof Error ? cause.message : "Could not create the mandate.");
     } finally {
       setBusy(false);
+      setProgress("");
     }
   }
 
@@ -42,9 +61,11 @@ export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
         <p className="mt-3 text-center text-sm text-slate-700 sm:text-base">Tell us what you want to buy. We’ll turn it into a mandate you can review.</p>
         <form onSubmit={event => { event.preventDefault(); void create(); }} className="mt-8 rounded-2xl bg-white p-5 shadow-xl sm:p-7">
           <label htmlFor="mandate-description" className="block text-sm font-semibold">Tell us about the businesses you’re looking to buy</label>
-          <textarea id="mandate-description" required minLength={10} maxLength={5000} rows={5} value={description} onChange={event => setDescription(event.target.value)} placeholder="For example: profitable commercial refrigeration service businesses in Victoria with recurring maintenance work" className="mt-3 w-full resize-y rounded-xl border border-slate-300 px-4 py-3 text-base text-slate-900 placeholder:text-slate-500" />
+          <textarea id="mandate-description" required minLength={10} maxLength={5000} rows={5} readOnly={Boolean(createdId)} value={description} onChange={event => setDescription(event.target.value)} placeholder="For example: profitable commercial refrigeration service businesses in Victoria with recurring maintenance work" className="mt-3 w-full resize-y rounded-xl border border-slate-300 px-4 py-3 text-base text-slate-900 placeholder:text-slate-500" />
           {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
-          <div className="mt-4 flex justify-end"><button disabled={busy || description.trim().length < 10} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Creating mandate…" : "Create mandate"}<ArrowRight size={17} /></button></div>
+          {progress && <p role="status" className="mt-3 text-sm text-slate-600">{progress}</p>}
+          {createdId && error && <Link href={`/mandates/${createdId}?tab=targets`} className="mt-2 inline-block text-sm text-blue-700 underline">Open your saved mandate</Link>}
+          <div className="mt-4 flex justify-end"><button disabled={busy || description.trim().length < 10} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Working…" : createdId ? "Retry company research" : "Create mandate"}<ArrowRight size={17} /></button></div>
         </form>
       </div>
     </section>

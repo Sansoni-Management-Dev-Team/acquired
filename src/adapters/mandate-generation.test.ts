@@ -57,3 +57,20 @@ it("falls back to a cheap OpenAI model after every free model fails", async () =
   expect(body.model).toBe("gpt-6-luna");
   expect(body.response_format.type).toBe("json_schema");
 });
+
+it("uses the direct AI path for a buyer description and keeps unsupplied criteria unknown", async () => {
+  vi.stubEnv("OPENROUTER_API_KEY", "test-key");
+  vi.stubEnv("OPENAI_API_KEY", "openai-test-key");
+  const criteria = Object.fromEntries(criterionDefinitions.map(([key]) => [key, "Unknown"]));
+  Object.assign(criteria, { subsectors: "Gym equipment suppliers", geography: "Unknown" });
+  const generated = { name: "Australian Gym Supply Acquisition", naturalLanguage: "AI-expanded text", investmentThesis: "Explore gym supply businesses.", outreachPositioning: "Discuss a possible acquisition.", criteria };
+  const fetcher = vi.fn().mockResolvedValue(Response.json({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(generated) } }] }));
+  vi.stubGlobal("fetch", fetcher);
+  const brief = await generateMandate("Find me gym supply businesses");
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(fetcher.mock.calls[0][0]).toBe("https://api.openai.com/v1/chat/completions");
+  expect(brief.naturalLanguage).toBe("Find me gym supply businesses");
+  expect(brief.criteria.find(item => item.key === "subsectors")?.value).toBe("Gym equipment suppliers");
+  expect(brief.criteria.find(item => item.key === "revenue")?.state).toBe("unknown");
+  expect(brief.criteria.find(item => item.key === "geography")?.state).toBe("unrestricted");
+});

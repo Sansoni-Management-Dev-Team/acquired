@@ -2,8 +2,7 @@ import { auth } from "@/lib/auth";
 import { generateMandate } from "@/adapters/mandate-generation";
 import { z } from "zod";
 
-// Allow the 45-second free inference budget, the 40-second paid fallback, plus authentication and response overhead.
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 export async function POST(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers });

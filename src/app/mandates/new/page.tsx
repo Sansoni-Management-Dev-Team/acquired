@@ -1,7 +1,9 @@
 import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { acquisitionSession } from "@/lib/acquisition-session";
-import { NewMandate } from "@/components/mandate-workspace";
+import { MandateNavigation } from "@/components/mandate-workspace";
+import { HomeMandateCreate } from "@/components/home-mandate-create";
 export default async function NewMandatePage() {
   const { organizationId } = await acquisitionSession();
-  return <NewMandate mandates={await new AcquisitionRepository(organizationId).listMandates()} />;
+  const mandates = await new AcquisitionRepository(organizationId).listMandates();
+  return <><MandateNavigation mandates={mandates} /><HomeMandateCreate mandates={mandates} /></>;
 }
