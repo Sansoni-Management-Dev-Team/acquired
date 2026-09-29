@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { ActiveResearchJob, candidatesArrivedForRun, DiscoveryCandidateList, type ResearchJob } from "./research-panel";
+import { ActiveResearchJob, candidatesArrivedForRun, DiscoveryCandidateList, ResearchProgress, type ResearchJob } from "./research-panel";
 
 function job(overrides: Partial<ResearchJob> = {}): ResearchJob {
   return {
@@ -78,5 +78,18 @@ describe("discovery candidate list", () => {
     expect(html).toContain("See Companies for the businesses and candidate websites found");
     expect(html).not.toContain("saved.example");
     expect(html).not.toContain("later-0.example");
+  });
+});
+
+describe("research goal progress", () => {
+  it("makes a finished run below its goal distinct from active research", () => {
+    const completed = job({ status: "complete", config: { ...job().config, discoveryCandidate: false, targetBusinesses: 20 } });
+    const html = renderToStaticMarkup(<ResearchProgress job={completed} count={7} identified={31} active={false} enriching={0} />);
+
+    expect(html).toContain("7 of 20 new businesses saved");
+    expect(html).toContain("35% of goal");
+    expect(html).toContain("Search finished before the goal was reached. No research is running.");
+    expect(html).toContain('aria-valuenow="35"');
+    expect(renderToStaticMarkup(<ResearchProgress job={completed} count={7} identified={31} active enriching={1} />)).not.toContain("No research is running");
   });
 });

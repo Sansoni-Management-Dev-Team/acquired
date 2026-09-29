@@ -36,6 +36,11 @@ describe("research outcome shown for saved unfinished URLs", () => {
     expect(html).toContain("Research complete — 6 URLs remaining");
     expect(html).not.toContain("Research paused");
   });
+  it("names a completed run that stopped below its business goal", () => {
+    const { html } = render({ status: "complete", goal: 20, saved: 7 });
+    expect(html).toContain("Research finished below goal");
+    expect(html).toContain("7 of 20 new businesses were saved");
+  });
   it("keeps manual continuation available for partial runs", () => {
     const { html } = render({ status: "partial", remaining: 1 });
     expect(html).toContain("Research paused — 1 URL remaining");
