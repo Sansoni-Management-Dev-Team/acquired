@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, Clock3 } from "lucide-react";
 import type { AcquisitionBrief, MandateView } from "@/domain/acquisition";
+import { CompanySearchProgress } from "./company-search-progress";
 import { nextTestMandate } from "@/domain/test-mandates";
 
 export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
@@ -16,6 +17,7 @@ export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
   const [progress, setProgress] = useState("");
 
   async function create(mode: "custom" | "demo" = "custom") {
+    if (busy) return;
     setError("");
     setBusy(true);
     setProgress(mode === "demo" ? "Loading a demo mandate…" : "Generating your mandate…");
@@ -56,11 +58,12 @@ export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
       router.refresh();
     } catch (cause) {
       setError(cause instanceof Error && cause.name === "TimeoutError" ? "This is taking longer than expected. Please try again." : cause instanceof Error ? cause.message : "Could not create the mandate.");
-    } finally {
       setBusy(false);
       setProgress("");
     }
   }
+
+  if (busy) return <div className="mx-auto my-[8vh] max-w-[620px] px-4 sm:px-0"><CompanySearchProgress detail={progress || undefined} /></div>;
 
   return <div className="mx-auto max-w-6xl space-y-10 p-5 sm:p-8">
     <section className="rounded-3xl bg-[linear-gradient(115deg,#bfd2f6_0%,#d8c7f5_45%,#f5c2a5_100%)] px-5 py-16 text-slate-900 sm:px-10 sm:py-20">
@@ -73,7 +76,7 @@ export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
           {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
           {progress && <p role="status" className="mt-3 text-sm text-slate-600">{progress}</p>}
           {createdId && error && <Link href={`/mandates/${createdId}?tab=targets`} className="mt-2 inline-block text-sm text-blue-700 underline">Open your saved mandate</Link>}
-          <div className="mt-4 flex flex-wrap justify-end gap-3"><button type="button" disabled={busy || Boolean(createdId)} onClick={() => void create("demo")} className="min-h-12 rounded-xl border border-slate-300 px-5 text-sm font-semibold text-slate-800 disabled:opacity-50">Run demo</button><button disabled={busy || description.trim().length < 10} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Working…" : createdId ? "Retry company research" : "Create mandate"}<ArrowRight size={17} /></button></div>
+          <div className="mt-4 flex flex-wrap justify-end gap-3"><button type="button" disabled={busy || Boolean(createdId)} onClick={() => void create("demo")} className="min-h-12 rounded-xl border border-slate-300 px-5 text-sm font-semibold text-slate-800 disabled:opacity-50">Run demo</button><button disabled={busy || description.trim().length < 10} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Working…" : createdId ? "Retry company research" : "Find companies"}<ArrowRight size={17} /></button></div>
         </form>
       </div>
     </section>

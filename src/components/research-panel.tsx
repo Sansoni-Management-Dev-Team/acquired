@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CompanySearchProgress } from "./company-search-progress";
 import { useActivePolling } from "./use-active-polling";
 import {
   terminalResearchStates,
@@ -108,7 +109,6 @@ export function ResearchPanel({
   const enriching = [...relatedPeople, ...relatedCompanies].filter(j => !terminalResearchStates.includes(j.status));
   const identifiedBusinessCount = new Set((data.results || []).filter(r => runJobs.some(j => j.id === r.jobId)).flatMap(r => r.businessDomains || [])).size;
   const newBusinessCount = new Set(runJobs.flatMap(j => j.config.newBusinessIds || [])).size;
-  const finishedBelowGoal = currentJob?.status === "complete" && !active && Boolean(currentJob.config.targetBusinesses && newBusinessCount < currentJob.config.targetBusinesses);
   const budget = {
     maxPages: 5,
     maxDomains: 5,
@@ -150,9 +150,9 @@ export function ResearchPanel({
   }
   if (!showStartAction && !loading && data.enabled && !currentJob) return null;
   return (
-    <section className="space-y-5 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5">
+    <section className="mx-auto my-[8vh] w-full max-w-[620px] space-y-5">
       {loading ? (
-        <p role="status">Checking research service…</p>
+        <CompanySearchProgress detail="Checking research service…" />
       ) : !data.enabled ? (
         <p>Website research is awaiting activation.</p>
       ) : (
@@ -166,13 +166,8 @@ export function ResearchPanel({
             </div>
           )}
           {currentJob && <div className="space-y-3" role="status">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h2 className="font-semibold">{!terminalResearchStates.includes(currentJob.status) ? (currentJob.config.purpose === "firmographics" ? "Researching company details" : currentJob.config.purpose === "people" ? "Finding decision-makers" : currentJob.status === "discovering" ? "Finding businesses" : "Researching businesses") : currentJob.status === "cancelled" ? "Research cancelled" : enriching.length ? "Enriching businesses" : currentJob.status === "failed" ? "Research failed" : finishedBelowGoal ? "Research finished" : currentJob.status === "complete" ? "Research complete" : "Research paused"}</h2>
-              {finishedBelowGoal && <span className="rounded-full bg-[var(--panel-raised)] px-2.5 py-1 text-xs font-medium text-[var(--status-amber)]">Below goal</span>}
-            </div>
             <ResearchProgress job={currentJob} jobs={runJobs} count={newBusinessCount} identified={identifiedBusinessCount} active={Boolean(active)} enriching={enriching.length} />
             {currentJob.config.mode === "automatic" && <DiscoveryCandidateList jobs={candidateJobs} searching={Boolean(active)} />}
-            {!currentJob.config.purpose && !terminalResearchStates.includes(currentJob.status) && <p className="text-sm text-[var(--muted)]">{currentJob.status === "discovering" ? "Finding websites…" : "Checking business details…"}</p>}
             {showStartAction && <ResearchRunOutcome showSummary={false} status={currentJob.status} remaining={remainingFor(currentJob).length} active={Boolean(active)} canResume={!currentJob.config.purpose} busy={busy} onResume={() => resume(currentJob)} goal={currentJob.config.targetBusinesses} saved={newBusinessCount} />}
             {showStartAction && (currentJob.status === "failed" || currentJob.status === "partial" || currentJob.status === "cancelled") && currentJob.message && <p className="break-words text-sm text-[var(--muted)]">{currentJob.message}</p>}
             {showStartAction && searchHistory.length > 0 && <details className="rounded-lg border border-[var(--border)] p-3 text-sm">
@@ -430,34 +425,22 @@ export function ActiveResearchJob({ job, busy, onCancel, onRetry }: { job: Resea
   </div>;
 }
 
-export function ResearchProgress({ job, jobs = [job], count, identified, active, enriching }: { job: ResearchJob; jobs?: ResearchJob[]; count: number; identified: number; active: boolean; enriching: number }) {
-  const goal = !job.config.purpose && job.config.targetBusinesses;
+export function ResearchProgress({ job, jobs = [job], active, enriching }: { job: ResearchJob; jobs?: ResearchJob[]; count: number; identified: number; active: boolean; enriching: number }) {
   const running = jobs.filter(j => !terminalResearchStates.includes(j.status));
   const discovery = running.find(j => !j.config.purpose && !j.config.discoveryCandidate);
   const researching = running.filter(j => !j.config.purpose);
   const complete = !active && job.status === "complete";
-  // This is stage progress, independent of the number of businesses saved.
-  // Discovery and candidate research can overlap; show discovery until it ends.
-  const stage = discovery?.status === "queued" ? 0
-    : discovery?.status === "discovering" ? 1
-    : researching.length ? (researching.every(j => j.status === "extracting") ? 3 : 2)
-    : enriching || (active && job.config.purpose) ? 4
-    : active ? 2
-    : job.modelCalls > 0 ? 3
-    : job.pages > 0 ? 2 : 0;
-  const stages = ["Preparing research", "Finding businesses", "Reading websites", "Extracting business details", "Enriching businesses"];
-  const label = complete ? "Research complete" : !active ? job.status === "partial" ? "Research paused" : `Research ${job.status}` : stage === 4 && job.config.purpose === "people" ? "Finding decision-makers" : stages[stage];
-  const percentage = complete ? 100 : stage * 20;
-  const progressText = complete ? "100%" : `Stage ${stage + 1} of ${stages.length}`;
-  return <div className="space-y-2">
-    <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-      <p role="status" aria-live="polite" className="text-sm font-medium">{label}</p>
-      <span className="text-xs tabular-nums text-[var(--muted)]">{progressText}</span>
-    </div>
-    <div role="progressbar" aria-label="Research job progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentage} aria-valuetext={`${label} · ${progressText}`} className="h-1.5 overflow-hidden rounded-full bg-[var(--panel-raised)]">
-      <div className="h-full rounded-full bg-[var(--accent)] transition-[width]" style={{ width: `${percentage}%` }} />
-    </div>
-    {goal && <p className="text-sm font-medium">{count} of {goal} new businesses saved</p>}
-    {!job.config.purpose && <p className="text-xs text-[var(--muted)]" title="Includes existing businesses" aria-label={`${identified} ${identified === 1 ? "business" : "businesses"} identified, including existing businesses`}>{identified} {identified === 1 ? "business" : "businesses"} identified</p>}
-  </div>;
+  const stage = discovery && ["queued", "discovering"].includes(discovery.status) ? 0
+    : enriching || (active && job.config.purpose) ? 3
+    : researching.length ? (researching.every(j => j.status === "extracting") ? 2 : 1)
+    : active ? 1
+    : job.modelCalls > 0 ? 2
+    : job.pages > 0 ? 1 : 0;
+  const stopped = job.status === "partial" ? "Research paused" : `Research ${job.status}`;
+  const title = complete ? "Research complete" : !active ? stopped : job.config.purpose === "people" ? "Finding decision-makers" : job.config.purpose === "firmographics" ? "Researching company details" : "Finding businesses";
+  return <CompanySearchProgress stage={stage} complete={complete} running={active} title={title}
+    status={!active && !complete ? stopped : undefined}
+    detail={complete ? "Company research finished. Your results are ready to review." : !active ? job.message || stopped : undefined}
+    stages={job.config.purpose ? ["Resolve company records", "Read company sources", "Extract business details", job.config.purpose === "people" ? "Find decision-makers" : "Prepare company details"] : undefined}
+    />;
 }
