@@ -62,10 +62,13 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   if (!mandate) return Response.json({ error: "Mandate not found" }, { status: 404 });
   const [memberships, coverage, valuations, orgRows] = await Promise.all([repo.memberships(id), repo.coverage(id), repo.valuations(id), requireDb().select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, org))]);
   const history = new FirmableHistoryRepository(requireDb());
-  let firmableRefreshes = await history.latestRuns(org, memberships.map(item => item.target.id));
+  const rawRunIds = new URL(request.url).searchParams.get("enrichmentRuns");
+  const runIds = rawRunIds === null ? undefined : rawRunIds.split(",");
+  if (runIds && (!runIds.length || runIds.length > 20 || runIds.some(runId => !z.uuid().safeParse(runId).success))) return Response.json({ error: "Invalid enrichment runs" }, { status: 400 });
+  let firmableRefreshes = await history.latestRuns(org, memberships.map(item => item.target.id), runIds);
   if (researchEnabled()) {
     await recoverFirmableRefreshes(history, firmableRefreshes, id);
-    firmableRefreshes = await history.latestRuns(org, memberships.map(item => item.target.id));
+    firmableRefreshes = await history.latestRuns(org, memberships.map(item => item.target.id), runIds);
   }
   return Response.json({ mandate, memberships, coverage, valuations, buyerProfile: buyerProfileFromMetadata(orgRows[0]?.metadata), contacts: await loadWorkspaceContacts(requireDb(), org, memberships), firmableRefreshes });
 }

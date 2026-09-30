@@ -3,7 +3,7 @@ import { isEmptyFirmablePeopleSearchResponse, mapFirmableCandidate, type Firmabl
 import type { PersonCandidate } from "@/adapters/source-contracts";
 import { normalizeFirmableAbn, normalizeFirmableDomain, responseHash } from "@/domain/firmable-history";
 import { requireDb } from "./client";
-import { firmableCompanies, firmableCompanyPeople, firmableCompanyResponses, firmablePeople, firmablePeopleSearches, firmablePersonResponses, firmableSyncRuns, targets } from "./schema";
+import { contacts, mandateTargets, firmableCompanies, firmableCompanyPeople, firmableCompanyResponses, firmablePeople, firmablePeopleSearches, firmablePersonResponses, firmableSyncRuns, targets } from "./schema";
 
 type Database = ReturnType<typeof requireDb>;
 
@@ -90,12 +90,14 @@ export class FirmableHistoryRepository {
     return (await this.database.select().from(firmableSyncRuns).where(eq(firmableSyncRuns.id, runId)).limit(1))[0];
   }
 
-  async latestRuns(organizationId: string, targetIds: string[]) {
+  async latestRuns(organizationId: string, targetIds: string[], runIds?: string[]) {
     if (!targetIds.length) return [];
     return this.database.selectDistinctOn([firmableSyncRuns.targetId], {
       id: firmableSyncRuns.id,
       targetId: firmableSyncRuns.targetId,
       status: firmableSyncRuns.status,
+      companyStatus: firmableSyncRuns.companyStatus,
+      searchStatus: firmableSyncRuns.searchStatus,
       profilesFound: firmableSyncRuns.profilesFound,
       profilesSaved: firmableSyncRuns.profilesSaved,
       profilesFailed: firmableSyncRuns.profilesFailed,
@@ -105,7 +107,18 @@ export class FirmableHistoryRepository {
     }).from(firmableSyncRuns).where(and(
       eq(firmableSyncRuns.organizationId, organizationId),
       inArray(firmableSyncRuns.targetId, targetIds),
+      runIds ? inArray(firmableSyncRuns.id, runIds) : undefined,
     )).orderBy(firmableSyncRuns.targetId, desc(firmableSyncRuns.createdAt), desc(firmableSyncRuns.id));
+  }
+
+  async contactIdsForRuns(organizationId: string, mandateId: string, runIds: string[]) {
+    if (!runIds.length) return [];
+    const rows = await this.database.selectDistinct({ id: contacts.id }).from(contacts)
+      .innerJoin(mandateTargets, and(eq(mandateTargets.targetId, contacts.targetId), eq(mandateTargets.organizationId, organizationId), eq(mandateTargets.mandateId, mandateId)))
+      .innerJoin(firmableSyncRuns, and(eq(firmableSyncRuns.targetId, contacts.targetId), eq(firmableSyncRuns.organizationId, organizationId), inArray(firmableSyncRuns.id, runIds)))
+      .innerJoin(firmablePersonResponses, and(eq(firmablePersonResponses.runId, firmableSyncRuns.id), eq(firmablePersonResponses.firmablePersonId, contacts.firmablePersonId), eq(firmablePersonResponses.successful, true)))
+      .where(eq(contacts.organizationId, organizationId));
+    return rows.map(row => row.id);
   }
 
   async markRunning(runId: string, message = "Refreshing company data") {

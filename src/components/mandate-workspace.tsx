@@ -1,5 +1,6 @@
 "use client";
 
+import { ContactEnrichmentProgress } from "./contact-enrichment-progress";
 import { TargetResearchData, TargetEbitdaData } from "./target-research-data";
 import { MandateFitCells } from "./mandate-fit-cells";
 import { TargetReviewRow } from "./target-review-row";
@@ -27,7 +28,7 @@ type ContactSummary = { targetId: string; name: string; role: string | null; rea
 type FirmableRefreshSummary = { id: string; targetId: string; status: string; profilesFound: number; profilesSaved: number; profilesFailed: number; message: string };
 export type WorkspaceData = { mandate: MandateView; memberships: MembershipView[]; coverage: CoverageRun[]; valuations: ValuationObservation[]; buyerProfile: BuyerProfile | null; contacts: ContactSummary[]; firmableRefreshes: FirmableRefreshSummary[] };
 export function CompanyDataAction({ selectedCount, busy, onClick }: { selectedCount: number; busy: boolean; onClick: () => void }) {
-  return <div className="flex max-w-sm flex-col gap-2"><button className={buttonClass} disabled={busy || selectedCount === 0 || selectedCount > 20} onClick={onClick}>{selectedCount === 0 ? "Please select a company(s) first" : selectedCount > 20 ? `Select 20 or fewer businesses (${selectedCount} selected)` : `Find more company data (${selectedCount}/20)`}</button></div>;
+  return <div className="flex max-w-sm flex-col gap-2"><button type="button" className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-[var(--on-accent)] hover:bg-[var(--accent-hover)] disabled:cursor-not-allowed disabled:bg-neutral-400 disabled:text-white" disabled={busy || selectedCount === 0 || selectedCount > 20} onClick={onClick}>Enrich selected companies →</button>{selectedCount > 20 && <p className="text-xs text-[var(--muted)]">Select 20 or fewer businesses ({selectedCount} selected)</p>}</div>;
 }
 export async function jsonRequest(url: string, body?: unknown) {
   const response = await fetch(url, body ? { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : undefined);
@@ -40,7 +41,8 @@ export function MandateNavigation({ mandates, selected, tab = "brief" }: { manda
 }
 
 export function MandateWorkspace({ mandates, initial, tab }: { mandates: MandateView[]; initial: WorkspaceData; tab: string }) {
-  const [data, setData] = useState(initial); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const [notice, setNotice] = useState(""); const [selected, setSelected] = useState<string[]>([]); const [filter, setFilter] = useState(""); const [stage, setStage] = useState("all"); const [certFilter, setCertFilter] = useState(""); const [researchFilter, setResearchFilter] = useState("all"); const [dataFilter, setDataFilter] = useState("all");
+  const [data, setData] = useState(initial); const [selected, setSelected] = useState<string[]>([]); const [filter, setFilter] = useState(""); const [stage, setStage] = useState("all"); const [certFilter, setCertFilter] = useState(""); const [researchFilter, setResearchFilter] = useState("all"); const [dataFilter, setDataFilter] = useState("all");
+  const [enrichingTargets, setEnrichingTargets] = useState<string[] | null>(null);
   const [reviewQueue, setReviewQueue] = useState<string[]>([]);
   const [reviewId, setReviewId] = useState<string | null>(null);
   const id = data.mandate.id;
@@ -66,7 +68,6 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
   }, [refresh]);
   const researchStatus = (m: MembershipView) => businessResearchStatus(m.target.domain, research.findings.filter(f => f.targetId === m.target.id || researchDomain(f.sourceUrl) === m.target.domain).map(f => f.evidence), research.jobs.some(j => !terminalResearchStates.includes(j.status) && [...j.seeds, ...j.config.seeds].some(url => researchDomain(url) === m.target.domain)));
 
-  async function act(body: unknown) { setBusy(true); setError(""); setNotice(""); try { const result = await jsonRequest(`/api/mandates/${id}`, body); setData(await jsonRequest(`/api/mandates/${id}`)); setNotice([...(result.messages || []), ...(result.warnings || [])].filter(Boolean).join(" ") || "Saved."); } catch(e) { setError((e as Error).message); } finally { setBusy(false); } }
   const search = filter.trim().toLowerCase();
   const hasData = (findings: SavedResearchFinding[] | undefined, kind: "headcount" | "revenue" | "person") => Boolean(findings?.some(finding => finding.evidence.kind === kind));
   const filtered = data.memberships.filter(m => {
@@ -83,7 +84,8 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
   const matchingIds = filtered.map(m => m.target.id);
   const allMatchingSelected = matchingIds.length > 0 && matchingIds.every(targetId => selected.includes(targetId));
   const openReview = (targetId: string) => { setReviewQueue(reviewIds); setReviewId(targetId); };
-  return <><MandateNavigation mandates={mandates.map(m => m.id === id ? data.mandate : m)} selected={id} tab={tab} /><div className="space-y-5 p-5 sm:p-8">{tab !== "brief" && <header><p className="text-xs uppercase tracking-widest text-[var(--accent)]">Acquisition workspace</p><h1 className="mt-2 text-3xl font-semibold">{data.mandate.brief.name}</h1></header>}{error && <p role="alert" className="rounded border border-red-400 p-3 text-[var(--status-red)]">{error}</p>}{notice && <p role="status" className="text-sm text-[var(--accent)]">{notice}</p>}
+  if (enrichingTargets) return <><MandateNavigation mandates={mandates} selected={id} tab={tab} /><div className="p-5 sm:p-8"><ContactEnrichmentProgress mandateId={id} targetIds={enrichingTargets} onBack={() => { setEnrichingTargets(null); void refresh(); }} /></div></>;
+  return <><MandateNavigation mandates={mandates.map(m => m.id === id ? data.mandate : m)} selected={id} tab={tab} /><div className="space-y-5 p-5 sm:p-8">{tab !== "brief" && <header><p className="text-xs uppercase tracking-widest text-[var(--accent)]">Acquisition workspace</p><h1 className="mt-2 text-3xl font-semibold">{data.mandate.brief.name}</h1></header>}
     {tab === "brief" && <MandateBriefForm mandateId={id} brief={data.mandate.brief} />}
     {tab === "targets" && <>
       <ResearchPanel mandateId={id} brief={data.mandate.brief} showStartAction={false} onResultsChanged={onResearchResults} />
@@ -99,7 +101,7 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
         <label className="text-xs">Data found<select className={fieldClass} value={dataFilter} onChange={e => setDataFilter(e.target.value)}><option value="all">Any data</option><option value="headcount">Headcount</option><option value="revenue">Revenue</option><option value="person">Decision-maker</option></select></label>
         <label className="text-xs">Accreditation<input className={fieldClass} value={certFilter} onChange={e => setCertFilter(e.target.value)} placeholder="Issuer or scope" /></label>
       </div>
-      <div className="flex flex-wrap items-center gap-3"><CompanyDataAction selectedCount={selected.length} busy={busy} onClick={() => act({ action: "enrich", targetIds: selected, requestId: crypto.randomUUID() })} />{selected.length > 0 && <button type="button" className="text-xs underline" onClick={() => setSelected([])}>Clear selection</button>}</div>
+      <div className="flex flex-wrap items-center gap-3"><CompanyDataAction selectedCount={selected.length} busy={false} onClick={() => setEnrichingTargets([...selected])} />{selected.length > 0 && <button type="button" className="text-xs underline" onClick={() => setSelected([])}>Clear selection</button>}</div>
       {selected.length > 0 && <p className="text-xs text-[var(--muted)]">Company enrichment loads company data and every available person profile. Select up to 20 saved businesses; each may consume multiple credits.</p>}
       {visibleFirmable.length > 0 && <p role="status" className="text-sm text-[var(--accent)]">{visibleFirmable.map(run => `${data.memberships.find(item => item.target.id === run.targetId)?.target.companyName || "Company"}: ${providerNeutralText(run.message)}${run.profilesFound ? ` (${run.profilesSaved}/${run.profilesFound} profiles saved${run.profilesFailed ? `, ${run.profilesFailed} failed` : ""})` : ""}`).join(" · ")}</p>}
       <div className="overflow-x-auto rounded-lg border border-[var(--border)]"><table className="w-full min-w-[1520px] text-left text-sm [&_td]:align-top"><thead className="bg-[var(--panel)]"><tr>
