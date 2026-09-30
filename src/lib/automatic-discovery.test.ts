@@ -76,3 +76,30 @@ it('cancels surplus candidate work once the target is reached', async () => {
   expect(mocks.cancelDiscoveryCandidates).toHaveBeenCalledWith('root');
   expect(mocks.create).not.toHaveBeenCalled();
 });
+it('uses the shared run snapshot without scanning jobs again or importing another run seeds', async () => {
+  const snapshot = { root, jobs: [root, { ...root, id: 'other', seeds: ['https://wrong.example.com/'], config: { researchRunId: 'other-root' } }], dispatched: new Set<string>() } as unknown as import('./research-scheduling-snapshot').ResearchSchedulingSnapshot;
+  mocks.create.mockImplementation(async (id, mandateId, createdBy, config) => ({ ...root, id, mandateId, createdBy, config, status: 'queued' }));
+  await dispatchDiscoveryCandidates('org', 'root', snapshot);
+  expect(mocks.where).not.toHaveBeenCalled();
+  expect(mocks.create.mock.calls.some(c => c[3].companyDomain === 'wrong.example.com')).toBe(false);
+  expect(snapshot.jobs).toHaveLength(10);
+});
+it('logs a safe correlated failed start and retries the durable queued candidate', async () => {
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  const limited = { ...root, config: { ...root.config, discoveryConcurrency: 1 } };
+  const snapshot = { root: limited, jobs: [limited], dispatched: new Set<string>() } as unknown as import('./research-scheduling-snapshot').ResearchSchedulingSnapshot;
+  mocks.create.mockImplementation(async (id, mandateId, createdBy, config) => ({ ...limited, id, mandateId, createdBy, config, status: 'queued' }));
+  mocks.worker.mockRejectedValueOnce(new Error('token=secret https://private.example')).mockResolvedValue({});
+  try {
+    await dispatchDiscoveryCandidates('org', 'root', snapshot);
+    const failedId = snapshot.jobs[1].id;
+    expect(log).toHaveBeenCalledWith('research-diagnostic', expect.stringContaining('"event":"dispatch_deferred"'));
+    const entry = JSON.parse(log.mock.calls.find(c => c[0] === 'research-diagnostic')![1]);
+    expect(entry).toMatchObject({ rootId: 'root', jobId: failedId, reason: 'worker_unavailable' });
+    expect(JSON.stringify(entry)).not.toContain('secret');
+    expect(snapshot.dispatched.has(failedId)).toBe(false);
+    await dispatchDiscoveryCandidates('org', 'root', snapshot);
+    expect(mocks.create).toHaveBeenCalledTimes(1);expect(mocks.worker).toHaveBeenCalledTimes(2);
+    expect(snapshot.dispatched.has(failedId)).toBe(true);
+  } finally { log.mockRestore(); }
+});

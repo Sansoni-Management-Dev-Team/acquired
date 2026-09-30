@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { browserMarkdown } from './browser-reader';
 afterEach(() => vi.useRealTimers());
 const env = { CF_ACCOUNT_ID: 'test', CF_BROWSER_TOKEN: 'test' };
-it('logs the local reader reason, slot snapshot and shared retry scope', async () => {
+it('logs the local reader reason, slot snapshot and website retry scope', async () => {
   const log = vi.spyOn(console, 'info').mockImplementation(() => {});
   try {
     const cooldown = vi.fn(async () => {}), release = vi.fn(async () => {});
@@ -11,11 +11,11 @@ it('logs the local reader reason, slot snapshot and shared retry scope', async (
       jobId: 'job-12345678', requestId: 'request-1234', operation: 'markdown', permit: async () => ({ granted: true, retryAfterMs: 0 }), cooldown, release,
     }, fetcher)).rejects.toMatchObject({ category: 'browser_admission' });
     const events = log.mock.calls.map(call => JSON.parse(String(call[1])));
-    expect(events).toContainEqual(expect.objectContaining({ event: 'reader_deferred', requestId: 'request-1234', category: 'domain_backoff', cooldownScope: 'shared_browser_queue', retryAfterMs: 3000, reader: expect.objectContaining({ activeReads: 2, availableReads: 3, domainActive: true }) }));
+    expect(events).toContainEqual(expect.objectContaining({ event: 'reader_deferred', requestId: 'request-1234', category: 'domain_backoff', cooldownScope: 'website', retryAfterMs: 3000, reader: expect.objectContaining({ activeReads: 2, availableReads: 3, domainActive: true }) }));
     expect(JSON.stringify(events)).not.toContain('private');
     expect(fetcher.mock.calls[0][1]?.headers).toMatchObject({ 'x-request-id': 'request-1234', 'x-research-job-id': 'job-12345678' });
     expect(fetcher).toHaveBeenCalledOnce();
-    expect(cooldown).toHaveBeenCalledWith(3000);
+    expect(cooldown).toHaveBeenCalledWith(3000, 'example.com');
     expect(release).toHaveBeenCalledOnce();
   } finally { log.mockRestore(); }
 });
@@ -119,4 +119,15 @@ it('defers instead of waiting past the admission window', async () => {
   expect(permit.mock.calls.length).toBeLessThanOrEqual(3);
   expect(fetcher).not.toHaveBeenCalled();
   vi.useRealTimers();
+});
+
+
+it.each(['domain_backoff', 'origin_rate_limit', 'reader_busy'])('routes %s cooldown to the appropriate website or shared capacity', async category => {
+  const cooldown = vi.fn(async () => {});
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ category }, { status: 429, headers: { 'retry-after': '2' } }));
+  await expect(browserMarkdown({ LOCAL_DEVELOPMENT: 'true', LOCAL_CRAWL4AI_URL: 'http://127.0.0.1:18083' }, 'https://www.Example.com/', {
+    operation: 'markdown', permit: async () => ({ granted: true, retryAfterMs: 0 }), cooldown,
+  }, fetcher)).rejects.toMatchObject({ category: 'browser_admission' });
+  if (category === 'reader_busy') expect(cooldown).toHaveBeenCalledWith(2000);
+  else expect(cooldown).toHaveBeenCalledWith(2000, 'example.com');
 });

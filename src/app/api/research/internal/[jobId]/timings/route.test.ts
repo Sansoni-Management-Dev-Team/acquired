@@ -23,3 +23,10 @@ it('persists against the job organization and reports missing jobs', async () =>
   expect((await send({ spans: [span] })).status).toBe(404);
   expect(mocks.save).toHaveBeenCalledOnce();
 });
+it('correlates standalone delivery with body measurements without recursive timing writes', async () => {
+ const response = await send({ spans: [span] });
+ expect(response.headers.get('x-request-id')).toMatch(/^[a-f0-9-]{36}$/);
+ expect(response.headers.get('x-research-request-body-bytes')).toBe(String(Buffer.byteLength(JSON.stringify({ spans: [span] }))));
+ expect(response.headers.get('x-research-response-body-bytes')).toBe('11');
+ expect(mocks.save).toHaveBeenCalledTimes(1);
+});

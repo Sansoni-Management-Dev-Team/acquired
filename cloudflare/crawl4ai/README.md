@@ -54,7 +54,10 @@ The reader keeps up to three browser processes warm. Each request gets a unique
 session; its page and context are closed afterwards, so cookies and local storage
 are not shared across research jobs. Damaged/timed-out browsers are discarded.
 Same-domain reads are spaced by three seconds, with a 30-second cooldown after
-an origin 429. Busy responses include `Retry-After`. The Worker preserves a
+an origin 429. While a domain has an active read, `Retry-After` is bounded to
+1–3 seconds so callers recheck availability; the 45-second stale reservation
+lease remains intact and does not become a caller cooldown. Once a read finishes,
+responses advertise the remaining actual cooldown. Busy responses include `Retry-After`. The Worker preserves a
 busy page for bounded continuation rather than marking its sources exhausted.
 Persistent user profiles and interactive CAPTCHA handoff are not enabled.
 

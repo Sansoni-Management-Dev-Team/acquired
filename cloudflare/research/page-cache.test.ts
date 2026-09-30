@@ -74,3 +74,28 @@ it('reports cache hits, expiry and misses without refreshing observation times',
     expect(onEvent).toHaveBeenLastCalledWith('expired');
   } finally { vi.useRealTimers(); }
 });
+
+it('briefly reuses confirmed origin failures, preserves their category and retries after expiry', async () => {
+  vi.useFakeTimers();
+  try {
+    const { ResearchProviderError } = await import('../../src/domain/research-provider-error');
+    const saved = new Map<string, Response>();
+    const cache = { match: async (key: Request) => saved.get(key.url)?.clone(), put: async (key: Request, value: Response) => { saved.set(key.url, value); } };
+    const read = vi.fn(async () => { throw new ResearchProviderError('origin_http_error', 502); });
+    const event = vi.fn();
+    for (let i = 0; i < 2; i++) await expect(cachedPage(cache as unknown as Cache, 'a', 'https://example.com/down', read, event)).rejects.toMatchObject({ category: 'origin_http_error', status: 502 });
+    expect(read).toHaveBeenCalledOnce();
+    expect(event).toHaveBeenLastCalledWith('origin_failure');
+    vi.advanceTimersByTime(15001);
+    await expect(cachedPage(cache as unknown as Cache, 'b', 'https://example.com/down', read)).rejects.toMatchObject({ status: 502 });
+    expect(read).toHaveBeenCalledTimes(2);
+  } finally { vi.useRealTimers(); }
+});
+it('does not cache reader infrastructure failures as website evidence', async () => {
+  const { ResearchProviderError } = await import('../../src/domain/research-provider-error');
+  const cache = { match: vi.fn(async () => undefined), put: vi.fn().mockResolvedValue(undefined) };
+  for (const category of ['reader_failure', 'reader_timeout', 'reader_busy', 'provider_error']) {
+    await expect(cachedPage(cache as unknown as Cache, 'run', 'https://example.com/', async () => { throw new ResearchProviderError(category, 502); })).rejects.toMatchObject({ category });
+  }
+  expect(cache.put).not.toHaveBeenCalled();
+});

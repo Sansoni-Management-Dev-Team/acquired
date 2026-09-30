@@ -1,6 +1,5 @@
 import { researchQueryIdentity, researchResultMetrics } from './research-egress-metrics';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { saveResearchTimingSpans } from '@/db/research-timing-repository';
 import type { ResearchTimingSpan } from '@/domain/research-timing';
 
 type Batch = { jobId: string; organizationId: string; spans: Map<string, ResearchTimingSpan> };
@@ -19,6 +18,7 @@ function requestContext(request: Request): ResearchDatabaseContext {
 type Scope = { requestBodyBytes: number | null; context: ResearchDatabaseContext; databaseResultJsonBytes: number; databaseByteMeasurementsUnavailable: number; requestId: string; started: number; batching: boolean; batches: Map<string, Batch>; databaseMs: number; databaseCalls: number; databaseRowsReturned: number };
 const scopes = new AsyncLocalStorage<Scope>();
 const responseBodySizes = new WeakMap<Response, number>();
+let timingPersistenceModule: Promise<typeof import('@/db/research-timing-repository')> | undefined;
 
 /** Count the body already consumed by the handler. Do not clone/read it again. */
 export async function researchRequestJson(request: Request): Promise<Awaited<ReturnType<Request["json"]>>> {
@@ -57,6 +57,7 @@ export async function flushResearchTiming(): Promise<string[]> {
   for (const [key, batch] of scope.batches) {
     const spans = [...batch.spans.values()];
     try {
+      const { saveResearchTimingSpans } = await (timingPersistenceModule ??= import('@/db/research-timing-repository'));
       await withResearchDatabaseContext({ jobId: batch.jobId, organizationId: batch.organizationId, stage: "telemetry", action: "flush-timings" }, () => saveResearchTimingSpans(batch.jobId, batch.organizationId, spans));
       accepted.push(...spans.map(span => span.id)); scope.batches.delete(key);
     } catch {

@@ -37,6 +37,23 @@ export function candidatesArrivedForRun(jobs: ResearchJob[], startedJobId: strin
 }
 export type ResearchPanelData = { timings?: Record<string, PipelineTimings>; pendingEnrichment?: { jobId: string; runId?: string; targetId?: string; purpose?: string }[]; active?: boolean; results?: { jobId: string; businessDomains?: string[]; added: number; updated: number; people: number }[]; enabled: boolean; jobs: ResearchJob[]; peopleJobs?: ResearchJob[]; companyJobs?: ResearchJob[]; findings: SavedResearchFinding[]; evidence?: Record<string, import("@/domain/evidence-status").EvidenceCounts> };
 type Data = ResearchPanelData;
+// Workspace memberships change with saved evidence/results or run lifecycle,
+// while page counters and stage messages belong to the local progress display.
+export function researchWorkspaceSignature(data: ResearchPanelData) {
+  const jobs = [...data.jobs, ...(data.peopleJobs || []), ...(data.companyJobs || [])];
+  const roots = jobs.filter(job => !job.config.purpose && !job.config.discoveryCandidate)
+    .map(job => [job.id, terminalResearchStates.includes(job.status) ? job.status : 'active']).sort((a, b) => a[0].localeCompare(b[0]));
+  const finished = jobs.filter(job => terminalResearchStates.includes(job.status))
+    .map(job => [job.id, job.status]).sort((a, b) => a[0].localeCompare(b[0]));
+  const companies = [...new Set(jobs.flatMap(job => job.config.newBusinessIds || []))].sort();
+  const findings = data.findings.map(finding => [finding.id, finding.targetId, finding.evidence])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  const results = (data.results || []).filter(result => result.added || result.updated || result.people || result.businessDomains?.length)
+    .map(result => [result.jobId, result.added, result.updated, result.people, [...new Set(result.businessDomains || [])].sort()])
+    .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+  return JSON.stringify([Boolean(data.active), roots, finished, companies, findings, results]);
+}
+
 async function request(url: string, body?: unknown) {
   const r = await fetch(url, {
     method: body ? "POST" : "GET",
@@ -74,14 +91,15 @@ export function ResearchPanel({
   const startedJobId = useRef<string | null>(null);
   const changedRef = useRef(onResultsChanged);
   useEffect(() => { changedRef.current = onResultsChanged; }, [onResultsChanged]);
-  const signatureRef = useRef("");
+  const signatureRef = useRef<{ mandateId: string; signature: string } | null>(null);
   const refresh = useCallback(async () => {
     try {
       const next: Data = await request(`/api/mandates/${mandateId}/research`);
       setData(next);
-      const signature = JSON.stringify([next.jobs.map(j => [j.id, j.status, j.pages, j.message, j.config.newBusinessIds]), next.peopleJobs?.map(j => [j.id, j.status, j.pages]), next.companyJobs?.map(j => [j.id, j.status, j.pages]), next.findings.map(f => [f.id, f.targetId]), next.results]);
-      changedRef.current(next, Boolean(signatureRef.current && signature !== signatureRef.current));
-      signatureRef.current = signature;
+      const signature = researchWorkspaceSignature(next);
+      const previous = signatureRef.current;
+      changedRef.current(next, Boolean(previous?.mandateId === mandateId && signature !== previous.signature));
+      signatureRef.current = { mandateId, signature };
     } catch (e) {
       setError((e as Error).message);
     } finally {

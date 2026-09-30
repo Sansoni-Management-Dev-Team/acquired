@@ -61,7 +61,7 @@ export class OrganizationRepository {
     return created;
   }
 
-  async upsertEnrichedTarget(input: { target: RankedTarget; mandateId: string; actorId: string; existingTargetId?: string }) {
+  async upsertEnrichedTarget(input: { target: RankedTarget; mandateId: string; actorId: string; existingTargetId?: string; creationId?: string }) {
     const { target, actorId } = input;
     const firmable = target.sourceData?.firmable;
     const directory = target.sourceData?.manufacturingDirectory;
@@ -136,9 +136,19 @@ export class OrganizationRepository {
     // Enrichment updates facts, scores and source data. It must never move a
     // company backwards (or forwards) in the user's workflow.
     const storedValues = { ...values, status: existing?.status || values.status, firmographics: { ...retained, ...values.firmographics, manufacturingDirectory: mergedDirectory, ...(retained?.accreditations ? { accreditations: retained.accreditations } : {}) } };
-    const [saved] = existing
-      ? await this.database.update(targets).set(storedValues).where(and(eq(targets.id, existing.id), eq(targets.organizationId, this.organizationId))).returning({ id: targets.id })
-      : await this.database.insert(targets).values({ organizationId: this.organizationId, ...storedValues }).returning({ id: targets.id });
+    const insertTarget = async () => {
+      const query = this.database.insert(targets).values({ ...(input.creationId ? { id: input.creationId } : {}), organizationId: this.organizationId, ...storedValues });
+      const rows = input.creationId ? await query.onConflictDoNothing({ target: targets.id }).returning({ id: targets.id }) : await query.returning({ id: targets.id });
+      if (rows[0]) return rows[0];
+      // A competing research callback created the same organization/domain PK.
+      // Retain its workflow state and profile; this callback's evidence is saved
+      // separately. An organization guard prevents cross-tenant ID collisions.
+      return (await this.database.select({ id: targets.id }).from(targets).where(and(eq(targets.id, input.creationId!), eq(targets.organizationId, this.organizationId))).limit(1))[0];
+    };
+    const saved = existing
+      ? (await this.database.update(targets).set({ ...storedValues, status: sql`${targets.status}` }).where(and(eq(targets.id, existing.id), eq(targets.organizationId, this.organizationId))).returning({ id: targets.id }))[0]
+      : await insertTarget();
+    if (!saved) throw new Error("Unable to persist target in organization");
     await this.appendAudit({
       actorId,
       action: existing ? "target.reenriched" : "target.created",

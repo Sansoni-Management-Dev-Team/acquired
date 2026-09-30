@@ -57,11 +57,38 @@ export type RequestContext = {
   verbose?: boolean;
 };
 
+/** Internal response metrics only; never emit arbitrary header names or descriptions. */
+function callbackMeasurements(headers: Headers) {
+  const timing = headers.get("server-timing") || "";
+  const responseServerTiming: { appMs?: number; dbMs?: number } = {};
+  if (timing.length <= 4096) {
+    for (const entry of timing.split(",")) {
+      // The app emits duration-only metrics. Ignore extensions/descriptions rather
+      // than interpreting arbitrary strings as timing values.
+      const match = /^\s*(app|db)\s*;\s*dur\s*=\s*(\d+(?:\.\d+)?)\s*$/i.exec(entry);
+      if (!match) continue;
+      const duration = Number(match[2]);
+      if (Number.isFinite(duration) && duration <= 86400000) responseServerTiming[match[1].toLowerCase() === "app" ? "appMs" : "dbMs"] = duration;
+    }
+  }
+  const calls = headers.get("x-research-db-calls");
+  const databaseCalls = calls && /^\d{1,6}$/.test(calls) && Number(calls) <= 100000 ? Number(calls) : undefined;
+  const bytes = headers.get('x-research-response-body-bytes');
+  const responseBodyBytes = bytes && /^\d{1,9}$/.test(bytes) && Number(bytes) <= 100_000_000 ? Number(bytes) : undefined;
+  return { ...(Object.keys(responseServerTiming).length ? { responseServerTiming } : {}), ...(databaseCalls !== undefined ? { databaseCalls } : {}), ...(responseBodyBytes !== undefined ? { responseBodyBytes, bodyByteMeasurement: 'application_utf8_body' } : {}) };
+}
+
 /** One request; no retries, additional provider calls, request content or secrets in logs. */
 export async function providerJsonRequest<T>(fetcher: typeof fetch, url: string, init: RequestInit, context: RequestContext): Promise<{ response: Response; data: T }> {
   const { verbose = true, ...fields } = context;
-  const requestId = context.requestId || crypto.randomUUID();
-  const base = { ...fields, requestId };
+  const requestId = context.requestId && (context.provider !== "research-worker" || /^[a-zA-Z0-9_-]{8,100}$/.test(context.requestId)) ? context.requestId : crypto.randomUUID();
+  if (context.provider === "research-worker") {
+    const headers = new Headers(init.headers);
+    headers.set("x-request-id", requestId);
+    init = { ...init, headers };
+  }
+  const requestBodyBytes = typeof init.body === 'string' ? new TextEncoder().encode(init.body).byteLength : init.body == null ? 0 : undefined;
+  const base = { ...fields, requestId, ...(requestBodyBytes !== undefined ? { requestBodyBytes, bodyByteMeasurement: 'application_utf8_body' } : {}) };
   const started = Date.now();
   const emit = (event: string, fields: object) => console.info("research-provider", JSON.stringify({ timestamp: new Date().toISOString(), ...base, event, elapsedMs: Date.now() - started, ...fields }));
   if (verbose) emit("request_started", {});
@@ -71,17 +98,18 @@ export async function providerJsonRequest<T>(fetcher: typeof fetch, url: string,
     emit("request_failed", { failureOrigin: "provider_transport", category: init.signal?.aborted || (error instanceof Error && /TimeoutError|AbortError/.test(error.name)) ? "timeout" : "transport" });
     throw error;
   }
+  const measurements = context.provider === "research-worker" ? callbackMeasurements(response.headers) : {};
   let data: T;
   try { data = await response.json() as T; }
   catch (error) {
     const timedOut = init.signal?.aborted || (error instanceof Error && /TimeoutError|AbortError/.test(error.name));
-    emit("request_failed", { failureOrigin: "upstream_response", httpStatus: response.status, ...providerDiagnostics(response.status, response.headers, {}), category: timedOut ? "timeout" : response.status === 429 ? "rate_limit_unspecified" : "invalid_json_or_interrupted_body", classificationBasis: timedOut ? "abort_signal" : "response_body" });
+    emit("request_failed", { failureOrigin: "upstream_response", httpStatus: response.status, ...measurements, ...providerDiagnostics(response.status, response.headers, {}), category: timedOut ? "timeout" : response.status === 429 ? "rate_limit_unspecified" : "invalid_json_or_interrupted_body", classificationBasis: timedOut ? "abort_signal" : "response_body" });
     if (!response.ok) return { response, data: {} as T };
     throw error;
   }
   const payload = object(data);
   const diagnostics = providerDiagnostics(response.status, response.headers, data, context.provider);
-  if (!response.ok || payload.error || payload.success === false) emit("request_failed", { failureOrigin: "upstream_response", httpStatus: response.status, ...diagnostics });
-  else if (verbose) emit("request_completed", { httpStatus: response.status, providerRequestIds: diagnostics.providerRequestIds, ...("reader" in diagnostics ? { reader: diagnostics.reader } : {}) });
+  if (!response.ok || payload.error || payload.success === false) emit("request_failed", { failureOrigin: "upstream_response", httpStatus: response.status, ...measurements, ...diagnostics });
+  else if (verbose) emit("request_completed", { httpStatus: response.status, ...measurements, providerRequestIds: diagnostics.providerRequestIds, ...("reader" in diagnostics ? { reader: diagnostics.reader } : {}) });
   return { response, data };
 }

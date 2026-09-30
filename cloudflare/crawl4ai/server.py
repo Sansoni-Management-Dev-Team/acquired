@@ -24,6 +24,10 @@ domain_lock = threading.Lock()
 domains = {}
 active_domains = set()
 DOMAIN_DELAY = max(1, int(os.environ.get("CRAWL4AI_DOMAIN_DELAY", "3")))
+# This is a polling hint, not the active read's lease or post-read cooldown.
+# Returning the stale lease (45 seconds) can unnecessarily pause a caller long
+# after a normal 2–5 second read and its real cooldown have finished.
+ACTIVE_DOMAIN_RETRY_SECONDS = 3
 
 
 class ReadError(Exception):
@@ -67,8 +71,10 @@ def claim_domain(host):
         for key in list(domains):
             if domains[key] <= now:
                 del domains[key]
+                active_domains.discard(key)
         if host in domains:
-            return max(1, math.ceil(domains[host] - now))
+            remaining = max(1, math.ceil(domains[host] - now))
+            return min(ACTIVE_DOMAIN_RETRY_SECONDS, remaining) if host in active_domains else remaining
         domains[host] = now + 45
         active_domains.add(host)
         return 0

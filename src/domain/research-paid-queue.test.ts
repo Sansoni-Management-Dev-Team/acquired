@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { consumeProvider, coolDownBrowser, releaseProvider, reservationDelay, reserveProvider, AI_CONCURRENCY, PAID_PAGE_SLOTS, PAID_SEARCH_SLOTS, PAID_START_SPACING_MS, PAID_SEARCH_HOST_SPACING_MS, type ProviderQueue } from './research-provider-queue';
+import { consumeProvider, coolDownBrowser, releaseProvider, reservationDelay, reserveProvider, AI_CONCURRENCY, PAID_PAGE_SLOTS, PAID_SEARCH_SLOTS, PAID_START_SPACING_MS, PAID_SEARCH_HOST_SPACING_MS, PAID_PAGE_DOMAIN_CONCURRENCY, type ProviderQueue } from './research-provider-queue';
 const reserve = (q: ProviderQueue, job: string, provider: 'page'|'search'|'ai', now: number, token = job) => reserveProvider(q, job, token, provider, now, undefined, false, true);
 it('fills the page slots, keeps search slots separate, and staggers starts', () => {
   let queue: ProviderQueue = {};
@@ -131,7 +131,7 @@ it('sustains near slot capacity under polling contention', () => {
   expect(simulate(23)).toBeGreaterThan(1500);
 });
 
-it('starts four overlapping searches one second apart while page reads on one website still cannot overlap', () => {
+it('starts four overlapping searches one second apart while bounding overlapping page reads on one website', () => {
   const a = reserve({}, 'a', 'search', 1000);
   let queue: ProviderQueue = consumeProvider(a.queue, 'a', 'a', 1000, 'duckduckgo.com')!;
   for (let i = 1; i < PAID_SEARCH_SLOTS; i++) {
@@ -146,6 +146,15 @@ it('starts four overlapping searches one second apart while page reads on one we
   }
   const p1 = reserve({}, 'p1', 'page', 1000);
   let pages: ProviderQueue = consumeProvider(p1.queue, 'p1', 'p1', 1000, 'example.com')!;
-  pages = reserve(pages, 'p2', 'page', 5000).queue;
-  expect(consumeProvider(pages, 'p2', 'p2', 5000, 'example.com')).toBeNull();
+  for (let i = 1; i < PAID_PAGE_DOMAIN_CONCURRENCY; i++) {
+    const at = 1000 + i * 4000;
+    const job = `page-${i}`;
+    pages = reserve(pages, job, 'page', at).queue;
+    const consumed = consumeProvider(pages, job, job, at, 'example.com');
+    expect(consumed).not.toBeNull();
+    pages = consumed!;
+  }
+  const at = 1000 + PAID_PAGE_DOMAIN_CONCURRENCY * 4000;
+  pages = reserve(pages, 'extra-page', 'page', at).queue;
+  expect(consumeProvider(pages, 'extra-page', 'extra-page', at, 'example.com')).toBeNull();
 });

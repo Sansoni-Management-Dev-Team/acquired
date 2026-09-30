@@ -13,6 +13,7 @@ export const LOCAL_PAGE_CONCURRENCY = 3;
 export const LOCAL_PAGE_LEASE_MS = 60000;
 export const PAID_SEARCH_HOST_SPACING_MS = 1000;
 const PAID_PAGE_DOMAIN_SPACING_MS = 3000;
+export const PAID_PAGE_DOMAIN_CONCURRENCY = 4;
 export function localProviderPolicy(env: { NODE_ENV?: string; LOCAL_DEVELOPMENT?: string; LOCAL_RESEARCH_POLICY?: string }) {
   return env.NODE_ENV === 'development' && env.LOCAL_DEVELOPMENT === 'true' && env.LOCAL_RESEARCH_POLICY === 'development';
 }
@@ -42,7 +43,7 @@ export function reserveProvider(queue: ProviderQueue, jobId: string, token: stri
 }
 export function consumeProvider(queue: ProviderQueue, token: string, jobId: string, now: number, domain?: string) {
   const reservation = queue.reservations?.find(r => r.token === token && r.jobId === jobId && !r.consumed && r.after <= now && r.until >= now);
-  if (!reservation || providerConsumedAfter(queue, reservation, domain) > now) return null;
+  if (!reservation || providerConsumedAfter(queue, reservation, domain, now) > now) return null;
   return { ...queue, ...(reservation.provider !== 'ai' && !(reservation.local && reservation.provider === 'page') ? { [reservation.local ? 'localSearchConsumedAfter' : 'browserConsumedAfter']: now + (reservation.paid ? PAID_START_SPACING_MS : reservation.local ? LOCAL_SEARCH_CONSUMED_MS : 10000) } : {}), ...(reservation.paid && domain ? { domainAfter: { ...queue.domainAfter, [domain]: now + (reservation.provider === 'search' ? PAID_SEARCH_HOST_SPACING_MS : PAID_PAGE_DOMAIN_SPACING_MS) } } : {}), reservations: queue.reservations!.map(r => r === reservation ? { ...r, consumed: true, ...((r.local && r.provider === 'page') || r.paid ? { until: now + LOCAL_PAGE_LEASE_MS, ...(domain ? { domain } : {}) } : {}) } : r) };
 }
 
@@ -50,16 +51,17 @@ export function consumeProvider(queue: ProviderQueue, token: string, jobId: stri
 export function reservationDelay(queue: ProviderQueue, token: string, jobId: string, now: number, domain?: string) {
   const r = queue.reservations?.find(r => r.token === token && r.jobId === jobId && !r.consumed && r.until >= now);
   if (!r) return null;
-  return Math.max(0, r.after - now, providerConsumedAfter(queue, r, domain) - now);
+  return Math.max(0, r.after - now, providerConsumedAfter(queue, r, domain, now) - now);
 }
 
-function providerConsumedAfter(queue: ProviderQueue, r: ProviderReservation, domain?: string) {
-  if (r.provider === 'ai' || (r.local && r.provider === 'page')) return 0;
+function providerConsumedAfter(queue: ProviderQueue, r: ProviderReservation, domain?: string, now = 0) {
+  if (r.provider === 'ai') return 0;
+  if (r.local && r.provider === 'page') return Math.max(queue.browserCooldownUntil || 0, domain ? queue.domainAfter?.[domain] || 0 : 0);
   const shared = (r.local ? queue.localSearchConsumedAfter : queue.browserConsumedAfter) || 0;
   if (!r.paid) return shared;
-  // Company websites never receive overlapping reads. Searches all target the
-  // one search host, so they may overlap while keeping the start spacing.
-  const activeDomain = domain && r.provider !== 'search' ? (queue.reservations || []).filter(x => x.token !== r.token && x.domain === domain && x.consumed && !x.released).reduce((end, x) => Math.max(end, x.until), 0) : 0;
+  // Sitemap branches may overlap, with a bounded per-host pool and start spacing.
+  const domainReads = domain && r.provider !== 'search' ? (queue.reservations || []).filter(x => x.token !== r.token && x.domain === domain && x.consumed && !x.released && x.until > now) : [];
+  const activeDomain = domainReads.length >= PAID_PAGE_DOMAIN_CONCURRENCY ? Math.min(...domainReads.map(x => x.until)) : 0;
   return Math.max(shared, queue.browserCooldownUntil || 0, domain ? queue.domainAfter?.[domain] || 0 : 0, activeDomain);
 }
 export function releaseProvider(queue: ProviderQueue, token: string, jobId: string): ProviderQueue {
@@ -111,6 +113,8 @@ function reservePaidBrowser(queue: ProviderQueue, jobId: string, token: string, 
   const reservation: ProviderReservation = { token, jobId, provider, paid: true, after: start, until: start + 90000 };
   return { queue: { ...next, browserStartAfter: start + PAID_START_SPACING_MS, reservations: [...reservations, reservation], browserWaiters: waiters.filter(w => w.jobId !== jobId || w.provider !== provider) }, reservation, retryAfterMs: start - now };
 }
-export function coolDownBrowser(queue: ProviderQueue, now: number, retryAfterMs: number): ProviderQueue {
-  return { ...queue, browserCooldownUntil: Math.max(queue.browserCooldownUntil || 0, now + Math.max(1000, Math.min(300000, retryAfterMs))) };
+export function coolDownBrowser(queue: ProviderQueue, now: number, retryAfterMs: number, domain?: string): ProviderQueue {
+  const until = now + Math.max(1000, Math.min(300000, retryAfterMs));
+  if (domain) return { ...queue, domainAfter: { ...Object.fromEntries(Object.entries(queue.domainAfter || {}).filter(([, after]) => after > now)), [domain]: Math.max(queue.domainAfter?.[domain] || 0, until) } };
+  return { ...queue, browserCooldownUntil: Math.max(queue.browserCooldownUntil || 0, until) };
 }

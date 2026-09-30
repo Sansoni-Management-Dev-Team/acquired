@@ -10,7 +10,9 @@ import { businessPrompt, headingCompanyFinding, ownCompany, relevantBusiness, va
 import { companyHeadcountPrompt, companyFactDiagnostics, observedCompanyFacts, companyFactLinks, orderCompanyFactQueue, modelHeadcountFinding } from "./company-facts";
 import { peoplePrompt, validatePeopleFindings, peopleFollowUpLinks, orderPeopleQueue } from "./people-research";
 import { sitemapDocument, sitemapMarkdown, sitemapUrls } from "./sitemap";
+import { observedCompanyIdentifiers } from './company-identifiers';
 import {
+  researchPerformanceFlags,
   extractionPrompt,
   catalogueProductFindings,
   statedSupplyFindings,
@@ -39,6 +41,7 @@ export type ResearchControl = {
   findings?: ResearchPage["findings"];
 };
 export interface ResearchServices {
+  fanoutPages?(urls: string[]): Promise<void>;
   pageLookahead?: boolean;
   discoveryBatch?: boolean;
   diagnostic?(event: Record<string, unknown>): void;
@@ -58,6 +61,8 @@ export interface ResearchServices {
     page?: ResearchPage;
     runtime?: ResearchRuntime;
     enrichmentPendingFields?: ResearchField[];
+    targetedSearchDeferred?: boolean;
+    followupPlannerUsed?: boolean;
     followupExhaustedFields?: ResearchField[];
     followupSearchCounts?: Partial<Record<ResearchField, number>>;
     followupEmptySearchCounts?: Partial<Record<ResearchField, number>>;
@@ -82,7 +87,7 @@ export interface ResearchServices {
   readFallbackPage?(url: string, reservation?: string): ReturnType<ResearchServices["poll"]>;
   peopleFollowup?(reservation?: string): Promise<{ seeds: string[]; legalEntity?: string; warning?: string }>;
   planFollowup?(plan: TargetedPlan): Promise<unknown>;
-  targetedSearch?(field: ResearchField, round: number, reservation?: string): Promise<{ seeds: string[]; warning?: string; exhausted?: boolean; failed?: boolean; retryable?: boolean }>;
+  targetedSearch?(field: ResearchField, round: number, reservation?: string): Promise<{ seeds: string[]; findings?: ResearchPage['findings']; warning?: string; exhausted?: boolean; failed?: boolean; retryable?: boolean; deferred?: boolean; retryAfterMs?: number }>;
   now(): number;
 }
 export async function runResearch(
@@ -98,10 +103,12 @@ export async function runResearch(
   // Diagnostics contain source locations and counts, never page text or model output.
   const source = (value: string) => { try { const url = new URL(value); return `${url.origin}${url.pathname}`; } catch { return "invalid_url"; } };
   const trace = (event: string, details: Record<string, unknown>) => service.diagnostic?.({ event, ...details });
+  let targetedSearchDeferred = false;
   let enrichmentPendingFields: ResearchField[] | undefined;
-  let followupCheckpoint: (() => { followupExhaustedFields: ResearchField[]; followupSearchCounts: Partial<Record<ResearchField, number>>; followupEmptySearchCounts: Partial<Record<ResearchField, number>> }) | undefined;
+  let followupCheckpoint: (() => { followupPlannerUsed: boolean; followupExhaustedFields: ResearchField[]; followupSearchCounts: Partial<Record<ResearchField, number>>; followupEmptySearchCounts: Partial<Record<ResearchField, number>> }) | undefined;
   let runtime: ResearchRuntime = { remaining: [], visited: [], attempts: [] };
   let lastPublishAt = service.now();
+  let coalesceProgress = false;
   // A host that returns no readable content is skipped for the rest of the job.
   const blockedDomains = new Set<string>();
   const publish = async (
@@ -109,7 +116,9 @@ export async function runResearch(
     message: string,
     page?: ResearchPage,
   ) => {
+    if (status === "complete") targetedSearchDeferred = false;
     const event = {
+      targetedSearchDeferred,
       revision: ++revision,
       status,
       pages,
@@ -125,10 +134,13 @@ export async function runResearch(
     lastPublishAt = service.now();
   };
   // Intermediate status text is a liveness heartbeat, not an event: it is
-  // saved only when the last saved progress is older than a minute. Pages,
+  // saved only when the last saved progress is older than the configured interval. Pages,
   // failures and terminal states always publish.
   const heartbeat = async (status: string, message: string) => {
-    if (service.now() - lastPublishAt > 60000) await publish(status, message);
+    // Persist liveness at most once a minute. Control/cancellation checks run
+    // independently before external work; frequent UI status saves do not make
+    // those checks safer and multiply writes during admission/search waits.
+    if (service.now() - lastPublishAt >= (coalesceProgress ? 60000 : 60001)) await publish(status, message);
   };
   const check = async (label: string) =>
     step.do(`control-${label}`, async () => {
@@ -136,14 +148,14 @@ export async function runResearch(
       return { ...data, expired: service.now() >= data.deadline };
     });
   let activeSitemap: Promise<string[]> | undefined;
-  let sitemapQueueMerge: ((links: string[]) => void) | undefined;
+  let sitemapQueueMerge: ((links: string[]) => void | Promise<void>) | undefined;
   const settleSitemap = async () => {
     const pending = activeSitemap;
     const merge = sitemapQueueMerge;
     activeSitemap = undefined;
     sitemapQueueMerge = undefined;
     const links = pending ? await pending : [];
-    merge?.(links);
+    await merge?.(links);
     return links;
   };
   let lookahead: { url: string; result: Promise<Awaited<ReturnType<ResearchServices["poll"]>>> } | undefined;
@@ -169,6 +181,8 @@ export async function runResearch(
   };
   try {
     const initial = await check("start");
+    coalesceProgress = researchPerformanceFlags(initial.config).progressCoalescing;
+    targetedSearchDeferred = Boolean(initial.config.targetedSearchDeferred);
     if (terminalResearchStates.includes(initial.status)) return;
     runtime = {
       remaining: initial.config.parallelDiscovery ? [] : [...(initial.config.runtime?.remaining || initial.seeds)],
@@ -251,7 +265,7 @@ export async function runResearch(
       runtime.visited,
     ).slice(0, 1000);
     const goalProgress = async (label: string) => {
-      if (!initial.config.targetBusinesses || initial.config.purpose) return null;
+      if (!initial.config.targetBusinesses || initial.config.purpose || initial.config.researchTask) return null;
       const current = await check(label);
       return { count: new Set(current.config.newBusinessIds || []).size, target: initial.config.targetBusinesses };
     };
@@ -290,7 +304,8 @@ export async function runResearch(
       } catch { /* Missing or blocked robots.txt falls back to conventional sitemap paths. */ }
       if (!documents.length) documents.push(new URL("/sitemap.xml", origin).href);
       const seen = new Set<string>();
-      for (let index = 0; index < documents.length && seen.size < 3; index++) {
+      const documentLimit = initial.config.researchTask === 'website' ? 20 : 3;
+      for (let index = 0; index < documents.length && seen.size < documentLimit; index++) {
         const document = documents[index];
         if (seen.has(document)) continue;
         seen.add(document);
@@ -314,12 +329,12 @@ export async function runResearch(
     // external search, and searching continues until evidence is found, the
     // query ladder is exhausted, or the page budget ends.
     const MAX_FOLLOWUP_ROUNDS = 28;
-    const followup = { rounds: 0, searches: 0, afterAttempt: -1, readsSinceSearch: 0, searchesExhausted: !service.targetedSearch, plannerUsed: false };
+    const followup = { rounds: 0, searches: 0, afterAttempt: -1, readsSinceSearch: 0, searchesExhausted: !service.targetedSearch, plannerUsed: Boolean(initial.config.followupPlannerUsed) };
     const exhaustedFields = new Set<ResearchField>(initial.config.followupExhaustedFields || []);
     const fieldSearches: Partial<Record<ResearchField, number>> = { ...initial.config.followupSearchCounts };
     const fieldFailures: Partial<Record<ResearchField, number>> = {};
     const emptyFieldSearches: Partial<Record<ResearchField, number>> = { ...initial.config.followupEmptySearchCounts };
-    if (initial.config.targetedFollowup) followupCheckpoint = () => ({ followupExhaustedFields: [...exhaustedFields], followupSearchCounts: { ...fieldSearches }, followupEmptySearchCounts: { ...emptyFieldSearches } });
+    if (initial.config.targetedFollowup) followupCheckpoint = () => ({ followupPlannerUsed: followup.plannerUsed, followupExhaustedFields: [...exhaustedFields], followupSearchCounts: { ...fieldSearches }, followupEmptySearchCounts: { ...emptyFieldSearches } });
     const fieldFound = () => missingResearchFields(initial.config, collected).length === 0;
     const availableField = () => missingResearchFields(initial.config, collected).find(f => !exhaustedFields.has(f));
     const followupPossible = () => Boolean(initial.config.targetedFollowup && initial.config.purpose && followup.rounds < MAX_FOLLOWUP_ROUNDS && !fieldFound());
@@ -366,7 +381,54 @@ export async function runResearch(
             if (beforeSearch.expired) { warnings.push(beforeSearch.stopReason || "Time limit reached before targeted search"); break; }
             const field = choice.field, round = ++followup.searches;
             try {
-              const result = await step.do(`targeted-search-${round}`, (context) => service.targetedSearch!(field, round, ...permitArgs(context)), false);
+              // Capacity contention is not a search outcome. Retry this same
+              // semantic query a bounded number of times with distinct durable
+              // step names, preserving all page/model/query allowances.
+              const MAX_CAPACITY_RETRIES = 3;
+              let result: Awaited<ReturnType<NonNullable<ResearchServices["targetedSearch"]>>> | undefined;
+              for (let capacityRetry = 0; capacityRetry <= MAX_CAPACITY_RETRIES; capacityRetry++) {
+                if (capacityRetry) {
+                  const resumed = await check(`targeted-capacity-retry-${round}-${capacityRetry}`);
+                  if (terminalResearchStates.includes(resumed.status)) return;
+                  if (resumed.expired) {
+                    await publish("partial", resumed.stopReason || "Time limit reached while waiting for targeted search capacity; remaining research retained");
+                    return;
+                  }
+                }
+                const label = capacityRetry ? `targeted-search-${round}-capacity-${capacityRetry}` : `targeted-search-${round}`;
+                result = await step.do(label, context => service.targetedSearch!(field, round, ...permitArgs(context)), false).catch(error => {
+                  if (error instanceof BrowserAdmissionDeferred) return { seeds: [], deferred: true, retryable: true, retryAfterMs: 3000, warning: error.message };
+                  throw error;
+                });
+                if (!result.deferred) { targetedSearchDeferred = false; break; }
+                trace("targeted_search_capacity_deferred", { field, round, capacityRetry, retryAfterMs: result.retryAfterMs, reason: "capacity_contention" });
+                const waiting = await check(`targeted-capacity-wait-${round}-${capacityRetry}`);
+                if (terminalResearchStates.includes(waiting.status)) return;
+                if (waiting.expired) {
+                  await publish("partial", waiting.stopReason || "Time limit reached while waiting for targeted search capacity; remaining research retained");
+                  return;
+                }
+                if (capacityRetry === MAX_CAPACITY_RETRIES || result.warning?.startsWith("Worker request budget reached")) {
+                  targetedSearchDeferred = true;
+                  await publish("partial", result.warning?.startsWith("Worker request budget reached") ? result.warning : "Browser admission deferred; targeted search capacity remains busy; retry remaining research");
+                  return;
+                }
+                const requestedWait = Number.isFinite(result.retryAfterMs) ? result.retryAfterMs! : 3000;
+                await heartbeat("extracting", `Waiting for targeted search capacity for ${fieldLabels[field]}`);
+                const waitMs = Math.min(Math.max(1000, requestedWait), 15000, Math.max(0, waiting.deadline - service.now()));
+                if (waitMs <= 0) {
+                  await publish("partial", waiting.stopReason || "Time limit reached while waiting for targeted search capacity; remaining research retained");
+                  return;
+                }
+                await step.sleep(`wait-targeted-capacity-${round}-${capacityRetry}`, waitMs);
+              }
+              if (!result || result.deferred) throw new BrowserAdmissionDeferred("Targeted search capacity deferred");
+              // A sibling website/page job may have sourced this objective since
+              // our initial control snapshot. Reuse its validated DB evidence.
+              if (result.findings) {
+                collected.push(...result.findings);
+                if (initial.config.enrichmentPhase) enrichmentPendingFields = missingResearchFields(initial.config, collected);
+              }
               const knownSources = new Set([...runtime.visited, ...runtime.remaining].map(researchUrlKey));
               const newSources = uniqueResearchUrls(result.seeds).filter(seed => !knownSources.has(researchUrlKey(seed))).length;
               trace("targeted_search_result", { round, field, seeds: result.seeds.length, exhausted: Boolean(result.exhausted), sources: result.seeds.slice(0, 20).map(source), warning: Boolean(result.warning) });
@@ -404,7 +466,7 @@ export async function runResearch(
       if (!initial.config.purpose) runtime.remaining = runtime.remaining.filter(u => !skipDomains.has(researchDomain(u)) && !unreadableDiscoverySource(u) && !serviceBusinessDomain(u));
       if (initial.config.discoveryCandidate && !directorySource(initial.seeds[0] || "")) runtime.remaining = runtime.remaining.filter(u => researchDomain(u) === initial.config.companyDomain);
       if (initial.config.purpose === "people") runtime.remaining = orderPeopleQueue(runtime.remaining, runtime.visited, initial.config.companyDomain!);
-      if (initial.config.purpose === "firmographics") runtime.remaining = orderCompanyFactQueue(runtime.remaining, initial.config).filter(u => !blockedDomains.has(researchDomain(u)));
+      if (initial.config.purpose === "firmographics") runtime.remaining = (initial.config.researchField === 'abn' ? runtime.remaining.filter(u => publicResearchUrl(u)) : orderCompanyFactQueue(runtime.remaining, initial.config)).filter(u => !blockedDomains.has(researchDomain(u)));
       trace("source_queue", { before: beforeOrder.length, after: runtime.remaining.length, excluded: beforeOrder.filter(u => !runtime.remaining.includes(u)).slice(0, 20).map(source), next: runtime.remaining.slice(0, 5).map(source), reason: "visited_and_purpose_source_filters" });
       if (priorityUrl) {
         runtime.remaining = [priorityUrl, ...runtime.remaining.filter(u=>u!==priorityUrl)];
@@ -462,7 +524,7 @@ export async function runResearch(
         warnings.push(reason);
       };
       // The first page announces the wait; later pages only refresh liveness.
-      if (attempt === 1) await publish("crawling", `Waiting for browser slot — website ${domains.size}, page attempt ${attempt} of ${budget.maxPages}`);
+      if (attempt === 1 && !coalesceProgress) await publish("crawling", `Waiting for browser slot — website ${domains.size}, page attempt ${attempt} of ${budget.maxPages}`);
       else await heartbeat("crawling", `Waiting for browser slot — website ${domains.size}, page attempt ${attempt} of ${budget.maxPages}`);
       try {
         let result: Awaited<ReturnType<ResearchServices["poll"]>> | undefined;
@@ -589,10 +651,19 @@ export async function runResearch(
         }
         // Broad search coordination preserves its request budget. A bounded candidate
         // investigation and its paired company/people enrichment use the sitemap.
-        const firstParty = Boolean((initial.config.purpose || initial.config.discoveryCandidate) && initial.config.companyDomain && researchDomain(sourceUrl) === initial.config.companyDomain);
+      const firstParty = Boolean(initial.config.researchTask !== 'page' && initial.config.researchTask !== 'field' && (initial.config.purpose || initial.config.discoveryCandidate) && initial.config.companyDomain && researchDomain(sourceUrl) === initial.config.companyDomain);
         // Static site discovery and page extraction are independent. Keep its
         // result buffered until the serial queue merge below.
-        const sitemapTask = firstParty ? discoverSitemap(sourceUrl, attempt) : Promise.resolve([]);
+        const siteDiscovery = firstParty ? discoverSitemap(sourceUrl, attempt) : Promise.resolve<string[]>([]);
+        const sitemapTask = initial.config.researchTask === 'website' ? siteDiscovery.then(async links => {
+          if (initial.config.researchTask === 'website' && service.fanoutPages) {
+            const navigation = followUpLinks(result.page!.markdown, sourceUrl, initial.config.searchTerms, runtime.visited);
+            const urls = uniqueResearchUrls([...links, ...navigation]).filter(url => researchDomain(url) === initial.config.companyDomain && researchUrlKey(url) !== researchUrlKey(sourceUrl));
+            // Start page Workflows while homepage extraction is still running.
+            await step.do(`fanout-pages-${attempt}`, () => service.fanoutPages!(urls));
+          }
+          return links;
+        }) : siteDiscovery;
         activeSitemap = sitemapTask;
         pages++;
         entry.status = "read";
@@ -619,12 +690,16 @@ export async function runResearch(
           ],
           runtime.visited,
         ).slice(0, 1000); };
-        queuePageLinks(markdown);
-        sitemapQueueMerge = links => { if (links.length) queuePageLinks(`${markdown}\n${sitemapMarkdown(links)}`); };
+        if (initial.config.researchTask !== 'page') queuePageLinks(markdown);
+        sitemapQueueMerge = async links => {
+          if (initial.config.researchTask === 'website' && service.fanoutPages) {
+            runtime.remaining = [];
+          } else if (links.length && initial.config.researchTask !== 'page') queuePageLinks(`${markdown}\n${sitemapMarkdown(links)}`);
+        };
         let findings: ResearchPage["findings"] = [];
         const directPeople = initial.config.purpose === "people" || initial.config.purpose === "firmographics" ? validatePeopleFindings([], markdown, sourceUrl, initial.config) : [];
         const directIdentity = initial.config.purpose === "firmographics" ? headingCompanyFinding(markdown, sourceUrl) : null;
-        const directlyObserved = initial.config.purpose === "firmographics" ? observedCompanyFacts(markdown, sourceUrl, initial.config) : directPeople;
+        const directlyObserved = initial.config.purpose === "firmographics" ? [...observedCompanyFacts(markdown, sourceUrl, initial.config), ...observedCompanyIdentifiers(markdown, sourceUrl, initial.config)] : directPeople;
         if (directIdentity && !ownCompany([...collected, ...directlyObserved], sourceUrl)) directlyObserved.push(directIdentity);
         // One known, same-company page may read while this page's AI runs. No
         // extraction, queue writes or second same-host read runs concurrently.
@@ -649,7 +724,7 @@ export async function runResearch(
         }
         if (initial.config.purpose === "firmographics") {
           findings = directlyObserved;
-          if (initial.config.mode === "automatic" && researchDomain(sourceUrl) === initial.config.companyDomain && !ownCompany([...collected, ...findings], sourceUrl) && modelCalls < budget.maxModelCalls) {
+          if (!initial.config.researchField && initial.config.mode === "automatic" && researchDomain(sourceUrl) === initial.config.companyDomain && !ownCompany([...collected, ...findings], sourceUrl) && modelCalls < budget.maxModelCalls) {
             modelCalls++;
             await heartbeat("extracting", "Checking company identity and products alongside company details");
             try {
@@ -668,7 +743,7 @@ export async function runResearch(
           // A labelled count is preferred. Otherwise the model may locate a statement on an
           // identity-matched page; the statement is re-derived verbatim before it is kept.
           const diagnostics = companyFactDiagnostics(markdown, sourceUrl, initial.config);
-          if (!extractionDeferred && ![...collected, ...findings].some(f => f.kind === "headcount") && diagnostics.eligibleSource && diagnostics.employmentLanguage && service.extractHeadcount && modelCalls < budget.maxModelCalls) {
+          if ((!initial.config.researchField || initial.config.researchField === 'size') && !extractionDeferred && ![...collected, ...findings].some(f => f.kind === "headcount") && diagnostics.eligibleSource && diagnostics.employmentLanguage && service.extractHeadcount && modelCalls < budget.maxModelCalls) {
             modelCalls++;
             await heartbeat("extracting", `Checking ${new URL(sourceUrl).hostname} for a stated headcount`);
             try {
@@ -744,6 +819,7 @@ export async function runResearch(
           break;
         }
         delete runtime.pendingPage;
+        targetedSearchDeferred = false;
         if (initial.config.purpose === "people") {
           findings.push(...observedCompanyFacts(markdown, sourceUrl, initial.config));
           // Keep directly observed team evidence even when the model failed or its allowance ended.
@@ -756,8 +832,10 @@ export async function runResearch(
           const heading = headingCompanyFinding(markdown, sourceUrl);
           if (heading) findings = [heading, ...findings];
         }
-        findings = [...findings, ...catalogue].slice(0, initial.config.purpose === "firmographics" ? 12 : 4);
+        if (initial.config.researchTask === 'website' || initial.config.researchTask === 'page') findings.push(...observedCompanyFacts(markdown, sourceUrl, initial.config), ...validatePeopleFindings([], markdown, sourceUrl, initial.config).filter(f => f.kind === 'person'));
+        findings = [...findings, ...catalogue].slice(0, initial.config.purpose === "firmographics" || initial.config.researchTask ? 12 : 4);
         if (catalogue.length) entry.reason = `${findings.length} supported claims including directly observed website evidence; financial fit remains unknown`;
+        findings.push(...observedCompanyIdentifiers(markdown, sourceUrl, initial.config).filter(f => !findings.some(other => other.kind === f.kind && other.name === f.name && other.value === f.value)));
         const learnedLegalEntity = findings.some(f => f.kind === "identifier" && f.name === "Legal entity") && !collected.some(f => f.kind === "identifier" && f.name === "Legal entity");
         collected.push(...findings);
         if (initial.config.enrichmentPhase) enrichmentPendingFields = missingResearchFields(initial.config, collected);
@@ -817,7 +895,7 @@ export async function runResearch(
     await discardLookahead();
     if (initial.config.mode === "automatic" && initial.config.purpose && fieldFound()) {
       trace("run_finished", { pages, modelCalls, reason: "requested_evidence_found", purpose: initial.config.purpose });
-      await publish("complete", initial.config.purpose === "people" ? "Sourced owner or director candidate and published email found; verify ownership and sale authority before outreach." : "Sourced headcount and revenue found; company evidence is ready for review.");
+      await publish("complete", initial.config.purpose === "people" ? "Sourced owner or director candidate and published email found; verify ownership and sale authority before outreach." : (initial.config.researchField ? `Sourced ${fieldLabels[initial.config.researchField]} found; evidence is ready for review.` : "Sourced headcount and revenue found; company evidence is ready for review."));
       return;
     }
     if (await finishAtGoal("final-goal")) return;

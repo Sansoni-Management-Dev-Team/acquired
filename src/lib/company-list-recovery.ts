@@ -4,9 +4,7 @@ import { researchJobs } from '@/db/schema';
 import { ResearchRepository } from '@/db/research-repository';
 import { terminalResearchStates, type ResearchConfig } from '@/domain/research';
 import { researchEnabled, researchWorker } from './research-service';
-import { dispatchContinuation } from './research-continuation';
-import { dispatchDiscoveryCandidates } from './automatic-discovery';
-import { dispatchAutomaticEnrichment } from './automatic-enrichment';
+import { scheduleResearchRun } from './research-scheduler';
 
 // Recovery is independent of the progress payload and runs at a slower cadence.
 export async function recoverCompanyListWork(org: string, mandateId: string, now = Date.now()) {
@@ -26,7 +24,7 @@ export async function recoverCompanyListWork(org: string, mandateId: string, now
     } catch { /* Unavailable status does not imply a stopped worker. */ }
   }
   for (const root of jobs.filter(j => j.config.mode === 'automatic' && !j.config.researchRunId && j.status !== 'cancelled' && now < (j.config.automaticDeadline || 0))) {
-    try { await dispatchContinuation(org, root.id); await dispatchDiscoveryCandidates(org, root.id); await dispatchAutomaticEnrichment(org, root.id); } catch { /* Next recovery pass retries durable work. */ }
+    try { await scheduleResearchRun(org, root.id, { recovery: true }); } catch { /* Next recovery pass retries durable work. */ }
   }
   const result = await db.execute(sql`SELECT r.id,r.status,r.updated_at FROM public.firmable_sync_runs r JOIN public.mandate_targets m ON m.target_id=r.target_id AND m.organization_id=r.organization_id WHERE m.organization_id=${org} AND m.mandate_id=${mandateId} AND r.status IN ('queued','running')`);
   const runs = (Array.isArray(result) ? result : (result as { rows: { id: string; status: string; updated_at: string | Date }[] }).rows) as { id: string; status: string; updated_at: string | Date }[];

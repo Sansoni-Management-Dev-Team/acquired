@@ -25,3 +25,13 @@ it('accepts partial follow-up counters in progress checkpoints', () => {
   const result = progressSchema.safeParse({ revision: 1, status: 'partial', pages: 1, modelCalls: 0, message: 'Deeper research pending', enrichmentPendingFields: ['people', 'email'], followupSearchCounts: { people: 1 }, followupEmptySearchCounts: {}, followupExhaustedFields: ['people'] });
   expect(result.success).toBe(true);
 });
+
+it.each([true, false])('preserves explicit targeted capacity flag %s in progress validation', targetedSearchDeferred => {
+ const checkpoint = progressSchema.parse({ revision: 1, status: 'partial', pages: 0, modelCalls: 0, message: 'Capacity checkpoint', targetedSearchDeferred });
+ expect(checkpoint.targetedSearchDeferred).toBe(targetedSearchDeferred);
+});
+
+it.each([true, false])('preserves follow-up planner attempt flag %s in progress validation', followupPlannerUsed => {
+ const checkpoint = progressSchema.parse({ revision: 1, status: 'partial', pages: 0, modelCalls: 1, message: 'Planner checkpoint', followupPlannerUsed });
+ expect(checkpoint.followupPlannerUsed).toBe(followupPlannerUsed);
+});

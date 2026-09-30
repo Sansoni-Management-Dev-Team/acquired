@@ -452,6 +452,18 @@ it("does not spend AI calls on an explicit company team card",async()=>{
 });
 
 describe("new business target", () => {
+  it.each(['website', 'page'] as const)('finishes the admitted %s evidence budget after the root goal is reached', async researchTask => {
+    const { config, service, step, progress } = setup();
+    Object.assign(config, { mode: 'automatic', workflow: 'business', researchTask, researchRunId: 'root', companyDomain: 'instruments.example.com', discoveryCandidate: researchTask === 'website', targetBusinesses: 1, newBusinessIds: ['already-saved'] });
+    config.budget = { maxPages: 1, maxDomains: 1, maxMinutes: 10, maxModelCalls: 1 };
+    service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: 'Example Instruments makes sensors. [Sensor products](/products)' } }));
+    await runResearch(step, service);
+    expect(service.readPage).toHaveBeenCalledTimes(1);
+    expect(service.extract).toHaveBeenCalledTimes(1);
+    expect(progress.mock.calls.flatMap(([event]) => event.page?.findings || [])).toContainEqual(expect.objectContaining({ kind: 'company', name: 'Example Instruments' }));
+    expect(progress.mock.calls.at(-1)?.[0]).toMatchObject({ pages: 1, modelCalls: 1 });
+    expect(progress.mock.calls.at(-1)?.[0].message).not.toContain('target reached');
+  });
   it("stops before crawling when discovery has reached the distinct business target", async () => {
     const { config, service, step, progress } = setup();
     config.targetBusinesses = 2;
@@ -772,8 +784,9 @@ it('publishes the browser-wait notice as a heartbeat rather than once per page',
   expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'complete', pages: 3 });
 });
 
-it('overlaps one same-company lookahead read with AI and consumes its result once', async () => {
+it.each([false, true])('overlaps and durably checkpoints lookahead exactly once with coalescing=%s', async enabled => {
   const t = setup();
+  t.config.performanceFlags = { progressCoalescing: enabled };
   Object.assign(t.config, { purpose: 'people', companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
   t.service.pageLookahead = true;
   let signalRead!: () => void;
@@ -851,8 +864,9 @@ it('plans a batch once and gives concurrent discovery calls distinct operation p
   expect(new Set(permits).size).toBe(2);
 }, 1000);
 
-it('joins a lookahead read when cancellation arrives during extraction', async () => {
+it.each([false, true])('joins lookahead on cancellation during extraction with coalescing=%s', async enabled => {
   const t = setup();
+  t.config.performanceFlags = { progressCoalescing: enabled };
   Object.assign(t.config, { purpose: 'people', companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
   t.service.pageLookahead = true;
   let releaseRead!: () => void;
@@ -913,8 +927,9 @@ it('defers deep missing-field searches after repeated successful empty results w
   expect(t.progress.mock.calls.at(-1)?.[0].message).toContain('2 successful searches returned no new sources');
 });
 
-it('retains a read page for extraction when AI admission is deferred and does not consume a model call', async () => {
+it.each([false, true])('retains a read page for deferred extraction with coalescing=%s and does not consume a model call', async enabled => {
   const t = setup();
+  t.config.performanceFlags = { progressCoalescing: enabled };
   t.config.budget.maxPages = 1;
   t.service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: 'Example Instruments makes sensors.' } }));
   t.service.extract = vi.fn(async () => { throw new BrowserAdmissionDeferred('Worker request budget reached'); });
@@ -990,3 +1005,235 @@ it('joins sitemap work and retains its links when an extraction checkpoint is de
   expect(t.progress.mock.calls.at(-1)?.[0].runtime?.remaining).toEqual(expect.arrayContaining([t.config.seeds[0], 'https://instruments.example.com/contact']));
   expect(t.progress.mock.calls.at(-1)?.[0].runtime?.pendingPage?.url).toBe(t.config.seeds[0]);
 }, 1000);
+
+it('coalesces the first status-only browser wait while preserving page, crawl-id and terminal checkpoints', async () => {
+  const t = setup();
+  t.config.performanceFlags = { progressCoalescing: true };
+  await runResearch(t.step, t.service);
+  expect(t.progress.mock.calls.some(([e]) => e.message.startsWith('Waiting for browser slot'))).toBe(false);
+  expect(t.progress.mock.calls.some(([e]) => e.crawlId === '00000000-0000-4000-8000-000000000010')).toBe(true);
+  expect(t.progress.mock.calls.some(([e]) => e.page?.findings.length)).toBe(true);
+  expect(t.progress.mock.calls.at(-1)?.[0].status).toBe('complete');
+  expect(t.progress.mock.calls.map(([e]) => e.revision)).toEqual(t.progress.mock.calls.map((_, n) => n + 1));
+});
+
+it.each([{ gap: 11000, publish: false }, { gap: 61000, publish: true }])('persists minute heartbeats with gap=$gap without changing controls or budgets', async ({ gap, publish }) => {
+  const controls: string[][] = [];
+  for (const enabled of [true, false]) {
+    const t = setup();
+    t.config.performanceFlags = { progressCoalescing: enabled };
+    const originalBudget = structuredClone(t.config.budget);
+    t.config.seeds.push('https://instruments.example.com/products');
+    t.service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: 'Example Instruments makes sensors.' } }));
+    t.progress.mockImplementation(async event => { if (event.page) t.setNow(15000); });
+    const control = t.service.control;
+    t.service.control = async () => {
+      const result = await control();
+      if (t.progress.mock.calls.some(([e]) => e.page)) t.setNow(15000 + gap);
+      return result;
+    };
+    await runResearch(t.step, t.service);
+    expect(t.progress.mock.calls.some(([e]) => e.message.includes('page attempt 2'))).toBe(publish);
+    expect(t.progress.mock.calls.filter(([e]) => e.page)).toHaveLength(2);
+    expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'complete', pages: 2, modelCalls: 2 });
+    expect(t.config.budget).toEqual(originalBudget);
+    controls.push(vi.mocked(t.step.do).mock.calls.map(([name]) => name).filter(name => name.startsWith('control-')));
+  }
+  expect(controls[0]).toEqual(controls[1]);
+});
+
+it('runs the explicit Fire Central ABN search and verifies the registry without needing company-fit evidence', async () => {
+  const t = setup();
+  Object.assign(t.config, { mode: 'automatic', purpose: 'firmographics', researchTask: 'field', researchField: 'abn', targetedFollowup: true, companyName: 'Fire Central Pty Ltd', companyDomain: 'firecentral.com.au', companyLocation: 'Carlton VIC', seeds: [] });
+  t.config.budget = { maxPages: 3, maxDomains: 3, maxMinutes: 10, maxModelCalls: 0 };
+  const registry = 'https://abr.business.gov.au/ABN/View?abn=56663118241';
+  t.service.discover = vi.fn(async () => ({ seeds: [] }));
+  t.service.targetedSearch = vi.fn(async () => ({ seeds: [registry], exhausted: true }));
+  t.service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: '# Current details for ABN 56 663 118 241\nEntity name: FIRE CENTRAL PTY LTD\nMain business location: VIC 3053' } }));
+  await runResearch(t.step, t.service);
+  expect(t.service.targetedSearch).toHaveBeenCalledWith('abn', 1);
+  expect(t.progress.mock.calls.flatMap(([event]) => event.page?.findings || [])).toContainEqual(expect.objectContaining({ name: 'ABN', value: '56663118241' }));
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'complete', pages: 1, modelCalls: 0 });
+});
+it('fans out every sitemap page instead of serially consuming them in the website job', async () => {
+  const t = setup();
+  Object.assign(t.config, { researchTask: 'website', discoveryCandidate: true, companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
+  t.config.budget = { maxPages: 1, maxDomains: 1, maxMinutes: 10, maxModelCalls: 0 };
+  t.service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: '# Example Instruments\nWe manufacture precision sensors.' } }));
+  t.service.readSiteFile = vi.fn(async url => ({ status: 'completed', page: { url, markdown: url.endsWith('/robots.txt') ? 'Sitemap: https://instruments.example.com/sitemap.xml' : '<urlset><url><loc>https://instruments.example.com/team</loc></url><url><loc>https://instruments.example.com/contact</loc></url><url><loc>https://instruments.example.com/any-unranked-page</loc></url><url><loc>https://other.example/unrelated</loc></url></urlset>' } }));
+  t.service.fanoutPages = vi.fn(async () => {});
+  await runResearch(t.step, t.service);
+  expect(t.service.readPage).toHaveBeenCalledTimes(1);
+  expect(t.service.fanoutPages).toHaveBeenCalledWith(expect.arrayContaining(['https://instruments.example.com/team', 'https://instruments.example.com/contact', 'https://instruments.example.com/any-unranked-page']));
+  expect(vi.mocked(t.service.fanoutPages).mock.calls[0][0]).not.toContain('https://other.example/unrelated');
+  expect(t.progress.mock.calls.at(-1)?.[0].runtime?.remaining).toEqual([]);
+});
+it('finishes the independent headcount objective without waiting for revenue', async () => {
+  const t = setup();
+  Object.assign(t.config, { mode: 'automatic', purpose: 'firmographics', researchTask: 'field', researchField: 'size', targetedFollowup: true, companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
+  t.config.budget.maxModelCalls = 0;
+  t.service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: '# Example Instruments\nWe employ 50 employees.' } }));
+  t.service.targetedSearch = vi.fn();
+  await runResearch(t.step, t.service);
+  expect(t.progress.mock.calls.at(-1)?.[0].status).toBe('complete');
+  expect(t.service.targetedSearch).not.toHaveBeenCalled();
+});
+it('reads a sitemap child once and never recursively scans sitemaps or follows its page links', async () => {
+  const t = setup();
+  Object.assign(t.config, { researchTask: 'page', companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
+  t.config.budget = { maxPages: 1, maxDomains: 1, maxMinutes: 10, maxModelCalls: 0 };
+  t.service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: '# Example Instruments\nWe employ 50 employees.\n[More](https://instruments.example.com/more)' } }));
+  t.service.readSiteFile = vi.fn(); t.service.fanoutPages = vi.fn();
+  await runResearch(t.step, t.service);
+  expect(t.service.readPage).toHaveBeenCalledTimes(1);
+  expect(t.service.readSiteFile).not.toHaveBeenCalled();
+  expect(t.service.fanoutPages).not.toHaveBeenCalled();
+  expect(t.progress.mock.calls.flatMap(([event]) => event.page?.findings || [])).toContainEqual(expect.objectContaining({ kind: 'headcount', value: '50 employees' }));
+});
+it('completes a field from validated evidence found concurrently by a sibling job', async () => {
+  const t = setup();
+  Object.assign(t.config, { mode: 'automatic', purpose: 'firmographics', researchTask: 'field', researchField: 'size', targetedFollowup: true, companyName: 'Example Instruments', companyDomain: 'instruments.example.com', seeds: [] });
+  t.service.discover = vi.fn(async () => ({ seeds: [] }));
+  t.config.budget.maxModelCalls = 0;
+  t.service.targetedSearch = vi.fn(async () => ({ seeds: [], exhausted: true, findings: [{ kind: 'headcount' as const, name: 'Headcount', value: '50 employees', quote: 'We employ 50 employees', website: 'https://instruments.example.com/' }] }));
+  await runResearch(t.step, t.service);
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'complete', pages: 0 });
+  expect(t.service.submit).not.toHaveBeenCalled();
+});
+
+it('coalesces status saves during slow targeted searches while checking controls before each search', async () => {
+  const t = setup();
+  Object.assign(t.config, { seeds: [], purpose: 'firmographics', targetedFollowup: true, companyName: 'Example Instruments', companyDomain: 'instruments.example.com', performanceFlags: { progressCoalescing: true } });
+  t.config.budget.maxModelCalls = 0;
+  let searches = 0;
+  t.service.targetedSearch = vi.fn(async () => {
+    t.setNow(++searches * 11000);
+    return { seeds: [], exhausted: false };
+  });
+  await runResearch(t.step, t.service);
+  expect(searches).toBe(8);
+  expect(t.progress.mock.calls.filter(([e]) => e.status === 'extracting')).toHaveLength(1);
+  const controls = vi.mocked(t.step.do).mock.calls.map(([name]) => name);
+  for (let round = 1; round <= 8; round++) {
+    expect(controls).toContain(`control-targeted-followup-${round}`);
+    expect(controls).toContain(`control-targeted-search-${round}`);
+  }
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'partial', pages: 0, modelCalls: 0, followupSearchCounts: { size: 5, revenue: 3 } });
+});
+
+it('honours cancellation between short status-save intervals without performing another targeted search', async () => {
+  const t = setup();
+  Object.assign(t.config, { seeds: [], purpose: 'firmographics', targetedFollowup: true, companyName: 'Example Instruments', companyDomain: 'instruments.example.com', performanceFlags: { progressCoalescing: true } });
+  t.config.budget.maxModelCalls = 0;
+  let searches = 0;
+  t.service.targetedSearch = vi.fn(async () => {
+    t.setNow(++searches * 11000);
+    if (searches === 2) t.setStatus('cancelled');
+    return { seeds: [], exhausted: false };
+  });
+  await runResearch(t.step, t.service);
+  expect(searches).toBe(2);
+  expect(vi.mocked(t.step.do).mock.calls.map(([name]) => name)).toContain('control-targeted-followup-3');
+  expect(t.progress.mock.calls.filter(([e]) => e.status === 'extracting')).toHaveLength(0);
+  expect(t.service.readPage).toBeUndefined();
+  expect(t.service.submit).not.toHaveBeenCalled();
+});
+
+function targetedCapacityFixture() {
+  const t = setup();
+  Object.assign(t.config, { seeds: [], mode: 'automatic', purpose: 'firmographics', researchTask: 'field', researchField: 'size', targetedFollowup: true, companyName: 'Example Instruments', companyDomain: 'instruments.example.com', enrichmentPhase: 'deep', diminishingReturnsSearches: 2 });
+  t.config.budget = { maxPages: 3, maxDomains: 1, maxMinutes: 10, maxModelCalls: 0 };
+  return t;
+}
+
+it('retries targeted capacity deferrals without consuming semantic search or diminishing-return budgets', async () => {
+  const t = targetedCapacityFixture();
+  t.config.targetedSearchDeferred = true;
+  t.service.targetedSearch = vi.fn().mockResolvedValueOnce({ seeds: [], deferred: true, retryable: true, retryAfterMs: 5000 }).mockResolvedValueOnce({ seeds: [], deferred: true, retryable: true, retryAfterMs: 5000 }).mockResolvedValue({ seeds: [], findings: [{ kind: 'headcount', name: 'Headcount', value: '50 employees', quote: 'We employ 50 employees', website: 'https://instruments.example.com/' }], exhausted: true });
+  await runResearch(t.step, t.service);
+  expect(vi.mocked(t.service.targetedSearch).mock.calls.map(([field, round]) => [field, round])).toEqual([['size', 1], ['size', 1], ['size', 1]]);
+  expect(t.step.sleep).toHaveBeenCalledTimes(2);
+  expect(t.progress.mock.calls[0][0].targetedSearchDeferred).toBe(true);
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'complete', targetedSearchDeferred: false, pages: 0, modelCalls: 0, followupSearchCounts: { size: 1 } });
+  const names = vi.mocked(t.step.do).mock.calls.map(([name]) => name).filter(name => name.startsWith('targeted-search-'));
+  expect(new Set(names).size).toBe(names.length);
+});
+
+it('bounds persistent targeted capacity waits and checkpoints pending research without exhausted fields', async () => {
+  const t = targetedCapacityFixture();
+  t.service.targetedSearch = vi.fn(async () => ({ seeds: [], deferred: true, retryable: true, retryAfterMs: 999999 }));
+  await runResearch(t.step, t.service);
+  expect(t.service.targetedSearch).toHaveBeenCalledTimes(4);
+  expect(t.step.sleep).toHaveBeenCalledTimes(3);
+  expect(vi.mocked(t.step.sleep).mock.calls.every(([, milliseconds]) => milliseconds > 0 && milliseconds <= 15000)).toBe(true);
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'partial', targetedSearchDeferred: true, pages: 0, modelCalls: 0, followupSearchCounts: {}, followupEmptySearchCounts: {}, followupExhaustedFields: [], enrichmentPendingFields: ['size'] });
+  expect(t.progress.mock.calls.at(-1)?.[0].message).toContain('targeted search capacity');
+});
+
+it('checks cancellation after a targeted capacity wait before another provider call', async () => {
+  const t = targetedCapacityFixture();
+  t.service.targetedSearch = vi.fn(async () => ({ seeds: [], deferred: true, retryable: true, retryAfterMs: 3000 }));
+  t.step.sleep = vi.fn(async () => { t.setStatus('cancelled'); });
+  await runResearch(t.step, t.service);
+  expect(t.service.targetedSearch).toHaveBeenCalledTimes(1);
+  expect(t.step.sleep).toHaveBeenCalledTimes(1);
+  expect(t.progress.mock.calls.some(([event]) => event.status === 'complete')).toBe(false);
+});
+
+it('limits a targeted capacity wait to the existing deadline without resetting budgets', async () => {
+  const t = targetedCapacityFixture();
+  t.setNow(599000);
+  t.service.targetedSearch = vi.fn(async () => ({ seeds: [], deferred: true, retryable: true, retryAfterMs: 15000 }));
+  t.step.sleep = vi.fn(async (_name, milliseconds) => { t.setNow(599000 + milliseconds); });
+  await runResearch(t.step, t.service);
+  expect(t.service.targetedSearch).toHaveBeenCalledTimes(1);
+  expect(t.step.sleep).toHaveBeenCalledWith(expect.any(String), 1000);
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'partial', modelCalls: 0, followupSearchCounts: {}, followupExhaustedFields: [] });
+  expect(t.config.budget).toMatchObject({ maxPages: 3, maxModelCalls: 0, maxMinutes: 10 });
+});
+
+it('recovers targeted step admission deferral without treating it as an exhausted search', async () => {
+  const t = targetedCapacityFixture();
+  t.service.targetedSearch = vi.fn(async () => ({ seeds: [], exhausted: true }));
+  t.step.do = vi.fn(async (name, run) => {
+    if (name === 'targeted-search-1') throw new BrowserAdmissionDeferred('Reader capacity temporarily busy');
+    return run();
+  });
+  await runResearch(t.step, t.service);
+  expect(t.step.sleep).toHaveBeenCalledTimes(1);
+  expect(t.service.targetedSearch).toHaveBeenCalledTimes(1);
+  expect(t.progress.mock.calls.at(-1)?.[0].followupSearchCounts).toEqual({ size: 1 });
+});
+
+it('yields immediately when the targeted checkpoint request guard is reached', async () => {
+  const t = targetedCapacityFixture();
+  t.step.do = vi.fn(async (name, run) => {
+    if (name === 'targeted-search-1') throw new BrowserAdmissionDeferred('Worker request budget reached; continue with a fresh request budget');
+    return run();
+  });
+  t.service.targetedSearch = vi.fn();
+  await runResearch(t.step, t.service);
+  expect(t.service.targetedSearch).not.toHaveBeenCalled();
+  expect(t.step.sleep).not.toHaveBeenCalled();
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'partial', followupSearchCounts: {}, followupExhaustedFields: [], modelCalls: 0, pages: 0 });
+  expect(t.progress.mock.calls.at(-1)?.[0].message).toContain('Worker request budget reached');
+});
+
+it('persists a paid follow-up planner attempt and does not bill it again after capacity continuation', async () => {
+  const first = targetedCapacityFixture();
+  first.config.budget.maxModelCalls = 2;
+  first.service.planFollowup = vi.fn(async () => ({ choice: 'search_size' }));
+  first.service.targetedSearch = vi.fn(async () => ({ seeds: [], deferred: true, retryable: true, retryAfterMs: 1000 }));
+  await runResearch(first.step, first.service);
+  const checkpoint = first.progress.mock.calls.at(-1)?.[0];
+  expect(first.service.planFollowup).toHaveBeenCalledTimes(1);
+  expect(checkpoint).toMatchObject({ modelCalls: 1, targetedSearchDeferred: true, followupPlannerUsed: true });
+  const resumed = targetedCapacityFixture();
+  Object.assign(resumed.config, { ...first.config, runtime: checkpoint?.runtime, targetedSearchDeferred: true, followupPlannerUsed: checkpoint?.followupPlannerUsed, budget: { ...first.config.budget, maxModelCalls: first.config.budget.maxModelCalls - checkpoint!.modelCalls } });
+  resumed.service.planFollowup = vi.fn(async () => ({ choice: 'search_size' }));
+  resumed.service.targetedSearch = vi.fn(async () => ({ seeds: [], exhausted: true, findings: [{ kind: 'headcount' as const, name: 'Headcount', value: '50 employees', quote: 'We employ 50 employees', website: 'https://instruments.example.com/' }] }));
+  await runResearch(resumed.step, resumed.service);
+  expect(resumed.service.planFollowup).not.toHaveBeenCalled();
+  expect(resumed.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'complete', pages: 0, modelCalls: 0, targetedSearchDeferred: false, followupPlannerUsed: true });
+  expect(resumed.config.budget).toMatchObject({ maxPages: 3, maxModelCalls: 1 });
+});

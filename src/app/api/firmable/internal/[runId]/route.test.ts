@@ -2,8 +2,6 @@ import { beforeEach, expect, it, vi } from "vitest";
 
 vi.mock("@/db/research-timing-repository", () => ({ saveResearchTimingSpans: vi.fn() }));
 
-vi.mock("@/db/research-timing-repository", () => ({ saveResearchTimingSpans: vi.fn() }));
-
 const mocks = vi.hoisted(() => ({ run: vi.fn(), company: vi.fn(), fail: vi.fn() }));
 vi.mock("@/lib/research-service", () => ({ researchServiceAuthorized: () => true, researchEnabled: () => true }));
 vi.mock("@/db/firmable-history-repository", () => ({ FirmableHistoryRepository: class { run = mocks.run; } }));

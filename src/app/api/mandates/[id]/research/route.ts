@@ -1,8 +1,9 @@
-import { summariseResearchTimings } from '@/domain/research-timing';
+import { researchJsonResponse, researchRequestJson } from "@/lib/research-request-observability";
+import { observeResearchRequest } from "@/lib/research-request-observability";
+import { summariseResearchTimings, summariseCompactResearchTimings } from '@/domain/research-timing';
 import { missingResearchFields, fieldSatisfied, researchFields } from '@/domain/research-objectives';
-import { dispatchDiscoveryCandidates } from "@/lib/automatic-discovery";
-import { dispatchAutomaticEnrichment } from "@/lib/automatic-enrichment";
-import { dispatchContinuation } from "@/lib/research-continuation";
+import { scheduleResearchRun } from "@/lib/research-scheduler";
+import { newResearchPerformanceFlags } from "@/lib/research-performance-flags";
 import { automaticResearchConfig } from "@/domain/automatic-research";
 import { z } from "zod";
 import { eq } from "drizzle-orm";
@@ -24,47 +25,51 @@ import { researchEnabled, researchWorker } from "@/lib/research-service";
 import { briefResearchGeography, briefResearchSources, generateBriefResearchScope } from "@/lib/brief-research";
 import { researchSettingsFromMetadata } from "@/domain/research-settings";
 export const maxDuration = 300;
-export async function GET(
+async function getMandateResearch(
   request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session?.session.activeOrganizationId)
-    return Response.json({ error: "Sign in first" }, { status: 401 });
+    return researchJsonResponse({ error: "Sign in first" }, { status: 401 });
   if (!researchEnabled())
-    return Response.json({ enabled: false, active: false, jobs: [], findings: [] });
+    return researchJsonResponse({ enabled: false, active: false, jobs: [], findings: [] });
   const { id } = await context.params;
   if (!z.string().uuid().safeParse(id).success)
-    return Response.json({ error: "Invalid mandate" }, { status: 400 });
+    return researchJsonResponse({ error: "Invalid mandate" }, { status: 400 });
   const org = session.session.activeOrganizationId;
   if (!(await new AcquisitionRepository(org).getMandate(id)))
-    return Response.json({ error: "Mandate not found" }, { status: 404 });
+    return researchJsonResponse({ error: "Mandate not found" }, { status: 404 });
   const repo = new ResearchRepository(org);
   const [initialJobs, findings, results, targetEvidence] = await Promise.all([
-    repo.list(id),
+    repo.listReview(id),
     repo.findings(id),
     repo.resultCounts(id),
     repo.targetEvidence(id),
   ]);
+  let reviewChanged = false;
   for (const job of initialJobs.filter(j => !terminalResearchStates.includes(j.status) && Date.now() - j.updatedAt.getTime() > 90000)) {
     try {
       const worker = await researchWorker(`/jobs/${job.id}`) as { status: string };
       if (["running", "waiting"].includes(worker.status) && Date.now() - job.updatedAt.getTime() > 10 * 60000) {
         const recovery = await researchWorker(`/jobs/${job.id}`, "POST", { action: "recover-stalled" }) as { recovered?: boolean };
-        if (recovery.recovered) await repo.recoverStopped(job.id, job.revision, job.pages);
+        if (recovery.recovered) { await repo.recoverStopped(job.id, job.revision, job.pages); reviewChanged = true; }
       }
-      if (["errored", "terminated", "complete"].includes(worker.status)) await repo.recoverStopped(job.id, job.revision, job.pages);
+      if (["errored", "terminated", "complete"].includes(worker.status)) { await repo.recoverStopped(job.id, job.revision, job.pages); reviewChanged = true; }
     } catch { /* An unavailable status endpoint does not imply the job stopped. */ }
   }
-  const latest = initialJobs.find(j => !(j.config as ResearchConfig).purpose && !(j.config as ResearchConfig).discoveryCandidate);
-  if (latest && (latest.config as ResearchConfig).mode === "automatic") {
-    try {
-      await dispatchContinuation(org, latest.id);
-      await dispatchDiscoveryCandidates(org, latest.id);
-      await dispatchAutomaticEnrichment(org, latest.id);
-    } catch { /* Durable queued jobs are retried on subsequent polls. */ }
+  const recoveryRuns = new Set(initialJobs.flatMap(job => {
+    const config = job.config as ResearchConfig;
+    return config.mode === "automatic" ? [config.researchRunId || job.id] : [];
+  }));
+  for (const rootId of recoveryRuns) {
+    const root = initialJobs.find(job => job.id === rootId);
+    const settled = root && (root.config as ResearchConfig).parallelBusinessResearch && (root.config as ResearchConfig).parallelResearchSettled && (root.config as ResearchConfig).parallelResearchPendingTasks === 0 && terminalResearchStates.includes(root.status) && initialJobs.filter(j => (j.config as ResearchConfig).researchRunId === rootId).every(j => terminalResearchStates.includes(j.status));
+    if (!root || settled || root.status === "cancelled" || Date.now() >= ((root.config as ResearchConfig).automaticDeadline || 0)) continue;
+    try { if (await scheduleResearchRun(org, rootId, { recovery: true }) !== false) reviewChanged = true; }
+    catch { reviewChanged = true; /* A partial pass may have saved queued jobs before failing. */ }
   }
-  const jobs = await repo.list(id);
+  const jobs = reviewChanged ? await repo.listReview(id) : initialJobs;
   const evidence: Record<string, EvidenceCounts> = {};
   for (const targetId of new Set([...targetEvidence.map(f => f.targetId!), ...jobs.flatMap(j => (j.config as ResearchConfig).targetId ? [(j.config as ResearchConfig).targetId!] : [])])) {
     const own = jobs.filter(j => (j.config as ResearchConfig).targetId === targetId);
@@ -73,6 +78,7 @@ export async function GET(
       researching: own.some(j => !terminalResearchStates.includes(j.status)),
     });
   }
+  const compactTimings = await repo.timingSummaries(jobs);
   const timingRuns = new Map<string, typeof jobs>();
   for (const job of jobs) {
     const config = job.config as ResearchConfig;
@@ -87,7 +93,9 @@ export async function GET(
       const reused = runJobs.filter(job => (job.config as ResearchConfig).targetId === targetId).flatMap(job => (job.config as ResearchConfig).inheritedFindings || []);
       return fieldSatisfied(field, [...observed, ...reused]);
     }).length]));
-    return { ...summariseResearchTimings(runJobs.map(job => ({ ...job, config: job.config as ResearchConfig }))), coverage, targetCompanies: targetIds.size };
+    const timingJobs = runJobs.map(job => ({ ...job, config: job.config as ResearchConfig }));
+    const summary = compactTimings[runId] ? summariseCompactResearchTimings(timingJobs, compactTimings[runId]) : summariseResearchTimings(timingJobs);
+    return { ...summary, coverage, targetCompanies: targetIds.size };
   })()]));
   const pendingEnrichmentJobs = jobs.filter(job => {
     const config = job.config as ResearchConfig;
@@ -107,7 +115,7 @@ export async function GET(
   const pendingEnrichment = [...new Map(pendingEnrichmentJobs.map(job => [`${job.runId}:${job.targetId}:${job.purpose}`, job])).values()];
   // Keep high-volume span events in the database; polling clients receive summaries.
   const publicJobs = jobs.map(job => ({ ...job, config: { ...(job.config as ResearchConfig), pipelineTiming: undefined } }));
-  return Response.json(
+  return researchJsonResponse(
     { enabled: true, timings, pendingEnrichment, active: researchActive(jobs.map(j => ({ status: j.status, updatedAt: j.updatedAt, config: j.config as ResearchConfig }))), results, evidence, jobs: publicJobs.filter(j => !(j.config as ResearchConfig).purpose), companyJobs: publicJobs.filter(j => (j.config as ResearchConfig).purpose === "firmographics"), peopleJobs: publicJobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).parentJobId), findings: findings.filter(f => (f.evidence as { kind?: string }).kind !== "person") },
     { headers: { "Cache-Control": "no-store" } },
   );
@@ -118,27 +126,27 @@ export async function POST(
 ) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session?.session.activeOrganizationId)
-    return Response.json({ error: "Sign in first" }, { status: 401 });
+    return researchJsonResponse({ error: "Sign in first" }, { status: 401 });
   if (!researchEnabled())
-    return Response.json(
+    return researchJsonResponse(
       { error: "Research is awaiting service activation" },
       { status: 503 },
     );
-  const body = await request.json().catch(() => null);
+  const body = await researchRequestJson(request).catch(() => null);
   const briefStart = z.object({ requestId: z.string().uuid(), fromBrief: z.literal(true) }).safeParse(body);
   const parsed = briefStart.success ? null : researchStartSchema.safeParse(body);
   if (!briefStart.success && !parsed?.success)
-    return Response.json(
+    return researchJsonResponse(
       { error: parsed?.error.issues.map((i) => i.message).join("; ") || "Invalid research request" },
       { status: 400 },
     );
   const { id } = await context.params;
   const org = session.session.activeOrganizationId;
   if (!z.string().uuid().safeParse(id).success)
-    return Response.json({ error: "Invalid mandate" }, { status: 400 });
+    return researchJsonResponse({ error: "Invalid mandate" }, { status: 400 });
   const mandate = await new AcquisitionRepository(org).getMandate(id);
   if (!mandate)
-    return Response.json({ error: "Mandate not found" }, { status: 404 });
+    return researchJsonResponse({ error: "Mandate not found" }, { status: 404 });
   let input: z.infer<typeof researchStartSchema>;
   if (briefStart.success) {
     try {
@@ -166,7 +174,7 @@ export async function POST(
         budget: { maxPages: 5, maxDomains: 5, maxMinutes: 10, maxModelCalls: 5 },
       });
     } catch (error) {
-      return Response.json({ error: error instanceof Error ? error.message : "Could not prepare research from the brief." }, { status: 422 });
+      return researchJsonResponse({ error: error instanceof Error ? error.message : "Could not prepare research from the brief." }, { status: 422 });
     }
   } else input = parsed!.data!;
   const { requestId, continueFrom, ...submitted } = input;
@@ -175,19 +183,19 @@ export async function POST(
     const repo = new ResearchRepository(org);
     const prior = await repo.get(continueFrom);
     if (!prior || prior.mandateId !== id)
-      return Response.json(
+      return researchJsonResponse(
         { error: "Previous job not found" },
         { status: 404 },
       );
     if (!terminalResearchStates.includes(prior.status))
-      return Response.json(
+      return researchJsonResponse(
         { error: "Wait for the previous job to finish" },
         { status: 409 },
       );
     const found = (await repo.findings(id))
       .filter((f) => f.jobId === continueFrom)
       .map((f) => f.sourceUrl);
-    if ((prior.config as ResearchConfig).purpose) return Response.json({ error: "Start people research from the company contact panel" }, { status: 409 });
+    if ((prior.config as ResearchConfig).purpose) return researchJsonResponse({ error: "Start people research from the company contact panel" }, { status: 409 });
     config = continueResearchConfig(
       prior.config as ResearchConfig,
       prior.seeds as string[],
@@ -202,7 +210,7 @@ export async function POST(
       config.companyBudget = submitted.companyBudget;
     }
     if (!config.runtime?.remaining.length)
-      return Response.json(
+      return researchJsonResponse(
         {
           error:
             "No saved URLs remain. Set up a new search or retry a failed URL explicitly.",
@@ -214,12 +222,13 @@ export async function POST(
     config.findPeople = true;
     config.peopleBudget = { maxCompanies: config.targetBusinesses || 20, maxPages: 12 };
   }
+  if (!continueFrom) config.performanceFlags = newResearchPerformanceFlags();
   config = automaticResearchConfig(config);
   if (config.mode === "automatic") config.researchRunId = requestId;
   try {
     const repo = new ResearchRepository(org);
-    if (config.mode === "automatic" && !await repo.concurrentResearchReady()) return Response.json({ error: "Automatic research is awaiting the research concurrency database upgrade." }, { status: 503 });
-    if (config.mode === "automatic" && await repo.hasOtherActive(requestId, id)) return Response.json({ error: "Research is already running for this mandate. Stop it before starting another run here." }, { status: 409 });
+    if (config.mode === "automatic" && !await repo.concurrentResearchReady()) return researchJsonResponse({ error: "Automatic research is awaiting the research concurrency database upgrade." }, { status: 503 });
+    if (config.mode === "automatic" && await repo.hasOtherActive(requestId, id)) return researchJsonResponse({ error: "Research is already running for this mandate. Stop it before starting another run here." }, { status: 409 });
     const job = await repo.create(
       requestId,
       id,
@@ -230,7 +239,7 @@ export async function POST(
       try {
         await researchWorker(`/jobs/${job.id}`, "POST");
       } catch {
-        return Response.json(
+        return researchJsonResponse(
           {
             jobId: job.id,
             message:
@@ -240,9 +249,9 @@ export async function POST(
         );
       }
     }
-    return Response.json({ jobId: job.id }, { status: 202 });
+    return researchJsonResponse({ jobId: job.id }, { status: 202 });
   } catch {
-    return Response.json(
+    return researchJsonResponse(
       {
         error:
           "Another research job is active. Wait for it to finish or cancel it.",
@@ -250,4 +259,8 @@ export async function POST(
       { status: 409 },
     );
   }
+}
+
+export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
+  return observeResearchRequest(request, () => getMandateResearch(request, context));
 }

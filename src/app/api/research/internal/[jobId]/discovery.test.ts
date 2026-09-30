@@ -3,13 +3,14 @@ import { sql, type SQL } from "drizzle-orm";
 import { Client } from "pg";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { ResearchConfig } from "@/domain/research";
-const mocks = vi.hoisted(() => ({ get: vi.fn(), list: vi.fn(), seeds: vi.fn(), search: vi.fn(), set: vi.fn(), where: vi.fn(), claim: vi.fn(), dispatch: vi.fn() }));
+const mocks = vi.hoisted(() => ({ get: vi.fn(), list: vi.fn(), runJobs: vi.fn(), seeds: vi.fn(), search: vi.fn(), set: vi.fn(), where: vi.fn(), claim: vi.fn(), dispatch: vi.fn() }));
 vi.mock("@/lib/research-service", () => ({ researchEnabled: () => true, researchServiceAuthorized: () => true }));
+vi.mock("@/lib/research-scheduler", () => ({ scheduleResearchRun: mocks.dispatch }));
 vi.mock("@/lib/automatic-discovery", () => ({ dispatchDiscoveryCandidates: mocks.dispatch }));
 vi.mock("@/lib/automatic-enrichment", () => ({ dispatchAutomaticEnrichment: vi.fn() }));
 vi.mock("@/lib/research-continuation", () => ({ dispatchContinuation: vi.fn() }));
 vi.mock("@/adapters/cloudflare-web-search", () => ({ cloudflareSearchResults: mocks.search }));
-vi.mock("@/db/research-repository", () => ({ ResearchRepository: class { get = mocks.get; list = mocks.list; seeds = mocks.seeds; } }));
+vi.mock("@/db/research-repository", () => ({ researchExecutionSelection: {}, ResearchRepository: class { get = mocks.get; getExecution = mocks.get; getControl = mocks.get; list = mocks.list; discoveryRunJobs = mocks.runJobs; seeds = mocks.seeds; } }));
 vi.mock("@/db/client", () => ({ requireDb: () => ({
   select: () => ({ from: () => ({ where: () => ({ limit: async () => [await mocks.get()] }) }) }),
   update: () => ({ set: (data: unknown) => { mocks.set(data); return { where: (condition: unknown) => { mocks.where(condition); return { returning: mocks.claim, then: (resolve: (value: unknown) => void) => resolve([]) }; } }; } }),
@@ -25,6 +26,7 @@ beforeEach(() => {
   job = { id: jobId, organizationId: "org", mandateId: "mandate", status: "discovering", createdAt: new Date(), updatedAt: new Date(), seeds: [], config: structuredClone(config) };
   mocks.get.mockImplementation(async () => job);
   mocks.list.mockImplementation(async () => [job]);
+  mocks.runJobs.mockImplementation(async () => [job]);
   mocks.claim.mockResolvedValue([{ id: jobId }]);
   mocks.search.mockResolvedValue([{ title: "Remediation contractor", snippet: "Hazardous material remediation", url: "https://remediation.example.com/" }]);
 });
@@ -148,4 +150,12 @@ it.skipIf(!process.env.RESEARCH_SQL_TEST_URL)("executes batch claim and completi
     await client.query("ROLLBACK");
     await client.end();
   }
+});
+
+
+it('builds discovery context from a narrow run-scoped repository read, without loading historical mandate jobs', async () => {
+  const response = await call({ action: 'discovery-context' });
+  expect(response.status).toBe(200);
+  expect(mocks.runJobs).toHaveBeenCalledWith(jobId, 'mandate');
+  expect(mocks.list).not.toHaveBeenCalled();
 });

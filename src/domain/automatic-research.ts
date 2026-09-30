@@ -20,7 +20,7 @@ export function automaticResearchConfig(config: ResearchConfig): ResearchConfig 
   if (config.mode !== 'automatic' || config.workflow !== 'business') return config;
   const target = config.targetBusinesses || 20;
   const effort = researchEfforts[config.researchEffort || "standard"];
-  return { ...config, adaptiveDiscovery: true, discoveryPending: config.discover, parallelDiscovery: true, autoRoot: undefined, autoContinueFrom: undefined, autoDomains: [], executionSlot: 0, targetBusinesses: target, strategy: 'discover',
+  return { ...config, parallelBusinessResearch: true, adaptiveDiscovery: true, discoveryPending: config.discover, parallelDiscovery: true, autoRoot: undefined, autoContinueFrom: undefined, autoDomains: [], executionSlot: 0, targetBusinesses: target, strategy: 'discover',
     budget: { maxPages: 10, maxDomains: 10, maxModelCalls: 10, maxMinutes: 15 },
     companyBudget: { maxCompanies: target, maxPages: 12 },
     peopleBudget: config.findPeople ? { maxCompanies: target, maxPages: 12 } : undefined,

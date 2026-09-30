@@ -1,3 +1,5 @@
+import { researchJsonResponse, researchRequestJson } from "@/lib/research-request-observability";
+import { observeResearchRequest } from "@/lib/research-request-observability";
 import { z } from "zod";
 import { and, eq, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
@@ -18,8 +20,6 @@ import { validateCompanyWebsite, validateTargetWebsites } from "@/lib/company-we
 import { researchEnabled, researchWorker } from "@/lib/research-service";
 import { generateMandate } from "@/adapters/mandate-generation";
 
-import { recoverFirmableRefreshes } from "@/lib/firmable-run-recovery";
-
 export const maxDuration = 300;
 
 const importedRecord = z.object({ name: z.string().trim().min(1).max(300), website: z.union([z.string().url(), z.literal("")]), abn: z.string().regex(/^(\d{11})?$/), state: z.string().max(30), description: z.string().max(3000), source: z.string().trim().min(1).max(200), sourceUrl: z.string().url(), sourceId: z.string().trim().min(1).max(200) });
@@ -35,50 +35,68 @@ const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("identity"), targetId: z.string().uuid(), website: z.union([z.string().url().refine(url => /^https?:\/\//i.test(url)), z.literal("")]), abn: z.string().regex(/^(\d{11})?$/), source: z.string().trim().min(1).max(500), sourceUrl: z.string().url() }),
 ]);
 
-export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
+type RecoverableFirmableRun = { id: string; status: string; updatedAt: Date };
+export async function recoverFirmableRefreshes(history: Pick<FirmableHistoryRepository, "failRun">, runs: RecoverableFirmableRun[], mandateId: string, now = Date.now()) {
+  if (!researchEnabled()) return;
+  await Promise.allSettled(runs.map(async run => {
+    if (run.status === "queued") {
+      await researchWorker(`/firmable/${run.id}`, "POST", { mandateId }, 4_000);
+      return;
+    }
+    if (run.status !== "running" || now - run.updatedAt.getTime() < 120_000) return;
+    try {
+      const worker = await researchWorker(`/firmable/${run.id}`, "GET", undefined, 4_000) as { status?: string };
+      if (["complete", "errored", "terminated"].includes(worker.status || "")) await history.failRun(run.id, "Company data refresh ended before it could report completion. Start a new refresh to retry.");
+    } catch {
+      if (now - run.updatedAt.getTime() >= 600_000) await history.failRun(run.id, "Company data refresh timed out. Start a new refresh to retry; saved data remains available.");
+    }
+  }));
+}
+
+async function getMandateWorkspace(request: Request, context: { params: Promise<{ id: string }> }) {
   const session = await auth.api.getSession({ headers: request.headers });
   const org = session?.session.activeOrganizationId;
-  if (!org) return Response.json({ error: "Sign in and select an organisation." }, { status: 401 });
+  if (!org) return researchJsonResponse({ error: "Sign in and select an organisation." }, { status: 401 });
   const { id } = await context.params;
-  if (!z.string().uuid().safeParse(id).success) return Response.json({ error: "Invalid mandate" }, { status: 400 });
+  if (!z.string().uuid().safeParse(id).success) return researchJsonResponse({ error: "Invalid mandate" }, { status: 400 });
   const repo = new AcquisitionRepository(org);
   const mandate = await repo.getMandate(id);
-  if (!mandate) return Response.json({ error: "Mandate not found" }, { status: 404 });
+  if (!mandate) return researchJsonResponse({ error: "Mandate not found" }, { status: 404 });
   const [memberships, coverage, valuations, orgRows] = await Promise.all([repo.memberships(id), repo.coverage(id), repo.valuations(id), requireDb().select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, org))]);
   const history = new FirmableHistoryRepository(requireDb());
   const rawRunIds = new URL(request.url).searchParams.get("enrichmentRuns");
   const runIds = rawRunIds === null ? undefined : rawRunIds.split(",");
-  if (runIds && (!runIds.length || runIds.length > 20 || runIds.some(runId => !z.uuid().safeParse(runId).success))) return Response.json({ error: "Invalid enrichment runs" }, { status: 400 });
+  if (runIds && (!runIds.length || runIds.length > 20 || runIds.some(runId => !z.uuid().safeParse(runId).success))) return researchJsonResponse({ error: "Invalid enrichment runs" }, { status: 400 });
   let firmableRefreshes = await history.latestRuns(org, memberships.map(item => item.target.id), runIds);
   if (researchEnabled()) {
     await recoverFirmableRefreshes(history, firmableRefreshes, id);
     firmableRefreshes = await history.latestRuns(org, memberships.map(item => item.target.id), runIds);
   }
-  return Response.json({ mandate, memberships, coverage, valuations, buyerProfile: buyerProfileFromMetadata(orgRows[0]?.metadata), contacts: await loadWorkspaceContacts(requireDb(), org, memberships), firmableRefreshes });
+  return researchJsonResponse({ mandate, memberships, coverage, valuations, buyerProfile: buyerProfileFromMetadata(orgRows[0]?.metadata), contacts: await loadWorkspaceContacts(requireDb(), org, memberships), firmableRefreshes });
 }
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const session = await auth.api.getSession({ headers: request.headers });
   const org = session?.session.activeOrganizationId;
-  if (!org || !session) return Response.json({ error: "Sign in and select an organisation." }, { status: 401 });
+  if (!org || !session) return researchJsonResponse({ error: "Sign in and select an organisation." }, { status: 401 });
   const { id } = await context.params;
-  if (!z.string().uuid().safeParse(id).success) return Response.json({ error: "Invalid mandate" }, { status: 400 });
-  const parsed = actionSchema.safeParse(await request.json().catch(() => null));
-  if (!parsed.success) return Response.json({ error: parsed.error.issues.map(i => i.message).join("; ") }, { status: 400 });
+  if (!z.string().uuid().safeParse(id).success) return researchJsonResponse({ error: "Invalid mandate" }, { status: 400 });
+  const parsed = actionSchema.safeParse(await researchRequestJson(request).catch(() => null));
+  if (!parsed.success) return researchJsonResponse({ error: parsed.error.issues.map(i => i.message).join("; ") }, { status: 400 });
   const action = parsed.data;
   const repo = new AcquisitionRepository(org);
   const mandate = await repo.getMandate(id);
-  if (!mandate) return Response.json({ error: "Mandate not found" }, { status: 404 });
+  if (!mandate) return researchJsonResponse({ error: "Mandate not found" }, { status: 404 });
   let release: (() => void) | undefined;
   try {
     if (action.action === "brief-description") {
-      if (action.description === mandate.brief.naturalLanguage) return Response.json({ ok: true, brief: mandate.brief });
+      if (action.description === mandate.brief.naturalLanguage) return researchJsonResponse({ ok: true, brief: mandate.brief });
       let generated;
       try { generated = await generateMandate(action.description); }
-      catch { return Response.json({ error: "Could not update the search from your description. Please try again." }, { status: 503 }); }
+      catch { return researchJsonResponse({ error: "Could not update the search from your description. Please try again." }, { status: 503 }); }
       const brief = { ...generated, naturalLanguage: action.description, researchSources: mandate.brief.researchSources, disclosureApproved: mandate.brief.disclosureApproved };
       await repo.saveBrief(brief, session.user.id, id);
-      return Response.json({ ok: true, brief });
+      return researchJsonResponse({ ok: true, brief });
     }
     if (action.action === "brief") await repo.saveBrief(action.brief, session.user.id, id);
     if (action.action === "assessment") {
@@ -91,7 +109,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         const drafts = await requireDb().select().from(messages).where(eq(messages.organizationId, org));
         if (!drafts.some(d => enrolments.some(e => e.id === d.enrolmentId) && d.state === "approved")) errors.push("Approve an outreach draft before selecting this stage.");
       }
-      if (errors.length) return Response.json({ error: errors.join(" ") }, { status: 409 });
+      if (errors.length) return researchJsonResponse({ error: errors.join(" ") }, { status: 409 });
       await repo.saveAssessment(id, action.targetId, action.assessment, action.version, session.user.id);
     }
     if (action.action === "accreditations") {
@@ -99,15 +117,15 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       await new OrganizationRepository(requireDb(), org).appendAudit({ actorId: session.user.id, action: "target.accreditations_saved", entityType: "target", entityId: action.targetId, metadata: { mandateId: id, count: action.accreditations.length } });
     }
     if (action.action === "identity") {
-      if (!(await repo.memberships(id)).some(m => m.target.id === action.targetId)) return Response.json({ error: "Target not found in mandate" }, { status: 404 });
+      if (!(await repo.memberships(id)).some(m => m.target.id === action.targetId)) return researchJsonResponse({ error: "Target not found in mandate" }, { status: 404 });
       if (action.website) {
         const validation = await validateCompanyWebsite(action.website);
-        if (!validation.ok) return Response.json({ error: `Website could not be verified: ${validation.reason}.` }, { status: 422 });
+        if (!validation.ok) return researchJsonResponse({ error: `Website could not be verified: ${validation.reason}.` }, { status: 422 });
       }
       const domain = action.website ? new URL(action.website).hostname.replace(/^www\./, "").toLowerCase() : "";
       if (domain) {
         const [existing] = await requireDb().select({ id: targets.id }).from(targets).where(and(eq(targets.organizationId, org), eq(targets.domain, domain)));
-        if (existing && existing.id !== action.targetId) return Response.json({ error: "This website belongs to another saved company. Review the duplicate before changing identity." }, { status: 409 });
+        if (existing && existing.id !== action.targetId) return researchJsonResponse({ error: "This website belongs to another saved company. Review the duplicate before changing identity." }, { status: 409 });
       }
       const identity = { source: action.source, sourceUrl: action.sourceUrl, capturedAt: new Date().toISOString() };
       await requireDb().update(targets).set({ domain, identifiers: sql`${targets.identifiers} || ${JSON.stringify({ abn: action.abn, identityEvidence: identity })}::jsonb`, updatedAt: new Date() }).where(and(eq(targets.id, action.targetId), eq(targets.organizationId, org)));
@@ -122,7 +140,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (action.action === "discover") {
       const errors = searchReadiness(mandate.brief);
       if (!filters.states.length) errors.push("Use Australian state names/codes or National for geography.");
-      if (errors.length) return Response.json({ error: errors.join(" ") }, { status: 409 });
+      if (errors.length) return researchJsonResponse({ error: errors.join(" ") }, { status: 409 });
       const companyRepo = new OrganizationRepository(requireDb(), org);
       const provider = createTargetDataProvider();
       const result = await discoverMandate({ directory: provider.manufacturingDirectory, places: provider.places, mandate: filters, organizationId: org });
@@ -137,7 +155,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         if (saved) await repo.attach(id, saved.id);
       }
       await repo.recordCoverage(id, result.sources);
-      return Response.json({ ok: true, warnings });
+      return researchJsonResponse({ ok: true, warnings });
     }
     if (action.action === "import") {
       const companyRepo = new OrganizationRepository(requireDb(), org);
@@ -158,13 +176,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         if (saved) { await repo.attach(id, saved.id); if (!before.has(saved.id)) { added++; before.add(saved.id); } }
       }
       await repo.recordCoverage(id, [{ name: "Sourced record import", status: "partial", discovered: action.records.length, unique: added, overlap: action.records.length - added, checkedAt: new Date().toISOString(), note: "User-supplied records; source population completeness has not been established." }]);
-      return Response.json({ ok: true, warnings });
+      return researchJsonResponse({ ok: true, warnings });
     }
     if (action.action === "enrich") {
-      if (!researchEnabled()) return Response.json({ error: "Company data refresh is awaiting service activation" }, { status: 503 });
-      if (process.env.TARGET_DATA_PROVIDER !== "fixture" && !process.env.FIRMABLE_API_KEY) return Response.json({ error: "Company data enrichment is not configured" }, { status: 503 });
+      if (!researchEnabled()) return researchJsonResponse({ error: "Company data refresh is awaiting service activation" }, { status: 503 });
+      if (process.env.TARGET_DATA_PROVIDER !== "fixture" && !process.env.FIRMABLE_API_KEY) return researchJsonResponse({ error: "Company data enrichment is not configured" }, { status: 503 });
       const memberships = await repo.memberships(id);
-      if (action.targetIds.some(targetId => !memberships.some(m => m.target.id === targetId))) return Response.json({ error: "A target does not belong to this mandate" }, { status: 404 });
+      if (action.targetIds.some(targetId => !memberships.some(m => m.target.id === targetId))) return researchJsonResponse({ error: "A target does not belong to this mandate" }, { status: 404 });
       const history = new FirmableHistoryRepository(requireDb());
       const warnings: string[] = [];
       const runs: { id: string; targetId: string; status: string }[] = [];
@@ -187,10 +205,14 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       dispatched.forEach((result, index) => {
         if (result.status === "rejected") warnings.push(`${dispatches[index].companyName}: refresh saved; dispatch is uncertain and will be retried automatically.`);
       });
-      return Response.json({ ok: true, warnings, messages: [`${runs.length} company data refresh${runs.length === 1 ? "" : "es"} queued.`], refresh: { runs } }, { status: 202 });
+      return researchJsonResponse({ ok: true, warnings, messages: [`${runs.length} company data refresh${runs.length === 1 ? "" : "es"} queued.`], refresh: { runs } }, { status: 202 });
     }
-    return Response.json({ ok: true });
+    return researchJsonResponse({ ok: true });
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "Unable to save changes" }, { status: error instanceof TargetSearchRateLimitError ? 429 : 409 });
+    return researchJsonResponse({ error: error instanceof Error ? error.message : "Unable to save changes" }, { status: error instanceof TargetSearchRateLimitError ? 429 : 409 });
   } finally { release?.(); }
+}
+
+export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
+  return observeResearchRequest(request, () => getMandateWorkspace(request, context));
 }

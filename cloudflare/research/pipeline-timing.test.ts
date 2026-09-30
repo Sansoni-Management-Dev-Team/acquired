@@ -22,3 +22,56 @@ it('coalesces concurrent flushes without deleting newly finished operations', as
   expect(deliver).toHaveBeenCalledTimes(2);
   expect(deliver.mock.calls.map(call => call[0].map((s: { step: string }) => s.step))).toEqual([['read-people-1'], ['extract-1']]);
 });
+
+it('piggybacks a bounded batch and removes only explicitly acknowledged sent spans', async () => {
+  const deliver = vi.fn();
+  const timing = pipelineTiming('job', deliver);
+  for (let n = 0; n < 65; n++) await timing.measure(`extract-${n}`, async () => null);
+  let firstIds: string[] = [];
+  const send = vi.fn(async (event: { revision: number; timingSpans?: { id: string }[] }) => {
+    firstIds = event.timingSpans!.map(span => span.id);
+    expect(firstIds).toHaveLength(64);
+    return { timingAcceptedIds: [firstIds[0], 'not-sent'] };
+  });
+  await timing.progress({ revision: 1 }, send, true);
+  expect(deliver).not.toHaveBeenCalled();
+  await timing.progress({ revision: 2 }, async event => {
+    expect(event.timingSpans!.map(span => span.id)).not.toContain(firstIds[0]);
+    expect(event.timingSpans).toHaveLength(64);
+    return { timingAcceptedIds: event.timingSpans!.map(span => span.id) };
+  }, true);
+  await timing.flush();
+  expect(deliver).not.toHaveBeenCalled();
+});
+
+it('retains piggyback spans after failed or unacknowledged progress responses', async () => {
+  const timing = pipelineTiming('job', vi.fn());
+  await timing.measure('extract-1', async () => null);
+  let retained: unknown;
+  await expect(timing.progress({}, async event => { retained = event.timingSpans; throw new Error('lost response'); }, true)).rejects.toThrow('lost response');
+  await timing.progress({}, async event => { expect(event.timingSpans).toEqual(retained); return {}; }, true);
+  await timing.progress({}, async event => { expect(event.timingSpans).toEqual(retained); return { timingAcceptedIds: event.timingSpans!.map(span => span.id) }; }, true);
+});
+
+it('keeps telemetry-first behaviour for old runs without batching enabled', async () => {
+  const order: string[] = [];
+  const timing = pipelineTiming('job', async () => { order.push('timing'); });
+  await timing.measure('extract-1', async () => null);
+  await timing.progress({ revision: 1 }, async event => { expect(event).not.toHaveProperty('timingSpans'); order.push('progress'); return {}; }, false);
+  expect(order).toEqual(['timing', 'progress']);
+});
+
+it('does not remove a newer span when flush and piggyback acknowledgements overlap', async () => {
+  let release!: () => void;
+  const delivered: { step: string }[][] = [];
+  const timing = pipelineTiming('job', async spans => {
+    delivered.push(spans);
+    if (delivered.length === 1) await new Promise<void>(resolve => { release = resolve; });
+  });
+  await timing.measure('extract-1', async () => null);
+  const flushing = timing.flush();
+  await timing.progress({}, async event => ({ timingAcceptedIds: event.timingSpans!.map(span => span.id) }), true);
+  await timing.measure('extract-2', async () => null);
+  release(); await flushing;
+  expect(delivered.map(batch => batch.map(span => span.step))).toEqual([['extract-1'], ['extract-2']]);
+});

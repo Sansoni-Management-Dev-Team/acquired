@@ -1,3 +1,5 @@
+import { PgDialect } from 'drizzle-orm/pg-core';
+import { SQL } from 'drizzle-orm';
 import { beforeEach, expect, it, vi } from "vitest";
 import type { ResearchConfig } from "@/domain/research";
 import type { TargetCandidate } from "@/domain/models";
@@ -22,8 +24,8 @@ vi.mock("@/db/acquisition-repository", () => ({ AcquisitionRepository: class {
   getMandate = mocks.getMandate; attachMany = mocks.attachMany; recordCoverage = mocks.recordCoverage;
 } }));
 vi.mock("@/db/repositories", () => ({ OrganizationRepository: class { upsertEnrichedTarget = mocks.upsert; } }));
-vi.mock("@/db/research-repository", () => ({ ResearchRepository: class {
-  get = mocks.repoGet; list = mocks.repoList; seeds = vi.fn(); claimDiscovery = vi.fn();
+vi.mock("@/db/research-repository", () => ({ researchExecutionSelection: {}, ResearchRepository: class {
+  get = mocks.repoGet; getExecution = mocks.repoGet; getControl = mocks.repoGet; list = mocks.repoList; discoveryRunJobs = mocks.repoList; seeds = vi.fn(); claimDiscovery = vi.fn();
 } }));
 
 let job: {
@@ -39,6 +41,10 @@ vi.mock("@/db/client", () => {
     },
     update: () => ({ set: (data: Record<string, unknown>) => {
       mocks.updates.push(data);
+      if (data.config instanceof SQL) {
+        const query = new PgDialect().sqlToQuery(data.config);
+        if (query.sql.includes('"research_jobs"."config" ||')) job.config = { ...job.config, ...JSON.parse(query.params[0] as string) };
+      }
       if (data.config && typeof data.config === "object" && "discoverySourcesPrepared" in data.config) job.config = data.config as ResearchConfig;
       if (Array.isArray(data.seeds)) job.seeds = data.seeds as string[];
       if (typeof data.discoveryStarted === "boolean") job.discoveryStarted = data.discoveryStarted;
@@ -109,4 +115,15 @@ it("records source coverage and clears staged records after the final batch", as
   expect(mocks.attachMany).toHaveBeenCalledWith("mandate", ["candidate-1", "candidate-2"]);
   expect(mocks.recordCoverage).toHaveBeenCalledWith("mandate", coverage);
   expect(mocks.updates).toHaveLength(2);
+});
+
+it('merges only discovery staging keys so concurrent timing and scheduler state survive', async () => {
+  mocks.discover.mockResolvedValue({ targets: [candidate(1)], sources: [] });
+  await call('discovery-sources');
+  const update = mocks.updates.find(data => (data as { discoveryStarted?: boolean }).discoveryStarted) as { config: SQL };
+  expect(update.config).toBeInstanceOf(SQL);
+  const query = new PgDialect().sqlToQuery(update.config);
+  expect(query.sql).toContain('"research_jobs"."config" ||');
+  const patch = JSON.parse(query.params[0] as string);
+  expect(Object.keys(patch).sort()).toEqual(['discoverySourceCandidates', 'discoverySourceCoverage', 'discoverySourceCoverageRecorded', 'discoverySourceCursor', 'discoverySourcesPrepared', 'skipDomains']);
 });

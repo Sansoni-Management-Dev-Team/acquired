@@ -61,3 +61,12 @@ it("admits several page waiters at once while slots are free", async () => {
   const search = await coordinator.reserve({ jobId: "s", token: "s", provider: "search" });
   expect(search.granted || (search.queued && search.retryAfterMs > 0)).toBe(true);
 });
+
+it('persists a website cooldown without stopping unrelated website claims', async () => {
+  const coordinator = bindings.PROVIDER_COORDINATOR.getByName(crypto.randomUUID());
+  await coordinator.cooldown(12000, 'blocked.example');
+  await coordinator.reserve({ jobId: 'a', token: 'a', provider: 'page' });
+  expect(await coordinator.claim('a', 'a', 'blocked.example')).toMatchObject({ granted: false, expired: false });
+  expect(await coordinator.claim('a', 'a', 'other.example')).toMatchObject({ granted: true, retryAfterMs: 0 });
+  await coordinator.release('a', 'a');
+});

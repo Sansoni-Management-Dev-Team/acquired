@@ -1,8 +1,9 @@
 import type { ResearchConfig, ResearchFinding } from './research';
-export const researchFields = ['size', 'revenue', 'people', 'email'] as const;
+export const researchFields = ['abn', 'size', 'revenue', 'people', 'email'] as const;
 export type ResearchField = typeof researchFields[number];
-export const fieldLabels: Record<ResearchField, string> = { size: 'headcount', revenue: 'revenue', people: 'owner or director candidate', email: 'published owner or director email' };
-export function objectiveFields(config: Pick<ResearchConfig, 'purpose'>): ResearchField[] {
+export const fieldLabels: Record<ResearchField, string> = { abn: 'ABN', size: 'headcount', revenue: 'revenue', people: 'owner or director candidate', email: 'published owner or director email' };
+export function objectiveFields(config: Pick<ResearchConfig, 'purpose' | 'researchField'>): ResearchField[] {
+  if (config.researchField) return [config.researchField];
   return config.purpose === 'firmographics' ? ['size', 'revenue'] : config.purpose === 'people' ? ['people', 'email'] : [];
 }
 // An outreach candidate is a research lead, not proof of ownership or sale authority.
@@ -12,11 +13,12 @@ export function ownershipContact(finding: ResearchFinding) {
   return /\b(owner|co-owner|founder|co-founder|proprietor|shareholder)\b/i.test(role) || /^(?:(?:managing|executive|non-executive|company)\s+)?director$/i.test(role);
 }
 export function fieldSatisfied(field: ResearchField, findings: ResearchFinding[]) {
+  if (field === 'abn') return findings.some(f => f.kind === 'identifier' && f.name === 'ABN' && /^\d{11}$/.test(f.value.replace(/\D/g, '')));
   if (field === 'people') return findings.some(ownershipContact);
   if (field === 'email') return findings.some(f => ownershipContact(f) && Boolean(f.email));
   return findings.some(f => f.kind === (field === 'size' ? 'headcount' : 'revenue') && f.factMetadata?.basis !== 'search_snippet');
 }
-export function missingResearchFields(config: Pick<ResearchConfig, 'purpose'>, findings: ResearchFinding[]) {
+export function missingResearchFields(config: Pick<ResearchConfig, 'purpose' | 'researchField'>, findings: ResearchFinding[]) {
   return objectiveFields(config).filter(field => !fieldSatisfied(field, findings));
 }
 export type SearchAttempt = { query: string; field: ResearchField; status: 'succeeded' | 'failed'; category?: string };

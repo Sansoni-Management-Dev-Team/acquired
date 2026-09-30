@@ -50,7 +50,7 @@ export class ProviderCoordinator extends DurableObject {
     return this.update(queue => ({ queue: releaseProvider(queue, token, jobId), value: true }));
   }
 
-  async cooldown(retryAfterMs: number) {
-    return this.update((queue, now) => ({ queue: coolDownBrowser(queue, now, retryAfterMs), value: true }));
+  async cooldown(retryAfterMs: number, domain?: string) {
+    return this.update((queue, now) => ({ queue: coolDownBrowser(queue, now, retryAfterMs, domain), value: true }));
   }
 }

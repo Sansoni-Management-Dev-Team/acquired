@@ -20,7 +20,7 @@ it("uses redirect options supported by the real Worker fetch implementation", as
   expect(await response.text()).toBe("Unmocked network request blocked");
 });
 
-function replay(options: { pages?: number; cancelled?: boolean; failProgress?: boolean; denyPermit?: boolean; expireFirstPermit?: boolean; parallelDiscoveryGate?: boolean; lookaheadGate?: boolean; config?: ResearchConfig } = {}) {
+function replay(options: { read?: (url: string) => string; targetedSeeds?: string[]; pages?: number; cancelled?: boolean; failProgress?: boolean; denyPermit?: boolean; expireFirstPermit?: boolean; parallelDiscoveryGate?: boolean; lookaheadGate?: boolean; leanControls?: boolean; callbackTiming?: boolean; config?: ResearchConfig } = {}) {
   const id = crypto.randomUUID();
   const config: ResearchConfig = options.config || {
     seeds: Array.from({ length: options.pages || 1 }, (_, i) => `https://instruments${i || ""}.example.com/fixture-${id}/`),
@@ -33,6 +33,7 @@ function replay(options: { pages?: number; cancelled?: boolean; failProgress?: b
   const progress: Progress[] = [];
   const requests: string[] = [];
   const callbacks: Record<string, unknown>[] = [];
+  const callbackHeaders: { action:string; headers:Headers }[] = [];
   const timings: { spans: { segment: string; step: string; elapsedMs: number; outcome: string }[] }[] = [];
   let releaseLookahead!: () => void;
   const lookaheadStarted = new Promise<void>(resolve => { releaseLookahead = resolve; });
@@ -47,8 +48,9 @@ function replay(options: { pages?: number; cancelled?: boolean; failProgress?: b
       timings.push(JSON.parse(String(init?.body)));
       return Response.json({ ok: true });
     }
-    if (url === `http://127.0.0.1:3010/api/research/internal/${id}`) {
-      if (!init?.body) return Response.json({ status, config, seeds: config.seeds, deadline: Date.now() + 600000 });
+    if (url === `http://127.0.0.1:3010/api/research/internal/${id}` || url === `http://127.0.0.1:3010/api/research/internal/${id}?control=1`) {
+      callbackHeaders.push({action:init?.body ? typeof JSON.parse(String(init.body)).revision === 'number' ? 'progress' : JSON.parse(String(init.body)).action : 'control',headers:new Headers(init?.headers)});
+      if (!init?.body) return Response.json({ status, config: url.endsWith("?control=1") ? { budget: config.budget, performanceFlags: config.performanceFlags } : config, seeds: config.seeds, deadline: Date.now() + 600000 }, {headers:options.callbackTiming ? {"server-timing":"app;dur=12.5, db;dur=4", "x-research-db-calls":"2"} : {}});
       const data = JSON.parse(String(init.body));
       callbacks.push(data);
       if (data.action === "discovery-context") return Response.json({ scope: "industrial cleaning", startingTerms: [], regions: ["Victoria"], target: 20, found: 0, remainingSearches: 12, attempts: [], candidates: [] });
@@ -61,6 +63,8 @@ function replay(options: { pages?: number; cancelled?: boolean; failProgress?: b
         }
         return Response.json({ seeds: [] });
       }
+      if (data.action === 'website-pages') return Response.json({ ok: true });
+      if (data.action === 'targeted-followup') return Response.json({ seeds: options.targetedSeeds || [], exhausted: true });
       if (data.action === "provider-release") return Response.json({ ok: true });
       if (data.action === "provider-reserve") return Response.json({ granted: !options.denyPermit, retryAfterMs: 0, after: Date.now(), until: Date.now() + 2000, token: data.token });
       if (data.action === "browser-permit" && options.expireFirstPermit && !expiredPermit) { expiredPermit = true; return Response.json({ granted: false, retryAfterMs: 0, expired: true }); }
@@ -68,11 +72,12 @@ function replay(options: { pages?: number; cancelled?: boolean; failProgress?: b
       // Model the app's revision check after a write succeeds but its response is lost.
       if (!progress.some(p => p.revision === data.revision)) { progress.push(data); status = data.status; }
       if (options.failProgress && !failed) { failed = true; return new Response("Temporary failure", { status: 503 }); }
-      return Response.json({ ok: true });
+      return Response.json({ ok: true, ...(options.leanControls ? { control: { status, config, seeds: config.seeds, deadline: Date.now() + 600000 } } : {}), ...(data.timingSpans ? { timingAcceptedIds: data.timingSpans.map((span: { id: string }) => span.id) } : {}) }, {headers:options.callbackTiming ? {"server-timing":"app;dur=12.5, db;dur=4", "x-research-db-calls":"2"} : {}});
     }
     if (url === "http://127.0.0.1:18083/crawl") {
       expect(new Headers(init?.headers).has("authorization")).toBe(false);
       const requestedUrl = JSON.parse(String(init?.body)).url as string;
+      if (options.read) return Response.json({ url: requestedUrl, markdown: options.read(requestedUrl) });
       if (options.lookaheadGate) {
         if (requestedUrl.endsWith('/leadership')) {
           releaseLookahead();
@@ -81,6 +86,7 @@ function replay(options: { pages?: number; cancelled?: boolean; failProgress?: b
         }
         return Response.json({ url: requestedUrl, markdown: '# Our company\nWe make precision instruments in Australia.\n[Leadership](/leadership)' });
       }
+      if (options.leanControls) await new Promise(resolve => setTimeout(resolve, 1050));
       return Response.json({ url: requestedUrl, markdown });
     }
     if (url === "https://openrouter.ai/api/v1/chat/completions") {
@@ -91,7 +97,7 @@ function replay(options: { pages?: number; cancelled?: boolean; failProgress?: b
     }
     throw new Error(`Unmocked request: ${url}`);
   });
-  return { id, config, progress, requests, callbacks, timings };
+  return { id, config, progress, requests, callbacks, timings, callbackHeaders };
 }
 
 it("runs a real Workflow with local reads, extraction and persisted progress, without CF requests", async () => {
@@ -120,8 +126,9 @@ it("honours cancellation before issuing a browser or AI request", async () => {
   expect(t.timings.flatMap(batch => batch.spans).map(span => span.segment)).toEqual(["control"]);
 });
 
-it("retries a failed progress callback through real Workflow step retries", async () => {
+it.each([false, true])("retries failed progress through real Workflow step retries with batching=%s", async batching => {
   const t = replay({ failProgress: true });
+  t.config.performanceFlags = { telemetryBatching: batching };
   await using instance = await introspectWorkflowInstance(bindings.RESEARCH, t.id);
   await instance.modify(m => m.disableSleeps());
   await bindings.RESEARCH.create({ id: t.id, params: { jobId: t.id } });
@@ -129,6 +136,11 @@ it("retries a failed progress callback through real Workflow step retries", asyn
   expect(t.progress.at(-1)?.status).toBe("complete");
   expect(t.requests.filter(url => url.endsWith("/crawl"))).toHaveLength(1);
   expect(new Set(t.progress.map(p => p.revision)).size).toBe(t.progress.length);
+  if (batching) {
+    const attempts = t.callbacks.filter(c => c.revision === 1) as { timingSpans: { id: string }[] }[];
+    expect(attempts).toHaveLength(2);
+    expect(attempts[1].timingSpans.map(span => span.id)).toEqual(expect.arrayContaining(attempts[0].timingSpans.map(span => span.id)));
+  }
 });
 
 it("allows a normal paid-plan Workflow to finish below its request guard", async () => {
@@ -343,3 +355,85 @@ it("records failure and stops after a later Firmable people page exhausts retrie
   expect(actions.at(-1)?.action).toBe("fail");
   expect(actions.some(action => ["finalize-search", "profiles", "complete"].includes(action.action))).toBe(false);
 }, 45_000);
+
+
+it("piggybacks acknowledged timing batches on progress throughout a real Workflow", async () => {
+  const t = replay();
+  t.config.performanceFlags = { telemetryBatching: true, progressCoalescing: true };
+  await using instance = await introspectWorkflowInstance(bindings.RESEARCH, t.id);
+  await instance.modify(m => m.disableSleeps());
+  await worker.fetch(new Request(`http://worker/jobs/${t.id}`, {
+    method: "POST", headers: { authorization: "Bearer replay-only" },
+  }), bindings);
+  await instance.waitForStatus("complete");
+  const progressBatches = t.callbacks.filter(c => c.timingSpans) as { timingSpans: { id: string }[] }[];
+  expect(progressBatches.length).toBeGreaterThanOrEqual(3);
+  const ids = progressBatches.flatMap(batch => batch.timingSpans.map(span => span.id));
+  expect(new Set(ids).size).toBe(ids.length);
+  // Only spans finished after the last progress callback use final delivery.
+  expect(t.timings).toHaveLength(1);
+  expect(t.timings.flatMap(batch => batch.spans).every(span => span.step.startsWith('progress-'))).toBe(true);
+  expect(t.progress.some(e => e.page?.markdown === markdown)).toBe(true);
+  expect(t.progress.at(-1)?.status).toBe('complete');
+});
+
+
+it("refreshes lean controls during real Workflow reads while retaining execution configuration and batching flags", async () => {
+  const t = replay({ leanControls: true });
+  t.config.performanceFlags = { telemetryBatching: true, progressCoalescing: true };
+  await using instance = await introspectWorkflowInstance(bindings.RESEARCH, t.id);
+  await instance.modify(m => m.disableSleeps());
+  await bindings.RESEARCH.create({ id: t.id, params: { jobId: t.id } });
+  await instance.waitForStatus("complete");
+  expect(t.requests.some(url => url.endsWith('?control=1'))).toBe(true);
+  expect(t.progress.at(-1)).toMatchObject({ status: 'complete', pages: 1, modelCalls: 1 });
+  expect(t.callbacks.filter(c => c.timingSpans)).toHaveLength(3);
+  expect(t.timings).toHaveLength(1);
+});
+
+
+it('correlates real Workflow control and progress callbacks with app/database response durations', async () => {
+  const log=vi.spyOn(console,'info').mockImplementation(()=>{});
+  const t=replay({callbackTiming:true});
+  await using instance=await introspectWorkflowInstance(bindings.RESEARCH,t.id);
+  await instance.modify(m=>m.disableSleeps());
+  await bindings.RESEARCH.create({id:t.id,params:{jobId:t.id}});
+  await instance.waitForStatus('complete');
+  for(const request of t.callbackHeaders) expect(request.headers.get('x-request-id')).toMatch(/^[a-f0-9-]{36}$/);
+  const events=log.mock.calls.filter(([prefix])=>prefix==='research-provider').map(([,value])=>JSON.parse(String(value)));
+  for(const action of ['control','progress']) {
+    const header=t.callbackHeaders.find(request=>request.action===action)!.headers.get('x-request-id');
+    expect(events).toContainEqual(expect.objectContaining({provider:'research-worker',operation:`callback_${action}`,jobId:t.id,requestId:header,event:'request_completed',responseServerTiming:{appMs:12.5,dbMs:4},databaseCalls:2}));
+  }
+  expect(t.requests.filter(url=>url.endsWith('/crawl'))).toHaveLength(1);
+});
+
+
+it('checkpoints a website sitemap fanout in a real Workflow and reads only the homepage', async () => {
+  // Public page caching spans runs; each fixture website needs its own identity.
+  const domain = `sitemap-${crypto.randomUUID()}.example.com`;
+  const t = replay({ read: url => url.endsWith('/robots.txt') ? `Sitemap: https://${domain}/sitemap.xml` : url.endsWith('.xml') ? `<urlset><url><loc>https://${domain}/team</loc></url><url><loc>https://${domain}/contact</loc></url></urlset>` : markdown });
+  Object.assign(t.config, { seeds: [`https://${domain}/`], researchTask: 'website', parallelBusinessResearch: true, discoveryCandidate: true, workflow: 'business', companyName: 'Example Instruments', companyDomain: domain });
+  await using instance = await introspectWorkflowInstance(bindings.RESEARCH, t.id);
+  await instance.modify(m => m.disableSleeps());
+  await bindings.RESEARCH.create({ id: t.id, params: { jobId: t.id } });
+  await instance.waitForStatus('complete');
+  expect(t.callbacks.filter(c => c.action === 'website-pages')).toEqual([expect.objectContaining({ urls: expect.arrayContaining([`https://${domain}/team`, `https://${domain}/contact`]) })]);
+  expect(t.progress.at(-1)?.pages).toBe(1);
+  const fanout = JSON.parse(await instance.waitForStepResult({ name: 'fanout-pages-1' }) as string);
+  expect(fanout).toBeNull();
+});
+it('runs and checkpoints the independent ABN branch with the registry record parameter intact', async () => {
+  const registry = 'https://abr.business.gov.au/ABN/View?abn=56663118241';
+  const reads: string[] = [];
+  const t = replay({ targetedSeeds: [registry], read: url => { reads.push(url); return '# Current details for ABN 56 663 118 241\nEntity name: FIRE CENTRAL PTY LTD\nMain business location: VIC 3053'; } });
+  Object.assign(t.config, { mode: 'automatic', purpose: 'firmographics', researchTask: 'field', researchField: 'abn', targetedFollowup: true, companyName: 'Fire Central Pty Ltd', companyDomain: 'firecentral.com.au', companyLocation: 'VIC', seeds: [], budget: { maxPages: 3, maxDomains: 3, maxMinutes: 10, maxModelCalls: 0 } });
+  await using instance = await introspectWorkflowInstance(bindings.RESEARCH, t.id);
+  await instance.modify(m => m.disableSleeps());
+  await bindings.RESEARCH.create({ id: t.id, params: { jobId: t.id } });
+  await instance.waitForStatus('complete');
+  expect(t.callbacks).toContainEqual(expect.objectContaining({ action: 'targeted-followup', field: 'abn' }));
+  expect(reads).toEqual([registry]);
+  expect(t.progress.flatMap(p => p.page?.findings || [])).toContainEqual(expect.objectContaining({ name: 'ABN', value: '56663118241' }));
+  expect(t.progress.at(-1)).toMatchObject({ status: 'complete', pages: 1, modelCalls: 0 });
+});

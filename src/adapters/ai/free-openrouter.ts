@@ -40,6 +40,9 @@ export type FreeResearchUsage = {
 /** Shared by Node test harnesses and Workers: no process globals or AI binding. */
 export class FreeOpenRouter {
   private readonly models: string[];
+  // Per-client availability only: account/prompt state never leaks across clients
+  // or organisations. Unknown transport/capacity failures remain retryable.
+  private readonly unavailableRoutes = new Map<string, number>();
   constructor(privateOptions: {
     apiKey: string;
     models?: readonly string[];
@@ -99,7 +102,14 @@ export class FreeOpenRouter {
     // NEX and Dots support disabling reasoning; Nemotron does not.
     const models = paid ? [MERCURY_FALLBACK_MODEL] : input.reasoning_effort === "none" ? freeModels.filter(supportsDisabledReasoning) : freeModels;
     if (!models.length) throw new ResearchAiError("No approved free model supports the requested reasoning mode");
+    const routeKey = JSON.stringify({ models, reasoning: input.reasoning_effort ?? "medium", schema: input.response_format, operation: input.operation });
     const started = Date.now();
+    for (const [key, until] of this.unavailableRoutes) if (until <= started) this.unavailableRoutes.delete(key);
+    const unavailableUntil = !paid ? this.unavailableRoutes.get(routeKey) : undefined;
+    if (unavailableUntil && unavailableUntil > started) {
+      console.info("research-provider", JSON.stringify({ timestamp: new Date().toISOString(), provider: "openrouter", operation: input.operation || "structured_completion", jobId: this.options.jobId, event: "unavailable_route_skipped", modelCandidates: models, retryAfterMs: unavailableUntil - started }));
+      throw new FallbackEligibleError("Free research AI route unavailable; waiting for availability retry");
+    }
     const requestId = crypto.randomUUID();
     this.options.onRequest?.();
     let response: Response;
@@ -135,6 +145,12 @@ export class FreeOpenRouter {
     if (!response.ok) {
       // Do not log provider bodies: they can echo page content or credentials.
       const retryAfter = response.headers.get("retry-after");
+      // A 404 means the exact model/parameter route has no available endpoint.
+      // Short TTL allows automatic recovery; 429/5xx never poison availability.
+      if (!paid && response.status === 404) {
+        if (this.unavailableRoutes.size >= 32) this.unavailableRoutes.delete(this.unavailableRoutes.keys().next().value!);
+        this.unavailableRoutes.set(routeKey, Date.now() + 60000);
+      }
       const ErrorType = [404, 408, 429].includes(response.status) || response.status >= 500 ? FallbackEligibleError : ResearchAiError;
       throw new ErrorType(`${paid ? "Mercury fallback" : "Free research AI"} unavailable (HTTP ${response.status})${retryAfter && /^\d+$/.test(retryAfter) ? `; retry after ${retryAfter} seconds` : ""}.`);
     }

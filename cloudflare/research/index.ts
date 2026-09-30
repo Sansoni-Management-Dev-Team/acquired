@@ -1,4 +1,6 @@
+import { mergeResearchControl } from "./control-cache";
 import { cachedResearchExtraction } from '../../src/domain/research-extraction-cache';
+import { researchPerformanceFlags } from "../../src/domain/research";
 import { pipelineTiming } from './pipeline-timing';
 import { discoveryBatchPrompt, discoveryBatchOutputSchema, type DiscoveryContext } from "../../src/domain/adaptive-discovery";
 import { withLocalProvider } from './local-provider';
@@ -53,7 +55,7 @@ interface Env {
   RESEARCH_AI_EXTRACTION_REASONING?: string;
 }
 const coordinator = (env: Env) => env.PROVIDER_COORDINATOR?.getByName("account-wide");
-async function providerAction(env: Env, jobId: string, body: { action: string; token?: string | null; provider?: ResearchProvider; retryAfterMs?: number; url?: string }, budget?: { used: number; jobId?: string }) {
+async function providerAction(env: Env, jobId: string, body: { action: string; token?: string | null; provider?: ResearchProvider; retryAfterMs?: number; url?: string; domain?: string }, budget?: { used: number; jobId?: string }) {
   const stub = coordinator(env);
   if (!stub) return callback(env, jobId, body.action === "provider-reserve" ? { ...body, policy: "paid-v1" } : body, budget);
   // The coordinator holds the request while capacity is busy, so one admission
@@ -61,7 +63,7 @@ async function providerAction(env: Env, jobId: string, body: { action: string; t
   if (body.action === "provider-reserve" && body.token && body.provider) return stub.reserve({ jobId, token: body.token, provider: body.provider, local: !productionPolicy(env), holdMs: 20000 });
   if (body.action === "browser-permit" && body.token) return stub.claim(jobId, body.token, body.url ? new URL(body.url).hostname.replace(/^www\./, "") : undefined);
   if (body.action === "provider-release" && body.token) return stub.release(jobId, body.token).then(() => ({ ok: true }));
-  if (body.action === "browser-cooldown") return stub.cooldown(body.retryAfterMs || 30000).then(() => ({ ok: true }));
+  if (body.action === "browser-cooldown") return stub.cooldown(body.retryAfterMs || 30000, body.domain).then(() => ({ ok: true }));
   throw new Error("Invalid provider coordination action");
 }
 async function authorized(request: Request, secret: string) {
@@ -78,7 +80,7 @@ async function authorized(request: Request, secret: string) {
   for (let i = 0; i < x.length; i++) difference |= x[i] ^ y[i];
   return difference === 0;
 }
-async function callback(env: Env, id: string, body?: unknown, budget?: { used: number; jobId?: string }) {
+async function callback(env: Env, id: string, body?: unknown, budget?: { used: number; jobId?: string }, lean = false) {
   const origin = callbackOrigin(env.APP_ORIGIN, env.LOCAL_DEVELOPMENT === "true");
   if (budget) budget.used++;
   const action = (body as { action?: string } | undefined)?.action || "";
@@ -87,7 +89,8 @@ async function callback(env: Env, id: string, body?: unknown, budget?: { used: n
     : ["browser-cooldown", "provider-release"].includes(action)
       ? 5000
       : body ? 55000 : 10000;
-  const r = await researchFetch(env)(`${origin}/api/research/internal/${id}`, {
+  const operation = !body ? "callback_control" : action && /^[a-z][a-z0-9-]{0,48}$/.test(action) ? `callback_${action.replaceAll("-", "_")}` : "callback_progress";
+  const { response: r, data } = await providerJsonRequest<unknown>(researchFetch(env), `${origin}/api/research/internal/${id}${lean && !body ? "?control=1" : ""}`, {
     method: body ? "POST" : "GET",
     headers: {
       authorization: `Bearer ${env.SERVICE_SECRET}`,
@@ -95,9 +98,9 @@ async function callback(env: Env, id: string, body?: unknown, budget?: { used: n
     },
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(timeoutMs),
-  });
+  }, { provider: "research-worker", operation, jobId: id });
   if (!r.ok) throw new Error(`Callback failed (${r.status})`);
-  return r.json();
+  return data;
 }
 
 async function firmableCallback<T>(env: Env, id: string, body: unknown): Promise<T> {
@@ -151,7 +154,7 @@ async function readMarkdown(env: Env, url: string, budget: { used: number; jobId
   const markdown = await browserMarkdown(env, url, {
     jobId: budget.jobId, operation: fallback ? "markdown_fallback" : "markdown",
     onRequest: () => { budget.used++; },
-    cooldown: retryAfterMs => providerAction(env, budget.jobId!, { action: "browser-cooldown", retryAfterMs }),
+    cooldown: (retryAfterMs, domain) => providerAction(env, budget.jobId!, { action: "browser-cooldown", retryAfterMs, domain }),
     release: () => reservation ? providerAction(env, budget.jobId!, { action: "provider-release", token: reservation }) : Promise.resolve(),
     permit: () => providerAction(env, budget.jobId!, { action: "browser-permit", token: reservation, url }) as Promise<{ granted: boolean; retryAfterMs: number }>,
   });
@@ -166,6 +169,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
     // Bound callback/provider traffic while leaving ample room for paid-plan admission waits.
     const requestBudget = { used: 0, jobId: id };
     let stateCache: { value: ResearchControl; at: number } | undefined;
+    let telemetryBatching: boolean | undefined;
     const timing = pipelineTiming(id, async spans => {
       requestBudget.used++;
       const origin = callbackOrigin(this.env.APP_ORIGIN, this.env.LOCAL_DEVELOPMENT === 'true');
@@ -178,13 +182,22 @@ export class AcquireResearch extends WorkflowEntrypoint<
     const control = async () => {
       // Adjacent goal, page and extraction guards reuse a freshly checked state.
       // After network work or durable waiting, cancellation is checked again.
-      if (!stateCache || Date.now() - stateCache.at >= 1000) stateCache = { value: await callback(this.env, id, undefined, requestBudget) as ResearchControl, at: Date.now() };
+      if (!stateCache || Date.now() - stateCache.at >= 1000) {
+        const prior = stateCache?.value;
+        const fresh = await callback(this.env, id, undefined, requestBudget, Boolean(prior)) as ResearchControl;
+        stateCache = { value: prior ? mergeResearchControl(prior, fresh) : fresh, at: Date.now() };
+      }
+      telemetryBatching ??= researchPerformanceFlags(stateCache.value.config).telemetryBatching;
       const stopReason = requestBudgetStop(requestBudget.used, !productionPolicy(this.env), true);
       return stopReason ? { ...stateCache.value, deadline: 0, stopReason } : stateCache.value;
     };
     const checkpoint = async <T>(name: string, run: () => Promise<T>, retry = true): Promise<T> => {
       const serialized = await step.do(name, { retries: { limit: retry ? 2 : 0, delay: "12 seconds", backoff: "exponential" }, timeout: "120 seconds" }, async () => JSON.stringify(await timing.measure(name, run)) ?? "null");
-      return JSON.parse(serialized) as T;
+      const result = JSON.parse(serialized);
+      // Initialize from the durable initial control result too: on replay its
+      // callback is skipped, so in-memory control() side effects do not run.
+      if (name === "control-start") telemetryBatching ??= researchPerformanceFlags((result as ResearchControl).config).telemetryBatching;
+      return result as T;
     };
     const ai = new FreeOpenRouter({
       apiKey: this.env.OPENROUTER_API_KEY,
@@ -241,6 +254,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
         discoveryContext: () => callback(this.env, id, { action: "discovery-context" }, requestBudget) as Promise<DiscoveryContext>,
         prepareDiscoverySources: () => callback(this.env, id, { action: "discovery-sources" }, requestBudget) as Promise<{ pending: boolean }>,
         persistDiscoverySources: () => callback(this.env, id, { action: "discovery-persist" }, requestBudget) as Promise<{ pending: boolean }>,
+        fanoutPages: async urls => { await callback(this.env, id, { action: 'website-pages', urls }, requestBudget); },
         planDiscovery: async context => {
           const output = await ai.complete({ messages: discoveryBatchPrompt(context), operation: "followup_planning", max_tokens: 1200, reasoning_effort: "none", temperature: 0.3,
             response_format: { type: "json_schema", json_schema: discoveryBatchOutputSchema } });
@@ -252,8 +266,10 @@ export class AcquireResearch extends WorkflowEntrypoint<
             warning?: string;
           }>,
         progress: async (event) => {
-          await timing.flush();
-          const response = await callback(this.env, id, event, requestBudget) as { control?: ResearchControl };
+          const response = await timing.progress(event, async payload =>
+            callback(this.env, id, payload, requestBudget) as Promise<{ control?: ResearchControl; timingAcceptedIds?: string[] }>,
+            telemetryBatching === true);
+
           stateCache = response.control ? { value: { ...response.control, findings: stateCache?.value.findings }, at: Date.now() } : undefined;
           console.info("research-progress", JSON.stringify({ timestamp: new Date().toISOString(), jobId: id, status: event.status, revision: event.revision, pages: event.pages, modelCalls: event.modelCalls, savedPageFindings: event.page?.findings.length, remainingUrls: event.runtime?.remaining.length }));
         },
@@ -364,7 +380,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
         now: () => Date.now(),
       },
     ).finally(async () => {
-      await timing.flush();
+      await timing.flush(32);
       console.info("research-runtime", JSON.stringify({ jobId: id, requests: requestBudget.used, local: this.env.LOCAL_DEVELOPMENT === "true" }));
     });
   }
@@ -379,7 +395,8 @@ export class FirmableRefresh extends WorkflowEntrypoint<Env, { runId: string; ma
         timeout: "90 seconds",
       }, async () => JSON.stringify(await firmableCallback<T>(this.env, runId, body)));
       const result = JSON.parse(serialized);
-      // Check outside step.do so a replay never retries a terminal provider failure.
+      // Terminal provider failures are acknowledged and persisted by the app.
+      // Check outside step.do so replaying the step never retries the provider.
       if (result?.failed === true) throw new Error("Contact enrichment stopped");
       return result as T;
     };
@@ -458,7 +475,7 @@ const worker = {
         if (!/^[0-9a-f-]{36}$/i.test(jobId)) return Response.json({ error: "A research job is required for rate-controlled search" }, { status: 400 });
         const markdown = await browserMarkdown(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
           jobId, operation: "web_search",
-          cooldown: retryAfterMs => providerAction(env, jobId, { action: "browser-cooldown", retryAfterMs }),
+          cooldown: (retryAfterMs, domain) => providerAction(env, jobId, { action: "browser-cooldown", retryAfterMs, domain }),
           release: () => providerAction(env, jobId, { action: "provider-release", token: request.headers.get("x-research-browser-reservation") }),
           permit: () => providerAction(env, jobId, { action: "browser-permit", token: request.headers.get("x-research-browser-reservation"), url: `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}` }) as Promise<{ granted: boolean; retryAfterMs: number }>,
         });

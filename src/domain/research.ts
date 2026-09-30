@@ -2,6 +2,7 @@ import type { PeopleSearchLead } from "./people-search-results";
 import type { TargetCandidate } from "./models";
 import type { CoverageSource } from "./acquisition";
 import { z } from "zod";
+import { researchTimingSpanSchema } from "./research-timing";
 import { relevantExcerpt } from "./page-content";
 
 export const researchStates = [
@@ -32,10 +33,10 @@ export function researchJobRunning(job: { status: string; updatedAt?: Date | str
 // Research can still change on its own while a job runs, or while an automatic
 // run is inside its deadline and may dispatch continuation or enrichment children.
 // Clients poll only while this is true; jobs are expected newest first.
-export function researchActive(jobs: { status: string; updatedAt?: Date | string | number; config: { mode?: string; purpose?: string; discoveryCandidate?: boolean; automaticDeadline?: number } }[], now = Date.now()) {
+export function researchActive(jobs: { status: string; updatedAt?: Date | string | number; config: { researchTask?: string; parallelResearchSettled?: boolean; mode?: string; purpose?: string; discoveryCandidate?: boolean; automaticDeadline?: number } }[], now = Date.now()) {
   if (jobs.some(j => researchJobRunning(j, now))) return true;
-  const root = jobs.find(j => !j.config.purpose && !j.config.discoveryCandidate);
-  return Boolean(root && root.config.mode === "automatic" && root.status !== "cancelled" && now < (root.config.automaticDeadline || 0));
+  const root = jobs.find(j => !j.config.purpose && !j.config.discoveryCandidate && !j.config.researchTask);
+  return Boolean(root && root.config.mode === "automatic" && !root.config.parallelResearchSettled && root.status !== "cancelled" && now < (root.config.automaticDeadline || 0));
 }
 export function publicResearchUrl(value: string): string | null {
   try {
@@ -52,8 +53,11 @@ export function publicResearchUrl(value: string): string | null {
       )
     )
       return null;
-    // Never forward query-string credentials or fragments to providers.
+    // The registry identifies its public record by ABN in the query string.
+    // Retain that one numeric identifier while removing all other parameters.
+    const registryAbn = host === 'abr.business.gov.au' && /^\/ABN\/View\/?$/i.test(url.pathname) ? url.searchParams.get('abn')?.replace(/\s/g, '') : undefined;
     url.search = "";
+    if (registryAbn && /^\d{11}$/.test(registryAbn)) url.searchParams.set('abn', registryAbn);
     url.hash = "";
     return url.href;
   } catch {
@@ -66,7 +70,22 @@ export const researchBudgetSchema = z.object({
   maxMinutes: z.number().int().min(1).max(15).default(10),
   maxModelCalls: z.number().int().min(0).max(5).default(3),
 });
+export const researchPerformanceFlagsSchema = z.object({
+  telemetryBatching: z.boolean().optional(),
+  progressCoalescing: z.boolean().optional(),
+  schedulerCoalescing: z.boolean().optional(),
+});
+// Flags are snapshotted on new runs and inherited by their children. Missing
+// keys preserve existing run behaviour during rolling deployments/replays.
+export function researchPerformanceFlags(config: { performanceFlags?: z.infer<typeof researchPerformanceFlagsSchema> }) {
+  return {
+    telemetryBatching: config.performanceFlags?.telemetryBatching === true,
+    progressCoalescing: config.performanceFlags?.progressCoalescing === true,
+    schedulerCoalescing: config.performanceFlags?.schedulerCoalescing === true,
+  };
+}
 export const researchStartSchema = z.object({
+  performanceFlags: researchPerformanceFlagsSchema.optional(),
   requestId: z.string().uuid(),
   continueFrom: z.string().uuid().optional(),
   seeds: z
@@ -129,7 +148,8 @@ export function researchDomain(url: string) {
 }
 export function researchUrlKey(url: string) {
   const parsed = new URL(url);
-  return researchDomain(url) + parsed.pathname.replace(/\/$/, "");
+  const abn = parsed.hostname === 'abr.business.gov.au' && /^\/ABN\/View\/?$/i.test(parsed.pathname) ? parsed.searchParams.get('abn')?.replace(/\s/g, '') : undefined;
+  return researchDomain(url) + parsed.pathname.replace(/\/$/, "") + (abn && /^\d{11}$/.test(abn) ? `?abn=${abn}` : '');
 }
 export function uniqueResearchUrls(urls: string[]) {
   return [
@@ -181,6 +201,7 @@ export function continueResearchConfig(
   );
   return {
     ...config,
+    ...(config.parallelBusinessResearch ? { parallelResearchSettled: false, parallelResearchPendingTasks: undefined } : {}),
     seeds: remaining.slice(0, 10),
     discover: false,
     budget,
@@ -191,7 +212,7 @@ export function continueResearchConfig(
 export type ResearchConfig = Omit<
   z.infer<typeof researchStartSchema>,
   "requestId" | "continueFrom"
-> & { researchMilestones?: { firstCompanyAt?: string; targetReachedAt?: string }; diminishingReturnsSearches?: number; followupExhaustedFields?: import('./research-objectives').ResearchField[]; followupSearchCounts?: Partial<Record<import('./research-objectives').ResearchField, number>>; followupEmptySearchCounts?: Partial<Record<import('./research-objectives').ResearchField, number>>; pipelineTiming?: Record<string, import('./research-timing').ResearchTimingSpan>; enrichmentPhase?: 'initial' | 'deep'; inheritedFindings?: ResearchFinding[]; enrichmentPendingFields?: import('./research-objectives').ResearchField[]; enrichmentConcurrency?: number; discoveryConcurrency?: number; adaptiveDiscovery?: boolean; discoveryStopReason?: string; admissionContinuations?: number; parallelDiscovery?: boolean; discoveryCandidate?: boolean; executionSlot?: number | string; researchRunId?: string; automaticPageLimit?: number; automaticPagesUsed?: number; automaticDeadline?: number; newBusinessIds?: string[]; businessTargetStartedAt?: string; targetedFollowup?: boolean; targetedSearches?: string[]; targetedSearchAttempts?: import("./research-objectives").SearchAttempt[]; skipDomains?: string[]; companyLocation?: string; discoveryCursor?: number; discoveryPending?: boolean; discoveryAttempts?: import("./adaptive-discovery").DiscoveryAttempt[]; discoverySourcesPrepared?: boolean; discoverySourceCandidates?: TargetCandidate[]; discoverySourceCursor?: number; discoverySourceCoverage?: CoverageSource[]; discoverySourceCoverageRecorded?: boolean; autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
+> & { followupPlannerUsed?: boolean; targetedSearchDeferred?: boolean; parallelBusinessResearch?: boolean; parallelResearchSettled?: boolean; parallelResearchPendingTasks?: number; researchTask?: "website" | "page" | "field"; researchField?: import("./research-objectives").ResearchField; websitePages?: string[]; researchMilestones?: { firstCompanyAt?: string; targetReachedAt?: string }; diminishingReturnsSearches?: number; followupExhaustedFields?: import('./research-objectives').ResearchField[]; followupSearchCounts?: Partial<Record<import('./research-objectives').ResearchField, number>>; followupEmptySearchCounts?: Partial<Record<import('./research-objectives').ResearchField, number>>; pipelineTiming?: Record<string, import('./research-timing').ResearchTimingSpan>; enrichmentPhase?: 'initial' | 'deep'; inheritedFindings?: ResearchFinding[]; enrichmentPendingFields?: import('./research-objectives').ResearchField[]; enrichmentConcurrency?: number; discoveryConcurrency?: number; adaptiveDiscovery?: boolean; discoveryStopReason?: string; admissionContinuations?: number; parallelDiscovery?: boolean; discoveryCandidate?: boolean; executionSlot?: number | string; researchRunId?: string; automaticPageLimit?: number; automaticPagesUsed?: number; automaticDeadline?: number; newBusinessIds?: string[]; businessTargetStartedAt?: string; targetedFollowup?: boolean; targetedSearches?: string[]; targetedSearchAttempts?: import("./research-objectives").SearchAttempt[]; skipDomains?: string[]; companyLocation?: string; discoveryCursor?: number; discoveryPending?: boolean; discoveryAttempts?: import("./adaptive-discovery").DiscoveryAttempt[]; discoverySourcesPrepared?: boolean; discoverySourceCandidates?: TargetCandidate[]; discoverySourceCursor?: number; discoverySourceCoverage?: CoverageSource[]; discoverySourceCoverageRecorded?: boolean; autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
 export const findingSchema = z.object({
   kind: z.enum([
     "company",
@@ -235,16 +256,19 @@ export type ResearchPage = {
   truncated: boolean;
 };
 export const progressSchema = z.object({
+  timingSpans: z.array(researchTimingSpanSchema).max(64).optional(),
   revision: z.number().int().min(1).max(10000),
   status: z.enum(researchStates),
   pages: z.number().int().min(0),
   modelCalls: z.number().int().min(0),
   message: z.string().max(1000),
   crawlId: z.string().uuid().nullable().optional(),
-  enrichmentPendingFields: z.array(z.enum(['size', 'revenue', 'people', 'email'])).max(4).optional(),
-  followupExhaustedFields: z.array(z.enum(['size', 'revenue', 'people', 'email'])).max(4).optional(),
-  followupSearchCounts: z.partialRecord(z.enum(['size', 'revenue', 'people', 'email']), z.number().int().min(0).max(100)).optional(),
-  followupEmptySearchCounts: z.partialRecord(z.enum(['size', 'revenue', 'people', 'email']), z.number().int().min(0).max(100)).optional(),
+  enrichmentPendingFields: z.array(z.enum(['abn', 'size', 'revenue', 'people', 'email'])).max(5).optional(),
+  targetedSearchDeferred: z.boolean().optional(),
+  followupPlannerUsed: z.boolean().optional(),
+  followupExhaustedFields: z.array(z.enum(['abn', 'size', 'revenue', 'people', 'email'])).max(5).optional(),
+  followupSearchCounts: z.partialRecord(z.enum(['abn', 'size', 'revenue', 'people', 'email']), z.number().int().min(0).max(100)).optional(),
+  followupEmptySearchCounts: z.partialRecord(z.enum(['abn', 'size', 'revenue', 'people', 'email']), z.number().int().min(0).max(100)).optional(),
   runtime: researchRuntimeSchema.optional(),
   page: z
     .object({

@@ -188,3 +188,25 @@ it('lets eligible admission continuation claim the initial phase before deep dis
   await dispatchAutomaticEnrichment('org', 'root');
   expect(mocks.create).not.toHaveBeenCalled();
 });
+it('uses shared members and findings without repeating scans and avoids repeat queued dispatch', async () => {
+  const snapshot = { root, jobs: [root], members: [{ target, assessment: { stage: 'identified' } }], findings: evidence, dispatched: new Set<string>() } as unknown as import('./research-scheduling-snapshot').ResearchSchedulingSnapshot;
+  mocks.create.mockImplementation(async (id, mandateId, createdBy, config) => ({ ...root, id, mandateId, createdBy, config, status: 'queued' }));
+  await dispatchAutomaticEnrichment('org', 'root', snapshot);
+  await dispatchAutomaticEnrichment('org', 'root', snapshot);
+  expect(mocks.where).not.toHaveBeenCalled();expect(mocks.memberships).not.toHaveBeenCalled();
+  expect(mocks.create).toHaveBeenCalledTimes(2);expect(mocks.worker).toHaveBeenCalledTimes(2);
+});
+it('logs safe failed child dispatch while preserving queued enrichment for retry', async () => {
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  const snapshot = { root, jobs: [root], members: [{ target, assessment: { stage: 'identified' } }], findings: evidence, dispatched: new Set<string>() } as unknown as import('./research-scheduling-snapshot').ResearchSchedulingSnapshot;
+  mocks.create.mockImplementation(async (id, mandateId, createdBy, config) => ({ ...root, id, mandateId, createdBy, config, status: 'queued' }));
+  mocks.worker.mockRejectedValueOnce(new Error('private-token')).mockResolvedValue({});
+  try {
+    await dispatchAutomaticEnrichment('org', 'root', snapshot);
+    const entry = JSON.parse(log.mock.calls.find(c => c[0] === 'research-diagnostic')![1]);
+    expect(entry).toMatchObject({ event: 'dispatch_deferred', rootId: 'root', jobId: snapshot.jobs[1].id, reason: 'worker_unavailable' });
+    expect(JSON.stringify(entry)).not.toContain('private-token');
+    await dispatchAutomaticEnrichment('org', 'root', snapshot);
+    expect(mocks.create).toHaveBeenCalledTimes(2);expect(mocks.worker).toHaveBeenCalledTimes(3);
+  } finally { log.mockRestore(); }
+});

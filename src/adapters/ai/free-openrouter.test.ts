@@ -180,3 +180,36 @@ it('configures bounded extraction reasoning independently of planning', async ()
   expect(JSON.parse(fetcher.mock.calls[0][1].body).reasoning.effort).toBe('none');
   expect(JSON.parse(fetcher.mock.calls[1][1].body).reasoning.effort).toBe('medium');
 });
+
+
+it('short circuits unavailable free routes within an instance and recovers after TTL', async () => {
+  vi.useFakeTimers();
+  try {
+    const fetcher = vi.fn().mockResolvedValueOnce(Response.json({}, { status: 404 })).mockImplementation(async (_url, init) => {
+      const paid = JSON.parse(init.body).models[0] === MERCURY_FALLBACK_MODEL;
+      return paid ? completion({ value: null, quote: null }, { model: MERCURY_FALLBACK_MODEL }) : completion({ value: null, quote: null });
+    });
+    const ai = new FreeOpenRouter({ apiKey: 'secret', fetch: fetcher });
+    await ai.complete(request);
+    await ai.complete(request);
+    expect(fetcher).toHaveBeenCalledTimes(3);
+    vi.advanceTimersByTime(60001);
+    await ai.complete(request);
+    expect(JSON.parse(fetcher.mock.calls[3][1].body).models).toEqual(FREE_RESEARCH_MODELS);
+  } finally { vi.useRealTimers(); }
+});
+it('does not share unavailable routing between instances, reasoning/schema fingerprints or transient failures', async () => {
+  const fetcher = vi.fn().mockResolvedValue(Response.json({}, { status: 404 }));
+  const ai = new FreeOpenRouter({ apiKey: 'one', fetch: fetcher, paidFallback: false });
+  await expect(ai.complete(request)).rejects.toThrow();
+  await expect(ai.complete(request)).rejects.toThrow();
+  expect(fetcher).toHaveBeenCalledOnce();
+  await expect(ai.complete({ ...request, reasoning_effort: 'none' })).rejects.toThrow();
+  await expect(ai.complete({ ...request, response_format: { ...request.response_format, json_schema: { type: 'object', properties: { alternate: { type: 'string' } }, required: ['alternate'], additionalProperties: false } } })).rejects.toThrow();
+  await expect(new FreeOpenRouter({ apiKey: 'two', fetch: fetcher, paidFallback: false }).complete(request)).rejects.toThrow();
+  expect(fetcher).toHaveBeenCalledTimes(4);
+  const transient = vi.fn().mockResolvedValue(Response.json({}, { status: 503 }));
+  const retry = new FreeOpenRouter({ apiKey: 'one', fetch: transient, paidFallback: false });
+  for (let i = 0; i < 2; i++) await expect(retry.complete(request)).rejects.toThrow();
+  expect(transient).toHaveBeenCalledTimes(2);
+});

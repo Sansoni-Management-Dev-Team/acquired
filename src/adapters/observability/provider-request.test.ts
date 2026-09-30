@@ -66,3 +66,59 @@ it("classifies an aborted HTTP-200 response body as a timeout without logging co
   expect(JSON.parse(log.mock.calls.at(-1)![1])).toMatchObject({ event: "request_failed", httpStatus: 200, category: "timeout", classificationBasis: "abort_signal" });
   expect(JSON.stringify(log.mock.calls)).not.toContain("private content");
 });
+
+it('correlates worker callback headers and logs allowlisted server measurements', async () => {
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  const headers = new Headers({ authorization: 'private-token', 'x-request-id': 'unrelated-old-id' });
+  const fetcher = vi.fn().mockResolvedValue(Response.json({ ok: true }, { headers: { 'server-timing': 'app;dur=123.4, db;dur=45.6, secret;dur=999;desc="private"', 'x-research-db-calls': '4', 'x-private': 'private' } }));
+  await providerJsonRequest(fetcher, 'https://example.com/internal', { headers }, { provider: 'research-worker', operation: 'progress', requestId: 'correlation-1234' });
+  const sent = new Headers(fetcher.mock.calls[0][1].headers);
+  expect(sent.get('x-request-id')).toBe('correlation-1234');
+  expect(sent.get('authorization')).toBe('private-token');
+  expect(headers.get('x-request-id')).toBe('unrelated-old-id');
+  const completed = JSON.parse(log.mock.calls.at(-1)![1]);
+  expect(completed).toMatchObject({ requestId: 'correlation-1234', responseServerTiming: { appMs: 123.4, dbMs: 45.6 }, databaseCalls: 4 });
+  expect(JSON.stringify(log.mock.calls)).not.toContain('private');
+});
+it.each([500, 200])('retains worker server measurements on HTTP %s failures including malformed response bodies', async status => {
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  const fetcher = vi.fn().mockResolvedValue(new Response('private non-json', { status, headers: { 'server-timing': 'app;dur=15,db;dur=3', 'x-research-db-calls': '2' } }));
+  const result = providerJsonRequest(fetcher, 'https://example.com', {}, { provider: 'research-worker', operation: 'progress', verbose: false });
+  if (status === 200) await expect(result).rejects.toThrow(); else await result;
+  expect(JSON.parse(log.mock.calls.at(-1)![1])).toMatchObject({ event: 'request_failed', responseServerTiming: { appMs: 15, dbMs: 3 }, databaseCalls: 2 });
+});
+it('generates safe correlation IDs and rejects malformed measurements without exposing headers', async () => {
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  const fetcher = vi.fn().mockResolvedValue(Response.json({ ok: true }, { headers: { 'server-timing': 'app;dur=-1,db;dur=Infinity,other;dur=12;desc="private"', 'x-research-db-calls': '1.5' } }));
+  await providerJsonRequest(fetcher, 'https://example.com', {}, { provider: 'research-worker', operation: 'progress', requestId: 'private; invalid' });
+  const requestId = new Headers(fetcher.mock.calls[0][1].headers).get('x-request-id');
+  expect(requestId).toMatch(/^[a-f0-9-]{36}$/);
+  const event = JSON.parse(log.mock.calls.at(-1)![1]);
+  expect(event.requestId).toBe(requestId);
+  expect(event.responseServerTiming).toBeUndefined();
+  expect(event.databaseCalls).toBeUndefined();
+  expect(JSON.stringify(log.mock.calls)).not.toContain('private');
+});
+it('does not send internal correlation headers or accept database diagnostics from external providers', async () => {
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  const fetcher = vi.fn().mockResolvedValue(Response.json({ ok: true }, { headers: { 'server-timing': 'app;dur=15,db;dur=3', 'x-research-db-calls': '2' } }));
+  await providerJsonRequest(fetcher, 'https://example.com', {}, { provider: 'openrouter', operation: 'test' });
+  expect(new Headers(fetcher.mock.calls[0][1].headers).has('x-request-id')).toBe(false);
+  expect(JSON.parse(log.mock.calls.at(-1)![1]).responseServerTiming).toBeUndefined();
+});
+
+it('logs callback body sizes from the sent body and bounded application response measurements', async () => {
+ const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+ const body = JSON.stringify({ message: 'private café 🦘' });
+ const fetcher = vi.fn().mockResolvedValue(Response.json({ ok: true }, { headers: { 'x-research-response-body-bytes': '11', 'x-research-request-body-bytes': '99999999' } }));
+ await providerJsonRequest(fetcher, 'https://example.com', { method: 'POST', body }, { provider: 'research-worker', operation: 'progress' });
+ expect(JSON.parse(log.mock.calls.at(-1)![1])).toMatchObject({ requestBodyBytes: new TextEncoder().encode(body).byteLength, responseBodyBytes: 11, bodyByteMeasurement: 'application_utf8_body' });
+ expect(JSON.stringify(log.mock.calls)).not.toContain('private');
+});
+
+it.each(['-1', 'Infinity', '1.5', '9007199254740992', 'private'])('rejects invalid callback body size %s without logging it', async value => {
+ const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+ await providerJsonRequest(vi.fn().mockResolvedValue(Response.json({ ok: true }, { headers: { 'x-research-response-body-bytes': value } })), 'https://example.com', {}, { provider: 'research-worker', operation: 'control' });
+ expect(JSON.parse(log.mock.calls.at(-1)![1]).responseBodyBytes).toBeUndefined();
+ expect(JSON.stringify(log.mock.calls)).not.toContain('private');
+});

@@ -1,3 +1,4 @@
+import type { ResearchSchedulingSnapshot } from './research-scheduling-snapshot';
 import { measureResearchSegment } from './research-segment-timing';
 import { automaticContinuation } from '@/domain/research-continuation';
 import { reusableEnrichmentEvidence } from '@/domain/enrichment-evidence';
@@ -13,23 +14,23 @@ import { eligibleForPeople, relevantBusiness } from '@/domain/business-research'
 import { researchDomain, terminalResearchStates, type ResearchConfig, type ResearchFinding } from '@/domain/research';
 import { researchWorker } from './research-service';
 
-export async function dispatchAutomaticEnrichment(org: string, jobId: string) {
-  return measureResearchSegment(jobId, org, 'enrichment-dispatch', 'coordination', () => dispatchEnrichment(org, jobId), count => (count || 0) > 0);
+export async function dispatchAutomaticEnrichment(org: string, jobId: string, snapshot?: ResearchSchedulingSnapshot) {
+  return measureResearchSegment(jobId, org, 'enrichment-dispatch', 'coordination', () => dispatchEnrichment(org, jobId, snapshot), count => (count || 0) > 0);
 }
-async function dispatchEnrichment(org: string, jobId: string) {
-  const db = requireDb(), repo = new ResearchRepository(org), job = await repo.get(jobId);
+async function dispatchEnrichment(org: string, jobId: string, snapshot?: ResearchSchedulingSnapshot) {
+  const db = requireDb(), repo = new ResearchRepository(org), job = snapshot?.jobs.find(j => j.id === jobId) || await repo.get(jobId);
   if (!job) return;
   const rootId = (job.config as ResearchConfig).researchRunId || job.id;
-  const root = rootId === job.id ? job : await repo.get(rootId);
+  const root = snapshot?.root || (rootId === job.id ? job : await repo.get(rootId));
   if (!root || root.status === 'cancelled') return;
   const config = root.config as ResearchConfig;
   if (config.mode !== 'automatic' || Date.now() >= (config.automaticDeadline || Infinity)) return;
-  const jobs = await db.select().from(researchJobs).where(and(eq(researchJobs.organizationId, org), sql`(${researchJobs.id} = ${rootId} OR ${researchJobs.config}->>'researchRunId' = ${rootId} OR ${researchJobs.status} NOT IN ('complete', 'partial', 'failed', 'cancelled'))`));
+  const jobs = snapshot?.jobs || await db.select().from(researchJobs).where(and(eq(researchJobs.organizationId, org), sql`(${researchJobs.id} = ${rootId} OR ${researchJobs.config}->>'researchRunId' = ${rootId} OR ${researchJobs.status} NOT IN ('complete', 'partial', 'failed', 'cancelled'))`));
   const related = jobs.filter(j => j.id === rootId || (j.config as ResearchConfig).researchRunId === rootId);
   if (related.some(j => j.status === 'cancelled')) return;
-  const members = await new AcquisitionRepository(org).memberships(root.mandateId);
+  const members = snapshot?.members || await new AcquisitionRepository(org).memberships(root.mandateId);
   if (!members.length) return;
-  const findings = await db.select().from(researchFindings).where(and(eq(researchFindings.organizationId, org), sql`${researchFindings.targetId} IN (${sql.join(members.map(m => sql`${m.target.id}`), sql`, `)})`));
+  const findings = snapshot?.findings || await db.select().from(researchFindings).where(and(eq(researchFindings.organizationId, org), sql`${researchFindings.targetId} IN (${sql.join(members.map(m => sql`${m.target.id}`), sql`, `)})`));
   const relatedIds = new Set(related.map(j => j.id));
   // Same-run evidence retains its mandate semantics; reusable historical facts
   // stay bound to the same organization/target and their original DB provenance.
@@ -97,7 +98,7 @@ async function dispatchEnrichment(org: string, jobId: string) {
       const hash = createHash('sha256').update(`${rootId}:${member.target.id}:${purpose}:${task.phase}`).digest('hex');
       const id = `${hash.slice(0,8)}-${hash.slice(8,12)}-4${hash.slice(13,16)}-8${hash.slice(17,20)}-${hash.slice(20,32)}`;
       const child: ResearchConfig = {
-        mode: 'automatic', researchRunId: rootId,
+        mode: 'automatic', researchRunId: rootId, performanceFlags: config.performanceFlags,
         executionSlot: mandateResearchSlot(root.mandateId, slot), purpose,
         targetedFollowup: true, parentJobId: rootId, targetId: member.target.id,
         companyName: member.target.companyName, companyDomain: member.target.domain!,
@@ -126,6 +127,7 @@ async function dispatchEnrichment(org: string, jobId: string) {
       };
       try {
         const saved = await repo.create(id, root.mandateId, root.createdBy, child);
+      if (snapshot && !snapshot.jobs.some(j => j.id === saved.id)) snapshot.jobs.push(saved);
         scheduled.add(taskKey(member.target.id, purpose, task.phase));
         occupied.add(mandateResearchSlot(root.mandateId, slot));
         if (task.phase === 'initial') counts[purpose]++;
@@ -137,6 +139,12 @@ async function dispatchEnrichment(org: string, jobId: string) {
   }
   const current = await repo.get(rootId);
   if (current?.status === 'cancelled') { await repo.cancelRun(rootId); return; }
-  await Promise.allSettled([...new Set(dispatch)].map(id => researchWorker(`/jobs/${id}`, 'POST')));
+  const dispatchIds = [...new Set(dispatch)].filter(id => !snapshot?.dispatched.has(id));
+  const outcomes = await Promise.allSettled(dispatchIds.map(async id => { await researchWorker(`/jobs/${id}`, 'POST'); snapshot?.dispatched.add(id); }));
+  outcomes.forEach((result, index) => {
+    if (result.status !== 'rejected') return;
+    const reason = result.reason instanceof Error && result.reason.name === 'TimeoutError' ? 'worker_timeout' : result.reason instanceof Error && result.reason.name === 'AbortError' ? 'worker_aborted' : 'worker_unavailable';
+    console.info('research-diagnostic', JSON.stringify({ timestamp: new Date().toISOString(), event: 'dispatch_deferred', rootId, jobId: dispatchIds[index], reason, retry: 'queued_recovery' }));
+  });
   return new Set(dispatch).size;
 }

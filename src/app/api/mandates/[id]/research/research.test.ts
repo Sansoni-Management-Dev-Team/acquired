@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   create: vi.fn(),
   org: vi.fn(),
   list: vi.fn(),
+  timingSummaries: vi.fn(),
   findings: vi.fn(),
   resultCounts: vi.fn(),
   targetEvidence: vi.fn(),
@@ -16,9 +17,12 @@ const mocks = vi.hoisted(() => ({
   scope: vi.fn(),
   geography: vi.fn(),
   sources: vi.fn(),
+  schedule: vi.fn(),
+  recoverStopped: vi.fn(),
 }));
 vi.mock("@/db/client", () => ({ requireDb: () => ({ select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ metadata: JSON.stringify({ researchSettings: { defaultTargetBusinesses: 30 } }) }] }) }) }) }) }));
 vi.mock("@/lib/brief-research", () => ({ generateBriefResearchScope: mocks.scope, briefResearchGeography: mocks.geography, briefResearchSources: mocks.sources }));
+vi.mock("@/lib/research-scheduler", () => ({ scheduleResearchRun: mocks.schedule }));
 vi.mock("@/lib/automatic-discovery", () => ({ dispatchDiscoveryCandidates: vi.fn() }));
 vi.mock("@/lib/automatic-enrichment", () => ({ dispatchAutomaticEnrichment: vi.fn() }));
 vi.mock("@/lib/research-continuation", () => ({ dispatchContinuation: vi.fn() }));
@@ -45,6 +49,9 @@ vi.mock("@/db/research-repository", () => ({
     concurrentResearchReady = mocks.concurrentResearchReady;
     create = mocks.create;
     list = mocks.list;
+    listReview = mocks.list;
+    timingSummaries = mocks.timingSummaries;
+    recoverStopped = mocks.recoverStopped;
     findings = mocks.findings;
     resultCounts = mocks.resultCounts;
     targetEvidence = mocks.targetEvidence;
@@ -69,6 +76,7 @@ const request = (data: unknown) =>
   });
 beforeEach(() => {
   vi.resetAllMocks();
+  mocks.timingSummaries.mockResolvedValue({});
   mocks.session.mockResolvedValue({
     session: { activeOrganizationId: "org-a" },
     user: { id: "user-a" },
@@ -213,4 +221,80 @@ it("starts adaptive research from a scope without requiring user-written queries
   expect(response.status).toBe(202);
   expect(mocks.create.mock.calls[0][3]).toMatchObject({ adaptiveDiscovery: true, searchTerms: ["Waste recycling", "Industrial decontamination"], researchScope: "Waste recycling; Industrial decontamination", researchEffort: "focused" });
   expect(mocks.create.mock.calls[0][3].automaticDeadline - Date.now()).toBeLessThanOrEqual(30 * 60000);
+});
+
+it('snapshots server-controlled performance flags on new runs', async () => {
+  const response = await POST(request({ ...body, performanceFlags: { schedulerCoalescing: false } }), context);
+  expect(response.status).toBe(202);
+  expect(mocks.create.mock.calls[0][3].performanceFlags).toEqual({ telemetryBatching: true, progressCoalescing: true, schedulerCoalescing: true });
+});
+it('deduplicates automatic recovery by run', async () => {
+  const now = new Date();
+  const root = { id: jobId, status: 'crawling', createdAt: now, updatedAt: now, config: { mode: 'automatic', automaticDeadline: now.getTime() + 60000 } };
+  const child = { ...root, id: crypto.randomUUID(), config: { mode: 'automatic', researchRunId: jobId, discoveryCandidate: true } };
+  mocks.list.mockResolvedValue([child, root]);
+  mocks.targetEvidence.mockResolvedValue([]); mocks.findings.mockResolvedValue([]);
+  expect((await GET(new Request('https://app.example.com'), context)).status).toBe(200);
+  expect(mocks.schedule).toHaveBeenCalledTimes(1);
+  expect(mocks.schedule).toHaveBeenCalledWith('org-a', jobId, { recovery: true });
+});
+
+it('retains disabled or absent flags when continuing an existing run', async () => {
+  mocks.get.mockResolvedValue({ mandateId: id, status: 'partial', seeds: [], config: { ...body, runtime: { remaining: ['https://remaining.example.com/'], visited: [], attempts: [] } } });
+  mocks.findings.mockResolvedValue([]);
+  expect((await POST(request({ ...body, continueFrom: jobId, performanceFlags: { schedulerCoalescing: true } }), context)).status).toBe(202);
+  expect(mocks.create.mock.calls[0][3].performanceFlags).toBeUndefined();
+});
+it('reuses the review snapshot when scheduling recovery is throttled', async () => {
+  const now = new Date();
+  mocks.list.mockResolvedValue([{ id: jobId, status: 'crawling', createdAt: now, updatedAt: now, config: { mode: 'automatic', automaticDeadline: now.getTime() + 60000 } }]);
+  mocks.targetEvidence.mockResolvedValue([]); mocks.findings.mockResolvedValue([]);
+  mocks.schedule.mockResolvedValue(false);
+  expect((await GET(new Request('https://app.example.com'), context)).status).toBe(200);
+  expect(mocks.list).toHaveBeenCalledTimes(1);
+});
+it('refreshes the review snapshot after a scheduling pass', async () => {
+  const now = new Date();
+  mocks.list.mockResolvedValue([{ id: jobId, status: 'crawling', createdAt: now, updatedAt: now, config: { mode: 'automatic', automaticDeadline: now.getTime() + 60000 } }]);
+  mocks.targetEvidence.mockResolvedValue([]); mocks.findings.mockResolvedValue([]);
+  mocks.schedule.mockResolvedValue(true);
+  expect((await GET(new Request('https://app.example.com'), context)).status).toBe(200);
+  expect(mocks.list).toHaveBeenCalledTimes(2);
+});
+
+it('refreshes after recovering a stopped worker even when scheduling is throttled', async () => {
+  const now = new Date();
+  mocks.list.mockResolvedValue([{ id: jobId, status: 'crawling', revision: 1, pages: 0, createdAt: now, updatedAt: new Date(now.getTime() - 100000), config: { mode: 'automatic', automaticDeadline: now.getTime() + 60000 } }]);
+  mocks.targetEvidence.mockResolvedValue([]); mocks.findings.mockResolvedValue([]);
+  mocks.schedule.mockResolvedValue(false); mocks.worker.mockResolvedValue({ status: 'complete' });
+  expect((await GET(new Request('https://app.example.com'), context)).status).toBe(200);
+  expect(mocks.recoverStopped).toHaveBeenCalledWith(jobId, 1, 0);
+  expect(mocks.list).toHaveBeenCalledTimes(2);
+});
+
+it('uses compact timing summaries while review jobs contain no raw span maps', async () => {
+ const now=new Date();
+ const root={id:jobId,status:'complete',createdAt:now,updatedAt:now,config:{mode:'automatic',researchRunId:jobId}};
+ mocks.list.mockResolvedValue([root]);mocks.targetEvidence.mockResolvedValue([]);mocks.findings.mockResolvedValue([]);
+ mocks.timingSummaries.mockResolvedValue({[jobId]:{runId:jobId,spans:3,cappedJobs:0,measuredWindowMs:100,segments:{extraction:{durations:[10,20,30],failed:1}}}});
+ const response=await GET(new Request('https://app.example.com'),context);const data=await response.json();
+ expect(data.timings[jobId].segments.extraction).toEqual({calls:3,failed:1,totalMs:60,maxMs:30,meanMs:20,p95Ms:30});
+ expect(data.jobs[0].config).not.toHaveProperty('pipelineTiming');
+ expect(mocks.timingSummaries).toHaveBeenCalledWith([root]);
+});
+
+it.each(['partial','complete'])('skips idle recovery for a durably settled %s parallel run',async status=>{
+ const now=new Date();const root={id:jobId,status,createdAt:now,updatedAt:now,config:{mode:'automatic',parallelBusinessResearch:true,parallelResearchSettled:true,parallelResearchPendingTasks:0,automaticDeadline:now.getTime()+60000}};
+ mocks.list.mockResolvedValue([root,{...root,id:'child',config:{mode:'automatic',researchRunId:jobId,researchTask:'website'}}]);mocks.targetEvidence.mockResolvedValue([]);mocks.findings.mockResolvedValue([]);
+ expect((await GET(new Request('https://app.example.com'),context)).status).toBe(200);
+ expect(mocks.schedule).not.toHaveBeenCalled();expect(mocks.list).toHaveBeenCalledTimes(1);
+});
+it.each(['queued','crawling'])('recovers %s children despite a stale settled root marker',async status=>{
+ const now=new Date();const root={id:jobId,status:'partial',createdAt:now,updatedAt:now,config:{mode:'automatic',parallelBusinessResearch:true,parallelResearchSettled:true,parallelResearchPendingTasks:0,automaticDeadline:now.getTime()+60000}};
+ mocks.list.mockResolvedValue([root,{...root,id:'child',status,config:{mode:'automatic',researchRunId:jobId,researchTask:'website'}}]);mocks.targetEvidence.mockResolvedValue([]);mocks.findings.mockResolvedValue([]);mocks.schedule.mockResolvedValue(false);
+ await GET(new Request('https://app.example.com'),context);expect(mocks.schedule).toHaveBeenCalledTimes(1);
+});
+it('does not skip recovery while the durable parallel task count is pending',async()=>{
+ const now=new Date();mocks.list.mockResolvedValue([{id:jobId,status:'partial',createdAt:now,updatedAt:now,config:{mode:'automatic',parallelBusinessResearch:true,parallelResearchSettled:true,parallelResearchPendingTasks:2,automaticDeadline:now.getTime()+60000}}]);mocks.targetEvidence.mockResolvedValue([]);mocks.findings.mockResolvedValue([]);
+ await GET(new Request('https://app.example.com'),context);expect(mocks.schedule).toHaveBeenCalledTimes(1);
 });

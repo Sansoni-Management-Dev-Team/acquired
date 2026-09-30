@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { reserveProvider, consumeProvider, reservationDelay, AI_CONCURRENCY, type ProviderQueue } from './research-provider-queue';
+import { reserveProvider, consumeProvider, releaseProvider, reservationDelay, AI_CONCURRENCY, type ProviderQueue } from './research-provider-queue';
 it('queues 40 page/search operations across mandates at safe account-wide intervals', () => {
   let queue: ProviderQueue = {};
   const starts: number[] = [];
@@ -77,4 +77,44 @@ it('recovers abandoned local slots after their lease and keeps local policy expl
   expect(localProviderPolicy({ NODE_ENV: 'production', LOCAL_DEVELOPMENT: 'true', LOCAL_RESEARCH_POLICY: 'development' })).toBe(false);
   expect(localProviderPolicy({ NODE_ENV: 'development', LOCAL_DEVELOPMENT: 'true', LOCAL_RESEARCH_POLICY: 'production' })).toBe(false);
   expect(localProviderPolicy({})).toBe(false);
+});
+
+
+it.each([false, true])('isolates website cooldowns for local=%s without delaying other websites or AI', async local => {
+  const { coolDownBrowser } = await import('./research-provider-queue');
+  let queue = coolDownBrowser({}, 1000, 12000, 'blocked.example');
+  expect(queue.browserCooldownUntil).toBeUndefined();
+  const first = reserveProvider(queue, 'a', 'a', 'page', 1000, 480000, local, true);
+  queue = first.queue;
+  expect(reservationDelay(queue, 'a', 'a', 1000, 'blocked.example')).toBe(12000);
+  expect(reservationDelay(queue, 'a', 'a', 1000, 'other.example')).toBe(0);
+  expect(reservationDelay(queue, 'a', 'a', 13001, 'blocked.example')).toBe(0);
+  expect(reserveProvider(queue, 'ai', 'ai', 'ai', 1000, 480000, local, true).retryAfterMs).toBe(0);
+});
+it('keeps true account capacity cooldowns global and never shortens existing website cooldowns', async () => {
+  const { coolDownBrowser } = await import('./research-provider-queue');
+  let queue = coolDownBrowser({}, 1000, 20000, 'example.com');
+  queue = coolDownBrowser(queue, 1001, 1000, 'example.com');
+  expect(queue.domainAfter?.['example.com']).toBe(21000);
+  queue = coolDownBrowser(queue, 1000, 12000);
+  expect(reserveProvider(queue, 'a', 'a', 'page', 1000, 480000, false, true).reservation).toBeUndefined();
+});
+
+it('allows four overlapping sitemap page reads per host, preserves start spacing, and refills after release', () => {
+  let queue: ProviderQueue = {};
+  for (let i = 0; i < 4; i++) {
+    const now = 1000 + i * 4000;
+    const reserved = reserveProvider(queue, `job-${i}`, `page-${i}`, 'page', now, 480000, false, true);
+    queue = reserved.queue;
+    expect(reservationDelay(queue, `page-${i}`, `job-${i}`, now, 'example.com')).toBe(0);
+    queue = consumeProvider(queue, `page-${i}`, `job-${i}`, now, 'example.com')!;
+  }
+  queue = reserveProvider(queue, 'fifth', 'fifth', 'page', 17000, 480000, false, true).queue;
+  expect(reservationDelay(queue, 'fifth', 'fifth', 17000, 'example.com')).toBeGreaterThan(0);
+  expect(reservationDelay(queue, 'fifth', 'fifth', 17000, 'another.example')).toBe(0);
+  queue = releaseProvider(queue, 'page-0', 'job-0');
+  expect(reservationDelay(queue, 'fifth', 'fifth', 17000, 'example.com')).toBe(0);
+  queue = consumeProvider(queue, 'fifth', 'fifth', 17000, 'example.com')!;
+  queue = reserveProvider(queue, 'sixth', 'sixth', 'page', 17001, 480000, false, true).queue;
+  expect(reservationDelay(queue, 'sixth', 'sixth', 17001, 'example.com')).toBeGreaterThanOrEqual(2999);
 });

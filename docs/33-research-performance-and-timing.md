@@ -131,6 +131,84 @@ workflow tests. Baseline and post-change live captures are still needed.
 
 Crawl4AI emits `research-reader` responses and includes a bounded `reader` snapshot in provider logs: active/max/available reads, request duration, retry delay, hashed website key, whether that website has an active read, and the original website HTTP status when known. Slot counts include the current request until it releases its slot. Request and job IDs correlate the reader response with worker logs; URLs, page content, credentials and arbitrary exception text are excluded.
 
-Reasons distinguish `reader_busy` (all reader slots occupied), `domain_backoff` (the same website is active or cooling down), `origin_rate_limit` (website returned 429), `origin_http_error`, `page_unavailable`, `reader_timeout`, and `reader_failure`. The worker's `reader_deferred` event records the retry delay and current cooldown scope (`shared_browser_queue`); a website-specific rejection currently pauses that shared queue too. This is a scheduling improvement opportunity, not a changed retry policy.
+Reasons distinguish `reader_busy` (all reader slots occupied), `domain_backoff` (the same website is active or cooling down), `origin_rate_limit` (website returned 429), `origin_http_error`, `page_unavailable`, `reader_timeout`, and `reader_failure`. The worker's `reader_deferred` event records the retry delay and cooldown scope. `domain_backoff` and `origin_rate_limit` pause only the normalized website; shared reader-capacity failures pause the browser queue. Confirmed website HTTP 500/502/503/504 failures have a 15-second public negative cache. Reader infrastructure, admission and rate-limit failures are not negative-cached.
 
 Run `node scripts/research-log-summary.mjs --watch` for a summary updated every five seconds, or `--json` for export. It reports counts, mean and p95 request durations by provider/reason/status, deduplicating identical timestamped terminal events while preserving retry attempts. Summed `workMs` includes parallel work and is not elapsed wall time. Existing logs retain their original generic categories; only new responses have the detailed reason and snapshot.
+
+
+## Callback and scheduling improvements
+
+New root jobs snapshot three independently configurable app environment flags.
+All default to enabled. Set a variable to `false` or `0` to disable it for new
+runs; existing jobs and their continuations retain their saved configuration.
+Jobs with absent flags retain the legacy behaviour.
+
+| App variable | Behaviour |
+| --- | --- |
+| `RESEARCH_TELEMETRY_BATCHING` | Batch Node spans per callback and piggyback up to 64 Worker spans on progress. |
+| `RESEARCH_PROGRESS_COALESCING` | Skip redundant initial browser-wait saves and use bounded ten-second heartbeats while preserving durable evidence and page checkpoints. |
+| `RESEARCH_SCHEDULER_COALESCING` | Coordinate one scheduling pass per run using a durable lease and shared snapshot. |
+
+Progress responses acknowledge persisted timing IDs explicitly. The Worker keeps
+unacknowledged spans for retry, including when a response is lost after a
+successful write. The standalone timing endpoint remains available for overflow
+and final flushes. Node telemetry failures do not fail research progress.
+
+A progress callback reuses its authenticated job snapshot, inserts all page
+findings together, and returns the updated row from the guarded update. It
+rereads only when another writer wins that update. Runtime updates and discovery
+staging merge into the current database JSON so they preserve scheduler state,
+timing events, and independently updated company IDs. Contact validation and
+creation still run separately for each observed person.
+
+Control reads exclude research content. Execution reads exclude telemetry and
+scheduler internals. Review reads retain retry attempts and remaining URLs but
+exclude saved page markdown and staged directory candidates. Scheduling loads
+one run snapshot for its planners; lease updates return only scheduling state.
+The current review timing summary still reads retained timing events from the
+DB to compute exact percentiles; clients receive the summary only.
+
+Scheduling leases last 60 seconds and use event generations. An event arriving
+during a pass requests another pass, rather than disappearing. Failed passes
+leave durable pending work for expiry recovery. UI recovery is throttled to one
+attempt per run per 15 seconds; status-only callbacks do not start refills.
+Queued child jobs have deterministic IDs, and cancellation is rechecked before
+dispatch. Four passes bound a callback under sustained arrivals; subsequent
+callbacks or polling recover any remaining generation.
+
+Unavailable AI routes have a per-client 60-second circuit for confirmed HTTP
+404 responses, keyed by the exact route/models/reasoning/schema/operation.
+Transient throttling and server errors do not open that circuit. It is bounded
+to 32 routes and is not shared across accounts or persisted across workflows.
+
+## Correlated application/database timings
+
+Internal callbacks return `x-request-id`, `Server-Timing: app;dur=..., db;dur=...`,
+and `x-research-db-calls`. Worker provider logs correlate the request ID with
+`responseServerTiming` and `databaseCalls`. Request IDs are validated and replaced
+with UUIDs when unsafe; arbitrary response headers and bodies are not logged.
+
+`research-request` reports total application duration, database round-trip work,
+database call count, and returned-row count. Workspace and research polling GETs
+also have request scopes. `research-db` records each awaited database operation,
+its duration, outcome, and returned-row count with that request ID. Query construction is not counted.
+No SQL, parameter values, credentials, prompts or page contents are logged.
+Background dispatch has its own correlated operation scope and flush.
+Database round-trip time includes driver/network/pool waiting; it is not a
+measurement of SQL execution alone. Parallel database durations can exceed
+request wall time. The standalone timing-delivery endpoint retains its existing
+logging behaviour.
+
+For the audited production run before these changes, first candidate dispatch
+was 19.32 seconds, first company saved 63.264 seconds, discovery queries finished
+at 113.581 seconds, candidate checks at 358.956 seconds, and the whole run at
+543.543 seconds. That run found 10 of the requested 20 companies. Persistence
+spans averaged 1,975 ms and coordination spans averaged 2,790 ms, but those
+callback measurements included application work and overlapping requests.
+They do not establish database server time as the sole bottleneck.
+
+The regression suite verifies bulk writes, revision guards, failed delivery,
+lease contention/expiry/pending generations, old-run compatibility, evidence
+checkpoints, and real Workflow retries. Compare matched live runs after rollout
+using the benchmark command above; test success alone does not establish a
+production speedup.

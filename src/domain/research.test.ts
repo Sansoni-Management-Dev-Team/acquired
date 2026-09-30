@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  continueResearchConfig,  researchPerformanceFlags,
+  researchActive,
+  progressSchema,
   publicResearchUrl,
   parseResearchExtraction,
   researchStartSchema,
@@ -114,4 +117,35 @@ it("does not follow obituary, data policy, testimonial or colour-chart detours",
   const source = "https://supplier.example.com/";
   const markdown = ["obituaries/obituary-listings", "howwecollectandstoredata", "testimonials", "perspex-colour-chart", "products"].map(path => `[Supplier products](https://supplier.example.com/${path})`).join("\n");
   expect(followUpLinks(markdown, source, ["supplier products"], [])).toEqual([source + "products"]);
+});
+
+
+it('keeps absent performance flags disabled and enables each independently', () => {
+  expect(researchPerformanceFlags({})).toEqual({ telemetryBatching: false, progressCoalescing: false, schedulerCoalescing: false });
+  expect(researchPerformanceFlags({ performanceFlags: { progressCoalescing: true } })).toEqual({ telemetryBatching: false, progressCoalescing: true, schedulerCoalescing: false });
+});
+
+it('validates progress timing spans without requiring telemetry on legacy callbacks', () => {
+  const event = { revision: 1, status: 'crawling', pages: 0, modelCalls: 0, message: 'Starting' };
+  const span = { id: '00000000-0000-4000-8000-000000000001', step: 'read-people-1', segment: 'page_read', startedAt: '2026-09-30T00:00:00.000Z', finishedAt: '2026-09-30T00:00:00.001Z', elapsedMs: 1, outcome: 'succeeded' };
+  expect(progressSchema.safeParse(event).success).toBe(true);
+  expect(progressSchema.parse({ ...event, timingSpans: Array(64).fill(span) }).timingSpans).toHaveLength(64);
+  expect(progressSchema.safeParse({ ...event, timingSpans: Array(65).fill(span) }).success).toBe(false);
+  expect(progressSchema.safeParse({ ...event, timingSpans: [{ ...span, elapsedMs: -1 }] }).success).toBe(false);
+});
+it('stops automatic polling after the parallel queue settles while preserving active child polling', () => {
+  const root = { status: 'partial', config: { mode: 'automatic', automaticDeadline: Date.now() + 60000, parallelResearchSettled: true } };
+  expect(researchActive([root])).toBe(false);
+  expect(researchActive([{ status: 'queued', config: { purpose: 'firmographics' } }, root])).toBe(true);
+});
+
+it('reopens parallel recovery when explicitly continuing a settled run',()=>{
+ const config={approved:true as const,discover:false,seeds:[],searchTerms:[],geography:'Australia',parallelBusinessResearch:true,parallelResearchSettled:true,parallelResearchPendingTasks:0,budget:{maxPages:1,maxDomains:1,maxMinutes:1,maxModelCalls:1}};
+ const next=continueResearchConfig(config, ['https://example.com/about'], [], config.budget,'old');
+ expect(next.parallelResearchSettled).toBe(false);expect(next.parallelResearchPendingTasks).toBeUndefined();
+});
+
+it('ignores newest terminal page tasks when deciding whether a settled parallel root is active',()=>{
+ const deadline=Date.now()+60000;
+ expect(researchActive([{status:'complete',config:{mode:'automatic',researchTask:'page',automaticDeadline:deadline}},{status:'partial',config:{mode:'automatic',parallelResearchSettled:true,automaticDeadline:deadline}}])).toBe(false);
 });

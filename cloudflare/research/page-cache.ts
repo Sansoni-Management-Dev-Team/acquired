@@ -5,8 +5,9 @@ import { publicResearchUrl } from '../../src/domain/research';
 // relevance, prompts, credentials or extraction output under this public key.
 const inflight = new WeakMap<object, Map<string, Promise<unknown>>>();
 export const PUBLIC_PAGE_TTL_MS = 60 * 60 * 1000;
+export const ORIGIN_FAILURE_TTL_MS = 15000;
 export const MISSING_PAGE_TTL_MS = 5 * 60 * 1000;
-export type PageCacheEvent = 'hit' | 'miss' | 'coalesced' | 'expired' | 'missing';
+export type PageCacheEvent = 'hit' | 'miss' | 'coalesced' | 'expired' | 'missing' | 'origin_failure';
 export function canonicalPublicPageUrl(value: string): string | null {
   if (!publicResearchUrl(value)) return null;
   const url = new URL(value);
@@ -31,6 +32,7 @@ export async function lookupCachedPage<T>(cache: Pick<Cache, 'match'>, _runId: s
   // Explicit expiry protects correctness even when a cache implementation retains
   // expired entries; a hit never refreshes the original observation timestamp.
   if (!expiresAt || Date.now() >= expiresAt) { onEvent?.('expired'); return null; }
+  if (hit.headers.get('x-research-origin-failure')) { onEvent?.('origin_failure'); throw new ResearchProviderError('origin_http_error', Number(hit.headers.get('x-research-origin-failure'))); }
   if (hit.headers.get('x-research-missing-page')) { onEvent?.('missing'); throw new ResearchProviderError('provider_error', Number(hit.headers.get('x-research-missing-page'))); }
   try { const value = await hit.json() as T; onEvent?.('hit'); return value; }
   catch { onEvent?.('miss'); return null; }
@@ -52,8 +54,10 @@ export async function cachedPage<T>(cache: Pick<Cache, 'match' | 'put'>, runId: 
       if ((result as { status?: string })?.status === 'completed') await cache.put(key, Response.json(result, { headers: headers(PUBLIC_PAGE_TTL_MS) })).catch(() => {});
       return result;
     } catch (error) {
-      // Only confirmed missing URLs are negatively cached. Provider failures stay retryable.
+      // Confirmed website failures can be shared briefly, but never admission,
+      // rate limits, reader transport or provider infrastructure failures.
       if (error instanceof ResearchProviderError && [404, 410].includes(error.status)) await cache.put(key, Response.json({}, { headers: { ...headers(MISSING_PAGE_TTL_MS), 'x-research-missing-page': String(error.status) } })).catch(() => {});
+      if (error instanceof ResearchProviderError && error.category === 'origin_http_error' && [500, 502, 503, 504].includes(error.status)) await cache.put(key, Response.json({}, { headers: { ...headers(ORIGIN_FAILURE_TTL_MS), 'x-research-origin-failure': String(error.status) } })).catch(() => {});
       throw error;
     }
   })();

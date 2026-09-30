@@ -14,6 +14,10 @@ spec.loader.exec_module(reader)
 
 
 class ReaderPolicyTests(unittest.TestCase):
+    def setUp(self):
+        reader.domains.clear()
+        reader.active_domains.clear()
+
     def test_http_diagnostics_are_correlated_without_logging_urls_or_credentials(self):
         handler = reader.Handler.__new__(reader.Handler)
         handler.headers = {"x-request-id": "request-1234", "x-research-job-id": "job-12345678", "Authorization": "private-secret"}
@@ -70,13 +74,48 @@ class ReaderPolicyTests(unittest.TestCase):
         reader.domains.clear()
         with patch.object(reader.time, "monotonic", return_value=100):
             self.assertEqual(reader.claim_domain("example.com"), 0)
-            self.assertEqual(reader.claim_domain("example.com"), 45)
+            self.assertEqual(reader.claim_domain("example.com"), 3)
             reader.release_domain("example.com", 30)
         with patch.object(reader.time, "monotonic", return_value=120):
             self.assertEqual(reader.claim_domain("example.com"), 10)
             self.assertEqual(reader.claim_domain("another.com"), 0)
         with patch.object(reader.time, "monotonic", return_value=131):
             self.assertEqual(reader.claim_domain("example.com"), 0)
+
+
+    def test_active_domain_advertises_short_retry_without_shortening_stale_lease(self):
+        with patch.object(reader.time, "monotonic", return_value=100):
+            self.assertEqual(reader.claim_domain("example.com"), 0)
+            self.assertEqual(reader.domains["example.com"], 145)
+        with patch.object(reader.time, "monotonic", return_value=101):
+            self.assertEqual(reader.claim_domain("example.com"), 3)
+            self.assertEqual(reader.domains["example.com"], 145)
+        with patch.object(reader.time, "monotonic", return_value=144):
+            self.assertEqual(reader.claim_domain("example.com"), 1)
+        with patch.object(reader.time, "monotonic", return_value=145):
+            self.assertEqual(reader.claim_domain("another.com"), 0)
+            self.assertNotIn("example.com", reader.active_domains)
+            self.assertEqual(reader.claim_domain("example.com"), 0)
+
+    def test_finished_read_keeps_real_cooldown_then_admits_next_read(self):
+        with patch.object(reader.time, "monotonic", return_value=100):
+            self.assertEqual(reader.claim_domain("example.com"), 0)
+        with patch.object(reader.time, "monotonic", return_value=102):
+            reader.release_domain("example.com", 3)
+            self.assertEqual(reader.claim_domain("example.com"), 3)
+            self.assertFalse(reader.reader_diagnostics(100, "example.com")["domainActive"])
+        with patch.object(reader.time, "monotonic", return_value=104):
+            self.assertEqual(reader.claim_domain("example.com"), 1)
+        with patch.object(reader.time, "monotonic", return_value=105):
+            self.assertEqual(reader.claim_domain("example.com"), 0)
+
+    def test_simultaneous_claims_keep_one_active_read_per_domain(self):
+        from concurrent.futures import ThreadPoolExecutor
+        with patch.object(reader.time, "monotonic", return_value=100), ThreadPoolExecutor(max_workers=8) as executor:
+            claims = list(executor.map(reader.claim_domain, ["example.com"] * 20))
+        self.assertEqual(claims.count(0), 1)
+        self.assertEqual(claims.count(3), 19)
+        self.assertEqual(reader.domains["example.com"], 145)
 
 
 class ReaderPoolTests(unittest.IsolatedAsyncioTestCase):

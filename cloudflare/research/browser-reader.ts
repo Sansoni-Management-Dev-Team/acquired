@@ -12,7 +12,7 @@ export async function browserMarkdown(env: BrowserReaderEnv, url: string, option
   jobId?: string; requestId?: string; operation: string;
   permit(): Promise<{ granted: boolean; retryAfterMs: number; expired?: boolean }>;
   onRequest?(): void;
-  cooldown?(retryAfterMs: number): Promise<unknown>;
+  cooldown?(retryAfterMs: number, domain?: string): Promise<unknown>;
   release?(): Promise<unknown>;
 }, fetcher: typeof fetch = fetch) {
   if (!publicResearchUrl(url)) throw new Error('Unsupported public URL');
@@ -64,8 +64,9 @@ export async function browserMarkdown(env: BrowserReaderEnv, url: string, option
       const header = response.headers.get('retry-after');
       const seconds = header ? Number(header) : NaN;
       const retryAfterMs = Number.isFinite(seconds) ? seconds * 1000 : header && Number.isFinite(Date.parse(header)) ? Date.parse(header) - Date.now() : 30000;
-      admissionLog('reader_deferred', { failureOrigin: 'upstream_response', category: diagnostics.category, retryAfterMs: Math.max(1000, retryAfterMs), cooldownScope: 'shared_browser_queue', ...('reader' in diagnostics ? { reader: diagnostics.reader } : {}) });
-      await options.cooldown(Math.max(1000, retryAfterMs));
+      const domain = ['domain_backoff', 'origin_rate_limit'].includes(diagnostics.category) ? new URL(url).hostname.toLowerCase().replace(/^www\./, '') : undefined;
+      admissionLog('reader_deferred', { failureOrigin: 'upstream_response', category: diagnostics.category, retryAfterMs: Math.max(1000, retryAfterMs), cooldownScope: domain ? 'website' : 'shared_browser_queue', ...('reader' in diagnostics ? { reader: diagnostics.reader } : {}) });
+      await options.cooldown(Math.max(1000, retryAfterMs), ...(domain ? [domain] : []));
       throw new BrowserAdmissionDeferred('Browser rate limited; queued for retry');
     }
     if (!response.ok || (!local && !data.success)) throw new ResearchProviderError(diagnostics.category, response.status);

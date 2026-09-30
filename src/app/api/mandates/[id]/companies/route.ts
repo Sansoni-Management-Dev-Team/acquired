@@ -1,8 +1,9 @@
-import { observeResearchRequest, researchJsonResponse } from '@/lib/research-request-observability';
+import { researchJsonResponse } from "@/lib/research-request-observability";
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { CompanyListRepository } from '@/db/company-list-repository';
 import { recoverCompanyListWork } from '@/lib/company-list-recovery';
+import { observeResearchRequest } from '@/lib/research-request-observability';
 import { AcquisitionRepository } from '@/db/acquisition-repository';
 
 const querySchema = z.object({ search: z.string().max(300).default(''), stage: z.string().max(40).default('all'), research: z.enum(['all','ready','researching','needs-evidence']).default('all'), data: z.enum(['all','headcount','revenue','person']).default('all'), accreditation: z.string().max(300).default(''), page: z.coerce.number().int().min(1).max(100000).default(1), revision: z.string().regex(/^[a-f0-9]{64}$/).optional() });

@@ -7,10 +7,11 @@ it("correlates app search with worker requests and job IDs without logging query
   const log = vi.spyOn(console, "info").mockImplementation(() => {});
   const fetcher = vi.fn().mockResolvedValue(Response.json({ seeds: ["https://example.com/"] }));
   await cloudflareSearchResults("private test query", fetcher, "00000000-0000-4000-8000-000000000001");
-  const headers = fetcher.mock.calls[0][1].headers;
+  const headers = new Headers(fetcher.mock.calls[0][1].headers);
   const events = log.mock.calls.map(([, value]) => JSON.parse(value));
-  expect(events[0].requestId).toBe(headers["x-research-request-id"]);
-  expect(events[0].jobId).toBe(headers["x-research-job-id"]);
+  expect(events[0].requestId).toBe(headers.get("x-research-request-id"));
+  expect(events[0].requestId).toBe(headers.get("x-request-id"));
+  expect(events[0].jobId).toBe(headers.get("x-research-job-id"));
   expect(events.some(e => e.event === "request_completed")).toBe(true);
   expect(events.at(-1)).toMatchObject({ event: "search_response", seeds: 1 });
   expect(JSON.stringify(events)).not.toMatch(/private test query|test-secret/);

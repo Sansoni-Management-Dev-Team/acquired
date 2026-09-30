@@ -1,3 +1,8 @@
+import { compactResearchTimingQuery } from './research-timing-summary';
+import type { CompactResearchTimingRun } from '@/domain/research-timing';
+import { measureResearchSegment } from '@/lib/research-segment-timing';
+import { validateCompanyIdentifiers } from '@/domain/company-identifiers';
+import { researchTargetId } from './research-persistence-id';
 import { saveResearchContact } from "./research-contacts";
 import { mandateResearchSlot } from "@/domain/automatic-research";
 import { modelHeadcountFinding, validateCompanyFacts } from "@/domain/company-facts";
@@ -10,7 +15,7 @@ import { briefToMandate } from "@/domain/acquisition";
 import { rankTarget } from "@/domain/scoring";
 import { peopleFollowUpLinks, validatePeopleFindings } from "@/domain/people-research";
 import { createHash } from "node:crypto";
-import { and, desc, eq, lt, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, lt, notInArray, sql } from "drizzle-orm";
 import { requireDb } from "./client";
 import {
   researchJobs,
@@ -27,6 +32,15 @@ import {
   publicResearchUrl,
 } from "@/domain/research";
 import type { z } from "zod";
+export type ResearchJobRow = typeof researchJobs.$inferSelect;
+export const researchExecutionSelection = { ...getTableColumns(researchJobs), config: sql<ResearchJobRow['config']>`${researchJobs.config} - 'pipelineTiming' - 'scheduling'` };
+export const researchControlConfig = sql<ResearchJobRow['config']>`jsonb_build_object('researchRunId', ${researchJobs.config}->'researchRunId', 'budget', ${researchJobs.config}->'budget', 'automaticDeadline', ${researchJobs.config}->'automaticDeadline', 'newBusinessIds', ${researchJobs.config}->'newBusinessIds', 'performanceFlags', ${researchJobs.config}->'performanceFlags')`;
+// Review screens need retry attempts and remaining URLs, but never saved HTML/markdown.
+const researchReviewConfig = sql`CASE WHEN ${researchJobs.config} ? 'runtime' THEN jsonb_set(${researchJobs.config} - 'scheduling' - 'discoverySourceCandidates' - 'pipelineTiming', '{runtime}', (${researchJobs.config}->'runtime') - 'pendingPage' - 'bufferedPage') ELSE ${researchJobs.config} - 'scheduling' - 'discoverySourceCandidates' - 'pipelineTiming' END`;
+// Search-history display uses query, reason and counts. Raw result snippets are
+// planner input, retained in execution reads; they need not cross the DB boundary
+// on every review poll. Keep timing samples intact for exact percentile parity.
+export const researchReviewSelection = { ...getTableColumns(researchJobs), config: sql<ResearchJobRow['config']>`CASE WHEN jsonb_typeof(${researchJobs.config}->'discoveryAttempts') = 'array' THEN jsonb_set(${researchReviewConfig}, '{discoveryAttempts}', COALESCE((SELECT jsonb_agg(CASE WHEN jsonb_typeof(attempt) = 'object' THEN attempt - 'results' ELSE attempt END ORDER BY position) FROM jsonb_array_elements(${researchJobs.config}->'discoveryAttempts') WITH ORDINALITY AS history(attempt, position)), '[]'::jsonb)) ELSE ${researchReviewConfig} END` };
 export class ResearchRepository {
   constructor(
     private org: string,
@@ -45,6 +59,17 @@ export class ResearchRepository {
         )
         .limit(1)
     )[0];
+  }
+  async getExecution(id: string) {
+    return (await this.db.select(researchExecutionSelection).from(researchJobs)
+      .where(and(eq(researchJobs.id, id), eq(researchJobs.organizationId, this.org))).limit(1))[0];
+  }
+  async getControl(id: string) {
+    return (await this.db.select({ id: researchJobs.id, organizationId: researchJobs.organizationId,
+      status: researchJobs.status, revision: researchJobs.revision, updatedAt: researchJobs.updatedAt,
+      createdAt: researchJobs.createdAt, crawlId: researchJobs.crawlId,
+      config: researchControlConfig,
+    }).from(researchJobs).where(and(eq(researchJobs.id, id), eq(researchJobs.organizationId, this.org))).limit(1))[0];
   }
   async concurrentResearchReady() {
     const result = await this.db.execute(sql`SELECT to_regclass('public.research_jobs_active_slot_idx') IS NOT NULL AS ready`);
@@ -66,6 +91,30 @@ export class ResearchRepository {
       )
       .orderBy(desc(researchJobs.createdAt))
       .limit(1000);
+  }
+  // Discovery planners need only candidates and goal progress from this run.
+  // Filter before transferring JSON; historical runs can contain page markdown.
+  discoveryRunJobs(rootId: string, mandateId: string) {
+    return this.db.select({ id: researchJobs.id, status: researchJobs.status, seeds: researchJobs.seeds,
+      config: sql<Pick<ResearchConfig, 'newBusinessIds' | 'discoveryCandidate' | 'companyDomain'>>`jsonb_build_object('newBusinessIds', ${researchJobs.config}->'newBusinessIds', 'discoveryCandidate', ${researchJobs.config}->'discoveryCandidate', 'companyDomain', ${researchJobs.config}->'companyDomain')`,
+    }).from(researchJobs).where(and(eq(researchJobs.organizationId, this.org), eq(researchJobs.mandateId, mandateId),
+      sql`(${researchJobs.id} = ${rootId} OR ${researchJobs.config}->>'researchRunId' = ${rootId})`))
+      .orderBy(desc(researchJobs.createdAt)).limit(1000);
+  }
+  listReview(mandateId: string) {
+    return this.db.select(researchReviewSelection).from(researchJobs)
+      .where(and(eq(researchJobs.organizationId, this.org), eq(researchJobs.mandateId, mandateId)))
+      .orderBy(desc(researchJobs.createdAt)).limit(1000);
+  }
+  async timingSummaries(jobs: Pick<ResearchJobRow, 'id'>[]) {
+    if (!jobs.length) return {} as Record<string, CompactResearchTimingRun>;
+    const relation = sql`SELECT ${researchJobs.id} AS id, ${researchJobs.createdAt} AS created_at, ${researchJobs.config} AS config, requested.job_order
+      FROM jsonb_array_elements_text(${JSON.stringify(jobs.map(job=>job.id))}::jsonb) WITH ORDINALITY AS requested(id,job_order)
+      INNER JOIN ${researchJobs} ON ${researchJobs.id} = requested.id::uuid
+      WHERE ${researchJobs.organizationId} = ${this.org}`;
+    const result = await this.db.execute(compactResearchTimingQuery(relation));
+    const rows = (result as unknown as {rows:CompactResearchTimingRun[]}).rows;
+    return Object.fromEntries(rows.map(row=>[row.runId,row]));
   }
   findings(mandateId: string) {
     return this.db
@@ -104,8 +153,9 @@ export class ResearchRepository {
       .groupBy(researchFindings.jobId);
     return rows.map(row => ({ ...row, businessDomains: row.businessDomains.filter(domain => domain && !directorySource(`https://${domain}/`)) }));
   }
-  async recordNewBusiness(id: string, targetId: string) {
-    const job = await this.get(id);
+  async recordNewBusiness(id: string, targetId: string, snapshot?: ResearchJobRow) {
+    if (snapshot && (snapshot.id !== id || snapshot.organizationId !== this.org)) throw new Error("Invalid research snapshot");
+    const job = snapshot || await this.getExecution(id);
     if (!job) return;
     const config = job.config as ResearchConfig;
     if (!config.targetBusinesses || config.purpose) return;
@@ -116,7 +166,7 @@ export class ResearchRepository {
     const milestoneAt = new Date().toISOString();
     const milestones = sql`COALESCE(${researchJobs.config}->'researchMilestones', '{}'::jsonb) || jsonb_build_object('firstCompanyAt', COALESCE(${researchJobs.config}->'researchMilestones'->>'firstCompanyAt', ${milestoneAt})) || CASE WHEN jsonb_array_length(${mergedIds}) >= COALESCE((${researchJobs.config}->>'targetBusinesses')::int, 20) THEN jsonb_build_object('targetReachedAt', COALESCE(${researchJobs.config}->'researchMilestones'->>'targetReachedAt', ${milestoneAt})) ELSE '{}'::jsonb END`;
     await this.db.update(researchJobs).set({ config: sql`jsonb_set(jsonb_set(${researchJobs.config}, '{newBusinessIds}', ${mergedIds}), '{researchMilestones}', ${milestones})` })
-      .where(and(sql`${researchJobs.id} IN (${id}, ${config.discoveryCandidate ? config.researchRunId || id : id})`, eq(researchJobs.organizationId, this.org)));
+      .where(and(sql`${researchJobs.id} IN (${id}, ${config.discoveryCandidate || config.researchTask === "website" || config.researchTask === "page" ? config.researchRunId || id : id})`, eq(researchJobs.organizationId, this.org)));
   }
   async create(
     id: string,
@@ -226,14 +276,15 @@ export class ResearchRepository {
         ),
       );
   }
-  async progress(id: string, event: z.infer<typeof progressSchema>) {
-    const job = await this.get(id);
+  async progress(id: string, event: z.infer<typeof progressSchema>, snapshot?: ResearchJobRow) {
+    if (snapshot && (snapshot.id !== id || snapshot.organizationId !== this.org)) throw new Error("Invalid research snapshot");
+    const job = snapshot || await this.getExecution(id);
     if (
       !job ||
       terminalResearchStates.includes(job.status) ||
       event.revision <= job.revision
     )
-      return;
+      return job;
     const config = job.config as ResearchConfig;
     if (
       event.pages > config.budget.maxPages ||
@@ -242,14 +293,18 @@ export class ResearchRepository {
     )
       throw new Error("Research budget exceeded");
     if (event.page && publicResearchUrl(event.page.url)) {
-      const sourceUrl = publicResearchUrl(event.page.url)!;
+      const page = event.page;
+      const sourceUrl = publicResearchUrl(page.url)!;
       const modelHeadcounts = (input: unknown, markdown: string, source: string) => (Array.isArray(input) ? input : []).flatMap((raw: unknown) => { const f = raw as { kind?: unknown; value?: unknown; quote?: unknown }; const located = f?.kind === "headcount" ? modelHeadcountFinding({ value: f.value, quote: f.quote }, markdown, source, config) : null; return located ? [located] : []; });
-      const findings = (config.purpose === "firmographics" ? (input: unknown, markdown: string, source: string) => { const labelled = validateCompanyFacts(input, markdown, source, config); return [...labelled, ...(labelled.some(f => f.kind === "headcount") ? [] : modelHeadcounts(input, markdown, source)), ...validatePeopleFindings(input, markdown, source, config).filter(f => f.kind === "person"), ...(config.mode === "automatic" && new URL(source).hostname.replace(/^www\./, "") === config.companyDomain ? validateBusinessFindings(input, markdown, source, config) : [])]; } : config.purpose === "people" ? (input: unknown, markdown: string, source: string) => [...validatePeopleFindings(input, markdown, source, config), ...validateCompanyFacts(input, markdown, source, config)] : config.workflow === "business" ? (input: unknown, markdown: string, source: string) => validateBusinessFindings(input, markdown, source, config) : validateFindings)(
-        event.page.findings,
-        event.page.markdown,
+      const findings = await measureResearchSegment(id, this.org, 'evidence-validation', 'persistence', async () => {
+      const validated = (config.purpose === "firmographics" ? (input: unknown, markdown: string, source: string) => { const labelled = validateCompanyFacts(input, markdown, source, config); return [...labelled, ...(labelled.some(f => f.kind === "headcount") ? [] : modelHeadcounts(input, markdown, source)), ...validatePeopleFindings(input, markdown, source, config).filter(f => f.kind === "person"), ...(config.mode === "automatic" && new URL(source).hostname.replace(/^www\./, "") === config.companyDomain ? validateBusinessFindings(input, markdown, source, config) : [])]; } : config.purpose === "people" ? (input: unknown, markdown: string, source: string) => [...validatePeopleFindings(input, markdown, source, config), ...validateCompanyFacts(input, markdown, source, config)] : config.workflow === "business" ? (input: unknown, markdown: string, source: string) => validateBusinessFindings(input, markdown, source, config) : validateFindings)(
+        page.findings,
+        page.markdown,
         sourceUrl,
         config.searchTerms,
       );
+      return [...validated, ...validateCompanyIdentifiers(page.findings, page.markdown, sourceUrl, config), ...(config.researchTask === 'website' || config.researchTask === 'page' ? [...validateCompanyFacts(page.findings, page.markdown, sourceUrl, config), ...validatePeopleFindings(page.findings, page.markdown, sourceUrl, config).filter(f => f.kind === 'person')] : [])];
+      });
       const domain = new URL(sourceUrl).hostname.replace(/^www\./, "");
       const linked = await this.db
         .select({ id: targets.id })
@@ -263,34 +318,46 @@ export class ResearchRepository {
           ),
         )
         .where(
-          and(eq(targets.organizationId, this.org), eq(targets.domain, config.purpose === "firmographics" ? config.companyDomain! : domain), ...(config.purpose === "firmographics" ? [eq(targets.id, config.targetId!)] : [])),
+          and(eq(targets.organizationId, this.org), eq(targets.domain, config.purpose ? config.companyDomain! : domain), ...(config.targetId ? [eq(targets.id, config.targetId)] : [])),
         )
         .limit(1);
       // Only a literal first-party company assertion may create a new business, and
       // never from a directory, register, association or social listing page.
-      let targetId = config.purpose === "people" ? config.targetId : linked[0]?.id;
+      let targetId = config.targetId || linked[0]?.id;
       const company = ownCompany(findings, sourceUrl);
       // ...and only when the page also shows what the business makes, does or sells; identity alone is not a lead.
       const businessFit = findings.some(f => ["product", "capability", "customer", "business_role"].includes(f.kind));
-      if (!targetId && config.workflow === "business" && company && businessFit && !directorySource(sourceUrl, event.page.markdown) && (!config.targetBusinesses || new Set(config.newBusinessIds || []).size < config.targetBusinesses)) {
+      if (!targetId && config.workflow === "business" && company && businessFit && !directorySource(sourceUrl, page.markdown) && (!config.targetBusinesses || new Set(config.newBusinessIds || []).size < config.targetBusinesses)) {
         const acquisition = new AcquisitionRepository(this.org, this.db);
         const mandate = await acquisition.getMandate(job.mandateId);
         if (mandate) {
           const filters = briefToMandate(mandate.brief);
           const candidate = mapGooglePlace({ id: domain, name: company.name, website: `https://${domain}/`, formattedAddress: "Unknown", discoverySource: "manufacturing-directory", manufacturingDirectory: { recordId: domain, name: company.name, website: `https://${domain}/`, description: company.quote, categories: [], keywords: [], capabilities: [], sourceRecords: [{ source: "Public website research", sourceId: domain, sourceUrl }] } }, filters, this.org, "Website identity observed; review financial fit");
-          const saved = await new OrganizationRepository(this.db, this.org).upsertEnrichedTarget({ target: rankTarget(candidate, filters), mandateId: job.mandateId, actorId: job.createdBy });
+          const saved = await new OrganizationRepository(this.db, this.org).upsertEnrichedTarget({ target: rankTarget(candidate, filters), mandateId: job.mandateId, actorId: job.createdBy, creationId: researchTargetId(this.org, domain) });
           if (saved) { await acquisition.attach(job.mandateId, saved.id); targetId = saved.id; }
         }
       }
-      // Count toward the business target only with mandate-relevant website evidence.
-      if (targetId && relevantBusiness(findings)) await this.recordNewBusiness(id, targetId);
+      let earlier: { evidence: unknown; sourceUrl: string; observedAt: Date }[] = [];
+      if (targetId && config.parallelBusinessResearch) {
+        // Field jobs may finish before the website identifies and saves its target.
+        // Attach those source-validated findings when that domain becomes known.
+        earlier = await this.db.update(researchFindings).set({ targetId }).where(and(eq(researchFindings.organizationId, this.org), eq(researchFindings.mandateId, job.mandateId), sql`${researchFindings.targetId} IS NULL`, sql`${researchFindings.jobId} IN (SELECT id FROM research_jobs WHERE organization_id = ${this.org} AND config->>'researchRunId' = ${config.researchRunId || id} AND config->>'companyDomain' = ${config.companyDomain || domain})`)).returning({ evidence: researchFindings.evidence, sourceUrl: researchFindings.sourceUrl, observedAt: researchFindings.observedAt });
+        for (const saved of earlier) {
+          const evidence = saved.evidence as ResearchFinding;
+          if (evidence.kind === 'person') await saveResearchContact({ database: this.db, organizationId: this.org, targetId, evidence, sourceUrl: saved.sourceUrl, observedAt: saved.observedAt });
+        }
+      }
+      const previousAbn = earlier.find(f => (f.evidence as ResearchFinding).kind === 'identifier' && (f.evidence as ResearchFinding).name === 'ABN');
+      const abn = findings.find(f => f.kind === 'identifier' && f.name === 'ABN') || previousAbn?.evidence as ResearchFinding | undefined;
+      if (targetId && abn) await this.db.update(targets).set({ identifiers: sql`${targets.identifiers} || ${JSON.stringify({ abn: abn.value, identityEvidence: { sourceUrl: previousAbn?.sourceUrl || sourceUrl, observedAt: previousAbn?.observedAt.toISOString() || page.observedAt, quote: abn.quote } })}::jsonb`, updatedAt: new Date() }).where(and(eq(targets.id, targetId), eq(targets.organizationId, this.org)));
       if (targetId && ((config.workflow === "business" && config.findPeople) || (config.purpose === "firmographics" && config.parentJobId))) {
-        const links = peopleFollowUpLinks(event.page.markdown, sourceUrl, [], config.purpose ? config : undefined).filter(url => new URL(url).hostname.replace(/^www\./, "") === domain).slice(0, 8);
+        const links = peopleFollowUpLinks(page.markdown, sourceUrl, [], config.purpose ? config : undefined).filter(url => new URL(url).hostname.replace(/^www\./, "") === domain).slice(0, 8);
         const ownerJob = config.purpose === "firmographics" ? config.parentJobId! : id;
         // Preserve earlier team links when later pages add contact/about links.
         if (links.length) await this.db.update(researchJobs).set({ config: sql`jsonb_set(${researchJobs.config}, '{peopleLinks}', jsonb_set(COALESCE(${researchJobs.config}->'peopleLinks', '{}'::jsonb), ARRAY[${targetId}]::text[], COALESCE(${researchJobs.config}->'peopleLinks'->${targetId}, '[]'::jsonb) || ${JSON.stringify(links)}::jsonb))` }).where(and(eq(researchJobs.id, ownerJob), eq(researchJobs.organizationId, this.org)));
       }
-      for (const evidence of (config.purpose === "firmographics" && !targetId ? [] : findings)) {
+      const pageFindings = (config.purpose === "firmographics" && !targetId && !config.researchTask ? [] : findings);
+      const rows = pageFindings.map(evidence => {
         const evidenceKey = createHash("sha256")
           .update(
             JSON.stringify([
@@ -302,34 +369,37 @@ export class ResearchRepository {
             ]),
           )
           .digest("hex");
-        await this.db
-          .insert(researchFindings)
-          .values({
+        return {
             jobId: id,
             organizationId: this.org,
             mandateId: job.mandateId,
             targetId,
             evidenceKey,
             sourceUrl,
-            observedAt: new Date(event.page.observedAt),
+            observedAt: new Date(page.observedAt),
             evidence: {
               ...evidence,
               source: config.purpose === "firmographics" ? "Public web research — validated source statement" : ["Catalogue product listing", "Stated supply activity", "Stated product supply"].includes(evidence.name) ? "Cloudflare Browser Run — directly observed website evidence" : "Cloudflare Browser Run + Workers AI",
               status: "unverified",
-              truncated: event.page.truncated,
+              truncated: page.truncated,
             },
             confidence: evidence.factMetadata?.basis === "search_snippet" ? 0.2 : evidence.factMetadata?.identityNote ? 0.2 : evidence.factMetadata?.basis === "third_party_estimate" ? 0.3 : 0.5,
-          })
-          .onConflictDoNothing();
-        if (targetId && evidence.kind === "person") await saveResearchContact({ database: this.db, organizationId: this.org, targetId, evidence, sourceUrl, observedAt: new Date(event.page.observedAt) });
+          };
+      });
+      if (rows.length) await measureResearchSegment(id, this.org, 'evidence-persistence', 'persistence', async () => { await this.db.insert(researchFindings).values(rows).onConflictDoNothing(); });
+      for (const evidence of pageFindings) {
+        if (targetId && evidence.kind === "person") await saveResearchContact({ database: this.db, organizationId: this.org, targetId, evidence, sourceUrl, observedAt: new Date(page.observedAt) });
       }
+      // A qualifying company counts only after its evidence/contact writes
+      // succeed. Failed persistence remains retryable without a false milestone.
+      if (targetId && relevantBusiness(pageFindings)) await this.recordNewBusiness(id, targetId, job);
     }
     let updatedConfig = event.runtime ? sql`jsonb_set(${researchJobs.config}, '{runtime}', ${JSON.stringify(event.runtime)}::jsonb)` : sql`${researchJobs.config}`;
-    for (const key of ['followupExhaustedFields', 'followupSearchCounts', 'followupEmptySearchCounts'] as const) {
+    for (const key of ['targetedSearchDeferred', 'followupPlannerUsed', 'followupExhaustedFields', 'followupSearchCounts', 'followupEmptySearchCounts'] as const) {
       if (event[key] !== undefined) updatedConfig = sql`jsonb_set(${updatedConfig}, ARRAY[${key}]::text[], ${JSON.stringify(event[key])}::jsonb)`;
     }
     if (config.enrichmentPhase && event.enrichmentPendingFields) updatedConfig = sql`jsonb_set(${updatedConfig}, '{enrichmentPendingFields}', ${JSON.stringify(event.enrichmentPendingFields)}::jsonb)`;
-    await this.db
+    const [saved] = await this.db
       .update(researchJobs)
       .set({
         status: event.status,
@@ -348,6 +418,7 @@ export class ResearchRepository {
           lt(researchJobs.revision, event.revision),
           notInArray(researchJobs.status, terminalResearchStates),
         ),
-      );
+      ).returning(researchExecutionSelection);
+    return saved || await this.getExecution(id);
   }
 }

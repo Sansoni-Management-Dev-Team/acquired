@@ -60,3 +60,21 @@ export function summariseResearchTimings(jobs: { id: string; createdAt: string |
   };
   return { timeToFirstCompanyMs: milestone('firstCompanyAt'), timeToTargetMs: milestone('targetReachedAt'), spans: spans.length, jobs: jobs.length, segments, measuredWindowMs: startedAt === null || finishedAt === null ? 0 : finishedAt - startedAt, cappedJobs: jobs.filter(job => Object.keys(job.config.pipelineTiming || {}).length >= MAX_RESEARCH_TIMING_SPANS).length };
 }
+
+export type CompactResearchTimingRun = {
+ runId: string; spans: number; measuredWindowMs: number; cappedJobs: number;
+ segments: Partial<Record<ResearchTimingSegment, { durations: number[]; failed: number }>>;
+};
+/** SQL performs validation and UUID winner selection. Ordered samples retain
+ * exact JS summation and nearest-rank percentiles; no per-job averages merge. */
+export function summariseCompactResearchTimings(jobs: Parameters<typeof summariseResearchTimings>[0], compact: CompactResearchTimingRun) {
+ const base = summariseResearchTimings(jobs.map(job=>({...job,config:{researchMilestones:job.config.researchMilestones}})));
+ const segments: ReturnType<typeof summariseResearchTimings>['segments'] = {};
+ for(const [key,value] of Object.entries(compact.segments)) {
+  const durations=value!.durations;
+  const totalMs=durations.reduce((sum,n)=>sum+n,0);
+  const sorted=[...durations].sort((a,b)=>a-b);
+  segments[key as ResearchTimingSegment]={calls:durations.length,failed:value!.failed,totalMs,maxMs:durations.reduce((max,n)=>Math.max(max,n),0),meanMs:totalMs/durations.length,p95Ms:sorted[Math.ceil(sorted.length*.95)-1]};
+ }
+ return {...base,segments,spans:compact.spans,measuredWindowMs:compact.measuredWindowMs,cappedJobs:compact.cappedJobs};
+}

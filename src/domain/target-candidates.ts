@@ -1,3 +1,4 @@
+import { fieldLabels } from './research-objectives';
 import type { MembershipView } from "./acquisition";
 import { publicResearchUrl, researchDomain, terminalResearchStates, type ResearchConfig, type SavedResearchFinding } from "./research";
 
@@ -105,7 +106,7 @@ export function companyWorkStatus(target: { id: string; domain?: string }, jobs:
   const related = companyResearchJobs(target, jobs, findings);
   const active = related.filter(job => !terminalResearchStates.includes(job.status));
   if (active.length) return [...new Set(active.map(job => {
-    const task = job.config.purpose === "people" ? "decision-makers" : job.config.purpose === "firmographics" ? "company details" : "company identity";
+    const task = job.config.researchField ? fieldLabels[job.config.researchField] : job.config.researchTask === "page" ? "website page" : job.config.researchTask === "website" ? "website and sitemap" : job.config.purpose === "people" ? "decision-makers" : job.config.purpose === "firmographics" ? "company details" : "company identity";
     if (job.status === "queued") return `Queued: ${task}`;
     if (job.status === "discovering") return `Finding sources: ${task}`;
     if (job.status === "extracting") return `Extracting ${task}`;

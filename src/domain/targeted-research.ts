@@ -15,7 +15,7 @@ export function targetedQuery(field: ResearchField, config: Pick<ResearchConfig,
 }
 // Bounded external search ladder for one missing field. Each query is run at
 // most once per job; a page read never consumes a search.
-export const MAX_TARGETED_SEARCHES: Record<ResearchField, number> = { size: 5, revenue: 3, people: 10, email: 2 };
+export const MAX_TARGETED_SEARCHES: Record<ResearchField, number> = { abn: 3, size: 5, revenue: 3, people: 10, email: 2 };
 // Generic words that hide the trading name search engines and directories actually index.
 const genericNameWords = /\b(?:pty|ltd|limited|inc|co|company|group|holdings|australia|australasia|australian|international|plastics|products|industries|industrial|manufacturing|manufacturers|enterprises|services|solutions|supplies|trading)\b\.?/gi;
 export function shortCompanyName(name: string) {
@@ -30,7 +30,8 @@ export function targetedQueries(field: ResearchField, config: Pick<ResearchConfi
   const industry = (config.companyName || "").match(/\b(plastics|products|industries|manufacturing|caskets?|coffins?|urns?|hardware|engineering|packaging)\b/i)?.[1].toLowerCase() || "";
   const place = publicCompanyName(config.companyLocation || "");
   const person = publicCompanyName(findings.find(ownershipContact)?.name || "");
-  const queries = field === "revenue" ? [`"${name}" annual revenue`, `"${name}" turnover`, `"${config.companyDomain}" revenue`]
+  const queries = field === "abn" ? [`"${name}" abn`, `site:abr.business.gov.au "${name}"`, `"${short}" "${config.companyDomain}" ABN`]
+    : field === "revenue" ? [`"${name}" annual revenue`, `"${name}" turnover`, `"${config.companyDomain}" revenue`]
     : field === "email" ? [`site:${config.companyDomain} ${person ? `"${person}"` : 'director'} email`, `"${person || name}" "${config.companyDomain}" contact`]
     : field === "size"
     ? [targetedQuery("size", config), name && `"${name}" employees`, short && `"${short}" ${industry} ${place} employees`.replace(/\s+/g, " "), name && `"${name}" company size`, (legal || name) && `"${legal || name}" headcount revenue`]
@@ -54,7 +55,7 @@ export function targetedPlan(config: ResearchConfig, findings: ResearchFinding[]
     .filter(url=>publicResearchUrl(url) && !visited.some(v=>researchUrlKey(v)===researchUrlKey(url)))
     .filter(url=> researchDomain(url) !== config.companyDomain || /about|team|leadership|who-we-are|company|history|our-story|contact/i.test(new URL(url).pathname)).slice(0,4);
   const actions: TargetedAction[] = candidates.map((url,i)=>({id:`read_${i}`,kind:"read",url}));
-  if (searchAvailable && (["size", "revenue"].includes(field) || config.maxPeopleSearches === 2)) actions.push({id:`search_${field}`,kind:"search",field});
+  if (searchAvailable && (["abn", "size", "revenue"].includes(field) || config.maxPeopleSearches === 2)) actions.push({id:`search_${field}`,kind:"search",field});
   actions.push({id:"stop",kind:"stop"});
   return actions.length > 1 ? {companyName:config.companyName,companyDomain:config.companyDomain,missing:`Sourced ${fieldLabels[field]}`,legalEntity,actions}:null;
 }

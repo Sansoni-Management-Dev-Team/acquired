@@ -1,0 +1,24 @@
+import { expect, it, vi } from 'vitest';
+import { PgDialect } from 'drizzle-orm/pg-core';
+vi.mock('./client', () => ({ requireDb: vi.fn() }));
+import { ResearchRepository } from './research-repository';
+it('filters discovery context to its organization, mandate and root/run in SQL with only needed fields', async () => {
+  const select = vi.fn(), where = vi.fn(), limit = vi.fn(async () => []);
+  select.mockReturnValue({ from: () => ({ where: (filter: unknown) => { where(filter); return { orderBy: () => ({ limit }) }; } }) });
+  const repo = new ResearchRepository('org', { select } as never);
+  await repo.discoveryRunJobs('root', 'mandate');
+  const selected = select.mock.calls[0][0];
+  expect(Object.keys(selected).sort()).toEqual(['config', 'id', 'seeds', 'status']);
+  const projection = new PgDialect().sqlToQuery(selected.config);
+  expect(projection.sql).toContain('newBusinessIds');
+  expect(projection.sql).toContain('discoveryCandidate');
+  expect(projection.sql).toContain('companyDomain');
+  expect(projection.sql).not.toMatch(/runtime|pipelineTiming|discoveryAttempts|scheduling|findings/);
+  const scope = new PgDialect().sqlToQuery(where.mock.calls[0][0]);
+  expect(scope.sql).toContain('organization_id');
+  expect(scope.sql).toContain('mandate_id');
+  expect(scope.sql).toContain("->>'researchRunId'");
+  expect(scope.sql).toMatch(/ or /i);
+  expect(scope.params).toEqual(['org', 'mandate', 'root', 'root']);
+  expect(limit).toHaveBeenCalledWith(1000);
+});

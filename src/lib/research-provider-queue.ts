@@ -43,6 +43,6 @@ export async function releaseResearchProvider(jobId: string, token: string) {
   return changeQueue(queue => ({ queue: releaseProvider(queue, token, jobId), value: true }));
 }
 
-export async function coolDownResearchBrowser(retryAfterMs: number) {
-  return changeQueue((queue, now) => ({ queue: coolDownBrowser(queue, now, retryAfterMs), value: true }));
+export async function coolDownResearchBrowser(retryAfterMs: number, domain?: string) {
+  return changeQueue((queue, now) => ({ queue: coolDownBrowser(queue, now, retryAfterMs, domain), value: true }));
 }
