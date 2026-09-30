@@ -66,17 +66,17 @@ export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
   if (busy) return <div className="mx-auto my-[8vh] max-w-[620px] px-4 sm:px-0"><CompanySearchProgress detail={progress || undefined} /></div>;
 
   return <div className="mx-auto max-w-6xl space-y-10 p-5 sm:p-8">
-    <section className="rounded-3xl px-5 py-16 text-slate-900 sm:px-10 sm:py-20">
+    <section className="rounded-3xl px-5 py-16 text-[var(--foreground)] sm:px-10 sm:py-20">
       <div className="mx-auto max-w-3xl">
         <h1 className="text-center text-3xl font-bold tracking-tight sm:text-5xl">Create a mandate</h1>
-        <p className="mt-3 text-center text-sm text-slate-700 sm:text-base">Tell us what you want to buy. We’ll turn it into a mandate you can review.</p>
-        <form onSubmit={event => { event.preventDefault(); void create(); }} className="mt-8 rounded-2xl bg-white p-5 shadow-xl sm:p-7">
+        <p className="mt-3 text-center text-sm text-[var(--muted)] sm:text-base">Tell us what you want to buy. We’ll turn it into a mandate you can review.</p>
+        <form onSubmit={event => { event.preventDefault(); void create(); }} className="mt-8 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5 shadow-sm sm:p-7">
           <label htmlFor="mandate-description" className="block text-sm font-semibold">Tell us about the businesses you’re looking to buy</label>
-          <textarea id="mandate-description" required minLength={10} maxLength={5000} rows={5} readOnly={Boolean(createdId)} value={description} onChange={event => setDescription(event.target.value)} placeholder="For example: profitable commercial refrigeration service businesses in Victoria with recurring maintenance work" className="mt-3 w-full resize-y rounded-xl border border-slate-300 px-4 py-3 text-base text-slate-900 placeholder:text-slate-500" />
-          {error && <p role="alert" className="mt-3 text-sm text-red-700">{error}</p>}
-          {progress && <p role="status" className="mt-3 text-sm text-slate-600">{progress}</p>}
-          {createdId && error && <Link href={`/mandates/${createdId}?tab=targets`} className="mt-2 inline-block text-sm text-blue-700 underline">Open your saved mandate</Link>}
-          <div className="mt-4 flex flex-wrap justify-end gap-3"><button type="button" disabled={busy || Boolean(createdId)} onClick={() => void create("demo")} className="min-h-12 rounded-xl border border-slate-300 px-5 text-sm font-semibold text-slate-800 disabled:opacity-50">Run demo</button><button disabled={busy || description.trim().length < 10} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-blue-600 px-5 text-sm font-semibold text-white disabled:opacity-50">{busy ? "Working…" : createdId ? "Retry company research" : "Find companies"}<ArrowRight size={17} /></button></div>
+          <textarea id="mandate-description" required minLength={10} maxLength={5000} rows={5} readOnly={Boolean(createdId)} value={description} onChange={event => setDescription(event.target.value)} placeholder="For example: profitable commercial refrigeration service businesses in Victoria with recurring maintenance work" className="mt-3 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--input)] px-4 py-3 text-base text-[var(--foreground)] placeholder:text-[var(--muted)] focus-visible:border-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]" />
+          {error && <p role="alert" className="mt-3 text-sm text-[var(--status-red)]">{error}</p>}
+          {progress && <p role="status" className="mt-3 text-sm text-[var(--muted)]">{progress}</p>}
+          {createdId && error && <Link href={`/mandates/${createdId}?tab=targets`} className="mt-2 inline-block text-sm text-[var(--accent)] underline underline-offset-4">Open your saved mandate</Link>}
+          <div className="mt-4 flex flex-wrap justify-end gap-3"><button type="button" disabled={busy || Boolean(createdId)} onClick={() => void create("demo")} className="min-h-12 rounded-xl border border-[var(--border)] px-5 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--panel-raised)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50">Run demo</button><button disabled={busy || description.trim().length < 10} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--on-accent)] hover:bg-[var(--accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50">{busy ? "Working…" : createdId ? "Retry company research" : "Find companies"}<ArrowRight size={17} /></button></div>
         </form>
       </div>
     </section>
