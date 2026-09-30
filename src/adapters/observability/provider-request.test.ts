@@ -1,6 +1,17 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { providerDiagnostics, providerJsonRequest } from "./provider-request";
 afterEach(() => vi.restoreAllMocks());
+it.each(["reader_busy", "domain_backoff", "origin_rate_limit", "origin_http_error", "page_unavailable", "reader_timeout", "reader_failure"])("retains the local reader reason %s with bounded diagnostics", reason => {
+  const body = { category: reason, error: "private page", reader: { activeReads: 5, maxReads: 5, availableReads: 0, retryAfterMs: 3000, domainActive: true, domainKey: "abcdef012345", secret: "secret", elapsedMs: -1 } };
+  expect(providerDiagnostics(429, new Headers(), body, "local-crawl4ai")).toMatchObject({ category: reason, classificationBasis: "reader_category", reader: { activeReads: 5, maxReads: 5, availableReads: 0, retryAfterMs: 3000, domainActive: true, domainKey: "abcdef012345" } });
+  expect(JSON.stringify(providerDiagnostics(429, new Headers(), body, "local-crawl4ai"))).not.toMatch(/secret|private page|elapsedMs/);
+  expect(providerDiagnostics(429, new Headers(), body, "openrouter").category).toBe("rate_limit_unspecified");
+});
+it("rejects arbitrary reader categories and domain keys", () => {
+  const result = providerDiagnostics(429, new Headers(), { category: "private data", reader: { domainKey: "https://private.example/path", activeReads: -5 } }, "local-crawl4ai");
+  expect(result.category).toBe("rate_limit_unspecified");
+  expect(JSON.stringify(result)).not.toMatch(/private|activeReads/);
+});
 it.each([
   ["Rate limit exceeded: free-models-per-day", "daily_quota"],
   ["Rate limit exceeded: free-models-per-min", "request_rate"],

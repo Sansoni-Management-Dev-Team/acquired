@@ -2,6 +2,23 @@ import { afterEach, expect, it, vi } from 'vitest';
 import { browserMarkdown } from './browser-reader';
 afterEach(() => vi.useRealTimers());
 const env = { CF_ACCOUNT_ID: 'test', CF_BROWSER_TOKEN: 'test' };
+it('logs the local reader reason, slot snapshot and shared retry scope', async () => {
+  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
+  try {
+    const cooldown = vi.fn(async () => {}), release = vi.fn(async () => {});
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json({ category: 'domain_backoff', error: 'private body', reader: { activeReads: 2, maxReads: 5, availableReads: 3, domainActive: true, domainKey: 'abcdef012345' } }, { status: 429, headers: { 'retry-after': '3' } }));
+    await expect(browserMarkdown({ LOCAL_DEVELOPMENT: 'true', LOCAL_CRAWL4AI_URL: 'http://127.0.0.1:18083' }, 'https://example.com/?private=value', {
+      jobId: 'job-12345678', requestId: 'request-1234', operation: 'markdown', permit: async () => ({ granted: true, retryAfterMs: 0 }), cooldown, release,
+    }, fetcher)).rejects.toMatchObject({ category: 'browser_admission' });
+    const events = log.mock.calls.map(call => JSON.parse(String(call[1])));
+    expect(events).toContainEqual(expect.objectContaining({ event: 'reader_deferred', requestId: 'request-1234', category: 'domain_backoff', cooldownScope: 'shared_browser_queue', retryAfterMs: 3000, reader: expect.objectContaining({ activeReads: 2, availableReads: 3, domainActive: true }) }));
+    expect(JSON.stringify(events)).not.toContain('private');
+    expect(fetcher.mock.calls[0][1]?.headers).toMatchObject({ 'x-request-id': 'request-1234', 'x-research-job-id': 'job-12345678' });
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(cooldown).toHaveBeenCalledWith(3000);
+    expect(release).toHaveBeenCalledOnce();
+  } finally { log.mockRestore(); }
+});
 it('does not call the browser until a global permit is granted', async () => {
   vi.useFakeTimers();
   const permit = vi.fn().mockResolvedValueOnce({ granted: false, retryAfterMs: 11000 }).mockResolvedValue({ granted: true, retryAfterMs: 0 });

@@ -1,4 +1,6 @@
 import { PgDialect } from "drizzle-orm/pg-core";
+import { sql, type SQL } from "drizzle-orm";
+import { Client } from "pg";
 import { beforeEach, expect, it, vi } from "vitest";
 import type { ResearchConfig } from "@/domain/research";
 const mocks = vi.hoisted(() => ({ get: vi.fn(), list: vi.fn(), seeds: vi.fn(), search: vi.fn(), set: vi.fn(), where: vi.fn(), claim: vi.fn(), dispatch: vi.fn() }));
@@ -115,4 +117,35 @@ it("defers a stale legacy completion without overwriting seeds or dispatching", 
   expect(mocks.search).toHaveBeenCalledTimes(1);
   expect(mocks.seeds).not.toHaveBeenCalled();
   expect(mocks.dispatch).not.toHaveBeenCalled();
+});
+
+it.skipIf(!process.env.RESEARCH_SQL_TEST_URL)("executes batch claim and completion expressions in PostgreSQL without mutating rows", async () => {
+  const { discoveryQueryId } = await import("@/domain/adaptive-discovery");
+  const query = "industrial cleaners Victoria";
+  const queryId = discoveryQueryId(query, 0, 0);
+  expect((await call({ action: "discover", decision: { query, queryId, reason: "Explore cleaners", batchStartIndex: 0 } })).status).toBe(200);
+  const updates = mocks.set.mock.calls.flatMap(([data], index) => data.config && new PgDialect().sqlToQuery(data.config).sql.includes("discoveryClaims") ? [{ config: data.config as SQL, guard: mocks.where.mock.calls[index][0] as SQL }] : []);
+  const client = new Client({ connectionString: process.env.RESEARCH_SQL_TEST_URL });
+  await client.connect();
+  try {
+    await client.query("BEGIN READ ONLY");
+    const evaluate = async (expression: SQL, condition: SQL, fixture: ResearchConfig) => {
+      const compiled = new PgDialect().sqlToQuery(sql`SELECT ${expression} AS result FROM (SELECT ${JSON.stringify(fixture)}::jsonb AS config, '[]'::jsonb AS seeds, ${jobId}::uuid AS id, 'discovering'::text AS status) AS research_jobs WHERE ${condition}`);
+      return (await client.query(compiled.sql, compiled.params)).rows;
+    };
+    const claimed = await evaluate(updates[0].config, updates[0].guard, job.config);
+    expect(claimed).toHaveLength(1);
+    const claimedConfig = claimed[0].result;
+    expect(claimedConfig.discoveryClaims[queryId].id).toEqual(expect.any(String));
+    // The same query cannot be claimed twice while its lease is live.
+    expect(await evaluate(updates[0].config, updates[0].guard, claimedConfig)).toEqual([]);
+    const completed = await evaluate(updates[1].config, updates[1].guard, claimedConfig);
+    expect(completed).toHaveLength(1);
+    expect(completed[0].result.discoveryClaims).toEqual({});
+    expect(completed[0].result.discoveryAttempts).toEqual([expect.objectContaining({ queryId, status: "succeeded", newDomains: 1 })]);
+    expect(await evaluate(updates[1].config, updates[1].guard, completed[0].result)).toEqual([]);
+  } finally {
+    await client.query("ROLLBACK");
+    await client.end();
+  }
 });

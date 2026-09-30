@@ -55,18 +55,20 @@ export async function browserMarkdown(env: BrowserReaderEnv, url: string, option
   try {
     const { response, data } = await providerJsonRequest<{ success?: boolean; result?: unknown; url?: string; markdown?: unknown }>(researchFetch(env, fetcher),
       endpoint, {
-        method: 'POST', headers: { ...(!local ? { authorization: `Bearer ${env.CF_BROWSER_TOKEN}` } : {}), 'Content-Type': 'application/json' },
+        method: 'POST', headers: { ...(!local ? { authorization: `Bearer ${env.CF_BROWSER_TOKEN}` } : { 'x-request-id': requestId, ...(options.jobId ? { 'x-research-job-id': options.jobId } : {}) }), 'Content-Type': 'application/json' },
         body: JSON.stringify({ url, gotoOptions: { waitUntil: 'domcontentloaded', timeout: 20000 } }),
         signal: AbortSignal.timeout(25000),
       }, { provider: local ? 'local-crawl4ai' : 'cloudflare-browser', operation: options.operation, jobId: options.jobId, requestId });
-    if (response.status === 429 && options.cooldown && providerDiagnostics(response.status, response.headers, data).category !== "daily_quota") {
+    const diagnostics = providerDiagnostics(response.status, response.headers, data, local ? 'local-crawl4ai' : 'cloudflare-browser');
+    if (response.status === 429 && options.cooldown && diagnostics.category !== "daily_quota") {
       const header = response.headers.get('retry-after');
       const seconds = header ? Number(header) : NaN;
       const retryAfterMs = Number.isFinite(seconds) ? seconds * 1000 : header && Number.isFinite(Date.parse(header)) ? Date.parse(header) - Date.now() : 30000;
+      admissionLog('reader_deferred', { failureOrigin: 'upstream_response', category: diagnostics.category, retryAfterMs: Math.max(1000, retryAfterMs), cooldownScope: 'shared_browser_queue', ...('reader' in diagnostics ? { reader: diagnostics.reader } : {}) });
       await options.cooldown(Math.max(1000, retryAfterMs));
       throw new BrowserAdmissionDeferred('Browser rate limited; queued for retry');
     }
-    if (!response.ok || (!local && !data.success)) throw new ResearchProviderError(providerDiagnostics(response.status, response.headers, data).category, response.status);
+    if (!response.ok || (!local && !data.success)) throw new ResearchProviderError(diagnostics.category, response.status);
     const markdown = local ? data.markdown : data.result;
     if (local && (!data.url || !publicResearchUrl(data.url))) throw new ResearchProviderError('provider_error');
     if (typeof markdown !== 'string' || !markdown.trim()) throw new ResearchProviderError('provider_error');

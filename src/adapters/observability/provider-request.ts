@@ -3,7 +3,7 @@ const object = (value: unknown): Json => value && typeof value === "object" && !
 const numeric = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : typeof value === "string" && /^\d+(\.\d+)?$/.test(value) ? Number(value) : undefined;
 
 /** Classify provider messages in memory; never persist arbitrary error bodies or echoed prompts. */
-export function providerDiagnostics(status: number, headers: Headers, body: unknown) {
+export function providerDiagnostics(status: number, headers: Headers, body: unknown, provider?: string) {
   const data = object(body), error = object(data.error), metadata = object(error.metadata);
   const errors = Array.isArray(data.errors) ? data.errors.map(object) : [];
   const message = [error.message, metadata.raw, ...errors.map(e => e.message)].filter(v => typeof v === "string").join(" ").slice(0, 16000);
@@ -14,6 +14,21 @@ export function providerDiagnostics(status: number, headers: Headers, body: unkn
   else if (/upstream|overload|capacity|temporarily rate.limited/i.test(message)) category = "upstream_capacity";
   else if (/credit|balance|payment/i.test(message) || status === 402) category = "credits";
   else if (status === 401 || status === 403) category = "authentication_or_policy";
+  const readerReasons = ["reader_busy", "domain_backoff", "origin_rate_limit", "origin_http_error", "page_unavailable", "reader_timeout", "reader_failure"];
+  const readerReason = provider === "local-crawl4ai" && typeof data.category === "string" && readerReasons.includes(data.category) ? data.category : undefined;
+  if (readerReason) category = readerReason;
+  const reader: Record<string, number | string | boolean> = {};
+  if (provider === "local-crawl4ai") {
+    const diagnostics = object(data.reader);
+    const originStatus = numeric(data.originHttpStatus);
+    if (originStatus !== undefined && Number.isInteger(originStatus) && originStatus >= 100 && originStatus <= 599) reader.originHttpStatus = originStatus;
+    for (const key of ["activeReads", "maxReads", "availableReads", "elapsedMs", "retryAfterMs"]) {
+      const value = numeric(diagnostics[key]);
+      if (value !== undefined && value >= 0 && value <= 86400000) reader[key] = value;
+    }
+    if (typeof diagnostics.domainActive === "boolean") reader.domainActive = diagnostics.domainActive;
+    if (typeof diagnostics.domainKey === "string" && /^[a-f0-9]{12}$/.test(diagnostics.domainKey)) reader.domainKey = diagnostics.domainKey;
+  }
   const metadataHeaders = object(metadata.headers);
   const limits: Record<string, number | string> = {};
   for (const name of ["retry-after", "x-ratelimit-limit", "x-ratelimit-remaining", "x-ratelimit-reset", "ratelimit-limit", "ratelimit-remaining", "ratelimit-reset"]) {
@@ -30,7 +45,7 @@ export function providerDiagnostics(status: number, headers: Headers, body: unkn
   }
   // Only known provider names are emitted; metadata may otherwise contain arbitrary text.
   const providerName = typeof metadata.provider_name === "string" && /^(Nex AGI|NEX|Nvidia|NVIDIA|OpenRouter|Cloudflare|Chutes|DeepInfra|Together|Google AI Studio|Novita|SambaNova)$/i.test(metadata.provider_name) ? metadata.provider_name : undefined;
-  return { category, classificationBasis: category === "rate_limit_unspecified" || category === "provider_error" ? "http_status" : "provider_message_pattern", errorCodes: [error.code, ...errors.map(e => e.code)].map(numeric).filter(v => v !== undefined), limits, providerRequestIds: ids, upstreamProvider: providerName };
+  return { category, classificationBasis: readerReason ? "reader_category" : category === "rate_limit_unspecified" || category === "provider_error" ? "http_status" : "provider_message_pattern", errorCodes: [error.code, ...errors.map(e => e.code)].map(numeric).filter(v => v !== undefined), limits, providerRequestIds: ids, upstreamProvider: providerName, ...(Object.keys(reader).length ? { reader } : {}) };
 }
 
 export type RequestContext = {
@@ -65,7 +80,8 @@ export async function providerJsonRequest<T>(fetcher: typeof fetch, url: string,
     throw error;
   }
   const payload = object(data);
-  if (!response.ok || payload.error || payload.success === false) emit("request_failed", { failureOrigin: "upstream_response", httpStatus: response.status, ...providerDiagnostics(response.status, response.headers, data) });
-  else if (verbose) emit("request_completed", { httpStatus: response.status, providerRequestIds: providerDiagnostics(response.status, response.headers, {}).providerRequestIds });
+  const diagnostics = providerDiagnostics(response.status, response.headers, data, context.provider);
+  if (!response.ok || payload.error || payload.success === false) emit("request_failed", { failureOrigin: "upstream_response", httpStatus: response.status, ...diagnostics });
+  else if (verbose) emit("request_completed", { httpStatus: response.status, providerRequestIds: diagnostics.providerRequestIds, ...("reader" in diagnostics ? { reader: diagnostics.reader } : {}) });
   return { response, data };
 }

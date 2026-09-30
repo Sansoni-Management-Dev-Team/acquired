@@ -1,6 +1,8 @@
 """Bounded public reader with warm browsers and optional bearer authentication."""
 import asyncio
 import hmac
+import hashlib
+import re
 import math
 import time
 import uuid
@@ -14,16 +16,49 @@ from urllib.parse import urlsplit
 
 CONCURRENCY = max(1, min(5, int(os.environ.get("CRAWL4AI_CONCURRENCY", "1"))))
 busy = threading.BoundedSemaphore(CONCURRENCY)
+capacity_lock = threading.Lock()
+active_reads = 0
 service_secret = os.environ.get("SERVICE_SECRET", "")
 pool = None
 domain_lock = threading.Lock()
 domains = {}
+active_domains = set()
 DOMAIN_DELAY = max(1, int(os.environ.get("CRAWL4AI_DOMAIN_DELAY", "3")))
 
 
 class ReadError(Exception):
-    def __init__(self, category, status=502):
+    def __init__(self, category, status=502, origin_status=None):
         self.category, self.status = category, status
+        self.origin_status = origin_status
+
+
+def acquire_slot():
+    global active_reads
+    with capacity_lock:
+        if not busy.acquire(blocking=False):
+            return False
+        active_reads += 1
+        return True
+
+
+def release_slot():
+    global active_reads
+    with capacity_lock:
+        active_reads -= 1
+        busy.release()
+
+
+def reader_diagnostics(started, domain=None, retry_after=None):
+    with capacity_lock:
+        data = {"activeReads": active_reads, "maxReads": CONCURRENCY, "availableReads": max(0, CONCURRENCY - active_reads)}
+    data["elapsedMs"] = round((time.monotonic() - started) * 1000)
+    if retry_after is not None:
+        data["retryAfterMs"] = retry_after * 1000
+    if domain:
+        data["domainKey"] = hashlib.sha256(domain.encode()).hexdigest()[:12]
+        with domain_lock:
+            data["domainActive"] = domain in active_domains
+    return data
 
 
 def claim_domain(host):
@@ -35,12 +70,14 @@ def claim_domain(host):
         if host in domains:
             return max(1, math.ceil(domains[host] - now))
         domains[host] = now + 45
+        active_domains.add(host)
         return 0
 
 
 def release_domain(host, cooldown=DOMAIN_DELAY):
     with domain_lock:
         domains[host] = time.monotonic() + cooldown
+        active_domains.discard(host)
 
 
 reader_loop = asyncio.new_event_loop()
@@ -99,7 +136,7 @@ async def read_page(url):
         if status == 429:
             raise ReadError("origin_rate_limit", 429)
         if status and status >= 400:
-            raise ReadError("origin_http_error")
+            raise ReadError("origin_http_error", origin_status=status)
         if not result.success or not result.markdown:
             raise ReadError("page_unavailable")
         final_url = getattr(result, "redirected_url", None) or result.url
@@ -128,6 +165,15 @@ class Handler(BaseHTTPRequestHandler):
         pass  # Do not log URLs, page contents or credentials.
 
     def send_json(self, status, data, retry_after=None):
+        if hasattr(self, "crawl_started"):
+            diagnostics = reader_diagnostics(self.crawl_started, getattr(self, "crawl_domain", None), retry_after)
+            data = {**data, "reader": diagnostics}
+            correlation = {}
+            for header, key in [("x-request-id", "requestId"), ("x-research-job-id", "jobId")]:
+                value = self.headers.get(header, "")
+                if re.fullmatch(r"[a-zA-Z0-9_-]{8,100}", value):
+                    correlation[key] = value
+            print("research-reader " + json.dumps({"event": "response", "httpStatus": status, "category": data.get("category", "succeeded" if status == 200 else "invalid_request"), **({"originHttpStatus": data["originHttpStatus"]} if data.get("originHttpStatus") else {}), **correlation, **diagnostics}), flush=True)
         payload = json.dumps(data).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -145,7 +191,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(404, {"error": "Not found"})
         if service_secret and not hmac.compare_digest(self.headers.get("Authorization", ""), f"Bearer {service_secret}"):
             return self.send_json(401, {"error": "Unauthorized"})
-        if not busy.acquire(blocking=False):
+        self.crawl_started = time.monotonic()
+        if not acquire_slot():
             return self.send_json(429, {"error": "Reader busy", "category": "reader_busy"}, 3)
         future = None
         host = None
@@ -160,6 +207,7 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(url, str) or not public_url(url):
                 return self.send_json(400, {"error": "Unsupported public URL"})
             domain = urlsplit(url).hostname.lower().removeprefix("www.")
+            self.crawl_domain = domain
             delay = claim_domain(domain)
             if delay:
                 return self.send_json(429, {"error": "Domain cooling down", "category": "domain_backoff"}, delay)
@@ -172,15 +220,16 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(200, future.result(timeout=40))
         except ReadError as error:
             cooldown = 30 if error.status == 429 else DOMAIN_DELAY
-            self.send_json(error.status, {"error": "Page read failed", "category": error.category}, cooldown if error.status == 429 else None)
-        except Exception:
+            self.send_json(error.status, {"error": "Page read failed", "category": error.category, **({"originHttpStatus": error.origin_status} if error.origin_status else {})}, cooldown if error.status == 429 else None)
+        except Exception as error:
             if future is not None:
                 future.cancel()
-            self.send_json(502, {"error": "Page read failed"})
+            category = "reader_timeout" if isinstance(error, TimeoutError) else "reader_failure"
+            self.send_json(502, {"error": "Page read failed", "category": category})
         finally:
             if host:
                 release_domain(host, cooldown)
-            busy.release()
+            release_slot()
 
 
 if __name__ == "__main__":

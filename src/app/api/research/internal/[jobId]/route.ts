@@ -327,9 +327,9 @@ export async function POST(
     const claims = sql`COALESCE(${researchJobs.config}->'discoveryClaims', '{}'::jsonb)`;
     const attempted = sql`COALESCE(${researchJobs.config}->'discoveryAttempts', '[]'::jsonb)`;
     const claimed = await measureResearchSegment(jobId, job.organizationId, `discovery-claim-${decision.queryId}`, "coordination", async () => requireDb().update(researchJobs).set({
-      config: sql`jsonb_set(${researchJobs.config}, '{discoveryClaims}', ${claims} || jsonb_build_object(${decision.queryId}, ${JSON.stringify({ id: lease, until: started + 65000 })}::jsonb))`, updatedAt: new Date(),
+      config: sql`jsonb_set(${researchJobs.config}, '{discoveryClaims}', ${claims} || jsonb_build_object(${decision.queryId}::text, ${JSON.stringify({ id: lease, until: started + 65000 })}::jsonb))`, updatedAt: new Date(),
     }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates),
-      sql`COALESCE((${claims}->${decision.queryId}->>'until')::bigint, 0) < ${started}`,
+      sql`COALESCE((${claims}->${decision.queryId}::text->>'until')::bigint, 0) < ${started}`,
       sql`COALESCE((${researchJobs.config}->'discoveryLease'->>'until')::bigint, 0) < ${started}`,
       sql`NOT EXISTS (SELECT 1 FROM jsonb_array_elements(${attempted}) a WHERE a->>'queryId' = ${decision.queryId})`,
       sql`jsonb_array_length(${attempted}) + (SELECT count(*) FROM jsonb_each(${claims}) c WHERE (c.value->>'until')::bigint > ${started}) < ${discoveryLimit(config)}`,
@@ -358,12 +358,12 @@ export async function POST(
       ? sql`jsonb_set(${JSON.stringify(attempt)}::jsonb, '{newDomains}', to_jsonb((SELECT count(DISTINCT d.value) FROM jsonb_array_elements_text(${JSON.stringify([...new Set(safeSeeds.map(researchDomain))])}::jsonb) d WHERE d.value NOT IN (SELECT split_part(s.value, '/', 3) FROM jsonb_array_elements_text(COALESCE(${researchJobs.seeds}, '[]'::jsonb)) s))))`
       : sql`${JSON.stringify(attempt || null)}::jsonb`;
     const appended = sql`${attempted} || ${attempt ? sql`jsonb_build_array(${attemptJson})` : sql`'[]'::jsonb`}`;
-    const nextConfig = sql`jsonb_set(jsonb_set(jsonb_set(${researchJobs.config}, '{discoveryClaims}', ${claims} - ${decision.queryId}), '{discoveryAttempts}', ${appended}), '{discoveryCursor}', to_jsonb(jsonb_array_length(${appended})))`;
+    const nextConfig = sql`jsonb_set(jsonb_set(jsonb_set(${researchJobs.config}, '{discoveryClaims}', ${claims} - ${decision.queryId}::text), '{discoveryAttempts}', ${appended}), '{discoveryCursor}', to_jsonb(jsonb_array_length(${appended})))`;
     const updated = await measureResearchSegment(jobId, job.organizationId, `discovery-save-${decision.queryId}`, "persistence", async () => requireDb().update(researchJobs).set({
       seeds: sql`(SELECT COALESCE(jsonb_agg(u.url), '[]'::jsonb) FROM (SELECT DISTINCT value AS url FROM jsonb_array_elements(COALESCE(${researchJobs.seeds}, '[]'::jsonb) || ${JSON.stringify(safeSeeds)}::jsonb) LIMIT 1000) u)`,
       config: sql`jsonb_set(${nextConfig}, '{discoveryPending}', to_jsonb(jsonb_array_length(${appended}) < ${discoveryLimit(config)}))`,
       updatedAt: new Date(), message: deferred ? "Waiting for search capacity" : "Search batch result saved; researching candidate businesses",
-    }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates), sql`${researchJobs.config}->'discoveryClaims'->${decision.queryId}->>'id' = ${lease}`, ...(attempt ? [sql`jsonb_array_length(${attempted}) < ${discoveryLimit(config)}`] : []))).returning({ id: researchJobs.id }));
+    }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates), sql`${researchJobs.config}->'discoveryClaims'->${decision.queryId}::text->>'id' = ${lease}`, ...(attempt ? [sql`jsonb_array_length(${attempted}) < ${discoveryLimit(config)}`] : []))).returning({ id: researchJobs.id }));
     console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), jobId, event: "discovery_query_completed", queryId: decision.queryId, durationMs: Date.now() - started, status: deferred ? "deferred" : attempt?.status, resultCount: attempt?.resultCount, newDomains: attempt?.newDomains, committed: Boolean(updated.length) }));
     if (updated.length && config.parallelDiscovery) await measureResearchSegment(jobId, job.organizationId, `discovery-dispatch-${decision.queryId}`, "coordination", () => dispatchDiscoveryCandidates(job.organizationId, jobId));
     const latest = await repo.get(jobId);

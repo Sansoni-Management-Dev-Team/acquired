@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 import importlib.util
 import pathlib
 import unittest
+import io
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("reader", pathlib.Path(__file__).with_name("server.py"))
@@ -13,6 +14,47 @@ spec.loader.exec_module(reader)
 
 
 class ReaderPolicyTests(unittest.TestCase):
+    def test_http_diagnostics_are_correlated_without_logging_urls_or_credentials(self):
+        handler = reader.Handler.__new__(reader.Handler)
+        handler.headers = {"x-request-id": "request-1234", "x-research-job-id": "job-12345678", "Authorization": "private-secret"}
+        handler.crawl_started = reader.time.monotonic()
+        handler.crawl_domain = "example.com"
+        handler.wfile = io.BytesIO()
+        handler.send_response = lambda _: None
+        handler.send_header = lambda *_: None
+        handler.end_headers = lambda: None
+        with patch("builtins.print") as log:
+            handler.send_json(429, {"error": "private content", "category": "domain_backoff"}, 3)
+        body = reader.json.loads(handler.wfile.getvalue())
+        self.assertEqual(body["reader"]["retryAfterMs"], 3000)
+        event = reader.json.loads(log.call_args.args[0].split(" ", 1)[1])
+        self.assertEqual(event["requestId"], "request-1234")
+        self.assertEqual(event["jobId"], "job-12345678")
+        self.assertNotIn("example.com", str(event))
+        self.assertNotIn("private", str(event))
+
+    def test_capacity_diagnostics_and_release(self):
+        with patch.object(reader, "busy", reader.threading.BoundedSemaphore(2)), patch.object(reader, "CONCURRENCY", 2), patch.object(reader, "active_reads", 0):
+            self.assertTrue(reader.acquire_slot())
+            self.assertTrue(reader.acquire_slot())
+            self.assertFalse(reader.acquire_slot())
+            self.assertEqual(reader.reader_diagnostics(reader.time.monotonic())["availableReads"], 0)
+            reader.release_slot()
+            self.assertEqual(reader.reader_diagnostics(reader.time.monotonic())["activeReads"], 1)
+            reader.release_slot()
+
+    def test_domain_diagnostics_distinguish_active_read_from_cooldown(self):
+        reader.domains.clear()
+        reader.active_domains.clear()
+        started = reader.time.monotonic()
+        reader.claim_domain("example.com")
+        diagnostics = reader.reader_diagnostics(started, "example.com", 3)
+        self.assertTrue(diagnostics["domainActive"])
+        self.assertEqual(diagnostics["retryAfterMs"], 3000)
+        self.assertNotIn("example.com", str(diagnostics))
+        reader.release_domain("example.com")
+        self.assertFalse(reader.reader_diagnostics(started, "example.com")["domainActive"])
+
     def test_rejects_private_destinations_and_mixed_dns(self):
         for addresses in [["127.0.0.1"], ["169.254.169.254"], ["::1"], ["8.8.8.8", "10.0.0.1"]]:
             with patch.object(reader.socket, "getaddrinfo", return_value=[(None, None, None, None, (ip, 443)) for ip in addresses]):

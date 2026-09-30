@@ -1,4 +1,4 @@
-const categories = ['browser_admission', 'daily_quota', 'request_rate', 'concurrency', 'upstream_capacity', 'credits', 'authentication_or_policy', 'rate_limit_unspecified', 'provider_error', 'timeout', 'transport', 'unsupported_search', 'invalid_search_results'] as const;
+const categories = ['reader_busy', 'domain_backoff', 'origin_rate_limit', 'origin_http_error', 'page_unavailable', 'reader_timeout', 'reader_failure', 'browser_admission', 'daily_quota', 'request_rate', 'concurrency', 'upstream_capacity', 'credits', 'authentication_or_policy', 'rate_limit_unspecified', 'provider_error', 'timeout', 'transport', 'unsupported_search', 'invalid_search_results'] as const;
 export class ResearchProviderError extends Error {
   readonly category: string;
   constructor(category: string, public readonly status = 502) {

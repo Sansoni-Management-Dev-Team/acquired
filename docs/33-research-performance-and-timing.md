@@ -126,3 +126,11 @@ must be compared using `research-ai` usage logs; missing cost is not zero cost.
 
 No 10× production speedup has been established by unit tests or simulated
 workflow tests. Baseline and post-change live captures are still needed.
+
+## Local reader diagnostics
+
+Crawl4AI emits `research-reader` responses and includes a bounded `reader` snapshot in provider logs: active/max/available reads, request duration, retry delay, hashed website key, whether that website has an active read, and the original website HTTP status when known. Slot counts include the current request until it releases its slot. Request and job IDs correlate the reader response with worker logs; URLs, page content, credentials and arbitrary exception text are excluded.
+
+Reasons distinguish `reader_busy` (all reader slots occupied), `domain_backoff` (the same website is active or cooling down), `origin_rate_limit` (website returned 429), `origin_http_error`, `page_unavailable`, `reader_timeout`, and `reader_failure`. The worker's `reader_deferred` event records the retry delay and current cooldown scope (`shared_browser_queue`); a website-specific rejection currently pauses that shared queue too. This is a scheduling improvement opportunity, not a changed retry policy.
+
+Run `node scripts/research-log-summary.mjs --watch` for a summary updated every five seconds, or `--json` for export. It reports counts, mean and p95 request durations by provider/reason/status, deduplicating identical timestamped terminal events while preserving retry attempts. Summed `workMs` includes parallel work and is not elapsed wall time. Existing logs retain their original generic categories; only new responses have the detailed reason and snapshot.
