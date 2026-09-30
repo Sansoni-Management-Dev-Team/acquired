@@ -72,13 +72,13 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   let release: (() => void) | undefined;
   try {
     if (action.action === "brief-description") {
-      if (action.description === mandate.brief.naturalLanguage) return Response.json({ ok: true });
+      if (action.description === mandate.brief.naturalLanguage) return Response.json({ ok: true, brief: mandate.brief });
       let generated;
       try { generated = await generateMandate(action.description); }
       catch { return Response.json({ error: "Could not update the search from your description. Please try again." }, { status: 503 }); }
       const brief = { ...generated, naturalLanguage: action.description, researchSources: mandate.brief.researchSources, disclosureApproved: mandate.brief.disclosureApproved };
       await repo.saveBrief(brief, session.user.id, id);
-      return Response.json({ ok: true });
+      return Response.json({ ok: true, brief });
     }
     if (action.action === "brief") await repo.saveBrief(action.brief, session.user.id, id);
     if (action.action === "assessment") {

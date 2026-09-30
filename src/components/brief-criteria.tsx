@@ -46,7 +46,7 @@ function CriteriaDrawer({ initial, onClose, onApply }: { initial: Criterion[]; o
     element.showModal();
     return () => { element.close(); document.body.style.overflow = overflow; };
   }, []);
-  const update = (key: Criterion["key"], patch: Partial<Criterion>) => setDraft(current => current.map(c => c.key === key ? { ...c, ...patch } : c));
+  const update = (key: Criterion["key"], patch: Partial<Criterion>) => setDraft(current => current.map(c => c.key === key ? { ...c, ...(patch.value !== undefined || patch.state !== undefined || patch.importance !== undefined ? { origin: "supplied" as const } : {}), ...(patch.value !== undefined ? { sourceQuote: undefined } : {}), ...patch } : c));
   return createPortal(<dialog ref={dialog} onPointerDown={event => dialogBackdrop(backdropPressed, onClose).onPointerDown(event)} onPointerCancel={() => { backdropPressed.current = false; }} onClick={event => dialogBackdrop(backdropPressed, onClose).onClick(event)} aria-labelledby="criteria-drawer-title" onCancel={onClose} className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-dvh w-full max-w-2xl overflow-y-auto border-l border-[var(--border)] bg-[var(--panel)] p-0 text-[var(--foreground)] backdrop:bg-black/70">
     <header className="sticky top-0 z-10 border-b border-[var(--border)] bg-[var(--panel)] p-5">
       <div className="flex items-center justify-between gap-4"><h2 id="criteria-drawer-title" className="text-xl font-semibold">Edit criteria</h2><button type="button" className={button} onClick={onClose}>Cancel</button></div>
@@ -54,6 +54,7 @@ function CriteriaDrawer({ initial, onClose, onApply }: { initial: Criterion[]; o
     </header>
     <div className="space-y-5 p-5">{draft.map(c => <fieldset key={c.key} className="min-w-0 border-b border-[var(--border)] pb-5">
       <legend className="mb-2 text-sm font-medium">{labelFor(c)}</legend>
+      {c.sourceQuote && <p className="mb-3 text-xs text-[var(--muted)]">From your brief: “{c.sourceQuote}”</p>}
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="text-xs text-[var(--muted)]">Answer<select aria-label={`${labelFor(c)} state`} className={field} value={c.state} onChange={e => update(c.key, { state: e.target.value as Criterion["state"], confirmed: false })}><option value="specified">Specified</option><option value="unknown">Unknown</option><option value="unrestricted">No restriction</option></select></label>
         <label className="text-xs text-[var(--muted)]">Importance<select aria-label={`${labelFor(c)} importance`} className={field} value={c.importance} onChange={e => update(c.key, { importance: e.target.value as Criterion["importance"], confirmed: false })}><option value="preference">Preference</option><option value="requirement">Requirement</option></select></label>

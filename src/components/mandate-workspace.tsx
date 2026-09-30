@@ -85,7 +85,7 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
   const allMatchingSelected = matchingIds.length > 0 && matchingIds.every(targetId => selected.includes(targetId));
   if (enrichingTargets) return <><MandateNavigation mandates={mandates} selected={id} tab={tab} /><div className="p-5 sm:p-8"><ContactEnrichmentProgress mandateId={id} targetIds={enrichingTargets} onBack={() => { setEnrichingTargets(null); void refresh(); }} /></div></>;
   return <><MandateNavigation mandates={mandates.map(m => m.id === id ? data.mandate : m)} selected={id} tab={tab} /><div className="space-y-5 p-5 sm:p-8">{tab !== "brief" && <header><p className="text-xs uppercase tracking-widest text-[var(--accent)]">Acquisition workspace</p><h1 className="mt-2 text-3xl font-semibold">{data.mandate.brief.name}</h1></header>}
-    {tab === "brief" && <MandateBriefForm mandateId={id} brief={data.mandate.brief} />}
+    {tab === "brief" && <MandateBriefForm mandateId={id} brief={data.mandate.brief} onSaved={brief => setData(current => ({ ...current, mandate: { ...current.mandate, brief } }))} />}
     {tab === "targets" && <>
       <ResearchPanel mandateId={id} brief={data.mandate.brief} showStartAction={false} hideProgress onResultsChanged={onResearchResults} />
       <section className="space-y-3">
@@ -111,7 +111,7 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
         return <TargetReviewRow key={m.target.id} companyName={m.target.companyName} onReview={() => openReview(m.target.id)}>
           <td className="p-3"><input aria-label={`Select ${m.target.companyName}`} type="checkbox" checked={selected.includes(m.target.id)} onChange={e => setSelected(current => e.target.checked ? [...new Set([...current, m.target.id])] : current.filter(targetId => targetId !== m.target.id))} /></td>
           <td className="w-80 p-3"><button className="min-h-12 text-left font-semibold underline decoration-[var(--border)] underline-offset-4" onClick={() => openReview(m.target.id)}>{m.target.companyName}</button></td>
-          <MandateFitCells brief={data.mandate.brief} member={m} />
+          <MandateFitCells brief={data.mandate.brief} member={m} mandateId={id} />
         </TargetReviewRow>; })}
         {!filtered.length && <tr><td colSpan={4} className="p-8 text-[var(--muted)]">{data.memberships.length || research.jobs.length ? "No companies match these filters. New companies will appear as they are found." : <>No companies yet. <Link className="underline" href={mandateTabHref(id, "brief")}>Find businesses or import sourced records in Brief</Link> to start your review.</>}</td></tr>}
       </tbody></table></div>

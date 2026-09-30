@@ -8,7 +8,7 @@ const generatedSchema = z.object({
   naturalLanguage: z.string().min(1).max(10000),
   investmentThesis: z.string().min(1).max(1500),
   outreachPositioning: z.string().min(1).max(1500),
-  criteria: z.object(Object.fromEntries(criterionDefinitions.map(([key]) => [key, z.string().min(1).max(1500)]))),
+  criteria: z.object(Object.fromEntries(criterionDefinitions.map(([key]) => [key, z.object({ value: z.string().min(1).max(1500), importance: z.enum(["requirement", "preference"]), quote: z.string().max(1500) })]))),
 });
 
 export async function generateMandate(description?: string) {
@@ -19,7 +19,7 @@ export async function generateMandate(description?: string) {
     sequentialFreeFallback: true,
   });
   const messages = [
-    { role: "system", content: `${description ? "Create an Australian acquisition mandate from the user's description. Generate a concise, descriptive mandate name and a coherent first-draft brief. Do not invent buyer credentials, named target companies, financial ranges, or other preferences the user did not provide. Return Unknown for each criterion not supplied or clearly implied by the description. If geography is absent, use National so Australian company search can begin." : "Create a fresh, fictional acquisition mandate for testing an Australian business acquisition app. Choose a specific small or medium business sector and a coherent investment strategy. Vary sector, geography and financial ranges each time. Do not name real targets or claim actual buyer credentials. Begin the name with Test mandate."} Use Australian English and AUD. Return the requested JSON with a readable acquisition brief, investment thesis, exploratory outreach positioning and every criterion. The prose and criteria must agree. Separate alternative subsectors with semicolons. Geography must use National or comma-separated Australian state codes. When revenue, revenueCeiling, ebitda or headcount is supplied, use numeric values or ranges (e.g. 5000000–20000000); ensure ascending ranges, revenueCeiling >= revenue maximum and EBITDA below revenue. Criteria: ${criterionDefinitions.map(([key, label]) => `${key}: ${label}`).join("; ")}.` },
+    { role: "system", content: `${description ? "Create an Australian acquisition mandate from the user's description. Generate a concise, descriptive mandate name and a coherent first-draft brief. Do not invent buyer credentials, named target companies, financial ranges, or other preferences the user did not provide. Return Unknown for each criterion not explicitly supplied by the description. Never add conditions, financial multiples, time periods, facilities, credentials or buyer portfolio claims. Each criterion must include value, importance and quote. quote must be a contiguous verbatim excerpt from the buyer description supporting that criterion, or an empty string for Unknown. Preserve must/require/no conditions as requirements and prefer/target conditions as preferences. If geography is absent, use National so Australian company search can begin." : "Create a fresh, fictional acquisition mandate for testing an Australian business acquisition app. Choose a specific small or medium business sector and a coherent investment strategy. Vary sector, geography and financial ranges each time. Do not name real targets or claim actual buyer credentials. Begin the name with Test mandate."} Use Australian English and AUD. Each criterion is an object {value, importance, quote}; for fictional briefs use an empty quote. Return the requested JSON with a readable acquisition brief, investment thesis, exploratory outreach positioning and every criterion. The prose and criteria must agree. Separate alternative subsectors with semicolons. Geography must use National or comma-separated Australian state codes. When revenue, revenueCeiling, ebitda or headcount is supplied, use numeric values or ranges (e.g. 5000000–20000000); ensure ascending ranges, revenueCeiling >= revenue maximum and EBITDA below revenue. Criteria: ${criterionDefinitions.map(([key, label]) => `${key}: ${label}`).join("; ")}.` },
     { role: "user", content: description ? `Create a mandate from this buyer description: ${description}` : `Generate a new acquisition brief. Variation seed: ${crypto.randomUUID()}` },
   ];
   const json_schema = z.toJSONSchema(generatedSchema);
@@ -43,10 +43,13 @@ export async function generateMandate(description?: string) {
     ...generated,
     naturalLanguage: description || generated.naturalLanguage,
     criteria: initial.criteria.map(c => {
-      const value = generated.criteria[c.key].trim();
-      const unknown = Boolean(description) && /^(unknown|unspecified|not specified|not provided|tbd|n\/a)$/i.test(value);
+      const extracted = generated.criteria[c.key];
+      const value = extracted.value.trim();
+      const quote = extracted.quote.trim();
+      const grounded = Boolean(description && quote && description.includes(quote));
+      const unknown = Boolean(description) && (!grounded || /^(unknown|unspecified|not specified|not provided|tbd|n\/a)$/i.test(value));
       if (unknown && c.key === "geography") return { ...c, value: "National", state: "unrestricted" as const, origin: "assumed" as const, confirmed: false };
-      return { ...c, value: unknown ? "" : value, state: unknown ? "unknown" as const : "specified" as const, origin: "assumed" as const, confirmed: false };
+      return { ...c, value: unknown ? "" : value, state: unknown ? "unknown" as const : "specified" as const, origin: grounded ? "supplied" as const : "assumed" as const, importance: extracted.importance, sourceQuote: grounded ? quote : undefined, confirmed: false };
     }),
   });
 }

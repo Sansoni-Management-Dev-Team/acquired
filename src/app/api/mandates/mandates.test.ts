@@ -1,11 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyBrief, initialAssessment } from "@/domain/acquisition";
-const mocks = vi.hoisted(() => ({ session: vi.fn(), getMandate: vi.fn(), saveAssessment: vi.fn(), saveBrief: vi.fn(), memberships: vi.fn(), provider: vi.fn(), org: vi.fn() }));
+const mocks = vi.hoisted(() => ({ session: vi.fn(), getMandate: vi.fn(), saveAssessment: vi.fn(), saveBrief: vi.fn(), memberships: vi.fn(), provider: vi.fn(), org: vi.fn(), generateMandate: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: mocks.session } } }));
 vi.mock("@/db/client", () => ({ requireDb: vi.fn(() => { throw new Error("Unexpected database access"); }) }));
 vi.mock("@/db/acquisition-repository", () => ({ AcquisitionRepository: class { constructor(org: string) { mocks.org(org); } getMandate = mocks.getMandate; saveAssessment = mocks.saveAssessment; saveBrief = mocks.saveBrief; memberships = mocks.memberships; } }));
 vi.mock("@/db/repositories", () => ({ OrganizationRepository: class {} }));
 vi.mock("@/adapters/provider-mode", () => ({ createTargetDataProvider: mocks.provider }));
+vi.mock("@/adapters/mandate-generation", () => ({ generateMandate: mocks.generateMandate }));
 import { POST as create } from "./route";
 import { POST as update } from "./[id]/route";
 const id = "00000000-0000-4000-8000-000000000001";
@@ -39,4 +40,22 @@ describe("mandate API boundaries", () => {
     expect(mocks.saveAssessment).toHaveBeenCalledWith(id,targetId,expect.objectContaining({ stage: "shortlisted" }),7,"user-a");
     expect(result.status).toBe(200);
   });
+});
+
+
+it("returns regenerated criteria so the editor cannot save stale values after a description update", async () => {
+  const brief = { ...emptyBrief(), naturalLanguage: "Acquire an industrial business in Victoria." };
+  mocks.generateMandate.mockResolvedValue(brief);
+  const response = await update(request({ action: "brief-description", description: brief.naturalLanguage }), context);
+  expect(response.status).toBe(200);
+  expect((await response.json()).brief).toEqual(brief);
+  expect(mocks.saveBrief).toHaveBeenCalledWith(brief, "user-a", id);
+});
+it("returns the current brief without regenerating an unchanged description", async () => {
+  const brief = { ...emptyBrief(), naturalLanguage: "Acquire an industrial business in Victoria." };
+  mocks.getMandate.mockResolvedValue({ id, brief });
+  const response = await update(request({ action: "brief-description", description: brief.naturalLanguage }), context);
+  expect((await response.json()).brief).toEqual(brief);
+  expect(mocks.generateMandate).not.toHaveBeenCalled();
+  expect(mocks.saveBrief).not.toHaveBeenCalled();
 });

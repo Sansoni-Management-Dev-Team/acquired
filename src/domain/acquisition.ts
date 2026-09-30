@@ -32,6 +32,7 @@ export const criterionSchema = z.object({
   origin: z.enum(["supplied", "inferred", "assumed"]),
   state: z.enum(["specified", "unknown", "unrestricted"]),
   confirmed: z.boolean(),
+  sourceQuote: z.string().max(1500).optional(),
 });
 export const briefSchema = z.object({
   name: z.string().trim().min(1).max(100),
