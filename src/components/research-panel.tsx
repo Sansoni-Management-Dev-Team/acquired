@@ -54,11 +54,13 @@ export function ResearchPanel({
   onResultsChanged,
   showStartAction = true,
   onCandidatesFound,
+  hideProgress = false,
 }: {
   mandateId: string;
-  brief: AcquisitionBrief;
+  brief?: AcquisitionBrief;
   onResultsChanged: (data: ResearchPanelData, changed: boolean) => void;
   showStartAction?: boolean;
+  hideProgress?: boolean;
   onCandidatesFound?: () => void;
 }) {
   const [data, setData] = useState<Data>({
@@ -150,6 +152,7 @@ export function ResearchPanel({
     const seeds = (job.config.runtime?.attempts || []).filter(a => a.status === "failed" || /extraction failed/i.test(a.reason)).map(a => a.finalUrl || a.url).slice(0, 10);
     void act({ ...job.config, requestId: crypto.randomUUID(), seeds, approved: true, discover: false, budget });
   }
+  if (hideProgress) return null;
   if (!showStartAction && !loading && data.enabled && !currentJob) return null;
   return (
     <section className="mx-auto my-[8vh] w-full max-w-[620px] space-y-5">
@@ -161,7 +164,7 @@ export function ResearchPanel({
         <>
           {!active && showStartAction && (
             <div className="space-y-2">
-              <button className={button} disabled={busy || !brief.naturalLanguage.trim() && !brief.criteria.find(c => c.key === "subsectors")?.value.trim()} onClick={() => void act({ requestId: crypto.randomUUID(), fromBrief: true }, undefined, Boolean(onCandidatesFound))}>
+              <button className={button} disabled={busy || !brief?.naturalLanguage.trim() && !brief?.criteria.find(c => c.key === "subsectors")?.value.trim()} onClick={() => void act({ requestId: crypto.randomUUID(), fromBrief: true }, undefined, Boolean(onCandidatesFound))}>
                 Find & research businesses
               </button>
               <p className="text-xs text-[var(--muted)]">AI uses the saved brief to plan searches. Research providers receive search terms, source URLs and public page content. Provider charges may apply.</p>

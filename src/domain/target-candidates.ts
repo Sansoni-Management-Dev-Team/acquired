@@ -3,7 +3,7 @@ import { publicResearchUrl, researchDomain, terminalResearchStates, type Researc
 
 type CandidateJob = { id: string; status: string; seeds: string[]; config: ResearchConfig };
 
-export function companyResearchFinished(target: { id: string; domain?: string }, jobs: CandidateJob[], findings: SavedResearchFinding[]) {
+export function companyResearchJobs(target: { id: string; domain?: string }, jobs: CandidateJob[], findings: SavedResearchFinding[]) {
   const domain = target.domain?.replace(/^www\./, "").toLowerCase();
   const findingJobs = new Set(findings.filter(finding => finding.targetId === target.id).map(finding => finding.jobId));
   const related = jobs.filter(job =>
@@ -17,6 +17,11 @@ export function companyResearchFinished(target: { id: string; domain?: string },
       })
     )),
   );
+  return related;
+}
+
+export function companyResearchFinished(target: { id: string; domain?: string }, jobs: CandidateJob[], findings: SavedResearchFinding[]) {
+  const related = companyResearchJobs(target, jobs, findings);
   return related.some(job => job.status === "complete" || job.status === "partial")
     && related.every(job => terminalResearchStates.includes(job.status));
 }
@@ -94,4 +99,23 @@ export function candidateWebsites(jobs: CandidateJob[], findings: SavedResearchF
 
 export function toggleMatchingTargets(selected: string[], matching: string[], checked: boolean) {
   return checked ? [...new Set([...selected, ...matching])] : selected.filter(id => !matching.includes(id));
+}
+
+export function companyWorkStatus(target: { id: string; domain?: string }, jobs: CandidateJob[], findings: SavedResearchFinding[], pending: { targetId?: string; purpose?: string }[] = []) {
+  const related = companyResearchJobs(target, jobs, findings);
+  const active = related.filter(job => !terminalResearchStates.includes(job.status));
+  if (active.length) return [...new Set(active.map(job => {
+    const task = job.config.purpose === "people" ? "decision-makers" : job.config.purpose === "firmographics" ? "company details" : "company identity";
+    if (job.status === "queued") return `Queued: ${task}`;
+    if (job.status === "discovering") return `Finding sources: ${task}`;
+    if (job.status === "extracting") return `Extracting ${task}`;
+    if (["reading", "crawling"].includes(job.status)) return `Reading sources: ${task}`;
+    return `Researching ${task}`;
+  }))].join(" · ");
+  if (pending.some(task => task.targetId === target.id)) return "Waiting for deeper research";
+  if (!related.length) return "Awaiting research";
+  if (related.some(job => job.status === "failed")) return "Research needs retry";
+  if (related.some(job => job.status === "cancelled")) return "Research stopped";
+  if (related.some(job => job.status === "partial")) return "Research finished · Needs more evidence";
+  return "Research complete";
 }

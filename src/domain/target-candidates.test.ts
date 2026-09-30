@@ -80,3 +80,13 @@ it("shows companies with more researched data before pending candidates", () => 
   expect(rows.map(row => row.kind === "candidate" ? row.candidate.domain : row.membership.target.id))
     .toEqual(["rich", "some-data.test", "pending.test", "empty"]);
 });
+
+it("shows concurrent company tasks and pending follow-ups in the company status", async () => {
+  const { companyWorkStatus } = await import("./target-candidates");
+  const target = { id: "alpha-id", domain: "alpha.com.au" };
+  const identity = job("identity", target.domain, "reading", target.id);
+  const details = { ...job("details", "records.com.au", "extracting"), config: { ...identity.config, targetId: target.id, companyDomain: undefined, newBusinessIds: [], purpose: "firmographics" as const } };
+  expect(companyWorkStatus(target, [identity, details], [])).toBe("Reading sources: company identity · Extracting company details");
+  expect(companyWorkStatus(target, [{ ...identity, status: "complete" }], [], [{ targetId: target.id }])).toBe("Waiting for deeper research");
+  expect(companyWorkStatus(target, [{ ...identity, status: "complete" }], [])).toBe("Research complete");
+});

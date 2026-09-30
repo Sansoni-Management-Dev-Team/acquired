@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { CompanyDiscoveryLoading } from "./company-discovery-loading";
+import { CompanySearchProgress } from "./company-search-progress";
 import type { AcquisitionBrief } from "@/domain/acquisition";
 
 async function postJson(url: string, body: unknown, timeoutMs: number) {
@@ -11,12 +12,13 @@ async function postJson(url: string, body: unknown, timeoutMs: number) {
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs),
   });
-  const result = await response.json() as { error?: string };
+  const result = await response.json() as { error?: string; jobId?: string };
   if (!response.ok && !(response.status === 409 && result.error?.includes("already running"))) throw new Error(result.error || "Could not start company research.");
+  return result;
 }
 
 export function MandateBriefForm({ mandateId, brief }: { mandateId: string; brief: AcquisitionBrief }) {
-  const router = useRouter();
+  const [searchRun, setSearchRun] = useState<{ jobId?: string } | null>(null);
   const [description, setDescription] = useState(brief.naturalLanguage);
   const [savedDescription, setSavedDescription] = useState(brief.naturalLanguage);
   const [busy, setBusy] = useState(false);
@@ -33,9 +35,8 @@ export function MandateBriefForm({ mandateId, brief }: { mandateId: string; brie
         setSavedDescription(description.trim());
       }
       setProgress("Starting company research…");
-      await postJson(`/api/mandates/${mandateId}/research`, { requestId: crypto.randomUUID(), fromBrief: true }, 30000);
-      router.push(`/mandates/${mandateId}?tab=targets`);
-      router.refresh();
+      const result = await postJson(`/api/mandates/${mandateId}/research`, { requestId: crypto.randomUUID(), fromBrief: true }, 30000);
+      setSearchRun({ jobId: result.jobId });
     } catch (cause) {
       setError(cause instanceof Error && cause.name === "TimeoutError" ? "This is taking longer than expected. Please try again." : cause instanceof Error ? cause.message : "Could not start company research.");
     } finally {
@@ -43,6 +44,9 @@ export function MandateBriefForm({ mandateId, brief }: { mandateId: string; brie
       setProgress("");
     }
   }
+
+  if (searchRun) return <CompanyDiscoveryLoading mandateId={mandateId} startedJobId={searchRun.jobId} />;
+  if (busy) return <div className="mx-auto my-[8vh] max-w-[620px]"><CompanySearchProgress detail={progress || undefined} /></div>;
 
   return <form onSubmit={event => { event.preventDefault(); void findCompanies(); }} className="mx-auto max-w-4xl space-y-5 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5 sm:p-8">
     <label htmlFor="acquisition-description" className="block text-sm font-semibold">Describe the acquisition brief</label>

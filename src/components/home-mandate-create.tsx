@@ -1,17 +1,17 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowRight, Clock3 } from "lucide-react";
 import type { AcquisitionBrief, MandateView } from "@/domain/acquisition";
+import { CompanyDiscoveryLoading } from "./company-discovery-loading";
 import { CompanySearchProgress } from "./company-search-progress";
 import { nextTestMandate } from "@/domain/test-mandates";
 
 export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
-  const router = useRouter();
   const [description, setDescription] = useState("");
   const [createdId, setCreatedId] = useState<string | null>(null);
+  const [searchRun, setSearchRun] = useState<{ mandateId: string; jobId?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState("");
@@ -52,10 +52,9 @@ export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId: crypto.randomUUID(), fromBrief: true }),
         signal: AbortSignal.timeout(30000),
       });
-      const researchResult = await research.json() as { error?: string };
+      const researchResult = await research.json() as { error?: string; jobId?: string };
       if (!research.ok && !(research.status === 409 && researchResult.error?.includes("already running"))) throw new Error(researchResult.error || "Could not start company research.");
-      router.push(`/mandates/${id}?tab=targets`);
-      router.refresh();
+      setSearchRun({ mandateId: id, jobId: researchResult.jobId });
     } catch (cause) {
       setError(cause instanceof Error && cause.name === "TimeoutError" ? "This is taking longer than expected. Please try again." : cause instanceof Error ? cause.message : "Could not create the mandate.");
       setBusy(false);
@@ -63,6 +62,7 @@ export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
     }
   }
 
+  if (searchRun) return <CompanyDiscoveryLoading mandateId={searchRun.mandateId} startedJobId={searchRun.jobId} />;
   if (busy) return <div className="mx-auto my-[8vh] max-w-[620px] px-4 sm:px-0"><CompanySearchProgress detail={progress || undefined} /></div>;
 
   return <div className="mx-auto max-w-6xl space-y-10 p-5 sm:p-8">
