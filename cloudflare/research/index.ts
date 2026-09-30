@@ -1,4 +1,6 @@
-import { discoveryPrompt, discoveryOutputSchema, type DiscoveryContext } from "../../src/domain/adaptive-discovery";
+import { cachedResearchExtraction } from '../../src/domain/research-extraction-cache';
+import { pipelineTiming } from './pipeline-timing';
+import { discoveryBatchPrompt, discoveryBatchOutputSchema, type DiscoveryContext } from "../../src/domain/adaptive-discovery";
 import { withLocalProvider } from './local-provider';
 import { providerStep, type Admission } from "./provider-step";
 import type { ResearchProvider } from "../../src/domain/research-provider-queue";
@@ -10,7 +12,7 @@ import { localRead } from "./local-reader";
 import { localSearch } from "./local-search";
 import { providerJsonRequest } from "../../src/adapters/observability/provider-request";
 import { researchExtractionRequest } from "../../src/domain/research-extraction-schema";
-import { FreeOpenRouter } from "../../src/adapters/ai/free-openrouter";
+import { FreeOpenRouter, type FreeResearchRequest } from "../../src/adapters/ai/free-openrouter";
 import { callbackOrigin } from "./callback-origin";
 import { cancelCrawl, crawlRetryUrl, CrawlerRequestError, requestBudgetStop, stalledResearch } from "./runtime-policy";
 import { targetedPrompt, targetedSchema } from "../../src/domain/targeted-research";
@@ -46,6 +48,9 @@ interface Env {
   LOCAL_SEARCH_URL?: string;
   CRAWL4AI_URL?: string;
   CRAWL4AI_SECRET?: string;
+  RESEARCH_AI_PRIMARY_ROUTE?: string;
+  RESEARCH_AI_FREE_TIMEOUT_MS?: string;
+  RESEARCH_AI_EXTRACTION_REASONING?: string;
 }
 const coordinator = (env: Env) => env.PROVIDER_COORDINATOR?.getByName("account-wide");
 async function providerAction(env: Env, jobId: string, body: { action: string; token?: string | null; provider?: ResearchProvider; retryAfterMs?: number; url?: string }, budget?: { used: number; jobId?: string }) {
@@ -161,7 +166,15 @@ export class AcquireResearch extends WorkflowEntrypoint<
     // Bound callback/provider traffic while leaving ample room for paid-plan admission waits.
     const requestBudget = { used: 0, jobId: id };
     let stateCache: { value: ResearchControl; at: number } | undefined;
-    let browserReservation: string | undefined;
+    const timing = pipelineTiming(id, async spans => {
+      requestBudget.used++;
+      const origin = callbackOrigin(this.env.APP_ORIGIN, this.env.LOCAL_DEVELOPMENT === 'true');
+      const response = await researchFetch(this.env)(`${origin}/api/research/internal/${id}/timings`, {
+        method: 'POST', headers: { authorization: `Bearer ${this.env.SERVICE_SECRET}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ spans }), signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) throw new Error(`Timing delivery failed (${response.status})`);
+    });
     const control = async () => {
       // Adjacent goal, page and extraction guards reuse a freshly checked state.
       // After network work or durable waiting, cancellation is checked again.
@@ -170,33 +183,40 @@ export class AcquireResearch extends WorkflowEntrypoint<
       return stopReason ? { ...stateCache.value, deadline: 0, stopReason } : stateCache.value;
     };
     const checkpoint = async <T>(name: string, run: () => Promise<T>, retry = true): Promise<T> => {
-      const serialized = await step.do(name, { retries: { limit: retry ? 2 : 0, delay: "12 seconds", backoff: "exponential" }, timeout: "120 seconds" }, async () => JSON.stringify(await run()) ?? "null");
+      const serialized = await step.do(name, { retries: { limit: retry ? 2 : 0, delay: "12 seconds", backoff: "exponential" }, timeout: "120 seconds" }, async () => JSON.stringify(await timing.measure(name, run)) ?? "null");
       return JSON.parse(serialized) as T;
     };
     const ai = new FreeOpenRouter({
       apiKey: this.env.OPENROUTER_API_KEY,
+      primaryRoute: this.env.RESEARCH_AI_PRIMARY_ROUTE === 'fast-paid' ? 'fast-paid' : 'free',
+      freeAttemptTimeoutMs: Number(this.env.RESEARCH_AI_FREE_TIMEOUT_MS || 25000),
+      extractionReasoning: this.env.RESEARCH_AI_EXTRACTION_REASONING === 'none' ? 'none' : this.env.RESEARCH_AI_EXTRACTION_REASONING === 'medium' ? 'medium' : undefined,
       fetch: researchFetch(this.env),
       jobId: id,
       onRequest: () => { requestBudget.used++; },
       onUsage: usage => console.info("research-ai", JSON.stringify({ jobId: id, ...usage })),
     });
+    const cacheEvent = (kind: 'page' | 'extraction', event: string) => console.info('research-cache', JSON.stringify({ timestamp: new Date().toISOString(), jobId: id, kind, event }));
+    const completeExtraction = (input: FreeResearchRequest) => cachedResearchExtraction(caches.default, stateCache?.value.config.researchRunId || id, {
+      input, routing: { primaryRoute: this.env.RESEARCH_AI_PRIMARY_ROUTE || 'free', reasoning: this.env.RESEARCH_AI_EXTRACTION_REASONING || 'request', freeTimeout: this.env.RESEARCH_AI_FREE_TIMEOUT_MS || '25000' },
+    }, () => ai.complete(input), event => cacheEvent('extraction', event));
     return runResearch(
       {
         // Persist JSON values explicitly across Workflow step checkpoints.
         do: async <T>(
           name: string,
-          run: () => Promise<T>,
+          run: (context?: { reservation?: string }) => Promise<T>,
           retry = true,
         ): Promise<T> => {
           const config = stateCache?.value.config;
           // Site files need browser admission only when a local reader serves them.
-          const provider: ResearchProvider | undefined = /^read-people-/.test(name) || (/^read-site-/.test(name) && this.env.LOCAL_DEVELOPMENT === "true") ? 'page'
+          const provider: ResearchProvider | undefined = /^(read-people-|lookahead-read-)/.test(name) || (/^read-site-/.test(name) && this.env.LOCAL_DEVELOPMENT === "true") ? 'page'
             : /^(extract-|company-identity-|headcount-|discovery-plan-|targeted-plan$)/.test(name) ? 'ai'
-            : /^(targeted-search-|people-followup$)/.test(name) || (/^discover(?:-\d+)?$/.test(name) && config?.discover && !config.targetedFollowup) ? 'search' : undefined;
+            : /^(targeted-search-|people-followup$)/.test(name) || (/^discover(?:-|$)/.test(name) && config?.discover && !config.targetedFollowup) ? 'search' : undefined;
           if (!provider) return checkpoint(name, run, retry);
           const exhausted = requestBudgetStop(requestBudget.used, !productionPolicy(this.env), true);
           if (exhausted) throw new BrowserAdmissionDeferred(exhausted);
-          return providerStep({ do: checkpoint, sleep: (label, ms) => step.sleep(label, ms) }, name, provider,
+          return providerStep({ do: checkpoint, sleep: (label, ms) => timing.measure(label, () => step.sleep(label, ms)) }, name, provider,
             async token => {
               const current = await control();
               if (["cancelled", "complete", "partial", "failed"].includes(current.status) || Date.now() >= current.deadline) return { managed: true, granted: false, queued: false, retryAfterMs: 0 };
@@ -206,54 +226,55 @@ export class AcquireResearch extends WorkflowEntrypoint<
               try {
                 const current = await control();
                 if (["cancelled", "complete", "partial", "failed"].includes(current.status) || Date.now() >= current.deadline) throw new BrowserAdmissionDeferred();
-                browserReservation = provider === 'ai' ? undefined : token;
-                return await run();
+                return await run({ reservation: provider === 'ai' ? undefined : token });
               } finally {
-                browserReservation = undefined;
                 await providerAction(this.env, id, { action: 'provider-release', token }).catch(() => {});
               }
             });
         },
-        sleep: (name, ms) => step.sleep(name, ms),
+        sleep: (name, ms) => timing.measure(name, () => step.sleep(name, ms)),
       },
       {
         diagnostic: event => console.info("research-diagnostic", JSON.stringify({ ...event, timestamp: new Date().toISOString(), jobId: id })),
         control,
+        discoveryBatch: true,
         discoveryContext: () => callback(this.env, id, { action: "discovery-context" }, requestBudget) as Promise<DiscoveryContext>,
         prepareDiscoverySources: () => callback(this.env, id, { action: "discovery-sources" }, requestBudget) as Promise<{ pending: boolean }>,
         persistDiscoverySources: () => callback(this.env, id, { action: "discovery-persist" }, requestBudget) as Promise<{ pending: boolean }>,
         planDiscovery: async context => {
-          const output = await ai.complete({ messages: discoveryPrompt(context), operation: "followup_planning", max_tokens: 500, reasoning_effort: "none", temperature: 0.3,
-            response_format: { type: "json_schema", json_schema: discoveryOutputSchema } });
+          const output = await ai.complete({ messages: discoveryBatchPrompt(context), operation: "followup_planning", max_tokens: 1200, reasoning_effort: "none", temperature: 0.3,
+            response_format: { type: "json_schema", json_schema: discoveryBatchOutputSchema } });
           return typeof output.response === "string" ? JSON.parse(output.response) : output.response;
         },
-        discover: decision =>
-          callback(this.env, id, { action: "discover", decision, browserReservation }, requestBudget) as Promise<{
+        discover: (decision, reservation) =>
+          callback(this.env, id, { action: "discover", decision, browserReservation: reservation }, requestBudget) as Promise<{
             seeds: string[];
             warning?: string;
           }>,
         progress: async (event) => {
+          await timing.flush();
           const response = await callback(this.env, id, event, requestBudget) as { control?: ResearchControl };
           stateCache = response.control ? { value: { ...response.control, findings: stateCache?.value.findings }, at: Date.now() } : undefined;
           console.info("research-progress", JSON.stringify({ timestamp: new Date().toISOString(), jobId: id, status: event.status, revision: event.revision, pages: event.pages, modelCalls: event.modelCalls, savedPageFindings: event.page?.findings.length, remainingUrls: event.runtime?.remaining.length }));
         },
-        cachedPage: async (url) => lookupCachedPage(caches.default, stateCache?.value.config.researchRunId || id, url),
-        readPeoplePage: (url) => readMarkdown(this.env, url, requestBudget, false, browserReservation),
+        cachedPage: async (url) => lookupCachedPage(caches.default, stateCache?.value.config.researchRunId || id, url, event => cacheEvent('page', event)),
+        pageLookahead: true,
+        readPeoplePage: (url, reservation) => readMarkdown(this.env, url, requestBudget, false, reservation),
         // Every page read is one synchronous request. The asynchronous crawl job needed a submit
         // plus repeated polls, and a queued crawl could consume an instance's whole request budget
         // before its first page arrived; the crawl path remains only as the fallback below.
-        readPage: async (url: string) => {
+        readPage: async (url: string, reservation?: string) => {
           const state = await control();
-          const read = () => readMarkdown(this.env, url, requestBudget, false, browserReservation);
-          return cachedPage(caches.default, state.config.researchRunId || id, url, read);
+          const read = () => readMarkdown(this.env, url, requestBudget, false, reservation);
+          return cachedPage(caches.default, state.config.researchRunId || id, url, read, event => cacheEvent('page', event));
         },
-        readSiteFile: async (url: string) => {
+        readSiteFile: async (url: string, reservation?: string) => {
           const state = await control();
           // Production reads robots and sitemap documents directly; local modes keep
           // the allowlisted reader because ordinary outbound requests are blocked.
           return cachedPage(caches.default, state.config.researchRunId || id, url, () => this.env.LOCAL_DEVELOPMENT === "true"
-            ? readMarkdown(this.env, url, requestBudget, false, browserReservation)
-            : readSiteText(url, fetch, () => { requestBudget.used++; }));
+            ? readMarkdown(this.env, url, requestBudget, false, reservation)
+            : readSiteText(url, fetch, () => { requestBudget.used++; }), event => cacheEvent('page', event));
         },
         ...(this.env.LOCAL_DEVELOPMENT !== "true" && this.env.CRAWL4AI_URL ? { readFallbackPage: async (url: string) => {
           requestBudget.used++;
@@ -317,11 +338,11 @@ export class AcquireResearch extends WorkflowEntrypoint<
           await cancelCrawl(crawlId, (path, method) => browser(this.env, path, method, undefined, requestBudget));
         },
         extract: async (messages) => {
-          const output = await ai.complete(researchExtractionRequest(messages));
+          const output = await completeExtraction(researchExtractionRequest(messages));
           return parseResearchExtraction(output);
         },
         extractHeadcount: async (messages) => {
-          const output = await ai.complete({
+          const output = await completeExtraction({
             messages, operation: "headcount_extraction", max_tokens: 300, reasoning_effort: "none", temperature: 0,
             response_format: { type: "json_schema", json_schema: {
               type: "object", properties: { value: { type: ["string", "null"] }, quote: { type: ["string", "null"] } },
@@ -338,11 +359,12 @@ export class AcquireResearch extends WorkflowEntrypoint<
           }) as { response?: unknown };
           return typeof output.response === "string" ? JSON.parse(output.response) : output.response;
         },
-        targetedSearch: (field) => callback(this.env, id, { action: "targeted-followup", field, browserReservation }, requestBudget) as Promise<{ seeds: string[]; warning?: string }>,
-        peopleFollowup: () => callback(this.env, id, { action: "people-followup", browserReservation }, requestBudget) as Promise<{ seeds: string[]; warning?: string }>,
+        targetedSearch: (field, _round, reservation) => callback(this.env, id, { action: "targeted-followup", field, browserReservation: reservation }, requestBudget) as Promise<{ seeds: string[]; warning?: string }>,
+        peopleFollowup: reservation => callback(this.env, id, { action: "people-followup", browserReservation: reservation }, requestBudget) as Promise<{ seeds: string[]; warning?: string }>,
         now: () => Date.now(),
       },
-    ).finally(() => {
+    ).finally(async () => {
+      await timing.flush();
       console.info("research-runtime", JSON.stringify({ jobId: id, requests: requestBudget.used, local: this.env.LOCAL_DEVELOPMENT === "true" }));
     });
   }

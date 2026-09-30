@@ -41,3 +41,33 @@ it("ignores a planner stop while recent searches still surface new websites", ()
   const dry = [...productive.slice(0, 1), ...["d", "e"].map(query => ({ query, status: "succeeded" as const, resultCount: 10, newDomains: 0 }))];
   expect(resolveDiscoveryDecision(stop, { ...context, attempts: dry }, ["cleaners NSW"]).stop).toBe(true);
 });
+
+it("plans bounded distinct searches across regions with stable replay identifiers", async () => {
+  const { resolveDiscoveryBatch, discoveryBatchPrompt } = await import("./adaptive-discovery");
+  const batch = { decisions: [proposed, { ...proposed, region: "New South Wales" }, proposed] };
+  const resolved = resolveDiscoveryBatch(batch, context, ["industrial cleaning Victoria"]);
+  expect(resolved.queries.map(q => q.query)).toEqual(["hazardous material remediation contractors Victoria", "hazardous material remediation contractors New South Wales", "industrial cleaning Victoria"]);
+  expect(new Set(resolved.queries.map(q => q.queryId)).size).toBe(3);
+  expect(resolveDiscoveryBatch(batch, context, ["industrial cleaning Victoria"])).toEqual(resolved);
+  expect(resolveDiscoveryBatch(batch, { ...context, remainingSearches: 1 }, []).queries).toHaveLength(1);
+  expect(discoveryBatchPrompt(context)[0].content).toContain("distinct independent queries");
+});
+
+it("only includes a failed-query retry once within a batch and respects stopping", async () => {
+  const { resolveDiscoveryBatch } = await import("./adaptive-discovery");
+  const failed = { query: "industrial cleaning Victoria", status: "failed" as const };
+  const resolved = resolveDiscoveryBatch({ decisions: [proposed, proposed, proposed] }, { ...context, attempts: [failed] }, ["industrial cleaning NSW"]);
+  expect(resolved.queries.filter(q => q.query === failed.query)).toHaveLength(1);
+  expect(resolveDiscoveryBatch(null, { ...context, found: 20 }, []).queries).toEqual([]);
+});
+
+
+it("retries failed searches even when a successful sibling completed last", async () => {
+  const { resolveDiscoveryBatch } = await import("./adaptive-discovery");
+  const failed = { query: "industrial cleaning Victoria", status: "failed" as const };
+  const succeeded = { query: "decontamination Victoria", status: "succeeded" as const };
+  const resolved = resolveDiscoveryBatch({ decisions: [proposed] }, { ...context, attempts: [failed, succeeded] }, ["cleaners NSW"]);
+  expect(resolved.queries[0].query).toBe(failed.query);
+  expect(resolved.queries.filter(q => q.query === failed.query)).toHaveLength(1);
+  expect(resolveDiscoveryBatch(null, { ...context, attempts: [failed, succeeded, failed] }, []).queries).toEqual([]);
+});

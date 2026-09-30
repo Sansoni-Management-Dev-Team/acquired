@@ -10,6 +10,7 @@ import {
   type ResearchConfig,
   type SavedResearchFinding,
 } from "@/domain/research";
+import { ResearchTimingPanel, type PipelineTimings } from './research-timing-panel';
 import { ResearchRunOutcome } from "./research-run-outcome";
 import type { AcquisitionBrief } from "@/domain/acquisition";
 import { candidateStatus } from "@/domain/target-candidates";
@@ -34,7 +35,7 @@ export function candidatesArrivedForRun(jobs: ResearchJob[], startedJobId: strin
     (job.config.discoveryCandidate || (job.config.newBusinessIds?.length || 0) > 0),
   );
 }
-export type ResearchPanelData = { active?: boolean; results?: { jobId: string; businessDomains?: string[]; added: number; updated: number; people: number }[]; enabled: boolean; jobs: ResearchJob[]; peopleJobs?: ResearchJob[]; companyJobs?: ResearchJob[]; findings: SavedResearchFinding[]; evidence?: Record<string, import("@/domain/evidence-status").EvidenceCounts> };
+export type ResearchPanelData = { timings?: Record<string, PipelineTimings>; pendingEnrichment?: { jobId: string; runId?: string; targetId?: string; purpose?: string }[]; active?: boolean; results?: { jobId: string; businessDomains?: string[]; added: number; updated: number; people: number }[]; enabled: boolean; jobs: ResearchJob[]; peopleJobs?: ResearchJob[]; companyJobs?: ResearchJob[]; findings: SavedResearchFinding[]; evidence?: Record<string, import("@/domain/evidence-status").EvidenceCounts> };
 type Data = ResearchPanelData;
 async function request(url: string, body?: unknown) {
   const r = await fetch(url, {
@@ -106,6 +107,7 @@ export function ResearchPanel({
   const discoveryJobs = runJobs.filter(j => !j.config.purpose && !j.config.discoveryCandidate);
   const searchHistory = discoveryJobs.reduce<NonNullable<ResearchConfig["discoveryAttempts"]>>((history, j) => (j.config.discoveryAttempts?.length || 0) > history.length ? j.config.discoveryAttempts! : history, []);
   const searchStopReason = discoveryJobs.find(j => j.config.discoveryStopReason)?.config.discoveryStopReason;
+  const pendingDeep = (data.pendingEnrichment || []).filter(task => task.runId === runId);
   const enriching = [...relatedPeople, ...relatedCompanies].filter(j => !terminalResearchStates.includes(j.status));
   const identifiedBusinessCount = new Set((data.results || []).filter(r => runJobs.some(j => j.id === r.jobId)).flatMap(r => r.businessDomains || [])).size;
   const newBusinessCount = new Set(runJobs.flatMap(j => j.config.newBusinessIds || [])).size;
@@ -187,6 +189,8 @@ export function ResearchPanel({
 
         </>
       )}
+      {pendingDeep.length > 0 && <p className="text-xs text-[var(--muted)]">Initial research saved. {pendingDeep.length} follow-up jobs are waiting for deeper research.</p>}
+      <ResearchTimingPanel timing={runId ? data.timings?.[runId] : undefined} />
       {busy && <p role="status" className="text-sm">Updating research…</p>}
       {error && (
         <p role="alert" className="text-sm text-[var(--status-red)]">

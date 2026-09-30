@@ -1,20 +1,25 @@
+import { measureResearchSegment } from './research-segment-timing';
 import { createHash } from 'node:crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { requireDb } from '@/db/client';
 import { researchJobs } from '@/db/schema';
 import { ResearchRepository } from '@/db/research-repository';
-import { DISCOVERY_CANDIDATE_LIMIT, DISCOVERY_RESEARCH_CONCURRENCY, mandateResearchSlot } from '@/domain/automatic-research';
+import { DISCOVERY_CANDIDATE_LIMIT, DISCOVERY_RESEARCH_CONCURRENCY, researchConcurrency, mandateResearchSlot } from '@/domain/automatic-research';
 import { directorySource, serviceBusinessDomain, unreadableDiscoverySource } from '@/domain/discovery-sources';
 import { researchDomain, terminalResearchStates, type ResearchConfig } from '@/domain/research';
 import { researchWorker } from './research-service';
 
 export async function dispatchDiscoveryCandidates(org: string, jobId: string) {
+  return measureResearchSegment(jobId, org, 'candidate-dispatch', 'coordination', () => dispatchCandidates(org, jobId), count => (count || 0) > 0);
+}
+async function dispatchCandidates(org: string, jobId: string) {
   const repo = new ResearchRepository(org), job = await repo.get(jobId);
   if (!job) return;
   const rootId = (job.config as ResearchConfig).researchRunId || job.id;
   const root = rootId === job.id ? job : await repo.get(rootId);
   if (!root || root.status === 'cancelled') return;
   const config = root.config as ResearchConfig;
+  const concurrency = researchConcurrency(config.discoveryConcurrency, DISCOVERY_RESEARCH_CONCURRENCY);
   if (!config.parallelDiscovery || Date.now() >= (config.automaticDeadline || 0)) return;
   const jobs = await requireDb().select().from(researchJobs).where(and(eq(researchJobs.organizationId, org), sql`(${researchJobs.id} = ${rootId} OR ${researchJobs.config}->>'researchRunId' = ${rootId})`));
   if (jobs.some(j => j.status === 'cancelled')) return;
@@ -38,10 +43,10 @@ export async function dispatchDiscoveryCandidates(org: string, jobId: string) {
       if (!byDomain.has(domain) || !directorySource(url)) byDomain.set(domain, url);
     }
   }
-  let capacity = Math.min(DISCOVERY_RESEARCH_CONCURRENCY - active.length, Math.max(0, (config.targetBusinesses || 20) - newIds.size - active.length), Math.max(0, DISCOVERY_CANDIDATE_LIMIT - candidates.length));
+  let capacity = Math.min(concurrency - active.length, Math.max(0, (config.targetBusinesses || 20) - newIds.size - active.length), Math.max(0, DISCOVERY_CANDIDATE_LIMIT - candidates.length));
   let pagesLeft = (config.automaticPageLimit || 100) - candidates.reduce((sum, j) => sum + (terminalResearchStates.includes(j.status) ? ((j.config as ResearchConfig).runtime?.attempts.length || j.pages) : (j.config as ResearchConfig).budget.maxPages), 0);
   const dispatch = active.filter(j => j.status === 'queued').map(j => j.id);
-  for (let slot = 0; slot < DISCOVERY_RESEARCH_CONCURRENCY && capacity > 0 && pagesLeft > 0; slot++) {
+  for (let slot = 0; slot < concurrency && capacity > 0 && pagesLeft > 0; slot++) {
     // Candidate reads have their own slots so paired firmographics/people work
     // cannot stop discovery from refilling its eight-workflow pool.
     const executionSlot = mandateResearchSlot(root.mandateId, `discovery-${slot + 1}`);
@@ -53,7 +58,7 @@ export async function dispatchDiscoveryCandidates(org: string, jobId: string) {
     const hash = createHash('sha256').update(`${rootId}:candidate:${domain}`).digest('hex');
     const id = `${hash.slice(0,8)}-${hash.slice(8,12)}-4${hash.slice(13,16)}-8${hash.slice(17,20)}-${hash.slice(20,32)}`;
     const maxPages = Math.min(2, pagesLeft);
-    const child: ResearchConfig = { ...config, parallelDiscovery: false, discoveryCandidate: true, researchRunId: rootId, parentJobId: rootId, executionSlot, companyDomain: domain, seeds: [seed], discover: false, discoveryPending: false, discoveryCursor: undefined, runtime: undefined, newBusinessIds: [], autoRoot: undefined, autoContinueFrom: undefined, budget: { maxPages, maxDomains: 1, maxModelCalls: maxPages, maxMinutes: 15 } };
+    const child: ResearchConfig = { ...config, pipelineTiming: undefined, parallelDiscovery: false, discoveryCandidate: true, researchRunId: rootId, parentJobId: rootId, executionSlot, companyDomain: domain, seeds: [seed], discover: false, discoveryPending: false, discoveryCursor: undefined, runtime: undefined, newBusinessIds: [], autoRoot: undefined, autoContinueFrom: undefined, budget: { maxPages, maxDomains: 1, maxModelCalls: maxPages, maxMinutes: 15 } };
     try {
       const saved = await repo.create(id, root.mandateId, root.createdBy, child);
       capacity--; pagesLeft -= maxPages;
@@ -62,6 +67,7 @@ export async function dispatchDiscoveryCandidates(org: string, jobId: string) {
   }
   if ((await repo.get(rootId))?.status === 'cancelled') { await repo.cancelRun(rootId); return; }
   await Promise.allSettled([...new Set(dispatch)].map(id => researchWorker(`/jobs/${id}`, 'POST')));
+  return new Set(dispatch).size;
 }
 
 export function rankDiscoveryCandidateUrls(urls: string[], config: ResearchConfig) {

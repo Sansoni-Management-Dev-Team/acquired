@@ -20,10 +20,10 @@ it("uses redirect options supported by the real Worker fetch implementation", as
   expect(await response.text()).toBe("Unmocked network request blocked");
 });
 
-function replay(options: { pages?: number; cancelled?: boolean; failProgress?: boolean; denyPermit?: boolean; expireFirstPermit?: boolean; config?: ResearchConfig } = {}) {
+function replay(options: { pages?: number; cancelled?: boolean; failProgress?: boolean; denyPermit?: boolean; expireFirstPermit?: boolean; parallelDiscoveryGate?: boolean; lookaheadGate?: boolean; config?: ResearchConfig } = {}) {
   const id = crypto.randomUUID();
   const config: ResearchConfig = options.config || {
-    seeds: Array.from({ length: options.pages || 1 }, (_, i) => `https://instruments${i || ""}.example.com/`),
+    seeds: Array.from({ length: options.pages || 1 }, (_, i) => `https://instruments${i || ""}.example.com/fixture-${id}/`),
     searchTerms: ["sensors"], geography: "Australia", approved: true, discover: false,
     budget: { maxPages: options.pages || 1, maxDomains: 10, maxMinutes: 10, maxModelCalls: 10 },
   };
@@ -33,9 +33,20 @@ function replay(options: { pages?: number; cancelled?: boolean; failProgress?: b
   const progress: Progress[] = [];
   const requests: string[] = [];
   const callbacks: Record<string, unknown>[] = [];
+  const timings: { spans: { segment: string; step: string; elapsedMs: number; outcome: string }[] }[] = [];
+  let releaseLookahead!: () => void;
+  const lookaheadStarted = new Promise<void>(resolve => { releaseLookahead = resolve; });
+  let releaseExtraction!: () => void;
+  const extractionStarted = new Promise<void>(resolve => { releaseExtraction = resolve; });
+  let releaseDiscovery!: () => void;
+  const discoveryGate = new Promise<void>(resolve => { releaseDiscovery = resolve; });
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
     const url = String(input instanceof Request ? input.url : input);
     requests.push(url);
+    if (url === `http://127.0.0.1:3010/api/research/internal/${id}/timings`) {
+      timings.push(JSON.parse(String(init?.body)));
+      return Response.json({ ok: true });
+    }
     if (url === `http://127.0.0.1:3010/api/research/internal/${id}`) {
       if (!init?.body) return Response.json({ status, config, seeds: config.seeds, deadline: Date.now() + 600000 });
       const data = JSON.parse(String(init.body));
@@ -43,7 +54,14 @@ function replay(options: { pages?: number; cancelled?: boolean; failProgress?: b
       if (data.action === "discovery-context") return Response.json({ scope: "industrial cleaning", startingTerms: [], regions: ["Victoria"], target: 20, found: 0, remainingSearches: 12, attempts: [], candidates: [] });
       if (data.action === "discovery-sources") return Response.json({ pending: true });
       if (data.action === "discovery-persist") return Response.json({ pending: callbacks.filter(c => c.action === "discovery-persist").length < 2 });
-      if (data.action === "discover") return Response.json({ seeds: [] });
+      if (data.action === "discover") {
+        if (options.parallelDiscoveryGate) {
+          if (callbacks.filter(c => c.action === "discover").length === 3) releaseDiscovery();
+          await discoveryGate;
+        }
+        return Response.json({ seeds: [] });
+      }
+      if (data.action === "provider-release") return Response.json({ ok: true });
       if (data.action === "provider-reserve") return Response.json({ granted: !options.denyPermit, retryAfterMs: 0, after: Date.now(), until: Date.now() + 2000, token: data.token });
       if (data.action === "browser-permit" && options.expireFirstPermit && !expiredPermit) { expiredPermit = true; return Response.json({ granted: false, retryAfterMs: 0, expired: true }); }
       if (data.action === "browser-permit") return Response.json({ granted: !options.denyPermit, retryAfterMs: 0 });
@@ -54,14 +72,26 @@ function replay(options: { pages?: number; cancelled?: boolean; failProgress?: b
     }
     if (url === "http://127.0.0.1:18083/crawl") {
       expect(new Headers(init?.headers).has("authorization")).toBe(false);
-      return Response.json({ url: JSON.parse(String(init?.body)).url, markdown });
+      const requestedUrl = JSON.parse(String(init?.body)).url as string;
+      if (options.lookaheadGate) {
+        if (requestedUrl.endsWith('/leadership')) {
+          releaseLookahead();
+          await extractionStarted;
+          return Response.json({ url: requestedUrl, markdown: '# Our team\n#### Alex Example\n##### Managing Director\nalex@instruments.example.com' });
+        }
+        return Response.json({ url: requestedUrl, markdown: '# Our company\nWe make precision instruments in Australia.\n[Leadership](/leadership)' });
+      }
+      return Response.json({ url: requestedUrl, markdown });
     }
-    if (url === "https://openrouter.ai/api/v1/chat/completions") return Response.json({
-      model: "replay", choices: [{ finish_reason: "stop", message: { content: JSON.stringify(config.adaptiveDiscovery ? { query: "decontamination contractors", region: "Victoria", reason: "Explore specialist services", stop: false } : { findings: [] }) } }],
+    if (url === "https://openrouter.ai/api/v1/chat/completions") {
+      if (options.lookaheadGate) { releaseExtraction(); await lookaheadStarted; }
+      return Response.json({
+      model: "replay", choices: [{ finish_reason: "stop", message: { content: JSON.stringify(config.adaptiveDiscovery ? { decisions: ["decontamination contractors", "industrial pressure cleaning", "factory sanitation"].map(query => ({ query, region: "Victoria", reason: "Explore specialist services", stop: false })) } : { findings: [] }) } }],
     });
+    }
     throw new Error(`Unmocked request: ${url}`);
   });
-  return { id, config, progress, requests, callbacks };
+  return { id, config, progress, requests, callbacks, timings };
 }
 
 it("runs a real Workflow with local reads, extraction and persisted progress, without CF requests", async () => {
@@ -86,7 +116,8 @@ it("honours cancellation before issuing a browser or AI request", async () => {
   await bindings.RESEARCH.create({ id: t.id, params: { jobId: t.id } });
   await instance.waitForStatus("complete");
   expect(t.progress).toEqual([]);
-  expect(t.requests).toHaveLength(1);
+  expect(t.requests).toHaveLength(2);
+  expect(t.timings.flatMap(batch => batch.spans).map(span => span.segment)).toEqual(["control"]);
 });
 
 it("retries a failed progress callback through real Workflow step retries", async () => {
@@ -211,17 +242,39 @@ it("recovers an expired browser handoff inside the same real Workflow", async ()
 
 
 it("plans adaptive discovery in a real Workflow with AI admission and model accounting", async () => {
-  const t = replay({ config: { seeds: [], searchTerms: ["industrial cleaning"], researchScope: "industrial cleaning", geography: "VIC", approved: true, discover: true, adaptiveDiscovery: true, workflow: "business", mode: "automatic", parallelDiscovery: true, budget: { maxPages: 2, maxDomains: 2, maxMinutes: 10, maxModelCalls: 2 } } });
+  const t = replay({ parallelDiscoveryGate: true, config: { seeds: [], searchTerms: ["industrial cleaning"], researchScope: "industrial cleaning", geography: "VIC", approved: true, discover: true, adaptiveDiscovery: true, workflow: "business", mode: "automatic", parallelDiscovery: true, budget: { maxPages: 2, maxDomains: 2, maxMinutes: 10, maxModelCalls: 2 } } });
   await using instance = await introspectWorkflowInstance(bindings.RESEARCH, t.id);
   await instance.modify(m => m.disableSleeps());
   await bindings.RESEARCH.create({ id: t.id, params: { jobId: t.id } });
   await instance.waitForStatus("complete");
   expect(t.progress.at(-1)).toMatchObject({ status: "complete", pages: 0, modelCalls: 1 });
-  expect(t.callbacks.find(c => c.action === "discover")).toMatchObject({ decision: { planning: { query: "decontamination contractors", region: "Victoria" }, attemptIndex: 0 } });
+  const searches = t.callbacks.filter(c => c.action === "discover");
+  expect(searches).toHaveLength(3);
+  expect(searches[0]).toMatchObject({ decision: { query: "decontamination contractors Victoria", batchStartIndex: 0 } });
+  expect(new Set(searches.map(search => search.browserReservation)).size).toBe(3);
+  expect(searches.every(search => typeof search.browserReservation === "string")).toBe(true);
+  const spans = t.timings.flatMap(batch => batch.spans);
+  expect(spans.filter(span => span.segment === "discovery_callback")).toHaveLength(3);
+  expect(spans.every(span => span.elapsedMs >= 0)).toBe(true);
   expect(t.callbacks.filter(c => c.action === "discovery-persist")).toHaveLength(2);
   expect(t.callbacks.findIndex(c => c.action === "discovery-persist")).toBeLessThan(t.callbacks.findIndex(c => c.action === "discover"));
   expect(t.callbacks.some(c => c.action === "provider-reserve" && c.provider === "ai")).toBe(true);
   expect(t.requests.filter(url => url.includes("openrouter.ai"))).toHaveLength(1);
+});
+
+it("overlaps a known-page read with extraction through real Workflow checkpoints", async () => {
+  const seed = `https://instruments.example.com/fixture-${crypto.randomUUID()}/`;
+  const t = replay({ lookaheadGate: true, config: { seeds: [seed], searchTerms: ["sensors"], geography: "Australia", approved: true, discover: false, mode: "automatic", purpose: "people", companyDomain: "instruments.example.com", companyName: "Example Instruments", budget: { maxPages: 2, maxDomains: 1, maxMinutes: 10, maxModelCalls: 2 } } });
+  await using instance = await introspectWorkflowInstance(bindings.RESEARCH, t.id);
+  await instance.modify(m => m.disableSleeps());
+  await bindings.RESEARCH.create({ id: t.id, params: { jobId: t.id } });
+  await instance.waitForStatus("complete");
+  expect(t.progress.at(-1)).toMatchObject({ status: "complete", pages: 2, modelCalls: 1 });
+  const read = JSON.parse(await instance.waitForStepResult({ name: "lookahead-read-2-admitted-0" }) as string);
+  expect(read.value.page.url).toBe("https://instruments.example.com/leadership");
+  const permits = t.callbacks.filter(callback => callback.action === "browser-permit");
+  expect(new Set(permits.map(permit => permit.token)).size).toBe(permits.length);
+  expect(t.timings.flatMap(batch => batch.spans).some(span => span.step === "lookahead-read-2-admitted-0" && span.outcome === "succeeded")).toBe(true);
 });
 
 it("runs a Firmable refresh as bounded, resumable callback steps", async () => {

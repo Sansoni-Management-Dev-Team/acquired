@@ -7,7 +7,7 @@ export const researchEfforts = {
   thorough: { searches: 48, minutes: 120, pages: 1000 },
 } as const;
 export type DiscoveryAttempt = {
-  query: string; status: "succeeded" | "failed"; category?: string;
+  queryId?: string; startedAt?: string; durationMs?: number; query: string; status: "succeeded" | "failed"; category?: string;
   reason?: string; resultCount?: number; newDomains?: number;
   results?: { title: string; snippet: string; url: string }[];
 };
@@ -41,8 +41,9 @@ export const discoveryOutputSchema = {
 };
 const queryKey = (query: string) => query.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 export function retryDiscovery(attempts: DiscoveryAttempt[]) {
-  const last = attempts.at(-1);
-  return last?.status === "failed" && attempts.filter(a => queryKey(a.query) === queryKey(last.query)).length < 2 ? last : undefined;
+  // Batched callbacks complete out of order. A later successful sibling must
+  // not hide another query's first failed attempt.
+  return [...attempts].reverse().find(attempt => attempt.status === "failed" && attempts.filter(a => queryKey(a.query) === queryKey(attempt.query)).length < 2);
 }
 export function resolveDiscoveryDecision(output: unknown, context: DiscoveryContext, fallback: string[]): { query?: string; reason: string; stop: boolean } {
   if (context.remainingSearches <= 0 || context.found >= context.target) return { stop: true, reason: "Research target or search budget reached." };
@@ -63,4 +64,44 @@ export function resolveDiscoveryDecision(output: unknown, context: DiscoveryCont
   }
   const query = fallback.find(q => !tried.has(queryKey(q)));
   return query ? { query, reason: "Using an untried scope-based search because the planner was unavailable or returned no usable query.", stop: false } : { stop: true, reason: "No further usable searches within the research scope." };
+}
+
+/** Three searches keep the browser queue bounded while amortising one planner call. */
+export const DISCOVERY_BATCH_SIZE = 3;
+export const discoveryBatchDecisionSchema = z.object({
+  decisions: z.array(discoveryDecisionSchema).max(DISCOVERY_BATCH_SIZE),
+});
+export const discoveryBatchOutputSchema = {
+  type: "object", properties: { decisions: { type: "array", maxItems: DISCOVERY_BATCH_SIZE, items: discoveryOutputSchema } },
+  required: ["decisions"], additionalProperties: false,
+};
+export function discoveryBatchPrompt(context: DiscoveryContext) {
+  const prompt = discoveryPrompt(context);
+  prompt[0].content = prompt[0].content.replace("Generate one new query", `Generate up to ${Math.min(DISCOVERY_BATCH_SIZE, context.remainingSearches)} distinct independent queries`)
+    .replace("Return JSON {query,region,reason,stop}; use empty query and region when stopping.", "Return JSON {decisions:[{query,region,reason,stop}]}. Cover different branches or regions in the batch. Use one decision with empty query and region when stopping.");
+  return prompt;
+}
+export type DiscoveryQuery = { query: string; reason: string; queryId: string; batchStartIndex: number };
+export function discoveryQueryId(query: string, batchStartIndex: number, index: number) {
+  // Stable across durable-step replay; retries in a later batch get a new identifier.
+  let hash = 2166136261;
+  for (const char of queryKey(query)) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+  return `q-${batchStartIndex}-${index}-${(hash >>> 0).toString(16)}`;
+}
+export function resolveDiscoveryBatch(output: unknown, context: DiscoveryContext, fallback: string[], limit = DISCOVERY_BATCH_SIZE): { queries: DiscoveryQuery[]; stop: boolean; reason: string } {
+  const count = Math.max(0, Math.min(DISCOVERY_BATCH_SIZE, Math.floor(limit), context.remainingSearches));
+  if (!count || context.found >= context.target) return { queries: [], stop: true, reason: "Research target or search budget reached." };
+  const parsed = discoveryBatchDecisionSchema.safeParse(output);
+  const proposals = parsed.success ? parsed.data.decisions : [output];
+  const queries: DiscoveryQuery[] = [];
+  let reason = "No further usable searches within the research scope.";
+  for (let index = 0; index < count; index++) {
+    // Treat earlier selections as successful for duplicate/retry suppression only.
+    const selectionContext = { ...context, remainingSearches: context.remainingSearches - queries.length, attempts: [...context.attempts, ...queries.map(q => ({ query: q.query, status: "succeeded" as const, newDomains: 1 }))] };
+    const selected = resolveDiscoveryDecision(proposals[index], selectionContext, fallback);
+    reason = selected.reason;
+    if (!selected.query || selected.stop) break;
+    queries.push({ query: selected.query, reason: selected.reason, queryId: discoveryQueryId(selected.query, context.attempts.length, index), batchStartIndex: context.attempts.length });
+  }
+  return { queries, stop: queries.length === 0, reason };
 }

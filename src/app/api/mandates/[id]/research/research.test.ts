@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   org: vi.fn(),
   list: vi.fn(),
   findings: vi.fn(),
+  resultCounts: vi.fn(),
+  targetEvidence: vi.fn(),
   get: vi.fn(),
   hasOtherActive: vi.fn(),
   concurrentResearchReady: vi.fn(),
@@ -44,6 +46,8 @@ vi.mock("@/db/research-repository", () => ({
     create = mocks.create;
     list = mocks.list;
     findings = mocks.findings;
+    resultCounts = mocks.resultCounts;
+    targetEvidence = mocks.targetEvidence;
   },
 }));
 import { GET, POST } from "./route";
@@ -78,6 +82,21 @@ beforeEach(() => {
   mocks.concurrentResearchReady.mockResolvedValue(true);
 });
 describe("research API isolation and dispatch", () => {
+  it("returns run timings and pending deep work without transferring raw spans", async () => {
+    const now = new Date();
+    const span = { id: crypto.randomUUID(), step: 'extract-1', segment: 'extraction', startedAt: now.toISOString(), finishedAt: new Date(now.getTime() + 1000).toISOString(), elapsedMs: 1000, outcome: 'succeeded' };
+    const root = { id: jobId, status: 'complete', createdAt: now, updatedAt: now, config: { mode: 'automatic', automaticDeadline: now.getTime() + 60000, pipelineTiming: { [span.id]: span } } };
+    const initial = { id: crypto.randomUUID(), status: 'partial', createdAt: now, updatedAt: now, config: { researchRunId: jobId, enrichmentPhase: 'initial', purpose: 'firmographics', targetId: 'target' } };
+    mocks.list.mockResolvedValue([initial, root]);
+    mocks.findings.mockResolvedValue([]); mocks.resultCounts.mockResolvedValue([]); mocks.targetEvidence.mockResolvedValue([]);
+    const response = await GET(new Request('https://app.example.com'), context);
+    const payload = await response.json();
+    expect(payload.timings[jobId].segments.extraction).toMatchObject({ calls: 1, totalMs: 1000 });
+    expect(payload.jobs[0].config.pipelineTiming).toBeUndefined();
+    expect(payload.pendingEnrichment).toEqual([{ jobId: initial.id, runId: jobId, targetId: 'target', purpose: 'firmographics' }]);
+    mocks.list.mockResolvedValue([initial, root, { ...initial, id: crypto.randomUUID(), status: 'queued', config: { ...initial.config, enrichmentPhase: 'deep' } }]);
+    expect((await (await GET(new Request('https://app.example.com'), context)).json()).pendingEnrichment).toEqual([]);
+  });
   it("does not access new tables while feature is disabled", async () => {
     mocks.enabled.mockReturnValue(false);
     expect(

@@ -1,4 +1,5 @@
-import { adaptiveDiscovery, discoveryLimit, discoveryRegions, resolveDiscoveryDecision, type DiscoveryContext, type DiscoveryAttempt } from "@/domain/adaptive-discovery";
+import { adaptiveDiscovery, discoveryLimit, discoveryRegions, resolveDiscoveryDecision, DISCOVERY_BATCH_SIZE, discoveryQueryId, type DiscoveryContext, type DiscoveryAttempt } from "@/domain/adaptive-discovery";
+import { measureResearchSegment } from "@/lib/research-segment-timing";
 import { dispatchDiscoveryCandidates } from "@/lib/automatic-discovery";
 import { coolDownResearchBrowser, reserveResearchProvider, releaseResearchProvider } from "@/lib/research-provider-queue";
 import { researchBrowserPermit } from "@/lib/research-browser-permit";
@@ -71,7 +72,7 @@ async function controlSnapshot(job: NonNullable<Awaited<ReturnType<typeof getJob
   const root = config.researchRunId && config.researchRunId !== job.id ? await new ResearchRepository(job.organizationId).get(config.researchRunId) : job;
   return {
     status: root?.status === "cancelled" ? "cancelled" : job.status,
-    updatedAt: job.updatedAt.toISOString(), crawlId: job.crawlId, config: config.discoveryCandidate || config.parallelDiscovery ? { ...config, newBusinessIds: (root?.config as ResearchConfig | undefined)?.newBusinessIds || [] } : config, seeds: job.seeds,
+    updatedAt: job.updatedAt.toISOString(), crawlId: job.crawlId, config: { ...(config.discoveryCandidate || config.parallelDiscovery ? { ...config, newBusinessIds: (root?.config as ResearchConfig | undefined)?.newBusinessIds || [] } : config), pipelineTiming: undefined }, seeds: job.seeds,
     deadline: Math.min(job.createdAt.getTime() + config.budget.maxMinutes * 60000, (root?.config as ResearchConfig | undefined)?.automaticDeadline || Infinity),
     ...(includeFindings && config.targetId ? { findings: (await runEvidence(job)).map(f => f.evidence) } : {}),
   };
@@ -301,6 +302,74 @@ export async function POST(
     }
     return Response.json({ pending: next < candidates.length });
   }
+  // Each batch query is its own durable callback and provider reservation. Claims
+  // and completion are atomic against the current JSON so concurrent siblings do
+  // not overwrite seeds, attempts, or cancellation state.
+  if (payload?.action === "discover" && payload.decision?.queryId !== undefined) {
+    const parsed = z.object({ query: z.string().trim().min(3).max(410).refine(q => !/[\r\n]/.test(q)), reason: z.string().max(300), queryId: z.string().regex(/^q-\d+-\d+-[a-f0-9]+$/), batchStartIndex: z.number().int().min(0) }).safeParse(payload.decision);
+    if (!parsed.success) return Response.json({ error: "Invalid discovery query" }, { status: 400 });
+    const decision = parsed.data;
+    const index = Number(decision.queryId.split("-")[2]);
+    if (index >= DISCOVERY_BATCH_SIZE || discoveryQueryId(decision.query, decision.batchStartIndex, index) !== decision.queryId) return Response.json({ error: "Invalid query identifier" }, { status: 400 });
+    const config = job.config as ResearchConfig;
+    const control = await controlSnapshot(job);
+    if (!adaptiveDiscovery(config) || terminalResearchStates.includes(job.status) || control.status === "cancelled" || Date.now() >= control.deadline) return Response.json({ seeds: [], stopped: true, more: false });
+    const context = await discoveryContext(job);
+    const completed = context.attempts.find(a => a.queryId === decision.queryId);
+    if (completed) {
+      // Dispatch is idempotent, and may need replaying if the callback terminated
+      // after saving search results but before admitting their candidate jobs.
+      if (config.parallelDiscovery) await measureResearchSegment(jobId, job.organizationId, `discovery-dispatch-${decision.queryId}`, "coordination", () => dispatchDiscoveryCandidates(job.organizationId, jobId));
+      return Response.json({ seeds: config.parallelDiscovery ? [] : job.seeds, more: context.remainingSearches > 0 });
+    }
+    if (!context.remainingSearches || context.found >= context.target) return Response.json({ seeds: [], more: false });
+    const lease = crypto.randomUUID(), started = Date.now();
+    const claims = sql`COALESCE(${researchJobs.config}->'discoveryClaims', '{}'::jsonb)`;
+    const attempted = sql`COALESCE(${researchJobs.config}->'discoveryAttempts', '[]'::jsonb)`;
+    const claimed = await measureResearchSegment(jobId, job.organizationId, `discovery-claim-${decision.queryId}`, "coordination", async () => requireDb().update(researchJobs).set({
+      config: sql`jsonb_set(${researchJobs.config}, '{discoveryClaims}', ${claims} || jsonb_build_object(${decision.queryId}, ${JSON.stringify({ id: lease, until: started + 65000 })}::jsonb))`, updatedAt: new Date(),
+    }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates),
+      sql`COALESCE((${claims}->${decision.queryId}->>'until')::bigint, 0) < ${started}`,
+      sql`COALESCE((${researchJobs.config}->'discoveryLease'->>'until')::bigint, 0) < ${started}`,
+      sql`NOT EXISTS (SELECT 1 FROM jsonb_array_elements(${attempted}) a WHERE a->>'queryId' = ${decision.queryId})`,
+      sql`jsonb_array_length(${attempted}) + (SELECT count(*) FROM jsonb_each(${claims}) c WHERE (c.value->>'until')::bigint > ${started}) < ${discoveryLimit(config)}`,
+      sql`jsonb_array_length(${attempted}) >= ${decision.batchStartIndex} AND jsonb_array_length(${attempted}) < ${decision.batchStartIndex + DISCOVERY_BATCH_SIZE}`,
+      sql`COALESCE(${researchJobs.config}->>'discoveryStopReason', '') = ''`,
+    )).returning({ id: researchJobs.id }));
+    if (!claimed.length) return Response.json({ seeds: [], more: true, deferred: true });
+    let attempt: DiscoveryAttempt | undefined, safeSeeds: string[] = [], warning: string | undefined;
+    let deferred = false;
+    try {
+      const results = await measureResearchSegment(jobId, job.organizationId, `discovery-query-${decision.queryId}`, "discovery_search", () => cloudflareSearchResults(decision.query, searchFetch, jobId));
+      const safe = results.flatMap(r => { const url = publicResearchUrl(r.url); return url ? [{ ...r, url }] : []; });
+      const known = new Set([...(context.knownDomains || []), ...context.candidates.map(c => c.domain), ...(config.skipDomains || [])]);
+      safeSeeds = safe.filter(r => !known.has(researchDomain(r.url))).map(r => r.url);
+      attempt = { queryId: decision.queryId, query: decision.query, reason: decision.reason, status: "succeeded", resultCount: safe.length, newDomains: new Set(safeSeeds.map(researchDomain)).size, results: safe.slice(0, 8).map(r => ({ url: r.url, title: r.title.slice(0, 180), snippet: r.snippet.slice(0, 400) })) };
+    } catch (error) {
+      const category = error instanceof Error && "category" in error ? String(error.category) : "provider_error";
+      deferred = category === "browser_admission";
+      if (!deferred) attempt = { queryId: decision.queryId, query: decision.query, reason: decision.reason, status: "failed", category };
+      warning = "Web search temporarily unavailable; saved sources retained.";
+    }
+    if (attempt) Object.assign(attempt, { startedAt: new Date(started).toISOString(), durationMs: Date.now() - started });
+    // Count genuinely new domains against the row at commit time: sibling
+    // searches may have saved the same domain since this callback read context.
+    const attemptJson = attempt?.status === "succeeded"
+      ? sql`jsonb_set(${JSON.stringify(attempt)}::jsonb, '{newDomains}', to_jsonb((SELECT count(DISTINCT d.value) FROM jsonb_array_elements_text(${JSON.stringify([...new Set(safeSeeds.map(researchDomain))])}::jsonb) d WHERE d.value NOT IN (SELECT split_part(s.value, '/', 3) FROM jsonb_array_elements_text(COALESCE(${researchJobs.seeds}, '[]'::jsonb)) s))))`
+      : sql`${JSON.stringify(attempt || null)}::jsonb`;
+    const appended = sql`${attempted} || ${attempt ? sql`jsonb_build_array(${attemptJson})` : sql`'[]'::jsonb`}`;
+    const nextConfig = sql`jsonb_set(jsonb_set(jsonb_set(${researchJobs.config}, '{discoveryClaims}', ${claims} - ${decision.queryId}), '{discoveryAttempts}', ${appended}), '{discoveryCursor}', to_jsonb(jsonb_array_length(${appended})))`;
+    const updated = await measureResearchSegment(jobId, job.organizationId, `discovery-save-${decision.queryId}`, "persistence", async () => requireDb().update(researchJobs).set({
+      seeds: sql`(SELECT COALESCE(jsonb_agg(u.url), '[]'::jsonb) FROM (SELECT DISTINCT value AS url FROM jsonb_array_elements(COALESCE(${researchJobs.seeds}, '[]'::jsonb) || ${JSON.stringify(safeSeeds)}::jsonb) LIMIT 1000) u)`,
+      config: sql`jsonb_set(${nextConfig}, '{discoveryPending}', to_jsonb(jsonb_array_length(${appended}) < ${discoveryLimit(config)}))`,
+      updatedAt: new Date(), message: deferred ? "Waiting for search capacity" : "Search batch result saved; researching candidate businesses",
+    }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates), sql`${researchJobs.config}->'discoveryClaims'->${decision.queryId}->>'id' = ${lease}`, ...(attempt ? [sql`jsonb_array_length(${attempted}) < ${discoveryLimit(config)}`] : []))).returning({ id: researchJobs.id }));
+    console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), jobId, event: "discovery_query_completed", queryId: decision.queryId, durationMs: Date.now() - started, status: deferred ? "deferred" : attempt?.status, resultCount: attempt?.resultCount, newDomains: attempt?.newDomains, committed: Boolean(updated.length) }));
+    if (updated.length && config.parallelDiscovery) await measureResearchSegment(jobId, job.organizationId, `discovery-dispatch-${decision.queryId}`, "coordination", () => dispatchDiscoveryCandidates(job.organizationId, jobId));
+    const latest = await repo.get(jobId);
+    const latestContext = await discoveryContext(latest || job);
+    return Response.json({ seeds: config.parallelDiscovery ? [] : latest?.seeds || safeSeeds, warning, deferred, more: latestContext.remainingSearches > 0 && latestContext.found < latestContext.target });
+  }
   if (payload?.action === "discover") {
     if (terminalResearchStates.includes(job.status))
       return Response.json({ seeds: job.seeds, stopped: true });
@@ -409,7 +478,7 @@ export async function POST(
         // Reuse the committed attempt instead of charging for the same search again.
         if (typeof payload.decision?.attemptIndex === "number" && payload.decision.attemptIndex !== context.attempts.length) return Response.json({ seeds: config.parallelDiscovery ? [] : latest?.seeds || [], more: Boolean((latest?.config as ResearchConfig | undefined)?.discoveryPending) });
         const lease = crypto.randomUUID();
-        const claimed = await requireDb().update(researchJobs).set({ config: sql`jsonb_set(${researchJobs.config}, '{discoveryLease}', ${JSON.stringify({ id: lease, until: Date.now() + 65000 })}::jsonb)` }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates), sql`jsonb_array_length(COALESCE(${researchJobs.config}->'discoveryAttempts', '[]'::jsonb)) = ${context.attempts.length}`, sql`COALESCE((${researchJobs.config}->'discoveryLease'->>'until')::bigint, 0) < ${Date.now()}`)).returning({ id: researchJobs.id });
+        const claimed = await requireDb().update(researchJobs).set({ config: sql`jsonb_set(${researchJobs.config}, '{discoveryLease}', ${JSON.stringify({ id: lease, until: Date.now() + 65000 })}::jsonb)` }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates), sql`jsonb_array_length(COALESCE(${researchJobs.config}->'discoveryAttempts', '[]'::jsonb)) = ${context.attempts.length}`, sql`COALESCE((${researchJobs.config}->'discoveryLease'->>'until')::bigint, 0) < ${Date.now()}`, sql`NOT EXISTS (SELECT 1 FROM jsonb_each(COALESCE(${researchJobs.config}->'discoveryClaims', '{}'::jsonb)) c WHERE (c.value->>'until')::bigint > ${Date.now()})`)).returning({ id: researchJobs.id });
         if (!claimed.length) return Response.json({ seeds: [], more: true, deferred: true });
         const decision = resolveDiscoveryDecision(payload.decision?.planning, context, discoveryQueryPlan(config.searchTerms, config.geography).map(p => p.query));
         let attempt: DiscoveryAttempt | undefined;
@@ -433,7 +502,8 @@ export async function POST(
         const attempts = [...context.attempts, ...(attempt ? [attempt] : [])];
         more = !decision.stop && attempts.length < discoveryLimit(config);
         const stopReason = decision.stop ? decision.reason : !more ? "Search budget reached." : "";
-        await requireDb().update(researchJobs).set({ seeds: [...new Set(seeds)].filter(url => !skip.has(researchDomain(url))).slice(0, 1000), config: sql`jsonb_set(jsonb_set(jsonb_set(jsonb_set(${researchJobs.config} - 'discoveryLease', '{discoveryCursor}', ${String(attempts.length)}::jsonb), '{discoveryPending}', ${JSON.stringify(more)}::jsonb), '{discoveryAttempts}', ${JSON.stringify(attempts)}::jsonb), '{discoveryStopReason}', ${JSON.stringify(stopReason)}::jsonb)` }).where(and(eq(researchJobs.id, jobId), sql`${researchJobs.config}->'discoveryLease'->>'id' = ${lease}`, notInArray(researchJobs.status, terminalResearchStates)));
+        const committed = await requireDb().update(researchJobs).set({ seeds: [...new Set(seeds)].filter(url => !skip.has(researchDomain(url))).slice(0, 1000), config: sql`jsonb_set(jsonb_set(jsonb_set(jsonb_set(${researchJobs.config} - 'discoveryLease', '{discoveryCursor}', ${String(attempts.length)}::jsonb), '{discoveryPending}', ${JSON.stringify(more)}::jsonb), '{discoveryAttempts}', ${JSON.stringify(attempts)}::jsonb), '{discoveryStopReason}', ${JSON.stringify(stopReason)}::jsonb)` }).where(and(eq(researchJobs.id, jobId), sql`${researchJobs.config}->'discoveryLease'->>'id' = ${lease}`, sql`jsonb_array_length(COALESCE(${researchJobs.config}->'discoveryAttempts', '[]'::jsonb)) = ${context.attempts.length}`, sql`NOT EXISTS (SELECT 1 FROM jsonb_each(COALESCE(${researchJobs.config}->'discoveryClaims', '{}'::jsonb)) c WHERE (c.value->>'until')::bigint > ${Date.now()})`, notInArray(researchJobs.status, terminalResearchStates))).returning({ id: researchJobs.id });
+        if (!committed.length) return Response.json({ seeds: [], more: true, deferred: true });
       } else {
         const plan = discoveryQueryPlan(config.searchTerms, config.geography);
         const cursor = afterDiscovery?.discoveryCursor || 0;
@@ -461,7 +531,7 @@ export async function POST(
     }
     const finalSkip = new Set(((await repo.get(jobId))?.config as ResearchConfig | undefined)?.skipDomains || []);
     seeds = [...new Set(seeds)].filter(url => !finalSkip.has(researchDomain(url))).slice(0, config.adaptiveDiscovery ? 1000 : 100);
-    await repo.seeds(jobId, seeds, warning || (seeds.length ? "Website search finished; researching candidate businesses" : "Website search finished; no candidate websites found in this batch"));
+    if (!adaptiveDiscovery(config)) await repo.seeds(jobId, seeds, warning || (seeds.length ? "Website search finished; researching candidate businesses" : "Website search finished; no candidate websites found in this batch"));
     if (config.parallelDiscovery) await dispatchDiscoveryCandidates(job.organizationId, jobId);
     return Response.json({ seeds: config.parallelDiscovery ? [] : seeds, deferred: admissionDeferred, warning, peopleLeadCount, skipDomains: [...finalSkip], more });
   }

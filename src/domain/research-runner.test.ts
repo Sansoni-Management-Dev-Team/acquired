@@ -6,6 +6,7 @@ import {
 } from "./research-runner";
 import type { ResearchConfig } from "./research";
 import { ResearchAiError } from "./research-ai-error";
+import { BrowserAdmissionDeferred } from "./research-provider-error";
 it('continues owner searches after a restart leaves only previously visited seeds', async () => {
   const t = setup();
   Object.assign(t.config, { mode: 'automatic', purpose: 'people', targetedFollowup: true, maxPeopleSearches: 2, companyName: 'Example Instruments', companyDomain: 'instruments.example.com', runtime: { remaining: [], visited: [...t.config.seeds], attempts: [] } });
@@ -770,3 +771,222 @@ it('publishes the browser-wait notice as a heartbeat rather than once per page',
   expect(waiting).toHaveLength(1);
   expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'complete', pages: 3 });
 });
+
+it('overlaps one same-company lookahead read with AI and consumes its result once', async () => {
+  const t = setup();
+  Object.assign(t.config, { purpose: 'people', companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
+  t.service.pageLookahead = true;
+  let signalRead!: () => void;
+  const nextReadStarted = new Promise<void>(resolve => { signalRead = resolve; });
+  let extracting = false;
+  let signalExtraction!: () => void;
+  const extractionStarted = new Promise<void>(resolve => { signalExtraction = resolve; });
+  t.service.readPage = vi.fn(async url => {
+    if (url.endsWith('/leadership')) {
+      signalRead();
+      await extractionStarted;
+      expect(extracting).toBe(true);
+      return { status: 'completed', page: { url, markdown: '# Our team\n#### Alex Example\n##### Managing Director' } };
+    }
+    return { status: 'completed', page: { url, markdown: '# Our team\n[Leadership](/leadership)' } };
+  });
+  t.service.extract = vi.fn(async () => {
+    extracting = true;
+    signalExtraction();
+    await nextReadStarted;
+    await Promise.resolve();
+    extracting = false;
+    return [];
+  });
+  await runResearch(t.step, t.service);
+  expect(t.service.readPage).toHaveBeenCalledTimes(2);
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ pages: 2 });
+  expect(t.progress.mock.calls.flatMap(([event]) => event.page?.findings || []).some(f => f.name === 'Alex Example')).toBe(true);
+  expect(t.progress.mock.calls.find(([event]) => event.page?.url === t.config.seeds[0])?.[0].runtime?.bufferedPage?.url).toBe('https://instruments.example.com/leadership');
+}, 1000);
+
+it('never starts lookahead beyond the page allowance', async () => {
+  const t = setup();
+  Object.assign(t.config, { purpose: 'people', companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
+  t.config.budget.maxPages = 1;
+  t.service.pageLookahead = true;
+  t.service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: '# Our team\n[Leadership](/leadership)' } }));
+  t.service.extract = vi.fn(async () => []);
+  await runResearch(t.step, t.service);
+  expect(t.service.readPage).toHaveBeenCalledTimes(1);
+  expect(t.progress.mock.calls.at(-1)?.[0].runtime?.remaining).toContain('https://instruments.example.com/leadership');
+});
+
+it('reuses buffered checkpoint content on continuation without another provider read', async () => {
+  const t = setup();
+  const url = 'https://instruments.example.com/leadership';
+  Object.assign(t.config, { purpose: 'people', companyName: 'Example Instruments', companyDomain: 'instruments.example.com', runtime: { remaining: [url], visited: [t.config.seeds[0]], attempts: [], bufferedPage: { url, page: { url, markdown: '# Our team\n#### Alex Example\n##### Managing Director', observedAt: '2026-09-30T00:00:00.000Z' } } } });
+  t.service.readPage = vi.fn();
+  await runResearch(t.step, t.service);
+  expect(t.service.readPage).not.toHaveBeenCalled();
+  expect(t.service.extract).not.toHaveBeenCalled();
+  expect(t.progress.mock.calls.find(([event]) => event.page)?.[0].page?.observedAt).toBe('2026-09-30T00:00:00.000Z');
+});
+
+it('plans a batch once and gives concurrent discovery calls distinct operation permits', async () => {
+  const t = setup();
+  Object.assign(t.config, { adaptiveDiscovery: true, workflow: 'business', discover: true, parallelDiscovery: true, seeds: [] });
+  t.service.discoveryBatch = true;
+  t.service.discoveryContext = vi.fn().mockResolvedValue({ scope: 'industrial services', startingTerms: [], regions: ['Victoria'], target: 20, found: 0, remainingSearches: 2, attempts: [], candidates: [] });
+  t.service.planDiscovery = vi.fn().mockResolvedValue({ decisions: ['cleaning', 'calibration'].map(query => ({ query, region: 'Victoria', reason: 'Cover separate sectors', stop: false })) });
+  let release!: () => void;
+  const bothStarted = new Promise<void>(resolve => { release = resolve; });
+  let active = 0;
+  t.service.discover = vi.fn(async (_query, permit) => {
+    expect(permit).toMatch(/^discover-0-q-/);
+    if (++active === 2) release();
+    await bothStarted;
+    return { seeds: [], more: false };
+  });
+  t.step.do = vi.fn(async (name, run) => run({ reservation: name }));
+  await runResearch(t.step, t.service);
+  expect(t.service.planDiscovery).toHaveBeenCalledTimes(1);
+  expect(t.service.discover).toHaveBeenCalledTimes(2);
+  const permits = vi.mocked(t.service.discover).mock.calls.map(([, permit]) => permit);
+  expect(new Set(permits).size).toBe(2);
+}, 1000);
+
+it('joins a lookahead read when cancellation arrives during extraction', async () => {
+  const t = setup();
+  Object.assign(t.config, { purpose: 'people', companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
+  t.service.pageLookahead = true;
+  let releaseRead!: () => void;
+  const readGate = new Promise<void>(resolve => { releaseRead = resolve; });
+  let joined = false;
+  t.service.readPage = vi.fn(async url => {
+    if (url.endsWith('/leadership')) {
+      await readGate;
+      joined = true;
+    }
+    return { status: 'completed', page: { url, markdown: '# Our team\n[Leadership](/leadership)' } };
+  });
+  t.service.extract = vi.fn(async () => {
+    t.setStatus('cancelled');
+    releaseRead();
+    return [];
+  });
+  await runResearch(t.step, t.service);
+  expect(joined).toBe(true);
+  expect(t.service.readPage).toHaveBeenCalledTimes(2);
+  expect(t.service.extract).toHaveBeenCalledTimes(1);
+}, 1000);
+
+it('retains extraction progress when a speculative provider read fails', async () => {
+  const t = setup();
+  Object.assign(t.config, { purpose: 'people', companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
+  t.service.pageLookahead = true;
+  t.service.readPage = vi.fn(async url => {
+    if (url.endsWith('/leadership')) throw new Error('Provider unavailable');
+    return { status: 'completed', page: { url, markdown: '# Our team\n[Leadership](/leadership)' } };
+  });
+  t.service.extract = vi.fn(async () => []);
+  await runResearch(t.step, t.service);
+  expect(t.service.readPage).toHaveBeenCalledTimes(2);
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'partial', pages: 1 });
+  expect(t.progress.mock.calls.at(-1)?.[0].runtime?.attempts).toHaveLength(2);
+});
+
+it('uses inherited objective evidence without reading or extracting it again', async () => {
+  const t = setup();
+  Object.assign(t.config, { mode: 'automatic', purpose: 'people', enrichmentPhase: 'initial', companyName: 'Example Instruments', companyDomain: 'instruments.example.com', inheritedFindings: [{ kind: 'person', name: 'Alex Example', value: 'Director', email: 'alex@instruments.example.com', quote: 'Alex Example Director alex@instruments.example.com', website: t.config.seeds[0] }] });
+  t.service.readPage = vi.fn();
+  await runResearch(t.step, t.service);
+  expect(t.service.readPage).not.toHaveBeenCalled();
+  expect(t.service.extract).not.toHaveBeenCalled();
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'complete', enrichmentPendingFields: [] });
+});
+
+it('defers deep missing-field searches after repeated successful empty results while leaving evidence pending', async () => {
+  const t = setup();
+  Object.assign(t.config, { mode: 'automatic', purpose: 'firmographics', enrichmentPhase: 'deep', diminishingReturnsSearches: 2, targetedFollowup: true, companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
+  t.config.budget = { maxPages: 5, maxDomains: 1, maxMinutes: 10, maxModelCalls: 0 };
+  t.service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: '# Example Instruments\nWe employ 50 employees.' } }));
+  t.service.targetedSearch = vi.fn().mockResolvedValueOnce({ seeds: [], failed: true }).mockResolvedValue({ seeds: [] });
+  await runResearch(t.step, t.service);
+  expect(t.service.targetedSearch).toHaveBeenCalledTimes(3);
+  expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'partial', enrichmentPendingFields: ['revenue'] });
+  expect(t.progress.mock.calls.at(-1)?.[0].message).toContain('2 successful searches returned no new sources');
+});
+
+it('retains a read page for extraction when AI admission is deferred and does not consume a model call', async () => {
+  const t = setup();
+  t.config.budget.maxPages = 1;
+  t.service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: 'Example Instruments makes sensors.' } }));
+  t.service.extract = vi.fn(async () => { throw new BrowserAdmissionDeferred('Worker request budget reached'); });
+  await runResearch(t.step, t.service);
+  const final = t.progress.mock.calls.at(-1)?.[0];
+  expect(final).toMatchObject({ status: 'partial', pages: 1, modelCalls: 0 });
+  expect(final?.runtime?.pendingPage?.page.markdown).toBe('Example Instruments makes sensors.');
+  expect(final?.runtime?.remaining).toContain(t.config.seeds[0]);
+  expect(final?.runtime?.visited).not.toContain(t.config.seeds[0]);
+});
+
+it('overlaps sitemap discovery with extraction and merges links before serial progress', async () => {
+  const t = setup();
+  Object.assign(t.config, { purpose: 'people', companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
+  t.service.pageLookahead = true;
+  let releaseExtraction!: () => void;
+  const extractionStarted = new Promise<void>(resolve => { releaseExtraction = resolve; });
+  let releaseSitemap!: () => void;
+  const sitemapStarted = new Promise<void>(resolve => { releaseSitemap = resolve; });
+  let activeHostReads = 0;
+  let maximumHostReads = 0;
+  const beginRead = () => { maximumHostReads = Math.max(maximumHostReads, ++activeHostReads); };
+  const permits: string[] = [];
+  t.step.do = vi.fn(async (name, run) => run({ reservation: name }));
+  t.service.readPage = vi.fn(async (url, reservation) => {
+    beginRead();
+    permits.push(reservation!);
+    activeHostReads--;
+    return { status: 'completed', page: { url, markdown: url.endsWith('/leadership') ? '# Our team\n#### Alex Example\n##### Managing Director' : '# Our company\n[Leadership](/leadership)' } };
+  });
+  t.service.readSiteFile = vi.fn(async (url, reservation) => {
+    beginRead();
+    permits.push(reservation!);
+    releaseSitemap();
+    await extractionStarted;
+    activeHostReads--;
+    return { status: 'completed', page: { url, markdown: url.endsWith('/robots.txt') ? 'Sitemap: https://instruments.example.com/sitemap.xml' : '<urlset><url><loc>https://instruments.example.com/contact</loc></url></urlset>' } };
+  });
+  t.service.extract = vi.fn(async () => {
+    releaseExtraction();
+    await sitemapStarted;
+    return [];
+  });
+  await runResearch(t.step, t.service);
+  expect(maximumHostReads).toBe(1);
+  expect(new Set(permits).size).toBe(permits.length);
+  expect(t.service.readPage).toHaveBeenCalledTimes(2);
+  const checkpoint = t.progress.mock.calls.find(([event]) => event.page?.url === t.config.seeds[0])?.[0];
+  expect(checkpoint?.runtime?.remaining).toEqual(expect.arrayContaining(['https://instruments.example.com/leadership', 'https://instruments.example.com/contact']));
+  expect(checkpoint?.runtime?.bufferedPage?.url).toBe('https://instruments.example.com/leadership');
+}, 1000);
+
+it('joins sitemap work and retains its links when an extraction checkpoint is deferred', async () => {
+  const t = setup();
+  Object.assign(t.config, { purpose: 'people', companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
+  t.config.budget.maxPages = 1;
+  let extractionFailed!: () => void;
+  const extractionAttempted = new Promise<void>(resolve => { extractionFailed = resolve; });
+  let sitemapFinished = false;
+  t.service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: '# Our company\nWe make precision instruments for Australian industry.' } }));
+  t.service.readSiteFile = vi.fn(async url => {
+    await extractionAttempted;
+    if (url.endsWith('/sitemap.xml')) sitemapFinished = true;
+    return { status: 'completed', page: { url, markdown: url.endsWith('/robots.txt') ? 'Sitemap: https://instruments.example.com/sitemap.xml' : '<urlset><url><loc>https://instruments.example.com/contact</loc></url></urlset>' } };
+  });
+  t.step.do = vi.fn(async (name, run) => {
+    if (name === 'extract-1') { extractionFailed(); throw new BrowserAdmissionDeferred('Worker request budget reached'); }
+    return run();
+  });
+  await runResearch(t.step, t.service);
+  expect(sitemapFinished).toBe(true);
+  expect(t.progress.mock.calls.at(-1)?.[0].modelCalls).toBe(0);
+  expect(t.progress.mock.calls.at(-1)?.[0].runtime?.remaining).toEqual(expect.arrayContaining([t.config.seeds[0], 'https://instruments.example.com/contact']));
+  expect(t.progress.mock.calls.at(-1)?.[0].runtime?.pendingPage?.url).toBe(t.config.seeds[0]);
+}, 1000);

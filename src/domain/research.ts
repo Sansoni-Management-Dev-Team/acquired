@@ -84,6 +84,8 @@ export const researchStartSchema = z.object({
   searchTerms: z.array(z.string().trim().min(2).max(160)).max(6).default([]),
   researchScope: z.string().trim().min(2).max(960).optional(),
   researchEffort: z.enum(["focused", "standard", "thorough"]).optional(),
+  enrichmentConcurrency: z.number().int().min(1).max(16).optional(),
+  discoveryConcurrency: z.number().int().min(1).max(16).optional(),
   geography: z.string().trim().min(2).max(160),
   discover: z.boolean().default(true),
   strategy: z.enum(["discover", "investigate"]).optional(),
@@ -103,6 +105,10 @@ export const researchRuntimeSchema = z.object({
   // One page may be awaiting extraction when a batch runs out of requests.
   // Persist the content in existing job JSON; no database schema change needed.
   pendingPage: z.object({
+    url: z.string().url(),
+    page: z.object({ url: z.string().url(), markdown: z.string().max(30000), title: z.string().optional(), observedAt: z.string() }),
+  }).optional(),
+  bufferedPage: z.object({
     url: z.string().url(),
     page: z.object({ url: z.string().url(), markdown: z.string().max(30000), title: z.string().optional(), observedAt: z.string() }),
   }).optional(),
@@ -179,13 +185,13 @@ export function continueResearchConfig(
     discover: false,
     budget,
     parentJobId,
-    runtime: { remaining, visited, attempts: [], ...(config.runtime?.pendingPage ? { pendingPage: config.runtime.pendingPage } : {}) },
+    runtime: { remaining, visited, attempts: [], ...(config.runtime?.pendingPage ? { pendingPage: config.runtime.pendingPage } : {}), ...(config.runtime?.bufferedPage ? { bufferedPage: config.runtime.bufferedPage } : {}) },
   };
 }
 export type ResearchConfig = Omit<
   z.infer<typeof researchStartSchema>,
   "requestId" | "continueFrom"
-> & { adaptiveDiscovery?: boolean; discoveryStopReason?: string; admissionContinuations?: number; parallelDiscovery?: boolean; discoveryCandidate?: boolean; executionSlot?: number | string; researchRunId?: string; automaticPageLimit?: number; automaticPagesUsed?: number; automaticDeadline?: number; newBusinessIds?: string[]; businessTargetStartedAt?: string; targetedFollowup?: boolean; targetedSearches?: string[]; targetedSearchAttempts?: import("./research-objectives").SearchAttempt[]; skipDomains?: string[]; companyLocation?: string; discoveryCursor?: number; discoveryPending?: boolean; discoveryAttempts?: import("./adaptive-discovery").DiscoveryAttempt[]; discoverySourcesPrepared?: boolean; discoverySourceCandidates?: TargetCandidate[]; discoverySourceCursor?: number; discoverySourceCoverage?: CoverageSource[]; discoverySourceCoverageRecorded?: boolean; autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
+> & { researchMilestones?: { firstCompanyAt?: string; targetReachedAt?: string }; diminishingReturnsSearches?: number; followupExhaustedFields?: import('./research-objectives').ResearchField[]; followupSearchCounts?: Partial<Record<import('./research-objectives').ResearchField, number>>; followupEmptySearchCounts?: Partial<Record<import('./research-objectives').ResearchField, number>>; pipelineTiming?: Record<string, import('./research-timing').ResearchTimingSpan>; enrichmentPhase?: 'initial' | 'deep'; inheritedFindings?: ResearchFinding[]; enrichmentPendingFields?: import('./research-objectives').ResearchField[]; enrichmentConcurrency?: number; discoveryConcurrency?: number; adaptiveDiscovery?: boolean; discoveryStopReason?: string; admissionContinuations?: number; parallelDiscovery?: boolean; discoveryCandidate?: boolean; executionSlot?: number | string; researchRunId?: string; automaticPageLimit?: number; automaticPagesUsed?: number; automaticDeadline?: number; newBusinessIds?: string[]; businessTargetStartedAt?: string; targetedFollowup?: boolean; targetedSearches?: string[]; targetedSearchAttempts?: import("./research-objectives").SearchAttempt[]; skipDomains?: string[]; companyLocation?: string; discoveryCursor?: number; discoveryPending?: boolean; discoveryAttempts?: import("./adaptive-discovery").DiscoveryAttempt[]; discoverySourcesPrepared?: boolean; discoverySourceCandidates?: TargetCandidate[]; discoverySourceCursor?: number; discoverySourceCoverage?: CoverageSource[]; discoverySourceCoverageRecorded?: boolean; autoContinueFrom?: string; autoRoot?: string; autoDomains?: string[]; runtime?: ResearchRuntime; parentJobId?: string; purpose?: "people" | "firmographics"; targetId?: string; companyName?: string; companyDomain?: string; legalEntity?: string; maxPeopleSearches?: number; peopleFollowupStarted?: boolean; peopleSearchLeads?: PeopleSearchLead[]; peopleLinks?: Record<string, string[]> };
 export const findingSchema = z.object({
   kind: z.enum([
     "company",
@@ -235,6 +241,10 @@ export const progressSchema = z.object({
   modelCalls: z.number().int().min(0),
   message: z.string().max(1000),
   crawlId: z.string().uuid().nullable().optional(),
+  enrichmentPendingFields: z.array(z.enum(['size', 'revenue', 'people', 'email'])).max(4).optional(),
+  followupExhaustedFields: z.array(z.enum(['size', 'revenue', 'people', 'email'])).max(4).optional(),
+  followupSearchCounts: z.partialRecord(z.enum(['size', 'revenue', 'people', 'email']), z.number().int().min(0).max(100)).optional(),
+  followupEmptySearchCounts: z.partialRecord(z.enum(['size', 'revenue', 'people', 'email']), z.number().int().min(0).max(100)).optional(),
   runtime: researchRuntimeSchema.optional(),
   page: z
     .object({
