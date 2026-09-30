@@ -66,7 +66,7 @@ export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
   if (busy) return <div className="mx-auto my-[8vh] max-w-[620px] px-4 sm:px-0"><CompanySearchProgress detail={progress || undefined} /></div>;
 
   return <div className="mx-auto max-w-6xl space-y-10 p-5 sm:p-8">
-    <section className="rounded-3xl bg-[linear-gradient(115deg,#bfd2f6_0%,#d8c7f5_45%,#f5c2a5_100%)] px-5 py-16 text-slate-900 sm:px-10 sm:py-20">
+    <section className="rounded-3xl px-5 py-16 text-slate-900 sm:px-10 sm:py-20">
       <div className="mx-auto max-w-3xl">
         <h1 className="text-center text-3xl font-bold tracking-tight sm:text-5xl">Create a mandate</h1>
         <p className="mt-3 text-center text-sm text-slate-700 sm:text-base">Tell us what you want to buy. We’ll turn it into a mandate you can review.</p>
