@@ -16,7 +16,13 @@ export class AcquisitionRepository {
       return { id: row.id, brief, createdAt: row.createdAt.toISOString() };
     });
   }
-  async getMandate(id: string) { return (await this.listMandates()).find(m => m.id === id); }
+  async getMandate(id: string): Promise<MandateView | undefined> {
+    const [row] = await this.db.select().from(mandates).where(and(eq(mandates.organizationId, this.org), eq(mandates.id, id))).limit(1);
+    if (!row) return undefined;
+    const parsed = briefSchema.safeParse((row.filters as Record<string, unknown>).brief);
+    const brief = parsed.success ? parsed.data : { ...emptyBrief(), name: row.confirmation?.slice(0, 80) || 'Imported mandate — review required', naturalLanguage: row.naturalLanguage };
+    return { id: row.id, brief, createdAt: row.createdAt.toISOString() };
+  }
   async saveBrief(brief: AcquisitionBrief, actorId: string, id?: string) {
     const values = { filters: { ...briefToMandate(brief), brief }, naturalLanguage: brief.naturalLanguage, confirmation: brief.name, provenance: { source: "Reviewed structured brief", capturedAt: new Date().toISOString() } };
     if (id) {

@@ -10,9 +10,9 @@ import { AcquisitionRepository } from "./acquisition-repository";
 import { readOutreachMetadata } from "@/domain/outreach";
 import { FirmableHistoryRepository } from "./firmable-history-repository";
 import { storedFirmableContactData } from "./firmable-read-model";
-export async function loadOutreach(organizationId: string, mandateId: string, userId?: string) {
+export async function loadOutreach(organizationId: string, mandateId: string, userId?: string, targetId?: string) {
   const acquisition = new AcquisitionRepository(organizationId);
-  const memberships = await acquisition.memberships(mandateId);
+  const memberships = await acquisition.memberships(mandateId, targetId ? [targetId] : undefined);
   const membershipIds = new Set(memberships.map(m => m.target.id));
   const targetIds = [...membershipIds];
   const database = requireDb();
@@ -20,7 +20,7 @@ export async function loadOutreach(organizationId: string, mandateId: string, us
     targetIds.length ? database.select().from(targets).where(and(eq(targets.organizationId, organizationId), inArray(targets.id, targetIds))) : [],
     targetIds.length ? database.select().from(contacts).where(and(eq(contacts.organizationId, organizationId), inArray(contacts.targetId, targetIds))) : [],
     targetIds.length ? database.select().from(signals).where(and(eq(signals.organizationId, organizationId), inArray(signals.targetId, targetIds))) : [],
-    database.select().from(sequenceEnrolments).where(and(eq(sequenceEnrolments.organizationId, organizationId), eq(sequenceEnrolments.mandateId, mandateId))),
+    database.select().from(sequenceEnrolments).where(and(eq(sequenceEnrolments.organizationId, organizationId), eq(sequenceEnrolments.mandateId, mandateId), targetId ? eq(sequenceEnrolments.targetId, targetId) : undefined)),
     database.select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, organizationId)).limit(1),
   ]);
   const firmableCompanyIds = [...new Set(memberships.flatMap(member => member.target.sourceData?.firmable?.firmableId ? [member.target.sourceData.firmable.firmableId] : []))];

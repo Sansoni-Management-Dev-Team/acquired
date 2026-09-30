@@ -24,10 +24,11 @@ export function CompanyReviewPanel({ mandate, initial: member, onClose, position
   const [contactsError, setContactsError] = useState("");
   useEffect(() => { const el = dialog.current!; el.showModal(); return () => el.close(); }, []);
   useEffect(() => {
+    if (tab !== 'contacts' || contacts) return;
     let live = true;
-    void jsonRequest(`/api/mandates/${mandate.id}/outreach`).then(data => { if (live) setContacts(data); }).catch(() => { if (live) setContactsError("Could not load saved contacts. Reopen this company to retry."); });
+    void jsonRequest(`/api/mandates/${mandate.id}/outreach?targetId=${member.target.id}`).then(data => { if (live) setContacts(data); }).catch(() => { if (live) setContactsError("Could not load saved contacts. Reopen this company to retry."); });
     return () => { live = false; };
-  }, [mandate.id]);
+  }, [mandate.id, member.target.id, tab, contacts]);
   function openTab(value: string) { setTab(value); content.current?.scrollTo({ top: 0 }); }
   const savedContacts = contacts?.views.find(t => t.id === member.target.id)?.contacts || [];
   return <dialog ref={dialog} onPointerDown={event => dialogBackdrop(backdropPressed, onClose).onPointerDown(event)} onPointerCancel={() => { backdropPressed.current = false; }} onClick={event => dialogBackdrop(backdropPressed, onClose).onClick(event)} onCancel={e => { e.preventDefault(); onClose(); }} aria-labelledby="company-review-heading" className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-dvh w-full max-w-3xl overflow-hidden border-l border-[var(--border)] bg-[var(--background)] p-0 text-[var(--foreground)] shadow-xl backdrop:bg-black/50 backdrop:backdrop-blur-sm">

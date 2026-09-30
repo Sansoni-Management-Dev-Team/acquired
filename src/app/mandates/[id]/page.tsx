@@ -10,6 +10,8 @@ import { organization } from "@/db/schema";
 import { buyerProfileFromMetadata } from "@/domain/buyer-profile";
 import { loadWorkspaceContacts } from "@/db/firmable-read-model";
 import { FirmableHistoryRepository } from "@/db/firmable-history-repository";
+import { CompanyListRepository } from '@/db/company-list-repository';
+import { defaultCompanyListQuery } from '@/domain/company-list';
 export default async function MandatePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string; targetId?: string }> }) {
   const { id } = await params;
   if (!z.string().uuid().safeParse(id).success) notFound();
@@ -23,6 +25,12 @@ export default async function MandatePage({ params, searchParams }: { params: Pr
   const mandates = await repo.listMandates();
   const mandate = mandates.find(m => m.id === id);
   if (!mandate) notFound();
+  if (tab === 'targets') {
+    const companies = await new CompanyListRepository(organizationId).load(id,defaultCompanyListQuery);
+    if (!companies || 'unchanged' in companies) notFound();
+    const initial = { mandate, memberships: [], coverage: [], valuations: [], buyerProfile: null, contacts: [], firmableRefreshes: [] };
+    return <MandateWorkspace key={`${id}:${tab}`} mandates={mandates} initial={initial} initialCompanies={companies} tab={tab} />;
+  }
   const [memberships, coverage, valuations, organizations] = await Promise.all([repo.memberships(id), repo.coverage(id), repo.valuations(id), requireDb().select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, organizationId))]);
   const initial = { mandate, memberships, coverage, valuations, buyerProfile: buyerProfileFromMetadata(organizations[0]?.metadata), contacts: await loadWorkspaceContacts(requireDb(), organizationId, memberships), firmableRefreshes: await new FirmableHistoryRepository(requireDb()).latestRuns(organizationId, memberships.map(item => item.target.id)) };
   return <MandateWorkspace key={`${id}:${tab}`} mandates={mandates} initial={initial} tab={tab} />;

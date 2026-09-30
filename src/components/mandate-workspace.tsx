@@ -1,21 +1,11 @@
 "use client";
 
-import { ContactEnrichmentProgress } from "./contact-enrichment-progress";
-import { TargetReviewRow } from "./target-review-row";
-import { CompanyReviewPanel } from "./company-review-panel";
-import { MandateFitCells } from "./mandate-fit-cells";
-import Link from "next/link";
-import { mandateTabHref } from "@/domain/mandate-navigation";
-import { businessResearchStatus } from "@/domain/business-research";
-import { type EvidenceCounts } from "@/domain/evidence-status";
-import { researchDomain, terminalResearchStates, type SavedResearchFinding } from "@/domain/research";
-import { ResearchPanel, type ResearchJob, type ResearchPanelData } from "./research-panel";
 import { MandateBriefForm } from "./mandate-brief-form";
-import { orderCompanyRows, toggleMatchingTargets } from "@/domain/target-candidates";
 
 import { SidebarRegistration } from "./app-shell";
-import { useCallback, useState, useRef } from "react";
-import { useActivePolling } from "./use-active-polling";
+import { useState } from "react";
+import { CompaniesWorkspace } from './companies-workspace';
+import { companyListPage, defaultCompanyListQuery, summariseCompany, type CompanyList } from '@/domain/company-list';
 import { type CoverageRun, type MandateView, type MembershipView, type ValuationObservation } from "@/domain/acquisition";
 import { BuyerProfile } from "@/domain/buyer-profile";
 import { providerNeutralText } from "@/domain/provider-display";
@@ -39,84 +29,16 @@ export function MandateNavigation({ mandates, selected, tab = "brief" }: { manda
   return <SidebarRegistration value={{ mandates: mandates.map(m => ({ id: m.id, name: m.brief.name })), selected, tab }} />;
 }
 
-export function MandateWorkspace({ mandates, initial, tab }: { mandates: MandateView[]; initial: WorkspaceData; tab: string }) {
-  const [data, setData] = useState(initial); const [selected, setSelected] = useState<string[]>([]); const [filter, setFilter] = useState(""); const [stage, setStage] = useState("all"); const [certFilter, setCertFilter] = useState(""); const [researchFilter, setResearchFilter] = useState("all"); const [dataFilter, setDataFilter] = useState("all");
-  const [enrichingTargets, setEnrichingTargets] = useState<string[] | null>(null);
-  const [reviewQueue, setReviewQueue] = useState<string[]>([]);
-  const [reviewId, setReviewId] = useState<string | null>(null);
-  const id = data.mandate.id;
-  const [research, setResearch] = useState<{findings: SavedResearchFinding[]; jobs: ResearchJob[]; evidence?: Record<string, EvidenceCounts>; active?: boolean; pendingEnrichment?: ResearchPanelData["pendingEnrichment"]}>({findings:[], jobs:[]});
-  const refreshSequence = useRef(0);
-  const activeFirmable = data.firmableRefreshes.filter(run => run.status === "queued" || run.status === "running");
-  const visibleFirmable = data.firmableRefreshes.filter(run => activeFirmable.includes(run) || selected.includes(run.targetId));
-  const polling = tab === "targets";
-  const refresh = useCallback(async () => {
-    if (!polling) return;
-    const sequence = ++refreshSequence.current;
-    try {
-      const workspace = await jsonRequest(`/api/mandates/${id}`);
-      if (sequence !== refreshSequence.current) return;
-      setData(workspace);
-    } catch { /* Keep the last usable workspace until the next refresh. */ }
-  }, [id, polling]);
-  // ResearchPanel owns research polling; refresh workspace data while company data is running.
-  useActivePolling(refresh, { active: polling && activeFirmable.length > 0, intervalMs: 5000, key: `${id}:${tab}`, initial: false });
-  const onResearchResults = useCallback((next: ResearchPanelData, changed: boolean) => {
-    setResearch({ findings: next.findings, jobs: [...next.jobs, ...(next.companyJobs || []), ...(next.peopleJobs || [])], evidence: next.evidence, active: next.active, pendingEnrichment: next.pendingEnrichment });
-    if (changed || next.jobs.length) void refresh();
-  }, [refresh]);
-  const researchStatus = (m: MembershipView) => businessResearchStatus(m.target.domain, research.findings.filter(f => f.targetId === m.target.id || researchDomain(f.sourceUrl) === m.target.domain).map(f => f.evidence), research.jobs.some(j => !terminalResearchStates.includes(j.status) && (j.config.targetId === m.target.id || j.config.newBusinessIds?.includes(m.target.id) || Boolean(m.target.domain && (j.config.companyDomain === m.target.domain || [...j.seeds, ...j.config.seeds].some(url => researchDomain(url) === m.target.domain))))));
-
-  const search = filter.trim().toLowerCase();
-  const hasData = (findings: SavedResearchFinding[] | undefined, kind: "headcount" | "revenue" | "person") => Boolean(findings?.some(finding => finding.evidence.kind === kind));
-  const filtered = data.memberships.filter(m => {
-    const status = researchStatus(m);
-    return `${m.target.companyName} ${m.target.domain} ${m.target.sector.value || ""}`.toLowerCase().includes(search)
-      && (stage === "all" || m.assessment.stage === stage)
-      && (!certFilter || m.accreditations.some(a => `${a.issuer} ${a.scope}`.toLowerCase().includes(certFilter.toLowerCase())))
-      && (researchFilter === "all" || researchFilter === "ready" && status === "Ready to review" || researchFilter === "researching" && status === "Researching" || researchFilter === "needs-evidence" && status === "Needs more evidence")
-      && (dataFilter === "all" || dataFilter === "headcount" && (m.target.headcount.value !== null || hasData(m.researchFindings, "headcount")) || dataFilter === "revenue" && (m.target.revenue.value !== null || hasData(m.researchFindings, "revenue")) || dataFilter === "person" && (hasData(m.researchFindings, "person") || data.contacts.some(c => c.targetId === m.target.id && c.name?.trim())));
-  });
-  const companyRows = orderCompanyRows([], filtered, data.contacts);
-  const reviewIds = companyRows.flatMap(row => row.kind === "saved" ? [row.membership.target.id] : []);
-  const openReview = (targetId: string) => { setReviewQueue(reviewIds); setReviewId(targetId); };
-  const reviewedMember = data.memberships.find(m => m.target.id === reviewId);
-  const matchingIds = filtered.map(m => m.target.id);
-  const allMatchingSelected = matchingIds.length > 0 && matchingIds.every(targetId => selected.includes(targetId));
-  if (enrichingTargets) return <><MandateNavigation mandates={mandates} selected={id} tab={tab} /><div className="p-5 sm:p-8"><ContactEnrichmentProgress mandateId={id} targetIds={enrichingTargets} onBack={() => { setEnrichingTargets(null); void refresh(); }} /></div></>;
-  return <><MandateNavigation mandates={mandates.map(m => m.id === id ? data.mandate : m)} selected={id} tab={tab} /><div className="space-y-5 p-5 sm:p-8">{tab !== "brief" && <header><p className="text-xs uppercase tracking-widest text-[var(--accent)]">Acquisition workspace</p><h1 className="mt-2 text-3xl font-semibold">{data.mandate.brief.name}</h1></header>}
-    {tab === "brief" && <MandateBriefForm mandateId={id} brief={data.mandate.brief} onSaved={brief => setData(current => ({ ...current, mandate: { ...current.mandate, brief } }))} />}
-    {tab === "targets" && <>
-      <ResearchPanel mandateId={id} brief={data.mandate.brief} showStartAction={false} hideProgress onResultsChanged={onResearchResults} />
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Companies</h2><Link className={buttonClass} href={mandateTabHref(id, "brief")}>Find businesses</Link></div>
-        <p className="text-sm text-[var(--muted)]">Companies appear as they are found. Open a company to view its research, financials and decision-makers.</p>
-      </section>
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(12rem,2fr)_repeat(4,minmax(8rem,1fr))] xl:items-end">
-        <label className="text-xs">Find company or website<input className={fieldClass} value={filter} onChange={e => setFilter(e.target.value)} placeholder="Name or domain" /></label>
-        <label className="text-xs">Stage<select className={fieldClass} value={stage} onChange={e => setStage(e.target.value)}>{["all", "identified", "reviewing", "shortlisted", "outreach-approved", "contacted", "in-conversation", "qualified", "parked", "excluded"].map(value => <option key={value} value={value}>{value === "all" ? "All stages" : value}</option>)}</select></label>
-        <label className="text-xs">Research<select className={fieldClass} value={researchFilter} onChange={e => setResearchFilter(e.target.value)}><option value="all">All research</option><option value="researching">Researching</option><option value="ready">Ready to review</option><option value="needs-evidence">Needs evidence</option></select></label>
-        <label className="text-xs">Data found<select className={fieldClass} value={dataFilter} onChange={e => setDataFilter(e.target.value)}><option value="all">Any data</option><option value="headcount">Headcount</option><option value="revenue">Revenue</option><option value="person">Decision-maker</option></select></label>
-        <label className="text-xs">Accreditation<input className={fieldClass} value={certFilter} onChange={e => setCertFilter(e.target.value)} placeholder="Issuer or scope" /></label>
-      </div>
-      <div className="flex flex-wrap items-center gap-3"><CompanyDataAction selectedCount={selected.length} busy={false} onClick={() => setEnrichingTargets([...selected])} />{selected.length > 0 && <button type="button" className="text-xs underline" onClick={() => setSelected([])}>Clear selection</button>}</div>
-      {selected.length > 0 && <p className="text-xs text-[var(--muted)]">Company enrichment loads company data and every available person profile. Select up to 20 saved businesses; each may consume multiple credits.</p>}
-      {visibleFirmable.length > 0 && <p role="status" className="text-sm text-[var(--accent)]">{visibleFirmable.map(run => `${data.memberships.find(item => item.target.id === run.targetId)?.target.companyName || "Company"}: ${providerNeutralText(run.message)}${run.profilesFound ? ` (${run.profilesSaved}/${run.profilesFound} profiles saved${run.profilesFailed ? `, ${run.profilesFailed} failed` : ""})` : ""}`).join(" · ")}</p>}
-      <div className="overflow-x-auto rounded-lg border border-[var(--border)]"><table className="w-full min-w-[720px] text-left text-sm [&_td]:align-top"><thead className="bg-[var(--panel)]"><tr>
-        <th className="p-3"><label className="flex items-center gap-2"><input type="checkbox" aria-label="Select all matching businesses" disabled={!matchingIds.length} checked={allMatchingSelected} onChange={e => setSelected(current => toggleMatchingTargets(current, matchingIds, e.target.checked))} />Select</label></th>
-        {["Company", "Fit", "Reason for fit"].map(label => <th className="p-3" key={label}>{label}</th>)}
-      </tr></thead><tbody>
-        {companyRows.map(row => { if (row.kind !== "saved") return null;
-        const m = row.membership;
-        return <TargetReviewRow key={m.target.id} companyName={m.target.companyName} onReview={() => openReview(m.target.id)}>
-          <td className="p-3"><input aria-label={`Select ${m.target.companyName}`} type="checkbox" checked={selected.includes(m.target.id)} onChange={e => setSelected(current => e.target.checked ? [...new Set([...current, m.target.id])] : current.filter(targetId => targetId !== m.target.id))} /></td>
-          <td className="w-80 p-3"><button className="min-h-12 text-left font-semibold underline decoration-[var(--border)] underline-offset-4" onClick={() => openReview(m.target.id)}>{m.target.companyName}</button></td>
-          <MandateFitCells brief={data.mandate.brief} member={m} mandateId={id} />
-        </TargetReviewRow>; })}
-        {!filtered.length && <tr><td colSpan={4} className="p-8 text-[var(--muted)]">{data.memberships.length || research.jobs.length ? "No companies match these filters. New companies will appear as they are found." : <>No companies yet. <Link className="underline" href={mandateTabHref(id, "brief")}>Find businesses or import sourced records in Brief</Link> to start your review.</>}</td></tr>}
-      </tbody></table></div>
-    </>}
-  </div>{reviewedMember && <CompanyReviewPanel key={reviewedMember.target.id} mandate={data.mandate} initial={reviewedMember} position={`Company ${reviewQueue.indexOf(reviewedMember.target.id) + 1} of ${reviewQueue.length}`} onClose={() => setReviewId(null)} />}</>;
+export function MandateWorkspace({ mandates, initial, tab, initialCompanies }: { mandates: MandateView[]; initial: WorkspaceData; tab: string; initialCompanies?: CompanyList }) {
+  if (tab === 'targets') {
+    const companies = initialCompanies || { mandate: initial.mandate, revision: '', active: false, hasResearch: false, ...companyListPage(initial.memberships.map(member => summariseCompany(member,initial.mandate,[],initial.contacts.some(c => c.targetId === member.target.id && Boolean(c.name?.trim())))), defaultCompanyListQuery) };
+    return <CompaniesWorkspace mandates={mandates} initial={companies} />;
+  }
+  return <LegacyMandateWorkspace mandates={mandates} initial={initial} tab={tab} />;
+}
+function LegacyMandateWorkspace({ mandates, initial, tab }: { mandates: MandateView[]; initial: WorkspaceData; tab: string }) {
+  const [mandate, setMandate] = useState(initial.mandate);
+  return <><MandateNavigation mandates={mandates.map(m => m.id === mandate.id ? mandate : m)} selected={mandate.id} tab={tab} /><div className="space-y-5 p-5 sm:p-8"><MandateBriefForm mandateId={mandate.id} brief={mandate.brief} onSaved={brief => setMandate(current => ({ ...current, brief }))} /></div></>;
 }
 export function CoveragePanel({ data }: { data: WorkspaceData }) {
   const all = data.memberships;
