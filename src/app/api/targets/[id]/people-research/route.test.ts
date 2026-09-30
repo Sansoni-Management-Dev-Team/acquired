@@ -51,7 +51,7 @@ it.each([
   const sourceUrl = provider === "apollo" ? "https://app.apollo.io/#/people/person1" : "https://instruments.example.com/team";
   m.finding.mockResolvedValue([{ config: { purpose: "people", targetId: id, provider }, finding: {
     id: requestId, sourceUrl, observedAt: new Date("2026-09-15T00:00:00Z"), confidence: 0.4,
-    evidence: { kind: "person", name: "Alex Example", value: "Owner", quote: "Alex Example is listed as Owner.", website: sourceUrl },
+    evidence: { kind: "person", name: "Alex Example", value: "Owner", email: "alex@instruments.example.com", quote: "Alex Example is listed as Owner.", website: sourceUrl },
   } }]);
   m.existing.mockResolvedValue([]);
   m.values.mockReturnValue({ returning: async () => [{ id: "contact-id" }] });
@@ -60,4 +60,13 @@ it.each([
   expect(m.values).toHaveBeenCalledWith(expect.objectContaining({
     displayName: "Alex Example", provenance: expect.objectContaining({ source, sourceUrl, roleStatus, findingId: requestId, reviewedBy: "user-a" }),
   }));
+});
+
+it("keeps research leads without an email out of saved contacts", async () => {
+  m.finding.mockResolvedValue([{ config: { purpose: "people", targetId: id }, finding: {
+    evidence: { kind: "person", name: "Alex Example", value: "Owner", quote: "Alex Example is Owner.", website: "https://instruments.example.com/team" },
+  } }]);
+  const response = await POST(request({ action: "save", mandateId, findingId: requestId }), ctx);
+  expect(response.status).toBe(409);
+  expect(m.values).not.toHaveBeenCalled();
 });

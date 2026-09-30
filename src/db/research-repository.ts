@@ -1,3 +1,4 @@
+import { saveResearchContact } from "./research-contacts";
 import { mandateResearchSlot } from "@/domain/automatic-research";
 import { modelHeadcountFinding, validateCompanyFacts } from "@/domain/company-facts";
 import { ownCompany, relevantBusiness, validateBusinessFindings } from "@/domain/business-research";
@@ -320,6 +321,7 @@ export class ResearchRepository {
             confidence: evidence.factMetadata?.basis === "search_snippet" ? 0.2 : evidence.factMetadata?.identityNote ? 0.2 : evidence.factMetadata?.basis === "third_party_estimate" ? 0.3 : 0.5,
           })
           .onConflictDoNothing();
+        if (targetId && evidence.kind === "person") await saveResearchContact({ database: this.db, organizationId: this.org, targetId, evidence, sourceUrl, observedAt: new Date(event.page.observedAt) });
       }
     }
     let updatedConfig = event.runtime ? sql`jsonb_set(${researchJobs.config}, '{runtime}', ${JSON.stringify(event.runtime)}::jsonb)` : sql`${researchJobs.config}`;

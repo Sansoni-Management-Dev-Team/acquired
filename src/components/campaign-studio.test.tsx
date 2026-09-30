@@ -6,10 +6,13 @@ import { CampaignStudio, type StudioData } from "./campaign-studio";
 const data: StudioData = {
   sequences: [], enrolments: [], mailbox: null,
   contacts: [
-    { id: "fresh", name: "Newly Researched Person", company: "Example Company", email: null, fictionalised: false, doNotContact: false },
-    { id: "older", name: "Earlier Company Contact", company: "Example Company", email: null, fictionalised: false, doNotContact: false },
+    { id: "fresh", name: "Newly Researched Person", company: "Example Company", email: "owner@example.com", fictionalised: false, doNotContact: false },
+    { id: "older", name: "Earlier Company Contact", company: "Example Company", email: "owner@example.com", fictionalised: false, doNotContact: false },
+    { id: "incomplete", name: "Name Only Lead", company: "Example Company", email: null, fictionalised: false, doNotContact: false },
+    { id: "invalid", name: "Invalid Email Lead", company: "Example Company", email: "invalid", fictionalised: false, doNotContact: false },
+    { id: "fictional", name: "Fictional Person", company: "Example Company", email: "fiction@example.com", fictionalised: true, doNotContact: false },
+    { id: "blocked", name: "Do Not Contact Person", company: "Example Company", email: "blocked@example.com", fictionalised: false, doNotContact: true },
   ],
-  researchPeople: [{ findingId: "web", targetId: "company", name: "Earlier Web Lead", company: "Example Company", role: "Owner", sourceUrl: "https://example.com", observedAt: "2026-09-30T00:00:00Z" }],
 };
 function render(ids?: string[]) {
   return renderToStaticMarkup(<CampaignStudio mandateId="mandate" mandateName="Example" initialData={data} enrichmentContactIds={ids} />);
@@ -25,14 +28,20 @@ describe("People enrichment filter", () => {
   });
   it("keeps an empty enrichment filtered instead of showing older people", () => {
     const html = render([]);
-    expect(html).toContain("No contacts were returned by this enrichment");
+    expect(html).toContain("No contacts with usable email addresses were returned by this enrichment");
     expect(html).not.toContain("Earlier Company Contact");
   });
-  it("shows contacts and web leads when the page has no enrichment filter", () => {
+  it("shows contacts with email addresses when the page has no enrichment filter", () => {
     const html = render();
     expect(html).toContain("Newly Researched Person");
     expect(html).toContain("Earlier Company Contact");
-    expect(html).toContain("Earlier Web Lead");
+    expect(html).not.toContain("Earlier Web Lead");
     expect(html).not.toContain("Showing only people");
+    expect(html).not.toContain("Name Only Lead");
+    expect(html).not.toContain("Invalid Email Lead");
+    expect(html).not.toContain("Fictional Person");
+    expect(html).toContain('aria-label="Select Newly Researched Person"');
+    expect(html).toMatch(/aria-label="Select Do Not Contact Person" disabled/);
+    expect(html).not.toContain("Use as contact");
   });
 });

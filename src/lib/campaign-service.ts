@@ -1,10 +1,8 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { and, desc, eq, sql } from "drizzle-orm";
 import { rows, withCampaignDb, withCampaignWorker, type CampaignActor } from "@/db/campaign-client";
-import { requireDb } from "@/db/client";
-import { mandateTargets, researchFindings, targets } from "@/db/schema";
+import { hasOutreachDetails } from "@/domain/outreach-contact";
 import { campaignDefinition, campaignSendWindowOpen, nextAllowedCampaignSend, nextEmailAfter, normalizeEmail, renderCampaignTemplate, type CampaignDefinition } from "@/domain/campaign";
 import { connectionCanMonitorReplies } from "@/lib/gmail-connection";
 import { campaignMailboxForConnection, campaignTestSendAnytime } from "@/lib/campaign-mailbox";
@@ -77,25 +75,7 @@ export async function listCampaignStudio(actor: CampaignActor, mandateId: string
       mailbox: mailbox[0] ? { address: mailbox[0].address, ready: connectionCanMonitorReplies({ encryptedRefreshToken: mailbox[0].encrypted_refresh_token, reconnectRequired: mailbox[0].reconnect_required, scopes: mailbox[0].scopes }), dailyCap: mailbox[0].daily_cap } : null,
     };
   });
-  // Research evidence is outside the restricted campaign role's table grants.
-  // Read it through the organisation-scoped application repository connection.
-  const findings = await requireDb().select({ finding: researchFindings, companyName: targets.companyName })
-    .from(researchFindings)
-    .innerJoin(targets, and(eq(targets.id, researchFindings.targetId), eq(targets.organizationId, actor.organizationId)))
-    .innerJoin(mandateTargets, and(eq(mandateTargets.targetId, targets.id), eq(mandateTargets.organizationId, actor.organizationId), eq(mandateTargets.mandateId, mandateId)))
-    .where(and(eq(researchFindings.organizationId, actor.organizationId), eq(researchFindings.mandateId, mandateId), sql`${researchFindings.evidence}->>'kind' = 'person'`))
-    .orderBy(desc(researchFindings.observedAt));
-  const savedNames = new Set(studio.contacts.map(contact => `${contact.targetId}:${contact.name.trim().replace(/\s+/g, " ").toLowerCase()}`));
-  const seen = new Set(savedNames);
-  const researchPeople = findings.flatMap(({ finding, companyName }) => {
-    const evidence = finding.evidence as { name?: unknown; value?: unknown };
-    if (typeof evidence.name !== "string" || !evidence.name.trim() || !finding.targetId) return [];
-    const key = `${finding.targetId}:${evidence.name.trim().replace(/\s+/g, " ").toLowerCase()}`;
-    if (seen.has(key)) return [];
-    seen.add(key);
-    return [{ findingId: finding.id, targetId: finding.targetId, name: evidence.name, company: companyName, role: typeof evidence.value === "string" ? evidence.value : null, sourceUrl: finding.sourceUrl, observedAt: finding.observedAt.toISOString() }];
-  });
-  return { ...studio, researchPeople };
+  return { ...studio, contacts: studio.contacts.filter(hasOutreachDetails) };
 }
 
 export async function createCampaign(actor: CampaignActor, mandateId: string, name: string, definition: CampaignDefinition) {
