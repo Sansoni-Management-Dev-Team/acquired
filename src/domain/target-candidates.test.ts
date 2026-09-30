@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { MembershipView } from "./acquisition";
 import type { ResearchConfig, SavedResearchFinding } from "./research";
-import { candidateWebsites, orderCompanyRows, toggleMatchingTargets, type CandidateWebsite } from "./target-candidates";
+import { candidateWebsites, companyResearchFinished, orderCompanyRows, toggleMatchingTargets, type CandidateWebsite } from "./target-candidates";
 
 function job(id: string, domain: string, status: string, targetId?: string) {
   return {
@@ -9,6 +9,34 @@ function job(id: string, domain: string, status: string, targetId?: string) {
     config: { discoveryCandidate: true, companyDomain: domain, seeds: [`https://${domain}/`], newBusinessIds: targetId ? [targetId] : [] } as ResearchConfig,
   };
 }
+
+describe("finished company research", () => {
+  const target = { id: "alpha-id", domain: "alpha.com.au" };
+
+  it("requires finished research and hides queued or running companies", () => {
+    expect(companyResearchFinished(target, [], [])).toBe(false);
+    for (const status of ["queued", "crawling", "extracting", "failed", "cancelled"]) {
+      expect(companyResearchFinished(target, [job("alpha", target.domain, status, target.id)], [])).toBe(false);
+    }
+    for (const status of ["complete", "partial"]) {
+      expect(companyResearchFinished(target, [job("alpha", target.domain, status, target.id)], [])).toBe(true);
+    }
+  });
+
+  it("waits for company and people followups without waiting for unrelated companies", () => {
+    const completed = job("alpha", target.domain, "complete", target.id);
+    const followup = { ...job("people", "other-source.com.au", "extracting"), config: { ...completed.config, seeds: [], companyDomain: undefined, newBusinessIds: [], targetId: target.id, purpose: "people" as const } };
+    expect(companyResearchFinished(target, [completed, followup], [])).toBe(false);
+    expect(companyResearchFinished(target, [completed, { ...followup, status: "complete" }, job("beta", "beta.com.au", "queued")], [])).toBe(true);
+  });
+
+  it("links multi-company research through saved findings", () => {
+    const discovery = job("discovery", "directory.com.au", "crawling");
+    const findings = [{ jobId: discovery.id, targetId: target.id }] as SavedResearchFinding[];
+    expect(companyResearchFinished(target, [discovery], findings)).toBe(false);
+    expect(companyResearchFinished(target, [{ ...discovery, status: "complete" }], findings)).toBe(true);
+  });
+});
 
 describe("candidate websites in Targets", () => {
   it("deduplicates domains, keeps discovered evidence, and replaces candidates with saved targets", () => {

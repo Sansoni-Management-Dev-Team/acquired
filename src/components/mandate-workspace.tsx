@@ -1,7 +1,6 @@
 "use client";
 
 import { TargetResearchData, TargetEbitdaData } from "./target-research-data";
-import { CandidateResearchCells } from "./candidate-research-cells";
 import { MandateFitCells } from "./mandate-fit-cells";
 import { TargetReviewRow } from "./target-review-row";
 import { CompanyReviewPanel } from "./company-review-panel";
@@ -12,7 +11,7 @@ import { evidenceLabel, type EvidenceCounts } from "@/domain/evidence-status";
 import { researchDomain, terminalResearchStates, type SavedResearchFinding } from "@/domain/research";
 import { ResearchPanel, type ResearchJob, type ResearchPanelData } from "./research-panel";
 import { MandateBriefForm } from "./mandate-brief-form";
-import { candidateWebsites, orderCompanyRows, toggleMatchingTargets } from "@/domain/target-candidates";
+import { companyResearchFinished, orderCompanyRows, toggleMatchingTargets } from "@/domain/target-candidates";
 
 import { SidebarRegistration } from "./app-shell";
 import { useCallback, useState, useRef } from "react";
@@ -62,7 +61,7 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
   // ResearchPanel owns research polling; refresh workspace data while company data is running.
   useActivePolling(refresh, { active: polling && activeFirmable.length > 0, intervalMs: 5000, key: `${id}:${tab}`, initial: false });
   const onResearchResults = useCallback((next: ResearchPanelData, changed: boolean) => {
-    setResearch({ findings: next.findings, jobs: next.jobs, evidence: next.evidence, active: next.active });
+    setResearch({ findings: next.findings, jobs: [...next.jobs, ...(next.companyJobs || []), ...(next.peopleJobs || [])], evidence: next.evidence, active: next.active });
     if (changed) void refresh();
   }, [refresh]);
   const researchStatus = (m: MembershipView) => businessResearchStatus(m.target.domain, research.findings.filter(f => f.targetId === m.target.id || researchDomain(f.sourceUrl) === m.target.domain).map(f => f.evidence), research.jobs.some(j => !terminalResearchStates.includes(j.status) && [...j.seeds, ...j.config.seeds].some(url => researchDomain(url) === m.target.domain)));
@@ -72,20 +71,14 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
   const hasData = (findings: SavedResearchFinding[] | undefined, kind: "headcount" | "revenue" | "person") => Boolean(findings?.some(finding => finding.evidence.kind === kind));
   const filtered = data.memberships.filter(m => {
     const status = researchStatus(m);
-    return `${m.target.companyName} ${m.target.domain} ${m.target.sector.value || ""}`.toLowerCase().includes(search)
+    return companyResearchFinished(m.target, research.jobs, [...research.findings, ...(m.researchFindings || [])])
+      && `${m.target.companyName} ${m.target.domain} ${m.target.sector.value || ""}`.toLowerCase().includes(search)
       && (stage === "all" || m.assessment.stage === stage)
       && (!certFilter || m.accreditations.some(a => `${a.issuer} ${a.scope}`.toLowerCase().includes(certFilter.toLowerCase())))
       && (researchFilter === "all" || researchFilter === "ready" && status === "Ready to review" || researchFilter === "researching" && status === "Researching" || researchFilter === "needs-evidence" && status === "Needs more evidence")
       && (dataFilter === "all" || dataFilter === "headcount" && (m.target.headcount.value !== null || hasData(m.researchFindings, "headcount")) || dataFilter === "revenue" && (m.target.revenue.value !== null || hasData(m.researchFindings, "revenue")) || dataFilter === "person" && (hasData(m.researchFindings, "person") || data.contacts.some(c => c.targetId === m.target.id && c.name?.trim())));
   });
-  const candidates = candidateWebsites(research.jobs, research.findings, data.memberships).filter(candidate =>
-    `${candidate.name} ${candidate.domain}`.toLowerCase().includes(search)
-    && (stage === "all" || stage === "candidate")
-    && !certFilter
-    && (researchFilter === "all" || researchFilter === "queued" && candidate.status === "Queued" || researchFilter === "researching" && ["Reading website", "Extracting data", "Checking website", "Finding website"].includes(candidate.status) || researchFilter === "needs-evidence" && ["Checked", "Needs retry", "Stopped"].includes(candidate.status))
-    && (dataFilter === "all" || hasData(candidate.findings, dataFilter === "person" ? "person" : dataFilter as "headcount" | "revenue"))
-  );
-  const companyRows = orderCompanyRows(candidates, filtered, data.contacts);
+  const companyRows = orderCompanyRows([], filtered, data.contacts);
   const reviewIds = companyRows.flatMap(row => row.kind === "saved" ? [row.membership.target.id] : []);
   const matchingIds = filtered.map(m => m.target.id);
   const allMatchingSelected = matchingIds.length > 0 && matchingIds.every(targetId => selected.includes(targetId));
@@ -96,13 +89,13 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
       <ResearchPanel mandateId={id} brief={data.mandate.brief} showStartAction={false} onResultsChanged={onResearchResults} />
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Companies</h2><Link className={buttonClass} href={mandateTabHref(id, "brief")}>Find businesses</Link></div>
-        <p className="text-sm text-[var(--muted)]">Candidate websites appear here as they are found. Researched details fill in as businesses are saved.</p>
-        <div className="flex flex-wrap items-center gap-3"><button disabled={!reviewIds.length} className={`${buttonClass} min-h-12`} onClick={() => openReview(reviewIds[0])}>Start review queue</button><p className="text-xs text-[var(--muted)]">{candidates.length} candidate websites · {filtered.length} saved businesses matching filters · {selected.length} selected</p></div>
+        <p className="text-sm text-[var(--muted)]">Only saved companies with finished research appear here. Companies still being researched will appear when research finishes.</p>
+        <div className="flex flex-wrap items-center gap-3"><button disabled={!reviewIds.length} className={`${buttonClass} min-h-12`} onClick={() => openReview(reviewIds[0])}>Start review queue</button><p className="text-xs text-[var(--muted)]">{filtered.length} researched businesses matching filters · {selected.length} selected</p></div>
       </section>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(12rem,2fr)_repeat(4,minmax(8rem,1fr))] xl:items-end">
         <label className="text-xs">Find company or website<input className={fieldClass} value={filter} onChange={e => setFilter(e.target.value)} placeholder="Name or domain" /></label>
-        <label className="text-xs">Stage<select className={fieldClass} value={stage} onChange={e => setStage(e.target.value)}>{["all", "candidate", "identified", "reviewing", "shortlisted", "outreach-approved", "contacted", "in-conversation", "qualified", "parked", "excluded"].map(value => <option key={value} value={value}>{value === "all" ? "All stages" : value === "candidate" ? "Candidate websites" : value}</option>)}</select></label>
-        <label className="text-xs">Research<select className={fieldClass} value={researchFilter} onChange={e => setResearchFilter(e.target.value)}><option value="all">All research states</option><option value="queued">Queued</option><option value="researching">Researching</option><option value="ready">Ready to review</option><option value="needs-evidence">Needs evidence</option></select></label>
+        <label className="text-xs">Stage<select className={fieldClass} value={stage} onChange={e => setStage(e.target.value)}>{["all", "identified", "reviewing", "shortlisted", "outreach-approved", "contacted", "in-conversation", "qualified", "parked", "excluded"].map(value => <option key={value} value={value}>{value === "all" ? "All stages" : value}</option>)}</select></label>
+        <label className="text-xs">Research<select className={fieldClass} value={researchFilter} onChange={e => setResearchFilter(e.target.value)}><option value="all">All finished research</option><option value="ready">Ready to review</option><option value="needs-evidence">Needs evidence</option></select></label>
         <label className="text-xs">Data found<select className={fieldClass} value={dataFilter} onChange={e => setDataFilter(e.target.value)}><option value="all">Any data</option><option value="headcount">Headcount</option><option value="revenue">Revenue</option><option value="person">Decision-maker</option></select></label>
         <label className="text-xs">Accreditation<input className={fieldClass} value={certFilter} onChange={e => setCertFilter(e.target.value)} placeholder="Issuer or scope" /></label>
       </div>
@@ -113,13 +106,7 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
         <th className="p-3"><label className="flex items-center gap-2"><input type="checkbox" aria-label="Select all matching businesses" disabled={!matchingIds.length} checked={allMatchingSelected} onChange={e => setSelected(current => toggleMatchingTargets(current, matchingIds, e.target.checked))} />Select</label></th>
         {["Company", "Stage", "Fit", "Reason for fit", "Headcount", "Revenue (source currency)", "Estimated EBITDA (AUD)", "Key decision-makers", "Evidence"].map(label => <th className="p-3" key={label}>{label}</th>)}
       </tr></thead><tbody>
-        {companyRows.map(row => { if (row.kind === "candidate") return <tr key={`candidate:${row.candidate.domain}`} className="border-t border-[var(--border)] bg-[var(--panel-raised)]/40">
-          <td className="p-3 text-xs text-[var(--muted)]">—</td>
-          <td className="w-64 min-w-56 p-3"><p className="font-semibold">{row.candidate.name}</p><a className="mt-1 block break-all text-xs underline" href={row.candidate.url} target="_blank" rel="noreferrer">{row.candidate.domain}</a>{row.candidate.targetId && <Link className="mt-2 block text-xs underline" href={`/mandates/${id}/targets/${row.candidate.targetId}`}>View business</Link>}</td>
-          <td className="p-3"><p>Candidate</p><p className="mt-1 text-xs text-[var(--muted)]">{row.candidate.status}</p></td>
-          <td className="p-3 text-[var(--muted)]">Pending</td><td className="min-w-64 p-3 text-xs text-[var(--muted)]">Fit is assessed when the business is saved.</td>
-          <CandidateResearchCells candidate={row.candidate} />
-        </tr>;
+        {companyRows.map(row => { if (row.kind !== "saved") return null;
         const m = row.membership;
         return <TargetReviewRow key={m.target.id} companyName={m.target.companyName} onReview={() => openReview(m.target.id)}>
           <td className="p-3"><input aria-label={`Select ${m.target.companyName}`} type="checkbox" checked={selected.includes(m.target.id)} onChange={e => setSelected(current => e.target.checked ? [...new Set([...current, m.target.id])] : current.filter(targetId => targetId !== m.target.id))} /></td>
@@ -132,7 +119,7 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
           <td className="p-3"><TargetResearchData findings={m.researchFindings} kind="person" fallback={data.contacts.filter(c => c.targetId === m.target.id && c.name?.trim()).map(c => c.name).join(", ") || "Unknown"} /></td>
           <td className="p-3">{m.assessment.evidence.filter(e => e.assessment !== "unknown").length}/{criterionDefinitions.length} tested</td>
         </TargetReviewRow>; })}
-        {!candidates.length && !filtered.length && <tr><td colSpan={10} className="p-8 text-[var(--muted)]">{data.memberships.length || research.jobs.length ? "No businesses match these filters. Try a different name or filter." : <>No companies yet. <Link className="underline" href={mandateTabHref(id, "brief")}>Find businesses or import sourced records in Brief</Link> to start your review.</>}</td></tr>}
+        {!filtered.length && <tr><td colSpan={10} className="p-8 text-[var(--muted)]">{data.memberships.length || research.jobs.length ? "No companies with finished research match these filters. Companies still being researched will appear when research finishes." : <>No companies yet. <Link className="underline" href={mandateTabHref(id, "brief")}>Find businesses or import sourced records in Brief</Link> to start your review.</>}</td></tr>}
       </tbody></table></div>
     </>}
   </div>{reviewId && data.memberships.find(m => m.target.id === reviewId) && <CompanyReviewPanel key={reviewId} mandate={data.mandate} initial={data.memberships.find(m => m.target.id === reviewId)!} position={`Company ${reviewQueue.indexOf(reviewId) + 1} of ${reviewQueue.length}`} onClose={() => setReviewId(null)} onChanged={async () => setData(await jsonRequest(`/api/mandates/${id}`))} onNext={reviewQueue.indexOf(reviewId) < reviewQueue.length - 1 ? () => setReviewId(reviewQueue[reviewQueue.indexOf(reviewId) + 1]) : undefined} />}</>;

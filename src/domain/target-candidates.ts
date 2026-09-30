@@ -3,6 +3,24 @@ import { publicResearchUrl, researchDomain, terminalResearchStates, type Researc
 
 type CandidateJob = { id: string; status: string; seeds: string[]; config: ResearchConfig };
 
+export function companyResearchFinished(target: { id: string; domain?: string }, jobs: CandidateJob[], findings: SavedResearchFinding[]) {
+  const domain = target.domain?.replace(/^www\./, "").toLowerCase();
+  const findingJobs = new Set(findings.filter(finding => finding.targetId === target.id).map(finding => finding.jobId));
+  const related = jobs.filter(job =>
+    job.config.targetId === target.id
+    || job.config.newBusinessIds?.includes(target.id)
+    || findingJobs.has(job.id)
+    || Boolean(domain && (
+      job.config.companyDomain?.replace(/^www\./, "").toLowerCase() === domain
+      || [...job.seeds, ...job.config.seeds].some(url => {
+        try { return researchDomain(url).toLowerCase() === domain; } catch { return false; }
+      })
+    )),
+  );
+  return related.some(job => job.status === "complete" || job.status === "partial")
+    && related.every(job => terminalResearchStates.includes(job.status));
+}
+
 export type CandidateWebsite = {
   domain: string;
   url: string;
