@@ -7,7 +7,22 @@ const mocks = vi.hoisted(() => ({ poll: vi.fn() }));
 vi.mock('./use-active-polling', () => ({ useActivePolling: mocks.poll }));
 vi.mock('./app-shell', () => ({ SidebarRegistration: () => null }));
 import { CompaniesWorkspace } from './companies-workspace';
-afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
+import { clearDiscoveredCompanies, preloadDiscoveredCompanies } from './company-discovery-handoff';
+afterEach(() => { clearDiscoveredCompanies('mandate'); vi.unstubAllGlobals(); vi.clearAllMocks(); });
+
+it('renders the discovery handoff immediately and polls from its newer revision', async () => {
+  const initial: CompanyList = {
+    mandate: { id: 'mandate', brief: emptyBrief(), createdAt: '2026-09-30' },
+    revision: 'old', active: true, hasResearch: true, rows: [], total: 0, page: 1, pages: 1,
+  };
+  const saved = { ...initial, revision: 'saved', mandate: { ...initial.mandate, brief: { ...initial.mandate.brief, name: 'Discovered mandate' } } };
+  preloadDiscoveredCompanies(saved);
+  const fetcher = vi.fn().mockResolvedValue(Response.json({ unchanged: true, active: true, revision: 'saved' }));
+  vi.stubGlobal('fetch', fetcher);
+  expect(renderToStaticMarkup(<CompaniesWorkspace mandates={[initial.mandate]} initial={initial} />)).toContain('Discovered mandate');
+  await mocks.poll.mock.calls[0][0]();
+  expect(new URL(fetcher.mock.calls[0][0], 'http://localhost').searchParams.get('revision')).toBe('saved');
+});
 
 it('checks compact revisions and runs recovery separately without fetching research history or company details', async () => {
   const initial: CompanyList = {

@@ -3,18 +3,21 @@
 import "@xyflow/react/dist/style.css";
 import { useMemo, useRef, useState, type DragEvent } from "react";
 import { Background, Controls, ReactFlow, type Edge, type Node, type ReactFlowInstance } from "@xyflow/react";
-import { Clock3, Mail, Plus, Trash2 } from "lucide-react";
+import { Clock3, Mail, MessageCircle, BriefcaseBusiness, Plus, Trash2 } from "lucide-react";
 import { campaignDefinition, type CampaignStep } from "@/domain/campaign";
 
 type Draft = { steps: CampaignStep[]; schemaVersion?: 1 };
 type StepKind = CampaignStep["kind"];
 
 const button = "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--panel)] px-4 text-sm font-medium hover:bg-[var(--panel-raised)] disabled:cursor-not-allowed disabled:opacity-40";
+const stepLabels: Record<StepKind, string> = { email: "Email", wait: "Wait", whatsapp: "WhatsApp", linkedin: "LinkedIn" };
+const stepIcons = { email: Mail, wait: Clock3, whatsapp: MessageCircle, linkedin: BriefcaseBusiness };
 const nodeWidth = 230;
 const nodeGap = 120;
 const firstNodeY = 110;
 
 function newStep(kind: StepKind): CampaignStep {
+  if (kind === "linkedin" || kind === "whatsapp") return { id: crypto.randomUUID(), kind, title: `${stepLabels[kind]} follow-up`, body: "Hi {{first_name}}, would you be open to a short, confidential conversation about {{company_name}}?" };
   return kind === "wait"
     ? { id: crypto.randomUUID(), kind, title: "Wait three days", days: 3 }
     : { id: crypto.randomUUID(), kind, title: "Follow-up", subject: "Following up with {{company_name}}", body: "Hi {{first_name}},\n\nJust following up on my note.\n\nBest regards" };
@@ -34,12 +37,14 @@ export function CampaignSequenceEditor({ draft, selectedStepId, onChange, onSele
   const issue = validation.success ? null : validation.error.issues[0]?.message || "Complete the sequence before saving.";
 
   const graph = useMemo(() => {
-    const stepNodes: Node[] = draft.steps.map((step, index) => ({
+    const stepNodes: Node[] = draft.steps.map((step, index) => {
+      const Icon = stepIcons[step.kind];
+      return ({
       id: step.id,
       position: { x: 80, y: moving?.id === step.id ? moving.y : firstNodeY + index * nodeGap },
-      data: { label: <span className="flex items-center gap-2 text-left"><span className="rounded-md bg-[var(--accent-soft)] p-1">{step.kind === "email" ? <Mail size={15} /> : <Clock3 size={15} />}</span><span><span className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">{step.kind}</span><span className="block truncate font-medium">{step.title}</span></span></span> },
+      data: { label: <span className="flex items-center gap-2 text-left"><span className="rounded-md bg-[var(--accent-soft)] p-1"><Icon size={15} /></span><span><span className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">{stepLabels[step.kind]}</span><span className="block truncate font-medium">{step.title}</span></span></span> },
       style: { borderRadius: 12, border: step.id === selectedStepId ? "2px solid var(--accent)" : "1px solid var(--border)", background: "var(--panel)", color: "var(--foreground)", padding: 10, width: nodeWidth, cursor: "grab" },
-    }));
+    }); });
     const nodes: Node[] = [
       { id: "start", position: { x: 80, y: 0 }, data: { label: "Contact subscribes" }, draggable: false, selectable: false, style: { borderRadius: 12, border: "1px solid var(--border)", background: "var(--panel)", color: "var(--foreground)", padding: 12, width: nodeWidth, textAlign: "center" } },
       ...stepNodes,
@@ -82,7 +87,7 @@ export function CampaignSequenceEditor({ draft, selectedStepId, onChange, onSele
 
   function onCanvasDrop(event: DragEvent<HTMLDivElement>) {
     const kind = event.dataTransfer.getData("application/x-acquire-campaign-step");
-    if (kind !== "email" && kind !== "wait") return;
+    if (kind !== "email" && kind !== "wait" && kind !== "whatsapp" && kind !== "linkedin") return;
     event.preventDefault();
     insert(kind, insertionIndex(event.clientY));
   }
@@ -91,8 +96,10 @@ export function CampaignSequenceEditor({ draft, selectedStepId, onChange, onSele
     <div className="min-w-0 border-b border-[var(--border)] lg:border-b-0">
       <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] bg-[var(--panel)] p-3">
         <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Add a node</span>
-        <button type="button" draggable disabled={draft.steps.length >= 25} onDragStart={event => onPaletteDragStart(event, "email")} onClick={() => insert("email", selectedStep ? draft.steps.indexOf(selectedStep) + 1 : draft.steps.length)} className={button}><Mail size={16} /> Email <Plus size={14} /></button>
-        <button type="button" draggable disabled={draft.steps.length >= 25} onDragStart={event => onPaletteDragStart(event, "wait")} onClick={() => insert("wait", selectedStep ? draft.steps.indexOf(selectedStep) + 1 : draft.steps.length)} className={button}><Clock3 size={16} /> Wait <Plus size={14} /></button>
+        {(["email", "wait", "whatsapp", "linkedin"] as const).map(kind => {
+          const Icon = stepIcons[kind];
+          return <button key={kind} type="button" draggable disabled={draft.steps.length >= 25} onDragStart={event => onPaletteDragStart(event, kind)} onClick={() => insert(kind, selectedStep ? draft.steps.indexOf(selectedStep) + 1 : draft.steps.length)} className={button}><Icon size={16} /> {stepLabels[kind]} <Plus size={14} /></button>;
+        })}
         <span className="text-xs text-[var(--muted)]">Drag into the flow, or click to add after the selected node.</span>
       </div>
       <div className="relative h-[650px] bg-[var(--background)]" onDragOver={onCanvasDragOver} onDragLeave={() => setDropIndex(null)} onDrop={onCanvasDrop}>
@@ -101,17 +108,18 @@ export function CampaignSequenceEditor({ draft, selectedStepId, onChange, onSele
       </div>
     </div>
     <div className="space-y-4 p-5 lg:border-l lg:border-[var(--border)]">
-      <h3 className="text-sm font-semibold">{selectedStep ? `${selectedStep.kind === "email" ? "Email" : "Wait"} settings` : "Step settings"}</h3>
+      <h3 className="text-sm font-semibold">{selectedStep ? `${stepLabels[selectedStep.kind]} settings` : "Step settings"}</h3>
       {selectedStep ? <>
         <label className="block text-xs font-medium">Name<input value={selectedStep.title} onChange={event => updateStep({ ...selectedStep, title: event.target.value })} className="mt-1 min-h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm" /></label>
-        {selectedStep.kind === "email" ? <>
-          <label className="block text-xs font-medium">Subject<input value={selectedStep.subject} onChange={event => updateStep({ ...selectedStep, subject: event.target.value })} className="mt-1 min-h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm" /></label>
+        {selectedStep.kind !== "wait" ? <>
+          {selectedStep.kind === "email" && <label className="block text-xs font-medium">Subject<input value={selectedStep.subject} onChange={event => updateStep({ ...selectedStep, subject: event.target.value })} className="mt-1 min-h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm" /></label>}
           <label className="block text-xs font-medium">Body<textarea value={selectedStep.body} onChange={event => updateStep({ ...selectedStep, body: event.target.value })} rows={10} className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm" /></label>
           <p className="text-xs text-[var(--muted)]">Use {"{{first_name}}"}, {"{{full_name}}"}, or {"{{company_name}}"}.</p>
         </> : <label className="block text-xs font-medium">Days to wait<input type="number" min={1} max={30} value={selectedStep.days} onChange={event => updateStep({ ...selectedStep, days: Number(event.target.value) })} className="mt-1 min-h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm" /></label>}
         <button type="button" disabled={draft.steps.length <= 1} onClick={() => { const steps = draft.steps.filter(step => step.id !== selectedStep.id); onChange({ ...draft, steps }); onSelect(steps[Math.max(0, draft.steps.indexOf(selectedStep) - 1)]?.id || null); }} className={`${button} w-full`}><Trash2 size={15} /> Remove this node</button>
-      </> : <p className="text-xs text-[var(--muted)]">Select an email or wait node to edit it.</p>}
-      {issue && <p role="status" className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] p-3 text-xs">To save or publish: {issue}. Each sequence starts and ends with an email, with a wait between emails.</p>}
+      </> : <p className="text-xs text-[var(--muted)]">Select a node to edit it.</p>}
+      {issue && <p role="status" className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] p-3 text-xs">To save or publish: {issue}. Each sequence starts and ends with a message, with a wait between messages.</p>}
+      {draft.steps.some(step => step.kind === "linkedin" || step.kind === "whatsapp") && <p className="text-xs text-[var(--muted)]">WhatsApp and LinkedIn nodes are saved for manual use. Publishing these sequences requires channel delivery support.</p>}
       <p className="text-xs text-[var(--muted)]">Drag a node vertically to change its order. Changes are saved as a draft until you publish.</p>
     </div>
   </div>;

@@ -78,6 +78,7 @@ export async function refreshFirmableCompany(runId: string, mandateId: string) {
   try {
     company = record(stored?.response) || await client(history, runId).enrichCompany(verifiedDomain ? { fqdn: verifiedDomain } : abn ? { abn } : { id: knownCompanyId });
   } catch (error) {
+    if (error instanceof FirmableError && [401, 402, 403].includes(error.status)) throw error;
     if (!knownCompanyId) throw error;
     await history.linkRunCompany(runId, knownCompanyId, "failed");
     await history.updateProgress(runId, { companyStatus: "failed", searchStatus: "running", message: "Company refresh failed; loading people from the last known company profile" });
@@ -171,7 +172,7 @@ export async function refreshFirmableProfileBatch(runId: string, offset: number)
         : await provider.enrichPerson({ id: candidate.id });
       await upsertFirmableContact({ database, organizationId: run.organizationId, targetId: run.targetId, companyId: run.firmableCompanyId!, person, candidate });
     } catch (error) {
-      if (error instanceof FirmableError) return;
+      if (error instanceof FirmableError && ![401, 402, 403].includes(error.status)) return;
       throw error;
     }
   }));

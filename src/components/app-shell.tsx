@@ -1,9 +1,9 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, Suspense, useContext, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Building2, House, Settings, Plus, PanelLeftClose, PanelLeftOpen, Menu, FileText, ListFilter, Users, Mail } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
 
@@ -17,6 +17,18 @@ export function SidebarRegistration({ value }: { value: SidebarState }) {
   return null;
 }
 
+function SidebarRouteSync({ update }: { update: React.Dispatch<React.SetStateAction<string>> }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const routeId = pathname.match(/^\/mandates\/([^/]+)(?:\/|$)/)?.[1];
+  const selected = routeId && routeId !== "new" ? routeId : undefined;
+  const tab = pathname.endsWith("/people") ? "people" : pathname.endsWith("/outreach/sequences") ? "sequences" : searchParams.get("tab") === "targets" || pathname.includes("/targets/") ? "targets" : "brief";
+  useEffect(() => {
+    update(current => JSON.stringify({ ...JSON.parse(current), selected, tab }));
+  }, [selected, tab, update]);
+  return null;
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -27,7 +39,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (["/sign-in", "/sign-up", "/forgot-password", "/reset-password", "/onboarding", "/auth/complete"].includes(pathname)) return <><div className="absolute right-4 top-4"><ThemeToggle /></div><main>{children}</main></>;
 
   return (
-    <SidebarContext.Provider value={setSidebarJson}><div className={`min-h-screen lg:grid ${collapsed ? "lg:grid-cols-[80px_minmax(0,1fr)]" : "lg:grid-cols-[272px_minmax(0,1fr)]"}`}>
+    <SidebarContext.Provider value={setSidebarJson}><Suspense fallback={null}><SidebarRouteSync update={setSidebarJson} /></Suspense><div className={`min-h-screen lg:grid ${collapsed ? "lg:grid-cols-[80px_minmax(0,1fr)]" : "lg:grid-cols-[272px_minmax(0,1fr)]"}`}>
       <aside className={`border-b border-[var(--border)] bg-[var(--background)] p-4 lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:border-b-0 lg:border-r ${collapsed ? "lg:px-3" : "lg:p-5"}`}>
         <div className={`flex items-center justify-between gap-2 ${collapsed ? "lg:flex-col" : ""}`}>
           <Link href="/" aria-label="Acquired — home" className="flex min-h-12 min-w-0 items-center gap-3">

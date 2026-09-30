@@ -9,6 +9,7 @@ import {
   refreshFirmableProfileBatch,
 } from "@/lib/firmable-refresh";
 import { FirmableHistoryRepository } from "@/db/firmable-history-repository";
+import { FirmableError } from "@/adapters/firmable-client";
 
 export const maxDuration = 60;
 
@@ -35,15 +36,25 @@ export async function GET(request: Request, context: { params: Promise<{ runId: 
 
 export async function POST(request: Request, context: { params: Promise<{ runId: string }> }) {
   const { runId } = await context.params;
-  if (!await authorizedRun(request, runId)) return Response.json({ error: "Not available" }, { status: 403 });
+  const run = await authorizedRun(request, runId);
+  if (!run) return Response.json({ error: "Not available" }, { status: 403 });
   const parsed = actionSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Invalid Firmable workflow action" }, { status: 400 });
   const action = parsed.data;
-  if (action.action === "company") return Response.json(await refreshFirmableCompany(runId, action.mandateId));
-  if (action.action === "people-page") return Response.json(await refreshFirmablePeoplePage(runId, action.offset));
-  if (action.action === "finalize-search") return Response.json(await finalizeFirmablePeopleSearch(runId, action.offset));
-  if (action.action === "profiles") return Response.json(await refreshFirmableProfileBatch(runId, action.offset));
-  if (action.action === "complete") return Response.json(await completeFirmableRefresh(runId, action.mandateId));
-  await failFirmableRefresh(runId, action.message);
-  return Response.json({ ok: true });
+  if (run.status === "failed") return Response.json({ failed: true });
+  try {
+    if (action.action === "company") return Response.json(await refreshFirmableCompany(runId, action.mandateId));
+    if (action.action === "people-page") return Response.json(await refreshFirmablePeoplePage(runId, action.offset));
+    if (action.action === "finalize-search") return Response.json(await finalizeFirmablePeopleSearch(runId, action.offset));
+    if (action.action === "profiles") return Response.json(await refreshFirmableProfileBatch(runId, action.offset));
+    if (action.action === "complete") return Response.json(await completeFirmableRefresh(runId, action.mandateId));
+    await failFirmableRefresh(runId, action.message);
+    return Response.json({ ok: true });
+  } catch (error) {
+    if (!(error instanceof FirmableError) || ![401, 402, 403].includes(error.status)) throw error;
+    // Persist permanent account failures before acknowledging the workflow step.
+    // Transient failures still use the workflow's normal retry policy.
+    await failFirmableRefresh(runId, error.message);
+    return Response.json({ failed: true });
+  }
 }

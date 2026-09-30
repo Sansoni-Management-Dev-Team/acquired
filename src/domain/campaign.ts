@@ -2,12 +2,14 @@ import { z } from "zod";
 
 const emailStep = z.object({ id: z.string().uuid(), kind: z.literal("email"), title: z.string().trim().min(1).max(100), subject: z.string().trim().min(1).max(200), body: z.string().trim().min(1).max(10000) }).strict();
 const waitStep = z.object({ id: z.string().uuid(), kind: z.literal("wait"), title: z.string().trim().min(1).max(100), days: z.number().int().min(1).max(30) }).strict();
-export const campaignStep = z.discriminatedUnion("kind", [emailStep, waitStep]);
+const linkedinStep = emailStep.omit({ subject: true }).extend({ kind: z.literal("linkedin") });
+const whatsappStep = emailStep.omit({ subject: true }).extend({ kind: z.literal("whatsapp") });
+export const campaignStep = z.discriminatedUnion("kind", [emailStep, waitStep, linkedinStep, whatsappStep]);
 export const campaignDefinition = z.object({ schemaVersion: z.literal(1), steps: z.array(campaignStep).min(1).max(25) }).strict().superRefine((definition, context) => {
-  if (definition.steps[0]?.kind !== "email") context.addIssue({ code: "custom", message: "The first step must send an email" });
-  if (definition.steps.at(-1)?.kind !== "email") context.addIssue({ code: "custom", message: "The last step must send an email" });
+  if (definition.steps[0]?.kind === "wait") context.addIssue({ code: "custom", message: "The first step must be a message" });
+  if (definition.steps.at(-1)?.kind === "wait") context.addIssue({ code: "custom", message: "The last step must be a message" });
   for (let index = 1; index < definition.steps.length; index++) {
-    if (definition.steps[index].kind === definition.steps[index - 1].kind) context.addIssue({ code: "custom", message: "Email and wait steps must alternate" });
+    if ((definition.steps[index].kind === "wait") === (definition.steps[index - 1].kind === "wait")) context.addIssue({ code: "custom", message: "Message and wait steps must alternate" });
   }
   const ids = definition.steps.map(step => step.id);
   if (new Set(ids).size !== ids.length) context.addIssue({ code: "custom", message: "Step IDs must be unique" });

@@ -28,11 +28,11 @@ function revenueObservation(f: SavedResearchFinding): Observation {
   return { value: f.evidence.value, min: amount, max: amount, note: !aud ? "currency not confirmed as AUD" : !match ? "amount needs review" : undefined, sources: [f.sourceUrl], estimated: f.evidence.factMetadata?.basis !== "reported" || f.evidence.factMetadata?.scope === "group" };
 }
 
-/** Fit among assessed criteria; coverage separately measures how much is known. */
+/** Fit across all specified criteria; missing evidence earns no points. */
 export function reviewMandateFit(brief: AcquisitionBrief, target: TargetCandidate, assessment: Assessment, findings: SavedResearchFinding[] = []) {
   const filters = briefToMandate(brief);
   const observations = (kind: string): Observation[] => findings.filter(f => f.evidence.kind === kind && !f.evidence.factMetadata?.identityNote).map(f => ({ value: f.evidence.value, sources: [f.sourceUrl], estimated: f.evidence.factMetadata?.basis !== "reported" || f.evidence.factMetadata?.scope === "group" }));
-  const rows: FitRow[] = brief.criteria.filter(c => (c.confirmed || c.origin === "supplied") && c.state === "specified").map(c => {
+  const rows: FitRow[] = brief.criteria.filter(c => c.state === "specified").map(c => {
     const row: FitRow = { key: c.key, label: criterionDefinitions.find(([key]) => key === c.key)![1], mandate: c.value, weight: c.importance === "requirement" ? 2 : 1, status: "unknown", reason: "No comparable evidence; needs review", sources: [] };
     const reviewed = assessment.evidence.find(e => e.criterionKey === c.key);
     if (reviewed) return { ...row, status: reviewed.assessment === "supported" && ["modelled", "inferred"].includes(reviewed.kind) ? "potential" : reviewed.assessment, reason: `${reviewed.value || "No evidence"}${reviewed.kind === "modelled" || reviewed.kind === "inferred" ? " (estimated)" : " (reviewed)"}`, sources: reviewed.sourceUrl ? [reviewed.sourceUrl] : [] };
@@ -107,5 +107,5 @@ export function reviewMandateFit(brief: AcquisitionBrief, target: TargetCandidat
     const matches = rows.filter(row => row.status === status);
     return matches.length ? `${label}: ${matches.map(row => status === "unknown" ? row.label : `${row.label} (${row.reason})`).join(", ")}.` : "";
   };
-  return { score: assessedWeight ? Math.round(earned / assessedWeight * 100) : 0, assessed: assessedWeight > 0, provisional, completeness: total ? Math.round(assessedWeight / total * 100) : 0, rows, reason: total ? [summary("supported", "Matches"), summary("potential", "Partial / estimated"), summary("fails", "Outside mandate"), summary("unknown", "Missing evidence")].filter(Boolean).join(" ") : "Review mandate criteria in Brief to assess fit." };
+  return { score: total ? Math.round(earned / total * 100) : 0, assessed: assessedWeight > 0, provisional, completeness: total ? Math.round(assessedWeight / total * 100) : 0, rows, reason: total ? [summary("supported", "Matches"), summary("potential", "Partial / estimated"), summary("fails", "Outside mandate"), summary("unknown", "Missing evidence")].filter(Boolean).join(" ") : "Review mandate criteria in Brief to assess fit." };
 }

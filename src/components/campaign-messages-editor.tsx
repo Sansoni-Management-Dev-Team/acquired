@@ -12,7 +12,7 @@ const button = "min-h-10 rounded-lg border border-[var(--border)] px-3 text-xs f
 export function CampaignMessagesEditor({ draft, selectedStepId, onChange, onSelect, contacts }: {
   draft: Draft; selectedStepId: string | null; onChange: (draft: Draft) => void; onSelect: (id: string) => void; contacts: Contact[];
 }) {
-  const [channel, setChannel] = useState<"email" | "linkedin" | "whatsapp">("email");
+  const [channel, setChannel] = useState<"email" | "linkedin" | "whatsapp">(() => { const selected = draft.steps.find(step => step.id === selectedStepId); return selected && selected.kind !== "wait" ? selected.kind : "email"; });
   const [recipientIds, setRecipientIds] = useState<string[]>(contacts[0] ? [contacts[0].id] : []);
   const [previewId, setPreviewId] = useState(contacts[0]?.id || "");
   const [copyStatus, setCopyStatus] = useState("");
@@ -22,7 +22,9 @@ export function CampaignMessagesEditor({ draft, selectedStepId, onChange, onSele
   const contact = recipients.find(item => item.id === previewId) || recipients[0];
   const emails = draft.steps.filter(step => step.kind === "email");
   const selectedEmail = emails.find(step => step.id === selectedStepId) || emails[0];
-  const template = channel === "email" ? selectedEmail?.body || "" : channel === "linkedin" ? linkedin : whatsapp;
+  const channelSteps = draft.steps.filter(step => step.kind !== "wait").filter(step => step.kind === channel);
+  const selectedMessage = channelSteps.find(step => step.id === selectedStepId) || channelSteps[0];
+  const template = selectedMessage?.body ?? (channel === "email" ? selectedEmail?.body || "" : channel === "linkedin" ? linkedin : whatsapp);
   const preview = contact ? renderCampaignTemplate(template, { displayName: contact.name, companyName: contact.company }) : template;
   let day = 1;
   const days = new Map<string, number>();
@@ -45,7 +47,7 @@ export function CampaignMessagesEditor({ draft, selectedStepId, onChange, onSele
         }}><option value="">Select a contact</option>{contacts.filter(item => !recipientIds.includes(item.id)).map(item => <option key={item.id} value={item.id}>{item.name} · {item.company}</option>)}</select></label> : <p className="mt-3 text-xs text-[var(--muted)]">Add people to this mandate to preview personalised messages.</p>}
       </section>
       <section className={card}>
-        <div className="flex flex-wrap gap-2" aria-label="Message channels">{([ ["email", "Email sequence"], ["linkedin", "LinkedIn sample"], ["whatsapp", "WhatsApp sample"] ] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={channel === key} className={`${button} ${channel === key ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "text-[var(--muted)]"}`} onClick={() => { setChannel(key); setCopyStatus(""); }}>{label}</button>)}</div>
+        <div className="flex flex-wrap gap-2" aria-label="Message channels">{([ ["email", "Email sequence"], ["linkedin", draft.steps.some(step => step.kind === "linkedin") ? "LinkedIn sequence" : "LinkedIn sample"], ["whatsapp", draft.steps.some(step => step.kind === "whatsapp") ? "WhatsApp sequence" : "WhatsApp sample"] ] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={channel === key} className={`${button} ${channel === key ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "text-[var(--muted)]"}`} onClick={() => { setChannel(key); setCopyStatus(""); }}>{label}</button>)}</div>
         {channel === "email" ? <>
           <p className="my-4 rounded-lg bg-[var(--accent-soft)] p-3 text-xs text-[var(--muted)]"><strong className="text-[var(--foreground)]">{emails.length === 7 ? "Seven" : emails.length} editable emails.</strong> Edit the draft here or in Sequence flow. Wait steps determine the gaps. Save draft to keep changes.</p>
           <div className="space-y-2">{emails.map((email, index) => <details key={email.id} className="rounded-lg border border-[var(--border)]" onToggle={event => { if (event.currentTarget.open) { onSelect(email.id); setCopyStatus(""); } }}>
@@ -58,7 +60,11 @@ export function CampaignMessagesEditor({ draft, selectedStepId, onChange, onSele
               <button type="button" className={button} onClick={() => { onSelect(email.id); setCopyStatus(""); }}>Preview this email</button>
             </div>
           </details>)}</div>
-        </> : <label className="mt-4 block text-sm font-semibold">{channel === "linkedin" ? "LinkedIn message" : "WhatsApp message"}<textarea rows={8} className={field} value={channel === "linkedin" ? linkedin : whatsapp} onChange={event => { if (channel === "linkedin") setLinkedin(event.target.value); else setWhatsapp(event.target.value); setCopyStatus(""); }} /><span className="mt-2 block text-xs font-normal text-[var(--muted)]">Sample for manual use. Sample edits last while this view is open.</span></label>}
+        </> : channelSteps.length > 0 ? <div className="mt-4 space-y-3">{channelSteps.map(step => <div key={step.id} className="rounded-lg border border-[var(--border)] p-4">
+          <label className="block text-xs font-medium">Title<input className={field} value={step.title} onChange={event => onChange({ ...draft, steps: draft.steps.map(item => item.id === step.id ? { ...item, title: event.target.value } : item) })} /></label>
+          <label className="mt-3 block text-xs font-medium">Message<textarea className={field} rows={6} value={step.body} onChange={event => onChange({ ...draft, steps: draft.steps.map(item => item.id === step.id && item.kind !== "wait" ? { ...item, body: event.target.value } : item) })} /></label>
+          <div className="mt-3 flex items-center justify-between"><button type="button" className={button} onClick={() => { onSelect(step.id); setCopyStatus(""); }}>Preview this message</button><span className="text-xs text-[var(--muted)]">Day {days.get(step.id)}</span></div>
+        </div>)}<p className="text-xs text-[var(--muted)]">Saved with your draft for manual use.</p></div> : <label className="mt-4 block text-sm font-semibold">{channel === "linkedin" ? "LinkedIn message" : "WhatsApp message"}<textarea rows={8} className={field} value={channel === "linkedin" ? linkedin : whatsapp} onChange={event => { if (channel === "linkedin") setLinkedin(event.target.value); else setWhatsapp(event.target.value); setCopyStatus(""); }} /><span className="mt-2 block text-xs font-normal text-[var(--muted)]">Sample for manual use. Sample edits last while this view is open.</span></label>}
       </section>
     </div>
     <aside className={card}>

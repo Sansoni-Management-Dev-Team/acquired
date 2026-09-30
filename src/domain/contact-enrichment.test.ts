@@ -21,4 +21,10 @@ describe("contact enrichment progress", () => {
   it("keeps an entirely failed batch on the failure screen", () => {
     expect(contactEnrichmentProgress([{ ...run, status: "failed" }], [run.id])).toMatchObject({ finished: true, failed: true });
   });
+  it("shows the stage that failed instead of marking unfinished stages complete", () => {
+    expect(contactEnrichmentProgress([{ ...run, status: "failed", companyStatus: "running" }], [run.id]).stage).toBe(0);
+    expect(contactEnrichmentProgress([{ ...run, status: "failed", companyStatus: "failed" }], [run.id]).stage).toBe(0);
+    expect(contactEnrichmentProgress([{ ...run, status: "failed" }], [run.id]).stage).toBe(1);
+    expect(contactEnrichmentProgress([{ ...run, status: "failed", searchStatus: "complete" }], [run.id]).stage).toBe(2);
+  });
 });

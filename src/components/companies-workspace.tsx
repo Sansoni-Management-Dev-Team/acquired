@@ -11,6 +11,7 @@ import { ContactEnrichmentProgress } from './contact-enrichment-progress';
 import { useActivePolling } from './use-active-polling';
 import { mandateTabHref } from '@/domain/mandate-navigation';
 import { providerNeutralText } from '@/domain/provider-display';
+import { clearDiscoveredCompanies, discoveredCompaniesFor } from './company-discovery-handoff';
 
 const fieldClass = 'mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2 text-sm text-[var(--foreground)]';
 async function read(url: string, signal?: AbortSignal, method = 'GET') {
@@ -20,11 +21,12 @@ async function read(url: string, signal?: AbortSignal, method = 'GET') {
   return data;
 }
 export function CompaniesWorkspace({ mandates, initial }: { mandates: MandateView[]; initial: CompanyList }) {
-  const [data, setData] = useState(initial), [query, setQuery] = useState<CompanyListQuery>(defaultCompanyListQuery);
+  const [data, setData] = useState(() => discoveredCompaniesFor(initial)), [query, setQuery] = useState<CompanyListQuery>(defaultCompanyListQuery);
   const [selected, setSelected] = useState<string[]>([]), [review, setReview] = useState<CompanySummary | null>(null);
   const [enriching, setEnriching] = useState<string[] | null>(null), [error, setError] = useState('');
-  const revision = useRef(initial.revision), sequence = useRef(0), controller = useRef<AbortController | null>(null);
+  const revision = useRef(data.revision), sequence = useRef(0), controller = useRef<AbortController | null>(null);
   const id = initial.mandate.id;
+  useEffect(() => { clearDiscoveredCompanies(id); }, [id]);
   const queryKey = JSON.stringify(query);
   const refresh = useCallback(async () => {
     const current = ++sequence.current;

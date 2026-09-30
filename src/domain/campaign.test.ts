@@ -12,6 +12,14 @@ describe("campaign definitions", () => {
     expect(campaignDefinition.safeParse({ schemaVersion: 1, steps: [first, second] }).success).toBe(false);
     expect(campaignDefinition.safeParse({ schemaVersion: 1, steps: [first, wait, { ...second, id: first.id }] }).success).toBe(false);
   });
+  it("persists WhatsApp and LinkedIn messages with waits and validates their content", () => {
+    const linkedin = { id: first.id, kind: "linkedin", title: "LinkedIn follow-up", body: "Hi {{first_name}}" };
+    const whatsapp = { id: second.id, kind: "whatsapp", title: "WhatsApp follow-up", body: "Hello {{company_name}}" };
+    const definition = { schemaVersion: 1, steps: [linkedin, wait, whatsapp] };
+    expect(campaignDefinition.parse(JSON.parse(JSON.stringify(definition)))).toEqual(definition);
+    expect(campaignDefinition.safeParse({ ...definition, steps: [linkedin, whatsapp] }).success).toBe(false);
+    expect(campaignDefinition.safeParse({ ...definition, steps: [{ ...linkedin, body: "" }] }).success).toBe(false);
+  });
   it("renders only supported contact placeholders", () => {
     expect(renderCampaignTemplate("Hi {{first_name}} / {{full_name}} at {{company_name}}; {{unknown}}", { displayName: "Alex Chen", companyName: "Harbour" })).toBe("Hi Alex / Alex Chen at Harbour; {{unknown}}");
   });

@@ -12,12 +12,18 @@ import { loadWorkspaceContacts } from "@/db/firmable-read-model";
 import { FirmableHistoryRepository } from "@/db/firmable-history-repository";
 import { CompanyListRepository } from '@/db/company-list-repository';
 import { defaultCompanyListQuery } from '@/domain/company-list';
+import { Suspense } from "react";
+import { PageLoading } from "@/components/page-loading";
 export default async function MandatePage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ tab?: string; targetId?: string }> }) {
   const { id } = await params;
   if (!z.string().uuid().safeParse(id).success) notFound();
   const query = await searchParams;
   const requested = query.tab || "brief";
   if (requested === "outreach") permanentRedirect(mandatePeopleHref(id));
+  return <Suspense key={`${id}:${requested}`} fallback={<PageLoading />}><MandateContent id={id} requested={requested} /></Suspense>;
+}
+
+async function MandateContent({ id, requested }: { id: string; requested: string }) {
   const { organizationId } = await acquisitionSession();
   if (["coverage", "discover", "pipeline"].includes(requested)) redirect(`/mandates/${id}?tab=targets`);
   const tab = ["brief", "targets"].includes(requested) ? requested : "brief";

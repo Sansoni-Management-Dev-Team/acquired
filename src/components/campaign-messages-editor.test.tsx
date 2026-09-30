@@ -23,3 +23,13 @@ it("supports a mandate with no contacts without inventing recipients", () => {
   expect(html).toContain("Select a recipient");
   expect(html).toContain("Add people to this mandate");
 });
+
+
+it("edits and previews saved channel nodes instead of temporary samples", () => {
+  const draft = { steps: [{ id: "linkedin", kind: "linkedin" as const, title: "Connect on LinkedIn", body: "Hi {{first_name}}, about {{company_name}}" }] };
+  const html = renderToStaticMarkup(<CampaignMessagesEditor draft={draft} selectedStepId="linkedin" onChange={() => {}} onSelect={() => {}} contacts={[{ id: "alex", name: "Alex Chen", company: "Harbour" }]} />);
+  expect(html).toContain("LinkedIn sequence");
+  expect(html).toContain("Connect on LinkedIn");
+  expect(html).toContain("Hi Alex, about Harbour");
+  expect(html).toContain("Saved with your draft for manual use.");
+});

@@ -378,7 +378,10 @@ export class FirmableRefresh extends WorkflowEntrypoint<Env, { runId: string; ma
         retries: { limit: 2, delay: "10 seconds", backoff: "exponential" },
         timeout: "90 seconds",
       }, async () => JSON.stringify(await firmableCallback<T>(this.env, runId, body)));
-      return JSON.parse(serialized) as T;
+      const result = JSON.parse(serialized);
+      // Check outside step.do so a replay never retries a terminal provider failure.
+      if (result?.failed === true) throw new Error("Contact enrichment stopped");
+      return result as T;
     };
     try {
       await checkpoint<{ companyId?: string }>("company", { action: "company", mandateId });

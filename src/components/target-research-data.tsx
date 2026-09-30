@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { DetailTooltip } from "./detail-tooltip";
 import type { SavedResearchFinding } from "@/domain/research";
 import { estimateEbitda } from "@/domain/estimated-ebitda";
 import { parseHeadcount } from "@/domain/company-facts";
@@ -79,7 +80,7 @@ export function compactAud(value: number) {
 
 export function TargetEbitdaData({ findings = [], preferredHeadcount }: { findings?: SavedResearchFinding[]; preferredHeadcount?: number }) {
   const estimate = estimateEbitda(findings, undefined, preferredHeadcount === undefined ? undefined : { value: preferredHeadcount, source: "company data" });
-  if (estimate.status !== "estimated") return <div className="max-w-56"><p className="text-[var(--muted)]">Unavailable</p><details><summary className={disclosure}>Why unavailable?</summary><p className="text-xs text-[var(--muted)]">{estimate.reason}</p></details></div>;
+  if (estimate.status !== "estimated") return <div className="max-w-56"><DetailTooltip content={estimate.reason}><span className="text-[var(--muted)]">Unavailable</span></DetailTooltip></div>;
   const money = compactAud;
   const approximation = (estimate.low! + estimate.high!) / 2;
   return <div className="max-w-56"><p className="font-medium">≈ {money(approximation)}</p><p className="text-xs text-[var(--muted)]">Estimated annual EBITDA</p>{preferredHeadcount !== undefined ? <p className="text-xs text-[var(--muted)]">Preferred company headcount</p> : estimate.headcountAggregation?.method === "mean" && <p className="text-xs text-[var(--status-amber)]">Averaged headcount</p>}</div>;

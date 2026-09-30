@@ -101,6 +101,7 @@ export async function publishCampaign(actor: CampaignActor, sequenceId: string) 
     if (!sequence) throw new CampaignError("Sequence not found", 404);
     return { definition: parseDefinition(sequence.draft), name: sequence.name, version: sequence.published_version + 1, updatedAt: sequence.updated_at };
   });
+  if (prepared.definition.steps.some(step => step.kind === "linkedin" || step.kind === "whatsapp")) throw new CampaignError("WhatsApp and LinkedIn nodes can be saved as drafts for manual use. Publishing requires channel delivery support.");
   const versionId = randomUUID();
   const workflowId = n8nCampaignEnabled() ? await provisionSequenceWorkflow({ versionId, sequenceName: prepared.name, version: prepared.version, definition: prepared.definition }) : null;
   try { return await withCampaignDb(actor, async client => {

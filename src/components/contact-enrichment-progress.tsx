@@ -24,7 +24,7 @@ export function ContactEnrichmentProgress({ mandateId, targetIds, onBack }: { ma
       setWarnings(result.warnings || []);
       if (!queued.length) throw new Error(result.warnings?.join(" ") || "No companies could be queued for enrichment.");
       setRunIds(queued.map((run: { id: string }) => run.id));
-    }).catch(error => { setError(error.message); setQueueFailed(true); });
+    }).catch(() => { setError("We couldn’t start finding contacts. Please try again later."); setQueueFailed(true); });
   }, [mandateId, targetIds]);
   const refresh = useCallback(async () => {
     if (!runIds.length) return;
@@ -45,7 +45,7 @@ export function ContactEnrichmentProgress({ mandateId, targetIds, onBack }: { ma
     <CompanySearchProgress label={stopped ? "ENRICHMENT STOPPED" : progress.finished ? "ENRICHMENT COMPLETE" : "ENRICHING"} title={stopped ? "Could not find contacts" : progress.finished ? "Contacts ready" : "Finding contacts"} detail={progress.finished && !progress.failed ? `${progress.saved} contact${progress.saved === 1 ? "" : "s"} saved. Opening your filtered people list…` : "Researching only the companies you selected."} stages={contactEnrichmentStages} stage={progress.stage} complete={progress.finished && !progress.failed} running={!stopped && !progress.finished} />
     {error && <p role="alert" className="text-sm text-[var(--status-red)]">{error}</p>}
     {warnings.length > 0 && <p role="status" className="text-sm text-[var(--muted)]">{warnings.join(" ")}</p>}
-    {progress.failed && <p role="alert" className="text-sm text-[var(--status-red)]">{runs.map(run => run.message).join(" ")}</p>}
+    {progress.failed && <p role="alert" className="text-sm text-[var(--status-red)]">We couldn’t finish finding contacts. Please try again later.</p>}
     <button type="button" className={`${buttonClass} self-center`} onClick={onBack}>{stopped ? "Back to companies" : "Back to companies · enrichment continues"}</button>
   </div>;
 }
