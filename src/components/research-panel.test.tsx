@@ -84,15 +84,64 @@ describe("discovery candidate list", () => {
   });
 });
 
-describe("research goal progress", () => {
-  it("makes a finished run below its goal distinct from active research", () => {
+describe("research job progress", () => {
+  it("fills the bar for a finished run below its goal and keeps results separate", () => {
     const completed = job({ status: "complete", config: { ...job().config, discoveryCandidate: false, targetBusinesses: 20 } });
     const html = renderToStaticMarkup(<ResearchProgress job={completed} count={7} identified={31} active={false} enriching={0} />);
 
     expect(html).toContain("7 of 20 new businesses saved");
-    expect(html).toContain("35%");
+    expect(html).toContain("100%");
+    expect(html).toContain("31 businesses identified");
     expect(html).not.toContain("No research is running");
-    expect(html).toContain('aria-valuenow="35"');
-    expect(renderToStaticMarkup(<ResearchProgress job={completed} count={7} identified={31} active enriching={1} />)).not.toContain("No research is running");
+    expect(html).toContain('aria-valuenow="100"');
+    expect(html).toContain('width:100%');
+  });
+
+  it.each([
+    ["queued", "Preparing research", 0],
+    ["discovering", "Finding businesses", 20],
+    ["crawling", "Reading websites", 40],
+    ["reading", "Reading websites", 40],
+    ["extracting", "Extracting business details", 60],
+  ])("shows the %s stage independently of the saved count", (status, label, percentage) => {
+    const current = job({ status, config: { ...job().config, discoveryCandidate: false, targetBusinesses: 20 } });
+    const html = renderToStaticMarkup(<ResearchProgress job={current} count={20} identified={31} active enriching={0} />);
+
+    expect(html).toContain(label);
+    expect(html).toContain(`aria-valuenow="${percentage}"`);
+    expect(html).toContain("Stage");
+    expect(html).not.toContain("100%");
+  });
+
+  it("waits for candidate research after discovery finishes", () => {
+    const root = job({ status: "complete", config: { ...job().config, discoveryCandidate: false, targetBusinesses: 20 } });
+    const html = renderToStaticMarkup(<ResearchProgress job={root} jobs={[root, job()]} count={7} identified={31} active enriching={0} />);
+
+    expect(html).toContain("Reading websites");
+    expect(html).toContain('aria-valuenow="40"');
+  });
+
+  it("keeps enrichment in progress after the discovery job completes", () => {
+    const completed = job({ status: "complete" });
+    const html = renderToStaticMarkup(<ResearchProgress job={completed} count={7} identified={31} active enriching={1} />);
+
+    expect(html).toContain("Enriching businesses");
+    expect(html).toContain("Stage 5 of 5");
+    expect(html).toContain('aria-valuenow="80"');
+  });
+
+  it.each([0, 7, 20, 25])("completes with %s saved businesses", count => {
+    const completed = job({ status: "complete", config: { ...job().config, discoveryCandidate: false, targetBusinesses: 20 } });
+    expect(renderToStaticMarkup(<ResearchProgress job={completed} count={count} identified={31} active={false} enriching={0} />)).toContain('aria-valuenow="100"');
+  });
+
+  it("completes research without a business target", () => {
+    expect(renderToStaticMarkup(<ResearchProgress job={job({ status: "complete" })} count={0} identified={0} active={false} enriching={0} />)).toContain('aria-valuenow="100"');
+  });
+
+  it.each(["failed", "partial", "cancelled"])("does not mark a %s job complete", status => {
+    const html = renderToStaticMarkup(<ResearchProgress job={job({ status, pages: 2, modelCalls: 1 })} count={20} identified={31} active={false} enriching={0} />);
+    expect(html).not.toContain('aria-valuenow="100"');
+    expect(html).toContain(status === "partial" ? "Research paused" : `Research ${status}`);
   });
 });
