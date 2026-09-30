@@ -1,3 +1,5 @@
+import { observeResearchRequest, observeResearchOperation, researchRequestId, setResearchDatabaseContext, researchRequestJson, researchJsonResponse } from '@/lib/research-request-observability';
+import { researchCallbackContext } from '@/lib/research-egress-metrics';
 import { adaptiveDiscovery, discoveryLimit, discoveryRegions, resolveDiscoveryDecision, DISCOVERY_BATCH_SIZE, discoveryQueryId, type DiscoveryContext, type DiscoveryAttempt } from "@/domain/adaptive-discovery";
 import { measureResearchSegment } from "@/lib/research-segment-timing";
 import { dispatchDiscoveryCandidates } from "@/lib/automatic-discovery";
@@ -53,14 +55,15 @@ async function getJob(request: Request, jobId: string) {
       .limit(1)
   )[0];
 }
-export async function GET(
+async function getControl(
   request: Request,
   context: { params: Promise<{ jobId: string }> },
 ) {
   const { jobId } = await context.params;
   const job = await getJob(request, jobId);
-  if (!job) return Response.json({ error: "Not available" }, { status: 403 });
-  return Response.json(await controlSnapshot(job, true), { headers: { "Cache-Control": "no-store" } });
+  if (!job) return researchJsonResponse({ error: "Not available" }, { status: 403 });
+  setResearchDatabaseContext({ jobId: job.id, organizationId: job.organizationId, mandateId: job.mandateId, runId: (job.config as ResearchConfig).researchRunId || job.id });
+  return researchJsonResponse(await controlSnapshot(job, true), { headers: { "Cache-Control": "no-store" } });
 }
 async function runEvidence(job: NonNullable<Awaited<ReturnType<typeof getJob>>>) {
   const config = job.config as ResearchConfig;
@@ -97,37 +100,40 @@ async function discoveryContext(job: NonNullable<Awaited<ReturnType<typeof getJo
 async function saveSearchLeads(jobId: string, previous: PeopleSearchLead[], leads: PeopleSearchLead[]) {
   await requireDb().update(researchJobs).set({ config: sql`jsonb_set(${researchJobs.config}, '{peopleSearchLeads}', ${JSON.stringify(mergePeopleSearchLeads([...leads, ...previous]))}::jsonb)` }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates)));
 }
-export async function POST(
+async function postCallback(
   request: Request,
   context: { params: Promise<{ jobId: string }> },
 ) {
   const { jobId } = await context.params;
+  if (!researchServiceAuthorized(request) || !researchEnabled() || !z.string().uuid().safeParse(jobId).success) return researchJsonResponse({ error: "Not available" }, { status: 403 });
+  const payload = await researchRequestJson(request).catch(() => null);
+  setResearchDatabaseContext(researchCallbackContext(payload?.action));
   const job = await getJob(request, jobId);
-  if (!job) return Response.json({ error: "Not available" }, { status: 403 });
-  const payload = await request.json().catch(() => null);
+  if (!job) return researchJsonResponse({ error: "Not available" }, { status: 403 });
+  setResearchDatabaseContext({ jobId: job.id, organizationId: job.organizationId, mandateId: job.mandateId, runId: (job.config as ResearchConfig).researchRunId || job.id });
   const repo = new ResearchRepository(job.organizationId);
   if (payload?.action === "provider-reserve") {
-    if (terminalResearchStates.includes(job.status) || !['page', 'search', 'ai'].includes(payload.provider) || typeof payload.token !== 'string' || payload.token.length > 160) return Response.json({ granted: false, retryAfterMs: 1000 });
+    if (terminalResearchStates.includes(job.status) || !['page', 'search', 'ai'].includes(payload.provider) || typeof payload.token !== 'string' || payload.token.length > 160) return researchJsonResponse({ granted: false, retryAfterMs: 1000 });
     const reservation = await reserveResearchProvider(jobId, payload.token, payload.provider, undefined, payload.policy === "paid-v1");
     // A durable queue wait is live work, not an unresponsive provider step.
     await requireDb().update(researchJobs).set({ updatedAt: new Date(), message: `Waiting for ${payload.provider === "ai" ? "AI" : "browser"} slot` }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates)));
-    return Response.json(reservation);
+    return researchJsonResponse(reservation);
   }
   if (payload?.action === "browser-cooldown") {
     const delay = Number(payload.retryAfterMs);
-    if (!Number.isFinite(delay) || delay < 0) return Response.json({ error: "Invalid delay" }, { status: 400 });
+    if (!Number.isFinite(delay) || delay < 0) return researchJsonResponse({ error: "Invalid delay" }, { status: 400 });
     await coolDownResearchBrowser(delay);
-    return Response.json({ ok: true });
+    return researchJsonResponse({ ok: true });
   }
   if (payload?.action === "provider-release") {
-    if (typeof payload.token !== 'string' || payload.token.length > 160) return Response.json({ error: "Invalid token" }, { status: 400 });
+    if (typeof payload.token !== 'string' || payload.token.length > 160) return researchJsonResponse({ error: "Invalid token" }, { status: 400 });
     await releaseResearchProvider(jobId, payload.token);
-    return Response.json({ ok: true });
+    return researchJsonResponse({ ok: true });
   }
   if (payload?.action === "browser-permit") {
     const permit = await researchBrowserPermit(jobId, typeof payload.token === 'string' ? payload.token : undefined, typeof payload.url === "string" ? researchDomain(payload.url) || undefined : undefined);
     if (permit.granted) await requireDb().update(researchJobs).set({ updatedAt: new Date(), message: job.status === "discovering" ? "Searching the web" : "Reading website" }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates)));
-    return Response.json(permit);
+    return researchJsonResponse(permit);
   }
   // Pass the reserved search slot through the existing provider adapter. It is
   // consumed atomically by /search, never trusted merely because a header exists.
@@ -137,24 +143,24 @@ export async function POST(
     return fetch(input, { ...init, headers });
   };
   if (payload?.action === "discovery-context") {
-    return Response.json(await discoveryContext(job));
+    return researchJsonResponse(await discoveryContext(job));
   }
   if (payload?.action === "targeted-followup") {
     const config = job.config as ResearchConfig;
     const field = payload.field as ResearchField;
-    if (!config.targetedFollowup || !objectiveFields(config).includes(field) || ((field === "people" || field === "email") && config.maxPeopleSearches !== 2) || terminalResearchStates.includes(job.status)) return Response.json({ seeds: [], exhausted: true });
+    if (!config.targetedFollowup || !objectiveFields(config).includes(field) || ((field === "people" || field === "email") && config.maxPeopleSearches !== 2) || terminalResearchStates.includes(job.status)) return researchJsonResponse({ seeds: [], exhausted: true });
     const evidence = await runEvidence(job);
     const facts = evidence.map(f => f.evidence as import("@/domain/research").ResearchFinding);
-    if (fieldSatisfied(field, facts)) return Response.json({ seeds: [], exhausted: true });
+    if (fieldSatisfied(field, facts)) return researchJsonResponse({ seeds: [], exhausted: true });
     const legalEntity = facts.find(f => f.kind === "identifier" && f.name === "Legal entity")?.value || config.legalEntity;
     const completed = config.targetedSearches || [], attempts = config.targetedSearchAttempts || [];
     const ladder = targetedQueries(field, { ...config, legalEntity }, facts);
     const query = nextSearchQuery(ladder, completed, attempts);
-    if (!query) return Response.json({ seeds: [], exhausted: true });
+    if (!query) return researchJsonResponse({ seeds: [], exhausted: true });
     const lease = crypto.randomUUID();
     const claimed = await requireDb().update(researchJobs).set({ config: sql`jsonb_set(${researchJobs.config}, '{targetedSearchLease}', ${JSON.stringify({ id: lease, until: Date.now() + 65000 })}::jsonb)` })
       .where(and(eq(researchJobs.id, job.id), sql`COALESCE((${researchJobs.config}->'targetedSearchLease'->>'until')::bigint, 0) < ${Date.now()}`, sql`NOT (COALESCE(${researchJobs.config}->'targetedSearches', '[]'::jsonb) ? ${query})`, notInArray(researchJobs.status, terminalResearchStates))).returning({ id: researchJobs.id });
-    if (!claimed.length) return Response.json({ seeds: [], failed: true, warning: "Search already in progress; retrying within the job budget" });
+    if (!claimed.length) return researchJsonResponse({ seeds: [], failed: true, warning: "Search already in progress; retrying within the job budget" });
     const saveAttempt = async (status: 'succeeded' | 'failed', category?: string) => {
       const attempt = { query, field, status, ...(category ? { category } : {}) };
       const base = sql`jsonb_set(${researchJobs.config} - 'targetedSearchLease', '{targetedSearchAttempts}', COALESCE(${researchJobs.config}->'targetedSearchAttempts', '[]'::jsonb) || ${JSON.stringify([attempt])}::jsonb)`;
@@ -174,38 +180,38 @@ export async function POST(
         seeds = results.filter(r => companyResultMatches(r, config.companyName!, config.companyDomain!, legalEntity)).map(r => r.url);
       }
       const exhausted = await saveAttempt('succeeded');
-      return Response.json({ seeds, query, exhausted });
+      return researchJsonResponse({ seeds, query, exhausted });
     } catch (error) {
       const category = error instanceof Error && 'category' in error ? String(error.category) : 'provider_unavailable';
       const exhausted = await saveAttempt('failed', category);
-      return Response.json({ seeds: [], query, failed: true, exhausted, warning: `Search for ${field} failed (${category}); existing evidence retained` });
+      return researchJsonResponse({ seeds: [], query, failed: true, exhausted, warning: `Search for ${field} failed (${category}); existing evidence retained` });
     }
   }
   if (payload?.action === "people-followup") {
     const config = job.config as ResearchConfig;
-    if (config.purpose !== "people" || config.maxPeopleSearches !== 2 || terminalResearchStates.includes(job.status)) return Response.json({ seeds: [] });
+    if (config.purpose !== "people" || config.maxPeopleSearches !== 2 || terminalResearchStates.includes(job.status)) return researchJsonResponse({ seeds: [] });
     const findings = await requireDb().select().from(researchFindings).where(and(eq(researchFindings.jobId, job.id), eq(researchFindings.organizationId, job.organizationId)));
     const candidate = findings.map(f => f.evidence as { kind?: string; name?: string; value?: string }).find(f => f.kind === "identifier" && f.name === "Legal entity");
     const legalEntity = candidate?.value ? cleanLegalEntity(candidate.value) : config.legalEntity;
     const query = peopleFollowupQuery(config.companyName!, config.peopleSearchLeads || [], legalEntity, config.companyDomain);
-    if (!query) return Response.json({ seeds: [] });
+    if (!query) return researchJsonResponse({ seeds: [] });
     const claimed = await requireDb().update(researchJobs).set({ config: sql`jsonb_set(jsonb_set(${researchJobs.config}, '{peopleFollowupStarted}', 'true'::jsonb), '{legalEntity}', ${JSON.stringify(legalEntity || "")}::jsonb)` }).where(and(eq(researchJobs.id, job.id), sql`COALESCE(${researchJobs.config}->>'peopleFollowupStarted', 'false') = 'false'`, notInArray(researchJobs.status, terminalResearchStates))).returning({ id: researchJobs.id });
-    if (!claimed.length) return Response.json({ seeds: [] });
+    if (!claimed.length) return researchJsonResponse({ seeds: [] });
     try {
       const result = await peopleWebSearch(config.companyName!, config.companyDomain!, searchFetch, query, legalEntity, job.id);
       await saveSearchLeads(job.id, config.peopleSearchLeads || [], result.leads);
-      return Response.json({ seeds: result.seeds });
+      return researchJsonResponse({ seeds: result.seeds });
     }
-    catch (error) { return Response.json({ seeds: [], warning: `${error instanceof Error ? error.message : "Targeted people follow-up search unavailable"}; saved website research retained.` }); }
+    catch (error) { return researchJsonResponse({ seeds: [], warning: `${error instanceof Error ? error.message : "Targeted people follow-up search unavailable"}; saved website research retained.` }); }
   }
   if (payload?.action === "discovery-sources") {
     const config = job.config as ResearchConfig;
     if (terminalResearchStates.includes(job.status) || config.purpose || config.workflow !== "business" || !config.discover)
-      return Response.json({ pending: false });
+      return researchJsonResponse({ pending: false });
     if (config.discoverySourcesPrepared)
-      return Response.json({ pending: !config.discoverySourceCoverageRecorded || (config.discoverySourceCursor || 0) < (config.discoverySourceCandidates?.length || 0) });
+      return researchJsonResponse({ pending: !config.discoverySourceCoverageRecorded || (config.discoverySourceCursor || 0) < (config.discoverySourceCandidates?.length || 0) });
     const mandate = await new AcquisitionRepository(job.organizationId).getMandate(job.mandateId);
-    if (!mandate) return Response.json({ error: "Mandate unavailable" }, { status: 409 });
+    if (!mandate) return researchJsonResponse({ error: "Mandate unavailable" }, { status: 409 });
     const filters = briefToMandate(mandate.brief);
     const provider = createTargetDataProvider();
     const discovery = await discoverMandate({
@@ -256,18 +262,18 @@ export async function POST(
     if (!prepared.length) {
       const current = await repo.get(jobId);
       const currentConfig = current?.config as ResearchConfig | undefined;
-      return Response.json({ pending: Boolean(currentConfig?.discoverySourcesPrepared && (!currentConfig.discoverySourceCoverageRecorded || (currentConfig.discoverySourceCursor || 0) < (currentConfig.discoverySourceCandidates?.length || 0))) });
+      return researchJsonResponse({ pending: Boolean(currentConfig?.discoverySourcesPrepared && (!currentConfig.discoverySourceCoverageRecorded || (currentConfig.discoverySourceCursor || 0) < (currentConfig.discoverySourceCandidates?.length || 0))) });
     }
-    return Response.json({ pending: true });
+    return researchJsonResponse({ pending: true });
   }
   if (payload?.action === "discovery-persist") {
     const config = job.config as ResearchConfig;
-    if (terminalResearchStates.includes(job.status) || !config.discoverySourcesPrepared) return Response.json({ pending: false });
+    if (terminalResearchStates.includes(job.status) || !config.discoverySourcesPrepared) return researchJsonResponse({ pending: false });
     const candidates = config.discoverySourceCandidates || [];
     const cursor = config.discoverySourceCursor || 0;
     const batch = candidates.slice(cursor, cursor + DISCOVERY_PERSIST_BATCH);
     const mandate = await new AcquisitionRepository(job.organizationId).getMandate(job.mandateId);
-    if (!mandate) return Response.json({ error: "Mandate unavailable" }, { status: 409 });
+    if (!mandate) return researchJsonResponse({ error: "Mandate unavailable" }, { status: 409 });
     const filters = briefToMandate(mandate.brief);
     const next = cursor + batch.length;
     let advanced = false;
@@ -298,31 +304,31 @@ export async function POST(
     if (!advanced) {
       const current = await repo.get(jobId);
       const currentConfig = current?.config as ResearchConfig | undefined;
-      return Response.json({ pending: Boolean(current && !terminalResearchStates.includes(current.status) && (currentConfig?.discoverySourceCursor || 0) < (currentConfig?.discoverySourceCandidates?.length || 0)) });
+      return researchJsonResponse({ pending: Boolean(current && !terminalResearchStates.includes(current.status) && (currentConfig?.discoverySourceCursor || 0) < (currentConfig?.discoverySourceCandidates?.length || 0)) });
     }
-    return Response.json({ pending: next < candidates.length });
+    return researchJsonResponse({ pending: next < candidates.length });
   }
   // Each batch query is its own durable callback and provider reservation. Claims
   // and completion are atomic against the current JSON so concurrent siblings do
   // not overwrite seeds, attempts, or cancellation state.
   if (payload?.action === "discover" && payload.decision?.queryId !== undefined) {
     const parsed = z.object({ query: z.string().trim().min(3).max(410).refine(q => !/[\r\n]/.test(q)), reason: z.string().max(300), queryId: z.string().regex(/^q-\d+-\d+-[a-f0-9]+$/), batchStartIndex: z.number().int().min(0) }).safeParse(payload.decision);
-    if (!parsed.success) return Response.json({ error: "Invalid discovery query" }, { status: 400 });
+    if (!parsed.success) return researchJsonResponse({ error: "Invalid discovery query" }, { status: 400 });
     const decision = parsed.data;
     const index = Number(decision.queryId.split("-")[2]);
-    if (index >= DISCOVERY_BATCH_SIZE || discoveryQueryId(decision.query, decision.batchStartIndex, index) !== decision.queryId) return Response.json({ error: "Invalid query identifier" }, { status: 400 });
+    if (index >= DISCOVERY_BATCH_SIZE || discoveryQueryId(decision.query, decision.batchStartIndex, index) !== decision.queryId) return researchJsonResponse({ error: "Invalid query identifier" }, { status: 400 });
     const config = job.config as ResearchConfig;
     const control = await controlSnapshot(job);
-    if (!adaptiveDiscovery(config) || terminalResearchStates.includes(job.status) || control.status === "cancelled" || Date.now() >= control.deadline) return Response.json({ seeds: [], stopped: true, more: false });
+    if (!adaptiveDiscovery(config) || terminalResearchStates.includes(job.status) || control.status === "cancelled" || Date.now() >= control.deadline) return researchJsonResponse({ seeds: [], stopped: true, more: false });
     const context = await discoveryContext(job);
     const completed = context.attempts.find(a => a.queryId === decision.queryId);
     if (completed) {
       // Dispatch is idempotent, and may need replaying if the callback terminated
       // after saving search results but before admitting their candidate jobs.
       if (config.parallelDiscovery) await measureResearchSegment(jobId, job.organizationId, `discovery-dispatch-${decision.queryId}`, "coordination", () => dispatchDiscoveryCandidates(job.organizationId, jobId));
-      return Response.json({ seeds: config.parallelDiscovery ? [] : job.seeds, more: context.remainingSearches > 0 });
+      return researchJsonResponse({ seeds: config.parallelDiscovery ? [] : job.seeds, more: context.remainingSearches > 0 });
     }
-    if (!context.remainingSearches || context.found >= context.target) return Response.json({ seeds: [], more: false });
+    if (!context.remainingSearches || context.found >= context.target) return researchJsonResponse({ seeds: [], more: false });
     const lease = crypto.randomUUID(), started = Date.now();
     const claims = sql`COALESCE(${researchJobs.config}->'discoveryClaims', '{}'::jsonb)`;
     const attempted = sql`COALESCE(${researchJobs.config}->'discoveryAttempts', '[]'::jsonb)`;
@@ -336,7 +342,7 @@ export async function POST(
       sql`jsonb_array_length(${attempted}) >= ${decision.batchStartIndex} AND jsonb_array_length(${attempted}) < ${decision.batchStartIndex + DISCOVERY_BATCH_SIZE}`,
       sql`COALESCE(${researchJobs.config}->>'discoveryStopReason', '') = ''`,
     )).returning({ id: researchJobs.id }));
-    if (!claimed.length) return Response.json({ seeds: [], more: true, deferred: true });
+    if (!claimed.length) return researchJsonResponse({ seeds: [], more: true, deferred: true });
     let attempt: DiscoveryAttempt | undefined, safeSeeds: string[] = [], warning: string | undefined;
     let deferred = false;
     try {
@@ -368,20 +374,20 @@ export async function POST(
     if (updated.length && config.parallelDiscovery) await measureResearchSegment(jobId, job.organizationId, `discovery-dispatch-${decision.queryId}`, "coordination", () => dispatchDiscoveryCandidates(job.organizationId, jobId));
     const latest = await repo.get(jobId);
     const latestContext = await discoveryContext(latest || job);
-    return Response.json({ seeds: config.parallelDiscovery ? [] : latest?.seeds || safeSeeds, warning, deferred, more: latestContext.remainingSearches > 0 && latestContext.found < latestContext.target });
+    return researchJsonResponse({ seeds: config.parallelDiscovery ? [] : latest?.seeds || safeSeeds, warning, deferred, more: latestContext.remainingSearches > 0 && latestContext.found < latestContext.target });
   }
   if (payload?.action === "discover") {
     if (terminalResearchStates.includes(job.status))
-      return Response.json({ seeds: job.seeds, stopped: true });
+      return researchJsonResponse({ seeds: job.seeds, stopped: true });
     const config = job.config as ResearchConfig;
     const control = await controlSnapshot(job);
-    if (control.status === "cancelled" || Date.now() >= control.deadline) return Response.json({ seeds: [], stopped: true, more: false });
+    if (control.status === "cancelled" || Date.now() >= control.deadline) return researchJsonResponse({ seeds: [], stopped: true, more: false });
     // Web discovery runs in slices: the first call claims discovery and runs the fast
     // sources; each call then runs a few searches and reports whether more remain.
     const sourcesPrepared = config.discoverySourcesPrepared === true;
     const continuing = typeof config.discoveryCursor === "number";
     if (!sourcesPrepared && !continuing && !(await repo.claimDiscovery(jobId)))
-      return Response.json({
+      return researchJsonResponse({
         seeds: job.seeds,
         warning: "Discovery already attempted; existing seeds reused.",
       });
@@ -476,10 +482,10 @@ export async function POST(
         const context = await discoveryContext(latest || job);
         // A workflow callback can be replayed after its result was committed.
         // Reuse the committed attempt instead of charging for the same search again.
-        if (typeof payload.decision?.attemptIndex === "number" && payload.decision.attemptIndex !== context.attempts.length) return Response.json({ seeds: config.parallelDiscovery ? [] : latest?.seeds || [], more: Boolean((latest?.config as ResearchConfig | undefined)?.discoveryPending) });
+        if (typeof payload.decision?.attemptIndex === "number" && payload.decision.attemptIndex !== context.attempts.length) return researchJsonResponse({ seeds: config.parallelDiscovery ? [] : latest?.seeds || [], more: Boolean((latest?.config as ResearchConfig | undefined)?.discoveryPending) });
         const lease = crypto.randomUUID();
         const claimed = await requireDb().update(researchJobs).set({ config: sql`jsonb_set(${researchJobs.config}, '{discoveryLease}', ${JSON.stringify({ id: lease, until: Date.now() + 65000 })}::jsonb)` }).where(and(eq(researchJobs.id, jobId), notInArray(researchJobs.status, terminalResearchStates), sql`jsonb_array_length(COALESCE(${researchJobs.config}->'discoveryAttempts', '[]'::jsonb)) = ${context.attempts.length}`, sql`COALESCE((${researchJobs.config}->'discoveryLease'->>'until')::bigint, 0) < ${Date.now()}`, sql`NOT EXISTS (SELECT 1 FROM jsonb_each(COALESCE(${researchJobs.config}->'discoveryClaims', '{}'::jsonb)) c WHERE (c.value->>'until')::bigint > ${Date.now()})`)).returning({ id: researchJobs.id });
-        if (!claimed.length) return Response.json({ seeds: [], more: true, deferred: true });
+        if (!claimed.length) return researchJsonResponse({ seeds: [], more: true, deferred: true });
         const decision = resolveDiscoveryDecision(payload.decision?.planning, context, discoveryQueryPlan(config.searchTerms, config.geography).map(p => p.query));
         let attempt: DiscoveryAttempt | undefined;
         if (decision.query) {
@@ -503,7 +509,7 @@ export async function POST(
         more = !decision.stop && attempts.length < discoveryLimit(config);
         const stopReason = decision.stop ? decision.reason : !more ? "Search budget reached." : "";
         const committed = await requireDb().update(researchJobs).set({ seeds: [...new Set(seeds)].filter(url => !skip.has(researchDomain(url))).slice(0, 1000), config: sql`jsonb_set(jsonb_set(jsonb_set(jsonb_set(${researchJobs.config} - 'discoveryLease', '{discoveryCursor}', ${String(attempts.length)}::jsonb), '{discoveryPending}', ${JSON.stringify(more)}::jsonb), '{discoveryAttempts}', ${JSON.stringify(attempts)}::jsonb), '{discoveryStopReason}', ${JSON.stringify(stopReason)}::jsonb)` }).where(and(eq(researchJobs.id, jobId), sql`${researchJobs.config}->'discoveryLease'->>'id' = ${lease}`, sql`jsonb_array_length(COALESCE(${researchJobs.config}->'discoveryAttempts', '[]'::jsonb)) = ${context.attempts.length}`, sql`NOT EXISTS (SELECT 1 FROM jsonb_each(COALESCE(${researchJobs.config}->'discoveryClaims', '{}'::jsonb)) c WHERE (c.value->>'until')::bigint > ${Date.now()})`, notInArray(researchJobs.status, terminalResearchStates))).returning({ id: researchJobs.id });
-        if (!committed.length) return Response.json({ seeds: [], more: true, deferred: true });
+        if (!committed.length) return researchJsonResponse({ seeds: [], more: true, deferred: true });
       } else {
         const plan = discoveryQueryPlan(config.searchTerms, config.geography);
         const cursor = afterDiscovery?.discoveryCursor || 0;
@@ -533,15 +539,16 @@ export async function POST(
     seeds = [...new Set(seeds)].filter(url => !finalSkip.has(researchDomain(url))).slice(0, config.adaptiveDiscovery ? 1000 : 100);
     if (!adaptiveDiscovery(config)) await repo.seeds(jobId, seeds, warning || (seeds.length ? "Website search finished; researching candidate businesses" : "Website search finished; no candidate websites found in this batch"));
     if (config.parallelDiscovery) await dispatchDiscoveryCandidates(job.organizationId, jobId);
-    return Response.json({ seeds: config.parallelDiscovery ? [] : seeds, deferred: admissionDeferred, warning, peopleLeadCount, skipDomains: [...finalSkip], more });
+    return researchJsonResponse({ seeds: config.parallelDiscovery ? [] : seeds, deferred: admissionDeferred, warning, peopleLeadCount, skipDomains: [...finalSkip], more });
   }
+  setResearchDatabaseContext({ action: "progress", stage: "persistence" });
   const event = progressSchema.safeParse(payload);
   if (!event.success)
-    return Response.json({ error: "Invalid progress event" }, { status: 400 });
+    return researchJsonResponse({ error: "Invalid progress event" }, { status: 400 });
   try {
     await repo.progress(jobId, event.data);
   } catch {
-    return Response.json(
+    return researchJsonResponse(
       { error: "Unable to record progress" },
       { status: 409 },
     );
@@ -555,7 +562,9 @@ export async function POST(
   // status-only heartbeats must stay cheap.
   const pageMatters = Boolean(page && (page.findings.length > 0 || directorySource(page.url, page.markdown)));
   const terminal = ["complete", "partial", "failed"].includes(status);
-  if (pageMatters || terminal) after(async () => {
+  const dispatchRequestId = researchRequestId() || crypto.randomUUID();
+  if (pageMatters || terminal) after(() => observeResearchOperation(`${dispatchRequestId}-dispatch`, async () => {
+    setResearchDatabaseContext({ jobId, organizationId: job.organizationId, mandateId: job.mandateId, runId: (job.config as ResearchConfig).researchRunId || job.id, stage: "coordination", action: "dispatch" });
     try {
       if ((job.config as ResearchConfig).mode === "automatic") {
         if (["complete", "partial"].includes(status)) await dispatchContinuation(job.organizationId, jobId);
@@ -565,7 +574,10 @@ export async function POST(
     } catch (error) {
       console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), jobId, event: "dispatch_deferred", reason: error instanceof Error ? error.message.slice(0, 200) : "unknown" }));
     }
-  });
+  }));
   const saved = await repo.get(jobId);
-  return Response.json({ ok: true, ...(saved ? { control: await controlSnapshot(saved) } : {}) });
+  return researchJsonResponse({ ok: true, ...(saved ? { control: await controlSnapshot(saved) } : {}) });
 }
+
+export async function GET(request: Request, context: { params: Promise<{ jobId: string }> }) { return observeResearchRequest(request, () => getControl(request, context)); }
+export async function POST(request: Request, context: { params: Promise<{ jobId: string }> }) { return observeResearchRequest(request, () => postCallback(request, context)); }

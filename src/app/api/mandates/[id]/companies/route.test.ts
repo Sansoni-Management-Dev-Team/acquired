@@ -4,7 +4,7 @@ vi.mock('@/lib/auth',()=>({auth:{api:{getSession:m.session}}}));
 vi.mock('@/db/company-list-repository',()=>({CompanyListRepository:class{load=m.load;}}));
 vi.mock('@/db/acquisition-repository',()=>({AcquisitionRepository:class{getMandate=m.mandate;}}));
 vi.mock('@/lib/company-list-recovery',()=>({recoverCompanyListWork:m.recover}));
-vi.mock('@/lib/research-request-observability',()=>({observeResearchRequest:(_request:Request,run:()=>Promise<Response>)=>run()}));
+vi.mock('@/lib/research-request-observability',()=>({observeResearchRequest:(_request:Request,run:()=>Promise<Response>)=>run(),researchJsonResponse:Response.json}));
 import {GET,POST} from './route';
 const id='d867df25-1cad-441d-ae08-92d26da3117e';
 beforeEach(()=>{vi.clearAllMocks();m.session.mockResolvedValue({session:{activeOrganizationId:'org'}});m.mandate.mockResolvedValue({id});});

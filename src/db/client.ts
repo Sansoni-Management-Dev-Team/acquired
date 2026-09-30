@@ -1,3 +1,4 @@
+import { observeResearchDatabase } from "@/lib/research-request-observability";
 import "server-only";
 import { attachDatabasePool } from "@vercel/functions";
 import { neon } from "@neondatabase/serverless";
@@ -38,10 +39,10 @@ function createDatabase(): Database | null {
   if (!config) return null;
 
   if (config.driver === "postgres") {
-    return postgresDrizzle({ client: getPostgresPool(config.connectionString), schema });
+    return observeResearchDatabase(postgresDrizzle({ client: getPostgresPool(config.connectionString), schema }), "postgres");
   }
 
-  return neonDrizzle({ client: neon(config.connectionString), schema });
+  return observeResearchDatabase(neonDrizzle({ client: neon(config.connectionString), schema }), "neon");
 }
 
 export const db = createDatabase();

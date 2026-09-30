@@ -1,3 +1,4 @@
+import { observeResearchRequest, researchJsonResponse } from '@/lib/research-request-observability';
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { CompanyListRepository } from '@/db/company-list-repository';
@@ -9,20 +10,20 @@ type Context = { params: Promise<{ id: string }> };
 async function handle(request: Request, context: Context) {
   const session = await auth.api.getSession({ headers: request.headers });
   const org = session?.session.activeOrganizationId;
-  if (!org) return Response.json({ error: 'Sign in first' }, { status: 401 });
+  if (!org) return researchJsonResponse({ error: 'Sign in first' }, { status: 401 });
   const { id } = await context.params;
-  if (!z.uuid().safeParse(id).success) return Response.json({ error: 'Invalid mandate' }, { status: 400 });
+  if (!z.uuid().safeParse(id).success) return researchJsonResponse({ error: 'Invalid mandate' }, { status: 400 });
   const parsed = querySchema.safeParse(Object.fromEntries(new URL(request.url).searchParams));
-  if (!parsed.success) return Response.json({ error: 'Invalid company filters' }, { status: 400 });
+  if (!parsed.success) return researchJsonResponse({ error: 'Invalid company filters' }, { status: 400 });
   const { revision, ...query } = parsed.data;
   if (request.method === 'POST') {
-    if (!await new AcquisitionRepository(org).getMandate(id)) return Response.json({ error: 'Mandate not found' }, { status: 404 });
+    if (!await new AcquisitionRepository(org).getMandate(id)) return researchJsonResponse({ error: 'Mandate not found' }, { status: 404 });
     await recoverCompanyListWork(org, id);
-    return Response.json({ ok: true }, { headers: { 'Cache-Control': 'no-store' } });
+    return researchJsonResponse({ ok: true }, { headers: { 'Cache-Control': 'no-store' } });
   }
   const result = await new CompanyListRepository(org).load(id, query, revision);
-  if (!result) return Response.json({ error: 'Mandate not found' }, { status: 404 });
-  return Response.json(result, { headers: { 'Cache-Control': 'no-store' } });
+  if (!result) return researchJsonResponse({ error: 'Mandate not found' }, { status: 404 });
+  return researchJsonResponse(result, { headers: { 'Cache-Control': 'no-store' } });
 }
-export async function GET(request: Request, context: Context) { return handle(request, context); }
-export async function POST(request: Request, context: Context) { return handle(request, context); }
+export async function GET(request: Request, context: Context) { return observeResearchRequest(request, () => handle(request, context)); }
+export async function POST(request: Request, context: Context) { return observeResearchRequest(request, () => handle(request, context)); }
