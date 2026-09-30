@@ -36,7 +36,12 @@ it("renders saved companies before research finishes without the discovery loadi
   const initial = { mandate, memberships: [{ target, assessment: initialAssessment, accreditations: [], version: 1 }], coverage: [], valuations: [], buyerProfile: null, contacts: [], firmableRefreshes: [] };
   const html = renderToStaticMarkup(<MandateWorkspace mandates={[mandate]} initial={initial} tab="targets" />);
   expect(html).toContain(target.companyName);
-  expect(html).toContain('>Status</th>');
+  expect(html).toContain('>Fit</th>');
+  expect(html).toContain('>Reason for fit</th>');
+  for (const movedColumn of ["Status", "Stage", "Headcount", "Revenue (source currency)", "Estimated EBITDA (AUD)", "Key decision-makers", "Evidence"]) {
+    expect(html).not.toContain(`>${movedColumn}</th>`);
+  }
+  expect(html).toContain(`aria-label="Review ${target.companyName}"`);
   expect(html).not.toContain("Finding businesses");
   expect(html).not.toContain('role="progressbar"');
 });

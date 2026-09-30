@@ -2,6 +2,8 @@
 
 Evidence-led SME acquisition sourcing, ranking, and outreach. This repository is implementing the phases in [`docs/21-build-plan.md`](docs/21-build-plan.md).
 
+See [`TODO.md`](TODO.md) for deferred work.
+
 ## Implemented
 
 - Next.js App Router, TypeScript, Tailwind, and copy-in UI components

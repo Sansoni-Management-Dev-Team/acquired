@@ -1,83 +1,65 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
-import { dialogBackdrop } from "./dialog-backdrop";
-import Link from "next/link";
-import type { MandateView, MembershipView, Assessment } from "@/domain/acquisition";
-import type { BuyerProfile } from "@/domain/buyer-profile";
-import { PeopleSearch } from "./people-search";
-import { CompanyFactsPanel } from "./company-facts-panel";
-import { TargetWorksheet } from "./target-worksheet";
-import { OutreachQueue, type OutreachTargetView } from "./outreach-queue";
-import { TargetResearchEvidence } from "./research-panel";
-import { buttonClass, fieldClass, jsonRequest, panelClass } from "./mandate-workspace";
-import { isCompanyDataSource } from "@/domain/provider-display";
 
-type OutreachData = { canCompose?: boolean; views: OutreachTargetView[]; buyerProfile: BuyerProfile | null };
-export function CompanyReviewPanel({ mandate, initial, onClose, onChanged, onNext, position }: { mandate: MandateView; initial: MembershipView; onClose: () => void; onChanged: () => Promise<void>; onNext?: () => void; position: string }) {
+import { useEffect, useRef, useState } from "react";
+import { X } from "lucide-react";
+import { dialogBackdrop } from "./dialog-backdrop";
+import { CompanyInfoSummary } from "./company-info-summary";
+import { CompanyContactsTable } from "./company-contacts-table";
+import type { MandateView, MembershipView } from "@/domain/acquisition";
+import type { OutreachTargetView } from "./outreach-queue";
+import { jsonRequest } from "./mandate-workspace";
+
+const actionClass = "inline-flex min-h-12 items-center justify-center gap-2 rounded-[10px] px-4 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-40";
+const reviewTabs = [["review", "Overview"], ["contacts", "Contacts"]] as const;
+type ContactsData = { views: OutreachTargetView[] };
+
+export function CompanyReviewPanel({ mandate, initial: member, onClose, position }: {
+  mandate: MandateView; initial: MembershipView; onClose: () => void; position: string;
+}) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const content = useRef<HTMLDivElement>(null);
   const backdropPressed = useRef(false);
-  const [member, setMember] = useState(initial);
   const [tab, setTab] = useState("review");
-  const [reason, setReason] = useState(initial.assessment.reason);
-  const [nextAction, setNextAction] = useState(initial.assessment.nextAction);
-  const [busy, setBusy] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const [outreachDirty, setOutreachDirty] = useState(false);
-  const [worksheetDirty, setWorksheetDirty] = useState(false);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
-  const [outreach, setOutreach] = useState<OutreachData>();
-  const [worksheetOpened, setWorksheetOpened] = useState(false);
+  const [contacts, setContacts] = useState<ContactsData>();
+  const [contactsError, setContactsError] = useState("");
   useEffect(() => { const el = dialog.current!; el.showModal(); return () => el.close(); }, []);
   useEffect(() => {
-    if (dirty || worksheetDirty || outreachDirty) return;
-    const update = window.setTimeout(() => {
-      setMember(initial);
-      setReason(initial.assessment.reason);
-      setNextAction(initial.assessment.nextAction);
-    }, 0);
-    return () => window.clearTimeout(update);
-  }, [initial, dirty, worksheetDirty, outreachDirty]);
-  async function refresh() {
-    const [workspace, messages] = await Promise.all([jsonRequest(`/api/mandates/${mandate.id}`), jsonRequest(`/api/mandates/${mandate.id}/outreach`)]);
-    setMember(workspace.memberships.find((m: MembershipView) => m.target.id === initial.target.id)); setOutreach(messages); await onChanged();
-  }
-  useEffect(() => { let live = true; void jsonRequest(`/api/mandates/${mandate.id}/outreach`).then(d => { if (live) setOutreach(d); }).catch(() => { if (live) setError("Could not load contact readiness. Try opening Contacts & drafts again."); }); return () => { live = false; }; }, [mandate.id]);
-  function close() { if ((dirty || worksheetDirty || outreachDirty) && !window.confirm("Discard unsaved company review edits?")) return; onClose(); }
-  function openTab(value: string) { setTab(value); dialog.current?.scrollTo({ top: 0 }); if (value === "details") setWorksheetOpened(true); if (value === "outreach") void jsonRequest(`/api/mandates/${mandate.id}/outreach`).then(setOutreach).catch(e => setError(e.message)); }
-  async function decide(stage: Assessment["stage"], advance = false) {
-    if (worksheetDirty) { setError("Save your worksheet changes first."); return; }
-    if (["parked", "excluded"].includes(stage) && !reason.trim()) { setError("Add a reason before parking or excluding this company."); return; }
-    setBusy(true); setError(""); setNotice("");
-    try {
-      await jsonRequest(`/api/mandates/${mandate.id}`, { action: "assessment", targetId: member.target.id, version: member.version, assessment: { ...member.assessment, stage, reason, nextAction } });
-      setDirty(false); await refresh(); setNotice(stage === "shortlisted" ? "Shortlisted. This company is now in Pipeline." : "Decision saved."); if (advance) { if (outreachDirty && !window.confirm("Decision saved. Discard unsaved outreach edits and move to the next company?")) return; onNext?.(); }
-    } catch (e) { setError((e as Error).message); } finally { setBusy(false); }
-  }
-  const targetOutreach = outreach?.views.find(t => t.id === member.target.id);
-  const hasContact = targetOutreach?.contacts.some(c => !c.doNotContact && !c.fictionalised);
-  const hasDrafts = Boolean(targetOutreach?.drafts.length);
-  const early = ["identified", "reviewing", "parked", "excluded"].includes(member.assessment.stage);
-  const conversation = ["contacted", "in-conversation", "qualified"].includes(member.assessment.stage);
-  const primary = conversation ? (member.assessment.stage === "contacted" ? "Record conversation" : "Review qualification") : early ? "Review missing details" : !hasContact ? "Find decision-maker" : hasDrafts ? "Review drafts" : "Generate draft";
-  return <dialog ref={dialog} onPointerDown={event => dialogBackdrop(backdropPressed, close).onPointerDown(event)} onPointerCancel={() => { backdropPressed.current = false; }} onClick={event => dialogBackdrop(backdropPressed, close).onClick(event)} onCancel={e => { e.preventDefault(); close(); }} aria-labelledby="company-review-heading" className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-dvh w-full max-w-4xl overflow-y-auto border-l border-[var(--border)] bg-[var(--background)] p-0 text-[var(--foreground)] backdrop:bg-black/60">
-    <header className="sticky top-0 z-10 space-y-3 border-b border-[var(--border)] bg-[var(--background)] p-5">
-      <div className="flex items-start justify-between gap-4"><div><p className="text-xs text-[var(--muted)]">{position} · {member.assessment.stage}</p><h2 id="company-review-heading" className="mt-1 text-2xl font-semibold">{member.target.companyName}</h2><p className="mt-1 text-xs text-[var(--muted)]">{member.target.domain || "Website unknown"} · {member.target.state}</p></div><button className={`${buttonClass} min-h-12`} onClick={close}>Close</button></div>
-      <nav aria-label="Company review" className="flex flex-wrap gap-2">{[["review", "Review & decision"], ["details", "Worksheet"], ["outreach", "Contacts & drafts"]].map(([value, label]) => <button key={value} aria-current={tab === value ? "page" : undefined} style={tab === value ? { backgroundColor: "var(--accent)", color: "var(--on-accent)" } : undefined} className={`${buttonClass} min-h-12 ${tab === value ? "bg-[var(--accent)] text-[var(--on-accent)]" : ""}`} onClick={() => openTab(value)}>{label}</button>)}</nav>
-    </header>
-    <div className="space-y-5 p-5">
-      {error && <p role="alert" className="text-sm text-[var(--status-red)]">{error}</p>}{notice && <p role="status" className="text-sm text-[var(--accent)]">{notice}</p>}
-      <div hidden={tab !== "review"} className="space-y-5">
-        <div className="grid gap-3 sm:grid-cols-2"><section className={panelClass}><h3 className="font-semibold">Company suitability</h3><p className="mt-2 text-sm">Fit {member.target.scores.fit} · {member.assessment.evidence.filter(e => e.assessment !== "unknown").length} criteria assessed</p><p className="mt-2 text-xs text-[var(--muted)]">Shortlisting means worth approaching. Financial and management unknowns stay visible.</p></section><section className={panelClass}><h3 className="font-semibold">Contact readiness</h3><p className="mt-2 text-sm">{!outreach ? "Loading…" : hasContact ? "Named contact saved" : "Find a decision-maker"}</p><p className="mt-2 text-xs text-[var(--muted)]">{hasDrafts ? "Drafts ready to review" : "No drafts yet"} · {targetOutreach?.contacts.some(c => c.email) ? "Work email available; review source" : "Work email still unknown"}</p></section></div>
-        <button style={{ backgroundColor: "var(--accent)", color: "var(--on-accent)" }} className={`${buttonClass} min-h-12`} onClick={() => openTab(early || conversation ? "details" : "outreach")}>{primary}</button>
-        <section className={`${panelClass} space-y-3`}><h3 className="font-semibold">Your decision</h3>{worksheetDirty && <p className="text-sm text-[var(--status-amber)]">Save the worksheet before changing your decision.</p>}<label className="block text-sm">Decision reason / notes<textarea className={fieldClass} maxLength={2000} value={reason} onChange={e => { setReason(e.target.value); setDirty(true); }} /></label><label className="block text-sm">Next action<input className={fieldClass} maxLength={1000} value={nextAction} onChange={e => { setNextAction(e.target.value); setDirty(true); }} /></label><div className="flex flex-wrap gap-2">{([['shortlisted','Shortlist'],['parked','Park'],['excluded','Exclude']] as const).map(([stage,label]) => <button className={`${buttonClass} min-h-12`} disabled={busy || worksheetDirty || (stage === "shortlisted" && !early && member.assessment.stage !== "shortlisted")} key={stage} onClick={() => decide(stage)}>{label}</button>)}<button className={`${buttonClass} min-h-12`} disabled={busy || worksheetDirty} onClick={() => decide(member.assessment.stage)}>Save notes</button>{onNext && <button className={`${buttonClass} min-h-12`} disabled={busy || worksheetDirty} onClick={() => decide(member.assessment.stage, true)}>Save & next company</button>}</div><p className="text-xs text-[var(--muted)]">Park and Exclude require a reason. Shortlist adds the company to Pipeline without marking it qualified.</p></section>
-        {tab === "review" && <PeopleSearch mandateId={mandate.id} targetId={member.target.id} onSaved={() => { void refresh().catch(e => setError(e.message)); }} />}
-        <CompanyFactsPanel mandateId={mandate.id} targetId={member.target.id} preferredHeadcount={member.target.headcount.value !== null && isCompanyDataSource(member.target.headcount.provenance.source) ? member.target.headcount.value : undefined} />
-        <TargetResearchEvidence mandateId={mandate.id} targetId={member.target.id} domain={member.target.domain || ""} />
-        <Link className="text-sm underline" href={`/mandates/${mandate.id}/targets/${member.target.id}`} onClick={e => { if ((dirty || worksheetDirty || outreachDirty) && !window.confirm("Discard unsaved edits and open the full worksheet?")) e.preventDefault(); }}>Open full worksheet</Link>
+    let live = true;
+    void jsonRequest(`/api/mandates/${mandate.id}/outreach`).then(data => { if (live) setContacts(data); }).catch(() => { if (live) setContactsError("Could not load saved contacts. Reopen this company to retry."); });
+    return () => { live = false; };
+  }, [mandate.id]);
+  function openTab(value: string) { setTab(value); content.current?.scrollTo({ top: 0 }); }
+  const savedContacts = contacts?.views.find(t => t.id === member.target.id)?.contacts || [];
+  return <dialog ref={dialog} onPointerDown={event => dialogBackdrop(backdropPressed, onClose).onPointerDown(event)} onPointerCancel={() => { backdropPressed.current = false; }} onClick={event => dialogBackdrop(backdropPressed, onClose).onClick(event)} onCancel={e => { e.preventDefault(); onClose(); }} aria-labelledby="company-review-heading" className="fixed inset-y-0 left-auto right-0 m-0 h-dvh max-h-dvh w-full max-w-3xl overflow-hidden border-l border-[var(--border)] bg-[var(--background)] p-0 text-[var(--foreground)] shadow-xl backdrop:bg-black/50 backdrop:backdrop-blur-sm">
+    <div className="flex h-full flex-col">
+      <header className="shrink-0 space-y-5 border-b border-[var(--border)] px-5 pb-5 pt-6 sm:px-8">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0"><p className="text-xs text-[var(--muted)]">{position}</p><h2 id="company-review-heading" className="mt-2 break-words text-2xl font-semibold leading-tight">{member.target.companyName}</h2><div className="mt-2 break-all text-sm text-[var(--muted)]"><CompanyWebsite domain={member.target.domain} /></div></div>
+          <button autoFocus className={`${actionClass} min-w-12 shrink-0 px-3 hover:bg-[var(--panel-raised)]`} aria-label="Close company panel" onClick={onClose}><X size={20} /></button>
+        </div>
+        <nav role="tablist" aria-label="Company information" className="grid grid-cols-2 gap-1 rounded-[10px] bg-[var(--panel-raised)] p-1">
+          {reviewTabs.map(([value, label], index) => <button key={value} id={`company-tab-${value}`} role="tab" aria-selected={tab === value} aria-controls={`company-panel-${value}`} tabIndex={tab === value ? 0 : -1} className={`${actionClass} px-2 leading-tight sm:px-4 ${tab === value ? "bg-[var(--background)] text-[var(--foreground)] shadow-sm" : "text-[var(--muted)] hover:text-[var(--foreground)]"}`} onClick={() => openTab(value)} onKeyDown={event => {
+            if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+            event.preventDefault();
+            const next = event.key === "Home" ? 0 : event.key === "End" ? reviewTabs.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + reviewTabs.length) % reviewTabs.length;
+            openTab(reviewTabs[next][0]);
+            document.getElementById(`company-tab-${reviewTabs[next][0]}`)?.focus();
+          }}>{label}</button>)}
+        </nav>
+      </header>
+      <div ref={content} className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8">
+        <div id="company-panel-review" role="tabpanel" aria-labelledby="company-tab-review" hidden={tab !== "review"}><CompanyInfoSummary member={member} /></div>
+        <div id="company-panel-contacts" role="tabpanel" aria-labelledby="company-tab-contacts" hidden={tab !== "contacts"}>
+          <CompanyContactsTable contacts={savedContacts} findings={member.researchFindings} loading={!contacts && !contactsError} error={contactsError} />
+        </div>
       </div>
-      {worksheetOpened && <div hidden={tab !== "details"}><TargetWorksheet key={member.version} embedded mandates={[]} mandate={mandate} initial={member} onDirty={() => setWorksheetDirty(true)} onSaved={async () => { setWorksheetDirty(false); await refresh(); const d = await jsonRequest(`/api/mandates/${mandate.id}`); const m = d.memberships.find((m: MembershipView) => m.target.id === member.target.id); if (!dirty) { setReason(m.assessment.reason); setNextAction(m.assessment.nextAction); } }} /></div>}
-      <div hidden={tab !== "outreach"}>{outreach ? <OutreachQueue canCompose={outreach.canCompose} showPeopleSearch={tab === "outreach"} onDirtyChange={setOutreachDirty} embedded key={member.target.id} mandateId={mandate.id} initialTargetId={member.target.id} initialTargets={outreach.views.filter(t => t.id === member.target.id)} initialBuyerProfile={outreach.buyerProfile} onRefresh={() => { void refresh().catch(e => setError(e.message)); }} /> : <p role="status">Loading contacts and drafts…</p>}</div>
     </div>
   </dialog>;
+}
+
+function CompanyWebsite({ domain }: { domain?: string }) {
+  let url: URL | null = null;
+  try { if (domain) url = new URL(domain.includes(":") ? domain : `https://${domain}`); } catch { /* Unknown website. */ }
+  if (!url || !["https:", "http:"].includes(url.protocol) || !url.hostname.includes(".") || url.username || url.password) return null;
+  return <a href={url.href} target="_blank" rel="noreferrer" className="underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2">{url.hostname}</a>;
 }

@@ -29,7 +29,8 @@ vi.mock("@/adapters/target-search-guard", () => ({
   acquireTargetSearch: () => mocks.release,
 }));
 
-import { POST, recoverFirmableRefreshes } from "./route";
+import { POST } from "./route";
+import { recoverFirmableRefreshes } from "@/lib/firmable-run-recovery";
 
 const mandateId = "00000000-0000-4000-8000-000000000001";
 const targetId = "00000000-0000-4000-8000-000000000002";

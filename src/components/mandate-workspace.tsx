@@ -1,25 +1,24 @@
 "use client";
 
 import { ContactEnrichmentProgress } from "./contact-enrichment-progress";
-import { TargetResearchData, TargetEbitdaData } from "./target-research-data";
-import { MandateFitCells } from "./mandate-fit-cells";
 import { TargetReviewRow } from "./target-review-row";
 import { CompanyReviewPanel } from "./company-review-panel";
+import { MandateFitCells } from "./mandate-fit-cells";
 import Link from "next/link";
 import { mandateTabHref } from "@/domain/mandate-navigation";
 import { businessResearchStatus } from "@/domain/business-research";
-import { evidenceLabel, type EvidenceCounts } from "@/domain/evidence-status";
+import { type EvidenceCounts } from "@/domain/evidence-status";
 import { researchDomain, terminalResearchStates, type SavedResearchFinding } from "@/domain/research";
 import { ResearchPanel, type ResearchJob, type ResearchPanelData } from "./research-panel";
 import { MandateBriefForm } from "./mandate-brief-form";
-import { companyWorkStatus, orderCompanyRows, toggleMatchingTargets } from "@/domain/target-candidates";
+import { orderCompanyRows, toggleMatchingTargets } from "@/domain/target-candidates";
 
 import { SidebarRegistration } from "./app-shell";
 import { useCallback, useState, useRef } from "react";
 import { useActivePolling } from "./use-active-polling";
-import { criterionDefinitions, type CoverageRun, type MandateView, type MembershipView, type ValuationObservation } from "@/domain/acquisition";
+import { type CoverageRun, type MandateView, type MembershipView, type ValuationObservation } from "@/domain/acquisition";
 import { BuyerProfile } from "@/domain/buyer-profile";
-import { COMPANY_DATA_SOURCE, isCompanyDataSource, providerNeutralText } from "@/domain/provider-display";
+import { providerNeutralText } from "@/domain/provider-display";
 
 export const fieldClass = "mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2 text-sm text-[var(--foreground)]";
 export const buttonClass = "rounded-md border border-[var(--border)] px-3 py-2 text-sm hover:bg-[var(--panel-raised)] disabled:opacity-40";
@@ -80,9 +79,10 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
   });
   const companyRows = orderCompanyRows([], filtered, data.contacts);
   const reviewIds = companyRows.flatMap(row => row.kind === "saved" ? [row.membership.target.id] : []);
+  const openReview = (targetId: string) => { setReviewQueue(reviewIds); setReviewId(targetId); };
+  const reviewedMember = data.memberships.find(m => m.target.id === reviewId);
   const matchingIds = filtered.map(m => m.target.id);
   const allMatchingSelected = matchingIds.length > 0 && matchingIds.every(targetId => selected.includes(targetId));
-  const openReview = (targetId: string) => { setReviewQueue(reviewIds); setReviewId(targetId); };
   if (enrichingTargets) return <><MandateNavigation mandates={mandates} selected={id} tab={tab} /><div className="p-5 sm:p-8"><ContactEnrichmentProgress mandateId={id} targetIds={enrichingTargets} onBack={() => { setEnrichingTargets(null); void refresh(); }} /></div></>;
   return <><MandateNavigation mandates={mandates.map(m => m.id === id ? data.mandate : m)} selected={id} tab={tab} /><div className="space-y-5 p-5 sm:p-8">{tab !== "brief" && <header><p className="text-xs uppercase tracking-widest text-[var(--accent)]">Acquisition workspace</p><h1 className="mt-2 text-3xl font-semibold">{data.mandate.brief.name}</h1></header>}
     {tab === "brief" && <MandateBriefForm mandateId={id} brief={data.mandate.brief} />}
@@ -90,7 +90,7 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
       <ResearchPanel mandateId={id} brief={data.mandate.brief} showStartAction={false} hideProgress onResultsChanged={onResearchResults} />
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Companies</h2><Link className={buttonClass} href={mandateTabHref(id, "brief")}>Find businesses</Link></div>
-        <p className="text-sm text-[var(--muted)]">Companies appear as they are found. Status shows what each company is currently being researched for.</p>
+        <p className="text-sm text-[var(--muted)]">Companies appear as they are found. Open a company to view its research, financials and decision-makers.</p>
       </section>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(12rem,2fr)_repeat(4,minmax(8rem,1fr))] xl:items-end">
         <label className="text-xs">Find company or website<input className={fieldClass} value={filter} onChange={e => setFilter(e.target.value)} placeholder="Name or domain" /></label>
@@ -102,32 +102,21 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
       <div className="flex flex-wrap items-center gap-3"><CompanyDataAction selectedCount={selected.length} busy={false} onClick={() => setEnrichingTargets([...selected])} />{selected.length > 0 && <button type="button" className="text-xs underline" onClick={() => setSelected([])}>Clear selection</button>}</div>
       {selected.length > 0 && <p className="text-xs text-[var(--muted)]">Company enrichment loads company data and every available person profile. Select up to 20 saved businesses; each may consume multiple credits.</p>}
       {visibleFirmable.length > 0 && <p role="status" className="text-sm text-[var(--accent)]">{visibleFirmable.map(run => `${data.memberships.find(item => item.target.id === run.targetId)?.target.companyName || "Company"}: ${providerNeutralText(run.message)}${run.profilesFound ? ` (${run.profilesSaved}/${run.profilesFound} profiles saved${run.profilesFailed ? `, ${run.profilesFailed} failed` : ""})` : ""}`).join(" · ")}</p>}
-      <div className="overflow-x-auto rounded-lg border border-[var(--border)]"><table className="w-full min-w-[1520px] text-left text-sm [&_td]:align-top"><thead className="bg-[var(--panel)]"><tr>
+      <div className="overflow-x-auto rounded-lg border border-[var(--border)]"><table className="w-full min-w-[720px] text-left text-sm [&_td]:align-top"><thead className="bg-[var(--panel)]"><tr>
         <th className="p-3"><label className="flex items-center gap-2"><input type="checkbox" aria-label="Select all matching businesses" disabled={!matchingIds.length} checked={allMatchingSelected} onChange={e => setSelected(current => toggleMatchingTargets(current, matchingIds, e.target.checked))} />Select</label></th>
-        {["Company", "Status", "Stage", "Fit", "Reason for fit", "Headcount", "Revenue (source currency)", "Estimated EBITDA (AUD)", "Key decision-makers", "Evidence"].map(label => <th className="p-3" key={label}>{label}</th>)}
+        {["Company", "Fit", "Reason for fit"].map(label => <th className="p-3" key={label}>{label}</th>)}
       </tr></thead><tbody>
         {companyRows.map(row => { if (row.kind !== "saved") return null;
         const m = row.membership;
         return <TargetReviewRow key={m.target.id} companyName={m.target.companyName} onReview={() => openReview(m.target.id)}>
           <td className="p-3"><input aria-label={`Select ${m.target.companyName}`} type="checkbox" checked={selected.includes(m.target.id)} onChange={e => setSelected(current => e.target.checked ? [...new Set([...current, m.target.id])] : current.filter(targetId => targetId !== m.target.id))} /></td>
-          <td className="w-64 min-w-56 p-3"><button className="min-h-12 text-left font-semibold underline decoration-[var(--border)]" onClick={() => openReview(m.target.id)}>{m.target.companyName}</button><p className="mt-1 text-xs text-[var(--muted)]">{m.target.state} · {m.target.sector.value || "Classification unresolved"}</p><p className="mt-1 text-xs text-[var(--accent)]">{researchStatus(m)}</p><div className="mt-1 max-w-56 truncate text-xs"><CompanyWebsite domain={m.target.domain} /></div><details className="mt-1 text-xs"><summary className="min-h-12 cursor-pointer content-center underline decoration-[var(--border)]">Company details</summary><p>ABN: {m.target.abn || "Unknown"}</p><EvidenceChips summary={research.evidence?.[m.target.id]} /></details></td>
-          <td className="min-w-52 p-3"><p role="status" className="text-xs text-[var(--accent)]">{companyWorkStatus(m.target, research.jobs, [...research.findings, ...(m.researchFindings || [])], research.pendingEnrichment)}</p></td>
-          <td className="p-3">{m.assessment.stage}</td>
+          <td className="w-80 p-3"><button className="min-h-12 text-left font-semibold underline decoration-[var(--border)] underline-offset-4" onClick={() => openReview(m.target.id)}>{m.target.companyName}</button></td>
           <MandateFitCells brief={data.mandate.brief} member={m} />
-          <td className="p-3"><TargetResearchData findings={m.researchFindings} kind="headcount" fallback={m.target.headcount.value?.toLocaleString() ?? "Unknown"} confirmedMissing={m.target.headcount.value === null && isCompanyDataSource(m.target.headcount.provenance.source) ? { label: "No data available", source: COMPANY_DATA_SOURCE } : undefined} preferred={m.target.headcount.value !== null && isCompanyDataSource(m.target.headcount.provenance.source) ? { value: m.target.headcount.value.toLocaleString("en-AU"), source: COMPANY_DATA_SOURCE, sourceUrl: m.target.headcount.provenance.sourceUrl } : undefined} /></td>
-          <td className="p-3"><TargetResearchData findings={m.researchFindings} kind="revenue" fallback={m.target.revenue.value == null ? "Unknown" : `${financialValue(m.target.revenue.value)} AUD`} preferred={m.target.revenue.value !== null && isCompanyDataSource(m.target.revenue.provenance.source) ? { value: financialValue(m.target.revenue.value), source: COMPANY_DATA_SOURCE, sourceUrl: m.target.revenue.provenance.sourceUrl } : undefined} /></td>
-          <td className="p-3"><TargetEbitdaData findings={m.researchFindings} preferredHeadcount={m.target.headcount.value !== null && isCompanyDataSource(m.target.headcount.provenance.source) ? m.target.headcount.value : undefined} /></td>
-          <td className="p-3"><TargetResearchData findings={m.researchFindings} kind="person" fallback={data.contacts.filter(c => c.targetId === m.target.id && c.name?.trim()).map(c => c.name).join(", ") || "Unknown"} /></td>
-          <td className="p-3">{m.assessment.evidence.filter(e => e.assessment !== "unknown").length}/{criterionDefinitions.length} tested</td>
         </TargetReviewRow>; })}
-        {!filtered.length && <tr><td colSpan={11} className="p-8 text-[var(--muted)]">{data.memberships.length || research.jobs.length ? "No companies match these filters. New companies will appear as they are found." : <>No companies yet. <Link className="underline" href={mandateTabHref(id, "brief")}>Find businesses or import sourced records in Brief</Link> to start your review.</>}</td></tr>}
+        {!filtered.length && <tr><td colSpan={4} className="p-8 text-[var(--muted)]">{data.memberships.length || research.jobs.length ? "No companies match these filters. New companies will appear as they are found." : <>No companies yet. <Link className="underline" href={mandateTabHref(id, "brief")}>Find businesses or import sourced records in Brief</Link> to start your review.</>}</td></tr>}
       </tbody></table></div>
     </>}
-  </div>{reviewId && data.memberships.find(m => m.target.id === reviewId) && <CompanyReviewPanel key={reviewId} mandate={data.mandate} initial={data.memberships.find(m => m.target.id === reviewId)!} position={`Company ${reviewQueue.indexOf(reviewId) + 1} of ${reviewQueue.length}`} onClose={() => setReviewId(null)} onChanged={async () => setData(await jsonRequest(`/api/mandates/${id}`))} onNext={reviewQueue.indexOf(reviewId) < reviewQueue.length - 1 ? () => setReviewId(reviewQueue[reviewQueue.indexOf(reviewId) + 1]) : undefined} />}</>;
-}
-function EvidenceChips({ summary }: { summary?: EvidenceCounts }) {
-  const state = summary || { searches: 0, researching: false, snippetEstimates: 0 };
-  return <p className="mt-1 text-xs text-[var(--muted)]">Size: {evidenceLabel(summary?.headcount || 0, state, summary?.conflicts.includes("headcount"))} · Decision-maker: {evidenceLabel(summary?.person || 0, state)}</p>;
+  </div>{reviewedMember && <CompanyReviewPanel key={reviewedMember.target.id} mandate={data.mandate} initial={reviewedMember} position={`Company ${reviewQueue.indexOf(reviewedMember.target.id) + 1} of ${reviewQueue.length}`} onClose={() => setReviewId(null)} />}</>;
 }
 export function CoveragePanel({ data }: { data: WorkspaceData }) {
   const all = data.memberships;
@@ -136,14 +125,4 @@ export function CoveragePanel({ data }: { data: WorkspaceData }) {
   const named = sized.filter(m => data.contacts.some(c => c.targetId === m.target.id && /owner|founder|director|principal/i.test(c.role || "") && c.name));
   const reachable = named.filter(m => data.contacts.some(c => c.targetId === m.target.id && /owner|founder|director|principal/i.test(c.role || "") && c.reachable));
   return <><div className="grid gap-3 md:grid-cols-5">{[["Entities", all.length], ["Sub-sector confirmed", classified.length], ["Size populated", sized.length], ["Named owner / principal", named.length], ["Reachable contact", reachable.length]].map(([label,count]) => <div className={panelClass} key={label}><p className="text-2xl font-semibold">{count}</p><p className="mt-2 text-xs text-[var(--muted)]">{label}</p></div>)}</div><p className="text-xs text-[var(--muted)]">Sequential funnel for this mandate. Contact roles require review; size may be modelled. No national coverage percentage is claimed.</p><div className={panelClass}><h2 className="text-xl font-semibold">Source coverage history</h2>{!data.coverage.length && <p className="mt-3 text-sm text-[var(--muted)]">No sources searched yet.</p>}{data.coverage.map(run => <div key={run.id} className="mt-5 overflow-x-auto"><p className="mb-2 text-xs text-[var(--muted)]">{`${run.createdAt.slice(0, 16).replace("T", " ")} UTC`}</p><table className="w-full min-w-[700px] text-left text-sm"><thead><tr>{["Source", "Status", "Records", "Unique additions", "Overlap", "Scope / gaps"].map(h => <th className="p-2" key={h}>{h}</th>)}</tr></thead><tbody>{run.sources.map(s => <tr key={s.name} className="border-t border-[var(--border)]"><td className="p-2">{s.name}</td><td className="p-2">{s.status}</td><td className="p-2">{s.discovered}</td><td className="p-2">{s.unique}</td><td className="p-2">{s.overlap}</td><td className="max-w-md p-2 text-xs text-[var(--muted)]">{s.note}</td></tr>)}</tbody></table></div>)}</div></>;
-}
-function CompanyWebsite({ domain }: { domain?: string }) {
-  let url: URL | null = null;
-  try { if (domain) url = new URL(domain.includes(":") ? domain : `https://${domain}`); } catch { /* Unknown website. */ }
-  if (!url || !["https:", "http:"].includes(url.protocol) || !url.hostname.includes(".") || url.username || url.password) return <>Unknown</>;
-  return <a href={url.href} target="_blank" rel="noreferrer" className="underline">{url.hostname}</a>;
-}
-function financialValue(value: NonNullable<MembershipView["target"]["revenue"]["value"]>) {
-  const money = (amount: number) => new Intl.NumberFormat("en-AU", { style: "currency", currency: "AUD", maximumFractionDigits: 0 }).format(amount);
-  return typeof value === "number" ? money(value) : value.kind === "range" ? `${money(value.min)}–${money(value.max)}` : value.label;
 }

@@ -9,7 +9,7 @@ import type { Signal } from "@/domain/models";
 import type { BuyerProfile } from "@/domain/buyer-profile";
 import { OUTREACH_CHANNELS, type OutreachChannel, type OutreachChannelCopy } from "@/domain/outreach";
 
-export type OutreachContactView = { id: string; displayName: string; role?: string; email?: string; emailStatus?: string; sourceUrl?: string; fictionalised: boolean; doNotContact: boolean };
+export type OutreachContactView = { id: string; displayName: string; role?: string; email?: string; phone?: string; emailStatus?: string; sourceUrl?: string; fictionalised: boolean; doNotContact: boolean };
 type ContactCandidate = { id: string; position?: string; seniority?: string; department?: string; emailAvailable: boolean; phoneAvailable: boolean };
 export type OutreachDraftView = { id: string; contactId?: string; step: number; subject: string; body: string; channels?: Partial<Record<OutreachChannel, OutreachChannelCopy>>; signalIds: string[]; scheduledFor?: string; state: string; gmailDraftSaved: boolean };
 type PreviewDraft = { step: number; subject: string; body: string; channels?: Partial<Record<OutreachChannel, OutreachChannelCopy>> };
