@@ -1,3 +1,4 @@
+import { outreachEmail } from "@/domain/outreach-contact";
 import { mergePeopleSearchLeads } from "@/domain/people-search-results";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -58,6 +59,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const config = row?.config as ResearchConfig | undefined;
     const f = findingSchema.safeParse(row?.finding.evidence);
     if (!row || !((config?.purpose === "people" || config?.purpose === "firmographics") && config.targetId === id || config?.workflow === "business" && config.findPeople) || !f.success || f.data.kind !== "person") return Response.json({ error: "Candidate not found" }, { status: 404 });
+    if (!outreachEmail(f.data.email)) return Response.json({ error: "A published email address is required. Enrich this person before adding them to People." }, { status: 409 });
     const existing = (await db.select().from(contacts).where(and(eq(contacts.organizationId, c.org), eq(contacts.targetId, id)))).find(contact => contact.displayName.toLowerCase() === f.data.name.toLowerCase());
     // Never overwrite an enriched contact or its do-not-contact preference with weaker web evidence.
     if (existing) return Response.json({ contactId: existing.id, message: "Existing contact retained" });

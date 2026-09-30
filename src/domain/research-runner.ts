@@ -1,4 +1,4 @@
-import { adaptiveDiscovery, retryDiscovery, type DiscoveryContext } from "./adaptive-discovery";
+import { adaptiveDiscovery, retryDiscovery, resolveDiscoveryBatch, type DiscoveryContext } from "./adaptive-discovery";
 import { providerFailure, BrowserAdmissionDeferred } from "./research-provider-error";
 import { missingResearchFields, fieldLabels, type ResearchField } from "./research-objectives";
 import { ResearchAiError } from "./research-ai-error";
@@ -27,7 +27,7 @@ import {
   type ResearchRuntime,
 } from "./research";
 export interface ResearchSteps {
-  do<T>(name: string, run: () => Promise<T>, retry?: boolean): Promise<T>;
+  do<T>(name: string, run: (context?: { reservation?: string }) => Promise<T>, retry?: boolean): Promise<T>;
   sleep(name: string, milliseconds: number): Promise<void>;
 }
 export type ResearchControl = {
@@ -39,13 +39,15 @@ export type ResearchControl = {
   findings?: ResearchPage["findings"];
 };
 export interface ResearchServices {
+  pageLookahead?: boolean;
+  discoveryBatch?: boolean;
   diagnostic?(event: Record<string, unknown>): void;
   control(): Promise<ResearchControl>;
   discoveryContext?(): Promise<DiscoveryContext>;
   planDiscovery?(context: DiscoveryContext): Promise<unknown>;
   prepareDiscoverySources?(): Promise<{ pending: boolean }>;
   persistDiscoverySources?(): Promise<{ pending: boolean }>;
-  discover(decision?: unknown): Promise<{ seeds: string[]; warning?: string; peopleLeadCount?: number; skipDomains?: string[]; more?: boolean }>;
+  discover(decision?: unknown, reservation?: string): Promise<{ seeds: string[]; warning?: string; peopleLeadCount?: number; skipDomains?: string[]; more?: boolean }>;
   progress(event: {
     revision: number;
     status: string;
@@ -55,6 +57,10 @@ export interface ResearchServices {
     crawlId?: string | null;
     page?: ResearchPage;
     runtime?: ResearchRuntime;
+    enrichmentPendingFields?: ResearchField[];
+    followupExhaustedFields?: ResearchField[];
+    followupSearchCounts?: Partial<Record<ResearchField, number>>;
+    followupEmptySearchCounts?: Partial<Record<ResearchField, number>>;
   }): Promise<void>;
   submit(url: string): Promise<string>;
   poll(
@@ -69,20 +75,21 @@ export interface ResearchServices {
   cancel(id: string): Promise<void>;
   extract(messages: ReturnType<typeof extractionPrompt>): Promise<unknown>;
   extractHeadcount?(messages: ReturnType<typeof companyHeadcountPrompt>): Promise<unknown>;
-  readPeoplePage?(url: string): Promise<{ status: string; page?: { url: string; markdown: string; title?: string; observedAt?: string }; warning?: string }>;
+  readPeoplePage?(url: string, reservation?: string): Promise<{ status: string; page?: { url: string; markdown: string; title?: string; observedAt?: string }; warning?: string }>;
   cachedPage?(url: string): Promise<Awaited<ReturnType<ResearchServices["poll"]>> | null>;
-  readPage?(url: string): ReturnType<ResearchServices["poll"]>;
-  readSiteFile?(url: string): ReturnType<ResearchServices["poll"]>;
-  readFallbackPage?(url: string): ReturnType<ResearchServices["poll"]>;
-  peopleFollowup?(): Promise<{ seeds: string[]; legalEntity?: string; warning?: string }>;
+  readPage?(url: string, reservation?: string): ReturnType<ResearchServices["poll"]>;
+  readSiteFile?(url: string, reservation?: string): ReturnType<ResearchServices["poll"]>;
+  readFallbackPage?(url: string, reservation?: string): ReturnType<ResearchServices["poll"]>;
+  peopleFollowup?(reservation?: string): Promise<{ seeds: string[]; legalEntity?: string; warning?: string }>;
   planFollowup?(plan: TargetedPlan): Promise<unknown>;
-  targetedSearch?(field: ResearchField, round: number): Promise<{ seeds: string[]; warning?: string; exhausted?: boolean; failed?: boolean; retryable?: boolean }>;
+  targetedSearch?(field: ResearchField, round: number, reservation?: string): Promise<{ seeds: string[]; warning?: string; exhausted?: boolean; failed?: boolean; retryable?: boolean }>;
   now(): number;
 }
 export async function runResearch(
   step: ResearchSteps,
   service: ResearchServices,
 ) {
+  const permitArgs = (context?: { reservation?: string }): [] | [string] => context?.reservation ? [context.reservation] : [];
   let revision = 0,
     pages = 0,
     modelCalls = 0,
@@ -91,6 +98,8 @@ export async function runResearch(
   // Diagnostics contain source locations and counts, never page text or model output.
   const source = (value: string) => { try { const url = new URL(value); return `${url.origin}${url.pathname}`; } catch { return "invalid_url"; } };
   const trace = (event: string, details: Record<string, unknown>) => service.diagnostic?.({ event, ...details });
+  let enrichmentPendingFields: ResearchField[] | undefined;
+  let followupCheckpoint: (() => { followupExhaustedFields: ResearchField[]; followupSearchCounts: Partial<Record<ResearchField, number>>; followupEmptySearchCounts: Partial<Record<ResearchField, number>> }) | undefined;
   let runtime: ResearchRuntime = { remaining: [], visited: [], attempts: [] };
   let lastPublishAt = service.now();
   // A host that returns no readable content is skipped for the rest of the job.
@@ -109,6 +118,8 @@ export async function runResearch(
       crawlId: activeCrawl,
       runtime: structuredClone(runtime),
       ...(page ? { page } : {}),
+      ...(enrichmentPendingFields ? { enrichmentPendingFields: [...enrichmentPendingFields] } : {}),
+      ...(followupCheckpoint ? followupCheckpoint() : {}),
     };
     await step.do(`progress-${revision}`, () => service.progress(event));
     lastPublishAt = service.now();
@@ -124,6 +135,38 @@ export async function runResearch(
       const data = await service.control();
       return { ...data, expired: service.now() >= data.deadline };
     });
+  let activeSitemap: Promise<string[]> | undefined;
+  let sitemapQueueMerge: ((links: string[]) => void) | undefined;
+  const settleSitemap = async () => {
+    const pending = activeSitemap;
+    const merge = sitemapQueueMerge;
+    activeSitemap = undefined;
+    sitemapQueueMerge = undefined;
+    const links = pending ? await pending : [];
+    merge?.(links);
+    return links;
+  };
+  let lookahead: { url: string; result: Promise<Awaited<ReturnType<ResearchServices["poll"]>>> } | undefined;
+  // Always join speculative work before publishing/returning. This both avoids
+  // dangling provider calls and makes checkpoint contents deterministic on replay.
+  const settleLookahead = async () => {
+    if (!lookahead) return;
+    const result = await lookahead.result;
+    if (result.status === "completed" && result.page && !unusablePage(result.page.markdown)) {
+      runtime.bufferedPage = { url: lookahead.url, page: { ...result.page, markdown: result.page.markdown.slice(0, 30000), observedAt: result.page.observedAt || new Date(service.now()).toISOString() } };
+    }
+  };
+  const discardLookahead = async () => {
+    if (!lookahead) return;
+    await settleLookahead();
+    const result = await lookahead.result;
+    // Even an unused read consumes this batch's page allowance. Its content is
+    // retained separately from extracted pages for a subsequent continuation.
+    runtime.attempts.push({ url: lookahead.url, status: result.page ? "read" : "pending", reason: "Lookahead read retained without extraction" });
+    if (result.status === "completed" && result.page) pages++;
+    trace("lookahead_retained", { source: source(lookahead.url), status: result.status, pages, attempts: runtime.attempts.length });
+    lookahead = undefined;
+  };
   try {
     const initial = await check("start");
     if (terminalResearchStates.includes(initial.status)) return;
@@ -132,6 +175,7 @@ export async function runResearch(
       visited: [...(initial.config.runtime?.visited || [])],
       attempts: [],
       ...(initial.config.runtime?.pendingPage ? { pendingPage: initial.config.runtime.pendingPage } : {}),
+      ...(initial.config.runtime?.bufferedPage ? { bufferedPage: initial.config.runtime.bufferedPage } : {}),
     };
     if (initial.expired) {
       await publish("partial", "Job time budget elapsed before starting");
@@ -159,9 +203,11 @@ export async function runResearch(
     const discoverRound = async (round: number) => {
       let decision: unknown;
       let attemptIndex: number | undefined;
+      let batchContext: DiscoveryContext | undefined;
       if (adaptiveDiscovery(initial.config) && service.discoveryContext && service.planDiscovery) {
         const context = await step.do(`discovery-context-${round}`, () => service.discoveryContext!());
         attemptIndex = context.attempts.length;
+        batchContext = context;
         if (context.remainingSearches > 0 && context.found < context.target && !retryDiscovery(context.attempts) && modelCalls < initial.config.budget.maxModelCalls) {
           const current = await check(`discovery-plan-${round}`);
           if (terminalResearchStates.includes(current.status) || current.expired) return { seeds: [], more: true };
@@ -174,7 +220,18 @@ export async function runResearch(
           await heartbeat("discovering", "Adapting search strategy from research results");
         }
       }
-      return step.do(round ? `discover-${round}` : "discover", () => service.discover(attemptIndex === undefined ? undefined : { planning: decision, attemptIndex }));
+      if (service.discoveryBatch && batchContext) {
+        const fallback = (batchContext.startingTerms.length ? batchContext.startingTerms : [batchContext.scope]).flatMap(term => batchContext!.regions.map(region => `${term} ${region}`));
+        const batch = resolveDiscoveryBatch(decision, batchContext, fallback);
+        if (batch.queries.length) {
+          const startedAt = service.now();
+          const settled = await Promise.allSettled(batch.queries.map(query => step.do(`discover-${round}-${query.queryId}`, context => service.discover(query, ...permitArgs(context)), false)));
+          const results = settled.map(result => result.status === "fulfilled" ? result.value : { seeds: [], more: true, warning: "Discovery query failed; other batch results retained" });
+          trace("discovery_batch", { round, queries: batch.queries.length, queryIds: batch.queries.map(query => query.queryId), durationMs: Math.max(0, service.now() - startedAt) });
+          return { seeds: uniqueResearchUrls(results.flatMap(result => result.seeds)), warning: results.map(result => result.warning).filter(Boolean).join("; ") || undefined, more: results.some(result => result.more), skipDomains: [...new Set(results.flatMap(result => result.skipDomains || []))], peopleLeadCount: results.reduce((total, result) => total + (result.peopleLeadCount || 0), 0) };
+        }
+      }
+      return step.do(round ? `discover-${round}` : "discover", (context) => service.discover(attemptIndex === undefined ? undefined : { planning: decision, attemptIndex }, ...permitArgs(context)));
     };
     let discovered = await discoverRound(0);
     // Web discovery is delivered in slices so no single callback outlives the worker's request limit.
@@ -212,7 +269,11 @@ export async function runResearch(
     // admission so a second job on the same website never waits for a slot.
     const readSite = async (label: string, url: string) => {
       const cached = service.cachedPage ? await step.do(`cached-site-${label}`, () => service.cachedPage!(url), false) : null;
-      return cached || step.do(`read-site-${label}`, () => service.readSiteFile!(url), false);
+      return cached || step.do(`read-site-${label}`, async context => {
+        const current = await service.control();
+        if (terminalResearchStates.includes(current.status) || service.now() >= current.deadline) return { status: "failed", warning: "Site discovery stopped before reading" };
+        return service.readSiteFile!(url, ...permitArgs(context));
+      }, false);
     };
     const discoverSitemap = async (sourceUrl: string, attempt: number) => {
       if (!service.readSiteFile) return [];
@@ -246,16 +307,19 @@ export async function runResearch(
       return unique;
     };
     let priorityUrl: string | undefined;
-    const collected: ResearchPage["findings"] = [...(initial.findings || [])];
+    const collected: ResearchPage["findings"] = [...(initial.findings || []), ...(initial.config.inheritedFindings || [])].filter((finding, index, all) => all.findIndex(other => other.kind === finding.kind && other.name === finding.name && other.value === finding.value && other.website === finding.website) === index);
+    if (initial.config.enrichmentPhase) enrichmentPendingFields = missingResearchFields(initial.config, collected);
     let peopleFollowupAttempted = Boolean(initial.config.peopleFollowupStarted || initial.config.targetedFollowup);
     // Missing-field follow-up runs in rounds: reading a page never consumes the
     // external search, and searching continues until evidence is found, the
     // query ladder is exhausted, or the page budget ends.
     const MAX_FOLLOWUP_ROUNDS = 28;
     const followup = { rounds: 0, searches: 0, afterAttempt: -1, readsSinceSearch: 0, searchesExhausted: !service.targetedSearch, plannerUsed: false };
-    const exhaustedFields = new Set<ResearchField>();
-    const fieldSearches: Partial<Record<ResearchField, number>> = {};
+    const exhaustedFields = new Set<ResearchField>(initial.config.followupExhaustedFields || []);
+    const fieldSearches: Partial<Record<ResearchField, number>> = { ...initial.config.followupSearchCounts };
     const fieldFailures: Partial<Record<ResearchField, number>> = {};
+    const emptyFieldSearches: Partial<Record<ResearchField, number>> = { ...initial.config.followupEmptySearchCounts };
+    if (initial.config.targetedFollowup) followupCheckpoint = () => ({ followupExhaustedFields: [...exhaustedFields], followupSearchCounts: { ...fieldSearches }, followupEmptySearchCounts: { ...emptyFieldSearches } });
     const fieldFound = () => missingResearchFields(initial.config, collected).length === 0;
     const availableField = () => missingResearchFields(initial.config, collected).find(f => !exhaustedFields.has(f));
     const followupPossible = () => Boolean(initial.config.targetedFollowup && initial.config.purpose && followup.rounds < MAX_FOLLOWUP_ROUNDS && !fieldFound());
@@ -302,12 +366,23 @@ export async function runResearch(
             if (beforeSearch.expired) { warnings.push(beforeSearch.stopReason || "Time limit reached before targeted search"); break; }
             const field = choice.field, round = ++followup.searches;
             try {
-              const result = await step.do(`targeted-search-${round}`, () => service.targetedSearch!(field, round), false);
+              const result = await step.do(`targeted-search-${round}`, (context) => service.targetedSearch!(field, round, ...permitArgs(context)), false);
+              const knownSources = new Set([...runtime.visited, ...runtime.remaining].map(researchUrlKey));
+              const newSources = uniqueResearchUrls(result.seeds).filter(seed => !knownSources.has(researchUrlKey(seed))).length;
               trace("targeted_search_result", { round, field, seeds: result.seeds.length, exhausted: Boolean(result.exhausted), sources: result.seeds.slice(0, 20).map(source), warning: Boolean(result.warning) });
               runtime.remaining = uniqueResearchUrls([...result.seeds, ...runtime.remaining]);
               if (result.warning) warnings.push(result.warning);
               if (result.failed) fieldFailures[field] = (fieldFailures[field] || 0) + 1;
-              else fieldSearches[field] = (fieldSearches[field] || 0) + 1;
+              else {
+                fieldSearches[field] = (fieldSearches[field] || 0) + 1;
+                emptyFieldSearches[field] = newSources ? 0 : (emptyFieldSearches[field] || 0) + 1;
+                const limit = initial.config.enrichmentPhase === "deep" ? initial.config.diminishingReturnsSearches : undefined;
+                if (limit && (emptyFieldSearches[field] || 0) >= Math.max(2, limit)) {
+                  exhaustedFields.add(field);
+                  warnings.push(`${fieldLabels[field]} deferred after ${emptyFieldSearches[field]} successful searches returned no new sources; evidence remains pending`);
+                  trace("field_research_deferred", { field, reason: "diminishing_returns", successfulEmptySearches: emptyFieldSearches[field], providerFailures: fieldFailures[field] || 0, newSources });
+                }
+              }
               if (result.exhausted || (fieldSearches[field] || 0) >= MAX_TARGETED_SEARCHES[field] || (fieldFailures[field] || 0) >= MAX_TARGETED_SEARCHES[field] * 2) exhaustedFields.add(field);
               followup.searchesExhausted = !availableField();
             } catch { warnings.push(`Search for ${fieldLabels[field]} unavailable; existing sources retained`); exhaustedFields.add(field); followup.searchesExhausted = !availableField(); }
@@ -319,7 +394,7 @@ export async function runResearch(
         if (terminalResearchStates.includes(current.status)) return;
         if (current.expired) { warnings.push(current.stopReason || "Time limit reached"); break; }
         peopleFollowupAttempted = true;
-        const followup = await step.do("people-followup", () => service.peopleFollowup!(), false);
+        const followup = await step.do("people-followup", (context) => service.peopleFollowup!(...permitArgs(context)), false);
         if (followup.warning) warnings.push(followup.warning);
         runtime.remaining = uniqueResearchUrls([...followup.seeds, ...runtime.remaining]).slice(0, 1000);
       }
@@ -334,6 +409,13 @@ export async function runResearch(
       if (priorityUrl) {
         runtime.remaining = [priorityUrl, ...runtime.remaining.filter(u=>u!==priorityUrl)];
         priorityUrl = undefined;
+      }
+      // Consume the already reserved read before opening another page slot. The
+      // follow-up decision still persists new sources for subsequent iterations.
+      if (lookahead && runtime.remaining.includes(lookahead.url)) runtime.remaining = [lookahead.url, ...runtime.remaining.filter(u => u !== lookahead!.url)];
+      else if (lookahead) {
+        await discardLookahead();
+        if (runtime.attempts.length >= budget.maxPages) break;
       }
       if (!runtime.remaining.length) {
         // An empty queue with searches remaining returns to the follow-up ladder.
@@ -387,14 +469,22 @@ export async function runResearch(
         const directReader = service.readPage || (["people", "firmographics"].includes(initial.config.purpose || "") ? service.readPeoplePage : undefined);
         if (runtime.pendingPage?.url === url) {
           result = { status: "completed", page: runtime.pendingPage.page };
+        } else if (lookahead?.url === url) {
+          result = await lookahead.result;
+          lookahead = undefined;
+          delete runtime.bufferedPage;
+          trace("lookahead_consumed", { source: source(url), attempt });
+        } else if (runtime.bufferedPage?.url === url) {
+          result = { status: "completed", page: runtime.bufferedPage.page };
+          delete runtime.bufferedPage;
         } else if (directReader) {
           result = service.cachedPage ? await step.do(`cached-read-${attempt}`, () => service.cachedPage!(url), false) || undefined : undefined;
           if (!result) {
           if (!service.readPage) await step.sleep(`people-reader-spacing-${attempt}`, 21000);
-          result = await step.do(`read-people-${attempt}`, async () => {
+          result = await step.do(`read-people-${attempt}`, async (context) => {
             const current = await service.control();
             if (terminalResearchStates.includes(current.status) || service.now() >= current.deadline) throw new Error("Stopped before reading");
-            try { return await directReader(url); }
+            try { return await directReader(url, ...permitArgs(context)); }
             catch (error) { return { status: "failed", warning: providerFailure(error).message, deferred: error instanceof BrowserAdmissionDeferred }; }
           }, false);
           }
@@ -462,7 +552,7 @@ export async function runResearch(
           const current = await check(`fallback-${attempt}`);
           if (terminalResearchStates.includes(current.status)) return;
           if (!current.expired) {
-            result = await step.do(`fallback-${attempt}`, () => service.readFallbackPage!(url), false);
+            result = await step.do(`fallback-${attempt}`, (context) => service.readFallbackPage!(url, ...permitArgs(context)), false);
             trace("fallback_result", { source: source(url), status: result.status, deferred: Boolean(result.deferred) });
           }
         }
@@ -500,7 +590,10 @@ export async function runResearch(
         // Broad search coordination preserves its request budget. A bounded candidate
         // investigation and its paired company/people enrichment use the sitemap.
         const firstParty = Boolean((initial.config.purpose || initial.config.discoveryCandidate) && initial.config.companyDomain && researchDomain(sourceUrl) === initial.config.companyDomain);
-        const sitemapLinks = firstParty ? await discoverSitemap(sourceUrl, attempt) : [];
+        // Static site discovery and page extraction are independent. Keep its
+        // result buffered until the serial queue merge below.
+        const sitemapTask = firstParty ? discoverSitemap(sourceUrl, attempt) : Promise.resolve([]);
+        activeSitemap = sitemapTask;
         pages++;
         entry.status = "read";
         entry.finalUrl = sourceUrl;
@@ -513,8 +606,7 @@ export async function runResearch(
         ]).slice(-1000);
         // Drop navigation runs and form scaffolding before the saved-page limit so evidence sections survive.
         const markdown = `${result.page.title ? `# ${result.page.title}\n\n` : ""}${stripBoilerplate(result.page.markdown, { keepImages: true })}`.slice(0, 24000);
-        const navigation = `${markdown}\n${sitemapMarkdown(sitemapLinks)}`;
-        runtime.remaining = orderResearchQueue(
+        const queuePageLinks = (navigation: string) => { runtime.remaining = orderResearchQueue(
           [
             ...runtime.remaining,
             ...(initial.config.purpose === "firmographics" ? companyFactLinks(navigation, sourceUrl, initial.config, runtime.visited) : initial.config.purpose === "people" ? peopleFollowUpLinks(navigation, sourceUrl, runtime.visited, initial.config) : followUpLinks(
@@ -526,12 +618,38 @@ export async function runResearch(
             )),
           ],
           runtime.visited,
-        ).slice(0, 1000);
+        ).slice(0, 1000); };
+        queuePageLinks(markdown);
+        sitemapQueueMerge = links => { if (links.length) queuePageLinks(`${markdown}\n${sitemapMarkdown(links)}`); };
         let findings: ResearchPage["findings"] = [];
         const directPeople = initial.config.purpose === "people" || initial.config.purpose === "firmographics" ? validatePeopleFindings([], markdown, sourceUrl, initial.config) : [];
+        const directIdentity = initial.config.purpose === "firmographics" ? headingCompanyFinding(markdown, sourceUrl) : null;
+        const directlyObserved = initial.config.purpose === "firmographics" ? observedCompanyFacts(markdown, sourceUrl, initial.config) : directPeople;
+        if (directIdentity && !ownCompany([...collected, ...directlyObserved], sourceUrl)) directlyObserved.push(directIdentity);
+        // One known, same-company page may read while this page's AI runs. No
+        // extraction, queue writes or second same-host read runs concurrently.
+        const needsModel = initial.config.purpose === "firmographics"
+          ? (initial.config.mode === "automatic" && !ownCompany([...collected, ...directlyObserved], sourceUrl)) || Boolean(service.extractHeadcount && ![...collected, ...directlyObserved].some(f => f.kind === "headcount") && companyFactDiagnostics(markdown, sourceUrl, initial.config).employmentLanguage)
+          : initial.config.purpose === "people" ? !directPeople.some(f => f.kind === "person") : Boolean(initial.config.discoveryCandidate && initial.config.workflow === "business");
+        if (service.pageLookahead && service.readPage && !lookahead && needsModel && modelCalls < budget.maxModelCalls && runtime.attempts.length < budget.maxPages && (!initial.config.purpose || missingResearchFields(initial.config, [...collected, ...directlyObserved]).length)) {
+          const ordered = initial.config.purpose === "firmographics" ? orderCompanyFactQueue(runtime.remaining, initial.config) : initial.config.purpose === "people" ? orderPeopleQueue(runtime.remaining, runtime.visited, initial.config.companyDomain!) : orderResearchQueue(runtime.remaining, runtime.visited, initial.config.strategy, runtime.attempts.map(a => a.url));
+          const nextUrl = ordered.find(next => researchDomain(next) === researchDomain(sourceUrl) && attemptsOn(researchDomain(next)) < perDomainCap && !blockedDomains.has(researchDomain(next)));
+          if (nextUrl) {
+            const startedAt = service.now();
+            lookahead = { url: nextUrl, result: sitemapTask.then(() => step.do(`lookahead-read-${attempt + 1}`, async context => {
+              const current = await service.control();
+              if (terminalResearchStates.includes(current.status) || service.now() >= current.deadline) return { status: "failed", deferred: true, warning: "Stopped before lookahead read" };
+              try { return await service.readPage!(nextUrl, ...permitArgs(context)); }
+              catch (error) { return { status: "failed", warning: providerFailure(error).message, deferred: error instanceof BrowserAdmissionDeferred }; }
+            }, false)).catch(error => ({ status: "failed", warning: providerFailure(error).message, deferred: error instanceof BrowserAdmissionDeferred })).then(result => {
+              trace("lookahead_read", { source: source(nextUrl), status: result.status, durationMs: Math.max(0, service.now() - startedAt), deferred: Boolean(result.deferred) });
+              return result;
+            }) };
+          }
+        }
         if (initial.config.purpose === "firmographics") {
-          findings = observedCompanyFacts(markdown, sourceUrl, initial.config);
-          if (initial.config.mode === "automatic" && researchDomain(sourceUrl) === initial.config.companyDomain && !ownCompany(collected, sourceUrl) && modelCalls < budget.maxModelCalls) {
+          findings = directlyObserved;
+          if (initial.config.mode === "automatic" && researchDomain(sourceUrl) === initial.config.companyDomain && !ownCompany([...collected, ...findings], sourceUrl) && modelCalls < budget.maxModelCalls) {
             modelCalls++;
             await heartbeat("extracting", "Checking company identity and products alongside company details");
             try {
@@ -542,12 +660,15 @@ export async function runResearch(
               }, false);
               findings.push(...business.findings);
               if (business.deferred) { extractionDeferred = business.deferred; modelCalls--; }
-            } catch { warnings.push("Company identity extraction unavailable; directly observed facts retained"); }
+            } catch (error) {
+              if (error instanceof BrowserAdmissionDeferred) { extractionDeferred = error.message; modelCalls--; }
+              else warnings.push("Company identity extraction unavailable; directly observed facts retained");
+            }
           }
           // A labelled count is preferred. Otherwise the model may locate a statement on an
           // identity-matched page; the statement is re-derived verbatim before it is kept.
           const diagnostics = companyFactDiagnostics(markdown, sourceUrl, initial.config);
-          if (!extractionDeferred && !findings.some(f => f.kind === "headcount") && diagnostics.eligibleSource && diagnostics.employmentLanguage && service.extractHeadcount && modelCalls < budget.maxModelCalls) {
+          if (!extractionDeferred && ![...collected, ...findings].some(f => f.kind === "headcount") && diagnostics.eligibleSource && diagnostics.employmentLanguage && service.extractHeadcount && modelCalls < budget.maxModelCalls) {
             modelCalls++;
             await heartbeat("extracting", `Checking ${new URL(sourceUrl).hostname} for a stated headcount`);
             try {
@@ -559,7 +680,10 @@ export async function runResearch(
               trace("headcount_model_result", { source: source(sourceUrl), accepted: Boolean(located.finding) });
               if (located.finding) findings.push(located.finding);
               if (located.deferred) { extractionDeferred = located.deferred; modelCalls--; }
-            } catch { warnings.push("Headcount extraction unavailable; labelled facts retained"); }
+            } catch (error) {
+              if (error instanceof BrowserAdmissionDeferred) { extractionDeferred = error.message; modelCalls--; }
+              else warnings.push("Headcount extraction unavailable; labelled facts retained");
+            }
           }
           // Named leaders and published work emails on pages already read are kept; deeper people research is queued only for remaining gaps.
           findings = [...directPeople.filter(f => f.kind === "person"), ...findings];
@@ -593,6 +717,7 @@ export async function runResearch(
                 trace("extraction_result", { source: source(sourceUrl), method: "model", rejected, candidates: Array.isArray(raw) ? raw.length : null, accepted: accepted.length, kinds: accepted.map(f => f.kind), reason: !Array.isArray(raw) ? "invalid_candidate_shape" : !raw.length ? "model_returned_no_evidence" : !accepted.length ? "candidates_failed_evidence_validation" : "supported_facts" });
                 return { findings: accepted, warning: "" };
               } catch (error) {
+                if (error instanceof BrowserAdmissionDeferred) return { findings: [], warning: "Extraction admission deferred", deferred: error.message };
                 return {
                   findings: [],
                   warning: error instanceof ResearchAiError ? `Evidence extraction failed: ${error.message}; page read successfully` : "Evidence extraction failed; page read successfully",
@@ -600,7 +725,10 @@ export async function runResearch(
               }
             },
             false,
-          );
+          ).catch(error => {
+            if (error instanceof BrowserAdmissionDeferred) return { findings: [], warning: "Extraction admission deferred", deferred: error.message };
+            throw error;
+          });
           findings = extracted.findings;
           if (extracted.deferred) { extractionDeferred = extracted.deferred; modelCalls--; }
           if (extracted.warning) warnings.push(extracted.warning);
@@ -608,7 +736,10 @@ export async function runResearch(
             extracted.warning ||
             (initial.config.purpose === "people" ? `${findings.filter(f => f.kind === "person").length} sourced people leads${findings.some(f => f.kind === "identifier") ? "; legal operator identified" : ""}; role currency and email remain unverified` : `${findings.length} supported claims; financial fit remains unknown`);
         } else { entry.reason = "Read without AI extraction (model limit)"; }
+        await settleSitemap();
+        await settleLookahead();
         if (extractionDeferred) {
+          await discardLookahead();
           deferPage(`${extractionDeferred}; page retained for extraction`);
           break;
         }
@@ -629,9 +760,11 @@ export async function runResearch(
         if (catalogue.length) entry.reason = `${findings.length} supported claims including directly observed website evidence; financial fit remains unknown`;
         const learnedLegalEntity = findings.some(f => f.kind === "identifier" && f.name === "Legal entity") && !collected.some(f => f.kind === "identifier" && f.name === "Legal entity");
         collected.push(...findings);
+        if (initial.config.enrichmentPhase) enrichmentPendingFields = missingResearchFields(initial.config, collected);
         // A newly evidenced operator unlocks a different directory/search ladder.
         if (learnedLegalEntity && initial.config.purpose === "people" && (fieldSearches.people || 0) < MAX_TARGETED_SEARCHES.people) {
           exhaustedFields.delete("people");
+          emptyFieldSearches.people = 0;
           followup.searchesExhausted = !service.targetedSearch || !availableField();
         }
         // A website whose pages have produced no company or product evidence by the cap is dropped for this job.
@@ -653,10 +786,13 @@ export async function runResearch(
           },
         );
         if (initial.config.discoveryCandidate && ownCompany(findings, sourceUrl) && relevantBusiness(findings)) {
+          await discardLookahead();
           await publish("complete", "Business identified; company details and people research queued");
           return;
         }
       } catch (error) {
+        await settleSitemap();
+        await discardLookahead();
         if (error instanceof BrowserAdmissionDeferred) {
           deferPage(error.message.startsWith("Worker request budget reached") ? error.message : "Browser admission deferred; saved page and remaining sources retained");
           break;
@@ -678,6 +814,7 @@ export async function runResearch(
         await publish("crawling", entry.reason);
       }
     }
+    await discardLookahead();
     if (initial.config.mode === "automatic" && initial.config.purpose && fieldFound()) {
       trace("run_finished", { pages, modelCalls, reason: "requested_evidence_found", purpose: initial.config.purpose });
       await publish("complete", initial.config.purpose === "people" ? "Sourced owner or director candidate and published email found; verify ownership and sale authority before outreach." : "Sourced headcount and revenue found; company evidence is ready for review.");
@@ -694,6 +831,11 @@ export async function runResearch(
       warnings.push(
         `${runtime.remaining.length} URLs remain; continue research with a fresh budget`,
       );
+    if (initial.config.enrichmentPhase === "initial" && enrichmentPendingFields?.length) {
+      trace("run_finished", { pages, modelCalls, reason: "initial_coverage_finished", pendingFields: enrichmentPendingFields });
+      await publish("partial", "Initial coverage finished; deeper research pending for " + enrichmentPendingFields.map(field => fieldLabels[field]).join(", "));
+      return;
+    }
     if (initial.config.targetedFollowup && initial.config.purpose) for (const field of missingResearchFields(initial.config, collected)) warnings.push(`${fieldLabels[field]} remains unknown; available sources retained`);
     trace("run_finished", { pages, attempts: runtime.attempts.length, modelCalls, remaining: runtime.remaining.length, findings: collected.length, kinds: [...new Set(collected.map(f => f.kind))], reason: runtime.attempts.length >= budget.maxPages ? "page_budget_reached" : "sources_exhausted_or_followup_stopped" });
     if (!pages) warnings.push("No pages could be read");
@@ -705,6 +847,8 @@ export async function runResearch(
       ].join(" "),
     );
   } catch (error) {
+    await settleSitemap();
+    await discardLookahead();
     if (activeCrawl) {
       try {
         await step.do("cancel-failed-workflow", () =>
@@ -718,5 +862,10 @@ export async function runResearch(
       error instanceof BrowserAdmissionDeferred || pages ? "partial" : "failed",
       error instanceof BrowserAdmissionDeferred ? (error.message.startsWith("Worker request budget reached") ? error.message : "Browser admission deferred; remaining research retained") : "Research interrupted; saved progress retained. Continue remaining URLs with a fresh budget.",
     );
+  } finally {
+    // Cancellation may return from an intermediate control check. Join and
+    // account its reserved read even when no terminal status write is permitted.
+    await settleSitemap();
+    await discardLookahead();
   }
 }

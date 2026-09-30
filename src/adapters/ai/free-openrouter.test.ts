@@ -159,3 +159,24 @@ describe("sequential free fallback", () => {
     } finally { clock.mockRestore(); }
   });
 });
+
+it('explicit fast primary uses approved paid route and retains the price ceiling', async () => {
+  const fetcher = vi.fn().mockResolvedValue(completion({ value: null, quote: null }));
+  await new FreeOpenRouter({ apiKey: 'secret', primaryRoute: 'fast-paid', fetch: fetcher }).complete(request);
+  const body = JSON.parse(fetcher.mock.calls[0][1].body);
+  expect(body.models).toEqual([MERCURY_FALLBACK_MODEL]);
+  expect(body.provider.max_price).toEqual(MERCURY_PRICE_CAP);
+});
+it('rejects a paid primary configuration when free-only mode was requested', async () => {
+  const fetcher = vi.fn();
+  await expect(new FreeOpenRouter({ apiKey: 'secret', primaryRoute: 'fast-paid', paidFallback: false, fetch: fetcher }).complete(request)).rejects.toThrow(/free-only/);
+  expect(fetcher).not.toHaveBeenCalled();
+});
+it('configures bounded extraction reasoning independently of planning', async () => {
+  const fetcher = vi.fn().mockImplementation(async () => completion({ value: null, quote: null }));
+  const ai = new FreeOpenRouter({ apiKey: 'secret', paidFallback: false, extractionReasoning: 'none', fetch: fetcher });
+  await ai.complete({ ...request, operation: 'business_extraction' });
+  await ai.complete({ ...request, operation: 'followup_planning' });
+  expect(JSON.parse(fetcher.mock.calls[0][1].body).reasoning.effort).toBe('none');
+  expect(JSON.parse(fetcher.mock.calls[1][1].body).reasoning.effort).toBe('medium');
+});

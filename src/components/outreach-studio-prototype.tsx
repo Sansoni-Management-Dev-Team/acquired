@@ -131,7 +131,7 @@ export function OutreachStudioPrototype({ mandateId, mandateName }: { mandateId?
   }
 
   return <div className="mx-auto max-w-[1680px] space-y-6 p-5 sm:p-8">
-    {mandateId && <Link href={`/mandates/${mandateId}/outreach`} className="inline-flex items-center gap-2 text-sm text-[var(--muted)] hover:text-[var(--foreground)]"><ArrowLeft size={16} /> Back to current Outreach</Link>}
+    {mandateId && <Link href={`/mandates/${mandateId}/people`} className="inline-flex items-center gap-2 text-sm text-[var(--muted)] hover:text-[var(--foreground)]"><ArrowLeft size={16} /> Back to people</Link>}
     <header className="flex flex-wrap items-end justify-between gap-5">
       <div><p className="text-xs font-semibold uppercase tracking-[.18em] text-[var(--muted)]">{mandateName} / Outreach</p><h1 className="mt-2 text-3xl font-semibold sm:text-4xl">Outreach studio</h1><p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">Plan the sequence, enroll the right people, and see what happens next for each contact.</p></div>
       <span className="rounded-full border border-[var(--border)] bg-[var(--panel-raised)] px-3 py-1.5 text-xs font-semibold uppercase tracking-wider">Interactive mockup</span>

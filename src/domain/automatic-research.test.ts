@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { automaticBatch, automaticResearchConfig, mandateResearchSlot } from './automatic-research';
+import { automaticBatch, automaticResearchConfig, mandateResearchSlot, researchConcurrency } from './automatic-research';
 import type { ResearchConfig } from './research';
 const base: ResearchConfig = { mode: 'automatic', workflow: 'business', targetBusinesses: 20, findPeople: true, seeds: [], searchTerms: ['sensors'], geography: 'Australia', approved: true, discover: true, budget: { maxPages: 3, maxDomains: 3, maxModelCalls: 3, maxMinutes: 10 } };
 const runtime = { remaining: ['https://next.example.com/'], visited: ['https://done.example.com/'], attempts: [{ url: 'https://done.example.com/', status: 'read' as const, reason: 'Read' }] };
@@ -45,4 +45,17 @@ it('namespaces discovery and enrichment slots while preserving continuation iden
   expect(mandateResearchSlot('a',0)).not.toBe(mandateResearchSlot('b',0));
   expect(mandateResearchSlot('a','a:1')).toBe('a:1');
   expect(mandateResearchSlot('a',1)).toBe('a:1');
+});
+
+it('bounds configurable parallelism and defaults safely for malformed values', () => {
+  expect(researchConcurrency(4)).toBe(4);
+  expect(researchConcurrency(99)).toBe(16);
+  expect(researchConcurrency(0)).toBe(1);
+  expect(researchConcurrency(NaN)).toBe(8);
+  expect(researchConcurrency('16')).toBe(8);
+});
+it('retains the buffered lookahead page on automatic batch continuation', () => {
+  const bufferedPage = { url: 'https://next.example.com/', page: { url: 'https://next.example.com/', markdown: 'evidence', observedAt: new Date().toISOString() } };
+  const config = { ...automaticResearchConfig(base), discoveryPending: false, runtime: { ...runtime, bufferedPage } };
+  expect(automaticBatch({ id: 'root', status: 'partial', config })?.runtime?.bufferedPage).toEqual(bufferedPage);
 });

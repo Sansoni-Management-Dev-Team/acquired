@@ -4,7 +4,7 @@ import { createContext, useContext, useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Building2, House, Settings, Plus, PanelLeftClose, PanelLeftOpen, Menu, FileText, ListFilter, Send, Users, Mail } from "lucide-react";
+import { Building2, House, Settings, Plus, PanelLeftClose, PanelLeftOpen, Menu, FileText, ListFilter, Users, Mail } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
 
 import { mandateTabHref } from "@/domain/mandate-navigation";
@@ -52,7 +52,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {collapsed && <Link href="/mandates/new" title="New mandate" onClick={() => setMobileOpen(false)} className="hidden min-h-12 items-center justify-center rounded-md text-[var(--muted)] hover:text-[var(--foreground)] lg:flex"><Plus size={20} /><span className="sr-only">New mandate</span></Link>}
           </nav>
           {sidebar.selected && <nav aria-label="Mandate sections" className="mt-6 space-y-1 border-t border-[var(--border)] pt-4">
-            {([["brief", "Brief", FileText], ["targets", "Companies", ListFilter], ["people", "People", Users], ["outreach", "Outreach", Send], ["sequences", "Sequences", Mail]] as const).map(([tab, label, Icon]) => <Link key={tab} href={mandateTabHref(sidebar.selected!, tab)} aria-current={sidebar.tab === tab ? "page" : undefined} title={label} onClick={() => setMobileOpen(false)} className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-sm hover:bg-[var(--panel-raised)] ${sidebar.tab === tab ? "bg-[var(--panel-raised)] font-semibold text-[var(--foreground)]" : "text-[var(--muted)] hover:text-[var(--foreground)]"} ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><Icon size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>{label}</span></Link>)}
+            {([["brief", "Brief", FileText], ["targets", "Companies", ListFilter], ["people", "People", Users], ["sequences", "Sequences", Mail]] as const).map(([tab, label, Icon]) => <Link key={tab} href={mandateTabHref(sidebar.selected!, tab)} aria-current={sidebar.tab === tab ? "page" : undefined} title={label} onClick={() => setMobileOpen(false)} className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-sm hover:bg-[var(--panel-raised)] ${sidebar.tab === tab ? "bg-[var(--panel-raised)] font-semibold text-[var(--foreground)]" : "text-[var(--muted)] hover:text-[var(--foreground)]"} ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><Icon size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>{label}</span></Link>)}
 
           </nav>}
           <nav aria-label="Account" className="mt-6 space-y-1 border-t border-[var(--border)] pt-4 lg:mt-auto">

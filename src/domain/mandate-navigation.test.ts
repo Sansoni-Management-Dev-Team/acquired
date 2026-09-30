@@ -1,8 +1,13 @@
 import { expect, it } from "vitest";
-import { mandateOutreachHref, mandateTabHref } from "./mandate-navigation";
-it("keeps all navigation under its mandate and retains outreach deep links", () => {
-  expect(mandateTabHref("mandate-1", "outreach")).toBe("/mandates/mandate-1/outreach");
+import { mandatePeopleHref, mandateTabHref } from "./mandate-navigation";
+
+it("keeps the company, people and sequence flow under its mandate", () => {
   expect(mandateTabHref("mandate-1", "targets")).toBe("/mandates/mandate-1?tab=targets");
-  expect(mandateOutreachHref("mandate-1", "target-2")).toBe("/mandates/mandate-1/outreach?targetId=target-2");
-  expect(mandateOutreachHref("a/b", "x&tab=brief")).toBe("/mandates/a%2Fb/outreach?targetId=x%26tab%3Dbrief");
+  expect(mandateTabHref("mandate-1", "people")).toBe("/mandates/mandate-1/people");
+  expect(mandateTabHref("mandate-1", "sequences")).toBe("/mandates/mandate-1/outreach/sequences");
+  expect(mandatePeopleHref("a/b")).toBe("/mandates/a%2Fb/people");
+});
+
+it("sends legacy outreach navigation to people", () => {
+  expect(mandateTabHref("mandate-1", "outreach")).toBe("/mandates/mandate-1/people");
 });

@@ -8,6 +8,10 @@ export const DISCOVERY_RESEARCH_CONCURRENCY = 8;
 export const DISCOVERY_CANDIDATE_LIMIT = 90;
 // Each business has independent company-facts and people work.
 export const ENRICHMENT_CONCURRENCY = BUSINESS_RESEARCH_CONCURRENCY * 2;
+/** Keep tunable admission bounded; workload config never bypasses provider limits. */
+export function researchConcurrency(value: unknown, fallback = BUSINESS_RESEARCH_CONCURRENCY) {
+  return typeof value === 'number' && Number.isInteger(value) ? Math.max(1, Math.min(16, value)) : fallback;
+}
 // The existing unique index compares slot text; namespace it without a schema change.
 export function mandateResearchSlot(mandateId: string, slot: number | string = 0) {
   return `${mandateId}:${String(slot).split(":").at(-1)}`;
@@ -39,6 +43,6 @@ export function automaticBatch(job: { id: string; status: string; config: Resear
     automaticPagesUsed: used, autoDomains: [], discover: Boolean(c.discoveryPending),
     seeds: runtime.remaining.slice(0, 10),
     budget: { ...c.budget, maxPages: Math.min(10, (c.automaticPageLimit || 100) - used), maxMinutes: Math.min(15, Math.max(1, Math.ceil(((c.automaticDeadline || 0) - now) / 60000))) },
-    runtime: { remaining: runtime.remaining, visited: runtime.visited, attempts: [], ...(runtime.pendingPage ? { pendingPage: runtime.pendingPage } : {}) },
+    runtime: { remaining: runtime.remaining, visited: runtime.visited, attempts: [], ...(runtime.pendingPage ? { pendingPage: runtime.pendingPage } : {}), ...(runtime.bufferedPage ? { bufferedPage: runtime.bufferedPage } : {}) },
   };
 }

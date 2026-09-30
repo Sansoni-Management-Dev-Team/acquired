@@ -1,3 +1,4 @@
+import { saveResearchContact } from "./research-contacts";
 import { mandateResearchSlot } from "@/domain/automatic-research";
 import { modelHeadcountFinding, validateCompanyFacts } from "@/domain/company-facts";
 import { ownCompany, relevantBusiness, validateBusinessFindings } from "@/domain/business-research";
@@ -111,7 +112,10 @@ export class ResearchRepository {
     const [target] = await this.db.select({ createdAt: targets.createdAt }).from(targets)
       .where(and(eq(targets.id, targetId), eq(targets.organizationId, this.org))).limit(1);
     if (!target || target.createdAt.getTime() < new Date(config.businessTargetStartedAt || job.createdAt).getTime()) return;
-    await this.db.update(researchJobs).set({ config: sql`jsonb_set(${researchJobs.config}, '{newBusinessIds}', (SELECT jsonb_agg(DISTINCT value) FROM jsonb_array_elements(COALESCE(${researchJobs.config}->'newBusinessIds', '[]'::jsonb) || ${JSON.stringify([targetId])}::jsonb)))` })
+    const mergedIds = sql`(SELECT jsonb_agg(DISTINCT value) FROM jsonb_array_elements(COALESCE(${researchJobs.config}->'newBusinessIds', '[]'::jsonb) || ${JSON.stringify([targetId])}::jsonb))`;
+    const milestoneAt = new Date().toISOString();
+    const milestones = sql`COALESCE(${researchJobs.config}->'researchMilestones', '{}'::jsonb) || jsonb_build_object('firstCompanyAt', COALESCE(${researchJobs.config}->'researchMilestones'->>'firstCompanyAt', ${milestoneAt})) || CASE WHEN jsonb_array_length(${mergedIds}) >= COALESCE((${researchJobs.config}->>'targetBusinesses')::int, 20) THEN jsonb_build_object('targetReachedAt', COALESCE(${researchJobs.config}->'researchMilestones'->>'targetReachedAt', ${milestoneAt})) ELSE '{}'::jsonb END`;
+    await this.db.update(researchJobs).set({ config: sql`jsonb_set(jsonb_set(${researchJobs.config}, '{newBusinessIds}', ${mergedIds}), '{researchMilestones}', ${milestones})` })
       .where(and(sql`${researchJobs.id} IN (${id}, ${config.discoveryCandidate ? config.researchRunId || id : id})`, eq(researchJobs.organizationId, this.org)));
   }
   async create(
@@ -120,7 +124,7 @@ export class ResearchRepository {
     createdBy: string,
     config: ResearchConfig,
   ) {
-    config = { ...config, executionSlot: mandateResearchSlot(mandateId, config.executionSlot) };
+    config = { ...config, pipelineTiming: undefined, executionSlot: mandateResearchSlot(mandateId, config.executionSlot) };
     await this.db
       .insert(researchJobs)
       .values({
@@ -317,8 +321,14 @@ export class ResearchRepository {
             confidence: evidence.factMetadata?.basis === "search_snippet" ? 0.2 : evidence.factMetadata?.identityNote ? 0.2 : evidence.factMetadata?.basis === "third_party_estimate" ? 0.3 : 0.5,
           })
           .onConflictDoNothing();
+        if (targetId && evidence.kind === "person") await saveResearchContact({ database: this.db, organizationId: this.org, targetId, evidence, sourceUrl, observedAt: new Date(event.page.observedAt) });
       }
     }
+    let updatedConfig = event.runtime ? sql`jsonb_set(${researchJobs.config}, '{runtime}', ${JSON.stringify(event.runtime)}::jsonb)` : sql`${researchJobs.config}`;
+    for (const key of ['followupExhaustedFields', 'followupSearchCounts', 'followupEmptySearchCounts'] as const) {
+      if (event[key] !== undefined) updatedConfig = sql`jsonb_set(${updatedConfig}, ARRAY[${key}]::text[], ${JSON.stringify(event[key])}::jsonb)`;
+    }
+    if (config.enrichmentPhase && event.enrichmentPendingFields) updatedConfig = sql`jsonb_set(${updatedConfig}, '{enrichmentPendingFields}', ${JSON.stringify(event.enrichmentPendingFields)}::jsonb)`;
     await this.db
       .update(researchJobs)
       .set({
@@ -328,11 +338,7 @@ export class ResearchRepository {
         modelCalls: sql`greatest(${researchJobs.modelCalls}, ${event.modelCalls})`,
         message: event.message,
         ...(event.crawlId !== undefined ? { crawlId: event.crawlId } : {}),
-        ...(event.runtime
-          ? {
-              config: sql`jsonb_set(${researchJobs.config}, '{runtime}', ${JSON.stringify(event.runtime)}::jsonb)`,
-            }
-          : {}),
+        config: updatedConfig,
         updatedAt: new Date(),
       })
       .where(

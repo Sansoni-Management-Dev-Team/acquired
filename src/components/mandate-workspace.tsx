@@ -92,7 +92,6 @@ export function MandateWorkspace({ mandates, initial, tab }: { mandates: Mandate
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3"><h2 className="text-xl font-semibold">Companies</h2><Link className={buttonClass} href={mandateTabHref(id, "brief")}>Find businesses</Link></div>
         <p className="text-sm text-[var(--muted)]">Only saved companies with finished research appear here. Companies still being researched will appear when research finishes.</p>
-        <div className="flex flex-wrap items-center gap-3"><button disabled={!reviewIds.length} className={`${buttonClass} min-h-12`} onClick={() => openReview(reviewIds[0])}>Start review queue</button><p className="text-xs text-[var(--muted)]">{filtered.length} researched businesses matching filters · {selected.length} selected</p></div>
       </section>
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-[minmax(12rem,2fr)_repeat(4,minmax(8rem,1fr))] xl:items-end">
         <label className="text-xs">Find company or website<input className={fieldClass} value={filter} onChange={e => setFilter(e.target.value)} placeholder="Name or domain" /></label>

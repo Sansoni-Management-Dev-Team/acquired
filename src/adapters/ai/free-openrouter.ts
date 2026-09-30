@@ -34,6 +34,7 @@ export type FreeResearchUsage = {
   cost: number | null;
   elapsedMs: number;
   paidFallback?: boolean;
+  route?: "free" | "paid-fallback" | "fast-paid";
 };
 
 /** Shared by Node test harnesses and Workers: no process globals or AI binding. */
@@ -48,6 +49,10 @@ export class FreeOpenRouter {
     jobId?: string;
     verbose?: boolean;
     paidFallback?: boolean;
+    /** Explicit opt-in; preserves approved model allowlist and price ceiling. */
+    primaryRoute?: "free" | "fast-paid";
+    freeAttemptTimeoutMs?: number;
+    extractionReasoning?: "medium" | "none";
     /** Free-only mode: try models separately within 45 seconds; never use paid fallback. */
     sequentialFreeFallback?: boolean;
   }) {
@@ -61,6 +66,13 @@ export class FreeOpenRouter {
 
   async complete(input: FreeResearchRequest): Promise<{ response: unknown }> {
     const deadline = Date.now() + 45000;
+    const boundedExtraction = input.operation && ["business_extraction", "people_extraction", "headcount_extraction"].includes(input.operation);
+    if (boundedExtraction && this.options.extractionReasoning) input = { ...input, reasoning_effort: this.options.extractionReasoning };
+    if (this.options.primaryRoute === "fast-paid") {
+      if (this.options.paidFallback === false || this.options.sequentialFreeFallback) throw new ResearchAiError("Fast paid routing conflicts with free-only mode");
+      console.info("research-provider", JSON.stringify({ timestamp: new Date().toISOString(), provider: "openrouter", operation: input.operation || "structured_completion", jobId: this.options.jobId, event: "fast_primary_started", model: MERCURY_FALLBACK_MODEL, priceCapPerMillion: MERCURY_PRICE_CAP }));
+      return this.attempt(input, true, deadline);
+    }
     if (this.options.sequentialFreeFallback) {
       const models = input.reasoning_effort === "none" ? this.models.filter(supportsDisabledReasoning) : this.models;
       if (!models.length) throw new ResearchAiError("No approved free model supports the requested reasoning mode");
@@ -113,7 +125,7 @@ export class FreeOpenRouter {
           response_format: { type: "json_schema", json_schema: { name: "research_result", strict: true, schema: input.response_format.json_schema } },
           provider: { require_parameters: true, data_collection: "deny", max_price: paid ? MERCURY_PRICE_CAP : { prompt: 0, completion: 0 } },
         }),
-        signal: AbortSignal.timeout(Math.max(1, Math.min(deadline - Date.now(), !paid && this.options.paidFallback !== false ? 25000 : 45000))),
+        signal: AbortSignal.timeout(Math.max(1, Math.min(deadline - Date.now(), !paid && this.options.paidFallback !== false ? Math.max(1000, Math.min(25000, this.options.freeAttemptTimeoutMs || 25000)) : 45000))),
       }, { provider: "openrouter", operation: input.operation || "structured_completion", requestId, jobId: this.options.jobId, modelCandidates: models, verbose: this.options.verbose });
       response = result.response;
       payload = result.data;
@@ -126,7 +138,7 @@ export class FreeOpenRouter {
       const ErrorType = [404, 408, 429].includes(response.status) || response.status >= 500 ? FallbackEligibleError : ResearchAiError;
       throw new ErrorType(`${paid ? "Mercury fallback" : "Free research AI"} unavailable (HTTP ${response.status})${retryAfter && /^\d+$/.test(retryAfter) ? `; retry after ${retryAfter} seconds` : ""}.`);
     }
-    this.options.onUsage?.({ model: payload.model ?? "unknown", inputTokens: payload.usage?.prompt_tokens ?? 0, outputTokens: payload.usage?.completion_tokens ?? 0, cost: payload.usage?.cost ?? null, paidFallback: paid, elapsedMs: Date.now() - started });
+    this.options.onUsage?.({ model: payload.model ?? "unknown", inputTokens: payload.usage?.prompt_tokens ?? 0, outputTokens: payload.usage?.completion_tokens ?? 0, cost: payload.usage?.cost ?? null, paidFallback: paid && this.options.primaryRoute !== "fast-paid", route: paid ? this.options.primaryRoute === "fast-paid" ? "fast-paid" : "paid-fallback" : "free", elapsedMs: Date.now() - started });
     const rejectOutput = (message: string, category: string): never => {
       console.info("research-provider", JSON.stringify({ timestamp: new Date().toISOString(), provider: "openrouter", operation: input.operation || "structured_completion", requestId, jobId: this.options.jobId, event: "response_rejected", category, elapsedMs: Date.now() - started }));
       throw new FallbackEligibleError(message);

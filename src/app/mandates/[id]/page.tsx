@@ -1,4 +1,4 @@
-import { mandateOutreachHref } from "@/domain/mandate-navigation";
+import { mandatePeopleHref } from "@/domain/mandate-navigation";
 import { notFound, redirect, permanentRedirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -15,7 +15,7 @@ export default async function MandatePage({ params, searchParams }: { params: Pr
   if (!z.string().uuid().safeParse(id).success) notFound();
   const query = await searchParams;
   const requested = query.tab || "brief";
-  if (requested === "outreach") permanentRedirect(mandateOutreachHref(id, query.targetId));
+  if (requested === "outreach") permanentRedirect(mandatePeopleHref(id));
   const { organizationId } = await acquisitionSession();
   if (["coverage", "discover", "pipeline"].includes(requested)) redirect(`/mandates/${id}?tab=targets`);
   const tab = ["brief", "targets"].includes(requested) ? requested : "brief";

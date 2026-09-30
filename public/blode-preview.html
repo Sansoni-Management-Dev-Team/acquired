@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' rx='10' fill='%23171717'/%3E%3Ctext x='20' y='28' text-anchor='middle' font-size='25' fill='white'%3E%E2%99%9B%3C/text%3E%3C/svg%3E">
+  <title>Acquired × Blode UI — visual preview</title>
+  <style>
+    :root {
+      --background:#fff; --foreground:#0a0a0a; --card:#fff; --sidebar:#fafafa;
+      --surface:#f8f8f8; --muted:#f5f5f5; --muted-foreground:#737373;
+      --border:#e5e5e5; --input-hover:#d4d4d4; --primary:#171717;
+      --primary-foreground:#fafafa; --success:#008236; --warning:#a46300;
+      --shadow:0 12px 32px rgba(20,20,20,.08),0 2px 8px rgba(20,20,20,.04);
+    }
+    [data-theme="dark"] {
+      color-scheme:dark; --background:#111; --foreground:#f5f5f5; --card:#191919;
+      --sidebar:#151515; --surface:#1a1a1a; --muted:#242424; --muted-foreground:#a3a3a3;
+      --border:#303030; --input-hover:#4a4a4a; --primary:#f5f5f5;
+      --primary-foreground:#171717; --success:#66d895; --warning:#f2b35b;
+      --shadow:0 12px 32px rgba(0,0,0,.3);
+    }
+    * { box-sizing:border-box; }
+    html { background:var(--background); }
+    body { margin:0; color:var(--foreground); background:var(--background); font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif; }
+    button,input,select { font:inherit; }
+    button { cursor:pointer; }
+    button:disabled { cursor:not-allowed; opacity:.45; }
+    :focus-visible { outline:2px solid var(--foreground); outline-offset:2px; }
+    svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; flex:none; }
+    .shell { display:grid; grid-template-columns:250px minmax(0,1fr); min-height:100vh; }
+    .sidebar { display:flex; flex-direction:column; min-height:100vh; padding:25px 14px 18px; background:var(--sidebar); border-right:1px solid var(--border); }
+    .brand { display:flex; align-items:center; gap:10px; padding:0 11px 31px; text-decoration:none; color:var(--foreground); }
+    .brand-mark { display:grid; place-items:center; width:34px; height:34px; border-radius:10px; background:var(--primary); color:var(--primary-foreground); }
+    .brand-mark img { width:26px; height:26px; object-fit:contain; }
+    [data-theme="dark"] .brand-mark img { filter:invert(1); }
+    .brand strong { font-size:14px; letter-spacing:.11em; }
+    .brand small { display:block; margin-top:-1px; color:var(--muted-foreground); font-size:10px; letter-spacing:.06em; text-transform:uppercase; }
+    .nav-label { padding:13px 12px 8px; color:var(--muted-foreground); font-size:10px; font-weight:700; letter-spacing:.13em; text-transform:uppercase; }
+    .nav-item { display:flex; align-items:center; gap:11px; width:100%; min-height:39px; padding:8px 11px; border:0; border-radius:8px; background:transparent; color:var(--muted-foreground); text-align:left; font-size:13px; }
+    .nav-item:hover,.nav-item.active { background:var(--muted); color:var(--foreground); }
+    .nav-item.active { font-weight:600; }
+    .nav-item svg { width:17px; height:17px; }
+    .nav-item .count { margin-left:auto; color:var(--muted-foreground); font-size:11px; font-weight:500; }
+    .workspace-select { display:flex; align-items:center; gap:9px; margin:3px 5px 15px; padding:10px; min-height:50px; border:1px solid var(--border); border-radius:10px; background:var(--card); }
+    .workspace-avatar { display:grid; place-items:center; width:28px; height:28px; border-radius:7px; background:var(--muted); font-size:12px; font-weight:700; }
+    .workspace-copy { min-width:0; flex:1; }
+    .workspace-copy strong,.workspace-copy span { display:block; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+    .workspace-copy strong { font-size:12px; }
+    .workspace-copy span { color:var(--muted-foreground); font-size:11px; }
+    .workspace-select svg { width:14px; height:14px; color:var(--muted-foreground); }
+    .sidebar-bottom { margin-top:auto; padding-top:16px; border-top:1px solid var(--border); }
+    .profile { display:flex; align-items:center; gap:9px; margin-top:12px; padding:7px 11px; }
+    .profile-dot { display:grid; place-items:center; width:29px; height:29px; border-radius:50%; background:#e8e5df; color:#4f493f; font-size:11px; font-weight:700; }
+    .profile strong,.profile span { display:block; font-size:11px; }
+    .profile span { color:var(--muted-foreground); }
+    .main { min-width:0; }
+    .topbar { display:flex; align-items:center; justify-content:space-between; gap:16px; height:65px; padding:0 35px; border-bottom:1px solid var(--border); }
+    .crumbs { display:flex; align-items:center; gap:9px; color:var(--muted-foreground); font-size:12px; }
+    .crumbs strong { color:var(--foreground); font-weight:600; }
+    .top-actions { display:flex; align-items:center; gap:11px; }
+    .preview-pill { display:inline-flex; align-items:center; gap:7px; padding:5px 9px; border:1px solid var(--border); border-radius:999px; color:var(--muted-foreground); font-size:11px; }
+    .preview-pill:before { content:""; width:6px; height:6px; border-radius:50%; background:var(--success); }
+    .icon-button { display:grid; place-items:center; width:32px; height:32px; border:1px solid var(--border); border-radius:8px; background:var(--card); color:var(--foreground); }
+    .icon-button:hover { background:var(--muted); }
+    .content { max-width:1450px; margin:auto; padding:34px 38px 65px; }
+    .eyebrow { color:var(--muted-foreground); font-size:11px; font-weight:600; letter-spacing:.11em; text-transform:uppercase; }
+    .title-row { display:flex; align-items:flex-end; justify-content:space-between; gap:20px; margin-top:9px; }
+    h1 { margin:0; font-size:34px; line-height:1.13; letter-spacing:-.035em; font-weight:650; }
+    .subtitle { margin:8px 0 0; color:var(--muted-foreground); font-size:13px; }
+    .title-actions,.toolbar-actions { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .button { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:38px; padding:0 14px; border:1px solid var(--border); border-radius:9px; background:var(--card); color:var(--foreground); white-space:nowrap; font-size:12px; font-weight:600; text-decoration:none; }
+    .button:hover { background:var(--muted); }
+    .button.primary { border-color:var(--primary); background:var(--primary); color:var(--primary-foreground); }
+    .button.primary:hover { opacity:.88; }
+    .button svg { width:15px; height:15px; }
+    .stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-top:30px; }
+    .stat { min-height:112px; padding:18px 19px; border:1px solid var(--border); border-radius:14px; background:var(--card); }
+    .stat-label { display:flex; align-items:center; justify-content:space-between; gap:8px; color:var(--muted-foreground); font-size:12px; }
+    .stat-label svg { width:16px; height:16px; }
+    .stat strong { display:block; margin-top:14px; font-size:28px; line-height:1; letter-spacing:-.045em; font-weight:650; }
+    .stat small { display:block; margin-top:7px; color:var(--muted-foreground); font-size:11px; }
+    .stat small .positive { color:var(--success); font-weight:600; }
+    .section-head { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:37px; }
+    h2 { margin:0; font-size:18px; line-height:1.3; letter-spacing:-.02em; font-weight:650; }
+    .section-head p { margin:5px 0 0; color:var(--muted-foreground); font-size:12px; }
+    .tabs { display:flex; gap:2px; width:max-content; margin-top:21px; padding:3px; border-radius:10px; background:var(--muted); }
+    .tab { min-height:33px; padding:0 14px; border:0; border-radius:8px; background:transparent; color:var(--muted-foreground); font-size:12px; font-weight:600; }
+    .tab.active { background:var(--card); color:var(--foreground); box-shadow:0 1px 3px rgba(0,0,0,.08); }
+    .toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:22px; }
+    .filters { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+    .search { display:flex; align-items:center; gap:8px; width:235px; min-height:39px; padding:0 13px; border:1px solid var(--border); border-radius:18px; background:var(--card); color:var(--muted-foreground); }
+    .search:focus-within { border-color:var(--foreground); }
+    .search svg { width:16px; height:16px; }
+    .search input { width:100%; border:0; outline:0; background:transparent; color:var(--foreground); font-size:12px; }
+    .search input::placeholder { color:var(--muted-foreground); }
+    .select { min-height:39px; padding:0 30px 0 13px; border:1px solid var(--border); border-radius:9px; background:var(--card); color:var(--foreground); font-size:12px; }
+    .select:hover,.search:hover { border-color:var(--input-hover); }
+    .table-card { overflow:hidden; margin-top:16px; border:1px solid var(--border); border-radius:14px; background:var(--card); }
+    .table-scroll { overflow-x:auto; }
+    table { width:100%; min-width:875px; border-collapse:collapse; text-align:left; }
+    th { height:43px; padding:0 16px; background:var(--surface); color:var(--muted-foreground); font-size:10px; font-weight:700; letter-spacing:.055em; text-transform:uppercase; white-space:nowrap; }
+    td { height:71px; padding:9px 16px; border-top:1px solid var(--border); font-size:12px; vertical-align:middle; }
+    tbody tr { cursor:pointer; }
+    tbody tr:hover { background:var(--surface); }
+    tbody tr[hidden] { display:none; }
+    .company { display:flex; align-items:center; gap:11px; min-width:205px; }
+    .company-mark { display:grid; place-items:center; width:31px; height:31px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--muted-foreground); font-size:12px; font-weight:700; }
+    .company strong,.company span { display:block; }
+    .company strong { font-size:12px; font-weight:650; }
+    .company span { margin-top:1px; color:var(--muted-foreground); font-size:11px; }
+    .score { font-weight:650; font-variant-numeric:tabular-nums; }
+    .score-track { display:inline-block; width:48px; height:4px; margin-left:8px; overflow:hidden; border-radius:999px; background:var(--muted); vertical-align:middle; }
+    .score-track i { display:block; height:100%; border-radius:inherit; background:var(--foreground); }
+    .badge { display:inline-flex; align-items:center; gap:6px; padding:5px 9px; border-radius:999px; background:var(--muted); color:var(--foreground); font-size:11px; font-weight:600; white-space:nowrap; }
+    .badge:before { content:""; width:6px; height:6px; border-radius:50%; background:var(--muted-foreground); }
+    .badge.green { color:var(--success); background:color-mix(in srgb,var(--success) 9%,var(--card)); }
+    .badge.green:before { background:var(--success); }
+    .badge.amber { color:var(--warning); background:color-mix(in srgb,var(--warning) 9%,var(--card)); }
+    .badge.amber:before { background:var(--warning); }
+    .evidence { color:var(--muted-foreground); }
+    .evidence b { color:var(--foreground); font-weight:600; }
+    .number { font-variant-numeric:tabular-nums; white-space:nowrap; }
+    .row-action { display:grid; place-items:center; width:27px; height:27px; margin-left:auto; border:0; border-radius:6px; background:transparent; color:var(--muted-foreground); }
+    .row-action:hover { background:var(--muted); color:var(--foreground); }
+    .table-footer { display:flex; justify-content:space-between; gap:10px; align-items:center; min-height:46px; padding:0 16px; border-top:1px solid var(--border); color:var(--muted-foreground); font-size:11px; }
+    .table-footer button { border:0; background:transparent; color:var(--foreground); font-size:11px; font-weight:600; }
+    .empty { padding:50px 20px; text-align:center; color:var(--muted-foreground); }
+    .detail { position:fixed; z-index:10; inset:0; display:none; background:rgba(0,0,0,.28); }
+    .detail.open { display:block; }
+    .detail-panel { position:absolute; top:0; right:0; width:min(440px,100%); height:100%; padding:29px; overflow:auto; background:var(--background); box-shadow:var(--shadow); }
+    .detail-top { display:flex; align-items:center; justify-content:space-between; }
+    .detail h2 { margin-top:26px; font-size:27px; }
+    .detail p { color:var(--muted-foreground); font-size:13px; }
+    .detail-grid { display:grid; grid-template-columns:1fr 1fr; gap:13px; margin-top:28px; }
+    .detail-grid div { padding:14px; border:1px solid var(--border); border-radius:10px; }
+    .detail-grid small { display:block; color:var(--muted-foreground); }
+    .detail-grid strong { display:block; margin-top:6px; font-size:14px; }
+    .detail-section { margin-top:32px; padding-top:20px; border-top:1px solid var(--border); }
+    .detail-section h3 { margin:0; font-size:14px; }
+    .detail-section ul { margin:12px 0 0; padding-left:18px; color:var(--muted-foreground); font-size:12px; line-height:2; }
+    .alt-panel { display:none; margin-top:22px; padding:25px; border:1px solid var(--border); border-radius:14px; background:var(--card); }
+    .alt-panel.active { display:block; }
+    .alt-panel h3 { margin:0 0 8px; font-size:17px; }
+    .alt-panel p { max-width:660px; color:var(--muted-foreground); font-size:13px; }
+    .criteria { display:flex; flex-wrap:wrap; gap:8px; margin-top:22px; }
+    .criteria span { padding:8px 11px; border:1px solid var(--border); border-radius:9px; font-size:12px; }
+    .mobile-menu { display:none; }
+    @media(max-width:1100px) { .stats { grid-template-columns:repeat(2,1fr); } .toolbar { align-items:flex-start; flex-direction:column; } }
+    @media(max-width:760px) {
+      .shell { display:block; } .sidebar { display:none; position:fixed; z-index:20; width:250px; height:100vh; min-height:0; box-shadow:var(--shadow); }
+      .sidebar.open { display:flex; } .mobile-menu { display:grid; }
+      .topbar { height:59px; padding:0 18px; } .content { padding:27px 18px 45px; }
+      h1 { font-size:29px; } .title-row { align-items:flex-start; flex-direction:column; }
+      .stats { margin-top:25px; } .preview-pill { display:none; }
+    }
+    @media(max-width:480px) { .stats { gap:8px; } .stat { min-height:99px; padding:14px; } .stat strong { font-size:24px; } .search { width:100%; } .filters { width:100%; } }
+    @media(prefers-reduced-motion:no-preference) { .button,.nav-item,.icon-button,.row-action { transition:background-color .15s,color .15s,opacity .15s; } }
+  </style>
+</head>
+<body>
+  <svg aria-hidden="true" style="position:absolute;width:0;height:0;overflow:hidden">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M9 21v-7h6v7"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 2h8l5 5v14a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1z"/><path d="M14 2v6h5M8 13h8M8 17h8"/></symbol>
+    <symbol id="i-list" viewBox="0 0 24 24"><path d="M9 6h12M9 12h12M9 18h12M3 6h2M3 12h2M3 18h2"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4zM22 2 11 13"/></symbol>
+    <symbol id="i-workflow" viewBox="0 0 24 24"><rect x="2" y="3" width="7" height="5" rx="1"/><rect x="15" y="16" width="7" height="5" rx="1"/><path d="M5.5 8v6a4 4 0 0 0 4 4H15M12 5h7v7M19 5l-9 9"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M4 9 2 12l2 3 1 3 4 1 3 2 3-2 4-1 1-4 2-2-2-3-1-3-4-1-3-2-3 2-4 1z"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.5" cy="10.5" r="7"/><path d="m16 16 5 5"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 4v16M4 12h16"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 15.5A8.5 8.5 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5z"/></symbol>
+    <symbol id="i-bars" viewBox="0 0 24 24"><path d="M3 6h18M3 12h18M3 18h18"/></symbol>
+    <symbol id="i-trend" viewBox="0 0 24 24"><path d="m3 17 6-6 4 4 8-8M15 7h6v6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m4 12 5 5L20 6"/></symbol>
+    <symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18M7 12h10M10 19h4"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="M5 5 19 19M19 5 5 19"/></symbol>
+  </svg>
+  <div class="shell">
+    <aside class="sidebar" id="sidebar">
+      <a class="brand" href="#" aria-label="Acquired home"><span class="brand-mark"><img src="acquired-crown.png" alt=""></span><span><strong>ACQUIRED</strong><small>Workspace preview</small></span></a>
+      <div class="workspace-select" aria-label="Selected mandate"><span class="workspace-avatar">IS</span><span class="workspace-copy"><strong>Industrial services</strong><span>Acquisition mandate</span></span><svg><use href="#i-chevron"/></svg></div>
+      <div class="nav-label">Workspace</div>
+      <button class="nav-item" data-nav="home"><svg><use href="#i-home"/></svg>Home</button>
+      <button class="nav-item" data-nav="mandates"><svg><use href="#i-grid"/></svg>All mandates</button>
+      <div class="nav-label" style="margin-top:12px">Industrial services</div>
+      <button class="nav-item" data-nav="brief"><svg><use href="#i-file"/></svg>Brief</button>
+      <button class="nav-item active" data-nav="targets"><svg><use href="#i-list"/></svg>Targets<span class="count">42</span></button>
+      <button class="nav-item" data-nav="outreach"><svg><use href="#i-send"/></svg>Outreach</button>
+      <button class="nav-item" data-nav="campaigns"><svg><use href="#i-workflow"/></svg>Campaign studio</button>
+      <div class="sidebar-bottom"><button class="nav-item" data-nav="settings"><svg><use href="#i-settings"/></svg>Settings</button><div class="profile"><span class="profile-dot">AC</span><span><strong>Acquisition team</strong><span>Preview account</span></span></div></div>
+    </aside>
+    <main class="main">
+      <div class="topbar"><div style="display:flex;align-items:center;gap:10px"><button class="icon-button mobile-menu" id="menu-button" aria-label="Open navigation"><svg><use href="#i-bars"/></svg></button><div class="crumbs"><span>Mandates</span><span>/</span><span>Industrial services</span><span>/</span><strong id="breadcrumb-tab">Targets</strong></div></div><div class="top-actions"><span class="preview-pill">Illustrative preview</span><button class="icon-button" id="theme-button" title="Toggle theme" aria-label="Toggle theme"><svg><use href="#i-moon"/></svg></button></div></div>
+      <div class="content">
+        <div class="eyebrow">Acquisition workspace <span style="margin:0 7px">/</span> Industrial services</div>
+        <div class="title-row"><div><h1>Industrial services</h1><p class="subtitle">Australian B2B services businesses · Created 12 September 2026</p></div><div class="title-actions"><button class="button" id="edit-brief"><svg><use href="#i-file"/></svg>Edit brief</button><button class="button primary" id="find-businesses"><svg><use href="#i-plus"/></svg>Find businesses</button></div></div>
+        <div class="stats" aria-label="Mandate overview"><div class="stat"><div class="stat-label">Saved businesses <svg><use href="#i-grid"/></svg></div><strong>42</strong><small><span class="positive">+8</span> from last research run</small></div><div class="stat"><div class="stat-label">Ready to review <svg><use href="#i-check"/></svg></div><strong>12</strong><small>Evidence available</small></div><div class="stat"><div class="stat-label">Shortlisted <svg><use href="#i-list"/></svg></div><strong>8</strong><small>Awaiting next action</small></div><div class="stat"><div class="stat-label">In conversation <svg><use href="#i-trend"/></svg></div><strong>3</strong><small>Across active outreach</small></div></div>
+        <div class="section-head"><div><h2>Mandate workspace</h2><p>Review your brief, businesses and outreach in one place.</p></div></div>
+        <div class="tabs" role="tablist" aria-label="Workspace view"><button class="tab" role="tab" data-tab="brief" aria-selected="false">Brief</button><button class="tab active" role="tab" data-tab="targets" aria-selected="true">Targets</button><button class="tab" role="tab" data-tab="outreach" aria-selected="false">Outreach</button></div>
+        <section id="targets-panel" role="tabpanel">
+          <div class="toolbar"><div class="filters"><label class="search"><svg><use href="#i-search"/></svg><input id="search" type="search" placeholder="Search businesses" aria-label="Search businesses"></label><select class="select" id="stage-filter" aria-label="Filter by stage"><option value="all">All stages</option><option value="Reviewing">Reviewing</option><option value="Shortlisted">Shortlisted</option><option value="Identified">Identified</option><option value="In conversation">In conversation</option></select><select class="select" id="evidence-filter" aria-label="Filter by evidence"><option value="all">All evidence</option><option value="Ready to review">Ready to review</option><option value="Needs evidence">Needs evidence</option></select></div><div class="toolbar-actions"><button class="button" id="clear-filters"><svg><use href="#i-filter"/></svg>Clear filters</button><button class="button primary" id="start-review">Start review <svg><use href="#i-arrow"/></svg></button></div></div>
+          <div class="table-card"><div class="table-scroll"><table><thead><tr><th>Company</th><th>Fit score</th><th>Stage</th><th>Research</th><th>Revenue</th><th>Headcount</th><th aria-label="Actions"></th></tr></thead><tbody id="target-rows">
+            <tr data-company="Apex Industrial Group" data-domain="apexindustrial.com.au" data-stage="Shortlisted" data-evidence="Ready to review" data-score="92" data-revenue="$18–24m" data-headcount="110–140"><td><div class="company"><span class="company-mark">A</span><span><strong>Apex Industrial Group</strong><span>apexindustrial.com.au</span></span></div></td><td><span class="score">92</span><span class="score-track"><i style="width:92%"></i></span></td><td><span class="badge green">Shortlisted</span></td><td class="evidence"><b>Ready to review</b><br>8 sources checked</td><td class="number">$18–24m</td><td class="number">110–140</td><td><button class="row-action" aria-label="View Apex Industrial Group"><svg><use href="#i-more"/></svg></button></td></tr>
+            <tr data-company="Southern Pump &amp; Valve" data-domain="southernpump.com.au" data-stage="Reviewing" data-evidence="Ready to review" data-score="87" data-revenue="$12–16m" data-headcount="65–85"><td><div class="company"><span class="company-mark">S</span><span><strong>Southern Pump &amp; Valve</strong><span>southernpump.com.au</span></span></div></td><td><span class="score">87</span><span class="score-track"><i style="width:87%"></i></span></td><td><span class="badge">Reviewing</span></td><td class="evidence"><b>Ready to review</b><br>6 sources checked</td><td class="number">$12–16m</td><td class="number">65–85</td><td><button class="row-action" aria-label="View Southern Pump and Valve"><svg><use href="#i-more"/></svg></button></td></tr>
+            <tr data-company="Harbour Compliance Services" data-domain="harbourcompliance.com.au" data-stage="In conversation" data-evidence="Ready to review" data-score="85" data-revenue="$9–12m" data-headcount="40–60"><td><div class="company"><span class="company-mark">H</span><span><strong>Harbour Compliance Services</strong><span>harbourcompliance.com.au</span></span></div></td><td><span class="score">85</span><span class="score-track"><i style="width:85%"></i></span></td><td><span class="badge green">In conversation</span></td><td class="evidence"><b>Ready to review</b><br>9 sources checked</td><td class="number">$9–12m</td><td class="number">40–60</td><td><button class="row-action" aria-label="View Harbour Compliance Services"><svg><use href="#i-more"/></svg></button></td></tr>
+            <tr data-company="Northline Mechanical" data-domain="northlinemechanical.com.au" data-stage="Identified" data-evidence="Needs evidence" data-score="78" data-revenue="Unknown" data-headcount="30–50"><td><div class="company"><span class="company-mark">N</span><span><strong>Northline Mechanical</strong><span>northlinemechanical.com.au</span></span></div></td><td><span class="score">78</span><span class="score-track"><i style="width:78%"></i></span></td><td><span class="badge">Identified</span></td><td class="evidence"><span style="color:var(--warning);font-weight:600">Needs evidence</span><br>3 sources checked</td><td class="number" style="color:var(--muted-foreground)">Unknown</td><td class="number">30–50</td><td><button class="row-action" aria-label="View Northline Mechanical"><svg><use href="#i-more"/></svg></button></td></tr>
+            <tr data-company="Precision Field Systems" data-domain="precisionfield.com.au" data-stage="Shortlisted" data-evidence="Ready to review" data-score="76" data-revenue="$7–10m" data-headcount="35–55"><td><div class="company"><span class="company-mark">P</span><span><strong>Precision Field Systems</strong><span>precisionfield.com.au</span></span></div></td><td><span class="score">76</span><span class="score-track"><i style="width:76%"></i></span></td><td><span class="badge green">Shortlisted</span></td><td class="evidence"><b>Ready to review</b><br>5 sources checked</td><td class="number">$7–10m</td><td class="number">35–55</td><td><button class="row-action" aria-label="View Precision Field Systems"><svg><use href="#i-more"/></svg></button></td></tr>
+            <tr data-company="East Coast Asset Care" data-domain="eastcoastassetcare.com.au" data-stage="Reviewing" data-evidence="Needs evidence" data-score="72" data-revenue="$5–8m" data-headcount="25–40"><td><div class="company"><span class="company-mark">E</span><span><strong>East Coast Asset Care</strong><span>eastcoastassetcare.com.au</span></span></div></td><td><span class="score">72</span><span class="score-track"><i style="width:72%"></i></span></td><td><span class="badge">Reviewing</span></td><td class="evidence"><span style="color:var(--warning);font-weight:600">Needs evidence</span><br>2 sources checked</td><td class="number">$5–8m</td><td class="number">25–40</td><td><button class="row-action" aria-label="View East Coast Asset Care"><svg><use href="#i-more"/></svg></button></td></tr>
+          </tbody></table><div class="empty" id="empty" hidden>No businesses match these filters.</div></div><div class="table-footer"><span id="row-count">Showing 6 of 42 businesses · illustrative data</span><span>Sample rows for visual review</span></div></div>
+        </section>
+        <section class="alt-panel" id="brief-panel" role="tabpanel"><div class="eyebrow">Acquisition brief</div><h3>What this mandate is looking for</h3><p>Established Australian B2B industrial services businesses with recurring customer relationships and a strong local management team. The criteria below illustrate how the brief could appear with Blode UI.</p><div class="criteria"><span>Industrial services</span><span>Australia</span><span>Revenue $5m–$30m</span><span>EBITDA $1m–$5m</span><span>20–150 staff</span></div></section>
+        <section class="alt-panel" id="outreach-panel" role="tabpanel"><div class="eyebrow">Outreach</div><h3>Conversations in progress</h3><p>Review named contacts, evidence and draft messages before approving outreach. This visual preview focuses on the workspace shell and target list.</p><div class="criteria"><span>3 in conversation</span><span>5 drafts to review</span><span>2 awaiting approval</span></div></section>
+      </div>
+    </main>
+  </div>
+  <div class="detail" id="detail" role="dialog" aria-modal="true" aria-labelledby="detail-title"><div class="detail-panel"><div class="detail-top"><span class="eyebrow">Company review</span><button class="icon-button" id="close-detail" aria-label="Close company details"><svg><use href="#i-close"/></svg></button></div><h2 id="detail-title"></h2><p id="detail-domain"></p><div class="detail-grid"><div><small>Fit score</small><strong id="detail-score"></strong></div><div><small>Pipeline stage</small><strong id="detail-stage"></strong></div><div><small>Revenue</small><strong id="detail-revenue"></strong></div><div><small>Headcount</small><strong id="detail-headcount"></strong></div></div><div class="detail-section"><h3>Research status</h3><p id="detail-evidence"></p><ul><li>Review the company profile and source evidence</li><li>Confirm fit against the mandate criteria</li><li>Record the next action for the acquisition team</li></ul></div><div class="detail-section"><button class="button primary" id="close-detail-bottom">Back to targets</button></div></div></div>
+  <script>
+    const $ = (selector) => document.querySelector(selector);
+    const rows = [...document.querySelectorAll('#target-rows tr')];
+    let activeTab = 'targets';
+    function setTab(tab) {
+      if (!['brief','targets','outreach'].includes(tab)) return;
+      activeTab = tab;
+      document.querySelectorAll('.tab').forEach(button => { const active = button.dataset.tab === tab; button.classList.toggle('active',active); button.setAttribute('aria-selected',String(active)); });
+      document.querySelectorAll('.nav-item').forEach(button => button.classList.toggle('active',button.dataset.nav === tab));
+      ['brief','targets','outreach'].forEach(name => { const panel = $('#' + name + '-panel'); panel.classList.toggle('active',name === tab && name !== 'targets'); if (name === 'targets') panel.hidden = tab !== 'targets'; });
+      $('#breadcrumb-tab').textContent = tab[0].toUpperCase() + tab.slice(1);
+      $('#sidebar').classList.remove('open');
+    }
+    function filterRows() {
+      const query = $('#search').value.trim().toLowerCase();
+      const stage = $('#stage-filter').value;
+      const evidence = $('#evidence-filter').value;
+      let visible = 0;
+      rows.forEach(row => { const show = (row.dataset.company.toLowerCase().includes(query) || row.dataset.domain.toLowerCase().includes(query)) && (stage === 'all' || row.dataset.stage === stage) && (evidence === 'all' || row.dataset.evidence === evidence); row.hidden = !show; if (show) visible++; });
+      $('#empty').hidden = visible > 0;
+      $('#row-count').textContent = 'Showing ' + visible + ' of 42 businesses · illustrative data';
+    }
+    function openDetail(row) {
+      if (!row) return;
+      $('#detail-title').textContent = row.dataset.company;
+      $('#detail-domain').textContent = row.dataset.domain;
+      $('#detail-score').textContent = row.dataset.score + ' / 100';
+      $('#detail-stage').textContent = row.dataset.stage;
+      $('#detail-revenue').textContent = row.dataset.revenue;
+      $('#detail-headcount').textContent = row.dataset.headcount;
+      $('#detail-evidence').textContent = row.dataset.evidence + '. Figures and company details in this preview are illustrative.';
+      $('#detail').classList.add('open');
+      $('#close-detail').focus();
+    }
+    function closeDetail() { $('#detail').classList.remove('open'); }
+    document.querySelectorAll('.tab').forEach(button => button.addEventListener('click',() => setTab(button.dataset.tab)));
+    document.querySelectorAll('.nav-item').forEach(button => button.addEventListener('click',() => setTab(button.dataset.nav)));
+    $('#search').addEventListener('input',filterRows);
+    $('#stage-filter').addEventListener('change',filterRows);
+    $('#evidence-filter').addEventListener('change',filterRows);
+    $('#clear-filters').addEventListener('click',() => { $('#search').value = ''; $('#stage-filter').value = 'all'; $('#evidence-filter').value = 'all'; filterRows(); });
+    rows.forEach(row => row.addEventListener('click',() => openDetail(row)));
+    $('#start-review').addEventListener('click',() => openDetail(rows.find(row => !row.hidden)));
+    $('#edit-brief').addEventListener('click',() => setTab('brief'));
+    $('#find-businesses').addEventListener('click',() => setTab('brief'));
+    $('#close-detail').addEventListener('click',closeDetail);
+    $('#close-detail-bottom').addEventListener('click',closeDetail);
+    $('#detail').addEventListener('click',event => { if (event.target === $('#detail')) closeDetail(); });
+    document.addEventListener('keydown',event => { if (event.key === 'Escape') closeDetail(); });
+    $('#theme-button').addEventListener('click',() => { document.documentElement.dataset.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; });
+    $('#menu-button').addEventListener('click',() => $('#sidebar').classList.toggle('open'));
+  </script>
+</body>
+</html>
