@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { requireDb } from "@/db/client";
@@ -20,6 +20,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const [gmail] = await requireDb().select({
     address: mailboxConnections.address,
     scopes: mailboxConnections.scopes,
+    hasRefreshToken: sql<boolean>`${mailboxConnections.encryptedRefreshToken} IS NOT NULL AND ${mailboxConnections.encryptedRefreshToken} <> ''`,
     reconnectRequired: mailboxConnections.reconnectRequired,
     dailyCap: mailboxConnections.dailyCap,
     updatedAt: mailboxConnections.updatedAt,

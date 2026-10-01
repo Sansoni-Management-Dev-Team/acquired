@@ -2,6 +2,7 @@
 
 import "@xyflow/react/dist/style.css";
 import Link from "next/link";
+import { gmailStatusLabels, gmailStatusMessages, type GmailConnectionStatus } from "@/domain/gmail-connection";
 import { useCallback, useMemo, useState } from "react";
 import { ArrowLeft, Check, Clock3, Pause, Play, Plus, Send, ShieldAlert, X } from "lucide-react";
 import { hasOutreachDetails } from "@/domain/outreach-contact";
@@ -12,7 +13,7 @@ import { CampaignSequenceEditor } from "@/components/campaign-sequence-editor";
 type SequenceView = { id: string; name: string; draft: CampaignDefinition; publishedDefinition: CampaignDefinition | null; publishedVersion: number; n8nWorkflowId: string | null; updatedAt: string };
 type EnrolmentView = { id: string; sequenceId: string; sequenceName: string; version: number; contactId: string; state: string; stopReason: string | null; stepIndex: number; nextStepAt: string | null; nextStepTitle: string | null; totalSteps: number; recipientEmail: string; startedAt: string; lastSentAt: string | null; activity: { action: string; at: string }[] };
 type ContactView = { id: string; name: string; company: string; email: string | null; fictionalised: boolean; doNotContact: boolean };
-export type StudioData = { sequences: SequenceView[]; enrolments: EnrolmentView[]; contacts: ContactView[]; mailbox: { address: string | null; ready: boolean; dailyCap: number } | null };
+export type StudioData = { sequences: SequenceView[]; enrolments: EnrolmentView[]; contacts: ContactView[]; mailbox: { address: string | null; ready: boolean; status?: GmailConnectionStatus; dailyCap: number } | null };
 type EditableDefinition = { steps: CampaignStep[]; schemaVersion?: 1 };
 
 const card = "rounded-2xl border border-[var(--border)] bg-[var(--panel)]";
@@ -134,8 +135,8 @@ export function CampaignStudio({ mandateId, mandateName, initialData, initialVie
 
   return <div className="mx-auto max-w-[1680px] space-y-6 p-5 sm:p-8">
     <Link href={initialView === "contacts" ? `/mandates/${mandateId}?tab=targets` : `/mandates/${mandateId}/people`} className="inline-flex items-center gap-2 text-sm text-[var(--muted)] hover:text-[var(--foreground)]"><ArrowLeft size={16} /> {initialView === "contacts" ? "Back to companies" : "Back to people"}</Link>
-    <header className="flex flex-wrap items-end justify-between gap-5"><div><p className="text-xs font-semibold uppercase tracking-[.18em] text-[var(--muted)]">{mandateName}</p><h1 className="mt-2 text-3xl font-semibold sm:text-4xl">{initialView === "contacts" ? "People" : "Sequences"}</h1><p className="mt-2 text-sm text-[var(--muted)]">{initialView === "contacts" ? "Contacts with email addresses from research and Firmable enrichment, with outreach progress." : "Publish a sequence and subscribe contacts using your connected mailbox."}</p></div><div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 text-sm"><p className="font-semibold">Your sending mailbox</p><p className="mt-1 text-[var(--muted)]">{data?.mailbox?.address || "Not connected"} · {data?.mailbox?.ready ? "Ready" : "Reconnect required"}</p></div></header>
-    {!data?.mailbox?.ready && <div role="alert" className="flex gap-3 rounded-xl border border-[var(--border)] bg-[var(--accent-soft)] p-4 text-sm"><ShieldAlert size={19} /><p>Connect your own Gmail with compose and read-only access before subscribing contacts. <Link href="/settings" className="underline">Open Settings</Link></p></div>}
+    <header className="flex flex-wrap items-end justify-between gap-5"><div><p className="text-xs font-semibold uppercase tracking-[.18em] text-[var(--muted)]">{mandateName}</p><h1 className="mt-2 text-3xl font-semibold sm:text-4xl">{initialView === "contacts" ? "People" : "Sequences"}</h1><p className="mt-2 text-sm text-[var(--muted)]">{initialView === "contacts" ? "Contacts with email addresses from research and Firmable enrichment, with outreach progress." : "Publish a sequence and subscribe contacts using your connected mailbox."}</p></div><div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-4 py-3 text-sm"><p className="font-semibold">Your sending mailbox</p><p className="mt-1 text-[var(--muted)]">{data?.mailbox?.address || "Not connected"} · {gmailStatusLabels[data?.mailbox?.status ?? (data?.mailbox ? data.mailbox.ready ? "ready" : "reconnect_required" : "not_connected")]}</p></div></header>
+    {!data?.mailbox?.ready && <div role="alert" className="flex gap-3 rounded-xl border border-[var(--border)] bg-[var(--accent-soft)] p-4 text-sm"><ShieldAlert size={19} /><p>{gmailStatusMessages[data?.mailbox?.status ?? (data?.mailbox ? "reconnect_required" : "not_connected")]} <Link href="/settings" className="underline">Open Settings</Link></p></div>}
     {error && <div role="alert" className="rounded-xl border border-red-800 bg-[var(--error-surface)] p-4 text-sm text-[var(--status-red)]">{error}</div>}
     {notice && <div role="status" className="rounded-xl border border-emerald-800 bg-[var(--success-surface)] p-4 text-sm text-[var(--status-emerald)]">{notice}</div>}
     {enrichmentFilter && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border)] bg-[var(--accent-soft)] p-4 text-sm"><p>Showing only people from your latest enrichment · {enrichmentContactIds?.length || 0} contacts</p><Link className="font-semibold underline" href={`/mandates/${mandateId}/people`} onClick={() => { setEnrichmentFilter(false); setSelectedContactIds([]); }}>Show all people</Link></div>}

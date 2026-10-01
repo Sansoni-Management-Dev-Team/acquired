@@ -1,4 +1,5 @@
 import "server-only";
+import { gmailConnectionStatus } from "@/domain/gmail-connection";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { rows, withCampaignDb, withCampaignWorker, type CampaignActor } from "@/db/campaign-client";
@@ -72,7 +73,7 @@ export async function listCampaignStudio(actor: CampaignActor, mandateId: string
       sequences: sequences.map(row => ({ id: row.id, name: row.name, draft: parseDefinition(row.draft), publishedDefinition: row.published_definition ? parseDefinition(row.published_definition) : null, publishedVersion: row.published_version, n8nWorkflowId: row.n8n_workflow_id || null, updatedAt: row.updated_at.toISOString() })),
       enrolments: enrolments.map(row => ({ id: row.id, sequenceId: row.sequence_id, sequenceName: row.sequence_name, version: row.version, contactId: row.contact_id, state: row.state, stopReason: row.stop_reason, stepIndex: row.step_index, nextStepAt: row.next_step_at?.toISOString() || null, nextStepTitle: parseDefinition(row.version_definition).steps[row.step_index]?.title || null, totalSteps: parseDefinition(row.version_definition).steps.length, recipientEmail: row.recipient_email, startedAt: row.started_at.toISOString(), lastSentAt: row.last_sent_at?.toISOString() || null, activity: activity.filter(event => event.entity_id === row.id).map(event => ({ action: event.action, at: event.created_at.toISOString() })) })),
       contacts: contactRows.map(row => ({ id: row.id, targetId: row.target_id, name: row.display_name, company: row.company_name, email: z.email().safeParse(personalData(row.personal_data).email).success ? normalizeEmail(String(personalData(row.personal_data).email)) : null, fictionalised: row.fictionalised, doNotContact: personalData(row.personal_data).doNotContact === true })),
-      mailbox: mailbox[0] ? { address: mailbox[0].address, ready: connectionCanMonitorReplies({ encryptedRefreshToken: mailbox[0].encrypted_refresh_token, reconnectRequired: mailbox[0].reconnect_required, scopes: mailbox[0].scopes }), dailyCap: mailbox[0].daily_cap } : null,
+      mailbox: mailbox[0] ? { status: gmailConnectionStatus({ hasRefreshToken: Boolean(mailbox[0].encrypted_refresh_token), reconnectRequired: mailbox[0].reconnect_required, scopes: mailbox[0].scopes }), address: mailbox[0].address, ready: connectionCanMonitorReplies({ encryptedRefreshToken: mailbox[0].encrypted_refresh_token, reconnectRequired: mailbox[0].reconnect_required, scopes: mailbox[0].scopes }), dailyCap: mailbox[0].daily_cap } : null,
     };
   });
   return { ...studio, contacts: studio.contacts.filter(hasOutreachDetails) };

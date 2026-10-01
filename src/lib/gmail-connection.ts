@@ -1,4 +1,5 @@
 import "server-only";
+import { connectionCanCompose as canCompose, connectionCanMonitorReplies as canMonitorReplies } from "@/domain/gmail-connection";
 import { GmailMailbox } from "@/adapters/mailbox";
 import { refreshGoogleAccessToken } from "@/lib/google-oauth";
 import { decryptToken } from "@/lib/token-crypto";
@@ -10,14 +11,11 @@ export type GmailConnectionGrant = {
 };
 
 export function connectionCanCompose(connection: GmailConnectionGrant) {
-  return !connection.reconnectRequired
-    && Boolean(connection.encryptedRefreshToken)
-    && Boolean(connection.scopes?.some((scope) => scope === "https://www.googleapis.com/auth/gmail.compose"));
+  return canCompose({ ...connection, hasRefreshToken: Boolean(connection.encryptedRefreshToken) });
 }
 
 export function connectionCanMonitorReplies(connection: GmailConnectionGrant) {
-  return connectionCanCompose(connection)
-    && Boolean(connection.scopes?.some((scope) => scope === "https://www.googleapis.com/auth/gmail.readonly"));
+  return canMonitorReplies({ ...connection, hasRefreshToken: Boolean(connection.encryptedRefreshToken) });
 }
 
 export function mailboxForConnection(connection: GmailConnectionGrant) {

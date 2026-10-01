@@ -1,3 +1,4 @@
+import { connectionCanCompose, gmailConnectionStatus, gmailStatusLabels, gmailStatusMessages } from "@/domain/gmail-connection";
 import { ChevronDown, ExternalLink, BriefcaseBusiness, Mail, MessageCircle, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -5,6 +6,7 @@ type GmailConnection = {
   address: string | null;
   scopes: string[] | null;
   reconnectRequired: boolean;
+  hasRefreshToken: boolean;
   dailyCap: number;
   updatedAt: Date;
 };
@@ -43,8 +45,9 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
 }
 
 export function ChannelConnections({ gmail, notice }: { gmail?: GmailConnection; notice: { gmail?: string; reason?: string } }) {
-  const gmailConnected = Boolean(gmail && !gmail.reconnectRequired && gmail.scopes?.some(scope => scope.endsWith("/gmail.compose")));
-  const campaignReady = gmailConnected && Boolean(gmail?.scopes?.some(scope => scope.endsWith("/gmail.readonly")));
+  const status = gmailConnectionStatus(gmail);
+  const gmailConnected = Boolean(gmail && connectionCanCompose(gmail));
+  const campaignReady = status === "ready";
 
   return <section aria-labelledby="channel-connections-heading" className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-6">
     <h2 id="channel-connections-heading" className="text-lg font-semibold">Channel connections</h2>
@@ -52,8 +55,9 @@ export function ChannelConnections({ gmail, notice }: { gmail?: GmailConnection;
     {notice.gmail === "connected" && <p role="status" className="mt-5 rounded-md border border-emerald-800 bg-[var(--success-surface)] px-4 py-3 text-sm text-[var(--status-emerald)]">Gmail connected successfully.</p>}
     {notice.gmail === "error" && <p role="alert" className="mt-5 rounded-md border border-red-900 bg-[var(--error-surface)] px-4 py-3 text-sm text-[var(--status-red)]">Gmail connection failed{notice.reason ? `: ${notice.reason}` : "."}</p>}
     <div className="mt-5 space-y-3">
-      <ChannelCard name="Gmail" icon={Mail} description="Send email campaigns and monitor replies from your Gmail account." status={gmailConnected ? "Connected" : gmail ? "Reconnect required" : "Not connected"} connected={gmailConnected}
+      <ChannelCard name="Gmail" icon={Mail} description="Send email campaigns and monitor replies from your Gmail account." status={campaignReady ? "Connected" : gmailStatusLabels[status]} connected={campaignReady}
         action={<a href="/api/mailbox/google/connect" className={actionClass}>{gmail ? "Reconnect Gmail" : "Connect Gmail"}</a>}>
+        {!campaignReady && <p className="mb-4 text-[var(--status-amber)]">{gmailStatusMessages[status]}</p>}
         <dl className="space-y-3">
           <Detail label="Gmail account">{gmail?.address || (gmail ? "Connected address unavailable" : "—")}</Detail>
           <Detail label="Daily cap">{gmail?.dailyCap ?? 100}</Detail>
