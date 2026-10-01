@@ -1,13 +1,15 @@
 import { z } from "zod";
 
-const emailStep = z.object({ id: z.string().uuid(), kind: z.literal("email"), title: z.string().trim().min(1).max(100), subject: z.string().trim().min(1).max(200), body: z.string().trim().min(1).max(10000) }).strict();
-const waitStep = z.object({ id: z.string().uuid(), kind: z.literal("wait"), title: z.string().trim().min(1).max(100), days: z.number().int().min(1).max(30) }).strict();
+const campaignPosition = z.object({ x: z.number().finite().min(-100000).max(100000), y: z.number().finite().min(-100000).max(100000) }).strict();
+const emailStep = z.object({ id: z.string().uuid(), kind: z.literal("email"), title: z.string().trim().min(1).max(100), subject: z.string().trim().min(1).max(200), body: z.string().trim().min(1).max(10000), position: campaignPosition.optional() }).strict();
+const waitStep = z.object({ id: z.string().uuid(), kind: z.literal("wait"), title: z.string().trim().min(1).max(100), days: z.number().int().min(1).max(30), position: campaignPosition.optional() }).strict();
 const linkedinStep = emailStep.omit({ subject: true }).extend({ kind: z.literal("linkedin") });
 const whatsappStep = emailStep.omit({ subject: true }).extend({ kind: z.literal("whatsapp") });
 export const campaignStep = z.discriminatedUnion("kind", [emailStep, waitStep, linkedinStep, whatsappStep]);
 export const campaignSplit = z.object({
   id: z.string().uuid(), title: z.string().trim().min(1).max(100), afterStepId: z.string().uuid(),
   percentage: z.number().int().min(1).max(99),
+  position: campaignPosition.optional(),
   pathA: z.array(campaignStep).min(2).max(24), pathB: z.array(campaignStep).min(2).max(24),
 }).strict();
 export const campaignDefinition = z.object({ schemaVersion: z.literal(1), steps: z.array(campaignStep).min(1).max(25), splits: z.array(campaignSplit).max(6).optional() }).strict().superRefine((definition, context) => {

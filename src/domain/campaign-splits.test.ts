@@ -60,3 +60,14 @@ describe("split path sequences", () => {
     expect(nextEmailAfter(definition, next.index, next.at, "contact")).toBeNull();
   });
 });
+
+it("saves free canvas positions without changing branch routing", () => {
+  const definition = splitDefinition();
+  const positioned = { ...definition, steps: definition.steps.map(step => ({ ...step, position: { x: -200, y: 1000 } })), splits: definition.splits!.map(split => ({ ...split, position: { x: 900, y: -50 }, pathA: split.pathA.map(step => ({ ...step, position: { x: 600, y: 400 } })) })) };
+  const restored = campaignDefinition.parse(JSON.parse(JSON.stringify(positioned)));
+  expect(restored).toEqual(positioned);
+  expect(campaignStepEntries(restored).map(entry => entry.step.id)).toEqual(campaignStepEntries(definition).map(entry => entry.step.id));
+  const sentAt = new Date("2026-10-01T00:00:00Z");
+  expect(nextEmailAfter(restored, 0, sentAt, "contact")).toEqual(nextEmailAfter(definition, 0, sentAt, "contact"));
+  expect(campaignDefinition.safeParse({ ...positioned, steps: [{ ...positioned.steps[0], position: { x: Infinity, y: 0 } }] }).success).toBe(false);
+});

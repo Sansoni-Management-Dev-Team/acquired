@@ -82,7 +82,7 @@ it("uses the node icon to remove an unselected step without changing the selecte
   expect(onSelect).not.toHaveBeenCalled();
 });
 
-it("drags an existing split to another main message with both branches intact", () => {
+it("moves a split freely without changing its anchor or branches", () => {
   const draft = deletionDraft();
   const onChange = vi.fn(), onSelect = vi.fn();
   renderToStaticMarkup(<CampaignSequenceEditor draft={draft} selectedStepId="split" onChange={onChange} onSelect={onSelect} />);
@@ -91,7 +91,7 @@ it("drags an existing split to another main message with both branches intact", 
   const anchor = flow.nodes!.find(node => node.id === "last")!;
   expect(splitNode.draggable).toBe(true);
   flow.onNodeDragStop!({} as MouseEvent, { ...splitNode, position: { x: anchor.position.x, y: anchor.position.y + 120 } }, []);
-  expect(onChange).toHaveBeenCalledWith({ ...draft, splits: [{ ...draft.splits![0], afterStepId: "last" }] });
+  expect(onChange).toHaveBeenCalledWith({ ...draft, splits: [{ ...draft.splits![0], position: { x: anchor.position.x, y: anchor.position.y + 120 } }] });
   expect(onSelect).toHaveBeenCalledWith("split");
 });
 
@@ -104,4 +104,18 @@ it("renders history, clipboard and live status controls and supplies validated e
   expect(capture.flow!.edges!.find(edge => edge.source === "first" && edge.target === "split")?.reconnectable).toBe("target");
   expect(capture.flow!.edges!.every(edge => edge.type === "campaign")).toBe(true);
   expect(capture.flow!.isValidConnection!({ source: "first", target: "first", sourceHandle: null, targetHandle: null })).toBe(false);
+});
+
+it.each(["first", "a-message", "wait"])("persists free movement of %s without changing execution order", id => {
+  const draft = deletionDraft();
+  const onChange = vi.fn();
+  renderToStaticMarkup(<CampaignSequenceEditor draft={draft} selectedStepId={id} onChange={onChange} onSelect={() => {}} />);
+  const node = capture.flow!.nodes!.find(node => node.id === id)!;
+  const position = { x: -150, y: 800 };
+  capture.flow!.onNodeDragStop!({} as MouseEvent, { ...node, position }, []);
+  const next = onChange.mock.calls[0][0] as CampaignDraft;
+  expect(next.steps.map(step => step.id)).toEqual(draft.steps.map(step => step.id));
+  expect(next.splits![0].afterStepId).toBe(draft.splits![0].afterStepId);
+  renderToStaticMarkup(<CampaignSequenceEditor draft={next} selectedStepId={id} onChange={() => {}} onSelect={() => {}} />);
+  expect(capture.flow!.nodes!.find(node => node.id === id)!.position).toEqual(position);
 });

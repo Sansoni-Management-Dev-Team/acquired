@@ -3,7 +3,7 @@
 import "@xyflow/react/dist/style.css";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { Background, Controls, MiniMap, ReactFlow, type Edge, type Node, type ReactFlowInstance } from "@xyflow/react";
-import { Clock3, Mail, MessageCircle, BriefcaseBusiness, Plus, Trash2, GitFork, Copy, ClipboardPaste, Undo2, Redo2, ChevronDown, ChevronUp, Maximize2, Minimize2 } from "lucide-react";
+import { Clock3, Mail, MessageCircle, BriefcaseBusiness, Plus, Trash2, GitFork, Copy, ClipboardPaste, Undo2, Redo2, ChevronDown, ChevronUp, RotateCcw, Maximize2, Minimize2 } from "lucide-react";
 import { campaignDefinition, campaignStepEntries, type CampaignDraft, type CampaignStep, type CampaignSplit } from "@/domain/campaign";
 
 import { copyCampaignNode, parseCampaignClipboard, insertCampaignMessage, pasteCampaignNode, reconnectCampaign, type CampaignClipboard } from "@/domain/campaign-editor";
@@ -97,6 +97,15 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
     if (selectedStepId === id) onSelect(steps[Math.max(0, chain.findIndex(step => step.id === id) - 1)]?.id || null);
   }
 
+  function resetLayout() {
+    const resetStep = (step: CampaignStep): CampaignStep => { const next = { ...step }; delete next.position; return next; };
+    onChange({ ...draft, steps: draft.steps.map(resetStep), ...(draft.splits ? { splits: draft.splits.map(split => {
+      const next = { ...split, pathA: split.pathA.map(resetStep), pathB: split.pathB.map(resetStep) };
+      delete next.position;
+      return next;
+    }) } : {}) });
+  }
+
   const graph: { nodes: Node[]; edges: Edge[] } = (() => {
     const nodes: Node[] = [];
     const edges: Edge[] = [];
@@ -108,7 +117,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
     };
     const addStep = (step: CampaignStep, x: number, y: number) => {
       const Icon = stepIcons[step.kind];
-      nodes.push({ id: step.id, position: { x, y: moving?.id === step.id ? moving.y : y }, data: { label: <span className="flex items-center gap-2 text-left"><span className="rounded-md bg-[var(--accent-soft)] p-1"><Icon size={15} /></span><span className="min-w-0 flex-1"><span className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">{stepLabels[step.kind]}</span><span className="block truncate font-medium">{step.title}</span>{statuses.has(step.id) && <span className="mt-1 block text-[10px] text-[var(--muted)]">{statuses.get(step.id)}</span>}</span>{!readOnly && deleteButton(step.id, step.title)}</span> }, draggable: !readOnly, style: style(step.id) });
+      nodes.push({ id: step.id, position: moving?.id === step.id ? { x: moving.x ?? x, y: moving.y } : step.position || { x, y }, data: { label: <span className="flex items-center gap-2 text-left"><span className="rounded-md bg-[var(--accent-soft)] p-1"><Icon size={15} /></span><span className="min-w-0 flex-1"><span className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">{stepLabels[step.kind]}</span><span className="block truncate font-medium">{step.title}</span>{statuses.has(step.id) && <span className="mt-1 block text-[10px] text-[var(--muted)]">{statuses.get(step.id)}</span>}</span>{!readOnly && deleteButton(step.id, step.title)}</span> }, draggable: !readOnly, style: style(step.id) });
     };
     const link = (source: string, target: string, label?: string) => {
       const sourceStep = entries.find(entry => entry.step.id === source)?.step;
@@ -130,7 +139,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
       y += nodeGap;
       const split = draft.splits?.find(split => split.afterStepId === step.id);
       if (split) {
-        nodes.push({ id: split.id, position: { x: moving?.id === split.id ? moving.x ?? mainX : mainX, y: moving?.id === split.id ? moving.y : y }, draggable: !readOnly, data: { label: <span className="flex items-center gap-2 text-left"><GitFork size={18} className="shrink-0" /><span className="min-w-0 flex-1"><span className="block text-[10px] uppercase text-[var(--muted)]">A/B split · {split.percentage}/{100 - split.percentage}</span><span className="block truncate font-medium">{split.title}</span>{statuses.has(split.id) && <span className="block text-[10px] text-[var(--muted)]">{statuses.get(split.id)}</span>}</span><button type="button" className="nodrag nopan flex size-6 shrink-0 items-center justify-center rounded hover:bg-[var(--panel-raised)]" aria-label={`${collapsed.includes(split.id) ? "Expand" : "Collapse"} ${split.title}`} onClick={event => { event.stopPropagation(); setCollapsed(ids => ids.includes(split.id) ? ids.filter(id => id !== split.id) : [...ids, split.id]); }}>{collapsed.includes(split.id) ? <ChevronDown size={14} /> : <ChevronUp size={14} />}</button>{!readOnly && deleteButton(split.id, split.title, true)}</span> }, style: style(split.id) });
+        nodes.push({ id: split.id, position: moving?.id === split.id ? { x: moving.x ?? mainX, y: moving.y } : split.position || { x: mainX, y }, draggable: !readOnly, data: { label: <span className="flex items-center gap-2 text-left"><GitFork size={18} className="shrink-0" /><span className="min-w-0 flex-1"><span className="block text-[10px] uppercase text-[var(--muted)]">A/B split · {split.percentage}/{100 - split.percentage}</span><span className="block truncate font-medium">{split.title}</span>{statuses.has(split.id) && <span className="block text-[10px] text-[var(--muted)]">{statuses.get(split.id)}</span>}</span><button type="button" className="nodrag nopan flex size-6 shrink-0 items-center justify-center rounded hover:bg-[var(--panel-raised)]" aria-label={`${collapsed.includes(split.id) ? "Expand" : "Collapse"} ${split.title}`} onClick={event => { event.stopPropagation(); setCollapsed(ids => ids.includes(split.id) ? ids.filter(id => id !== split.id) : [...ids, split.id]); }}>{collapsed.includes(split.id) ? <ChevronDown size={14} /> : <ChevronUp size={14} />}</button>{!readOnly && deleteButton(split.id, split.title, true)}</span> }, style: style(split.id) });
         link(step.id, split.id);
         if (collapsed.includes(split.id)) {
           previous = [split.id];
@@ -159,11 +168,10 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       const nodes = instance.current?.getNodes() || [];
-      const index = Math.max(0, nodes.findIndex(node => node.id === selectedStepId) - 1);
-      void instance.current?.fitView({ nodes: nodes.slice(index, index + 5), padding: 0.2, maxZoom: 1, duration: 200 });
+      void instance.current?.fitView({ nodes: nodes.slice(0, 5), padding: 0.2, maxZoom: 1, duration: 200 });
     });
     return () => cancelAnimationFrame(frame);
-  }, [draft.splits?.length, collapsed, runId, selectedStepId]);
+  }, [draft.splits?.length, collapsed, runId]);
 
   function updateChain(steps: CampaignStep[], split?: CampaignSplit, path?: "pathA" | "pathB") {
     if (readOnly) return;
@@ -293,6 +301,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
         <button type="button" className={button} disabled={readOnly || !selectedStepId} onClick={() => duplicateNode()} title="Duplicate (Ctrl/Cmd+D)"><Copy size={15} /> Duplicate</button>
         <button type="button" className={button} disabled={!selectedStepId} onClick={() => { void copyNode(); }} title="Copy (Ctrl/Cmd+C)"><Copy size={15} /> Copy</button>
         <button type="button" className={button} disabled={readOnly} onClick={() => { void pasteNode(); }} title="Paste (Ctrl/Cmd+V)"><ClipboardPaste size={15} /> Paste</button>
+        <button type="button" className={button} disabled={readOnly} onClick={resetLayout} title="Restore the automatic sequence layout"><RotateCcw size={15} /> Reset layout</button>
         <label className="ml-auto flex items-center gap-2 text-xs">Live status<select className="max-w-52 rounded-lg border border-[var(--border)] bg-[var(--background)] p-2" value={activeRun?.id || ""} onChange={event => { setRunId(event.target.value); onSelect(null); }}><option value="">Edit draft</option>{runs.map(run => <option key={run.id} value={run.id}>{run.label} · v{run.version} · {run.state}</option>)}</select></label>
         <button type="button" className={button} aria-pressed={fullscreen} onClick={() => setFullscreen(value => !value)} title={fullscreen ? "Exit fullscreen (Esc)" : "Open editor fullscreen"}>{fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}{fullscreen ? "Exit fullscreen" : "Fullscreen"}</button>
       </div>
@@ -320,24 +329,16 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
           });
           for (const change of changes) if (change.type === "position" && change.position && (entries.some(entry => entry.step.id === change.id) || draft.splits?.some(split => split.id === change.id))) setMoving({ id: change.id, x: change.position.x, y: change.position.y }); }} onNodeDragStop={(_event, node) => {
           if (readOnly) return;
+          setMoving(null);
           const split = draft.splits?.find(split => split.id === node.id);
-          if (split) {
-            const afterStepId = splitAnchorAt(node.position, split.id);
-            setMoving(null);
-            if (afterStepId && afterStepId !== split.afterStepId) updateSplit({ ...split, afterStepId });
-            onSelect(split.id);
-            return;
+          if (split) updateSplit({ ...split, position: node.position });
+          else {
+            const entry = entries.find(entry => entry.step.id === node.id);
+            if (!entry) return;
+            const chain = entry.split && entry.path ? entry.split[entry.path] : draft.steps;
+            updateChain(chain.map(step => step.id === node.id ? { ...step, position: node.position } : step), entry.split, entry.path);
           }
-          const entry = entries.find(entry => entry.step.id === node.id);
-          if (!entry) return;
-          const chain = entry.split && entry.path ? entry.split[entry.path] : draft.steps;
-          const from = chain.findIndex(step => step.id === node.id);
-          // Only reorder inside the node's own path; moving vertically never
-          // silently changes which contacts will receive a message.
-          const others = chain.filter(step => step.id !== node.id);
-          const to = others.filter(step => (graph.nodes.find(item => item.id === step.id)?.position.y || 0) < node.position.y).length;
-          const steps = [...chain]; steps.splice(to, 0, steps.splice(from, 1)[0]);
-          setMoving(null); updateChain(steps, entry.split, entry.path); onSelect(node.id);
+          onSelect(node.id);
         }} onNodeClick={(_event, node) => { if (entries.some(entry => entry.step.id === node.id) || draft.splits?.some(split => split.id === node.id)) onSelect(node.id); }} minZoom={0.15} fitView fitViewOptions={{ padding: 0.2, nodes: graph.nodes.slice(0, 5), maxZoom: 1 }} elementsSelectable><Background color="var(--border)" /><Controls showInteractive={false} /><MiniMap pannable zoomable nodeColor={node => statuses.get(node.id) === "Sent" ? "#16a34a" : statuses.get(node.id) === "Stopped" || statuses.get(node.id) === "Needs review" ? "#dc2626" : "#94a3b8"} style={{ background: "var(--panel)", width: 140, height: 100 }} /></ReactFlow>
         {dropTarget && <div className="pointer-events-none absolute bottom-4 left-4 rounded-lg border border-[var(--accent)] bg-[var(--panel)] px-3 py-2 text-xs font-medium shadow-lg">Add after {entries.find(entry => entry.step.id === dropTarget)?.step.title}</div>}
       </div>
@@ -368,7 +369,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
       {!readOnly && <p className="text-xs text-[var(--muted)]">Use + on a connection to insert a message with its wait. Reconnect a message to a wait to move that pair, or to a split to relocate both branches.</p>}
       {issue && <p role="status" className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] p-3 text-xs">To save or publish: {issue}. Use a wait between messages; split paths start with a wait.</p>}
       {entries.some(({ step }) => step.kind === "linkedin" || step.kind === "whatsapp") && <p className="text-xs text-[var(--muted)]">WhatsApp and LinkedIn nodes are saved for manual use. Publishing these sequences requires channel delivery support.</p>}
-      <p className="text-xs text-[var(--muted)]">Drag a node vertically to reorder it within its path. Drag a split below another main message to move both branches. Changes are saved as a draft until you publish.</p>
+      <p className="text-xs text-[var(--muted)]">Drag message, wait and split nodes in any direction to arrange the canvas. Connections determine execution order. Save draft to keep your layout.</p>
     </div>
   </div>;
 }
