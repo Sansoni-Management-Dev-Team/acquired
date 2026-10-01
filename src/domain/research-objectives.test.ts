@@ -3,7 +3,7 @@ import { fieldSatisfied, missingResearchFields, nextSearchQuery } from './resear
 import type { ResearchFinding } from './research';
 
 it('keeps revenue and email open after headcount and a person are found', () => {
-  expect(missingResearchFields({ purpose: 'firmographics' }, [{ kind: 'headcount' } as ResearchFinding])).toEqual(['revenue']);
+  expect(missingResearchFields({ purpose: 'firmographics' }, [{ kind: 'headcount', value: '51-200 employees' } as ResearchFinding])).toEqual(['revenue']);
   expect(missingResearchFields({ purpose: 'people' }, [{ kind: 'person', name: 'Alex Example', value: 'Director' } as ResearchFinding])).toEqual(['email']);
   expect(fieldSatisfied('email', [{ kind: 'person', value: 'Owner', email: 'alex@example.com' } as ResearchFinding])).toBe(true);
   expect(fieldSatisfied('size', [{ kind: 'headcount', factMetadata: { basis: 'search_snippet' } } as ResearchFinding])).toBe(false);

@@ -1,12 +1,20 @@
 import { expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ findings: [] as unknown[], relevant: false }));
+const mocks = vi.hoisted(() => ({ findings: [] as unknown[], relevant: false, reconcile: vi.fn(async () => {}) }));
 vi.mock('./client', () => ({ requireDb: vi.fn() }));
+vi.mock('./research-reconciliation', () => ({ reconcileResearchTarget: mocks.reconcile }));
 vi.mock('@/domain/business-research', () => ({ ownCompany: () => undefined, relevantBusiness: () => mocks.relevant, validateBusinessFindings: () => mocks.findings }));
 import { PgDialect } from 'drizzle-orm/pg-core';
 import { ResearchRepository } from './research-repository';
 import type { ResearchConfig } from '@/domain/research';
 const config = { approved: true, workflow: 'business', discover: false, searchTerms: [], geography: 'Australia', seeds: [], budget: { maxPages: 10, maxModelCalls: 10, maxDomains: 10, maxMinutes: 15 } } as ResearchConfig;
 const job = { id: '00000000-0000-4000-8000-000000000001', organizationId: 'org', mandateId: 'mandate', status: 'queued', revision: 0, pages: 0, modelCalls: 0, createdAt: new Date(), updatedAt: new Date(), config, seeds: [], crawlId: null, createdBy: 'actor' };
+it('reconciles saved company observations before acknowledging page progress', async () => {
+ const f = fixture(); mocks.reconcile.mockClear();
+ mocks.findings = [{ kind: 'headcount', name: 'Headcount', value: '50 employees', quote: 'We employ 50 employees.', website: 'https://example.com/' }];
+ await new ResearchRepository('org', f.db as never).progress(job.id, { message: 'Reading', status: 'crawling', revision: 1, pages: 1, modelCalls: 0, page: { url: 'https://example.com/', observedAt: new Date().toISOString(), markdown: 'We employ 50 employees.', findings: mocks.findings as never, truncated: false } }, job as never);
+ expect(mocks.reconcile).toHaveBeenCalledWith(f.db, 'org', 'existing-target');
+ expect(f.values.mock.invocationCallOrder[0]).toBeLessThan(mocks.reconcile.mock.invocationCallOrder[0]);
+});
 function fixture() {
  const insert = vi.fn(() => ({ values: values, onConflictDoNothing: async () => {} }));
  const values = vi.fn((rows: unknown) => { void rows; return { onConflictDoNothing: async () => {} }; });

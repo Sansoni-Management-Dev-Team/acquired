@@ -13,3 +13,9 @@ it("preserves conflicting observations instead of choosing one", () => {
   const summary = summariseEvidence([f("headcount", "98"), f("headcount", "27-33 employees"), f("person", "Managing Director")], { searches: 2 });
   expect(summary).toMatchObject({ headcount: 2, person: 1, revenue: 0, searches: 2, conflicts: ["headcount"] });
 });
+it('uses shared resolution so weaker estimates do not contradict authoritative Headland ranges',()=>{
+ const profile={...f('headcount','51-200 employees').evidence,factMetadata:{basis:'reported',sourceKind:'company_profile',scope:'unspecified',currency:null,period:null,identityNote:null}} as ResearchFinding;
+ const estimate={...profile,value:'11-50 employees',factMetadata:{...profile.factMetadata!,basis:'third_party_estimate' as const,sourceKind:'third_party_directory' as const}};
+ expect(summariseEvidence([{evidence:profile},{evidence:estimate}])).toMatchObject({conflicts:[],headcountState:'observed'});
+ expect(summariseEvidence([{evidence:estimate}])).toMatchObject({headcountState:'estimated'});
+});

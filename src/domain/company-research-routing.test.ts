@@ -24,3 +24,13 @@ it("does not read another company's about page just because its snippet mentions
  expect(companyResultMatches(result("About Other Supplier","We sell to Example Instruments","https://other.example.com/about-us"),company,domain)).toBe(false);
  expect(companyResultMatches(result("Example Instruments company profile","","https://directory.example.com/companies/example-instruments"),company,domain)).toBe(true);
 });
+
+it('routes official ABR candidates with generic titles as leads, never as verified identifiers', async () => {
+ const { abnResearchResults } = await import('./company-research-routing');
+ const registry = result('Current details for ABN 96 004 338 961', 'Entity name: HEADLAND TECHNOLOGY PTY LTD', 'https://abr.business.gov.au/ABN/View?abn=96004338961');
+ const directory = result('Headland Technology', '', 'https://directory.example.com/headland');
+ expect(abnResearchResults([directory, registry], {companyName:'Headland Technology', companyDomain:'headland.au'})).toEqual([registry,directory]);
+ const locatedRegistry = {...registry,snippet:'Entity name: HEADLAND TECHNOLOGY PTY LTD Main business location: VIC 3125'};
+ expect(abnResearchResults([locatedRegistry], {companyName:'Headland Technology',companyDomain:'headland.au'})).toEqual([locatedRegistry]);
+ expect(abnResearchResults([{...registry,snippet:'Entity name: OTHER TECHNOLOGY PTY LTD'}],{companyName:'Headland Technology',companyDomain:'headland.au'})).toEqual([]);
+});

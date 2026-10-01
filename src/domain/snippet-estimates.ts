@@ -31,11 +31,24 @@ export function snippetSizeEstimates(results: WebSearchResult[], config: Pick<Re
       const quote = sentenceAround(text, size.index!);
       if (!excluded.test(quote) && quote.length >= 8) out.push({ kind: "headcount", name: "Headcount", value: `${size[1]} employees`, quote: quote.slice(0, 800), website: sourceUrl, subject: config.companyName, relevance: "unclear", sourceUrl, factMetadata: { sourceKind: "third_party_directory", basis: "search_snippet", scope: "unspecified", identityNote: null, period: null, currency: null } });
     }
-    const revenue = text.match(/((?:AUD|USD|A\$|US\$|\$)\s?\d[\d,.]*\s?(?:million|billion|thousand|[MBK])?)\s+(?:in\s+)?(?:annual\s+)?revenue\b|\brevenue(?:\s+of)?\s*:?\s*((?:AUD|USD|A\$|US\$|\$)\s?\d[\d,.]*\s?(?:million|billion|thousand|[MBK])?)/i);
+    const revenue = text.match(/((?:AUD|USD|A\$|US\$|\$)\s?\d[\d,.]*\s?(?:million|billion|thousand|[MBK])?)\s+(?:in\s+)?(?:annual\s+)?revenue\b|\brevenue(?:\s+(?:of|is))?\s*:?\s*((?:AUD|USD|A\$|US\$|\$)\s?\d[\d,.]*\s?(?:million|billion|thousand|[MBK])?)/i);
     const amount = revenue?.[1] || revenue?.[2];
     if (amount) {
       const quote = sentenceAround(text, revenue!.index!);
-      if (!excluded.test(quote) && quote.length >= 8) out.push({ kind: "revenue", name: "Revenue", value: amount.trim(), quote: quote.slice(0, 800), website: sourceUrl, subject: config.companyName, relevance: "unclear", sourceUrl, factMetadata: { sourceKind: "third_party_directory", basis: "search_snippet", scope: "unspecified", identityNote: null, period: null, currency: /AUD|A\$/.test(amount) ? "AUD" : /USD|US\$/.test(amount) ? "USD" : null } });
+      const names = [...config.companyName.split(/\s+\/\s+/), ...(config.legalEntity ? [config.legalEntity] : [])];
+      // A profile title is not enough: the sentence must identify the target
+      // before its metric, and comparisons/per-employee metrics are excluded.
+      const beforeMetric = text.slice(Math.max(0, text.indexOf(quote)), revenue!.index!);
+      const targetSubject = names.some(name => {
+        const at = beforeMetric.toLowerCase().indexOf(name.toLowerCase());
+        if (at < 0) return false;
+        const predicate = beforeMetric.slice(at + name.length).trim();
+        return /^(?:['’]s\s*)?(?:(?:estimated|annual|yearly|total|reported)\s*)*$/i.test(predicate)
+          || /^(?:['’]s\s*)?(?:generates|reports|has|earns)(?:\s+(?:about|approximately|estimated))?$/i.test(predicate)
+          || /^is\s+(?:a|an)\s+[^.;]+\b(?:company|business)\b[^.;]*\bwith$/i.test(predicate);
+      });
+      const wrongMetric = /(?:revenue\s+per|per\s+(?:employee|worker|person)|competitors?|compared|comparison|versus|\bvs\b)/i.test(quote);
+      if (targetSubject && !wrongMetric && !excluded.test(quote) && quote.length >= 8) out.push({ kind: "revenue", name: "Revenue", value: amount.trim(), quote: quote.slice(0, 800), website: sourceUrl, subject: config.companyName, relevance: "unclear", sourceUrl, factMetadata: { sourceKind: "third_party_directory", basis: "search_snippet", scope: "unspecified", identityNote: null, period: null, currency: /AUD|A\$/.test(amount) ? "AUD" : /USD|US\$/.test(amount) ? "USD" : null } });
     }
   }
   return out.slice(0, 8);

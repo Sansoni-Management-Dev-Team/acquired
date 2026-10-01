@@ -14,6 +14,12 @@ vi.mock('@/db/client',()=>({requireDb:()=>({
 })}));
 import { POST, GET } from './route';
 const call=()=>POST(new Request('https://app/api',{method:'POST',body:JSON.stringify({action:'targeted-followup',field:'size'})}),{params:Promise.resolve({jobId:id})});
+it('routes generic-title ABR records ahead of directories for the Headland ABN branch', async () => {
+ Object.assign(job.config as Record<string, unknown>, { researchField: 'abn', companyName: 'Headland Technology', companyDomain: 'headland.au', companyLocation: 'Burwood VIC' });
+ m.search.mockResolvedValue([{ url: 'https://directory.example.com/headland', title: 'Headland Technology', snippet: '' }, { url: 'https://abr.business.gov.au/ABN/View/96004338961', title: 'Current details for ABN 96 004 338 961', snippet: 'Entity name: HEADLAND TECHNOLOGY PTY LTD Main business location: VIC 3125' }]);
+ const response = await POST(new Request('https://app/api', { method: 'POST', body: JSON.stringify({ action: 'targeted-followup', field: 'abn' }) }), { params: Promise.resolve({ jobId: id }) });
+ expect(await response.json()).toMatchObject({ query: '"Headland Technology" abn', seeds: ['https://abr.business.gov.au/ABN/View/96004338961', 'https://directory.example.com/headland'] });
+});
 beforeEach(()=>{
  vi.clearAllMocks();m.claimed=true;m.writes.length=0;m.guards.length=0;m.evidence=[];m.evidenceGuard=undefined;m.search.mockResolvedValue([]);
  job={id,organizationId:'org',mandateId:'mandate',status:'crawling',createdAt:new Date(),updatedAt:new Date(),seeds:[],crawlId:null,config:{approved:true,seeds:[],searchTerms:[],geography:'Australia',purpose:'firmographics',researchField:'size',companyName:'Example Instruments',companyDomain:'instruments.example.com',targetedFollowup:true,budget:{maxPages:12,maxDomains:8,maxMinutes:15,maxModelCalls:14}}};

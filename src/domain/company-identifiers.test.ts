@@ -28,3 +28,34 @@ it('accepts registry markdown tables while keeping distinct ABN record URLs inta
   expect(researchUrlKey(source)).not.toBe(researchUrlKey(other));
   expect(uniqueResearchUrls([source, other])).toHaveLength(2);
 });
+
+it('matches a trading name to its corporate suffix only with corroborating known location', () => {
+  const headland = { companyName: 'Headland Technology', companyDomain: 'headland.au', companyLocation: 'Burwood VIC' };
+  const record = '# Current details for ABN 96 004 338 961\nEntity name: HEADLAND TECHNOLOGY PTY LTD\nMain business location: VIC 3125';
+  const url = 'https://abr.business.gov.au/ABN/View?abn=96004338961';
+  expect(observedCompanyIdentifiers(record, url, headland)).toContainEqual(expect.objectContaining({value:'96004338961'}));
+  expect(observedCompanyIdentifiers(record, url, {...headland, companyLocation:undefined})).toEqual([]);
+  expect(observedCompanyIdentifiers(record.replace('VIC 3125', 'NSW 2000'), url, headland)).toEqual([]);
+  expect(observedCompanyIdentifiers(record.replace('TECHNOLOGY PTY', 'TECHNOLOGY SERVICES PTY'), url, headland)).toEqual([]);
+  expect(observedCompanyIdentifiers(record, url, {...headland,companyName:'Headland Technology Ltd'})).toEqual([]);
+  expect(observedCompanyIdentifiers(record, url.replace('96004338961','56663118241'), headland)).toEqual([]);
+});
+it('discovers only first-party legal PDFs for ABN research', async () => {
+  const { abnFollowUpLinks } = await import('./company-identifiers');
+  expect(abnFollowUpLinks('[Privacy policy](./static/Headland-Privacy-2024.pdf)\n[Brochure](/products.pdf)\n[Other privacy](https://other.example.com/privacy.pdf)', 'https://headland.au/', 'headland.au')).toEqual(['https://headland.au/static/Headland-Privacy-2024.pdf']);
+});
+it('canonicalizes safe numeric registry URL formats without preserving arbitrary search terms', async () => {
+  const { publicResearchUrl } = await import('./research');
+  expect(publicResearchUrl('https://abr.business.gov.au/SearchByAbn.aspx?SearchText=96004338961&token=secret')).toBe('https://abr.business.gov.au/ABN/View?abn=96004338961');
+  expect(publicResearchUrl('https://abr.business.gov.au/ABN/View/96004338961')).toBe('https://abr.business.gov.au/ABN/View?abn=96004338961');
+  expect(publicResearchUrl('https://abr.business.gov.au/SearchByAbn.aspx?SearchText=arbitrary-secret')).not.toContain('arbitrary-secret');
+});
+
+it('requires the PDF ABN paragraph to identify the target, excluding customer documents', () => {
+ const headland = {companyName:'Headland Technology',companyDomain:'headland.au',companyLocation:'Burwood VIC'};
+ const source = 'https://headland.au/privacy.pdf';
+ expect(observedCompanyIdentifiers('Headland Technology Pty Ltd ABN 96 004 338 961 (“We/Us/Our”) respects your privacy.',source,headland)).toMatchObject([{value:'96004338961'}]);
+ expect(observedCompanyIdentifiers('Headland Technology\n\nCustomer terms: Other Supplier Pty Ltd ABN 96 004 338 961.',source,headland)).toEqual([]);
+ expect(observedCompanyIdentifiers('Other Supplier Pty Ltd ABN 96 004 338 961.',source,headland)).toEqual([]);
+ expect(observedCompanyIdentifiers('Headland Technology supplies Other Supplier Pty Ltd ABN 96 004 338 961.',source,headland)).toEqual([]);
+});

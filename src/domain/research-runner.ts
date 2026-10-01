@@ -1,6 +1,6 @@
 import { adaptiveDiscovery, retryDiscovery, resolveDiscoveryBatch, type DiscoveryContext } from "./adaptive-discovery";
 import { providerFailure, BrowserAdmissionDeferred } from "./research-provider-error";
-import { missingResearchFields, fieldLabels, type ResearchField } from "./research-objectives";
+import { missingResearchFields, fieldLabels, fieldCompletionMessage, type ResearchField } from "./research-objectives";
 import { ResearchAiError } from "./research-ai-error";
 import { targetedPlan, resolveTargetedChoice, fallbackTargetedChoice, nextTargetedAction, MAX_TARGETED_SEARCHES, type TargetedPlan } from "./targeted-research";
 import { stripBoilerplate } from "./page-content";
@@ -10,7 +10,9 @@ import { businessPrompt, headingCompanyFinding, ownCompany, relevantBusiness, va
 import { companyHeadcountPrompt, companyFactDiagnostics, observedCompanyFacts, companyFactLinks, orderCompanyFactQueue, modelHeadcountFinding } from "./company-facts";
 import { peoplePrompt, validatePeopleFindings, peopleFollowUpLinks, orderPeopleQueue } from "./people-research";
 import { sitemapDocument, sitemapMarkdown, sitemapUrls } from "./sitemap";
-import { observedCompanyIdentifiers } from './company-identifiers';
+import { observedCompanyIdentifiers, abnFollowUpLinks } from './company-identifiers';
+import { prioritiseResearchPages } from './research-page-priority';
+import { extractionFailureReason, recoveryExtractionPrompt } from './research-extraction-recovery';
 import {
   researchPerformanceFlags,
   extractionPrompt,
@@ -658,7 +660,7 @@ export async function runResearch(
         const sitemapTask = initial.config.researchTask === 'website' ? siteDiscovery.then(async links => {
           if (initial.config.researchTask === 'website' && service.fanoutPages) {
             const navigation = followUpLinks(result.page!.markdown, sourceUrl, initial.config.searchTerms, runtime.visited);
-            const urls = uniqueResearchUrls([...links, ...navigation]).filter(url => researchDomain(url) === initial.config.companyDomain && researchUrlKey(url) !== researchUrlKey(sourceUrl));
+            const urls = prioritiseResearchPages([...navigation, ...links]).filter(url => researchDomain(url) === initial.config.companyDomain && researchUrlKey(url) !== researchUrlKey(sourceUrl)).slice(0, 1000);
             // Start page Workflows while homepage extraction is still running.
             await step.do(`fanout-pages-${attempt}`, () => service.fanoutPages!(urls));
           }
@@ -691,6 +693,7 @@ export async function runResearch(
           runtime.visited,
         ).slice(0, 1000); };
         if (initial.config.researchTask !== 'page') queuePageLinks(markdown);
+        if (initial.config.researchField === 'abn' && initial.config.companyDomain) runtime.remaining = uniqueResearchUrls([...abnFollowUpLinks(markdown, sourceUrl, initial.config.companyDomain), ...runtime.remaining]).filter(url => !runtime.visited.some(v => researchUrlKey(v) === researchUrlKey(url))).slice(0, 1000);
         sitemapQueueMerge = async links => {
           if (initial.config.researchTask === 'website' && service.fanoutPages) {
             runtime.remaining = [];
@@ -773,8 +776,13 @@ export async function runResearch(
             "extracting",
             initial.config.purpose === "people" ? `Looking for named decision-makers on website ${domains.size}` : `Assessing products and business role on website ${domains.size}`,
           );
-          const extracted = await step.do(
-            `extract-${attempt}`,
+          let extracted: { findings: ResearchPage['findings']; warning: string; deferred?: string; failureReason?: string } = { findings: [], warning: '' };
+          let extractionAttempts = 0;
+          for (let recovery = 0; recovery < 2; recovery++) {
+            if (recovery) modelCalls++;
+            extractionAttempts++;
+            extracted = await step.do(
+            `extract-${attempt}${recovery ? "-recovery" : ""}`,
             async () => {
               const current = await service.control();
               if (
@@ -784,7 +792,8 @@ export async function runResearch(
                 return { findings: [], warning: "Extraction deferred", deferred: current.stopReason || "Time limit reached" };
               try {
                 const peopleConfig = { ...current.config, legalEntity: collected.find(f => f.kind === "identifier" && f.name === "Legal entity")?.value || current.config.legalEntity };
-                const raw = await service.extract(initial.config.purpose === "people" ? peoplePrompt(markdown, sourceUrl, peopleConfig) : initial.config.workflow === "business" ? businessPrompt(markdown, initial.config.searchTerms, sourceUrl, Boolean(initial.config.findPeople), initial.config) : extractionPrompt(markdown, initial.config.searchTerms, sourceUrl));
+                const messages = initial.config.purpose === "people" ? peoplePrompt(markdown, sourceUrl, peopleConfig) : initial.config.workflow === "business" ? businessPrompt(markdown, initial.config.searchTerms, sourceUrl, Boolean(initial.config.findPeople), initial.config) : extractionPrompt(markdown, initial.config.searchTerms, sourceUrl);
+                const raw = await service.extract(recovery ? recoveryExtractionPrompt(messages) : messages);
                 const rejected: Record<string, number> = {};
                 const accepted = (initial.config.purpose === "people" ? (input: unknown, markdown: string, source: string) => validatePeopleFindings(input, markdown, source, peopleConfig, reason => { rejected[reason] = (rejected[reason] || 0) + 1; }) : initial.config.workflow === "business" ? (input: unknown, markdown: string, source: string) => validateBusinessFindings(input, markdown, source, current.config) : validateFindings)(
                     raw, markdown, sourceUrl, initial.config.searchTerms,
@@ -795,6 +804,7 @@ export async function runResearch(
                 if (error instanceof BrowserAdmissionDeferred) return { findings: [], warning: "Extraction admission deferred", deferred: error.message };
                 return {
                   findings: [],
+                  failureReason: extractionFailureReason(error),
                   warning: error instanceof ResearchAiError ? `Evidence extraction failed: ${error.message}; page read successfully` : "Evidence extraction failed; page read successfully",
                 };
               }
@@ -804,6 +814,10 @@ export async function runResearch(
             if (error instanceof BrowserAdmissionDeferred) return { findings: [], warning: "Extraction admission deferred", deferred: error.message };
             throw error;
           });
+            if (!extracted.failureReason || extracted.failureReason === 'request_rejected' || extracted.failureReason === 'extraction_error' || extracted.deferred || modelCalls >= budget.maxModelCalls) break;
+            trace('extraction_retry', { source: source(sourceUrl), reason: extracted.failureReason, attempt: extractionAttempts });
+          }
+          entry.extraction = { status: extracted.deferred ? 'deferred' : extracted.warning ? 'failed' : 'completed', attempts: extractionAttempts, ...(extracted.failureReason ? { reason: extracted.failureReason } : {}) };
           findings = extracted.findings;
           if (extracted.deferred) { extractionDeferred = extracted.deferred; modelCalls--; }
           if (extracted.warning) warnings.push(extracted.warning);
@@ -895,7 +909,7 @@ export async function runResearch(
     await discardLookahead();
     if (initial.config.mode === "automatic" && initial.config.purpose && fieldFound()) {
       trace("run_finished", { pages, modelCalls, reason: "requested_evidence_found", purpose: initial.config.purpose });
-      await publish("complete", initial.config.purpose === "people" ? "Sourced owner or director candidate and published email found; verify ownership and sale authority before outreach." : (initial.config.researchField ? `Sourced ${fieldLabels[initial.config.researchField]} found; evidence is ready for review.` : "Sourced headcount and revenue found; company evidence is ready for review."));
+      await publish("complete", initial.config.researchField ? fieldCompletionMessage(initial.config.researchField) : initial.config.purpose === "people" ? "Sourced owner or director candidate and published email found; verify ownership and sale authority before outreach." : "Sourced headcount and revenue found; company evidence is ready for review.");
       return;
     }
     if (await finishAtGoal("final-goal")) return;

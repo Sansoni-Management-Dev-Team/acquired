@@ -36,6 +36,7 @@ import {
   parseResearchExtraction,
 } from "../../src/domain/research";
 interface Env {
+  AI?: import("./pdf-reader").ResearchPdfConverter;
   RESEARCH: Workflow;
   FIRMABLE: Workflow;
   PROVIDER_COORDINATOR?: DurableObjectNamespace<ProviderCoordinator>;

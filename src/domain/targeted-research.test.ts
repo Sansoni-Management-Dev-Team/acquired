@@ -9,7 +9,7 @@ it("offers only missing-field actions, discovered useful pages and available sea
  expect(resolveTargetedChoice({choice:"read_0"},plan)).toMatchObject({url:"https://instruments.example.com/team"});
  expect(targetedPlan({...config,maxPeopleSearches:1},[],[],[])).toBeNull();
  expect(targetedPlan(config,[{kind:"person",value:"Director"} as ResearchFinding],[],[])?.actions).toContainEqual({id:"search_email",kind:"search",field:"email"});
- expect(targetedPlan({...config,purpose:"firmographics"},[{kind:"headcount"} as ResearchFinding],[],[])?.actions).toContainEqual({id:"search_revenue",kind:"search",field:"revenue"});
+ expect(targetedPlan({...config,purpose:"firmographics"},[{kind:"headcount",name:"Headcount",value:"51–200 employees",quote:"Company size 51–200 employees",website:"https://instruments.example.com/about",relevance:"unclear",factMetadata:{basis:"reported",sourceKind:"company_website",scope:"unspecified",identityNote:null,period:null,currency:null}} satisfies ResearchFinding],[],[])?.actions).toContainEqual({id:"search_revenue",kind:"search",field:"revenue"});
 });
 it("anchors queries in company identity and only uses supplied legal operators",()=>{
  expect(targetedQuery("size",config)).toBe('"instruments.example.com" employees');
@@ -69,4 +69,18 @@ it("uses directory names as separate follow-up candidates, without merging nickn
  const queries=targetedQueries("people",{companyName:"Delphi Measurement",companyDomain:"delphimeasurement.com",peopleSearchLeads});
  expect(queries.slice(0,2)).toEqual(['"Michael Leonard" "Delphi Measurement"','"Darren Fraser" "Delphi Measurement"']);
  expect(queries.join(" ")).not.toContain('"Mike Leonard"');
+});
+
+it('uses a nonempty trading-name fallback for the Headland ABN ladder', () => {
+  const queries = targetedQueries('abn', {companyName:'Headland Technology',companyDomain:'headland.au'});
+  expect(queries).toHaveLength(3);
+  expect(queries[2]).toBe('"Headland Technology" "headland.au" ABN');
+  expect(queries.every(query => !query.includes('""'))).toBe(true);
+});
+it('keeps legal PDFs and registry records ahead of directory reads for ABN follow-up', () => {
+ const config = {purpose:'firmographics', researchField:'abn', companyName:'Headland Technology',companyDomain:'headland.au',maxPeopleSearches:2} as ResearchConfig;
+ const registry = 'https://abr.business.gov.au/ABN/View?abn=96004338961';
+ const privacy = 'https://headland.au/privacy.pdf';
+ const plan = targetedPlan(config,[],['https://directory.example.com/headland',privacy,registry],[],false)!;
+ expect(plan.actions.filter(action=>action.kind==='read').map(action=>action.url)).toEqual([registry,privacy,'https://directory.example.com/headland']);
 });

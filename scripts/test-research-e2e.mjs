@@ -273,10 +273,15 @@ try{
   for(const kind of ['website','field','page'])assert.ok(branches.some(job=>job.config.researchTask===kind),`Missing parallel ${kind} job`);
   for(const field of ['abn','size','revenue'])assert.ok(branches.some(job=>job.config.researchField===field),`Missing parallel ${field} branch`);
   assert.ok(branches.filter(job=>job.config.researchTask==='page').every(job=>job.pages===1),'Sitemap child jobs each read one page');
-  const alphaTarget=(await db.query("SELECT id,identifiers FROM targets WHERE organization_id=$1 AND domain='alpha.instruments.example.com'",[organizationId])).rows[0];
+  const alphaTarget=(await db.query("SELECT id,identifiers,firmographics FROM targets WHERE organization_id=$1 AND domain='alpha.instruments.example.com'",[organizationId])).rows[0];
   report.parallelTarget=alphaTarget;
   report.parallelAbns=(await db.query("SELECT target_id,evidence FROM research_findings WHERE organization_id=$1 AND evidence->>'name'='ABN'",[organizationId])).rows;
   assert.equal(alphaTarget.identifiers.abn,'99000000000','The independent ABN branch must update the target');
+  assert.equal(alphaTarget.firmographics.headcount.value,18,'Accepted headcount must be reconciled onto the target');
+  assert.equal(alphaTarget.firmographics.headcount.researchState,'observed');
+  assert.equal(alphaTarget.firmographics.revenue.value,3000000,'Accepted AUD revenue must be reconciled onto the target');
+  assert.equal(alphaTarget.firmographics.revenue.provenance.source,'Public web research');
+  assert.equal(alphaTarget.firmographics.establishedYear.value,2001,'Accepted founded year must be reconciled onto the target');
   const savedParallel=(await db.query("SELECT evidence FROM research_findings WHERE organization_id=$1 AND job_id=ANY($2::uuid[])",[organizationId,branches.map(job=>job.id)])).rows;
   for(const kind of ['identifier','headcount','revenue'])assert.ok(savedParallel.some(f=>f.evidence.kind===kind),`Missing persisted parallel ${kind} evidence`);
   assert.equal(new Set(branches.map(job=>job.id)).size,branches.length);

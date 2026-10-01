@@ -122,7 +122,7 @@ it('reuses fresh prior-run facts for the same organization and target without re
   const recent = new Date();
   const historical = [
     { ...evidence[0], jobId: 'old-run', observedAt: recent, evidence: { kind: 'headcount', value: '20', factMetadata: { basis: 'reported' } } },
-    { ...evidence[0], jobId: 'old-run', observedAt: recent, evidence: { kind: 'revenue', value: '1000000', factMetadata: { basis: 'reported' } } },
+    { ...evidence[0], jobId: 'old-run', observedAt: recent, evidence: { kind: 'revenue', value: '1000000', factMetadata: { basis: 'reported', currency: 'AUD' } } },
   ];
   mocks.where.mockReset().mockResolvedValueOnce([root]).mockResolvedValueOnce([...evidence, ...historical]);
   await dispatchAutomaticEnrichment('org', 'root');

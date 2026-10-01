@@ -1,3 +1,4 @@
+import { companyIdentifierNameMatches } from "./company-identifiers";
 import type { WebSearchResult } from "./cloudflare-search";
 import { allowedPeopleSource } from "./people-search-results";
 import { publicResearchUrl, researchDomain } from "./research";
@@ -24,4 +25,20 @@ export function companyResultMatches(result: WebSearchResult, company: string, d
 export function companyPeopleQuery(company: string, domain: string) {
   const name = publicCompanyName(company.split(/\s+\/\s+/).at(-1)!);
   return `"${name}" ${name.includes(" ") ? "" : `"${domain}" `}owner`;
+}
+
+// Registry titles often contain only an ABN. Route these bounded official
+// record leads ahead of directories; verification still requires page evidence.
+export function abnResearchResults(results: WebSearchResult[], config: {companyName?: string; companyDomain?: string; legalEntity?: string}) {
+  if (!config.companyName || !config.companyDomain) return [];
+  const registry: WebSearchResult[] = [], other: WebSearchResult[] = [];
+  for (const result of results) {
+    const url = publicResearchUrl(result.url);
+    if (!url) continue;
+    if (new URL(url).hostname === 'abr.business.gov.au' && /^\d{11}$/.test(new URL(url).searchParams.get('abn') || '')) {
+      const entity = result.snippet.match(/Entity name[\s:|*]*([^\n|]+?)(?=\s+(?:ABN status|Entity type|Main business location|Goods.*Services|Business names)|$)/i)?.[1]?.trim();
+      if (!entity || companyIdentifierNameMatches(entity, [config.companyName, config.legalEntity])) registry.push(result);
+    } else if (companyResultMatches(result, config.companyName, config.companyDomain, config.legalEntity)) other.push(result);
+  }
+  return [...registry.slice(0, 5), ...other];
 }

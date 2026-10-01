@@ -1,4 +1,5 @@
 import type { ResearchConfig, ResearchFinding } from './research';
+import { resolveCompanyField } from './research-resolution';
 export const researchFields = ['abn', 'size', 'revenue', 'people', 'email'] as const;
 export type ResearchField = typeof researchFields[number];
 export const fieldLabels: Record<ResearchField, string> = { abn: 'ABN', size: 'headcount', revenue: 'revenue', people: 'owner or director candidate', email: 'published owner or director email' };
@@ -16,7 +17,7 @@ export function fieldSatisfied(field: ResearchField, findings: ResearchFinding[]
   if (field === 'abn') return findings.some(f => f.kind === 'identifier' && f.name === 'ABN' && /^\d{11}$/.test(f.value.replace(/\D/g, '')));
   if (field === 'people') return findings.some(ownershipContact);
   if (field === 'email') return findings.some(f => ownershipContact(f) && Boolean(f.email));
-  return findings.some(f => f.kind === (field === 'size' ? 'headcount' : 'revenue') && f.factMetadata?.basis !== 'search_snippet');
+  return resolveCompanyField(field, findings).status === 'observed';
 }
 export function missingResearchFields(config: Pick<ResearchConfig, 'purpose' | 'researchField'>, findings: ResearchFinding[]) {
   return objectiveFields(config).filter(field => !fieldSatisfied(field, findings));
@@ -24,4 +25,8 @@ export function missingResearchFields(config: Pick<ResearchConfig, 'purpose' | '
 export type SearchAttempt = { query: string; field: ResearchField; status: 'succeeded' | 'failed'; category?: string };
 export function nextSearchQuery(queries: string[], completed: string[], attempts: SearchAttempt[]) {
   return queries.find(query => !completed.includes(query) && attempts.filter(a => a.query === query && a.status === 'failed').length < 2);
+}
+
+export function fieldCompletionMessage(field: ResearchField) {
+  return field === 'people' ? 'Sourced owner or director candidate found; email availability is checked separately.' : `Sourced ${fieldLabels[field]} found.`;
 }

@@ -4,6 +4,7 @@ import { measureResearchSegment } from '@/lib/research-segment-timing';
 import { validateCompanyIdentifiers } from '@/domain/company-identifiers';
 import { researchTargetId } from './research-persistence-id';
 import { saveResearchContact } from "./research-contacts";
+import { reconcileResearchTarget } from './research-reconciliation';
 import { mandateResearchSlot } from "@/domain/automatic-research";
 import { modelHeadcountFinding, validateCompanyFacts } from "@/domain/company-facts";
 import { ownCompany, relevantBusiness, validateBusinessFindings } from "@/domain/business-research";
@@ -390,6 +391,7 @@ export class ResearchRepository {
       for (const evidence of pageFindings) {
         if (targetId && evidence.kind === "person") await saveResearchContact({ database: this.db, organizationId: this.org, targetId, evidence, sourceUrl, observedAt: new Date(page.observedAt) });
       }
+      if (targetId && [...pageFindings, ...earlier.map(f => f.evidence as ResearchFinding)].some(f => ['headcount', 'revenue', 'founded_year'].includes(f.kind))) await reconcileResearchTarget(this.db, this.org, targetId);
       // A qualifying company counts only after its evidence/contact writes
       // succeed. Failed persistence remains retryable without a false milestone.
       if (targetId && relevantBusiness(pageFindings)) await this.recordNewBusiness(id, targetId, job);

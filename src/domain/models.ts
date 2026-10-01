@@ -15,6 +15,9 @@ export type DerivedValue<T> = {
   value: T | null;
   provenance: Provenance;
   missingReason?: string;
+  displayValue?: string | null;
+  researchState?: 'missing' | 'estimated' | 'conflicting' | 'observed';
+  range?: { min: number | null; max: number | null; approximate: boolean; kind: 'point' | 'range' | 'lower_bound' | 'upper_bound' };
 };
 
 export type FinancialValue = number | { kind: "range"; min: number; max: number } | { kind: "band"; label: string };

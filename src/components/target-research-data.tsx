@@ -3,29 +3,11 @@ import { DetailTooltip } from "./detail-tooltip";
 import type { SavedResearchFinding } from "@/domain/research";
 import { estimateEbitda } from "@/domain/estimated-ebitda";
 import { parseHeadcount } from "@/domain/company-facts";
+import { resolveCompanyField } from "@/domain/research-resolution";
 import { providerNeutralText } from "@/domain/provider-display";
 
 const normalise = (value: string) => value.trim().replace(/\s+/g, " ").toLowerCase();
 const disclosure = "min-h-12 cursor-pointer content-center rounded text-xs font-medium underline decoration-[var(--border)] underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2";
-function averageRevenueLabel(groups: SavedResearchFinding[][]) {
-  const observations = groups.map(group => group[0]);
-  const parsed = observations.map(f => {
-    const match = f.evidence.value.trim().match(/^(?:(AUD|USD|A\$|US\$|\$)\s*)?(\d[\d,]*(?:\.\d+)?)\s*(K|M|B|million|billion)?\.?$/i);
-    if (!match) return null;
-    const multiplier = /^(?:k)$/i.test(match[3] || "") ? 1_000 : /^(?:m|million)$/i.test(match[3] || "") ? 1_000_000 : /^(?:b|billion)$/i.test(match[3] || "") ? 1_000_000_000 : 1;
-    const currency = f.evidence.factMetadata?.currency || (/^(?:AUD|A\$)$/i.test(match[1] || "") ? "AUD" : /^(?:USD|US\$)$/i.test(match[1] || "") ? "USD" : null);
-    return { amount: Number(match[2].replaceAll(",", "")) * multiplier, currency, prefix: match[1] || "" };
-  });
-  if (parsed.some(value => !value)) return null;
-  const values = parsed.filter((value): value is NonNullable<typeof value> => value !== null);
-  const currencies = new Set(values.flatMap(value => value.currency ? [value.currency] : []));
-  if (currencies.size > 1) return null;
-  const average = values.reduce((sum, value) => sum + value.amount, 0) / values.length;
-  const currency = currencies.values().next().value as string | undefined;
-  if (currency) return new Intl.NumberFormat("en-AU", { style: "currency", currency, maximumFractionDigits: 0 }).format(average);
-  const prefix = values.find(value => value.prefix)?.prefix || "";
-  return `${prefix}${new Intl.NumberFormat("en-AU", { maximumFractionDigits: 0 }).format(average)}`;
-}
 export function groupTargetObservations(findings: SavedResearchFinding[], kind: "headcount" | "revenue" | "person") {
   const groups = new Map<string, SavedResearchFinding[]>();
   for (const f of findings.filter(f => f.evidence.kind === kind)) {
@@ -46,15 +28,15 @@ export function TargetResearchData({ findings = [], kind, fallback, preferred, c
   if (!groups.length && !preferred && !savedPeople.length) return confirmedMissing
     ? <div className="max-w-48"><p className="font-medium text-[var(--foreground)]">{confirmedMissing.label}</p><p className="text-xs text-[var(--status-amber)]">{providerNeutralText(confirmedMissing.source)} · checked</p></div>
     : <span className="text-[var(--muted)]">{fallback}</span>;
-  const conflicting = kind === "headcount" && new Set(groups.map(g => JSON.stringify(parseHeadcount(g[0].evidence.value) || g[0].evidence.value))).size > 1;
+  const resolution = kind === "person" ? null : resolveCompanyField(kind === "headcount" ? "size" : "revenue", findings.map(f => f.evidence));
   const label = (f: SavedResearchFinding) => kind === "person" ? f.evidence.name : f.evidence.value;
   const preview = groups.slice(0, 2).map(g => label(g[0])).join(" · ");
   const peopleCount = savedPeople.length || groups.length;
   const peoplePreview = savedPeople.length ? savedPeople.slice(0, 2).join(" · ") : preview;
-  const summary = preferred?.value || (kind === "revenue" && groups.length > 1 ? averageRevenueLabel(groups) || preview : preview);
-  const statusLabel = savedPeople.length ? "Saved contacts · preferred" : preferred ? `${providerNeutralText(preferred.source)} · preferred` : conflicting ? null : kind === "person" ? "Roles unverified" : groups.every(g => g.every(f => f.evidence.factMetadata?.basis === "reported")) ? "Reported · awaiting review" : null;
+  const summary = preferred?.value || resolution?.selected?.value || (resolution?.status === "conflicting" ? "Sources disagree" : resolution?.observations.some(f => f.factMetadata?.basis === "search_snippet") ? "Search estimates only — unverified" : resolution?.observations.length ? "Unresolved observations" : preview);
+  const statusLabel = savedPeople.length ? "Saved contacts · preferred" : preferred ? `${providerNeutralText(preferred.source)} · preferred` : kind === "person" ? `Roles unverified · ${findings.some(f => f.evidence.kind === "person" && f.evidence.email) ? "Published email found" : "Email unknown"}` : resolution?.status === "observed" ? "Reported · awaiting review" : resolution?.status === "estimated" ? "Estimate · awaiting review" : resolution?.status === "conflicting" ? "Sources disagree · awaiting review" : null;
   return <div className="max-w-64 space-y-1">
-    {kind === "person" ? <><p className="font-medium">{peopleCount} {peopleCount === 1 ? "person" : "people"} found</p><p className="line-clamp-2 text-xs text-[var(--muted)]">{peoplePreview}{peopleCount > 2 ? ` +${peopleCount - 2} more` : ""}</p></> : <p className="line-clamp-2 font-medium">{summary}{!preferred && kind !== "revenue" && groups.length > 2 ? ` +${groups.length - 2} more` : ""}</p>}
+    {kind === "person" ? <><p className="font-medium">{peopleCount} {peopleCount === 1 ? "person" : "people"} found</p><p className="line-clamp-2 text-xs text-[var(--muted)]">{peoplePreview}{peopleCount > 2 ? ` +${peopleCount - 2} more` : ""}</p></> : <p className="line-clamp-2 font-medium">{summary}</p>}
     {statusLabel && <p className="text-xs text-[var(--muted)]">{statusLabel}</p>}
     <details>
       <summary className={disclosure}>{kind === "person" ? `View ${peopleCount === 1 ? "person" : "people"} & sources` : "View observations & sources"}</summary>
@@ -62,7 +44,8 @@ export function TargetResearchData({ findings = [], kind, fallback, preferred, c
         {preferred && <section className="space-y-1"><p className="text-sm font-semibold">{preferred.value}</p><p className="text-xs text-[var(--muted)]">{providerNeutralText(preferred.source)} · preferred source</p>{preferred.sourceUrl && <a className="inline-flex min-h-12 items-center break-all text-xs underline" href={preferred.sourceUrl} target="_blank" rel="noreferrer">Provider-linked company website</a>}</section>}
         {savedPeople.length > 0 && <section className="space-y-1"><p className="text-sm font-semibold">Saved contacts</p>{savedPeople.map(name => <p className="text-xs" key={normalise(name)}>{name}</p>)}</section>}
         {groups.map(group => <section key={group[0].id} className="space-y-1"><p className="text-sm font-semibold">{label(group[0])}</p>{group.map(f => <div key={`${f.id}:${f.sourceUrl}`} className="text-xs">
-          {kind === "person" && <p>{f.evidence.name} — {f.evidence.value}</p>}
+          {kind === "person" && <p>{f.evidence.name} — {f.evidence.value} · {f.evidence.email ? "Published email found" : "Email unknown"}</p>}
+          {resolution?.superseded.includes(f.evidence) && <p className="text-[var(--muted)]">Superseded by stronger source</p>}
           <a className="inline-flex min-h-12 items-center break-all underline" href={f.sourceUrl} target="_blank" rel="noreferrer">{new URL(f.sourceUrl).hostname} · {new Date(f.observedAt).toLocaleDateString("en-AU")}</a>
           <p className="text-[var(--muted)]">{(f.evidence as typeof f.evidence & { source?: string }).source === "Apollo" ? "Apollo record — unverified" : f.evidence.factMetadata?.basis === "search_snippet" ? "Search estimate — unverified" : f.evidence.factMetadata?.basis === "third_party_estimate" ? "Third-party estimate" : "Published statement — awaiting review"}{kind === "revenue" ? ` · ${f.evidence.factMetadata?.currency || "Currency unknown"}` : ""}{f.evidence.factMetadata?.scope === "group" ? " · Group scope" : ""}{f.evidence.factMetadata?.period ? ` · ${f.evidence.factMetadata.period}` : ""}</p>
         </div>)}</section>)}

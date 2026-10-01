@@ -85,8 +85,8 @@ it("accepts adjacent team headings without requiring blank lines", () => {
  expect(validatePeopleFindings([],page,source,config).map(f=>f.name)).toEqual(["Alex Example"]);
 });
 it("matches visible italic text without changing identifiers or inventing a quote", () => {
- const quote = "We build instruments.” – Alex Example, Managing Director";
- expect(validatePeopleFindings([{...candidate,quote}],`_“${quote.split(' – ')[0]}_ – Alex Example, Managing Director`,source,config)).toHaveLength(1);
+ const quote = "We build instruments.” – Alex Example, Managing Director of Example Instruments";
+ expect(validatePeopleFindings([{...candidate,quote}],`_“${quote.split(' – ')[0]}_ – Alex Example, Managing Director of Example Instruments`,source,config)).toHaveLength(1);
  expect(validatePeopleFindings([{...candidate,quote:quote.replace('instruments','aircraft')}],`_“${quote}_`,source,config)).toEqual([]);
  const email = "alex_example@instruments.example.com";
  const passage = `${candidate.quote} Contact Alex Example: ${email}`;
@@ -153,4 +153,40 @@ it("retains the visible QA manager card without inventing gated contact details"
  const findings=validatePeopleFindings([{kind:"person",name:"Darren Fraser",value:"Manager, Quality Assurance",quote,website:url}],quote,url,{companyName:"Delphi Measurement",companyDomain:"delphimeasurement.com"} as ResearchConfig);
  expect(findings).toMatchObject([{name:"Darren Fraser",value:"Manager, Quality Assurance"}]);
  expect(findings[0].email).toBeUndefined();
+});
+
+it('rejects Headland customer case-study people despite the first-party host',()=>{
+ const cfg={companyName:'Headland Technology',companyDomain:'headland.au'} as ResearchConfig;
+ for(const [name,value,quote] of [
+ ['Paul Belshaw','General Manager','Paul Belshaw, General Manager, Levett Engineering'],
+ ['Paul Nagtzaam','Tool Room Manager','We spoke with Paul Nagtzaam, Tool Room Manager, who has been with Moss Industrial for nearly four decades.'],
+ ['Carl Quarterman','Managing Director','Carl Quarterman, Managing Director'],
+ ]) expect(validatePeopleFindings([{kind:'person',name,value,quote}],quote,'https://headland.au/customer-stories',cfg)).toEqual([]);
+});
+it('retains Headland managing-board staff cards but does not guess alternate email-domain ownership',()=>{
+ const cfg={companyName:'Headland Technology',companyDomain:'headland.au'} as ResearchConfig;
+ const page='# Managing Board\n#### Richard Kloé\n##### Managing Director\nrichard@headland.com.au\n#### Dianne Kloé\n##### Founder and Director\n#### Peter Kloé\n##### Founder and Director';
+ expect(validatePeopleFindings([],page,'https://headland.au/managing-board',cfg).map(f=>[f.name,f.email])).toEqual([['Richard Kloé',undefined],['Dianne Kloé',undefined],['Peter Kloé',undefined]]);
+});
+it('does not use a target company mention to override an explicit foreign employer',()=>{
+ const cfg={companyName:'Headland Technology',companyDomain:'headland.au'} as ResearchConfig;
+ const quote='Headland Technology interviewed Paul Belshaw, General Manager, Levett Engineering.';
+ expect(validatePeopleFindings([{kind:'person',name:'Paul Belshaw',value:'General Manager',quote}],quote,'https://headland.au/case-studies/levett',cfg)).toEqual([]);
+});
+it('does not treat a target mention elsewhere in a customer quote as employment evidence',()=>{
+ const cfg={companyName:'Headland Technology',companyDomain:'headland.au'} as ResearchConfig;
+ const quote='Headland Technology supplies our machines. Carl Quarterman, Managing Director, said the service was excellent.';
+ expect(validatePeopleFindings([{kind:'person',name:'Carl Quarterman',value:'Managing Director',quote}],quote,'https://headland.au/customer-stories',cfg)).toEqual([]);
+});
+it('rejects foreign employers across case and Markdown formatting on company and external pages',()=>{
+ const cfg={companyName:'Headland Technology',companyDomain:'headland.au'} as ResearchConfig;
+ for(const [name,value,quote] of [
+ ['Paul Belshaw','General Manager','Headland Technology supplied equipment. Paul Belshaw, general manager of Levett Engineering.'],
+ ['Carl Quarterman','Managing Director','Headland Technology supplied equipment. Carl Quarterman, **Managing Director** of **OtherCo**.'],
+ ['Paul Belshaw','General Manager','Paul Belshaw, General Manager of Levett Engineering, discussed equipment from Headland Technology.'],
+ ]) for(const url of ['https://headland.au/customer-stories','https://manufacturing.example.org/headland']) expect(validatePeopleFindings([{kind:'person',name,value,quote}],quote,url,cfg)).toEqual([]);
+});
+it('accepts an explicit target employment relationship despite role case and Markdown formatting',()=>{
+ const quote='Richard Kloé is **managing director** of **Headland Technology**.';
+ expect(validatePeopleFindings([{kind:'person',name:'Richard Kloé',value:'Managing Director',quote}],quote,'https://headland.au/about',{companyName:'Headland Technology',companyDomain:'headland.au'} as ResearchConfig)).toHaveLength(1);
 });

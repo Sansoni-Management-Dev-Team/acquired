@@ -21,7 +21,7 @@ it("distinguishes a checked company-data headcount with no available value from 
 it("exposes conflicting counts while labelling the averaged EBITDA estimate", () => {
  const findings = [finding("headcount", "10"), finding("headcount", "30")];
  const html = renderToStaticMarkup(<TargetResearchData kind="headcount" findings={findings} fallback="Unknown" />);
- expect(html).not.toContain("Sources disagree"); expect(html).toContain("10 · 30"); expect(html).toContain("View observations &amp; sources");
+ expect(html).not.toContain("Sources disagree"); expect(html).toContain("Search estimates only — unverified"); expect(html).toContain("View observations &amp; sources");
  expect(renderToStaticMarkup(<TargetEbitdaData findings={findings} />)).toContain("Averaged headcount");
 });
 it("shows EBITDA separately without inventing revenue or currency", () => {
@@ -38,12 +38,12 @@ it("shows EBITDA separately without inventing revenue or currency", () => {
  const html = renderToStaticMarkup(<TargetResearchData kind="revenue" findings={[finding("revenue", "$2.6 M")]} fallback="Unknown" />);
  expect(html).toContain("$2.6 M"); expect(html).toContain("Currency unknown"); expect(html).not.toContain("AUD");
 });
-it("shows one average revenue while retaining every observation in the disclosure", () => {
+it("keeps uncertain revenue observations separate without inventing an average", () => {
  const first = finding("revenue", "$100,000");
  const second = { ...finding("revenue", "$200 K"), id: "second", sourceUrl: "https://other.example.com/financials" };
  const html = renderToStaticMarkup(<TargetResearchData kind="revenue" findings={[first, second]} fallback="Unknown" />);
  const summary = html.split("<details>")[0];
- expect(summary).toContain("$150,000"); expect(summary).not.toContain("$100,000"); expect(summary).not.toContain("$200 K");
+ expect(summary).toContain("Search estimates only — unverified"); expect(summary).not.toContain("$150,000"); expect(summary).not.toContain("$100,000"); expect(summary).not.toContain("$200 K");
  expect(html).toContain("View observations &amp; sources"); expect(html).toContain("$100,000"); expect(html).toContain("$200 K");
 });
 it("prefers Firmable summaries and keeps scraped observations in the disclosure", () => {
@@ -89,4 +89,19 @@ it("limits the collapsed preview for a company with many people", () => {
  const html = renderToStaticMarkup(<TargetResearchData kind="person" findings={input} fallback="Unknown" />);
  const preview = html.split("<details>")[0];
  expect(preview).toContain("30"); expect(preview).toContain("+28 more"); expect(preview).not.toContain("Person 2");
+});
+it('selects the reported Headland range and labels weaker observations superseded',()=>{
+ const profile={...finding('headcount','51-200 employees'),evidence:{...finding('headcount','51-200 employees').evidence,factMetadata:{...finding('headcount','').evidence.factMetadata!,basis:'reported' as const,sourceKind:'company_profile' as const}}};
+ const estimate={...finding('headcount','11-50 employees'),evidence:{...finding('headcount','11-50 employees').evidence,factMetadata:{...profile.evidence.factMetadata!,basis:'third_party_estimate' as const,sourceKind:'third_party_directory' as const}}};
+ const html=renderToStaticMarkup(<TargetResearchData kind="headcount" findings={[estimate,profile]} fallback="Unknown"/>);
+ expect(html.split('<details>')[0]).toContain('51-200 employees');
+ expect(html.split('<details>')[0]).not.toContain('11-50 employees');
+ expect(html).toContain('Superseded by stronger source');
+});
+it('shows conflicting revenue without averaging and people email availability separately',()=>{
+ const a=finding('revenue','$100M'),b=finding('revenue','$20M');
+ for(const f of [a,b]) f.evidence.factMetadata={...f.evidence.factMetadata!,basis:'reported',sourceKind:'company_website',currency:'AUD'};
+ const html=renderToStaticMarkup(<TargetResearchData kind="revenue" findings={[a,b]} fallback="Unknown"/>);
+ expect(html.split('<details>')[0]).toContain('Sources disagree');expect(html).not.toContain('$60');
+ expect(renderToStaticMarkup(<TargetResearchData kind="person" findings={[finding('person','Director')]} fallback="Unknown"/>)).toContain('Email unknown');
 });

@@ -55,9 +55,15 @@ export function publicResearchUrl(value: string): string | null {
       return null;
     // The registry identifies its public record by ABN in the query string.
     // Retain that one numeric identifier while removing all other parameters.
-    const registryAbn = host === 'abr.business.gov.au' && /^\/ABN\/View\/?$/i.test(url.pathname) ? url.searchParams.get('abn')?.replace(/\s/g, '') : undefined;
+    const registryRecord = host === 'abr.business.gov.au';
+    const pathAbn = registryRecord ? url.pathname.match(/^\/ABN\/View\/(\d{11})\/?$/i)?.[1] : undefined;
+    const registryAbn = registryRecord && /^\/ABN\/View\/?$/i.test(url.pathname) ? url.searchParams.get('abn')?.replace(/\s/g, '')
+      : registryRecord && /^\/SearchByAbn\.aspx$/i.test(url.pathname) ? url.searchParams.get('SearchText')?.replace(/\s/g, '') : pathAbn;
     url.search = "";
-    if (registryAbn && /^\d{11}$/.test(registryAbn)) url.searchParams.set('abn', registryAbn);
+    if (registryAbn && /^\d{11}$/.test(registryAbn)) {
+      url.pathname = '/ABN/View';
+      url.searchParams.set('abn', registryAbn);
+    }
     url.hash = "";
     return url.href;
   } catch {
@@ -139,6 +145,7 @@ export const researchRuntimeSchema = z.object({
       crawlId: z.string().uuid().optional(),
         status: z.enum(["pending", "read", "failed"]),
         reason: z.string().max(300),
+        extraction: z.object({ status: z.enum(["completed", "failed", "deferred"]), attempts: z.number().int().min(0).max(2), reason: z.string().max(100).optional() }).optional(),
       }),
     ),
 });

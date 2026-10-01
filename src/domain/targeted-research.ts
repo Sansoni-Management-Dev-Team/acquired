@@ -30,7 +30,7 @@ export function targetedQueries(field: ResearchField, config: Pick<ResearchConfi
   const industry = (config.companyName || "").match(/\b(plastics|products|industries|manufacturing|caskets?|coffins?|urns?|hardware|engineering|packaging)\b/i)?.[1].toLowerCase() || "";
   const place = publicCompanyName(config.companyLocation || "");
   const person = publicCompanyName(findings.find(ownershipContact)?.name || "");
-  const queries = field === "abn" ? [`"${name}" abn`, `site:abr.business.gov.au "${name}"`, `"${short}" "${config.companyDomain}" ABN`]
+  const queries = field === "abn" ? [`"${name}" abn`, `site:abr.business.gov.au "${name}"`, `"${short || legal || name}" "${config.companyDomain}" ABN`]
     : field === "revenue" ? [`"${name}" annual revenue`, `"${name}" turnover`, `"${config.companyDomain}" revenue`]
     : field === "email" ? [`site:${config.companyDomain} ${person ? `"${person}"` : 'director'} email`, `"${person || name}" "${config.companyDomain}" contact`]
     : field === "size"
@@ -51,9 +51,13 @@ export function targetedPlan(config: ResearchConfig, findings: ResearchFinding[]
   const field = requestedField || missing[0];
   if (!field || !missing.includes(field)) return null;
   const legalEntity = findings.find(f=>f.kind === "identifier" && f.name === "Legal entity")?.value || config.legalEntity;
-  const candidates = (["people", "email"].includes(field) ? orderPeopleQueue(queue,visited,config.companyDomain) : orderCompanyFactQueue(queue,config))
+  const abnQueue = () => queue.filter(url => publicResearchUrl(url)).sort((a, b) => {
+    const priority = (url: string) => new URL(url).hostname === 'abr.business.gov.au' ? 0 : researchDomain(url) === config.companyDomain && /privacy|terms|legal|abn|\.pdf$/i.test(new URL(url).pathname) ? 1 : 2;
+    return priority(a) - priority(b);
+  });
+  const candidates = (field === 'abn' ? abnQueue() : ["people", "email"].includes(field) ? orderPeopleQueue(queue,visited,config.companyDomain) : orderCompanyFactQueue(queue,config))
     .filter(url=>publicResearchUrl(url) && !visited.some(v=>researchUrlKey(v)===researchUrlKey(url)))
-    .filter(url=> researchDomain(url) !== config.companyDomain || /about|team|leadership|who-we-are|company|history|our-story|contact/i.test(new URL(url).pathname)).slice(0,4);
+    .filter(url=> researchDomain(url) !== config.companyDomain || (field === 'abn' ? /about|company|contact|privacy|terms|legal|abn|\.pdf$/i : /about|team|leadership|who-we-are|company|history|our-story|contact/i).test(new URL(url).pathname)).slice(0,4);
   const actions: TargetedAction[] = candidates.map((url,i)=>({id:`read_${i}`,kind:"read",url}));
   if (searchAvailable && (["abn", "size", "revenue"].includes(field) || config.maxPeopleSearches === 2)) actions.push({id:`search_${field}`,kind:"search",field});
   actions.push({id:"stop",kind:"stop"});

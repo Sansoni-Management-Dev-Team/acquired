@@ -2,12 +2,13 @@ import { providerJsonRequest, providerDiagnostics } from '../../src/adapters/obs
 import { ResearchProviderError, providerFailure, BrowserAdmissionDeferred } from '../../src/domain/research-provider-error';
 import { localReaderEndpoint, type LocalReaderEnv } from './local-reader';
 import { publicResearchUrl } from '../../src/domain/research';
+import { pdfMarkdown, type ResearchPdfConverter } from './pdf-reader';
 import { researchFetch } from './local-policy';
 
 // Claims retry for up to 20 seconds (at most six attempts) inside one admitted request.
 export const ADMISSION_WINDOW_MS = 20000;
 export const MAX_ADMISSION_ATTEMPTS = 6;
-export type BrowserReaderEnv = LocalReaderEnv & { CF_ACCOUNT_ID?: string; CF_BROWSER_TOKEN?: string };
+export type BrowserReaderEnv = LocalReaderEnv & { CF_ACCOUNT_ID?: string; CF_BROWSER_TOKEN?: string; AI?: ResearchPdfConverter };
 export async function browserMarkdown(env: BrowserReaderEnv, url: string, options: {
   jobId?: string; requestId?: string; operation: string;
   permit(): Promise<{ granted: boolean; retryAfterMs: number; expired?: boolean }>;
@@ -53,6 +54,7 @@ export async function browserMarkdown(env: BrowserReaderEnv, url: string, option
   }
   options.onRequest?.();
   try {
+    if (!local && /\.pdf$/i.test(new URL(url).pathname)) return await pdfMarkdown(env.AI, url, researchFetch(env, fetcher));
     const { response, data } = await providerJsonRequest<{ success?: boolean; result?: unknown; url?: string; markdown?: unknown }>(researchFetch(env, fetcher),
       endpoint, {
         method: 'POST', headers: { ...(!local ? { authorization: `Bearer ${env.CF_BROWSER_TOKEN}` } : { 'x-request-id': requestId, ...(options.jobId ? { 'x-research-job-id': options.jobId } : {}) }), 'Content-Type': 'application/json' },

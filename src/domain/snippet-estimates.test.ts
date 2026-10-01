@@ -21,3 +21,14 @@ it("ignores follower counts, contact-record counts and single-word names without
   expect(snippetSizeEstimates([{ url: "https://profiles.example.net/x", title: "Example Sheeting", snippet: "Example Sheeting has 900 followers. Access 27 verified contacts." }], config)).toEqual([]);
   expect(snippetSizeEstimates([{ url: "https://profiles.example.net/x", title: "Acme", snippet: "Acme employs 40 employees." }], { companyName: "Acme", companyDomain: "acme.example.com" })).toEqual([]);
 });
+
+it('rejects competitors and revenue per employee instead of attributing them to Headland', () => {
+ const headland = {companyName:'Headland Technology',companyDomain:'headland.au'};
+ const estimate = (snippet: string) => snippetSizeEstimates([{url:'https://directory.example.com/headland', title:'Headland Technology revenue', snippet}], headland).filter(f=>f.kind==='revenue');
+ expect(estimate('Headland Technology competitors include CEA. CEA revenue is $181.6M.')).toEqual([]);
+ expect(estimate('Headland Technology revenue per employee is $528.1K.')).toEqual([]);
+ expect(estimate('Headland Technology revenue: $528.1K per employee.')).toEqual([]);
+ expect(estimate('CEA has $181.6M revenue compared with Headland Technology.')).toEqual([]);
+ expect(estimate('Headland Technology supplies CEA, which has $181.6M revenue.')).toEqual([]);
+ expect(estimate('Headland Technology estimated annual revenue is $78.2M.')).toMatchObject([{value:'$78.2M',factMetadata:{basis:'search_snippet'}}]);
+});

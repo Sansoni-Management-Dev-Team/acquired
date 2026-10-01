@@ -4,7 +4,7 @@ import { researchStartSchema, type ResearchConfig, type ResearchFinding } from "
 const url = "https://instruments.example.com/";
 const company: ResearchFinding = {kind:"company", name:"Example Instruments", value:"precision sensors", quote:"Example Instruments makes precision sensors.", website:url, relevance:"relevant"};
 const product: ResearchFinding = {kind:"product", name:"Sensors", value:"precision sensors", quote:company.quote, website:url, relevance:"relevant"};
-const person: ResearchFinding = {kind:"person", name:"Alex Example", value:"Managing Director", quote:"Alex Example is Managing Director. Email alex@instruments.example.com", website:url, email:"alex@instruments.example.com", relevance:"unclear"};
+const person: ResearchFinding = {kind:"person", name:"Alex Example", value:"Managing Director", quote:"Alex Example is Managing Director of Example Instruments. Email alex@instruments.example.com", website:url, email:"alex@instruments.example.com", relevance:"unclear"};
 const page = `${company.quote}\n${person.quote}`;
 const config: ResearchConfig = {workflow:"business",findPeople:true,peopleBudget:{maxCompanies:2,maxPages:2},seeds:[url],searchTerms:["precision sensors"],geography:"Australia",approved:true,discover:true,budget:{maxPages:3,maxDomains:3,maxModelCalls:3,maxMinutes:10}};
 describe("combined business research", () => {

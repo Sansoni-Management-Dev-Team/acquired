@@ -14,7 +14,7 @@ import { researchDomain } from "@/domain/research";
 import { companyFactSearchQuery } from "@/domain/company-facts";
 import { mergePeopleSearchLeads, peopleFollowupQuery, cleanLegalEntity, type PeopleSearchLead } from "@/domain/people-search-results";
 import { dispatchContinuation } from "@/lib/research-continuation";
-import { companyResultMatches } from "@/domain/company-research-routing";
+import { abnResearchResults, companyResultMatches } from "@/domain/company-research-routing";
 import { cloudflareSearchResults } from "@/adapters/cloudflare-web-search";
 import { discoveryQueryPlan, runDiscoveryQueries } from "@/adapters/business-web-search";
 import { dispatchBusinessPeople } from "@/lib/business-research-people";
@@ -209,7 +209,7 @@ async function postResearchCallback(
       } else {
         const results = await cloudflareSearchResults(query, searchFetch, job.id);
         await repo.saveSnippetEstimates(job.id, snippetSizeEstimates(results, { ...config, legalEntity }));
-        seeds = results.filter(r => companyResultMatches(r, config.companyName!, config.companyDomain!, legalEntity)).map(r => r.url);
+        seeds = (field === "abn" ? abnResearchResults(results, { ...config, legalEntity }) : results.filter(r => companyResultMatches(r, config.companyName!, config.companyDomain!, legalEntity))).map(r => r.url);
       }
       const exhausted = await saveAttempt('succeeded');
       return researchJsonResponse({ seeds, query, exhausted });

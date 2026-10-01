@@ -131,3 +131,14 @@ it.each(['domain_backoff', 'origin_rate_limit', 'reader_busy'])('routes %s coold
   if (category === 'reader_busy') expect(cooldown).toHaveBeenCalledWith(2000);
   else expect(cooldown).toHaveBeenCalledWith(2000, 'example.com');
 });
+
+it('reads PDF evidence through conversion after admission and releases the shared slot', async () => {
+  const release = vi.fn(async()=>{});
+  const toMarkdown = vi.fn(async()=>({format:'markdown', data:'Headland Technology Pty Ltd ABN 96 004 338 961'}));
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response('%PDF-1.7\nfixture', {headers:{'content-type':'application/pdf'}}));
+  const result = await browserMarkdown({...env, AI:{toMarkdown}}, 'https://headland.au/privacy.pdf', {operation:'markdown',permit:async()=>({granted:true,retryAfterMs:0}),release}, fetcher);
+  expect(result).toContain('96 004 338 961');
+  expect(fetcher.mock.calls[0][0]).toBe('https://headland.au/privacy.pdf');
+  expect(toMarkdown).toHaveBeenCalledOnce();
+  expect(release).toHaveBeenCalledOnce();
+});

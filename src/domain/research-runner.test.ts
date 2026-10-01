@@ -127,6 +127,45 @@ function setup() {
     },
   };
 }
+describe('Headland extraction recovery', () => {
+  it.each(['Free research AI reached its output token limit', 'Free research AI response did not match the research schema', 'Mercury fallback unavailable: request timed out or transport failed'])('retries %s using the same page and a smaller request', async message => {
+    const t = setup();
+    Object.assign(t.config, { workflow: 'business', researchTask: 'page', companyName: 'Example Instruments', companyDomain: 'instruments.example.com' });
+    const markdown = '# Example Instruments\nWe manufacture precision sensors.\n' + 'Public product description. '.repeat(400);
+    t.service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown } }));
+    t.service.extract = vi.fn().mockRejectedValueOnce(new ResearchAiError(message)).mockResolvedValue([{ kind: 'capability', name: 'Precision sensors', value: 'manufacture precision sensors', quote: 'We manufacture precision sensors.', website: t.config.seeds[0], relevance: 'relevant' }]);
+    await runResearch(t.step, t.service);
+    expect(t.service.readPage).toHaveBeenCalledTimes(1);
+    expect(t.service.extract).toHaveBeenCalledTimes(2);
+    const requests = vi.mocked(t.service.extract).mock.calls.map(([messages]) => messages);
+    expect(requests[1][1].content.length).toBeLessThan(requests[0][1].content.length);
+    expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'complete', pages: 1, modelCalls: 2 });
+    expect(t.progress.mock.calls.at(-1)?.[0].runtime?.attempts[0].extraction).toMatchObject({ status: 'completed', attempts: 2 });
+    expect(t.progress.mock.calls.flatMap(([e]) => e.page?.findings || [])).toContainEqual(expect.objectContaining({ kind: 'capability', value: 'manufacture precision sensors' }));
+  });
+  it('reads a Headland legal PDF discovered on its own site to satisfy only ABN', async () => {
+    const t = setup();
+    Object.assign(t.config, { workflow: 'business', mode: 'automatic', purpose: 'firmographics', researchTask: 'field', researchField: 'abn', companyName: 'Headland Technology', companyDomain: 'headland.au', seeds: ['https://headland.au/'], budget: { maxPages: 2, maxDomains: 1, maxMinutes: 10, maxModelCalls: 0 } });
+    t.service.readPage = vi.fn(async url => ({ status: 'completed', page: { url, markdown: url.endsWith('.pdf') ? 'Headland Technology Pty Ltd ABN 96 004 338 961 respects your privacy.' : '# Headland Technology\n[Privacy Policy](/static/privacy-policy.pdf)' } }));
+    await runResearch(t.step, t.service);
+    expect(t.service.readPage).toHaveBeenCalledWith('https://headland.au/static/privacy-policy.pdf');
+    expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'complete', pages: 2 });
+    expect(t.progress.mock.calls.flatMap(([e]) => e.page?.findings || [])).toContainEqual(expect.objectContaining({ name: 'ABN', value: '96004338961' }));
+  });
+  it('does not exceed the model budget when extraction fails', async () => {
+    const t = setup(); t.config.budget.maxModelCalls = 1;
+    t.service.extract = vi.fn().mockRejectedValue(new ResearchAiError('Free research AI reached its output token limit'));
+    await runResearch(t.step, t.service);
+    expect(t.service.extract).toHaveBeenCalledTimes(1);
+    expect(t.progress.mock.calls.at(-1)?.[0]).toMatchObject({ status: 'partial', modelCalls: 1 });
+  });
+  it('checks cancellation before a recovery attempt', async () => {
+    const t = setup();
+    t.service.extract = vi.fn(async () => { t.setStatus('cancelled'); throw new ResearchAiError('Free research AI reached its output token limit'); });
+    await runResearch(t.step, t.service);
+    expect(t.service.extract).toHaveBeenCalledTimes(1);
+  });
+});
 describe("bounded research orchestration", () => {
   it("uses the local direct reader with the same extraction and progress, without cloud crawl calls", async () => {
     const t = setup();
@@ -937,6 +976,7 @@ it.each([false, true])('retains a read page for deferred extraction with coalesc
   const final = t.progress.mock.calls.at(-1)?.[0];
   expect(final).toMatchObject({ status: 'partial', pages: 1, modelCalls: 0 });
   expect(final?.runtime?.pendingPage?.page.markdown).toBe('Example Instruments makes sensors.');
+  expect(final?.runtime?.attempts.at(-1)?.extraction?.status).toBe('deferred');
   expect(final?.runtime?.remaining).toContain(t.config.seeds[0]);
   expect(final?.runtime?.visited).not.toContain(t.config.seeds[0]);
 });
