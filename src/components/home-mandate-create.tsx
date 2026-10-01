@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Clock3 } from "lucide-react";
+import { ArrowRight, CircleAlert, Clock3 } from "lucide-react";
 import type { AcquisitionBrief, MandateView } from "@/domain/acquisition";
 import { CompanyDiscoveryLoading } from "./company-discovery-loading";
 import { CompanySearchProgress } from "./company-search-progress";
 import { nextTestMandate } from "@/domain/test-mandates";
+import { DetailTooltip } from "./detail-tooltip";
 
 export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
   const [description, setDescription] = useState("");
@@ -71,8 +72,26 @@ export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
         <h1 className="text-center text-3xl font-bold tracking-tight sm:text-5xl">Create a mandate</h1>
         <p className="mt-3 text-center text-sm text-[var(--muted)] sm:text-base">Tell us what you want to buy. We’ll turn it into a mandate you can review.</p>
         <form onSubmit={event => { event.preventDefault(); void create(); }} className="mt-8 rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5 shadow-sm sm:p-7">
-          <label htmlFor="mandate-description" className="block text-sm font-semibold">Tell us about the businesses you’re looking to buy</label>
-          <textarea id="mandate-description" required minLength={10} maxLength={5000} rows={5} readOnly={Boolean(createdId)} value={description} onChange={event => setDescription(event.target.value)} placeholder="For example: profitable commercial refrigeration service businesses in Victoria with recurring maintenance work" className="mt-3 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--input)] px-4 py-3 text-base text-[var(--foreground)] placeholder:text-[var(--muted)] focus-visible:border-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]" />
+          <div className="flex items-center gap-2">
+            <label htmlFor="mandate-description" className="text-sm font-semibold">Tell us about the businesses you’re looking to buy</label>
+            <DetailTooltip content={<div className="space-y-2 text-sm leading-relaxed">
+              <p className="font-semibold">Tips for a good mandate</p>
+              <ul className="list-disc space-y-2 pl-4">
+                <li>Describe the industry, services and customers you want to target.</li>
+                <li>Specify the states or regions where the business should operate.</li>
+                <li>Give target revenue, EBITDA and team size ranges, including the currency.</li>
+                <li>Separate must-haves from preferences, such as recurring revenue, licences or low owner dependence. Mention any exclusions.</li>
+                <li>Include your preferred acquisition structure and owner transition, if known.</li>
+              </ul>
+              <p className="text-[var(--muted)]">Plain English is enough. Include what you know and leave anything you’re unsure about open.</p>
+            </div>}>
+              <span className="flex size-7 items-center justify-center rounded-full text-[var(--muted)] hover:bg-[var(--panel-raised)] hover:text-[var(--foreground)]">
+                <CircleAlert size={16} aria-hidden="true" />
+                <span className="sr-only">Tips for writing a good mandate</span>
+              </span>
+            </DetailTooltip>
+          </div>
+          <textarea id="mandate-description" required minLength={10} maxLength={5000} rows={5} readOnly={Boolean(createdId)} value={description} onChange={event => setDescription(event.target.value)} placeholder="For example: We are seeking an established commercial refrigeration service business in Queensland or New South Wales with annual revenue of AUD 4–12 million, EBITDA of AUD 700,000–2 million and 15–55 employees. Prefer recurring maintenance and repair work for commercial customers, diversified customers and a capable management team. We are open to a full or majority acquisition with an owner transition period." className="mt-3 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--input)] px-4 py-3 text-base text-[var(--foreground)] placeholder:text-[var(--muted)] focus-visible:border-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]" />
           {error && <p role="alert" className="mt-3 text-sm text-[var(--status-red)]">{error}</p>}
           {progress && <p role="status" className="mt-3 text-sm text-[var(--muted)]">{progress}</p>}
           {createdId && error && <Link href={`/mandates/${createdId}?tab=targets`} className="mt-2 inline-block text-sm text-[var(--accent)] underline underline-offset-4">Open your saved mandate</Link>}
