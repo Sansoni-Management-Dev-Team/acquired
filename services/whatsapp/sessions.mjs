@@ -75,9 +75,11 @@ export class Sessions {
   }
   start(session) {
     if (session.stopped || this.stopping) return;
+    console.info(JSON.stringify({ event: 'whatsapp_connection_start', paired: !!session.auth.state.creds.me }));
     const socket = this.socketFactory({ auth: session.auth.state, logger: pino({ level: 'silent' }), browser: Browsers.ubuntu('Acquire'), syncFullHistory: false,
       shouldSyncHistoryMessage: () => true, markOnlineOnConnect: false, getMessage: async () => undefined });
     session.socket = socket;
+    socket.ws?.on('close', () => console.info(JSON.stringify({ event: 'whatsapp_transport_close' })));
     const enqueue = fn => {
       session.events = session.events.then(async () => { if (!session.stopped && session.socket === socket) await fn(); }).catch(async () => {
         // Never log credentials, QR codes, message bodies or raw provider errors.
@@ -98,12 +100,14 @@ export class Sessions {
     socket.ev.on('connection.update', update => enqueue(async () => {
       if (update.qr) { session.qr = await QRCode.toDataURL(update.qr); session.status = 'qr'; await session.auth.update('qr'); }
       if (update.connection === 'open') {
+        console.info(JSON.stringify({ event: 'whatsapp_connection_open' }));
         session.qr = null; session.status = 'connected'; session.attempt = 0;
         await session.auth.update('connected', socket.user?.id?.split(':')[0]?.split('@')[0] || null);
       }
       if (update.connection === 'close') {
         session.qr = null;
         const reason = update.lastDisconnect?.error?.output?.statusCode;
+        console.info(JSON.stringify({ event: 'whatsapp_connection_close', reason: Number.isInteger(reason) ? reason : null, attempt: session.attempt }));
         if (reason === DisconnectReason.loggedOut) {
           session.stopped = true; session.status = 'reconnect_required';
           await session.auth.clear(); await session.auth.update('reconnect_required'); await session.auth.close();

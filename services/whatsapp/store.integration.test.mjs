@@ -13,7 +13,16 @@ test('Postgres: encrypted creds/key persistence, lease exclusivity, isolation, d
   const id = `whatsapp-test-${randomUUID()}`;
   const actor = { organizationId: id, userId: id };
   const env = { DATABASE_URL: connectionString, WHATSAPP_ENCRYPTION_KEY: randomBytes(32).toString('base64') };
-  const store = createStore(env); const other = createStore(env);
+  let keyWriteQueries = 0;
+  const pool = new pg.Pool({ connectionString });
+  pool.on('connect', client => {
+    const query = client.query.bind(client);
+    client.query = (...args) => {
+      if (typeof args[0] === 'string' && args[0].startsWith('INSERT INTO whatsapp_auth_keys')) keyWriteQueries++;
+      return query(...args);
+    };
+  });
+  const store = createStore(env, { pool }); const other = createStore(env);
   let session; let stale;
   try {
     await store.health();
@@ -22,6 +31,13 @@ test('Postgres: encrypted creds/key persistence, lease exclusivity, isolation, d
     await admin.query('INSERT INTO member (id,organization_id,user_id) VALUES ($1,$1,$1)', [id]);
     session = await store.open(actor);
     session.state.creds.testSecret = 'credential-must-stay-encrypted'; await session.saveCreds();
+    const prekeys = Object.fromEntries(Array.from({ length: 812 }, (_, i) => [String(i), { public: Buffer.from([i % 256]), private: Buffer.from([255]) }]));
+    const writesBefore = keyWriteQueries;
+    await session.state.keys.set({ 'pre-key': prekeys });
+    assert.equal(keyWriteQueries - writesBefore, 1, 'initial login keys require one database write round trip');
+    assert.deepEqual(await session.state.keys.get('pre-key', Object.keys(prekeys)), prekeys);
+    await session.state.keys.set({ 'pre-key': { '0': null, '811': { public: Buffer.from([42]) } } });
+    assert.deepEqual(await session.state.keys.get('pre-key', ['0', '811']), { '811': { public: Buffer.from([42]) } });
     await session.state.keys.set({ session: { a: Buffer.from([1, 255, 3]), b: { value: 'private-key' } } });
     assert.deepEqual(await session.state.keys.get('session', ['a']), { a: Buffer.from([1, 255, 3]) });
     await assert.rejects(other.open(actor), e => e.status === 409);

@@ -103,10 +103,18 @@ export function createStore(env, options = {}) {
             return Object.fromEntries(result.rows.map(r => { const value = codec.decrypt(r.encrypted_value); return [r.key_id, type === 'app-state-sync-key' ? proto.Message.AppStateSyncKeyData.fromObject(value) : value]; }));
           }),
           set: data => run(async connection => {
-            for (const [type, entries] of Object.entries(data)) for (const [id, value] of Object.entries(entries)) {
-              if (value == null) await connection.query('DELETE FROM whatsapp_auth_keys WHERE connection_id=$1 AND key_type=$2 AND key_id=$3', [row.id, type, id]);
-              else await connection.query(`INSERT INTO whatsapp_auth_keys (connection_id,key_type,key_id,encrypted_value) VALUES ($1,$2,$3,$4)
-                ON CONFLICT (connection_id,key_type,key_id) DO UPDATE SET encrypted_value=EXCLUDED.encrypted_value`, [row.id, type, id, codec.encrypt(value)]);
+            // Initial login creates hundreds of prekeys. Keep network round trips
+            // bounded so persistence does not starve the renewable session lease.
+            for (const [type, entries] of Object.entries(data)) {
+              const removed = []; const ids = []; const values = [];
+              for (const [id, value] of Object.entries(entries)) {
+                if (value == null) removed.push(id);
+                else { ids.push(id); values.push(codec.encrypt(value)); }
+              }
+              if (removed.length) await connection.query('DELETE FROM whatsapp_auth_keys WHERE connection_id=$1 AND key_type=$2 AND key_id=ANY($3::text[])', [row.id, type, removed]);
+              if (ids.length) await connection.query(`INSERT INTO whatsapp_auth_keys (connection_id,key_type,key_id,encrypted_value)
+                SELECT $1,$2,key_id,encrypted_value FROM unnest($3::text[],$4::text[]) AS batch(key_id,encrypted_value)
+                ON CONFLICT (connection_id,key_type,key_id) DO UPDATE SET encrypted_value=EXCLUDED.encrypted_value`, [row.id, type, ids, values]);
             }
           }),
         } },
