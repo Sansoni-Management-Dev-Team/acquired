@@ -1,5 +1,5 @@
 // Production shares browser spacing across search and page reads. Local reads
-// use three completion-released slots; local search and AI have separate limits.
+// use five completion-released slots, matching Crawl4AI; local search and AI have separate limits.
 export type ResearchProvider = 'page' | 'search' | 'ai';
 export type ProviderReservation = { token: string; jobId: string; provider: ResearchProvider; after: number; until: number; consumed?: boolean; local?: boolean; released?: boolean; paid?: boolean; domain?: string };
 export type ProviderQueue = { localSearchAfter?: number; localSearchConsumedAfter?: number; browserAfter?: number; browserConsumedAfter?: number; aiAfter?: number[]; reservations?: ProviderReservation[]; browserCooldownUntil?: number; browserStartAfter?: number; domainAfter?: Record<string, number>; browserWaiters?: { jobId: string; provider: ResearchProvider; since: number }[]; aiWaiters?: { jobId: string; since: number }[] };
@@ -8,7 +8,7 @@ export const BROWSER_SPACING_MS = 12000;
 export const LOCAL_SEARCH_SPACING_MS = 6000;
 const LOCAL_SEARCH_CONSUMED_MS = 5000;
 export const AI_CONCURRENCY = 32;
-export const LOCAL_PAGE_CONCURRENCY = 3;
+export const LOCAL_PAGE_CONCURRENCY = 5;
 // Longer than a local read's 45-second deadline; abandoned slots recover automatically.
 export const LOCAL_PAGE_LEASE_MS = 60000;
 export const PAID_SEARCH_HOST_SPACING_MS = 1000;

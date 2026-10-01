@@ -47,31 +47,32 @@ it('tolerates callback latency while preserving actual browser spacing', () => {
  expect(reservationDelay(claimed, 'a', 'a', 8001)).toBeNull();
 });
 
-it('fills three local page slots immediately and refills a released slot while search stays throttled', async () => {
+it('fills five local page slots immediately and refills a released slot while search stays throttled', async () => {
   const { releaseProvider } = await import('./research-provider-queue');
   let queue: ProviderQueue = { browserAfter: 999999, browserConsumedAfter: 999999 };
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 5; i++) {
     const r = reserveProvider(queue, `job-${i}`, `page-${i}`, 'page', 1000, 480000, true);
     expect(r.reservation?.after).toBe(1000);
     queue = consumeProvider(r.queue, `page-${i}`, `job-${i}`, 1000)!;
     expect(queue).not.toBeNull();
   }
-  expect(reserveProvider(queue, 'fourth', 'fourth', 'page', 1001, 480000, true)).toMatchObject({ queued: true, retryAfterMs: 1000 });
+  expect(reserveProvider(queue, 'sixth', 'sixth', 'page', 1001, 480000, true)).toMatchObject({ queued: true, retryAfterMs: 1000 });
   const search = reserveProvider(queue, 'search', 'search', 'search', 1001, 480000, true);
   expect(search.reservation?.after).toBe(1001);
   queue = consumeProvider(search.queue, 'search', 'search', 1001)!;
   expect(reserveProvider(queue, 'search2', 'search2', 'search', 1001, 480000, true).reservation?.after).toBe(7001);
   queue = releaseProvider(queue, 'page-0', 'wrong-job');
-  expect(reserveProvider(queue, 'fourth', 'fourth', 'page', 1002, 480000, true).reservation).toBeUndefined();
+  expect(reserveProvider(queue, 'sixth', 'sixth', 'page', 1002, 480000, true).reservation).toBeUndefined();
   queue = releaseProvider(queue, 'page-0', 'job-0');
-  expect(reserveProvider(queue, 'fourth', 'fourth', 'page', 1002, 480000, true).reservation?.after).toBe(1002);
+  expect(reserveProvider(queue, 'sixth', 'sixth', 'page', 1002, 480000, true).reservation?.after).toBe(1002);
   expect(consumeProvider(queue, 'page-0', 'job-0', 1002)).toBeNull();
 });
 
 it('recovers abandoned local slots after their lease and keeps local policy explicitly gated', async () => {
   const { localProviderPolicy, LOCAL_PAGE_LEASE_MS } = await import('./research-provider-queue');
   let queue: ProviderQueue = {};
-  for (let i = 0; i < 3; i++) queue = reserveProvider(queue, 'job', `p${i}`, 'page', 1000, 480000, true).queue;
+  for (let i = 0; i < 5; i++) queue = reserveProvider(queue, 'job', `p${i}`, 'page', 1000, 480000, true).queue;
+  expect(reserveProvider(queue, 'next', 'next', 'page', 1000 + LOCAL_PAGE_LEASE_MS, 480000, true).reservation).toBeUndefined();
   expect(reserveProvider(queue, 'next', 'next', 'page', 1000 + LOCAL_PAGE_LEASE_MS + 1, 480000, true).reservation).toBeDefined();
   expect(localProviderPolicy({ NODE_ENV: 'development', LOCAL_DEVELOPMENT: 'true', LOCAL_RESEARCH_POLICY: 'development' })).toBe(true);
   expect(localProviderPolicy({ NODE_ENV: 'production', LOCAL_DEVELOPMENT: 'true', LOCAL_RESEARCH_POLICY: 'development' })).toBe(false);

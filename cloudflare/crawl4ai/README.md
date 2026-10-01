@@ -35,7 +35,31 @@ The primary research worker works without these optional secrets. Until they are
 `pnpm dev` now builds and starts this reader automatically in OrbStack using
 `compose.local.yml`, without deploying a Cloudflare container or applying its
 Durable Object migration. It is the primary reader for local searches and all
-research pages. Local compose allows three simultaneous reads; the Cloudflare deployment also allows three. See [local development](../../docs/27-local-research-and-ai.md).
+research pages. Local compose and its coordinator allow five simultaneous reads; the Cloudflare fallback deployment allows three. See [local development](../../docs/27-local-research-and-ai.md).
+
+### Local concurrency benchmark (1 October 2026)
+
+An isolated reader ran the same ordered 48-company URL manifest at 5, 8, 12 and
+24 concurrent reads, with four CPUs and either 4 GiB or 8 GiB of RAM. Each setting
+ran a cold and a warm pass (768 requests in total). The temporary benchmark
+server raised its concurrency clamp to 24; the normal server retains its cap of
+five. Other local workloads shared the host.
+
+Warm results with 8 GiB:
+
+| Reads | Usable pages | Usable pages/minute | Peak RAM | OOM kills across both passes |
+| --- | --- | --- | --- | --- |
+| 5 | 48/48 | 26.03 | 4.1 GiB | 0 |
+| 8 | 43/48 | 18.90 | 5.8 GiB | 0 |
+| 12 | 16/48 | 6.26 | 6.8 GiB | 0 |
+| 24 | 0/48 | 0.00 | 8.0 GiB | 32 |
+
+With 4 GiB, settings above five caused browser OOM kills. Five remains the local
+limit: additional concurrency reduced successful throughput on this allocation.
+This reader-only test does not establish end-to-end research throughput or the
+best concurrency for Cloudflare's different resources. It did not change or
+deploy production settings. Raw results are retained locally in
+`.local-data/reader-concurrency/summary.json`.
 
 Build: `docker build --platform linux/amd64 -t acquire-crawl4ai:test cloudflare/crawl4ai`
 

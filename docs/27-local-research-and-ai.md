@@ -61,7 +61,7 @@ Cloudflare Worker. Production's shared Worker config has no local-development fl
 No Vercel environment changes are required for this local setup.
 
 The local reader uses the existing pinned Crawl4AI container (`linux/amd64`, also
-on Apple Silicon through OrbStack), with up to three simultaneous reads. It binds
+on Apple Silicon through OrbStack), with up to five simultaneous reads. It binds
 only to `127.0.0.1:18083`, checks public HTTPS targets/redirects, and respects
 robots.txt. Local provider logs identify it as `local-crawl4ai`.
 

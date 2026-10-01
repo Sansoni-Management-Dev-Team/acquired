@@ -7,6 +7,15 @@ const bindings = env as unknown as {
   PROVIDER_COORDINATOR: DurableObjectNamespace<ProviderCoordinator>;
 };
 
+it('admits five local page reads and refills the sixth after a completed read', async () => {
+  const coordinator = bindings.PROVIDER_COORDINATOR.getByName(crypto.randomUUID());
+  const results = await Promise.all(Array.from({ length: 5 }, (_, i) => coordinator.reserve({ jobId: `local-${i}`, token: `local-${i}`, provider: 'page', local: true })));
+  expect(results.every(result => result.granted)).toBe(true);
+  expect(await coordinator.reserve({ jobId: 'sixth', token: 'sixth', provider: 'page', local: true })).toMatchObject({ granted: false, queued: true });
+  await coordinator.release('local-0', 'local-0');
+  expect(await coordinator.reserve({ jobId: 'sixth', token: 'sixth', provider: 'page', local: true })).toMatchObject({ granted: true, retryAfterMs: 0 });
+});
+
 it("coordinates and immediately refills the AI pool through Durable Object RPC", async () => {
   const coordinator = bindings.PROVIDER_COORDINATOR.getByName(crypto.randomUUID());
   const granted = await Promise.all(Array.from({ length: AI_CONCURRENCY }, (_, index) =>
