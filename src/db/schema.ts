@@ -274,3 +274,26 @@ export const researchFindings = pgTable("research_findings", {
   evidenceKey: text("evidence_key").notNull(), sourceUrl: text("source_url").notNull(), observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
   evidence: jsonb("evidence").notNull(), confidence: real("confidence").notNull().default(0.5),
 }, table => [uniqueIndex("research_findings_evidence_idx").on(table.jobId, table.evidenceKey), index("research_findings_mandate_idx").on(table.organizationId, table.mandateId)]);
+
+// WhatsApp credentials are read only by the trusted container service.
+export const whatsappConnections = pgTable("whatsapp_connections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  organizationId: text("organization_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  address: text("address"), status: text("status").notNull().default("disconnected"), encryptedCreds: text("encrypted_creds"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, table => [uniqueIndex("whatsapp_connection_owner_idx").on(table.organizationId, table.userId),
+  check("whatsapp_connection_status_check", sql`${table.status} IN ('disconnected','connecting','qr','connected','reconnecting','reconnect_required','error')`)]).enableRLS();
+
+export const whatsappAuthKeys = pgTable("whatsapp_auth_keys", {
+  connectionId: uuid("connection_id").notNull().references(() => whatsappConnections.id, { onDelete: "cascade" }),
+  keyType: text("key_type").notNull(), keyId: text("key_id").notNull(), encryptedValue: text("encrypted_value").notNull(),
+}, table => [primaryKey({ columns: [table.connectionId, table.keyType, table.keyId] })]).enableRLS();
+
+// Renewable ownership; no database connection is reserved for an idle account.
+export const whatsappSessionLeases = pgTable("whatsapp_session_leases", {
+  connectionId: uuid("connection_id").primaryKey().references(() => whatsappConnections.id, { onDelete: "cascade" }),
+  ownerToken: uuid("owner_token").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, table => [index("whatsapp_session_lease_expiry_idx").on(table.expiresAt)]).enableRLS();

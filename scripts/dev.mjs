@@ -28,6 +28,14 @@ const secretFile = resolve(directory, "service-secret");
 const secret = existsSync(secretFile) ? readFileSync(secretFile, "utf8") : randomBytes(32).toString("hex");
 writeFileSync(secretFile, secret, { mode: 0o600 });
 const config = localDevConfig(localDevEnvironment(fileEnv, process.env), secret, port, workerPort, parity);
+config.app.WHATSAPP_SERVICE_URL = "";
+config.app.WHATSAPP_SERVICE_SECRET = "";
+const whatsappEnvFile = resolve(".local-data/whatsapp/service.env");
+if (existsSync(whatsappEnvFile)) {
+  const whatsappEnv = parseEnv(readFileSync(whatsappEnvFile, "utf8"));
+  config.app.WHATSAPP_SERVICE_URL = "http://127.0.0.1:18095";
+  config.app.WHATSAPP_SERVICE_SECRET = whatsappEnv.WHATSAPP_SERVICE_SECRET;
+}
 await stopPreviousDevServers([port, workerPort]);
 // Old processes may have written shutdown output while we were stopping them.
 log.reset();

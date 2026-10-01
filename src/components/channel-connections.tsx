@@ -1,4 +1,5 @@
 import { connectionCanCompose, gmailConnectionStatus, gmailStatusLabels, gmailStatusMessages } from "@/domain/gmail-connection";
+import { WhatsAppConnection } from "@/components/whatsapp-connection";
 import { ChevronDown, ExternalLink, BriefcaseBusiness, Mail, MessageCircle, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -73,10 +74,9 @@ export function ChannelConnections({ gmail, notice }: { gmail?: GmailConnection;
         <dl className="space-y-3"><Detail label="Delivery">Send manually in LinkedIn</Detail><Detail label="Reply monitoring">Check replies in LinkedIn</Detail></dl>
         <p className="mt-4 text-xs text-[var(--muted)]">Account connections aren’t available yet. Copy your LinkedIn draft from outreach, then review and send it in LinkedIn.</p>
       </ChannelCard>
-      <ChannelCard name="WhatsApp" icon={MessageCircle} description="Use your outreach drafts to message contacts on WhatsApp." status="Manual outreach"
-        action={<a href="https://web.whatsapp.com/" target="_blank" rel="noopener noreferrer" className={actionClass}>Open WhatsApp<ExternalLink size={14} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a>}>
-        <dl className="space-y-3"><Detail label="Delivery">Send manually in WhatsApp</Detail><Detail label="Reply monitoring">Check replies in WhatsApp</Detail></dl>
-        <p className="mt-4 text-xs text-[var(--muted)]">Account connections aren’t available yet. Copy your WhatsApp draft from outreach, then review and send it in WhatsApp.</p>
+      <ChannelCard name="WhatsApp" icon={MessageCircle} description="Link your WhatsApp account by scanning a QR code." status="Linked device"
+        action={<WhatsAppConnection />}>
+        <p className="text-[var(--muted)]">Your session is encrypted and saved so it can reconnect after a restart. You can disconnect here or unlink Acquire in WhatsApp’s Linked Devices. Campaign delivery remains manual.</p>
       </ChannelCard>
     </div>
   </section>;

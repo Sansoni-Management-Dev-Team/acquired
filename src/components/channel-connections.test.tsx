@@ -1,6 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+vi.mock("@/components/whatsapp-connection", () => ({ WhatsAppConnection: () => null }));
 import { ChannelConnections } from "./channel-connections";
 
 it("makes partial Gmail access visible without opening connection details", () => {

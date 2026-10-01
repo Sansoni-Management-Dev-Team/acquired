@@ -4,6 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/dev.mjs",
+    "whatsapp:local": "node scripts/whatsapp-local.mjs",
+    "test:whatsapp": "npm test --prefix services/whatsapp",
     "build": "next build",
     "start": "next start",
     "db:local:start": "docker compose -f compose.local.yml up -d postgres",

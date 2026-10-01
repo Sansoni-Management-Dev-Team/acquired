@@ -1,0 +1,30 @@
+# Portable single-shard deployment for a DigitalOcean Droplet (or another VM).
+# Create .env.hosted privately and apply only the specifically approved schema.
+name: acquire-whatsapp
+services:
+  whatsapp:
+    image: ${WHATSAPP_IMAGE:-acquire-whatsapp:latest}
+    build:
+      context: ../../services/whatsapp
+    env_file: .env.hosted
+    environment:
+      WHATSAPP_SHARD_ID: primary
+      WHATSAPP_MAX_SESSIONS: ${WHATSAPP_MAX_SESSIONS:-32}
+      WHATSAPP_MAX_RSS_MB: ${WHATSAPP_MAX_RSS_MB:-768}
+      WHATSAPP_DB_POOL_SIZE: ${WHATSAPP_DB_POOL_SIZE:-12}
+    ports:
+      - "127.0.0.1:18095:8080"
+    init: true
+    mem_limit: 1g
+    stop_grace_period: 30s
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health',{headers:{Authorization:'Bearer '+process.env.WHATSAPP_SERVICE_SECRET}}).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

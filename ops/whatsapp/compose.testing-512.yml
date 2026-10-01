@@ -1,0 +1,14 @@
+# Overlay for the explicitly selected 512 MiB build/deployment experiment.
+services:
+  whatsapp:
+    image: acquire-whatsapp:testing-512
+    pull_policy: never
+    environment:
+      WHATSAPP_MAX_SESSIONS: "3"
+      WHATSAPP_MAX_RSS_MB: "256"
+      WHATSAPP_DB_POOL_SIZE: "4"
+      WHATSAPP_HISTORY_MESSAGES: "250"
+      WHATSAPP_HISTORY_CONTACTS: "2000"
+      WHATSAPP_HISTORY_BYTES: "524288"
+      NODE_OPTIONS: "--max-old-space-size=192"
+    mem_limit: 320m

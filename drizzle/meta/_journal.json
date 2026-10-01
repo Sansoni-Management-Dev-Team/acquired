@@ -99,6 +99,20 @@
       "when": 1790311083086,
       "tag": "0013_campaign_n8n_runtime",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790823455701,
+      "tag": "0014_whatsapp_channels",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1790830175110,
+      "tag": "0015_whatsapp_shared_sessions",
+      "breakpoints": true
     }
   ]
 }
