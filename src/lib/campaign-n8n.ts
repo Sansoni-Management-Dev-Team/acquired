@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { CampaignDefinition } from "@/domain/campaign";
+import { campaignNextOptions, campaignStepEntries, type CampaignDefinition } from "@/domain/campaign";
 
 type Node = { id: string; name: string; type: string; typeVersion: number; position: [number, number]; parameters: Record<string, unknown>; credentials?: Record<string, unknown>; webhookId?: string };
 type Link = { node: string; type: "main"; index: number };
@@ -34,43 +34,65 @@ export function buildSequenceWorkflow(input: { versionId: string; sequenceName: 
   };
   add("Start contact", "webhook", 2, { httpMethod: "POST", path: `acquire/campaign/${input.versionId}`, responseMode: "onReceived", options: {} }, 160, 300);
   nodes[0].webhookId = input.versionId;
-  let previous = "Start contact";
-  const emails = input.definition.steps.map((step, index) => ({ step, index })).filter(({ step }) => step.kind === "email");
-  for (const { step, index } of emails) {
+  const entries = campaignStepEntries(input.definition);
+  const emails = entries.map(({ step }, index) => ({ step, index })).filter(({ step }) => step.kind === "email");
+  const nameFor = (prefix: string, index: number) => {
+    const step = entries[index].step;
+    const duplicates = entries.filter(entry => entry.step.kind === "email" && entry.step.title === step.title).length > 1;
+    return `${prefix}: ${step.title}${duplicates ? ` [${index + 1}]` : ""}`;
+  };
+  const condition = (leftValue: string, rightValue: string) => ({ options: { caseSensitive: true, leftValue: "", typeValidation: "strict", version: 2 }, conditions: [{ id: randomUUID(), leftValue, rightValue, operator: { type: "string", operation: "equals" } }], combinator: "and" });
+  for (const { index } of emails) {
     const x = 430 + index * 530;
-    if (index > 0) {
-      const wait = input.definition.steps[index - 1];
-      const waitName = `Wait ${wait.kind === "wait" ? wait.days : "?"} days: ${wait.title}`;
-      add(waitName, "wait", 1.1, { resume: "specificTime", dateTime: "={{ $json.nextStepAt }}" }, x - 180, 300);
-      link(previous, waitName);
-      previous = waitName;
-    }
-    const sendName = `Send: ${step.title}`;
+    const y = entries[index].path === "pathA" ? 80 : entries[index].path === "pathB" ? 650 : 300;
+    const sendName = nameFor("Send", index);
     const params: Record<string, unknown> = {
-      method: "POST",
-      url: `${input.appUrl}/api/internal/campaigns/step`,
+      method: "POST", url: `${input.appUrl}/api/internal/campaigns/step`,
       sendHeaders: true,
       headerParameters: { parameters: input.credentialId ? [] : [{ name: "Authorization", value: "={{ 'Bearer ' + $env.OUTREACH_WORKER_SECRET }}" }] },
-      sendBody: true,
-      specifyBody: "json",
+      sendBody: true, specifyBody: "json",
       jsonBody: `={{ JSON.stringify({ enrolmentId: $('Start contact').first().json.body.enrolmentId, versionId: '${input.versionId}', stepIndex: ${index} }) }}`,
       options: { timeout: 120000 },
       ...(input.credentialId ? { authentication: "genericCredentialType", genericAuthType: "httpHeaderAuth" } : {}),
     };
-    add(sendName, "httpRequest", 4.2, params, x, 300, input.credentialId ? { httpHeaderAuth: { id: input.credentialId, name: process.env.CAMPAIGN_N8N_WORKER_CREDENTIAL_NAME || "Header Auth account" } } : undefined);
-    link(previous, sendName);
-    const sentName = `Sent: ${step.title}`;
-    const retryName = `Retry later: ${step.title}`;
-    const retryWait = `Wait until allowed: ${step.title}`;
-    const condition = (value: string) => ({ options: { caseSensitive: true, leftValue: "", typeValidation: "strict", version: 2 }, conditions: [{ id: randomUUID(), leftValue: "={{ $json.outcome }}", rightValue: value, operator: { type: "string", operation: "equals" } }], combinator: "and" });
-    add(sentName, "if", 2.2, { conditions: condition("sent") }, x + 180, 300);
-    add(retryName, "if", 2.2, { conditions: condition("retry") }, x + 180, 500);
-    add(retryWait, "wait", 1.1, { resume: "specificTime", dateTime: "={{ $json.nextStepAt }}" }, x - 60, 550);
+    add(sendName, "httpRequest", 4.2, params, x, y, input.credentialId ? { httpHeaderAuth: { id: input.credentialId, name: process.env.CAMPAIGN_N8N_WORKER_CREDENTIAL_NAME || "Header Auth account" } } : undefined);
+    const sentName = nameFor("Sent", index);
+    const retryName = nameFor("Retry later", index);
+    const retryWait = nameFor("Wait until allowed", index);
+    add(sentName, "if", 2.2, { conditions: condition("={{ $json.outcome }}", "sent") }, x + 180, y);
+    add(retryName, "if", 2.2, { conditions: condition("={{ $json.outcome }}", "retry") }, x + 180, y + 140);
+    add(retryWait, "wait", 1.1, { resume: "specificTime", dateTime: "={{ $json.nextStepAt }}" }, x - 60, y + 190);
     link(sendName, sentName);
     link(sentName, retryName, 1);
     link(retryName, retryWait);
     link(retryWait, sendName);
-    previous = sentName;
+  }
+  link("Start contact", nameFor("Send", 0));
+  const waits = new Set<string>();
+  for (const { index } of emails) {
+    const options = campaignNextOptions(input.definition, index);
+    let source = nameFor("Sent", index);
+    if (options.length === 2) {
+      const split = input.definition.splits!.find(split => split.afterStepId === entries[index].step.id)!;
+      const splitName = `Split: ${split.title} [${split.id}]`;
+      // The app chooses and persists the next index; n8n must use that decision,
+      // never a fresh random value that could change after retry/reconciliation.
+      add(splitName, "if", 2.2, { conditions: condition("={{ String($json.nextStepIndex) }}", String(options[0].index)) }, 720 + index * 530, 300);
+      link(source, splitName);
+      source = splitName;
+    }
+    options.forEach((next, branch) => {
+      const wait = entries[next.index - 1].step;
+      const duplicate = entries.filter(entry => entry.step.kind === "wait" && entry.step.title === wait.title).length > 1;
+      const waitName = `Wait ${next.days} days: ${wait.title}${duplicate ? ` [${next.index}]` : ""}`;
+      if (!waits.has(waitName)) {
+        const y = entries[next.index].path === "pathA" ? 80 : entries[next.index].path === "pathB" ? 650 : 300;
+        add(waitName, "wait", 1.1, { resume: "specificTime", dateTime: "={{ $json.nextStepAt }}" }, 250 + next.index * 530, y);
+        link(waitName, nameFor("Send", next.index));
+        waits.add(waitName);
+      }
+      link(source, waitName, options.length === 2 ? branch : 0);
+    });
   }
   return { name: `Acquire · ${input.sequenceName} · v${input.version}`, nodes, connections, settings: { executionOrder: "v1", timezone: "Australia/Melbourne", saveExecutionProgress: true } };
 }
