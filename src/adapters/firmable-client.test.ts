@@ -195,3 +195,14 @@ describe("FirmableClient", () => {
     expect(requestBody).not.toHaveProperty("department");
   });
 });
+it('uses the cloud service without retrying its shared cooldown', async () => {
+  vi.stubEnv('FIRMABLE_TRANSPORT', 'cloudflare-session');
+  vi.stubEnv('FIRMABLE_SERVICE_URL', 'https://worker.example/firmable');
+  vi.stubEnv('FIRMABLE_SERVICE_SECRET', 'service-secret');
+  try {
+    const fetcher = vi.fn(async (_input: string | URL | Request) => { void _input; return response({ category: 'rate_limited' }, 429); });
+    await expect(new FirmableClient({ fetch: fetcher }).enrichCompany({ fqdn: 'raymax.com.au', name: 'Raymax' })).rejects.toMatchObject({ status: 429 });
+    expect(fetcher).toHaveBeenCalledOnce();
+    expect(String(fetcher.mock.calls[0]?.[0])).toContain('https://worker.example/firmable/company?country=AU&fqdn=raymax.com.au&name=Raymax');
+  } finally { vi.unstubAllEnvs(); }
+});

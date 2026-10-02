@@ -108,11 +108,14 @@ export class FirmableClient {
   private fetcher: typeof globalThis.fetch;
   private fictionalise: boolean;
   private retries: number;
+  private sessionService: boolean;
   private onObservation?: FirmableClientOptions["onObservation"];
 
   constructor(options: FirmableClientOptions = {}) {
-    this.apiKey = options.apiKey || process.env.FIRMABLE_API_KEY || "";
-    this.baseUrl = options.baseUrl || process.env.FIRMABLE_BASE_URL || "https://api.firmable.com";
+    this.sessionService = process.env.FIRMABLE_TRANSPORT === 'cloudflare-session';
+    if (this.sessionService && !options.baseUrl && !process.env.FIRMABLE_SERVICE_URL) throw new Error('FIRMABLE_SERVICE_URL is required for cloudflare-session transport');
+    this.apiKey = options.apiKey || (this.sessionService ? process.env.FIRMABLE_SERVICE_SECRET : process.env.FIRMABLE_API_KEY) || "";
+    this.baseUrl = (options.baseUrl || (this.sessionService ? process.env.FIRMABLE_SERVICE_URL : process.env.FIRMABLE_BASE_URL) || "https://api.firmable.com").replace(/\/$/, "");
     this.fetcher = options.fetch || globalThis.fetch;
     this.fictionalise = options.fictionalise ?? process.env.ALLOW_REAL_PERSONAL_DATA !== "true";
     this.retries = options.retries ?? 2;
@@ -135,7 +138,7 @@ export class FirmableClient {
       try {
         response = await this.fetcher(`${this.baseUrl}${path}`, {
           ...init,
-          signal: AbortSignal.timeout(10_000),
+          signal: AbortSignal.timeout(this.sessionService ? 30_000 : 10_000),
           headers: { Authorization: `Bearer ${this.apiKey}`, "Content-Type": "application/json", ...init?.headers },
         });
       } catch (error) {
@@ -152,9 +155,9 @@ export class FirmableClient {
       }
       const errorPayload = payload as { error?: unknown } | null;
       const profileNotFound = response.status === 500 && errorPayload?.error === "Company profile not found";
-      const retryable = !profileNotFound && (response.status === 429 || response.status >= 500);
+      const retryable = !(this.sessionService && response.status === 429) && !profileNotFound && (response.status === 429 || response.status >= 500);
       if (!retryable || attempt >= this.retries) {
-        throw new FirmableError(endpoint, response.status, profileNotFound ? "Firmable company profile not found" : `Firmable request failed (${response.status})`);
+        throw new FirmableError(endpoint, response.status, (payload as { category?: string })?.category === "reconnect_required" ? "Firmable session needs reconnecting" : profileNotFound ? "Firmable company profile not found" : `Firmable request failed (${response.status})`);
       }
       await new Promise((resolve) => setTimeout(resolve, 100 * (2 ** attempt)));
     }
@@ -165,6 +168,7 @@ export class FirmableClient {
     const selected = ordered.find(([, value]) => value);
     if (!selected) throw new FirmableError("/company", 0, "A company identifier is required");
     const params = new URLSearchParams({ country: "AU", [selected[0]]: selected[1] as string });
+    if (this.sessionService && identifier.name) params.set("name", identifier.name);
     return companySchema.parse(await this.request(`/company?${params}`));
   }
 

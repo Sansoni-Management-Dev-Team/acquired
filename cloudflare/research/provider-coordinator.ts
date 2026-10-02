@@ -9,10 +9,17 @@ import {
   type ResearchProvider,
 } from "../../src/domain/research-provider-queue";
 
+import { FirmableAccount, type FirmableServiceEnv, type ServiceInput } from "./firmable/account";
+
 type ReserveInput = { jobId: string; token: string; provider: ResearchProvider; maxWaitMs?: number; local?: boolean; holdMs?: number };
 const HOLD_POLL_MS = 250;
 
-export class ProviderCoordinator extends DurableObject {
+export class ProviderCoordinator extends DurableObject<FirmableServiceEnv> {
+  private firmableAccount?: FirmableAccount;
+  async firmable(input: ServiceInput) {
+    this.firmableAccount ||= new FirmableAccount(this.ctx.storage, this.env);
+    return this.firmableAccount.handle(input);
+  }
   private async update<T>(change: (queue: ProviderQueue, now: number) => { queue: ProviderQueue; value: T }) {
     return this.ctx.storage.transaction(async transaction => {
       const queue = await transaction.get<ProviderQueue>("queue") || {};

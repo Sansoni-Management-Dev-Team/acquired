@@ -76,7 +76,7 @@ export async function refreshFirmableCompany(runId: string, mandateId: string) {
   const stored = await history.successfulCompanyResponse(runId);
   let company: Record<string, unknown>;
   try {
-    company = record(stored?.response) || await client(history, runId).enrichCompany(verifiedDomain ? { fqdn: verifiedDomain } : abn ? { abn } : { id: knownCompanyId });
+    company = record(stored?.response) || await client(history, runId).enrichCompany({ name: target.companyName, ...(knownCompanyId ? { id: knownCompanyId } : verifiedDomain ? { fqdn: verifiedDomain } : { abn }) });
   } catch (error) {
     if (error instanceof FirmableError && [401, 402, 403].includes(error.status)) throw error;
     if (!knownCompanyId) throw error;

@@ -1,4 +1,5 @@
 import { mergeResearchControl } from "./control-cache";
+import { validateFirmableSession, type FirmableSessionEnv } from "./firmable-session-validation";
 import { cachedResearchExtraction } from '../../src/domain/research-extraction-cache';
 import { researchPerformanceFlags } from "../../src/domain/research";
 import { pipelineTiming } from './pipeline-timing';
@@ -35,13 +36,16 @@ import {
   publicResearchUrl,
   parseResearchExtraction,
 } from "../../src/domain/research";
-interface Env {
+interface Env extends FirmableSessionEnv {
+  FIRMABLE_SERVICE_SECRET?: string;
+  FIRMABLE_CREDENTIAL_KEY?: string;
   AI?: import("./pdf-reader").ResearchPdfConverter;
   RESEARCH: Workflow;
   FIRMABLE: Workflow;
   PROVIDER_COORDINATOR?: DurableObjectNamespace<ProviderCoordinator>;
   OPENROUTER_API_KEY: string;
   SERVICE_SECRET: string;
+  FIRMABLE_VALIDATION_SECRET?: string;
   APP_ORIGIN: string;
   LOCAL_DEVELOPMENT?: string;
   LOCAL_RESEARCH_POLICY?: string;
@@ -437,8 +441,30 @@ export class FirmableRefresh extends WorkflowEntrypoint<Env, { runId: string; ma
 }
 const worker = {
   async fetch(request: Request, env: Env) {
-    if (!(await authorized(request, env.SERVICE_SECRET)))
+    const firmableValidation = new URL(request.url).pathname === "/firmable/validate";
+    const servicePath = new URL(request.url).pathname.replace(/^\/firmable/, "");
+    const firmableService = ['/company', '/people', '/people/search', '/status', '/reconnect'].includes(servicePath) && new URL(request.url).pathname.startsWith('/firmable/');
+    const secret = firmableService ? env.FIRMABLE_SERVICE_SECRET || '' : firmableValidation ? env.FIRMABLE_VALIDATION_SECRET || env.SERVICE_SECRET : env.SERVICE_SECRET;
+    if (!(await authorized(request, secret)))
       return Response.json({ error: "Unauthorized" }, { status: 401 });
+    if (firmableService) {
+      const method = ['/people/search', '/reconnect'].includes(servicePath) ? 'POST' : 'GET';
+      if (request.method !== method) return Response.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: method } });
+      if (!env.PROVIDER_COORDINATOR) return Response.json({ category: 'not_configured' }, { status: 503 });
+      if (Number(request.headers.get('content-length') || 0) > 20_000) return Response.json({ error: 'Request too large' }, { status: 413 });
+      const rawBody = method === 'POST' ? await request.text() : '';
+      if (rawBody.length > 20_000) return Response.json({ error: 'Request too large' }, { status: 413 });
+      let body;
+      try { body = rawBody ? JSON.parse(rawBody) : undefined; } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400 }); }
+      if (method === 'POST' && (!body || typeof body !== 'object' || Array.isArray(body))) return Response.json({ error: 'Invalid body' }, { status: 400 });
+      const account = env.PROVIDER_COORDINATOR.get(env.PROVIDER_COORDINATOR.idFromName('firmable-account'));
+      const result = await account.firmable({ path: servicePath, method, query: Object.fromEntries(new URL(request.url).searchParams), body });
+      return Response.json(result.body, { status: result.status, headers: { 'Cache-Control': 'no-store', ...(result.retryAfter ? { 'Retry-After': String(result.retryAfter) } : {}) } });
+    }
+    if (firmableValidation) {
+      if (request.method !== "POST") return Response.json({ error: "Use POST" }, { status: 405, headers: { Allow: "POST" } });
+      return validateFirmableSession(env);
+    }
     if (new URL(request.url).pathname === "/search" && request.method === "POST") {
       const body = await request.json().catch(() => null) as { query?: unknown; page?: unknown; engine?: unknown } | null;
       if (typeof body?.query !== "string" || body.query.trim().length < 2 || body.query.length > 500)

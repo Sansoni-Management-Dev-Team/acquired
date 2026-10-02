@@ -54,6 +54,18 @@ restoring both the prior Vercel deployment and its environment settings.
 - Optional authenticated Crawl4AI fallback: `CRAWL4AI_URL` and `CRAWL4AI_SECRET`.
 - Worker deployment: `pnpm exec wrangler deploy --config cloudflare/research/wrangler.jsonc`.
 
+## Firmable session validation
+
+`POST /firmable/validate` is a read-only cloud-hosted probe protected by `FIRMABLE_VALIDATION_SECRET` bearer authentication (falls back to the existing `SERVICE_SECRET` when no dedicated secret is configured). The dedicated credential grants access only to this probe. Configure Worker secrets `FIRMABLE_CLIENT_COOKIE` (the bare `__client` value), `FIRMABLE_SESSION_ID`, and `FIRMABLE_ORGANIZATION_ID`. Never put these values in Wrangler variables, source control, application responses or logs.
+
+Each invocation requests a new organization-scoped JWT from Clerk without an old JWT, reads the known Successful Endeavours company and one ten-person page, then discards the token. The response contains HTTP outcomes, company identity, people counts, token issue/expiry times, a SHA-256 fingerprint prefix, and timing. Personal profiles and credentials are not returned. No database write, contact unlock, workflow dispatch or migration is performed.
+
+Invoke the endpoint again after the first reported token expiry to test independent cloud requests. A different fingerprint and later expiry demonstrate fresh renewal. A 429 reports the phase and Retry-After, if supplied, without retrying; 401/403 reports an authentication or policy failure without returning upstream bodies. Redirects are rejected to prevent credential forwarding.
+
+This is a validation endpoint, not the production enrichment adapter. It has no account-wide pacing or durable credential storage. `renewal.cookieReplaced` reports a replacement `__client` cookie without persisting it; reconnect/update the secret if the original credential stops working. The production adapter needs coordinated renewal, cookie rotation, rate-limit cooldowns, normalized provider responses and reconnect status before it can replace the existing API-key provider.
+
+The October 2, 2026 cloud check passed twice from the deployed Worker: Clerk renewal, company retrieval and the six-person page each returned 200. The first token expired at `2026-10-01T22:47:32Z`; the second invocation obtained a distinct token issued at `22:47:43Z`, eleven seconds after that expiry. Unauthenticated requests returned 401, and neither renewal replaced the client cookie. This establishes direct Cloudflare compatibility for the tested session and endpoints, not permanent session validity or bulk throughput. Sanitized local evidence is in `.local-data/firmable-cloud-validation.json` (gitignored).
+
 This change uses existing job JSON and needs no database migration. The Wrangler configuration declares the new SQLite-backed `ProviderCoordinator` Durable Object. Never run any database migration without explicit approval for that specific migration.
 
 ## Validation
@@ -69,3 +81,42 @@ RUN_RESEARCH_BENCHMARK=1 node --env-file=.env --env-file=.env.local node_modules
 This makes exactly three public homepage reads, with no AI, search or database writes. It writes `.local-data/stu-206-reader-benchmark.json`. It does not measure full enrichment coverage or actual billing. The September 14 check read all three sample homepages successfully; headcount, revenue and named-person/email evidence were absent from those homepage extractions. A full user-triggered mandate run is still needed to measure final coverage, time and provider cost.
 
 The Worker uses Durable Object coordination when its binding exists and the `paid-v1` callback protocol during rolling deployment. Paid instances have a 512-request internal budget; saved page, model, time and cancellation budgets still apply. AI admission uses 32 completion-released slots and the fallback container stays at three reader slots. The deterministic throughput test models 133 model calls at 12 seconds each: the old four fixed 47-second lanes take about 26 minutes, while a continuously supplied 32-slot pool takes one minute. This measures scheduler capacity, not live provider latency or end-to-end mandate time.
+
+### Modular Firmable session service
+
+`firmable/account.ts` manages one serialized account through the existing
+ProviderCoordinator namespace, using the dedicated `firmable-account` object.
+`firmable/credentials.ts` encrypts persisted rotated credentials with AES-GCM;
+`firmable/transport.ts` handles upstream errors and response normalization.
+No new namespace, container, SQL schema change, or migration is required.
+
+Set Worker secrets `FIRMABLE_SERVICE_SECRET` and `FIRMABLE_CREDENTIAL_KEY` (at
+least 32 characters), plus the bootstrap client cookie, session and organization
+secrets described above. Keep the encryption key stable across deployments.
+The dedicated service secret cannot invoke research or diagnostic endpoints.
+
+Private API (Bearer service secret):
+- `GET /firmable/company?id=f...`, or `fqdn=example.com&name=Company`: domains
+  must match exactly; ambiguous or absent matches fail explicitly.
+- `POST /firmable/people/search`: `{companyId,from,size,position?}`. Maximum
+  page size 100. Department and seniority filters are explicitly unsupported.
+- `GET /firmable/people?id=fp...`: full existing profile, without contact unlock.
+- `GET /firmable/status`: configuration, reconnect and cooldown state only.
+- `POST /firmable/reconnect`: `{cookie,sessionId,organizationId}` from a fresh
+  authorized login. Renewal is validated before replacing credentials. Cookie
+  is the bare `__client` value. Organization must match configured organization.
+
+Token renewal occurs on demand, cached until ten seconds before expiry. One
+second pacing is conservative, not a claimed provider quota. HTTP 429 sets a
+persistent account cooldown, honoring Retry-After (default 30 seconds). Requests
+in cooldown fail promptly; failed authentication persists reconnect-required
+state. Pending requests are bounded at ten. A restarted object restores rotated
+credentials and cooldown, then renews its in-memory JWT. Raw browser records are
+preserved alongside normalized taxonomy labels for acquisition history.
+
+To select this transport in the acquisition app, set `FIRMABLE_TRANSPORT` to
+`cloudflare-session`, `FIRMABLE_SERVICE_URL` to the Worker URL plus `/firmable`,
+and `FIRMABLE_SERVICE_SECRET` to the matching secret. Existing enrichment and
+refresh workflows use the same FirmableClient interface. The default public API
+transport remains available. ABN-only and LinkedIn-only session lookups are not
+implemented; use a stored Firmable ID or an exact website match.
