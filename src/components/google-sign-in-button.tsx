@@ -14,6 +14,7 @@ export function GoogleSignInButton() {
       provider: "google",
       callbackURL: "/auth/complete",
       newUserCallbackURL: "/auth/complete",
+      errorCallbackURL: "/sign-in",
     });
     if (result?.error) {
       setError(result.error.message || "Google sign-in failed");

@@ -10,8 +10,9 @@ import { researchSettingsFromMetadata } from "@/domain/research-settings";
 import { BuyerProfileEditor } from "@/components/buyer-profile-editor";
 import { buyerProfileFromMetadata } from "@/domain/buyer-profile";
 import { ChannelConnections } from "@/components/channel-connections";
+import { GoogleAccountLink } from "@/components/google-account-link";
 
-export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ gmail?: string; reason?: string }> }) {
+export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ gmail?: string; reason?: string; googleLink?: string }> }) {
   const session = await auth.api.getSession({ headers: await headers() });
   if (!session) redirect("/sign-in?next=/settings");
   const organizationId = session.session.activeOrganizationId;
@@ -32,6 +33,8 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
   const [org] = await requireDb().select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, organizationId)).limit(1);
 
   const notice = await searchParams;
+  const accounts = await auth.api.listUserAccounts({ headers: await headers() });
+  const googleLinked = accounts.some((account) => account.providerId === "google");
 
   return <div className="p-6 md:p-8">
     <p className="text-xs uppercase tracking-[.18em] text-[var(--accent)]">Account</p>
@@ -41,7 +44,7 @@ export default async function SettingsPage({ searchParams }: { searchParams: Pro
       <BuyerProfileEditor initial={buyerProfileFromMetadata(org?.metadata)} />
       <ResearchSettingsForm initialTarget={researchSettingsFromMetadata(org?.metadata).defaultTargetBusinesses} />
       <ChannelConnections gmail={gmail} notice={notice} />
-      <section className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-6"><h2 className="text-lg font-semibold">Account</h2><SignOutButton /></section>
+      <section className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-6"><h2 className="text-lg font-semibold">Account</h2><GoogleAccountLink linked={googleLinked} email={session.user.email} failed={notice.googleLink === "error"} /><SignOutButton /></section>
     </div>
   </div>;
 }
