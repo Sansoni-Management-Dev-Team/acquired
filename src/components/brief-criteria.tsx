@@ -10,12 +10,10 @@ const panel = "rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5";
 const field = "mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel-raised)] p-2 text-sm text-[var(--foreground)]";
 const button = "min-h-11 rounded-md border border-[var(--border)] px-3 py-2 text-sm hover:bg-[var(--panel-raised)] disabled:opacity-40";
 const labelFor = (c: Criterion) => criterionDefinitions.find(([key]) => key === c.key)![1];
-const unresolved = (c: Criterion) => c.state === "unknown" || !c.confirmed;
 const summary = (c: Criterion) => c.state === "unknown" ? "Not yet specified" : c.state === "unrestricted" ? "No restriction" : c.value;
 
 export function BriefCriteria({ criteria, onChange }: { criteria: Criterion[]; onChange: (criteria: Criterion[]) => void }) {
   const [editing, setEditing] = useState(false);
-  const questions = criteria.filter(unresolved);
   const primary = ["subsectors", "geography", "revenue", "headcount"];
   const extra = criteria.filter(c => !primary.includes(c.key) && c.state !== "unknown");
   return <section className={panel} aria-label="Acquisition criteria">
@@ -26,11 +24,6 @@ export function BriefCriteria({ criteria, onChange }: { criteria: Criterion[]; o
       </div>)}
     </dl>
     {extra.length > 0 && <details className="mt-4 border-t border-[var(--border)] pt-3"><summary className="cursor-pointer text-sm">Additional criteria ({extra.length})</summary><dl className="mt-3 grid gap-3 sm:grid-cols-2">{extra.map(c => <div key={c.key}><dt className="text-xs text-[var(--muted)]">{labelFor(c)}</dt><dd className="mt-1 break-words text-sm">{summary(c)}{c.importance === "requirement" && <span className="ml-2 text-xs text-[var(--muted)]">Required</span>}</dd></div>)}</dl></details>}
-    {questions.length > 0 && <details className="mt-4 border-t border-[var(--border)] pt-3">
-      <summary className="cursor-pointer text-sm">Open questions ({questions.length})</summary>
-      <ul className="mt-3 space-y-2">{questions.map(c => <li key={c.key} className="flex flex-wrap justify-between gap-2 text-sm"><span>{labelFor(c)}</span><span className="text-[var(--muted)]">{c.state === "unknown" ? "Not yet specified" : "Needs review"}</span></li>)}</ul>
-      <button type="button" className={`${button} mt-3`} onClick={() => setEditing(true)}>Review open questions</button>
-    </details>}
     {editing && <CriteriaDrawer initial={criteria} onClose={() => setEditing(false)} onApply={next => { onChange(next); setEditing(false); }} />}
   </section>;
 }
