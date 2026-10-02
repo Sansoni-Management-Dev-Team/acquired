@@ -93,7 +93,7 @@ export async function listCampaignStudio(actor: CampaignActor, mandateId: string
           },
         };
       }),
-      contacts: contactRows.map(row => ({ id: row.id, targetId: row.target_id, name: row.display_name, company: row.company_name, email: z.email().safeParse(personalData(row.personal_data).email).success ? normalizeEmail(String(personalData(row.personal_data).email)) : null, fictionalised: row.fictionalised, doNotContact: personalData(row.personal_data).doNotContact === true })),
+      contacts: contactRows.map(row => ({ id: row.id, targetId: row.target_id, name: row.display_name, company: row.company_name, email: z.email().safeParse(personalData(row.personal_data).email).success ? normalizeEmail(String(personalData(row.personal_data).email)) : null, phone: typeof personalData(row.personal_data).phone === "string" ? String(personalData(row.personal_data).phone).trim() || null : null, fictionalised: row.fictionalised, doNotContact: personalData(row.personal_data).doNotContact === true })),
       mailbox: mailbox[0] ? { status: gmailConnectionStatus({ hasRefreshToken: Boolean(mailbox[0].encrypted_refresh_token), reconnectRequired: mailbox[0].reconnect_required, scopes: mailbox[0].scopes }), address: mailbox[0].address, ready: connectionCanMonitorReplies({ encryptedRefreshToken: mailbox[0].encrypted_refresh_token, reconnectRequired: mailbox[0].reconnect_required, scopes: mailbox[0].scopes }), dailyCap: mailbox[0].daily_cap } : null,
     };
   });
