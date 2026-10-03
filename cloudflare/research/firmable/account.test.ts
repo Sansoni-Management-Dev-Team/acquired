@@ -12,7 +12,7 @@ function setup(responses: Response[]) {
 }
 function token(headers = {}) {
   const claims = { sid: env.FIRMABLE_SESSION_ID, o: { id: env.FIRMABLE_ORGANIZATION_ID }, exp: Math.floor(Date.now() / 1000) + 60 };
-  return Response.json({ jwt: `e30.${btoa(JSON.stringify(claims))}.signature` }, { headers });
+  return Response.json({ jwt: `e30.${btoa(JSON.stringify(claims)).replaceAll("=", "").replaceAll("+", "-").replaceAll("/", "_")}.signature` }, { headers });
 }
 const company = { path: '/company', method: 'GET', query: { id: 'f123' } };
 describe('Firmable account coordination', () => {
@@ -59,3 +59,16 @@ it('renews the cached token after expiry', async () => {
     expect(fetcher).toHaveBeenCalledTimes(4);
   } finally { vi.useRealTimers(); }
 });
+it('searches companies once with AI and paginates the interpreted filters',async()=>{
+ vi.useFakeTimers();try {
+ const interpreted={filters:{country:{AU:'Australia'}},operators:{country:'OR'},excluded:{}};
+ const {account,fetcher}=setup([token(),Response.json({success:true,records:[{id:'f1',revenue:'4'}],totalCompany:200,predictedFilters:interpreted}),Response.json({success:true,records:[{id:'f2'}],totalCompany:200})]);
+ const first=await account.handle({path:'/company/search',method:'POST',query:{},body:{query:'Packaging companies',size:100}});expect(first.status).toBe(200);expect((first.body.records as Record<string,unknown>[])[0].revenue).toBe('4');
+ const pending=account.handle({path:'/company/search',method:'POST',query:{},body:{from:100,size:100,interpreted}});await vi.advanceTimersByTimeAsync(1000);expect((await pending).status).toBe(200);
+ const initial=JSON.parse(String(fetcher.mock.calls[1][1]?.body)),next=JSON.parse(String(fetcher.mock.calls[2][1]?.body));expect(initial.ai_search).toEqual({do_search:true});expect(next.filters).toEqual(interpreted.filters);expect(next.ai_search).toBeUndefined();expect(next.query).toBeUndefined();expect(next.from).toBe(100);
+ } finally {vi.useRealTimers();}
+});
+it('persists the renewed session token encrypted and uses it on the next renewal',async()=>{
+ vi.useFakeTimers();try{const {account,fetcher,state}=setup([token(),Response.json({id:'f123'}),token(),Response.json({id:'f123'})]);await account.handle(company);const saved=state.get('firmable:state') as {credentials:Parameters<typeof unseal>[0]};const credentials=await unseal(saved.credentials,env.FIRMABLE_CREDENTIAL_KEY);expect(credentials.sessionToken).toContain('.');expect(JSON.stringify(saved)).not.toContain(credentials.sessionToken);vi.setSystemTime(Date.now()+61000);await account.handle(company);expect(new URLSearchParams(String(fetcher.mock.calls[2][1]?.body)).get('token')).toBe(credentials.sessionToken);}finally{vi.useRealTimers();}
+});
+it('rejects pagination without interpreted filters and an invalid company query',async()=>{const {account,fetcher}=setup([]);expect((await account.handle({path:'/company/search',method:'POST',query:{},body:{from:100}})).status).toBe(400);expect((await account.handle({path:'/company/search',method:'POST',query:{},body:{query:''}})).status).toBe(400);expect(fetcher).not.toHaveBeenCalled();});

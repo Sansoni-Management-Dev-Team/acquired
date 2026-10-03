@@ -130,6 +130,7 @@ export type TargetCandidate = {
   revenue: DerivedValue<FinancialValue>;
   ebitda: DerivedValue<FinancialValue>;
   headcount: DerivedValue<number>;
+  headcountBand?: DerivedValue<import('./firmable-company-pipeline').CompanyBand>;
   establishedYear: DerivedValue<number>;
   financeability?: FinanceabilityEvidence;
   signals: Signal[];

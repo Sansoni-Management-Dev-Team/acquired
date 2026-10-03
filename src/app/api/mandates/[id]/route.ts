@@ -1,3 +1,4 @@
+import {recoverFirmableRefreshes} from '@/lib/firmable-run-recovery';
 import { researchJsonResponse, researchRequestJson } from "@/lib/research-request-observability";
 import { observeResearchRequest } from "@/lib/research-request-observability";
 import { z } from "zod";
@@ -34,24 +35,6 @@ const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("valuation"), observation: valuationSchema }),
   z.object({ action: z.literal("identity"), targetId: z.string().uuid(), website: z.union([z.string().url().refine(url => /^https?:\/\//i.test(url)), z.literal("")]), abn: z.string().regex(/^(\d{11})?$/), source: z.string().trim().min(1).max(500), sourceUrl: z.string().url() }),
 ]);
-
-type RecoverableFirmableRun = { id: string; status: string; updatedAt: Date };
-export async function recoverFirmableRefreshes(history: Pick<FirmableHistoryRepository, "failRun">, runs: RecoverableFirmableRun[], mandateId: string, now = Date.now()) {
-  if (!researchEnabled()) return;
-  await Promise.allSettled(runs.map(async run => {
-    if (run.status === "queued") {
-      await researchWorker(`/firmable/${run.id}`, "POST", { mandateId }, 4_000);
-      return;
-    }
-    if (run.status !== "running" || now - run.updatedAt.getTime() < 120_000) return;
-    try {
-      const worker = await researchWorker(`/firmable/${run.id}`, "GET", undefined, 4_000) as { status?: string };
-      if (["complete", "errored", "terminated"].includes(worker.status || "")) await history.failRun(run.id, "Company data refresh ended before it could report completion. Start a new refresh to retry.");
-    } catch {
-      if (now - run.updatedAt.getTime() >= 600_000) await history.failRun(run.id, "Company data refresh timed out. Start a new refresh to retry; saved data remains available.");
-    }
-  }));
-}
 
 async function getMandateWorkspace(request: Request, context: { params: Promise<{ id: string }> }) {
   const session = await auth.api.getSession({ headers: request.headers });

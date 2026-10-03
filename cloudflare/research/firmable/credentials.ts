@@ -1,7 +1,8 @@
 import { ServiceError } from './transport';
-export type Credentials = { cookie: string; sessionId: string; organizationId: string };
+export type Credentials = { cookie: string; sessionId: string; organizationId: string; sessionToken?: string };
 export function validCredentials(value: Credentials) {
   return typeof value.cookie === 'string' && value.cookie.length > 20 && value.cookie.length < 10_000 && !/[\r\n;,\s]/.test(value.cookie)
+    && (!value.sessionToken || (value.sessionToken.length<10000 && /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value.sessionToken)))
     && /^sess_[A-Za-z0-9]+$/.test(value.sessionId) && /^org_[A-Za-z0-9]+$/.test(value.organizationId);
 }
 async function key(secret: string) {

@@ -1,3 +1,4 @@
+import { firmableCompanyResearch } from '@/lib/firmable-company-research';
 import { researchCallbackContext } from '@/lib/research-egress-metrics';
 import { adaptiveDiscovery, discoveryLimit, discoveryRegions, resolveDiscoveryDecision, DISCOVERY_BATCH_SIZE, discoveryQueryId, type DiscoveryContext, type DiscoveryAttempt } from "@/domain/adaptive-discovery";
 import { setResearchDatabaseContext, bufferResearchTiming, configureResearchTelemetry, flushResearchTiming, observeResearchRequest, researchRequestJson, researchJsonResponse, observeResearchOperation, researchRequestId } from "@/lib/research-request-observability";
@@ -15,6 +16,8 @@ import { companyFactSearchQuery } from "@/domain/company-facts";
 import { mergePeopleSearchLeads, peopleFollowupQuery, cleanLegalEntity, type PeopleSearchLead } from "@/domain/people-search-results";
 import { dispatchContinuation } from "@/lib/research-continuation";
 import { abnResearchResults, companyResultMatches } from "@/domain/company-research-routing";
+import { publicAbnLookup } from '@/adapters/abn-public-lookup';
+import { usesPublicAbnLookup } from '@/domain/public-abn-policy';
 import { cloudflareSearchResults } from "@/adapters/cloudflare-web-search";
 import { discoveryQueryPlan, runDiscoveryQueries } from "@/adapters/business-web-search";
 import { dispatchBusinessPeople } from "@/lib/business-research-people";
@@ -44,7 +47,7 @@ import {
   researchEnabled,
   researchServiceAuthorized,
 } from "@/lib/research-service";
-export const maxDuration = 60;
+export const maxDuration = 120;
 const DISCOVERY_PERSIST_BATCH = 8;
 async function getJob(request: Request, jobId: string, lean = false) {
   if (!researchServiceAuthorized(request) || !researchEnabled()) return null;
@@ -127,6 +130,16 @@ async function postResearchCallback(
   setResearchDatabaseContext({ jobId: job.id, organizationId: job.organizationId, mandateId: job.mandateId, runId: (job.config as ResearchConfig).researchRunId || job.id });
   configureResearchTelemetry(researchPerformanceFlags(job.config as ResearchConfig).telemetryBatching);
   const repo = new ResearchRepository(job.organizationId);
+  if (['d-search','d-company','d-finish','d-fail'].includes(payload?.action)) return researchJsonResponse(await firmableCompanyResearch(job,payload));
+  if (payload?.action === 'balanced-wakeup') {
+    const config = job.config as ResearchConfig;
+    if (process.env.LOCAL_DEVELOPMENT !== 'true' || !['balanced-v1','corpus-v1'].includes(config.pipelineDesign || '') || config.researchRunId !== job.id) return researchJsonResponse({error:'Unavailable'}, {status:403});
+    await scheduleResearchRun(job.organizationId,job.id,{recovery:true});
+    const current = await repo.getExecution(job.id);
+    const [state] = await requireDb().select({ active: sql<number>`count(*)::int` }).from(researchJobs)
+      .where(and(eq(researchJobs.organizationId,job.organizationId),sql`${researchJobs.config}->>'researchRunId' = ${job.id}`,notInArray(researchJobs.status,terminalResearchStates)));
+    return researchJsonResponse({stop:current?.status === 'cancelled' || Boolean((current?.config as ResearchConfig | undefined)?.parallelResearchSettled) || (Date.now() >= (config.automaticDeadline || 0) && !state.active)});
+  }
   if (payload?.action === "provider-reserve") {
     if (terminalResearchStates.includes(job.status) || !['page', 'search', 'ai'].includes(payload.provider) || typeof payload.token !== 'string' || payload.token.length > 160) return researchJsonResponse({ granted: false, retryAfterMs: 1000 });
     const reservation = await reserveResearchProvider(jobId, payload.token, payload.provider, undefined, payload.policy === "paid-v1");
@@ -202,7 +215,14 @@ async function postResearchCallback(
     };
     try {
       let seeds: string[];
-      if (field === "people" || field === "email") {
+      if (usesPublicAbnLookup(config, field)) {
+        // A search-table match is only a candidate. Read the official record next;
+        // existing name/location/quote validation still decides what is saved.
+        const lookup = await publicAbnLookup(legalEntity || config.companyName!);
+        await requireDb().update(researchJobs).set({ config: sql`jsonb_set(${researchJobs.config}, '{publicAbnLookup}', ${JSON.stringify(lookup)}::jsonb)` })
+          .where(and(eq(researchJobs.id, job.id), eq(researchJobs.organizationId, job.organizationId), sql`${researchJobs.config}->'targetedSearchLease'->>'id' = ${lease}`));
+        seeds = lookup.match ? [lookup.match.sourceUrl] : [];
+      } else if (field === "people" || field === "email") {
         const result = await peopleWebSearch(config.companyName!, config.companyDomain!, searchFetch, query, legalEntity, job.id);
         await saveSearchLeads(job.id, config.peopleSearchLeads || [], result.leads);
         seeds = result.seeds;

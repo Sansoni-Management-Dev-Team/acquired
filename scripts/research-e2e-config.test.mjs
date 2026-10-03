@@ -36,3 +36,4 @@ it('accepts only deterministic benchmark stages and applies cumulative flag defa
  const c=researchE2eConfig({appPort:18120,workerPort:18121,fixturePort:18124,readerPort:18125,secret:'s',authSecret:'a',benchmarkStage:'progress'});
  expect(c.app.RESEARCH_TELEMETRY_BATCHING).toBe('true');expect(c.app.RESEARCH_PROGRESS_COALESCING).toBe('true');expect(c.app.RESEARCH_SCHEDULER_COALESCING).toBe('false');
 });
+it('enables C only through an explicit local environment',async()=>{const {parseResearchE2eArguments}=await import('./research-e2e-config.mjs');expect(parseResearchE2eArguments(['--design=C']).design).toBe('C');const c=researchE2eConfig({appPort:18120,workerPort:18121,fixturePort:18124,readerPort:18125,secret:'s',authSecret:'a',design:'C'});expect(c.app.RESEARCH_PIPELINE_DESIGN).toBe('corpus-v1');expect(c.worker.RESEARCH_PIPELINE_DESIGN).toBe('corpus-v1');});

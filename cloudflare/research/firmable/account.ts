@@ -1,7 +1,7 @@
 import type { FirmableSessionEnv } from '../firmable-session-validation';
 import { seal, unseal, validCredentials, type Credentials } from './credentials';
 import { domain, normalize, ServiceError, upstream, type RecordData } from './transport';
-export interface FirmableServiceEnv extends FirmableSessionEnv { FIRMABLE_SERVICE_SECRET?: string; FIRMABLE_CREDENTIAL_KEY?: string }
+export interface FirmableServiceEnv extends FirmableSessionEnv { FIRMABLE_SERVICE_SECRET?: string; FIRMABLE_CREDENTIAL_KEY?: string; FIRMABLE_SESSION_TOKEN?: string }
 export type ServiceInput = { path: string; method: string; query: Record<string, string>; body?: RecordData };
 type State = { credentials?: Awaited<ReturnType<typeof seal>>; reconnectRequired?: boolean; cooldownUntil?: number; nextRequestAt?: number };
 export class FirmableAccount {
@@ -36,7 +36,7 @@ export class FirmableAccount {
     if (state.reconnectRequired) throw new ServiceError(401, 'reconnect_required');
     if (!this.env.FIRMABLE_CREDENTIAL_KEY) throw new ServiceError(503, 'not_configured');
     const credentials = state.credentials ? await unseal(state.credentials, this.env.FIRMABLE_CREDENTIAL_KEY) : {
-      cookie: this.env.FIRMABLE_CLIENT_COOKIE || '', sessionId: this.env.FIRMABLE_SESSION_ID || '', organizationId: this.env.FIRMABLE_ORGANIZATION_ID || '' };
+      cookie: this.env.FIRMABLE_CLIENT_COOKIE || '', sessionId: this.env.FIRMABLE_SESSION_ID || '', organizationId: this.env.FIRMABLE_ORGANIZATION_ID || '', sessionToken:this.env.FIRMABLE_SESSION_TOKEN };
     if (!validCredentials(credentials)) throw new ServiceError(503, 'not_configured');
     const request = async (path: string, body?: RecordData): Promise<RecordData> => {
       const delay = Math.max(0, (state.nextRequestAt || 0) - Date.now());
@@ -57,7 +57,15 @@ export class FirmableAccount {
     };
     try {
       let data: RecordData;
-      if (input.path === '/company') {
+      if (input.path === '/company/search') {
+        const body=input.body||{},from=Number(body.from??0),size=Number(body.size??100);
+        if(!Number.isInteger(from)||from<0||from>10000||!Number.isInteger(size)||size<1||size>100)throw new ServiceError(400,'invalid_pagination');
+        const interpreted=body.interpreted as RecordData|undefined;
+        if(from===0&&(typeof body.query!=='string'||!body.query.trim()||body.query.length>10000))throw new ServiceError(400,'invalid_query');
+        if(from>0&&(!interpreted||['filters','operators','excluded'].some(k=>!interpreted[k]||typeof interpreted[k]!=='object'||Array.isArray(interpreted[k]))))throw new ServiceError(400,'interpreted_filters_required');
+        data=await request('/records/v2',{from,size,category:'company',metadata:{},sorting:{company:{},people:{}},search:{company:{},people:{}},...(from===0?{query:body.query,mode:'ai',ai_search:{do_search:true},filters:{},operators:{},excluded:{}}:{filters:interpreted!.filters,operators:interpreted!.operators,excluded:interpreted!.excluded})});
+        if(data.success!==true||!Array.isArray(data.records)||typeof data.totalCompany!=='number')throw new ServiceError(502,'invalid_upstream_response');
+      } else if (input.path === '/company') {
         let id = input.query.id;
         if (!id) {
           const expectedDomain = domain(input.query.fqdn || input.query.website || '');
@@ -98,7 +106,7 @@ export class FirmableAccount {
   private async renew(credentials: Credentials, state: State) {
     const result = await upstream(this.fetcher, `https://clerk.firmable.com/v1/client/sessions/${credentials.sessionId}/tokens?__clerk_api_version=2026-05-12&_clerk_js_version=6.36.0`, {
       method: 'POST', headers: { Cookie: `__client=${credentials.cookie}`, Origin: 'https://app.firmable.com', Referer: 'https://app.firmable.com/', 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ organization_id: credentials.organizationId, tab_state: 'visible' }).toString() });
+      body: new URLSearchParams({ organization_id: credentials.organizationId, tab_state: 'visible', ...(credentials.sessionToken?{token:credentials.sessionToken}:{}) }).toString() });
     const jwt = result.data.jwt;
     if (typeof jwt !== 'string') throw new ServiceError(502, 'invalid_token_response');
     let claims: RecordData;
@@ -111,6 +119,8 @@ export class FirmableAccount {
       credentials.cookie = rotated[1];
       state.credentials = await seal(credentials, this.env.FIRMABLE_CREDENTIAL_KEY || '');
     }
+    credentials.sessionToken=jwt;
+    state.credentials=await seal(credentials,this.env.FIRMABLE_CREDENTIAL_KEY||'');
     this.token = { jwt, expiresAt: claims.exp * 1000 };
   }
 }

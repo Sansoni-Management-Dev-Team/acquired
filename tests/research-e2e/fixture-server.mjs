@@ -27,6 +27,7 @@ export function fixtureCompletion(input) {
  let result;
  if(props.findings) {
   const allowed=props.findings.items?.properties?.kind?.enum || [];
+  if(props.findings.items?.properties?.sourceUrl){let context={};try{context=JSON.parse(input.messages.at(-1).content);}catch{}const findings=(context.pages||[]).flatMap(p=>{const slug=COMPANIES.find(c=>p.sourceUrl.includes(`${c}.instruments.example.com`))||'alpha';const item=(kind,name,value,quote,relevance='unclear',email='')=>({sourceUrl:p.sourceUrl,kind,name,value,quote,website:home(slug),subject:title(slug),email,relevance});return[item('company',title(slug),title(slug),companyQuote(slug),'relevant'),item('product','Industrial sensors','Industrial sensors','We manufacture industrial sensors and precision instrumentation for Australian manufacturing customers.','relevant'),item('headcount','Headcount','18 employees','We have 18 employees.'),item('person',director(slug),'Managing Director',peopleQuote(slug),'unclear',`${slug}@${slug}.instruments.example.com`)].filter(f=>p.text.includes(f.quote));});return{model:input.models?.[0]||'fixture',choices:[{finish_reason:'stop',message:{content:JSON.stringify({findings})}}],usage:{prompt_tokens:20,completion_tokens:20,cost:0}};}
   const finding=(kind,name,value,quote,relevance='unclear',extra={})=>({kind,name,value,quote,website:home(slug),relevance,...extra});
   result={findings:allowed.includes('company') ? [finding('company',title(slug),title(slug),identityQuote,'relevant'),finding('business_role',title(slug),'manufacturer','We manufacture industrial sensors and precision instrumentation for Australian manufacturing customers.','relevant'),finding('product','Industrial sensors','Industrial sensors','We manufacture industrial sensors and precision instrumentation for Australian manufacturing customers.','relevant')] : [finding('person',director(slug),'Managing Director',peopleQuote(slug),'unclear',{email:`${slug}@${slug}.instruments.example.com`})]};
   if(allowed.includes('company')&&allowed.includes('person')&&content.includes('Also capture a named owner'))result.findings.push(finding('person',director(slug),'Managing Director',peopleQuote(slug),'unclear',{email:`${slug}@${slug}.instruments.example.com`}));
@@ -63,6 +64,7 @@ export async function startFixtureServer({port=Number(process.env.E2E_FIXTURE_PO
     const input=await body(request);
     if(input.reset){control={blockedSlugs:[]};release();events=[];counters={openrouter:0,page:0,search:0,callback:0,blockedOutbound:0};}
     if(Array.isArray(input.blockedSlugs))control.blockedSlugs=input.blockedSlugs.filter(slug=>COMPANIES.includes(slug));
+    if(typeof input.splitGammaCorpus==='boolean')control.splitGammaCorpus=input.splitGammaCorpus;
     for(const key of ['dropProgressResponseOnceJobId','timingFailureOnceJobId'])if(input[key]!==undefined)control[key]=safeId(input[key]);
     if(Number.isInteger(input.openrouterStatusOnce)&&input.openrouterStatusOnce>=400&&input.openrouterStatusOnce<=599)control.openrouterStatusOnce=input.openrouterStatusOnce;
     release();return json(response,200,{ok:true,control});
@@ -93,7 +95,7 @@ export async function startFixtureServer({port=Number(process.env.E2E_FIXTURE_PO
     if(response.destroyed)return;
     if(url.pathname.endsWith('/robots.txt')){response.writeHead(200,{'content-type':'text/plain'});return response.end(`User-agent: *\nAllow: /\nSitemap: ${home(slug)}sitemap.xml\n`);}
     if(url.pathname.endsWith('/sitemap.xml')){response.writeHead(200,{'content-type':'application/xml'});return response.end(`<urlset><url><loc>${home(slug)}team</loc></url><url><loc>${home(slug)}about</loc></url></urlset>`);}
-    response.writeHead(200,{'content-type':'text/html'});return response.end(fixtureHtml(slug));
+    response.writeHead(200,{'content-type':'text/html'});return response.end(control.splitGammaCorpus&&slug==='gamma' ? (url.pathname.endsWith('/about') ? `<html><body><h1>Our services</h1><p>We manufacture industrial sensors and precision instrumentation for Australian manufacturing customers.</p><p>We have 18 employees. Our annual revenue is AUD 3 million. We were founded in 2001.</p></body></html>` : url.pathname.endsWith('/team') ? `<html><body><h1>Our team</h1><p>${peopleQuote(slug)}</p></body></html>` : `<html><body><h1>${title(slug)}</h1><p>${title(slug)} is our trading name.</p><p>ABN: 99000000064</p><a href="${home(slug)}about">About</a><a href="${home(slug)}team">Team</a></body></html>`) : fixtureHtml(slug));
    }
    return json(response,404,{error:'Unknown fixture path'});
   }catch{json(response,400,{error:'Invalid fixture request'});}

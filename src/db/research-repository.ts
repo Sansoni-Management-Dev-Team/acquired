@@ -31,6 +31,7 @@ import {
   terminalResearchStates,
   validateFindings,
   publicResearchUrl,
+  researchDomain,
 } from "@/domain/research";
 import type { z } from "zod";
 export type ResearchJobRow = typeof researchJobs.$inferSelect;
@@ -167,7 +168,7 @@ export class ResearchRepository {
     const milestoneAt = new Date().toISOString();
     const milestones = sql`COALESCE(${researchJobs.config}->'researchMilestones', '{}'::jsonb) || jsonb_build_object('firstCompanyAt', COALESCE(${researchJobs.config}->'researchMilestones'->>'firstCompanyAt', ${milestoneAt})) || CASE WHEN jsonb_array_length(${mergedIds}) >= COALESCE((${researchJobs.config}->>'targetBusinesses')::int, 20) THEN jsonb_build_object('targetReachedAt', COALESCE(${researchJobs.config}->'researchMilestones'->>'targetReachedAt', ${milestoneAt})) ELSE '{}'::jsonb END`;
     await this.db.update(researchJobs).set({ config: sql`jsonb_set(jsonb_set(${researchJobs.config}, '{newBusinessIds}', ${mergedIds}), '{researchMilestones}', ${milestones})` })
-      .where(and(sql`${researchJobs.id} IN (${id}, ${config.discoveryCandidate || config.researchTask === "website" || config.researchTask === "page" ? config.researchRunId || id : id})`, eq(researchJobs.organizationId, this.org)));
+      .where(and(sql`${researchJobs.id} IN (${id}, ${config.discoveryCandidate || config.researchTask === "website" || config.researchTask === "page" || config.researchTask === "company" ? config.researchRunId || id : id})`, eq(researchJobs.organizationId, this.org)));
   }
   async create(
     id: string,
@@ -304,7 +305,7 @@ export class ResearchRepository {
         sourceUrl,
         config.searchTerms,
       );
-      return [...validated, ...validateCompanyIdentifiers(page.findings, page.markdown, sourceUrl, config), ...(config.researchTask === 'website' || config.researchTask === 'page' ? [...validateCompanyFacts(page.findings, page.markdown, sourceUrl, config), ...validatePeopleFindings(page.findings, page.markdown, sourceUrl, config).filter(f => f.kind === 'person')] : [])];
+      return [...validated, ...validateCompanyIdentifiers(page.findings, page.markdown, sourceUrl, config), ...(config.researchTask === 'website' || config.researchTask === 'page' || config.researchTask === 'company' ? [...validateCompanyFacts(page.findings, page.markdown, sourceUrl, config), ...(config.researchTask === 'company' ? modelHeadcounts(page.findings, page.markdown, sourceUrl) : []), ...validatePeopleFindings(page.findings, page.markdown, sourceUrl, config).filter(f => f.kind === 'person')] : [])];
       });
       const domain = new URL(sourceUrl).hostname.replace(/^www\./, "");
       const linked = await this.db
@@ -325,15 +326,22 @@ export class ResearchRepository {
       // Only a literal first-party company assertion may create a new business, and
       // never from a directory, register, association or social listing page.
       let targetId = config.targetId || linked[0]?.id;
-      const company = ownCompany(findings, sourceUrl);
-      // ...and only when the page also shows what the business makes, does or sells; identity alone is not a lead.
-      const businessFit = findings.some(f => ["product", "capability", "customer", "business_role"].includes(f.kind));
+      // C qualifies the company corpus across separately attributed pages. Only
+      // validated observations from this exact job and first-party domain count.
+      const corpus = config.pipelineDesign === 'corpus-v1' && config.researchTask === 'company'
+        ? (await this.db.select({ evidence: researchFindings.evidence, sourceUrl: researchFindings.sourceUrl }).from(researchFindings).where(and(eq(researchFindings.organizationId, this.org), eq(researchFindings.mandateId, job.mandateId), eq(researchFindings.jobId, id))))
+          .filter(row => publicResearchUrl(row.sourceUrl) && researchDomain(row.sourceUrl) === domain)
+        : [];
+      const qualification = [...corpus.map(row => row.evidence as ResearchFinding), ...findings];
+      const company = ownCompany(qualification, sourceUrl);
+      // Identity alone is not a lead: the page (or C corpus) must show business activity.
+      const businessFit = qualification.some(f => ["product", "capability", "customer", "business_role"].includes(f.kind));
       if (!targetId && config.workflow === "business" && company && businessFit && !directorySource(sourceUrl, page.markdown) && (!config.targetBusinesses || new Set(config.newBusinessIds || []).size < config.targetBusinesses)) {
         const acquisition = new AcquisitionRepository(this.org, this.db);
         const mandate = await acquisition.getMandate(job.mandateId);
         if (mandate) {
           const filters = briefToMandate(mandate.brief);
-          const candidate = mapGooglePlace({ id: domain, name: company.name, website: `https://${domain}/`, formattedAddress: "Unknown", discoverySource: "manufacturing-directory", manufacturingDirectory: { recordId: domain, name: company.name, website: `https://${domain}/`, description: company.quote, categories: [], keywords: [], capabilities: [], sourceRecords: [{ source: "Public website research", sourceId: domain, sourceUrl }] } }, filters, this.org, "Website identity observed; review financial fit");
+          const candidate = mapGooglePlace({ id: domain, name: company.name, website: `https://${domain}/`, formattedAddress: "Unknown", discoverySource: "manufacturing-directory", manufacturingDirectory: { recordId: domain, name: company.name, website: `https://${domain}/`, description: company.quote, categories: [], keywords: [], capabilities: [], sourceRecords: [{ source: "Public website research", sourceId: domain, sourceUrl: corpus.find(row => row.evidence === company)?.sourceUrl || sourceUrl }] } }, filters, this.org, "Website identity observed; review financial fit");
           const saved = await new OrganizationRepository(this.db, this.org).upsertEnrichedTarget({ target: rankTarget(candidate, filters), mandateId: job.mandateId, actorId: job.createdBy, creationId: researchTargetId(this.org, domain) });
           if (saved) { await acquisition.attach(job.mandateId, saved.id); targetId = saved.id; }
         }
@@ -394,7 +402,7 @@ export class ResearchRepository {
       if (targetId && [...pageFindings, ...earlier.map(f => f.evidence as ResearchFinding)].some(f => ['headcount', 'revenue', 'founded_year'].includes(f.kind))) await reconcileResearchTarget(this.db, this.org, targetId);
       // A qualifying company counts only after its evidence/contact writes
       // succeed. Failed persistence remains retryable without a false milestone.
-      if (targetId && relevantBusiness(pageFindings)) await this.recordNewBusiness(id, targetId, job);
+      if (targetId && relevantBusiness(qualification)) await this.recordNewBusiness(id, targetId, job);
     }
     let updatedConfig = event.runtime ? sql`jsonb_set(${researchJobs.config}, '{runtime}', ${JSON.stringify(event.runtime)}::jsonb)` : sql`${researchJobs.config}`;
     for (const key of ['targetedSearchDeferred', 'followupPlannerUsed', 'followupExhaustedFields', 'followupSearchCounts', 'followupEmptySearchCounts'] as const) {

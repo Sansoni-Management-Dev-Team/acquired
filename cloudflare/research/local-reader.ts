@@ -1,11 +1,11 @@
 import { publicResearchUrl } from "../../src/domain/research";
 import { providerJsonRequest } from "../../src/adapters/observability/provider-request";
-export type LocalReaderEnv = { LOCAL_DEVELOPMENT?: string; LOCAL_CRAWL4AI_URL?: string };
+export type LocalReaderEnv = { LOCAL_DEVELOPMENT?: string; LOCAL_RESEARCH_BENCHMARK?: string; LOCAL_CRAWL4AI_URL?: string };
 
 export function localReaderEndpoint(env: LocalReaderEnv) {
   if (env.LOCAL_DEVELOPMENT !== "true") throw new Error("Local reader requires local development mode");
   const base = new URL(env.LOCAL_CRAWL4AI_URL || "http://127.0.0.1:18083");
-  if (base.protocol !== "http:" || base.hostname !== "127.0.0.1" || base.port !== "18083" || base.username || base.password || base.pathname !== "/" || base.search || base.hash) throw new Error("Local reader must use OrbStack on http://127.0.0.1:18083");
+  if (base.protocol !== "http:" || base.hostname !== "127.0.0.1" || (base.port !== "18083" && !(env.LOCAL_RESEARCH_BENCHMARK === "true" && Number(base.port) >= 1024 && Number(base.port) <= 65535)) || base.username || base.password || base.pathname !== "/" || base.search || base.hash) throw new Error("Local reader must use OrbStack on http://127.0.0.1:18083");
   return new URL("/crawl", base).href;
 }
 

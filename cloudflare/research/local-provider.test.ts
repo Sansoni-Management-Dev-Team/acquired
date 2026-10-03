@@ -25,8 +25,8 @@ it('direct local searches obtain their own reservation and consume it', async ()
   expect(callback.mock.calls[1][0]).toMatchObject({ action: 'browser-permit', token: callback.mock.calls[0][0].token });
 });
 
-it('runs three local readers concurrently and admits the fourth after completion', async () => {
-  const { reserveProvider, consumeProvider, releaseProvider } = await import('../../src/domain/research-provider-queue');
+it('runs the configured local reader pool and admits the next read after completion', async () => {
+  const { reserveProvider, consumeProvider, releaseProvider, LOCAL_PAGE_CONCURRENCY } = await import('../../src/domain/research-provider-queue');
   let queue: import('../../src/domain/research-provider-queue').ProviderQueue = {};
   let active = 0, peak = 0;
   const finish: Array<() => void> = [];
@@ -49,16 +49,16 @@ it('runs three local readers concurrently and admits the fourth after completion
     active--;
     return id;
   });
-  const reads = [start('a'), start('b'), start('c')];
-  await vi.waitFor(() => expect(active).toBe(3));
+  const reads = Array.from({length:LOCAL_PAGE_CONCURRENCY},(_,i)=>start(`read-${i}`));
+  await vi.waitFor(() => expect(active).toBe(LOCAL_PAGE_CONCURRENCY));
   await expect(start('blocked')).rejects.toMatchObject({ category: 'browser_admission' });
   finish[0]();
   await reads[0];
   reads.push(start('d'));
-  await vi.waitFor(() => expect(finish).toHaveLength(4));
-  expect(active).toBe(3);
+  await vi.waitFor(() => expect(finish).toHaveLength(LOCAL_PAGE_CONCURRENCY+1));
+  expect(active).toBe(LOCAL_PAGE_CONCURRENCY);
   finish.slice(1).forEach(resolve => resolve());
   await Promise.all(reads);
-  expect(peak).toBe(3);
+  expect(peak).toBe(LOCAL_PAGE_CONCURRENCY);
   expect(queue.reservations?.filter(r => !r.released)).toHaveLength(0);
 });

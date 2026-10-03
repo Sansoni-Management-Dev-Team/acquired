@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { LOCAL_DATABASE_URL, localDevConfig, localDevEnvironment, localWorkerConfig } from "./dev-config.mjs";
+import { LOCAL_DATABASE_URL, enableLocalFirmableDesign, localDevConfig, localDevEnvironment, localWorkerConfig } from "./dev-config.mjs";
 const env = { OPENROUTER_API_KEY: "fake", CF_ACCOUNT_ID: "fake", CF_BROWSER_TOKEN: "fake" };
 it("overrides production database, worker, auth origin and paid AI settings for development", () => {
   const config = localDevConfig({ ...env, DATABASE_URL: "postgres://prod.example.com/db", DATABASE_DRIVER: "neon", AI_PROVIDER: "openrouter", RESEARCH_WORKER_URL: "https://production.example.com", APP_URL: "https://production.example.com" }, "local-secret");
@@ -38,4 +38,12 @@ it("uses the project's OpenRouter key before an unrelated inherited shell key", 
 it("uses fast local queues by default and production queues only in parity mode", () => {
   expect(localDevConfig(env, 's').app).toMatchObject({ LOCAL_DEVELOPMENT: 'true', LOCAL_RESEARCH_POLICY: 'development' });
   expect(localDevConfig(env, 's', 3010, 8787, true).app).toMatchObject({ LOCAL_DEVELOPMENT: 'true', LOCAL_RESEARCH_POLICY: 'production' });
+});
+
+it("routes local D through its local session worker and excludes fixed-cohort mode",()=>{
+ const credentials={FIRMABLE_CLIENT_COOKIE:'cookie',FIRMABLE_SESSION_ID:'session',FIRMABLE_ORGANIZATION_ID:'org',FIRMABLE_CREDENTIAL_KEY:'key',FIRMABLE_SERVICE_SECRET:'secret',DATABASE_URL:'remote'};
+ const config=enableLocalFirmableDesign(localDevConfig({...env,FIRMABLE_BENCHMARK_COHORT:'fixed',LOCAL_RESEARCH_BENCHMARK:'true'},'s'),credentials,8787);
+ expect(config.app).toMatchObject({RESEARCH_PIPELINE_DESIGN:'firmable-v1',FIRMABLE_SERVICE_URL:'http://127.0.0.1:8787/firmable',FIRMABLE_TRANSPORT:'cloudflare-session',FIRMABLE_BENCHMARK_COHORT:'',LOCAL_RESEARCH_BENCHMARK:''});
+ expect(config.worker.RESEARCH_PIPELINE_DESIGN).toBe('firmable-v1');expect(config.worker.FIRMABLE_CLIENT_COOKIE).toBe('cookie');expect(config.worker).not.toHaveProperty('DATABASE_URL');
+ expect(()=>enableLocalFirmableDesign(localDevConfig(env,'s'),{},8787)).toThrow('FIRMABLE_CLIENT_COOKIE');
 });

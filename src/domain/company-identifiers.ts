@@ -6,7 +6,7 @@ export function validAbn(value: string) {
   const weights = [10, 1, 3, 5, 7, 9, 11, 13, 15, 17, 19];
   return [...digits].reduce((sum, digit, i) => sum + (Number(digit) - (i === 0 ? 1 : 0)) * weights[i], 0) % 89 === 0;
 }
-export const companyIdentifierNameKey = (value: string) => value.toLowerCase().replace(/\bproprietary\b/g, 'pty').replace(/\blimited\b/g, 'ltd').replace(/[^a-z0-9]+/g, ' ').trim();
+export const companyIdentifierNameKey = (value: string) => value.toLowerCase().replace(/&/g, ' and ').replace(/\bproprietary\b/g, 'pty').replace(/\blimited\b/g, 'ltd').replace(/[^a-z0-9]+/g, ' ').trim();
 
 const tradingKey = (value: string) => companyIdentifierNameKey(value).replace(/\s+(?:pty\s+ltd|ltd|pty)$/, '');
 export function companyIdentifierNameMatches(entity: string, names: (string | undefined)[]) {

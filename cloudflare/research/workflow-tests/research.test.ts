@@ -53,6 +53,9 @@ function replay(options: { read?: (url: string) => string; targetedSeeds?: strin
       if (!init?.body) return Response.json({ status, config: url.endsWith("?control=1") ? { budget: config.budget, performanceFlags: config.performanceFlags } : config, seeds: config.seeds, deadline: Date.now() + 600000 }, {headers:options.callbackTiming ? {"server-timing":"app;dur=12.5, db;dur=4", "x-research-db-calls":"2"} : {}});
       const data = JSON.parse(String(init.body));
       callbacks.push(data);
+      if(data.action==='d-search')return Response.json({records:[{id:'f000000000001',name:'Example Instruments',website:'https://instruments.example.com'}],totalCompany:1,predictedFilters:{filters:{},operators:{},excluded:{}}});
+      if(data.action==='d-company')return Response.json({ok:true});
+      if(data.action==='d-finish'){status='complete';return Response.json({ok:true});}
       if (data.action === "discovery-context") return Response.json({ scope: "industrial cleaning", startingTerms: [], regions: ["Victoria"], target: 20, found: 0, remainingSearches: 12, attempts: [], candidates: [] });
       if (data.action === "discovery-sources") return Response.json({ pending: true });
       if (data.action === "discovery-persist") return Response.json({ pending: callbacks.filter(c => c.action === "discovery-persist").length < 2 });
@@ -437,3 +440,5 @@ it('runs and checkpoints the independent ABN branch with the registry record par
   expect(t.progress.flatMap(p => p.page?.findings || [])).toContainEqual(expect.objectContaining({ name: 'ABN', value: '56663118241' }));
   expect(t.progress.at(-1)).toMatchObject({ status: 'complete', pages: 1, modelCalls: 0 });
 });
+
+it('routes a snapshotted D root without changing the Worker environment design',async()=>{const t=replay();Object.assign(t.config,{mode:'automatic',workflow:'business',discover:true,pipelineDesign:'firmable-v1',researchRunId:t.id,automaticDeadline:Date.now()+600000});await using instance=await introspectWorkflowInstance(bindings.RESEARCH,t.id);await instance.modify(m=>m.disableSleeps());await bindings.RESEARCH.create({id:t.id,params:{jobId:t.id}});await instance.waitForStatus('complete');expect(t.callbacks.filter(c=>c.action==='d-search')).toHaveLength(1);expect(t.callbacks.filter(c=>c.action==='d-company')).toHaveLength(1);expect(t.callbacks).toContainEqual(expect.objectContaining({action:'d-finish',result:expect.objectContaining({saved:1,failed:0})}));expect(t.requests.some(url=>url.endsWith('/crawl'))).toBe(false);});

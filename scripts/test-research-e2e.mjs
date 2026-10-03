@@ -17,7 +17,7 @@ import {aggregateRecordedCaptures,comparisonFingerprint} from './benchmark-resea
 import { checkLocalResearchSchema } from './local-research-schema.mjs';
 
 const root=process.cwd();
-const {live,benchmarkStage}=parseResearchE2eArguments(process.argv.slice(2));
+const {live,benchmarkStage,design}=parseResearchE2eArguments(process.argv.slice(2));
 const run=randomUUID(), directory=resolve('.local-data/research-e2e',run);
 mkdirSync(directory,{recursive:true,mode:0o700});
 const report={mode:benchmarkStage?'benchmark':live?'live':'deterministic',benchmarkStage,startedAt:new Date().toISOString(),checks:[],jobs:[]};
@@ -32,7 +32,7 @@ const ports=[];while(ports.length<4){const p=await freePort();if(!ports.includes
 const [appPort,workerPort,fixturePort,readerPort]=ports;
 const secret=randomBytes(32).toString('hex');
 let environment={};if(live){try{environment=parseEnv(readFileSync('.env.local','utf8'));}catch{} environment.OPENROUTER_API_KEY ||= process.env.OPENROUTER_API_KEY;}
-const config=researchE2eConfig({appPort,workerPort,fixturePort,readerPort,secret,authSecret:randomBytes(32).toString('hex'),live,environment,benchmarkStage});
+const config=researchE2eConfig({appPort,workerPort,fixturePort,readerPort,secret,authSecret:randomBytes(32).toString('hex'),live,environment,benchmarkStage,design});
 const app=`http://127.0.0.1:${appPort}`,worker=`http://127.0.0.1:${workerPort}`,fixtures=`http://127.0.0.1:${fixturePort}`;
 function passed(name){ report.checks.push(name);console.log(`PASS ${name}`); }
 function start(label,command,args,env){
@@ -156,7 +156,7 @@ try{
  await db.connect();connected=true;await checkLocalResearchSchema(db);
  assert.equal(execFileSync('docker',['context','show'],{encoding:'utf8'}).trim(),'orbstack','Select the OrbStack Docker context first');
  const readerImage=process.env.RESEARCH_E2E_READER_IMAGE||'project-acquire-crawl4ai:latest';readerImageForBenchmark=readerImage;
- if(benchmarkStage) {
+ {
   benchmarkSource=resolve(directory,'source');mkdirSync(benchmarkSource);
   for(const path of ['src','cloudflare/research','cloudflare/crawl4ai','tests/research-e2e'])cpSync(resolve(root,path),resolve(benchmarkSource,path),{recursive:true});
   for(const path of ['scripts/test-research-e2e.mjs','scripts/research-e2e-benchmark.mjs','scripts/benchmark-research-pipeline.mjs','scripts/research-e2e-config.mjs']){mkdirSync(resolve(benchmarkSource,'scripts'),{recursive:true});cpSync(resolve(root,path),resolve(benchmarkSource,path));}
@@ -173,7 +173,7 @@ try{
  const workerConfiguration=localWorkerConfig(JSON.parse(readFileSync('cloudflare/research/wrangler.jsonc','utf8')),app,resolve(benchmarkSource,live?'cloudflare/research/index.ts':'cloudflare/research/e2e/worker.ts'),'production');
  workerConfiguration.vars=config.worker;
  writeFileSync(resolve(directory,'wrangler.json'),JSON.stringify(workerConfiguration,null,2),{mode:0o600});
- start('worker','pnpm',['exec','wrangler','dev','--local','--config',resolve(directory,'wrangler.json'),'--ip','127.0.0.1','--port',String(workerPort),'--inspector-port','0','--persist-to',resolve(directory,'state'),'--show-interactive-dev-session=false'],{...config.app,WRANGLER_SEND_METRICS:'false',CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV:'false',CLOUDFLARE_INCLUDE_PROCESS_ENV:'false'});
+ start('worker',process.execPath,[resolve(root,'node_modules/wrangler/bin/wrangler.js'),'dev','--local','--config',resolve(directory,'wrangler.json'),'--ip','127.0.0.1','--port',String(workerPort),'--inspector-port','0','--persist-to',resolve(directory,'state'),'--show-interactive-dev-session=false'],{...config.app,WRANGLER_SEND_METRICS:'false',CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV:'false',CLOUDFLARE_INCLUDE_PROCESS_ENV:'false'});
  await ready(worker+'/',r=>r.status===401);
  const project=resolve(directory,'app');mkdirSync(project);
  for(const path of ['src','public'])cpSync(resolve(path==='src'?benchmarkSource:root,path),resolve(project,path),{recursive:true});
@@ -182,7 +182,7 @@ try{
  const ts=JSON.parse(readFileSync('tsconfig.json','utf8'));ts.compilerOptions.incremental=false;ts.include=['next-env.d.ts','src/**/*.ts','src/**/*.tsx','.next/types/**/*.ts','.next/dev/types/**/*.ts'];ts.exclude=['node_modules'];
  writeFileSync(resolve(project,'tsconfig.json'),JSON.stringify(ts,null,2));
  writeFileSync(resolve(project,'next.config.mjs'),`export default { poweredByHeader:false, turbopack:{root:${JSON.stringify(root)}} };\n`);
- start('app',process.execPath,[resolve('node_modules/next/dist/bin/next'),'dev',project,'--hostname','127.0.0.1','--port',String(appPort)],config.app);
+ start('app',process.execPath,[resolve('node_modules/next/dist/bin/next'),'dev',project,'--webpack','--hostname','127.0.0.1','--port',String(appPort)],config.app);
  await ready(app+'/api/mandates',r=>r.status===401);
  // Compile callback routes before starting the Workflow's bounded callbacks.
  assert.equal((await api('/api/research/internal/'+randomUUID(),undefined,'none')).status,403);
@@ -251,9 +251,13 @@ try{
   passed('Cancellation stops the real Workflow without saving later evidence');
   // Exercise the actual parallel scheduler, Workflow page callbacks, source
   // revalidation and target identifier writes in a disposable organization.
+  if(design==='C'){
+   assert.equal((await db.query("SELECT id FROM targets WHERE organization_id=$1 AND domain='gamma.instruments.example.com'",[organizationId])).rows.length,0);
+   await control({splitGammaCorpus:true});
+  }
   const parallelId=randomUUID();
-  const parallelConfig={...input,parallelBusinessResearch:true,mode:'automatic',findPeople:false,automaticDeadline:Date.now()+180000,automaticPageLimit:30,performanceFlags:{telemetryBatching:true,progressCoalescing:true,schedulerCoalescing:true}};
-  await db.query("INSERT INTO research_jobs (id,organization_id,mandate_id,created_by,status,config,seeds) VALUES ($1,$2,$3,$4,'queued',$5,$6)",[parallelId,organizationId,mandateId,userId,parallelConfig,JSON.stringify(seeds)]);
+  const parallelConfig={...input,...(design==='C'?{pipelineDesign:'corpus-v1'}:{}),parallelBusinessResearch:true,mode:'automatic',findPeople:design==='C',automaticDeadline:Date.now()+180000,automaticPageLimit:30,performanceFlags:{telemetryBatching:true,progressCoalescing:true,schedulerCoalescing:true}};
+  await db.query("INSERT INTO research_jobs (id,organization_id,mandate_id,created_by,status,config,seeds) VALUES ($1,$2,$3,$4,'queued',$5,$6)",[parallelId,organizationId,mandateId,userId,parallelConfig,JSON.stringify(design==='C'?[...seeds,'https://gamma.instruments.example.com/']:seeds)]);
   report.jobs.push(parallelId);active.add(parallelId);
   const scheduledParallel=await api(`/api/research/internal/${parallelId}`,{status:'partial',revision:1,pages:0,modelCalls:0,message:'Fixture discovery completed'},'service');
   assert.equal(scheduledParallel.status,200,JSON.stringify(scheduledParallel.data));
@@ -270,8 +274,8 @@ try{
   assert.ok(parallelJobs.length && parallelJobs.every(job=>['complete','partial','failed','cancelled'].includes(job.status)),'Parallel branches must finish within the test budget');
   for(const job of parallelJobs)await settled(job.id);
   const branches=parallelJobs.filter(job=>job.config.researchRunId===parallelId);
-  for(const kind of ['website','field','page'])assert.ok(branches.some(job=>job.config.researchTask===kind),`Missing parallel ${kind} job`);
-  for(const field of ['abn','size','revenue'])assert.ok(branches.some(job=>job.config.researchField===field),`Missing parallel ${field} branch`);
+  if(design!=='C')for(const kind of ['website','field','page'])assert.ok(branches.some(job=>job.config.researchTask===kind),`Missing parallel ${kind} job`);
+  if(design!=='C')for(const field of ['abn','size','revenue'])assert.ok(branches.some(job=>job.config.researchField===field),`Missing parallel ${field} branch`);
   assert.ok(branches.filter(job=>job.config.researchTask==='page').every(job=>job.pages===1),'Sitemap child jobs each read one page');
   const alphaTarget=(await db.query("SELECT id,identifiers,firmographics FROM targets WHERE organization_id=$1 AND domain='alpha.instruments.example.com'",[organizationId])).rows[0];
   report.parallelTarget=alphaTarget;
@@ -286,7 +290,16 @@ try{
   for(const kind of ['identifier','headcount','revenue'])assert.ok(savedParallel.some(f=>f.evidence.kind===kind),`Missing persisted parallel ${kind} evidence`);
   assert.equal(new Set(branches.map(job=>job.id)).size,branches.length);
   active.delete(parallelId);report.parallelJobs=branches.map(job=>({id:job.id,task:job.config.researchTask,field:job.config.researchField,status:job.status,pages:job.pages}));
-  passed('Independent ABN/headcount/revenue/website jobs and sitemap page jobs persist through real Chromium, Workflows and PostgreSQL');
+  if(design==='C'){
+   const gamma=(await db.query("SELECT id FROM targets WHERE organization_id=$1 AND domain='gamma.instruments.example.com'",[organizationId])).rows[0];
+   assert.ok(gamma,'C must create a new company from identity and product evidence on different pages');
+   const evidence=(await db.query("SELECT source_url,evidence FROM research_findings WHERE organization_id=$1 AND target_id=$2 AND job_id=ANY($3::uuid[])",[organizationId,gamma.id,branches.map(j=>j.id)])).rows;
+   assert.ok(evidence.some(f=>f.evidence.kind==='company'&&new URL(f.source_url).pathname==='/'));
+   assert.ok(evidence.some(f=>f.evidence.kind==='product'&&new URL(f.source_url).pathname==='/about'));
+   passed('C qualifies a new company across separate identity/service pages while preserving each source URL');
+  }
+  if(design==='C'){const companies=branches.filter(j=>j.config.researchTask==='company');assert.ok(companies.length,'C must dispatch company corpus jobs');assert.ok(companies.every(j=>j.model_calls<=2),'C must batch fields into at most two extraction calls per company');assert.ok(!branches.some(j=>['website','page'].includes(j.config.researchTask)),'C must not duplicate website/page extraction jobs');assert.ok(savedParallel.some(f=>f.evidence.kind==='person'&&f.evidence.email),'C must persist a published director email');assert.ok(!branches.some(j=>['abn','size','people','email'].includes(j.config.researchField)),'Covered fields must not create gap jobs');passed('C collects sitemap pages, extracts all fields together, persists attributed evidence, and skips covered follow-ups');}
+  else passed('Independent ABN/headcount/revenue/website jobs and sitemap page jobs persist through real Chromium, Workflows and PostgreSQL');
   const polling=await api(`/api/mandates/${mandateId}/research`);assert.equal(polling.status,200);assert.ok(Number(polling.response.headers.get('x-research-db-calls'))<=8);
   report.databaseCalls.inactivePolling=Number(polling.response.headers.get('x-research-db-calls'));
   assert.ok(!JSON.stringify(polling.data.jobs.map(j=>j.config)).includes('bufferedPage'));

@@ -43,3 +43,18 @@ export function localWorkerConfig(production, origin, main, policy) {
 export function localDevEnvironment(fileEnv, shellEnv) {
   return { ...fileEnv, ...shellEnv, OPENROUTER_API_KEY: fileEnv.OPENROUTER_API_KEY || shellEnv.OPENROUTER_API_KEY };
 }
+
+// Explicit local D mode; only Firmable credentials reach the session worker.
+export function enableLocalFirmableDesign(config, credentials, workerPort) {
+  const required = ['FIRMABLE_CLIENT_COOKIE', 'FIRMABLE_SESSION_ID', 'FIRMABLE_ORGANIZATION_ID', 'FIRMABLE_CREDENTIAL_KEY', 'FIRMABLE_SERVICE_SECRET'];
+  for (const key of required) if (typeof credentials[key] !== 'string' || !credentials[key]) throw new Error(`Local D requires ${key}`);
+  for (const key of [...required, 'FIRMABLE_SESSION_TOKEN']) if (credentials[key]) config.worker[key] = credentials[key];
+  config.app.RESEARCH_PIPELINE_DESIGN = 'firmable-v1';
+  config.worker.RESEARCH_PIPELINE_DESIGN = 'firmable-v1';
+  config.app.FIRMABLE_TRANSPORT = 'cloudflare-session';
+  config.app.FIRMABLE_SERVICE_URL = `http://127.0.0.1:${workerPort}/firmable`;
+  config.app.FIRMABLE_SERVICE_SECRET = credentials.FIRMABLE_SERVICE_SECRET;
+  config.app.FIRMABLE_BENCHMARK_COHORT = '';
+  config.app.LOCAL_RESEARCH_BENCHMARK = '';
+  return config;
+}

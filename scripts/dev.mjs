@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { createServer } from "node:net";
 import pg from "pg";
-import { localDevConfig, localDevEnvironment, localWorkerConfig, disabledCloudflareEnvironment } from "./dev-config.mjs";
+import { localDevConfig, enableLocalFirmableDesign, localDevEnvironment, localWorkerConfig, disabledCloudflareEnvironment } from "./dev-config.mjs";
 import { checkLocalResearchSchema } from "./local-research-schema.mjs";
 import { stopPreviousDevServers } from "./dev-processes.mjs";
 import { startDevLog } from "./dev-log.mjs";
@@ -16,9 +16,12 @@ process.on("uncaughtExceptionMonitor", error => log.record(`${error.stack || err
 
 const parity = process.argv.includes("--parity");
 const args = process.argv.slice(2).filter(a => a !== "--" && a !== "--parity");
+const designIndex = args.indexOf("--design");
+const design = designIndex >= 0 ? args[designIndex + 1] : null;
+if (designIndex >= 0) { if (design !== "D") throw new Error("Local design must be D"); args.splice(designIndex, 2); }
 const portIndex = args.findIndex(a => a === "--port" || a === "-p");
 const port = Number(portIndex >= 0 ? args[portIndex + 1] : process.env.PORT || 3010);
-if (args.length && (portIndex !== 0 || args.length !== 2)) throw new Error("Usage: pnpm dev [--parity] [--port 3010]");
+if (args.length && (portIndex !== 0 || args.length !== 2)) throw new Error("Usage: pnpm dev [--parity] [--design D] [--port 3010]");
 const workerPort = Number(process.env.LOCAL_RESEARCH_PORT || 8787);
 let fileEnv = {};
 try { fileEnv = parseEnv(readFileSync(".env.local", "utf8")); } catch { /* Shell values also work. */ }
@@ -28,6 +31,11 @@ const secretFile = resolve(directory, "service-secret");
 const secret = existsSync(secretFile) ? readFileSync(secretFile, "utf8") : randomBytes(32).toString("hex");
 writeFileSync(secretFile, secret, { mode: 0o600 });
 const config = localDevConfig(localDevEnvironment(fileEnv, process.env), secret, port, workerPort, parity);
+if (design === "D") {
+  const credentialPath = resolve(".local-data/firmable-D-credentials.json");
+  if (!existsSync(credentialPath)) throw new Error("Local D credentials are missing; configure the Firmable session first");
+  enableLocalFirmableDesign(config, JSON.parse(readFileSync(credentialPath, "utf8")), workerPort);
+}
 config.app.WHATSAPP_SERVICE_URL = "";
 config.app.WHATSAPP_SERVICE_SECRET = "";
 const whatsappEnvFile = resolve(".local-data/whatsapp/service.env");
@@ -80,11 +88,12 @@ function start(command, arguments_, env) {
   return child;
 }
 console.info(`Local app: http://localhost:${port} · OrbStack Postgres :5434 · research worker :${workerPort} · Crawl4AI :18083 · ${parity ? "production policies, DuckDuckGo page 1" : "OpenSERP :7000"} · zero Cloudflare API calls · OpenRouter free models → Mercury fallback`);
-start("pnpm", ["exec", "wrangler", "dev", "--local", "--config", resolve(directory, "wrangler.json"), "--ip", "127.0.0.1", "--port", String(workerPort), "--inspector-port", "0", "--persist-to", resolve(directory, "state"), "--show-interactive-dev-session=false"], { ...process.env, ...disabledCloudflareEnvironment(process.env), WRANGLER_SEND_METRICS: "false", CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false", CLOUDFLARE_INCLUDE_PROCESS_ENV: "false" });
+start(process.execPath, [resolve("node_modules/wrangler/bin/wrangler.js"), "dev", "--local", "--config", resolve(directory, "wrangler.json"), "--ip", "127.0.0.1", "--port", String(workerPort), "--inspector-port", "0", "--persist-to", resolve(directory, "state"), "--show-interactive-dev-session=false"], { ...process.env, ...disabledCloudflareEnvironment(process.env), WRANGLER_SEND_METRICS: "false", CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false", CLOUDFLARE_INCLUDE_PROCESS_ENV: "false" });
+if (design === "D") console.info("Pipeline D enabled: live Firmable company search, company profiles and ABN identity resolution; company-only, 100 candidates, 10-minute deadline.");
 let ready = false;
 for (let i = 0; i < 60 && !stopping; i++) {
   try { const response = await fetch(`http://127.0.0.1:${workerPort}/`, { signal: AbortSignal.timeout(500) }); if (response.status === 401) { ready = true; break; } } catch { /* Wait for local Worker startup. */ }
   await new Promise(r => setTimeout(r, 500));
 }
 if (!ready) { stop(1); throw new Error("Local research worker did not become ready"); }
-start("pnpm", ["exec", "next", "dev", "--port", String(port)], config.app);
+start(process.execPath, [resolve("node_modules/next/dist/bin/next"), "dev", "--port", String(port)], config.app);

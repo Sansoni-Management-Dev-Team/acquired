@@ -56,6 +56,7 @@ export function parallelBusinessTasks(snapshot: ResearchSchedulingSnapshot) {
       workflow: 'business', mode: 'automatic', approved: true, geography: config.geography,
       searchTerms: config.searchTerms, researchScope: config.researchScope, findPeople: config.findPeople,
       researchRunId: root.id, parentJobId: root.id, performanceFlags: config.performanceFlags,
+      ...(config.pipelineDesign ? { pipelineDesign: config.pipelineDesign } : {}),
       automaticDeadline: config.automaticDeadline, parallelBusinessResearch: true,
       ...(!field ? { targetBusinesses: config.targetBusinesses, businessTargetStartedAt: config.businessTargetStartedAt || root.createdAt?.toISOString(), newBusinessIds: config.newBusinessIds } : {}),
       researchTask: task, researchField: field, purpose, targetId: business.targetId,
