@@ -58,3 +58,12 @@ it.each([429, 422, 503])("preserves local provider HTTP %s without a cloud fallb
   await expect(browserMarkdown(local, "https://example.com/", { operation: "markdown", permit: async () => ({ granted: true, retryAfterMs: 0 }) }, fetcher)).rejects.toMatchObject({ status });
   expect(fetcher).toHaveBeenCalledOnce();
 });
+
+it('allows a separate loopback reader only for explicit benchmark mode', async () => {
+ const env = { LOCAL_DEVELOPMENT: 'true', LOCAL_RESEARCH_POLICY:'production', LOCAL_RESEARCH_BENCHMARK: 'true', LOCAL_CRAWL4AI_URL:'http://127.0.0.1:18483' };
+ const fetcher = vi.fn(async () => new Response('{}'));
+ await researchFetch(env, fetcher)('http://127.0.0.1:18483/crawl');
+ expect(fetcher).toHaveBeenCalledTimes(1);
+ await expect(researchFetch({...env, LOCAL_CRAWL4AI_URL:'https://example.com'},fetcher)('https://example.com/crawl')).rejects.toThrow();
+ await expect(researchFetch({...env, LOCAL_RESEARCH_BENCHMARK:undefined},fetcher)('http://127.0.0.1:18483/crawl')).rejects.toThrow();
+});

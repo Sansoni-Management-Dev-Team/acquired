@@ -47,6 +47,7 @@ export const briefSchema = z.object({
     const c = brief.criteria.find(c => c.key === key);
     if (c?.state === "specified") {
       const numbers = [...c.value.matchAll(/(\d[\d,]*(?:\.\d+)?)\s*(million|billion|[mkb])?/gi)];
+      if (/<\/?[a-z][^>]*>/i.test(c.value)) ctx.addIssue({ code: "custom", message: `${key}: markup is not a numeric value` });
       if (!numbers.length) ctx.addIssue({ code: "custom", message: `${key}: enter a numeric range or mark unknown` });
       if (numbers.length > 2) ctx.addIssue({ code: "custom", message: `${key}: use one minimum and an optional maximum` });
       if (numbers.length === 2) {
@@ -57,7 +58,7 @@ export const briefSchema = z.object({
   }
   if (brief.criteria.length === criterionDefinitions.length && new Set(brief.criteria.map(c => c.key)).size === criterionDefinitions.length) {
     const filters = briefToMandate(brief);
-    if (filters.revenue.max !== null && filters.revenue.min > filters.revenue.max) ctx.addIssue({ code: "custom", message: "Revenue minimum must not exceed the separate revenue ceiling" });
+    if (filters.revenue.min > Math.min(filters.revenue.max ?? Infinity, filters.revenueCeiling ?? Infinity)) ctx.addIssue({ code: "custom", message: "Revenue minimum must not exceed the separate revenue ceiling" });
   }
   if (new Set(brief.criteria.map(c => c.key)).size !== criterionDefinitions.length) ctx.addIssue({ code: "custom", message: "Every criterion must appear exactly once" });
   for (const c of brief.criteria) if (c.state === "specified" && !c.value.trim()) ctx.addIssue({ code: "custom", message: `${c.key} needs a value or an explicit unknown` });
@@ -85,7 +86,7 @@ export function briefToMandate(brief: AcquisitionBrief): Mandate {
     const values = amounts.map((a, i) => Number(a[1].replaceAll(",", "")) * ({ m: 1e6, million: 1e6, k: 1e3, b: 1e9, billion: 1e9 }[a[2]?.toLowerCase() || (i === 0 ? amounts[1]?.[2]?.toLowerCase() : "")] || 1));
     return c.state !== "specified" ? { min: 0, max: null } : { min: values[0] ?? 0, max: values[1] ?? null };
   }
-  return { sectors: criterion(brief, "subsectors").value.split(/[;\n]/).map(s => s.trim()).filter(Boolean), states, revenue: { ...range("revenue"), ...(criterion(brief,"revenueCeiling").state === "specified" ? { max: range("revenueCeiling").min } : {}) }, ebitda: range("ebitda"), ...(criterion(brief, "headcount").state === "specified" ? { headcount: { min: range("headcount").min, max: range("headcount").max ?? Number.MAX_SAFE_INTEGER } } : {}), unknownFields: brief.criteria.filter(c => c.state === "unknown").map(c => c.key), requirements: brief.criteria.filter(c => c.importance === "requirement" && c.confirmed && c.state === "specified").map(c => c.key) };
+  return { sectors: criterion(brief, "subsectors").value.split(/[;\n]/).map(s => s.trim()).filter(Boolean), states, revenue: range("revenue"), ...(criterion(brief,"revenueCeiling").state === "specified" ? { revenueCeiling: range("revenueCeiling").min } : {}), ebitda: range("ebitda"), ...(criterion(brief, "headcount").state === "specified" ? { headcount: { min: range("headcount").min, max: range("headcount").max ?? Number.MAX_SAFE_INTEGER } } : {}), unknownFields: brief.criteria.filter(c => c.state === "unknown").map(c => c.key), requirements: brief.criteria.filter(c => c.importance === "requirement" && c.confirmed && c.state === "specified").map(c => c.key) };
 }
 export const evidenceSchema = z.object({
   criterionKey: z.enum(criterionDefinitions.map(([key]) => key) as [CriterionKey, ...CriterionKey[]]),

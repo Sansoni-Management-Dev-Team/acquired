@@ -12,6 +12,7 @@ type StoredFirmographics = {
   revenue?: unknown;
   ebitda?: unknown;
   headcount?: unknown;
+  headcountBand?: unknown;
   establishedYear?: unknown;
   accreditations?: unknown;
   financeability?: unknown;
@@ -87,6 +88,7 @@ export function targetRecordToRankedTarget(row: TargetRecord, signalRows: Signal
     revenue: derived<FinancialValue>(firmographics.revenue, "Revenue was not retained"),
     ebitda: derived<FinancialValue>(firmographics.ebitda, "EBITDA was not retained"),
     headcount: derived<number>(firmographics.headcount, "Headcount was not retained"),
+    headcountBand: firmographics.headcountBand as import("@/domain/models").TargetCandidate["headcountBand"],
     establishedYear: derived<number>(firmographics.establishedYear, "Established year was not retained"),
     financeability: firmographics.financeability as RankedTarget["financeability"],
     signals: storedSignals(signalRows),

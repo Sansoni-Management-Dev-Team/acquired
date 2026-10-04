@@ -3,6 +3,11 @@ import { observedCompanyIdentifiers, validAbn, validateCompanyIdentifiers } from
 const config = { companyName: 'Fire Central Pty Ltd', companyDomain: 'firecentral.com.au', companyLocation: 'Carlton VIC 3053' };
 const source = 'https://abr.business.gov.au/ABN/View?abn=56663118241';
 const registry = '# Current details for ABN 56 663 118 241\nEntity name: FIRE CENTRAL PTY LTD\nABN status: Active from 14 Oct 2022\nMain business location: VIC 3053';
+it('validates an AND/& registry entity without dropping substantive name words', () => {
+  const name = 'Contract Manufacturing and Packaging Services Pty Ltd';
+  const record = '# Current details for ABN 70 092 250 596\nEntity name: CONTRACT MANUFACTURING & PACKAGING SERVICES PTY LTD\nMain business location: NSW 2164';
+  expect(observedCompanyIdentifiers(record, 'https://abr.business.gov.au/ABN/View?abn=70092250596', { companyName: name, companyDomain: 'cmps.com.au' })).toContainEqual(expect.objectContaining({ value: '70092250596' }));
+});
 it('verifies the Fire Central ABN from the actual registry page, without AI', () => {
   const findings = observedCompanyIdentifiers(registry, source, config);
   expect(findings).toMatchObject([{ kind: 'identifier', name: 'ABN', value: '56663118241' }, { name: 'Legal entity', value: 'FIRE CENTRAL PTY LTD' }]);

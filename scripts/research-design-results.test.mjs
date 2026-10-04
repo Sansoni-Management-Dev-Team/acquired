@@ -1,0 +1,5 @@
+import{expect,it}from'vitest';import{summarizeDesignPairs}from'./research-design-results.mjs';
+const run=(elapsedMs,settled=true)=>({manifest:{caseHash:'case',baselineHash:'db',providerHash:'providers',observerHash:'observer'},summary:{finished:true,settled,elapsedMs,coverage:{}}});
+it('uses paired medians and preserves variation instead of comparing best runs',()=>{const r=summarizeDesignPairs([{a:run(10),b:run(5)},{a:run(20),b:run(9)},{a:run(100),b:run(100)}]);expect(r.medianDurationRatio).toBe(.45);expect(r.a.samples).toEqual([10,20,100]);expect(r.sufficientRepetitions).toBe(true);});
+it('does not label deadline runs or drifting inputs as a completion speed improvement',()=>{expect(summarizeDesignPairs([{a:run(10),b:run(5,false)}]).medianDurationRatio).toBeNull();const b=run(5);b.manifest.baselineHash='other';expect(summarizeDesignPairs([{a:run(10),b}]).comparable).toBe(false);});
+it('labels A/C comparisons with their actual designs',()=>{const a=run(10),c=run(5);a.manifest.design='A';c.manifest.design='C';expect(summarizeDesignPairs([{a,b:c}]).designs).toEqual({reference:'A',candidate:'C'});});

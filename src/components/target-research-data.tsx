@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { DetailTooltip } from "./detail-tooltip";
 import type { SavedResearchFinding } from "@/domain/research";
-import { estimateEbitda } from "@/domain/estimated-ebitda";
+import { resolveTargetEbitda } from "@/domain/target-financial-evidence";
 import { parseHeadcount } from "@/domain/company-facts";
 import { resolveCompanyField } from "@/domain/research-resolution";
 import { providerNeutralText } from "@/domain/provider-display";
@@ -62,7 +62,7 @@ export function compactAud(value: number) {
 }
 
 export function TargetEbitdaData({ findings = [], preferredHeadcount }: { findings?: SavedResearchFinding[]; preferredHeadcount?: number }) {
-  const estimate = estimateEbitda(findings, undefined, preferredHeadcount === undefined ? undefined : { value: preferredHeadcount, source: "company data" });
+  const estimate = resolveTargetEbitda(findings, preferredHeadcount);
   if (estimate.status !== "estimated") return <div className="max-w-56"><DetailTooltip content={estimate.reason}><span className="text-[var(--muted)]">Unavailable</span></DetailTooltip></div>;
   const money = compactAud;
   const approximation = (estimate.low! + estimate.high!) / 2;

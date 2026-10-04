@@ -20,7 +20,7 @@ it("uses redirect options supported by the real Worker fetch implementation", as
   expect(await response.text()).toBe("Unmocked network request blocked");
 });
 
-function replay(options: { read?: (url: string) => string; targetedSeeds?: string[]; pages?: number; cancelled?: boolean; failProgress?: boolean; denyPermit?: boolean; expireFirstPermit?: boolean; parallelDiscoveryGate?: boolean; lookaheadGate?: boolean; leanControls?: boolean; callbackTiming?: boolean; config?: ResearchConfig } = {}) {
+function replay(options: { searchReservationDelayMs?: number; read?: (url: string) => string; targetedSeeds?: string[]; pages?: number; cancelled?: boolean; failProgress?: boolean; denyPermit?: boolean; expireFirstPermit?: boolean; parallelDiscoveryGate?: boolean; lookaheadGate?: boolean; leanControls?: boolean; callbackTiming?: boolean; config?: ResearchConfig } = {}) {
   const id = crypto.randomUUID();
   const config: ResearchConfig = options.config || {
     seeds: Array.from({ length: options.pages || 1 }, (_, i) => `https://instruments${i || ""}.example.com/fixture-${id}/`),
@@ -33,6 +33,7 @@ function replay(options: { read?: (url: string) => string; targetedSeeds?: strin
   const progress: Progress[] = [];
   const requests: string[] = [];
   const callbacks: Record<string, unknown>[] = [];
+  const callbackTimes: { action: string; at: number }[] = [];
   const callbackHeaders: { action:string; headers:Headers }[] = [];
   const timings: { spans: { segment: string; step: string; elapsedMs: number; outcome: string }[] }[] = [];
   let releaseLookahead!: () => void;
@@ -53,6 +54,15 @@ function replay(options: { read?: (url: string) => string; targetedSeeds?: strin
       if (!init?.body) return Response.json({ status, config: url.endsWith("?control=1") ? { budget: config.budget, performanceFlags: config.performanceFlags } : config, seeds: config.seeds, deadline: Date.now() + 600000 }, {headers:options.callbackTiming ? {"server-timing":"app;dur=12.5, db;dur=4", "x-research-db-calls":"2"} : {}});
       const data = JSON.parse(String(init.body));
       callbacks.push(data);
+      callbackTimes.push({ action: data.action, at: Date.now() });
+      if(data.action==='e-plan')return Response.json([{query:'cleaning Australia',page:1}]);
+      if(data.action==='e-search')return Response.json({ok:true,rows:[{domain:'instruments.example.com',name:'Example Instruments',website:'https://instruments.example.com',discovery:{url:'https://instruments.example.com',title:'Example Instruments',snippet:'cleaning services'}}]});
+      if(data.action==='e-company')return Response.json({ok:true,matched:true});
+      if(data.action==='e-finish'){status='complete';return Response.json({ok:true});}
+      if(data.action==='d-search')return Response.json({records:[{id:'f000000000001',name:'Example Instruments',website:'https://instruments.example.com'}],totalCompany:1,predictedFilters:{filters:{},operators:{},excluded:{}}});
+      if(data.action==='d-company')return Response.json({ok:true,matched:true});
+      if(data.action==='f-finish'){status='complete';return Response.json({ok:true});}
+      if(data.action==='d-finish'){status='complete';return Response.json({ok:true});}
       if (data.action === "discovery-context") return Response.json({ scope: "industrial cleaning", startingTerms: [], regions: ["Victoria"], target: 20, found: 0, remainingSearches: 12, attempts: [], candidates: [] });
       if (data.action === "discovery-sources") return Response.json({ pending: true });
       if (data.action === "discovery-persist") return Response.json({ pending: callbacks.filter(c => c.action === "discovery-persist").length < 2 });
@@ -66,7 +76,7 @@ function replay(options: { read?: (url: string) => string; targetedSeeds?: strin
       if (data.action === 'website-pages') return Response.json({ ok: true });
       if (data.action === 'targeted-followup') return Response.json({ seeds: options.targetedSeeds || [], exhausted: true });
       if (data.action === "provider-release") return Response.json({ ok: true });
-      if (data.action === "provider-reserve") return Response.json({ granted: !options.denyPermit, retryAfterMs: 0, after: Date.now(), until: Date.now() + 2000, token: data.token });
+      if (data.action === "provider-reserve") return Response.json({ granted: !options.denyPermit, retryAfterMs: 0, after: Date.now() + (options.searchReservationDelayMs || 0), until: Date.now() + (options.searchReservationDelayMs || 0) + 2000, token: data.token });
       if (data.action === "browser-permit" && options.expireFirstPermit && !expiredPermit) { expiredPermit = true; return Response.json({ granted: false, retryAfterMs: 0, expired: true }); }
       if (data.action === "browser-permit") return Response.json({ granted: !options.denyPermit, retryAfterMs: 0 });
       // Model the app's revision check after a write succeeds but its response is lost.
@@ -97,7 +107,7 @@ function replay(options: { read?: (url: string) => string; targetedSeeds?: strin
     }
     throw new Error(`Unmocked request: ${url}`);
   });
-  return { id, config, progress, requests, callbacks, timings, callbackHeaders };
+  return { id, config, progress, requests, callbacks, timings, callbackHeaders, callbackTimes };
 }
 
 it("runs a real Workflow with local reads, extraction and persisted progress, without CF requests", async () => {
@@ -436,4 +446,22 @@ it('runs and checkpoints the independent ABN branch with the registry record par
   expect(reads).toEqual([registry]);
   expect(t.progress.flatMap(p => p.page?.findings || [])).toContainEqual(expect.objectContaining({ name: 'ABN', value: '56663118241' }));
   expect(t.progress.at(-1)).toMatchObject({ status: 'complete', pages: 1, modelCalls: 0 });
+});
+
+it('routes a snapshotted D root without changing the Worker environment design',async()=>{const t=replay();Object.assign(t.config,{mode:'automatic',workflow:'business',discover:true,pipelineDesign:'firmable-v1',researchRunId:t.id,automaticDeadline:Date.now()+600000});await using instance=await introspectWorkflowInstance(bindings.RESEARCH,t.id);await instance.modify(m=>m.disableSleeps());await bindings.RESEARCH.create({id:t.id,params:{jobId:t.id}});await instance.waitForStatus('complete');expect(t.callbacks.filter(c=>c.action==='d-search')).toHaveLength(1);expect(t.callbacks.filter(c=>c.action==='d-company')).toHaveLength(1);expect(t.callbacks).toContainEqual(expect.objectContaining({action:'d-finish',result:expect.objectContaining({saved:1,failed:0})}));expect(t.requests.some(url=>url.endsWith('/crawl'))).toBe(false);});
+
+it('runs E web discovery with a browser reservation then company-only enrichment',async()=>{const t=replay();Object.assign(t.config,{mode:'automatic',workflow:'business',discover:true,pipelineDesign:'web-firmable-v1',researchRunId:t.id,automaticDeadline:Date.now()+600000});await using instance=await introspectWorkflowInstance(bindings.RESEARCH,t.id);await instance.modify(m=>m.disableSleeps());await bindings.RESEARCH.create({id:t.id,params:{jobId:t.id}});await instance.waitForStatus('complete');expect(t.callbacks).toContainEqual(expect.objectContaining({action:'e-search',browserReservation:`${t.id}:e-search-0-0`}));expect(t.callbacks.filter(c=>c.action==='e-company')).toHaveLength(1);expect(t.callbacks).toContainEqual(expect.objectContaining({action:'e-finish',result:expect.objectContaining({saved:1,matched:1,failed:0})}));expect(t.callbacks.some(c=>c.action==='d-search')).toBe(false);expect(t.timings.length).toBeGreaterThan(0);});
+
+it('runs F discovery branches and deduplicates their shared company in a real Workflow',async()=>{const t=replay();Object.assign(t.config,{mode:'automatic',workflow:'business',discover:true,pipelineDesign:'hybrid-firmable-v1',researchRunId:t.id,automaticDeadline:Date.now()+600000});await using instance=await introspectWorkflowInstance(bindings.RESEARCH,t.id);await instance.modify(m=>m.disableSleeps());await bindings.RESEARCH.create({id:t.id,params:{jobId:t.id}});await instance.waitForStatus('complete');expect(t.callbacks.filter(c=>c.action==='d-search')).toHaveLength(1);expect(t.callbacks.filter(c=>c.action==='e-search')).toHaveLength(1);expect(t.callbacks.filter(c=>['d-company','e-company'].includes(String(c.action)))).toHaveLength(1);expect(t.callbacks).toContainEqual(expect.objectContaining({action:'f-finish',result:expect.objectContaining({saved:1,failed:0,overlap:1,selection:[expect.objectContaining({sources:['firmable','web']})]})}));});
+
+it.each(['web-firmable-v1', 'hybrid-firmable-v1'] as const)('waits durably for future search reservations in %s', async pipelineDesign => {
+  const t = replay({ searchReservationDelayMs: 50 });
+  Object.assign(t.config, { mode: 'automatic', workflow: 'business', discover: true, pipelineDesign, researchRunId: t.id, automaticDeadline: Date.now() + 600000 });
+  await using instance = await introspectWorkflowInstance(bindings.RESEARCH, t.id);
+  await bindings.RESEARCH.create({ id: t.id, params: { jobId: t.id } });
+  await instance.waitForStatus('complete');
+  const reserved = t.callbackTimes.find(c => c.action === 'provider-reserve')!;
+  const searched = t.callbackTimes.find(c => c.action === 'e-search')!;
+  expect(searched.at - reserved.at).toBeGreaterThanOrEqual(45);
+  expect(t.callbacks).toContainEqual(expect.objectContaining({ action: 'e-search' }));
 });

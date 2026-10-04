@@ -163,6 +163,12 @@ export class FirmableClient {
     }
   }
 
+  async searchCompaniesPage(query: string, from=0, size=100, interpreted?: import('@/domain/firmable-company-pipeline').FirmableFilters) {
+    if(!this.sessionService)throw new FirmableError('/company/search',0,'Company search requires the session service');
+    const raw=await this.request('/company/search',{method:'POST',body:JSON.stringify({query,from,size,interpreted})});
+    return z.object({success:z.literal(true),records:z.array(z.record(z.string(),z.unknown())),totalCompany:z.number().nonnegative(),predictedFilters:z.object({filters:z.record(z.string(),z.unknown()),operators:z.record(z.string(),z.unknown()),excluded:z.record(z.string(),z.unknown())}).optional(),predictedCountry:z.unknown().optional()}).passthrough().parse(raw);
+  }
+
   async enrichCompany(identifier: CompanyIdentifier) {
     const ordered = Object.entries({ id: identifier.id, abn: identifier.abn?.replace(/\D/g, ""), fqdn: identifier.fqdn, ln_slug: identifier.linkedinSlug, ln_url: identifier.linkedinUrl, website: identifier.website });
     const selected = ordered.find(([, value]) => value);

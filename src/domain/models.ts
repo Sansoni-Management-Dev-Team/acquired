@@ -5,6 +5,7 @@ export type OpportunityQualification = "priority" | "develop" | "research" | "ex
 export type SignalWeight = "low" | "medium" | "high" | "very-high";
 
 export type Provenance = {
+  currency?: string;
   source: string;
   sourceUrl?: string;
   capturedAt: string;
@@ -29,6 +30,7 @@ export type Mandate = {
   states: string[];
   locations?: string[];
   revenue: { min: number; max: number | null };
+  revenueCeiling?: number;
   ebitda: { min: number; max: number | null };
   headcount?: { min: number; max: number };
 };
@@ -130,6 +132,7 @@ export type TargetCandidate = {
   revenue: DerivedValue<FinancialValue>;
   ebitda: DerivedValue<FinancialValue>;
   headcount: DerivedValue<number>;
+  headcountBand?: DerivedValue<import('./firmable-company-pipeline').CompanyBand>;
   establishedYear: DerivedValue<number>;
   financeability?: FinanceabilityEvidence;
   signals: Signal[];

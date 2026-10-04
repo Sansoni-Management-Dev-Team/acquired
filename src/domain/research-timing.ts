@@ -14,6 +14,16 @@ export const researchTimingBatchSchema = z.object({ spans: z.array(researchTimin
 export const MAX_RESEARCH_TIMING_SPANS = 2048;
 
 export function researchTimingSegment(step: string): ResearchTimingSegment {
+  if (step.startsWith('f-web-search-') || step === 'f-firmable-search') return 'discovery_search';
+  if (step.startsWith('f-company-')) return 'extraction';
+  if (step === 'f-plan') return 'discovery_planning';
+  if (step === 'f-finish') return 'persistence';
+  if (step.startsWith('f-admit-')) return 'provider_admission';
+  if (step.startsWith('e-search-')) return 'discovery_search';
+  if (step.startsWith('e-company-')) return 'extraction';
+  if (step === 'e-plan') return 'discovery_planning';
+  if (step === 'e-finish') return 'persistence';
+  if (step.startsWith('e-admit-')) return 'provider_admission';
   if (step.startsWith('admit-')) return 'provider_admission';
   if (step.startsWith('wait-')) return 'provider_wait';
   if (step.startsWith('control-')) return 'control';

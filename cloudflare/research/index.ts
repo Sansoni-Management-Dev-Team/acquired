@@ -1,6 +1,13 @@
+import {runHybridCompanyPipeline} from '../../src/domain/hybrid-company-pipeline';
+import {runWebFirmablePipeline,type WebQuery,type WebCompany} from '../../src/domain/web-firmable-pipeline';
+import {isFirmableCompanyRoot,isWebFirmableRoot,isHybridCompanyRoot} from '../../src/domain/research-pipeline-design';
+import { runFirmableCompanyPipeline, type CompanySearchPage, type FirmableFilters } from '../../src/domain/firmable-company-pipeline';
+import { runCompanyCorpus, CORPUS_PROMPT, corpusExtractionRequest } from '../../src/domain/company-corpus';
+import { balancedReservation, balancedWakeups } from './balanced-policy';
 import { mergeResearchControl } from "./control-cache";
 import { validateFirmableSession, type FirmableSessionEnv } from "./firmable-session-validation";
 import { cachedResearchExtraction } from '../../src/domain/research-extraction-cache';
+import { usesPublicAbnLookup } from '../../src/domain/public-abn-policy';
 import { researchPerformanceFlags } from "../../src/domain/research";
 import { pipelineTiming } from './pipeline-timing';
 import { discoveryBatchPrompt, discoveryBatchOutputSchema, type DiscoveryContext } from "../../src/domain/adaptive-discovery";
@@ -18,7 +25,7 @@ import { researchExtractionRequest } from "../../src/domain/research-extraction-
 import { FreeOpenRouter, type FreeResearchRequest } from "../../src/adapters/ai/free-openrouter";
 import { callbackOrigin } from "./callback-origin";
 import { cancelCrawl, crawlRetryUrl, CrawlerRequestError, requestBudgetStop, stalledResearch } from "./runtime-policy";
-import { targetedPrompt, targetedSchema } from "../../src/domain/targeted-research";
+import { targetedPrompt, targetedSchema, fallbackTargetedChoice } from "../../src/domain/targeted-research";
 import { readFallback } from "./fallback";
 import { readSiteText } from "./site-file";
 import { ProviderCoordinator } from "./provider-coordinator";
@@ -52,9 +59,11 @@ interface Env extends FirmableSessionEnv {
   CF_ACCOUNT_ID?: string;
   CF_BROWSER_TOKEN?: string;
   LOCAL_CRAWL4AI_URL?: string;
+  LOCAL_RESEARCH_BENCHMARK?: string;
   LOCAL_SEARCH_URL?: string;
   CRAWL4AI_URL?: string;
   CRAWL4AI_SECRET?: string;
+  RESEARCH_PIPELINE_DESIGN?: string;
   RESEARCH_AI_PRIMARY_ROUTE?: string;
   RESEARCH_AI_FREE_TIMEOUT_MS?: string;
   RESEARCH_AI_EXTRACTION_REASONING?: string;
@@ -65,7 +74,7 @@ async function providerAction(env: Env, jobId: string, body: { action: string; t
   if (!stub) return callback(env, jobId, body.action === "provider-reserve" ? { ...body, policy: "paid-v1" } : body, budget);
   // The coordinator holds the request while capacity is busy, so one admission
   // step usually replaces a series of sleep-and-poll rounds.
-  if (body.action === "provider-reserve" && body.token && body.provider) return stub.reserve({ jobId, token: body.token, provider: body.provider, local: !productionPolicy(env), holdMs: 20000 });
+  if (body.action === "provider-reserve" && body.token && body.provider) return stub.reserve({ jobId, token: body.token, provider: balancedReservation(body.provider, env).provider, local: balancedReservation(body.provider, env).balancedLocal || !productionPolicy(env), holdMs: 20000 });
   if (body.action === "browser-permit" && body.token) return stub.claim(jobId, body.token, body.url ? new URL(body.url).hostname.replace(/^www\./, "") : undefined);
   if (body.action === "provider-release" && body.token) return stub.release(jobId, body.token).then(() => ({ ok: true }));
   if (body.action === "browser-cooldown") return stub.cooldown(body.retryAfterMs || 30000, body.domain).then(() => ({ ok: true }));
@@ -89,7 +98,7 @@ async function callback(env: Env, id: string, body?: unknown, budget?: { used: n
   const origin = callbackOrigin(env.APP_ORIGIN, env.LOCAL_DEVELOPMENT === "true");
   if (budget) budget.used++;
   const action = (body as { action?: string } | undefined)?.action || "";
-  const timeoutMs = action === "browser-permit"
+  const timeoutMs = ["d-company","e-company"].includes(action) ? 90000 : action === "browser-permit"
     ? 15000
     : ["browser-cooldown", "provider-release"].includes(action)
       ? 5000
@@ -204,6 +213,52 @@ export class AcquireResearch extends WorkflowEntrypoint<
       if (name === "control-start") telemetryBatching ??= researchPerformanceFlags((result as ResearchControl).config).telemetryBatching;
       return result as T;
     };
+    const pipelineControl=await control();
+    if(isHybridCompanyRoot(pipelineControl.config,id)){
+      const initial=await checkpoint('f-control',control);
+      try{return await runHybridCompanyPipeline({checkpoint,now:()=>Date.now(),control:async()=>{const current=await control();return current.status!=='cancelled';},plan:()=>callback(this.env,id,{action:'e-plan'},requestBudget) as Promise<WebQuery[]>,firmableSearch:()=>callback(this.env,id,{action:'d-search',from:0},requestBudget) as Promise<CompanySearchPage>,webSearch:async(query,index)=>{
+        for(let searchAttempt=0;searchAttempt<3;searchAttempt++){
+          if(Date.now()>=(initial.config.automaticDeadline||Infinity))break;
+          const token=`${id}:f-search-${index}-${searchAttempt}`;
+          let result:{rows:WebCompany[];ok:boolean}|undefined;
+          for(let attempt=0;attempt<10;attempt++){
+            const permit=await checkpoint(`f-admit-${index}-${searchAttempt}-${attempt}`,()=>providerAction(this.env,id,{action:'provider-reserve',provider:'search',token},requestBudget)) as Admission;
+            if(permit.granted){const wait=Math.max(0,(permit.after||0)-Date.now());if(wait)await step.sleep(`f-reservation-wait-${index}-${searchAttempt}-${attempt}`,wait);try{result=await callback(this.env,id,{action:'e-search',query,index,browserReservation:token},requestBudget) as {rows:WebCompany[];ok:boolean};}finally{await providerAction(this.env,id,{action:'provider-release',token}).catch(()=>{});}break;}
+            await step.sleep(`f-wait-${index}-${searchAttempt}-${attempt}`,'2 seconds');
+          }
+          if(result?.ok)return result;
+          if(searchAttempt<2)await step.sleep(`f-search-retry-${index}-${searchAttempt}`,'3 seconds');
+        }
+        return {rows:[],ok:false};
+      },profile:company=>callback(this.env,id,{action:company.firmableRow?'d-company':'e-company',row:company.firmableRow||company.webRow,expectedDomain:company.domain,sources:company.sources},requestBudget) as Promise<{ok:boolean;matched?:boolean}>,finish:result=>callback(this.env,id,{action:'f-finish',result},requestBudget)},{deadline:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:100,concurrency:2});}
+      catch(error){await checkpoint('f-fail',()=>callback(this.env,id,{action:'f-fail',result:{error:error instanceof Error?error.message:'F failed'}},requestBudget));return {failed:true};}
+      finally{await timing.flush(32);}
+    }
+    if(isWebFirmableRoot(pipelineControl.config,id)){
+      const initial=await checkpoint('e-control',control);
+      try{return await runWebFirmablePipeline({checkpoint,now:()=>Date.now(),control:async()=>{const current=await control();return current.status!=='cancelled';},plan:()=>callback(this.env,id,{action:'e-plan'},requestBudget) as Promise<WebQuery[]>,search:async(query,index)=>{
+        for(let searchAttempt=0;searchAttempt<3;searchAttempt++){
+          if(Date.now()>=(initial.config.automaticDeadline||Infinity))break;
+          const token=`${id}:e-search-${index}-${searchAttempt}`;
+          let result:{rows:WebCompany[];ok:boolean}|undefined;
+          for(let attempt=0;attempt<10;attempt++){
+            const permit=await checkpoint(`e-admit-${index}-${searchAttempt}-${attempt}`,()=>providerAction(this.env,id,{action:'provider-reserve',provider:'search',token},requestBudget)) as Admission;
+            if(permit.granted){const wait=Math.max(0,(permit.after||0)-Date.now());if(wait)await step.sleep(`e-reservation-wait-${index}-${searchAttempt}-${attempt}`,wait);try{result=await callback(this.env,id,{action:'e-search',query,index,browserReservation:token},requestBudget) as {rows:WebCompany[];ok:boolean};}finally{await providerAction(this.env,id,{action:'provider-release',token}).catch(()=>{});}break;}
+            await step.sleep(`e-wait-${index}-${searchAttempt}-${attempt}`,'2 seconds');
+          }
+          if(result?.ok)return result;
+          if(searchAttempt<2)await step.sleep(`e-search-retry-${index}-${searchAttempt}`,'3 seconds');
+        }
+        return {rows:[],ok:false};
+      },profile:row=>callback(this.env,id,{action:'e-company',row},requestBudget) as Promise<{ok:boolean;matched?:boolean}>,finish:result=>callback(this.env,id,{action:'e-finish',result},requestBudget)},{deadline:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:100,concurrency:2});}
+      catch(error){await checkpoint('e-fail',()=>callback(this.env,id,{action:'e-fail',result:{error:error instanceof Error?error.message:'E failed'}},requestBudget));return {failed:true};}
+      finally{await timing.flush(32);}
+    }
+    if(isFirmableCompanyRoot(pipelineControl.config,id)) {
+      const initial=await checkpoint('d-control',control);
+      try {return await runFirmableCompanyPipeline({checkpoint,now:()=>Date.now(),search:(from:number,interpreted?:FirmableFilters)=>callback(this.env,id,{action:'d-search',from,interpreted},requestBudget) as Promise<CompanySearchPage>,profile:row=>callback(this.env,id,{action:'d-company',row},requestBudget) as Promise<{ok:boolean}>,finish:result=>callback(this.env,id,{action:'d-finish',result},requestBudget)},{deadline:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:100,pageSize:100,concurrency:2});}
+      catch(error){await checkpoint('d-fail',()=>callback(this.env,id,{action:'d-fail',result:{error:error instanceof Error?error.message:'D failed'}},requestBudget));return {failed:true};}
+    }
     const ai = new FreeOpenRouter({
       apiKey: this.env.OPENROUTER_API_KEY,
       primaryRoute: this.env.RESEARCH_AI_PRIMARY_ROUTE === 'fast-paid' ? 'fast-paid' : 'free',
@@ -218,7 +273,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
     const completeExtraction = (input: FreeResearchRequest) => cachedResearchExtraction(caches.default, stateCache?.value.config.researchRunId || id, {
       input, routing: { primaryRoute: this.env.RESEARCH_AI_PRIMARY_ROUTE || 'free', reasoning: this.env.RESEARCH_AI_EXTRACTION_REASONING || 'request', freeTimeout: this.env.RESEARCH_AI_FREE_TIMEOUT_MS || '25000' },
     }, () => ai.complete(input), event => cacheEvent('extraction', event));
-    return runResearch(
+    const execute = (runner: typeof runResearch) => runner(
       {
         // Persist JSON values explicitly across Workflow step checkpoints.
         do: async <T>(
@@ -227,6 +282,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
           retry = true,
         ): Promise<T> => {
           const config = stateCache?.value.config;
+          if (/^targeted-search-1$/.test(name) && config && usesPublicAbnLookup(config, config.researchField || '')) return checkpoint(name, run, retry);
           // Site files need browser admission only when a local reader serves them.
           const provider: ResearchProvider | undefined = /^(read-people-|lookahead-read-)/.test(name) || (/^read-site-/.test(name) && this.env.LOCAL_DEVELOPMENT === "true") ? 'page'
             : /^(extract-|company-identity-|headcount-|discovery-plan-|targeted-plan$)/.test(name) ? 'ai'
@@ -359,7 +415,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
           await cancelCrawl(crawlId, (path, method) => browser(this.env, path, method, undefined, requestBudget));
         },
         extract: async (messages) => {
-          const output = await completeExtraction(researchExtractionRequest(messages));
+          const output = await completeExtraction(messages[0].content.startsWith(CORPUS_PROMPT) ? corpusExtractionRequest(messages) : researchExtractionRequest(messages));
           return parseResearchExtraction(output);
         },
         extractHeadcount: async (messages) => {
@@ -374,6 +430,10 @@ export class AcquireResearch extends WorkflowEntrypoint<
           return typeof result.response === "string" ? JSON.parse(result.response) : result.response ?? output;
         },
         planFollowup: async (plan) => {
+          if ((stateCache?.value.config.pipelineDesign === 'balanced-v1' && stateCache.value.config.researchField === 'abn') || stateCache?.value.config.pipelineDesign === 'corpus-v1') {
+            const registry = stateCache?.value.config.researchField === 'abn' ? plan.actions.find(action => action.kind === 'read' && new URL(action.url).hostname === 'abr.business.gov.au') : undefined;
+            return { choice: (registry || fallbackTargetedChoice(plan)).id };
+          }
           const output = await ai.complete({
             messages: targetedPrompt(plan), operation: "followup_planning", max_tokens: 100, reasoning_effort: "none", temperature: 0,
             response_format: { type: "json_schema", json_schema: targetedSchema(plan) },
@@ -384,10 +444,21 @@ export class AcquireResearch extends WorkflowEntrypoint<
         peopleFollowup: reservation => callback(this.env, id, { action: "people-followup", browserReservation: reservation }, requestBudget) as Promise<{ seeds: string[]; warning?: string }>,
         now: () => Date.now(),
       },
-    ).finally(async () => {
+    );
+    const execution = (this.env.LOCAL_DEVELOPMENT === 'true' && this.env.RESEARCH_PIPELINE_DESIGN === 'corpus-v1'
+      ? (async () => { const initial = await checkpoint('corpus-route', control); return execute(initial.config.researchTask === 'company' ? runCompanyCorpus : runResearch); })()
+      : execute(runResearch)).finally(async () => {
       await timing.flush(32);
       console.info("research-runtime", JSON.stringify({ jobId: id, requests: requestBudget.used, local: this.env.LOCAL_DEVELOPMENT === "true" }));
     });
+    if (this.env.LOCAL_DEVELOPMENT === 'true' && ['balanced-v1','corpus-v1'].includes(this.env.RESEARCH_PIPELINE_DESIGN || '')) {
+      const result = await execution;
+      const config = stateCache?.value.config;
+      if (config?.researchRunId === id) await balancedWakeups({ do: checkpoint, sleep: (name,ms) => step.sleep(name,ms) },
+        () => callback(this.env,id,{action:'balanced-wakeup'}) as Promise<{stop:boolean}>, config.automaticDeadline || Date.now());
+      return result;
+    }
+    return execution;
   }
 }
 
@@ -443,12 +514,12 @@ const worker = {
   async fetch(request: Request, env: Env) {
     const firmableValidation = new URL(request.url).pathname === "/firmable/validate";
     const servicePath = new URL(request.url).pathname.replace(/^\/firmable/, "");
-    const firmableService = ['/company', '/people', '/people/search', '/status', '/reconnect'].includes(servicePath) && new URL(request.url).pathname.startsWith('/firmable/');
+    const firmableService = ['/company/search', '/company', '/people', '/people/search', '/status', '/reconnect'].includes(servicePath) && new URL(request.url).pathname.startsWith('/firmable/');
     const secret = firmableService ? env.FIRMABLE_SERVICE_SECRET || '' : firmableValidation ? env.FIRMABLE_VALIDATION_SECRET || env.SERVICE_SECRET : env.SERVICE_SECRET;
     if (!(await authorized(request, secret)))
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     if (firmableService) {
-      const method = ['/people/search', '/reconnect'].includes(servicePath) ? 'POST' : 'GET';
+      const method = ['/company/search', '/people/search', '/reconnect'].includes(servicePath) ? 'POST' : 'GET';
       if (request.method !== method) return Response.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: method } });
       if (!env.PROVIDER_COORDINATOR) return Response.json({ category: 'not_configured' }, { status: 503 });
       if (Number(request.headers.get('content-length') || 0) > 20_000) return Response.json({ error: 'Request too large' }, { status: 413 });

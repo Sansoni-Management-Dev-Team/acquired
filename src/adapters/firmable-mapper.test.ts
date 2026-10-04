@@ -77,14 +77,14 @@ describe("Firmable mapping", () => {
     expect(replayed.companyName).toBe("Spaceworks Design");
   });
 
-  it("uses structured Google locality and query evidence when Firmable returns a broad sector", () => {
+  it("preserves sourced industry rather than inferring a mandate sector from the name", () => {
     const mandate = parseMandate("I'm looking to buy an industrials or building-services business in Melbourne");
     const target = mapFirmableCompany({ id: "f2", name: "Industrial Building Specialists", industries: ["Construction"] }, {
       id: "p2", name: "Industrial Building Specialists", formattedAddress: "11-13 Tottenham Parade, West Footscray VIC 3012",
       website: "https://industrialbuilders.com.au", locality: "West Footscray", state: "VIC", primaryType: "general_contractor", types: ["general_contractor"],
     }, mandate, "org-1");
     expect(target.suburb).toBe("West Footscray");
-    expect(target.sector).toEqual(expect.objectContaining({ value: "industrials", provenance: expect.objectContaining({ source: "Google Places query match" }) }));
+    expect(target.sector).toEqual(expect.objectContaining({ value: "Construction", provenance: expect.objectContaining({ source: "Company data" }) }));
   });
 
   it("uses Firmable headquarters when an imported target only has a state placeholder", () => {

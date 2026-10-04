@@ -1,3 +1,5 @@
+import { effectiveRevenueRange } from "./target-financial-evidence";
+import { acquisitionEligibility } from "./acquisition-eligibility";
 import type { DerivedValue, FinancialValue, Mandate, OpportunityQualification, RankedTarget, ScoreBand, Signal, TargetCandidate } from "./models";
 
 export const DEFAULT_BAND_THRESHOLDS = {
@@ -126,7 +128,10 @@ export function determineBand(fit: number, ripeness: number, confidence: number,
 }
 
 export function rankTarget(target: TargetCandidate, mandate: Mandate): RankedTarget {
+  mandate = { ...mandate, revenue: effectiveRevenueRange(mandate) };
   const fit = calculateFit(target, mandate);
+  const eligibility = acquisitionEligibility(target, mandate);
+  fit.excluded ||= eligibility.status === "excluded";
   const ripeness = calculateRipeness(target.signals);
   const financeability = calculateFinanceability(target);
   const completeness = Math.min(100, 20 + [target.sector, target.revenue, target.ebitda, target.headcount, target.establishedYear].filter((field) => field.value !== null).length * 12 + target.signals.length * 5);

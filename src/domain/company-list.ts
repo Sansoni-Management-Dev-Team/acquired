@@ -18,14 +18,15 @@ export type CompanyStatusJob = { status: string; targetId?: string; companyDomai
 
 export function summariseCompany(member: MembershipView, mandate: MandateView, jobs: CompanyStatusJob[], hasContact: boolean): CompanySummary {
   const { target } = member;
+  const fit = reviewMandateFit(mandate.brief, target, member.assessment, member.researchFindings);
   const findings = member.researchFindings || [];
   const has = (kind: string) => findings.some(f => f.evidence.kind === kind);
   const researching = jobs.some(j => !terminalResearchStates.includes(j.status) && (j.targetId === target.id || j.newBusinessIds?.includes(target.id) || Boolean(target.domain && (j.companyDomain === target.domain || j.seeds.some(url => researchDomain(url) === target.domain)))));
-  return { id: target.id, name: target.companyName, domain: target.domain, sector: target.sector.value || '', stage: member.assessment.stage,
+  return { id: target.id, name: target.companyName, domain: target.domain, sector: target.sector.value || '', stage: fit.eligibility.status === "excluded" ? "excluded" : member.assessment.stage,
     accreditations: member.accreditations.map(a => `${a.issuer} ${a.scope}`),
     researchStatus: businessResearchStatus(target.domain, findings.map(f => f.evidence), researching),
     hasHeadcount: target.headcount.value !== null || has('headcount'), hasRevenue: target.revenue.value !== null || has('revenue'), hasPerson: hasContact || has('person'),
-    fit: reviewMandateFit(mandate.brief, target, member.assessment, findings) };
+    fit };
 }
 
 export function companyListPage(rows: CompanySummary[], query: CompanyListQuery) {
@@ -36,7 +37,7 @@ export function companyListPage(rows: CompanySummary[], query: CompanyListQuery)
     && (!accreditation || row.accreditations.some(value => value.toLowerCase().includes(accreditation)))
     && (query.research === 'all' || row.researchStatus === statuses[query.research])
     && (query.data === 'all' || query.data === 'headcount' && row.hasHeadcount || query.data === 'revenue' && row.hasRevenue || query.data === 'person' && row.hasPerson));
-  filtered.sort((a, b) => b.fit.score - a.fit.score || (Number(b.hasHeadcount) + Number(b.hasRevenue) + Number(b.hasPerson)) - (Number(a.hasHeadcount) + Number(a.hasRevenue) + Number(a.hasPerson)));
+  filtered.sort((a, b) => Number(a.fit.eligibility.status === "excluded") - Number(b.fit.eligibility.status === "excluded") || (b.fit.score ?? -1) - (a.fit.score ?? -1) || b.fit.completeness - a.fit.completeness || (Number(b.hasHeadcount) + Number(b.hasRevenue) + Number(b.hasPerson)) - (Number(a.hasHeadcount) + Number(a.hasRevenue) + Number(a.hasPerson)));
   const pages = Math.max(1, Math.ceil(filtered.length / COMPANY_PAGE_SIZE)), page = Math.min(query.page, pages);
   return { rows: filtered.slice((page - 1) * COMPANY_PAGE_SIZE, page * COMPANY_PAGE_SIZE), total: filtered.length, page, pages };
 }

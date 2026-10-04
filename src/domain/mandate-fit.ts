@@ -1,6 +1,7 @@
 import { briefToMandate, criterionDefinitions, type AcquisitionBrief, type Assessment, type CriterionKey } from "./acquisition";
 import { parseHeadcount } from "./company-facts";
-import { estimateEbitda } from "./estimated-ebitda";
+import { financialInterval, resolveTargetEbitda, targetRevenueCurrency } from "./target-financial-evidence";
+import { acquisitionEligibility } from "./acquisition-eligibility";
 import type { FinancialValue, TargetCandidate } from "./models";
 import type { SavedResearchFinding } from "./research";
 
@@ -17,22 +18,24 @@ function sectorOverlap(actual: string, mandate: string) {
   const shared = [...right].filter(word => left.has(word)).length;
   return shared >= 2 && shared / right.size >= 0.5;
 }
-function financial(value: FinancialValue | null, sourceUrl?: string): Observation[] {
-  if (value === null || typeof value === "object" && value.kind !== "range") return [];
-  return [{ value: typeof value === "number" ? `${value} AUD` : `${value.min}–${value.max} AUD`, min: typeof value === "number" ? value : value.min, max: typeof value === "number" ? value : value.max, sources: sourceUrl ? [sourceUrl] : [] }];
+function financial(value: FinancialValue | null, sourceUrl?: string, currency?: string): Observation[] {
+  const interval = financialInterval(value, currency);
+  if (!interval) return [];
+  return [{ value: typeof value === "object" && value?.kind === "band" ? value.label : `${interval.min}–${interval.max} AUD`, ...interval, sources: sourceUrl ? [sourceUrl] : [] }];
 }
 function revenueObservation(f: SavedResearchFinding): Observation {
   const match = f.evidence.value.trim().replace(/[.,;]+$/, "").match(/^(?:(AUD|A\$)\s*)?\$?([\d,]+(?:\.\d+)?)\s*(k|m|b|million|billion)?$/i);
   const aud = f.evidence.factMetadata?.currency === "AUD" || (!f.evidence.factMetadata?.currency && Boolean(match?.[1]));
   const amount = match && aud ? Number(match[2].replaceAll(",", "")) * ({ k: 1e3, m: 1e6, million: 1e6, b: 1e9, billion: 1e9 }[match[3]?.toLowerCase() || ""] || 1) : null;
-  return { value: f.evidence.value, min: amount, max: amount, note: !aud ? "currency not confirmed as AUD" : !match ? "amount needs review" : undefined, sources: [f.sourceUrl], estimated: f.evidence.factMetadata?.basis !== "reported" || f.evidence.factMetadata?.scope === "group" };
+  const band = !match && aud ? financialInterval({ kind: "band", label: f.evidence.value }, "AUD") : null;
+  return { value: f.evidence.value, min: band?.min ?? amount, max: band?.max ?? amount, note: !aud ? "currency not confirmed as AUD" : !match && !band ? "amount needs review" : undefined, sources: [f.sourceUrl], estimated: f.evidence.factMetadata?.basis !== "reported" || f.evidence.factMetadata?.scope === "group" };
 }
 
-/** Fit across all specified criteria; missing evidence earns no points. */
+/** Fit among assessed criteria; evidence coverage separately records pending criteria. */
 export function reviewMandateFit(brief: AcquisitionBrief, target: TargetCandidate, assessment: Assessment, findings: SavedResearchFinding[] = []) {
   const filters = briefToMandate(brief);
   const observations = (kind: string): Observation[] => findings.filter(f => f.evidence.kind === kind && !f.evidence.factMetadata?.identityNote).map(f => ({ value: f.evidence.value, sources: [f.sourceUrl], estimated: f.evidence.factMetadata?.basis !== "reported" || f.evidence.factMetadata?.scope === "group" }));
-  const rows: FitRow[] = brief.criteria.filter(c => c.state === "specified").map(c => {
+  const rows: FitRow[] = brief.criteria.filter(c => c.state === "specified" && !(c.key === "revenueCeiling" && filters.revenue.max !== null && filters.revenueCeiling !== undefined && filters.revenueCeiling >= filters.revenue.max)).map(c => {
     const row: FitRow = { key: c.key, label: criterionDefinitions.find(([key]) => key === c.key)![1], mandate: c.value, weight: c.importance === "requirement" ? 2 : 1, status: "unknown", reason: "No comparable evidence; needs review", sources: [] };
     const reviewed = assessment.evidence.find(e => e.criterionKey === c.key);
     if (reviewed) return { ...row, status: reviewed.assessment === "supported" && ["modelled", "inferred"].includes(reviewed.kind) ? "potential" : reviewed.assessment, reason: `${reviewed.value || "No evidence"}${reviewed.kind === "modelled" || reviewed.kind === "inferred" ? " (estimated)" : " (reviewed)"}`, sources: reviewed.sourceUrl ? [reviewed.sourceUrl] : [] };
@@ -44,12 +47,15 @@ export function reviewMandateFit(brief: AcquisitionBrief, target: TargetCandidat
       range = filters.headcount;
     } else if (c.key === "revenue" || c.key === "revenueCeiling") {
       values = findings.filter(f => f.evidence.kind === "revenue" && !f.evidence.factMetadata?.identityNote).map(revenueObservation);
-      if (!values.length) values = financial(target.revenue.value, target.revenue.provenance.sourceUrl).map(o => ({ ...o, estimated: target.revenue.provenance.confidence < 80 }));
-      range = c.key === "revenueCeiling" ? { min: 0, max: filters.revenue.max } : filters.revenue;
-    } else if (c.key === "ebitda") {
-      values = financial(target.ebitda.value, target.ebitda.provenance.sourceUrl).map(o => ({ ...o, estimated: target.ebitda.provenance.confidence < 80 }));
       if (!values.length) {
-        const estimate = estimateEbitda(findings.filter(f => !f.evidence.factMetadata?.identityNote));
+        values = financial(target.revenue.value, target.revenue.provenance.sourceUrl, targetRevenueCurrency(target)).map(o => ({ ...o, estimated: o.estimated || target.revenue.provenance.confidence < 80 }));
+        if (!values.length && typeof target.revenue.value === "object" && target.revenue.value?.kind === "band") values = [{ value: target.revenue.value.label, note: "currency not confirmed as AUD or band needs review", sources: target.revenue.provenance.sourceUrl ? [target.revenue.provenance.sourceUrl] : [] }];
+      }
+      range = c.key === "revenueCeiling" ? { min: 0, max: filters.revenueCeiling ?? null } : filters.revenue;
+    } else if (c.key === "ebitda") {
+      values = financial(target.ebitda.value, target.ebitda.provenance.sourceUrl, target.ebitda.provenance.currency).map(o => ({ ...o, estimated: target.ebitda.provenance.confidence < 80 }));
+      if (!values.length) {
+        const estimate = resolveTargetEbitda(findings, target.headcount.value ?? undefined);
         if (estimate.status === "estimated") values = [{ value: `${estimate.low}–${estimate.high} AUD (modelled EBITDA)`, min: estimate.low, max: estimate.high, estimated: true, sources: estimate.benchmark ? [estimate.benchmark.sourceUrl] : [] }];
       }
       range = filters.ebitda;
@@ -57,7 +63,12 @@ export function reviewMandateFit(brief: AcquisitionBrief, target: TargetCandidat
       values = observations("industry");
       // Services provide provisional sector evidence; keep the literal observation.
       values.push(...["capability", "product"].flatMap(observations).map(o => ({ ...o, estimated: true })));
-      if (!values.length && target.sector.value) values = [{ value: target.sector.value, sources: target.sector.provenance.sourceUrl ? [target.sector.provenance.sourceUrl] : [], estimated: target.sector.provenance.confidence < 80 }];
+      if (!values.length && target.sector.provenance.source === "Google Places query match") {
+        const raw = target.sourceData?.firmable?.rawResponse?.industries;
+        const industries = target.sourceData?.firmable?.industries?.length ? target.sourceData.firmable.industries : Array.isArray(raw) ? raw : raw && typeof raw === "object" ? Object.values(raw) : [];
+        values = industries.filter((v): v is string => typeof v === "string").map(value => ({ value, estimated: true, sources: target.sector.provenance.sourceUrl ? [target.sector.provenance.sourceUrl] : [] }));
+      }
+      if (!values.length && target.sector.value && target.sector.provenance.source !== "Google Places query match") values = [{ value: target.sector.value, sources: target.sector.provenance.sourceUrl ? [target.sector.provenance.sourceUrl] : [], estimated: target.sector.provenance.confidence < 80 }];
     } else if (c.key === "management") {
       const managers = observations("person").filter(o => /\b(?:general|operations|operational|sales|finance|managing)\s+(?:manager|director)|\b(?:ceo|cfo|chief executive)\b/i.test(o.value));
       if (managers.length) return { ...row, status: "potential", reason: `${managers.map(o => o.value).join("; ")} — management roles found; continuity and mandate requirements need verification`, sources: [...new Set(managers.flatMap(o => o.sources))] };
@@ -83,7 +94,8 @@ export function reviewMandateFit(brief: AcquisitionBrief, target: TargetCandidat
         const observedStates = briefToMandate({ ...brief, criteria: brief.criteria.map(item => item.key === "geography" ? { ...item, value: o.value } : item) }).states;
         if (observedStates.length) {
           if (!observedStates.some(state => filters.states.includes(state))) return "fails";
-          const stateOnly = /national|australia-wide|all australia/i.test(c.value) || c.value.split(/[,;\n]|\band\b|\bor\b/i).every(part => /^(ACT|NSW|NT|QLD|SA|TAS|VIC|WA|Victoria|New South Wales|Queensland|South Australia|Western Australia|Tasmania|Northern Territory|Australian Capital Territory)$/i.test(part.trim()));
+          if (/national|australia-wide|all australia/i.test(c.value)) return "unknown";
+          const stateOnly = c.value.split(/[,;\n]|\band\b|\bor\b/i).every(part => /^(ACT|NSW|NT|QLD|SA|TAS|VIC|WA|Victoria|New South Wales|Queensland|South Australia|Western Australia|Tasmania|Northern Territory|Australian Capital Territory)$/i.test(part.trim()));
           return stateOnly && !o.estimated ? "supported" : "potential";
         }
       }
@@ -102,10 +114,11 @@ export function reviewMandateFit(brief: AcquisitionBrief, target: TargetCandidat
   const earned = rows.reduce((sum, row) => sum + row.weight * (row.status === "supported" ? 1 : row.status === "potential" ? 0.5 : 0), 0);
   const tested = rows.filter(row => row.status !== "unknown");
   const assessedWeight = tested.reduce((sum, row) => sum + row.weight, 0);
-  const provisional = rows.some(row => !brief.criteria.find(c => c.key === row.key)!.confirmed || row.status === "potential" || /estimated|modelled/.test(row.reason));
+  const eligibility = acquisitionEligibility(target, filters);
+  const provisional = assessedWeight < total || rows.some(row => !brief.criteria.find(c => c.key === row.key)!.confirmed || row.status === "potential" || /estimated|modelled/.test(row.reason));
   const summary = (status: FitRow["status"], label: string) => {
     const matches = rows.filter(row => row.status === status);
     return matches.length ? `${label}: ${matches.map(row => status === "unknown" ? row.label : `${row.label} (${row.reason})`).join(", ")}.` : "";
   };
-  return { score: total ? Math.round(earned / total * 100) : 0, assessed: assessedWeight > 0, provisional, completeness: total ? Math.round(assessedWeight / total * 100) : 0, rows, reason: total ? [summary("supported", "Matches"), summary("potential", "Partial / estimated"), summary("fails", "Outside mandate"), summary("unknown", "Missing evidence")].filter(Boolean).join(" ") : "Review mandate criteria in Brief to assess fit." };
+  return { score: assessedWeight ? Math.round(earned / assessedWeight * 100) : null, eligibility, assessed: assessedWeight > 0, provisional, completeness: total ? Math.round(assessedWeight / total * 100) : 0, rows, reason: total ? [...eligibility.reasons, summary("supported", "Matches"), summary("potential", "Partial / estimated"), summary("fails", "Outside mandate"), summary("unknown", "Missing evidence")].filter(Boolean).join(" ") : "Review mandate criteria in Brief to assess fit." };
 }

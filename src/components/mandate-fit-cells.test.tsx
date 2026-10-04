@@ -23,10 +23,10 @@ it("shows Not assessed rather than zero fit when there are no criteria", () => {
   expect(html).toContain("Not assessed"); expect(html).toContain("Criteria need review"); expect(html).not.toContain("0%");
 });
 
-it("shows zero fit and missing evidence for specified criteria without company data", () => {
+it("shows Not assessed and missing evidence for specified criteria without company data", () => {
   const brief = emptyBrief();
   Object.assign(criterion(brief, "management"), { state: "specified", origin: "assumed", value: "General manager in place", confirmed: false });
   const html = renderToStaticMarkup(<table><tbody><tr><MandateFitCells brief={brief} member={{ target: rankTarget(seedTargets[0], defaultMandate), assessment: initialAssessment, accreditations: [], version: 1 }} /></tr></tbody></table>);
   expect(html).toContain("0%"); expect(html).toContain("Missing evidence: Management in place");
-  expect(html).not.toContain("Not assessed"); expect(html).not.toContain("Criteria need review");
+  expect(html).toContain("Not assessed"); expect(html).not.toContain("Criteria need review");
 });

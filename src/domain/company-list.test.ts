@@ -10,7 +10,7 @@ it('summarises table requirements without exposing execution state or raw compan
   expect(row.researchStatus).toBe('Researching');expect(row.hasPerson).toBe(true);expect(row.fit).toHaveProperty('reason');
   expect(row).not.toHaveProperty('config');expect(row).not.toHaveProperty('researchFindings');expect(row).not.toHaveProperty('target');
 });
-const makeRow = (id: number): CompanySummary => ({id:String(id),name:`Company ${id}`,domain:'example.com',sector:'manufacturing',stage:'identified',accreditations:['ISO quality'],researchStatus:'Needs more evidence',hasHeadcount:false,hasRevenue:false,hasPerson:false,fit:{score:0,assessed:false,provisional:false,completeness:0,rows:[],reason:'Review criteria'}});
+const makeRow = (id: number): CompanySummary => ({id:String(id),name:`Company ${id}`,domain:'example.com',sector:'manufacturing',stage:'identified',accreditations:['ISO quality'],researchStatus:'Needs more evidence',hasHeadcount:false,hasRevenue:false,hasPerson:false,fit:{eligibility:{status:"pending",reasons:[]},score:0,assessed:false,provisional:false,completeness:0,rows:[],reason:'Review criteria'}});
 it('filters across all rows before pagination and ranks available data first', () => {
   const rows = Array.from({length:60},(_,i)=>makeRow(i));rows[59].hasPerson=true;
   const first=companyListPage(rows,defaultCompanyListQuery);
@@ -26,4 +26,10 @@ it('orders by highest fit across all pages, using available data to break ties',
   const first=companyListPage(rows,defaultCompanyListQuery);
   expect(first.rows.slice(0,4).map(row=>row.id)).toEqual(['59','58','1','0']);
   expect(companyListPage(rows,{...defaultCompanyListQuery,page:2}).rows.every(row=>row.fit.score===0)).toBe(true);
+});
+it('places government entities below eligible companies regardless of numeric fit', () => {
+  const government=makeRow(1), company=makeRow(2);
+  government.fit.eligibility={status:'excluded',reasons:['Government entity']};
+  government.fit.score=100; company.fit.score=25;
+  expect(companyListPage([government,company],defaultCompanyListQuery).rows.map(r=>r.id)).toEqual(['2','1']);
 });

@@ -13,8 +13,14 @@ export async function withLocalProvider<T>(provider: 'page' | 'search', token: s
       if (!permit.granted || permit.retryAfterMs > 35000) throw new BrowserAdmissionDeferred();
       if (permit.retryAfterMs > 0) await new Promise(resolve => setTimeout(resolve, permit.retryAfterMs));
     }
-    const permit = await callback({ action: 'browser-permit', token: reservedToken }) as Admission;
-    if (!permit.granted) throw new BrowserAdmissionDeferred();
+    const deadline = Date.now() + 20000;
+    for (;;) {
+      const permit = await callback({ action: 'browser-permit', token: reservedToken }) as Admission;
+      if (permit.granted) break;
+      const wait = permit.retryAfterMs;
+      if (!wait || wait < 0 || Date.now() + wait > deadline) throw new BrowserAdmissionDeferred();
+      await new Promise(resolve => setTimeout(resolve, wait));
+    }
     return await run();
   } finally {
     // A failed release cannot replace the actual read result. The bounded lease

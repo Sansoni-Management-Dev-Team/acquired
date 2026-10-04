@@ -85,6 +85,7 @@ export class OrganizationRepository {
       revenue: target.revenue,
       ebitda: target.ebitda,
       headcount: target.headcount,
+      headcountBand: target.headcountBand,
       establishedYear: target.establishedYear,
       firmable,
       manufacturingDirectory: target.sourceData?.manufacturingDirectory,

@@ -2,8 +2,8 @@ import type { GooglePlaceCandidate } from "./google-places-client";
 import type { DerivedValue, FinancialValue, Mandate, TargetCandidate } from "@/domain/models";
 import { COMPANY_DATA_SOURCE } from "@/domain/provider-display";
 
-export function mapFirmableRevenue(value: unknown, capturedAt = new Date().toISOString()): DerivedValue<FinancialValue> {
-  const provenance = { source: COMPANY_DATA_SOURCE, capturedAt, confidence: 70 };
+export function mapFirmableRevenue(value: unknown, capturedAt = new Date().toISOString(), currency?: string): DerivedValue<FinancialValue> {
+  const provenance = { source: COMPANY_DATA_SOURCE, capturedAt, confidence: 70, ...(currency ? { currency } : {}) };
   if (typeof value !== "string" || !value.trim()) return { value: null, missingReason: "Not provided by the company data service", provenance };
   return { value: { kind: "band", label: value.trim() }, provenance };
 }
@@ -32,7 +32,7 @@ function numberValue(input: unknown) {
 }
 
 function strings(input: unknown) {
-  return Array.isArray(input) ? input.filter((item): item is string => typeof item === "string" && Boolean(item.trim())) : [];
+  return (Array.isArray(input) ? input : input && typeof input === "object" ? Object.values(input) : []).filter((item): item is string => typeof item === "string" && Boolean(item.trim()));
 }
 
 function domainFrom(website?: string) {
@@ -78,9 +78,7 @@ function sectorEvidence(raw: Record<string, unknown>, place: GooglePlaceCandidat
     return left.includes(right) || right.includes(left);
   }));
   if (exact) return value(exact, COMPANY_DATA_SOURCE, capturedAt, 75, website);
-  const searchable = `${place.name} ${place.primaryType || ""} ${(place.types || []).join(" ")}`.toLowerCase().replace(/_/g, " ");
-  const queryMatch = mandate.sectors.find((sector) => sector.toLowerCase().split(/\s+/).some((token) => searchable.includes(token.replace(/s$/, ""))));
-  return value(queryMatch || bestSector(raw, mandate), queryMatch ? "Google Places query match" : COMPANY_DATA_SOURCE, capturedAt, queryMatch ? 65 : 60, website);
+  return value(bestSector(raw, mandate), COMPANY_DATA_SOURCE, capturedAt, 60, website);
 }
 
 function firmableSourceData(raw: Record<string, unknown>, fallbackId: string, capturedAt: string) {
@@ -98,7 +96,7 @@ function firmableSourceData(raw: Record<string, unknown>, fallbackId: string, ca
     domain: stringValue(raw.fqdn),
     description: stringValue(raw.description),
     tagline: stringValue(raw.tagline),
-    companyType: stringValue(raw.company_type),
+    companyType: stringValue(raw.company_type) || strings(raw.company_type).join(" ") || undefined,
     companySize: stringValue(raw.company_size),
     revenueBand: stringValue(raw.revenue),
     employeeCount: numberValue(raw.au_employee_count) ?? numberValue(raw.employee_count),
@@ -157,7 +155,7 @@ export function mapFirmableCompany(raw: Record<string, unknown>, place: GooglePl
     suburb: location.suburb,
     state: location.state,
     sector: sectorEvidence(raw, place, mandate, capturedAt, website),
-    revenue: mapFirmableRevenue(raw.revenue, capturedAt),
+    revenue: mapFirmableRevenue(raw.revenue, capturedAt, stringValue(raw.revenue_currency)),
     ebitda: missing("Company data does not include EBITDA", COMPANY_DATA_SOURCE, capturedAt),
     headcount: headcount === undefined ? missing("Not provided by the company data service", COMPANY_DATA_SOURCE, capturedAt) : value(headcount, COMPANY_DATA_SOURCE, capturedAt, 75, website),
     establishedYear: establishedYear === undefined ? missing("Not provided by the company data service", COMPANY_DATA_SOURCE, capturedAt) : value(establishedYear, COMPANY_DATA_SOURCE, capturedAt, 75, website),
@@ -189,7 +187,7 @@ export function applyStoredFirmableCompany(target: import("@/domain/models").Ran
     domain: stringValue(raw.fqdn) || domainFrom(website) || target.domain,
     suburb: location?.suburb || locations[0]?.split(",")[0] || target.suburb,
     state: location?.state === "Unknown" ? target.state : location?.state || target.state,
-    revenue: raw.revenue === undefined ? target.revenue : mapFirmableRevenue(raw.revenue, capturedAt),
+    revenue: raw.revenue === undefined ? target.revenue : mapFirmableRevenue(raw.revenue, capturedAt, stringValue(raw.revenue_currency)),
     headcount: headcount === undefined ? missing("Not provided by the company data service", COMPANY_DATA_SOURCE, capturedAt) : value(headcount, COMPANY_DATA_SOURCE, capturedAt, 75, website),
     establishedYear: establishedYear === undefined ? missing("Not provided by the company data service", COMPANY_DATA_SOURCE, capturedAt) : value(establishedYear, COMPANY_DATA_SOURCE, capturedAt, 75, website),
     sourceData: company ? { ...target.sourceData, firmable: company } : target.sourceData,

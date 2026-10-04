@@ -1,3 +1,4 @@
+import { readableStoredBrief } from "@/domain/stored-brief";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { requireDb } from "./client";
 import { coverageRuns, mandates, mandateTargets, targets, valuationObservations, organization, researchFindings } from "./schema";
@@ -11,7 +12,7 @@ export class AcquisitionRepository {
   async listMandates(): Promise<MandateView[]> {
     const rows = await this.db.select().from(mandates).where(eq(mandates.organizationId, this.org)).orderBy(desc(mandates.createdAt));
     return rows.map(row => {
-      const parsed = briefSchema.safeParse((row.filters as Record<string, unknown>).brief);
+      const parsed = briefSchema.safeParse(readableStoredBrief((row.filters as Record<string, unknown>).brief));
       const brief = parsed.success ? parsed.data : { ...emptyBrief(), name: row.confirmation?.slice(0, 80) || "Imported mandate — review required", naturalLanguage: row.naturalLanguage };
       return { id: row.id, brief, createdAt: row.createdAt.toISOString() };
     });
@@ -19,7 +20,7 @@ export class AcquisitionRepository {
   async getMandate(id: string): Promise<MandateView | undefined> {
     const [row] = await this.db.select().from(mandates).where(and(eq(mandates.organizationId, this.org), eq(mandates.id, id))).limit(1);
     if (!row) return undefined;
-    const parsed = briefSchema.safeParse((row.filters as Record<string, unknown>).brief);
+    const parsed = briefSchema.safeParse(readableStoredBrief((row.filters as Record<string, unknown>).brief));
     const brief = parsed.success ? parsed.data : { ...emptyBrief(), name: row.confirmation?.slice(0, 80) || 'Imported mandate — review required', naturalLanguage: row.naturalLanguage };
     return { id: row.id, brief, createdAt: row.createdAt.toISOString() };
   }

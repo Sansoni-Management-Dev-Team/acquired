@@ -20,7 +20,7 @@ export function assessMembership(target: RankedTarget, brief: AcquisitionBrief, 
   ranked.signals = target.signals;
   const relevant = brief.criteria.filter(c => c.state === "specified" && c.confirmed);
   const fit = reviewMandateFit(brief, target, assessment, findings);
-  ranked.scores.fit = fit.score;
+  ranked.scores.fit = fit.score ?? 0;
   ranked.scores.completeness!.fit = fit.completeness;
   ranked.scores.axisConfidence!.fit = fit.rows.length ? Math.round(fit.rows.reduce((sum, row) => sum + (assessment.evidence.find(e => e.criterionKey === row.key)?.confidence ?? (row.status === "unknown" ? 0 : 50)), 0) / fit.rows.length) : 0;
   ranked.scores.reasons = ranked.scores.reasons.filter(r => r.axis !== "fit");
@@ -35,7 +35,7 @@ export function assessMembership(target: RankedTarget, brief: AcquisitionBrief, 
   }
   // A fit preference failing is not a hard rejection. Inferences and estimates cannot hard-exclude.
   const hardFailure = relevant.some(c => c.importance === "requirement" && assessment.evidence.some(e => e.criterionKey === c.key && e.assessment === "fails" && ["register", "owner-stated", "document-verified"].includes(e.kind) && e.confidence >= 80));
-  if (hardFailure || assessment.stage === "excluded") { ranked.scores.band = "excluded"; ranked.scores.qualification = "excluded"; }
+  if (fit.eligibility.status === "excluded" || hardFailure || assessment.stage === "excluded") { ranked.scores.band = "excluded"; ranked.scores.qualification = "excluded"; }
   else { ranked.scores.band = "cold"; ranked.scores.qualification = assessment.stage === "qualified" ? "priority" : ["shortlisted", "outreach-approved", "contacted", "in-conversation"].includes(assessment.stage) ? "develop" : "research"; }
   if (!finance?.structureReviewed) {
     ranked.scores.financeability = null;

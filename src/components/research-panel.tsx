@@ -1,5 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { CompanyPipelineProgress } from "./company-pipeline-progress";
+import { researchRoot, isCompanyPipeline, companyPipelineState } from "./company-pipeline-state";
 import { CompanySearchProgress } from "./company-search-progress";
 import { useActivePolling } from "./use-active-polling";
 import {
@@ -23,6 +25,7 @@ export type ResearchJob = {
   modelCalls: number;
   message: string;
   createdAt: string;
+  updatedAt?: string;
   config: ResearchConfig;
   seeds: string[];
 };
@@ -41,7 +44,7 @@ type Data = ResearchPanelData;
 // while page counters and stage messages belong to the local progress display.
 export function researchWorkspaceSignature(data: ResearchPanelData) {
   const jobs = [...data.jobs, ...(data.peopleJobs || []), ...(data.companyJobs || [])];
-  const roots = jobs.filter(job => !job.config.purpose && !job.config.discoveryCandidate)
+  const roots = jobs.filter(job => !job.config.purpose && !job.config.discoveryCandidate && !job.config.researchTask)
     .map(job => [job.id, terminalResearchStates.includes(job.status) ? job.status : 'active']).sort((a, b) => a[0].localeCompare(b[0]));
   const finished = jobs.filter(job => terminalResearchStates.includes(job.status))
     .map(job => [job.id, job.status]).sort((a, b) => a[0].localeCompare(b[0]));
@@ -72,8 +75,10 @@ export function ResearchPanel({
   showStartAction = true,
   onCandidatesFound,
   hideProgress = false,
+  startedRunId,
 }: {
   mandateId: string;
+  startedRunId?: string;
   brief?: AcquisitionBrief;
   onResultsChanged: (data: ResearchPanelData, changed: boolean) => void;
   showStartAction?: boolean;
@@ -110,7 +115,7 @@ export function ResearchPanel({
   const active = [...data.jobs, ...(data.peopleJobs || []), ...(data.companyJobs || [])].find(
     (j) => !terminalResearchStates.includes(j.status),
   );
-  const currentJob = data.jobs.find(j => !terminalResearchStates.includes(j.status)) || active || data.jobs[0];
+  const currentJob = startedRunId ? researchRoot(data.jobs, startedRunId) : researchRoot(data.jobs) || active || data.jobs[0];
   const runId = currentJob?.config.researchRunId || currentJob?.id;
   const inRun = (j: ResearchJob) => j.id === runId || j.config.researchRunId === runId || j.config.parentJobId === runId;
   const relatedPeople = (data.peopleJobs || []).filter(inRun);
@@ -124,13 +129,13 @@ export function ResearchPanel({
       onCandidatesFound();
     }
   }, [data.jobs, onCandidatesFound]);
-  const discoveryJobs = runJobs.filter(j => !j.config.purpose && !j.config.discoveryCandidate);
+  const discoveryJobs = runJobs.filter(j => !j.config.purpose && !j.config.discoveryCandidate && !j.config.researchTask);
   const searchHistory = discoveryJobs.reduce<NonNullable<ResearchConfig["discoveryAttempts"]>>((history, j) => (j.config.discoveryAttempts?.length || 0) > history.length ? j.config.discoveryAttempts! : history, []);
   const searchStopReason = discoveryJobs.find(j => j.config.discoveryStopReason)?.config.discoveryStopReason;
   const pendingDeep = (data.pendingEnrichment || []).filter(task => task.runId === runId);
   const enriching = [...relatedPeople, ...relatedCompanies].filter(j => !terminalResearchStates.includes(j.status));
   const identifiedBusinessCount = new Set((data.results || []).filter(r => runJobs.some(j => j.id === r.jobId)).flatMap(r => r.businessDomains || [])).size;
-  const newBusinessCount = new Set(runJobs.flatMap(j => j.config.newBusinessIds || [])).size;
+  const newBusinessCount = currentJob && isCompanyPipeline(currentJob) ? companyPipelineState(currentJob, runJobs).savedIds.length : new Set(runJobs.flatMap(j => j.config.newBusinessIds || [])).size;
   const budget = {
     maxPages: 5,
     maxDomains: 5,
@@ -189,8 +194,8 @@ export function ResearchPanel({
             </div>
           )}
           {currentJob && <div className="space-y-3" role="status">
-            <ResearchProgress job={currentJob} jobs={runJobs} count={newBusinessCount} identified={identifiedBusinessCount} active={Boolean(active)} enriching={enriching.length} />
-            {currentJob.config.mode === "automatic" && <DiscoveryCandidateList jobs={candidateJobs} searching={Boolean(active)} />}
+            <ResearchProgress mandateId={mandateId} job={currentJob} jobs={runJobs} count={newBusinessCount} identified={identifiedBusinessCount} active={Boolean(active)} enriching={enriching.length} />
+            {!isCompanyPipeline(currentJob) && currentJob.config.mode === "automatic" && <DiscoveryCandidateList jobs={candidateJobs} searching={Boolean(active)} />}
             {showStartAction && <ResearchRunOutcome showSummary={false} status={currentJob.status} remaining={remainingFor(currentJob).length} active={Boolean(active)} canResume={!currentJob.config.purpose} busy={busy} onResume={() => resume(currentJob)} goal={currentJob.config.targetBusinesses} saved={newBusinessCount} />}
             {showStartAction && (currentJob.status === "failed" || currentJob.status === "partial" || currentJob.status === "cancelled") && currentJob.message && <p className="break-words text-sm text-[var(--muted)]">{currentJob.message}</p>}
             {showStartAction && searchHistory.length > 0 && <details className="rounded-lg border border-[var(--border)] p-3 text-sm">
@@ -449,7 +454,8 @@ export function ActiveResearchJob({ job, busy, onCancel, onRetry }: { job: Resea
   </div>;
 }
 
-export function ResearchProgress({ job, jobs = [job], active, enriching }: { job: ResearchJob; jobs?: ResearchJob[]; count: number; identified: number; active: boolean; enriching: number }) {
+export function ResearchProgress({ job, jobs = [job], active, enriching, mandateId }: { job: ResearchJob; jobs?: ResearchJob[]; count: number; identified: number; active: boolean; enriching: number; mandateId?: string }) {
+  if (isCompanyPipeline(job)) return <CompanyPipelineProgress job={job} jobs={jobs} mandateId={mandateId} />;
   const running = jobs.filter(j => !terminalResearchStates.includes(j.status));
   const discovery = running.find(j => !j.config.purpose && !j.config.discoveryCandidate);
   const researching = running.filter(j => !j.config.purpose);

@@ -1,0 +1,24 @@
+import {readFileSync,writeFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import pg from 'pg';
+import {localBenchmarkDatabase} from './research-design-metrics.mjs';
+import {abnChecksum} from '../src/domain/abn-public-lookup.mjs';
+const directory=resolve(process.argv[2]||'');
+const manifest=JSON.parse(readFileSync(resolve(directory,'manifest.json'))),final=JSON.parse(readFileSync(resolve(directory,'final.json')));
+if(manifest.design!=='E'||!final.summary.finished)throw Error('Requires a completed E benchmark');
+const db=new pg.Client({connectionString:localBenchmarkDatabase(manifest.databaseName)});
+try{
+ await db.connect();await db.query('BEGIN READ ONLY');
+ const root=(await db.query('SELECT status,config FROM research_jobs WHERE id=$1',[manifest.runId])).rows[0];
+ const companies=(await db.query("SELECT id,status,message,config FROM research_jobs WHERE config->>'researchRunId'=$1 AND config->>'researchTask'='company'",[manifest.runId])).rows;
+ const targets=(await db.query('SELECT id,company_name,domain,identifiers,firmographics FROM targets WHERE mandate_id=$1',[manifest.mandateId])).rows;
+ const result=root.config.webFirmableResult,matched=companies.filter(j=>j.config.firmableMatch==='matched');
+ const total=result.candidates;
+ const coverage=Object.fromEntries(['firmableProfile','abn','headcountExact','headcountBand','revenueBand'].map(key=>{const found=key==='firmableProfile'?matched.length:targets.filter(t=>key==='abn'?abnChecksum(t.identifiers?.abn||''):key==='headcountExact'?t.firmographics.headcount?.value!=null:key==='headcountBand'?t.firmographics.headcountBand?.value!=null:t.firmographics.revenue?.value?.kind==='band').length;return[key,{found,total,percent:total?Math.round(found/total*1000)/10:0}];}));
+ const checks={complete:root.status==='complete',allQueriesSucceeded:result.searchFailed===0,allCompaniesProcessed:result.unprocessed===0&&companies.length===total,allCompaniesSaved:targets.length===total,noFailedCompanies:companies.every(j=>j.status==='complete'),uniqueDomains:new Set(targets.map(t=>t.domain)).size===targets.length,matchedDomainsAgree:matched.every(j=>j.config.companyDomain===j.config.firmableProfile?.domain&&j.config.companyDomain===j.config.webDiscovery?.domain),acceptedAbnsVerified:companies.every(j=>{const abn=targets.find(t=>t.id===j.config.targetId)?.identifiers?.abn;return !abn||(j.config.abnLookup?.status==='matched'&&j.config.abnLookup.abn===abn&&j.config.abnLookup.record?.active===true&&j.config.abnLookup.evidence?.length>0);}),unmatchedHaveNoFirmableFacts:companies.filter(j=>['not_found','ambiguous'].includes(j.config.firmableMatch)).every(j=>!j.config.firmableProfile&&!targets.find(t=>t.id===j.config.targetId)?.identifiers?.firmableId&&targets.find(t=>t.id===j.config.targetId)?.firmographics.headcount?.value==null&&targets.find(t=>t.id===j.config.targetId)?.firmographics.headcountBand?.value==null&&targets.find(t=>t.id===j.config.targetId)?.firmographics.revenue?.value?.kind!=='band')};
+ const outcomes={},sources={};for(const j of companies){outcomes[j.config.firmableMatch||j.status]=(outcomes[j.config.firmableMatch||j.status]||0)+1;const source=j.config.abnLookup?.status==='matched'&&targets.find(t=>t.id===j.config.targetId)?.identifiers?.abn?(j.config.abnLookup.resolutionSource||'unknown'):'unresolved';sources[source]=(sources[source]||0)+1;}
+ const spans=Object.values(root.config.pipelineTiming||{});const stage=prefix=>{const group=spans.filter(s=>s.step.startsWith(prefix));return group.length?{calls:group.length,wallMs:Math.max(...group.map(s=>Date.parse(s.finishedAt)))-Math.min(...group.map(s=>Date.parse(s.startedAt))),totalMs:group.reduce((n,s)=>n+s.elapsedMs,0)}:null;};
+ const report={stages:{discovery:stage('e-search-'),companyEnrichment:stage('e-company-')},valid:Object.values(checks).every(Boolean),checks,elapsedMs:final.summary.elapsedMs,rootStatus:root.status,result,coverage,firmableOutcomes:outcomes,abnSources:sources,errors:companies.filter(j=>j.status==='failed').map(j=>({company:j.config.companyName,domain:j.config.companyDomain,error:j.message})),timings:root.config.pipelineTiming};
+ writeFileSync(resolve(directory,'verification.json'),JSON.stringify(report,null,2),{mode:0o600});writeFileSync(resolve(directory,'companies.json'),JSON.stringify(companies.map(j=>({company_name:j.config.firmableProfile?.companyName||j.config.companyName,discovered_name:j.config.companyName,domain:j.config.companyDomain,firmable_match:j.config.firmableMatch,status:j.status,abn:targets.find(t=>t.id===j.config.targetId)?.identifiers?.abn||null,abn_source:j.config.abnLookup?.resolutionSource||null})),null,2),{mode:0o600});
+ console.log(JSON.stringify({...report,timings:undefined},null,2));await db.query('COMMIT');if(!report.valid)process.exitCode=1;
+}finally{await db.end();}

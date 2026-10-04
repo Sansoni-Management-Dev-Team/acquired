@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { groundedCriterionValue } from "@/domain/criterion-grounding";
 import { briefSchema, criterionDefinitions, emptyBrief } from "@/domain/acquisition";
 import { FreeOpenRouter, FREE_MANDATE_MODELS } from "./ai/free-openrouter";
 import { completeOpenAiJson, OPENAI_FALLBACK_MODEL } from "./ai/openai";
@@ -44,10 +45,11 @@ export async function generateMandate(description?: string) {
     naturalLanguage: description || generated.naturalLanguage,
     criteria: initial.criteria.map(c => {
       const extracted = generated.criteria[c.key];
-      const value = extracted.value.trim();
+      let value = extracted.value.trim();
       const quote = extracted.quote.trim();
       const grounded = Boolean(description && quote && description.includes(quote));
-      const unknown = Boolean(description) && (!grounded || /^(unknown|unspecified|not specified|not provided|tbd|n\/a)$/i.test(value));
+      if (grounded) value = groundedCriterionValue(c.key, value, quote);
+      const unknown = Boolean(description) && (!grounded || !value || /^(unknown|unspecified|not specified|not provided|tbd|n\/a)$/i.test(value));
       if (unknown && c.key === "geography") return { ...c, value: "National", state: "unrestricted" as const, origin: "assumed" as const, confirmed: false };
       return { ...c, value: unknown ? "" : value, state: unknown ? "unknown" as const : "specified" as const, origin: grounded ? "supplied" as const : "assumed" as const, importance: extracted.importance, sourceQuote: grounded ? quote : undefined, confirmed: false };
     }),

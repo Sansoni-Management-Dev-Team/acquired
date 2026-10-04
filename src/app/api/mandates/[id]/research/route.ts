@@ -1,3 +1,4 @@
+import {selectedResearchPipeline} from '@/domain/research-pipeline-design';
 import { researchJsonResponse, researchRequestJson } from "@/lib/research-request-observability";
 import { observeResearchRequest } from "@/lib/research-request-observability";
 import { summariseResearchTimings, summariseCompactResearchTimings } from '@/domain/research-timing';
@@ -224,6 +225,8 @@ export async function POST(
   }
   if (!continueFrom) config.performanceFlags = newResearchPerformanceFlags();
   config = automaticResearchConfig(config);
+  if(!continueFrom)config.pipelineDesign=selectedResearchPipeline(config,process.env.RESEARCH_PIPELINE_DESIGN,process.env.LOCAL_DEVELOPMENT==='true');
+  if(['firmable-v1','web-firmable-v1','hybrid-firmable-v1'].includes(config.pipelineDesign||'')){config.findPeople=false;config.parallelBusinessResearch=false;config.automaticDeadline=Date.now()+10*60000;}
   if (config.mode === "automatic") config.researchRunId = requestId;
   try {
     const repo = new ResearchRepository(org);

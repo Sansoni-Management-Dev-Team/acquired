@@ -1,12 +1,14 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-const m = vi.hoisted(() => ({ get: vi.fn(), request: vi.fn(), finish: vi.fn(), load: vi.fn(), discovery: vi.fn(), enrichment: vi.fn(), continuation: vi.fn(), parallel: vi.fn() }));
+const m = vi.hoisted(() => ({ get: vi.fn(), request: vi.fn(), finish: vi.fn(), load: vi.fn(), discovery: vi.fn(), enrichment: vi.fn(), continuation: vi.fn(), parallel: vi.fn(), balanced: vi.fn(), corpus: vi.fn() }));
 vi.mock('@/db/research-repository', () => ({ ResearchRepository: class { get = m.get; getExecution = m.get; } }));
 vi.mock('@/db/research-scheduler-repository', () => ({ requestSchedulingLease: m.request, finishSchedulingPass: m.finish }));
 vi.mock('./research-scheduling-snapshot', () => ({ loadResearchSchedulingSnapshot: m.load }));
 vi.mock('./automatic-discovery', () => ({ dispatchDiscoveryCandidates: m.discovery }));
 vi.mock('./automatic-enrichment', () => ({ dispatchAutomaticEnrichment: m.enrichment }));
 vi.mock('./research-continuation', () => ({ dispatchContinuation: m.continuation }));
+vi.mock('./balanced-business-research', () => ({ dispatchBalancedBusinessResearch: m.balanced }));
 vi.mock('./parallel-business-research', () => ({ dispatchParallelBusinessResearch: m.parallel }));
+vi.mock('./corpus-business-research', () => ({ dispatchCorpusBusinessResearch: m.corpus }));
 import { scheduleResearchRun } from './research-scheduler';
 beforeEach(() => {
  vi.resetAllMocks();
@@ -68,3 +70,10 @@ it('processes real callbacks even if an earlier pass marked the root settled',as
  m.get.mockResolvedValue({id:'root',status:'partial',config:{parallelBusinessResearch:true,parallelResearchSettled:true,performanceFlags:{schedulerCoalescing:true}}});
  await scheduleResearchRun('org','root');expect(m.request).toHaveBeenCalledTimes(1);expect(m.parallel).toHaveBeenCalledTimes(1);
 });
+
+it('selects B only when the saved run explicitly requests it',async()=>{
+ m.get.mockResolvedValue({id:'root',config:{pipelineDesign:'balanced-v1',parallelBusinessResearch:true,performanceFlags:{schedulerCoalescing:true}}});
+ await scheduleResearchRun('org','root');expect(m.balanced).toHaveBeenCalledTimes(1);expect(m.parallel).not.toHaveBeenCalled();
+});
+
+it("routes C to corpus dispatch without affecting A or B",async()=>{m.get.mockResolvedValue({id:"root",config:{pipelineDesign:"corpus-v1",parallelBusinessResearch:true,performanceFlags:{schedulerCoalescing:true}}});await scheduleResearchRun("org","root");expect(m.corpus).toHaveBeenCalled();expect(m.balanced).not.toHaveBeenCalled();expect(m.parallel).not.toHaveBeenCalled();});
