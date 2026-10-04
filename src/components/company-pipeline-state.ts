@@ -14,9 +14,10 @@ export function companyPipelineState(root: ResearchJob, jobs: ResearchJob[]) {
   const scoped = [...new Map(jobs.filter(job => job.id === root.id || job.config.researchRunId === runId || job.config.parentJobId === runId).map(job => [job.id, job])).values()];
   const children = scoped.filter(job => job.config.researchTask === 'company');
   const savedIds = [...new Set(children.filter(job => job.status === 'complete' && job.config.targetId).map(job => job.config.targetId!))];
-  const settled = terminalResearchStates.includes(root.status) && scoped.every(job => terminalResearchStates.includes(job.status));
+  const people = root.config.companyPeopleProgress;
+  const settled = (!root.config.includeCompanyPeople || people?.settled === true) && terminalResearchStates.includes(root.status) && scoped.every(job => terminalResearchStates.includes(job.status));
   const config = root.config as typeof root.config & { webSearchPages?: Record<string, { ok: boolean }>; firmableSearchPages?: Record<string, unknown> };
-  return { savedIds, settled, processed: children.filter(job => terminalResearchStates.includes(job.status)).length,
+  return { savedIds, settled, peopleFound: people?.found || 0, peopleSaved: people?.saved || 0, peopleActive: people?.active || 0, peopleQueued: people?.queued || 0, processed: children.filter(job => terminalResearchStates.includes(job.status)).length,
     active: children.filter(job => !terminalResearchStates.includes(job.status)).length,
     failed: children.filter(job => ['failed', 'partial'].includes(job.status)).length,
     headcounts: children.filter(job => { const profile = (job.config as typeof job.config & { firmableProfile?: { headcountExact?: number | null; headcountBand?: unknown } }).firmableProfile; return profile?.headcountExact != null || profile?.headcountBand != null; }).length,

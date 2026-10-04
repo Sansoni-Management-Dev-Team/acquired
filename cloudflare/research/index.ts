@@ -1,3 +1,4 @@
+import {waitForCompanyPeople} from '../../src/domain/company-people-progress';
 import {runHybridCompanyPipeline} from '../../src/domain/hybrid-company-pipeline';
 import {runWebFirmablePipeline,type WebQuery,type WebCompany} from '../../src/domain/web-firmable-pipeline';
 import {isFirmableCompanyRoot,isWebFirmableRoot,isHybridCompanyRoot} from '../../src/domain/research-pipeline-design';
@@ -230,7 +231,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
           if(searchAttempt<2)await step.sleep(`f-search-retry-${index}-${searchAttempt}`,'3 seconds');
         }
         return {rows:[],ok:false};
-      },profile:company=>callback(this.env,id,{action:company.firmableRow?'d-company':'e-company',row:company.firmableRow||company.webRow,expectedDomain:company.domain,sources:company.sources},requestBudget) as Promise<{ok:boolean;matched?:boolean}>,finish:result=>callback(this.env,id,{action:'f-finish',result},requestBudget)},{deadline:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:100,concurrency:2});}
+      },profile:company=>callback(this.env,id,{action:company.firmableRow?'d-company':'e-company',row:company.firmableRow||company.webRow,expectedDomain:company.domain,sources:company.sources},requestBudget) as Promise<{ok:boolean;matched?:boolean}>,finish:async result=>{if(initial.config.includeCompanyPeople)await waitForCompanyPeople({checkpoint,poll:()=>callback(this.env,id,{action:'company-people-status'},requestBudget) as Promise<{settled:boolean}>,sleep:(name,ms)=>step.sleep(name,ms)});return callback(this.env,id,{action:'f-finish',result},requestBudget);}},{deadline:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:100,concurrency:2});}
       catch(error){await checkpoint('f-fail',()=>callback(this.env,id,{action:'f-fail',result:{error:error instanceof Error?error.message:'F failed'}},requestBudget));return {failed:true};}
       finally{await timing.flush(32);}
     }
@@ -477,7 +478,15 @@ export class FirmableRefresh extends WorkflowEntrypoint<Env, { runId: string; ma
       return result as T;
     };
     try {
-      await checkpoint<{ companyId?: string }>("company", { action: "company", mandateId });
+      const company = await checkpoint<{ companyId?: string; phoneOnly?: boolean }>("company", { action: "company", mandateId });
+      if (company.phoneOnly) {
+        for (let offset = 0; ;) {
+          const batch = await checkpoint<{ nextOffset: number; complete: boolean }>(`phones-${offset}`, { action: 'phones', offset });
+          if (batch.complete) return batch;
+          if (batch.nextOffset <= offset) throw Error('Phone lookup did not advance');
+          offset = batch.nextOffset;
+        }
+      }
       let found = 0;
       let searchComplete = false;
       for (let offset = 0; offset < 10_000; offset += 100) {
@@ -514,12 +523,12 @@ const worker = {
   async fetch(request: Request, env: Env) {
     const firmableValidation = new URL(request.url).pathname === "/firmable/validate";
     const servicePath = new URL(request.url).pathname.replace(/^\/firmable/, "");
-    const firmableService = ['/company/search', '/company', '/people', '/people/search', '/status', '/reconnect'].includes(servicePath) && new URL(request.url).pathname.startsWith('/firmable/');
+    const firmableService = ['/company/search', '/company', '/people/phones', '/people', '/people/search', '/status', '/reconnect'].includes(servicePath) && new URL(request.url).pathname.startsWith('/firmable/');
     const secret = firmableService ? env.FIRMABLE_SERVICE_SECRET || '' : firmableValidation ? env.FIRMABLE_VALIDATION_SECRET || env.SERVICE_SECRET : env.SERVICE_SECRET;
     if (!(await authorized(request, secret)))
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     if (firmableService) {
-      const method = ['/company/search', '/people/search', '/reconnect'].includes(servicePath) ? 'POST' : 'GET';
+      const method = ['/company/search', '/people/search', '/people/phones', '/reconnect'].includes(servicePath) ? 'POST' : 'GET';
       if (request.method !== method) return Response.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: method } });
       if (!env.PROVIDER_COORDINATOR) return Response.json({ category: 'not_configured' }, { status: 503 });
       if (Number(request.headers.get('content-length') || 0) > 20_000) return Response.json({ error: 'Request too large' }, { status: 413 });

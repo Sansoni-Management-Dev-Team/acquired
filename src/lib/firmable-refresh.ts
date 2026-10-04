@@ -1,13 +1,13 @@
 import "server-only";
 
-import { and, eq, inArray } from "drizzle-orm";
-import { FirmableError, mapFirmablePerson } from "@/adapters/firmable-client";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { FirmableClient, FirmableError, mapFirmablePerson } from "@/adapters/firmable-client";
 import { createTargetDataProvider } from "@/adapters/provider-mode";
 import { mapFirmableCompany } from "@/adapters/firmable-mapper";
 import { upsertFirmableContact } from "@/db/firmable-contacts";
 import { FirmableHistoryRepository } from "@/db/firmable-history-repository";
 import { requireDb } from "@/db/client";
-import { contacts, mandateTargets } from "@/db/schema";
+import { contacts, mandateTargets, targets, firmableSyncRuns } from "@/db/schema";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { OrganizationRepository } from "@/db/repositories";
 import { briefToMandate } from "@/domain/acquisition";
@@ -50,6 +50,18 @@ export async function refreshFirmableCompany(runId: string, mandateId: string) {
   const { database, history, run } = await context(runId, mandateId);
   if (["complete", "partial", "failed"].includes(run.status)) return { companyId: run.firmableCompanyId };
   await history.markRunning(runId);
+  if (run.trigger === 'phones') {
+    const [target] = await database.select().from(targets).where(and(eq(targets.id, run.targetId), eq(targets.organizationId, run.organizationId)));
+    if (!target?.firmableCompanyId) throw Error('Saved company match required for phone lookup');
+    const people = await database.select({id: contacts.id}).from(contacts).where(and(eq(contacts.targetId, run.targetId), eq(contacts.organizationId, run.organizationId)));
+    await database.update(firmableSyncRuns).set({ firmableCompanyId: target.firmableCompanyId, companyStatus: 'complete', searchStatus: 'complete', profilesFound: people.length }).where(eq(firmableSyncRuns.id, runId));
+    return { companyId: target.firmableCompanyId, phoneOnly: true };
+  }
+  // Discovery already saved and verified this company; preserve its bands and ABN.
+  if (run.trigger === 'discovery' && run.companyStatus === 'complete' && run.firmableCompanyId) {
+    await history.updateProgress(runId, { searchStatus: 'running', message: 'Company already saved; finding people' });
+    return { companyId: run.firmableCompanyId };
+  }
   const repo = new AcquisitionRepository(run.organizationId, database);
   const mandate = await repo.getMandate(mandateId);
   if (!mandate) throw new Error("Mandate not found");
@@ -169,7 +181,8 @@ export async function refreshFirmableProfileBatch(runId: string, offset: number)
       if (stored && !raw && existingIds.has(candidate.id)) return;
       const person = raw
         ? mapFirmablePerson(raw, { id: candidate.id }, process.env.ALLOW_REAL_PERSONAL_DATA !== "true")
-        : await provider.enrichPerson({ id: candidate.id });
+        : await provider.enrichPerson({ id: candidate.id }, { includePhones: run.trigger !== 'discovery' });
+      if (run.trigger === 'discovery') { person.phone = undefined; person.phoneAvailable = false; }
       await upsertFirmableContact({ database, organizationId: run.organizationId, targetId: run.targetId, companyId: run.firmableCompanyId!, person, candidate });
     } catch (error) {
       if (error instanceof FirmableError && ![401, 402, 403].includes(error.status)) return;
@@ -226,4 +239,45 @@ export async function completeFirmableRefresh(runId: string, mandateId: string) 
 export async function failFirmableRefresh(runId: string, message: string) {
   const { history } = await context(runId);
   await history.failRun(runId, message.slice(0, 500));
+}
+
+/** Explicit manual enrichment only. Existing people and emails are preserved.
+ * A durable per-contact marker prevents workflow retries from repeating an
+ * uncertain credit-bearing request. A new user action may retry it. */
+export async function refreshFirmablePhoneBatch(runId: string, offset: number) {
+  if (!Number.isInteger(offset) || offset < 0 || offset >= 10000) throw Error('Invalid phone offset');
+  const { database, history, run } = await context(runId);
+  if (run.trigger !== 'phones') throw Error('Phone lookup requires explicit manual enrichment');
+  const all = await database.select().from(contacts).where(and(eq(contacts.organizationId, run.organizationId), eq(contacts.targetId, run.targetId))).orderBy(contacts.createdAt, contacts.id);
+  const batch = all.slice(offset, offset + 5);
+  const provider = new FirmableClient({ retries: 0 });
+  for (const contact of batch) {
+    const data = contact.personalData as Record<string, unknown>;
+    const provenance = contact.provenance as Record<string, unknown>;
+    const previous = provenance.phoneLookup as { runId?: string; status?: string } | undefined;
+    if (data.phone || previous?.runId === runId || !contact.firmablePersonId) continue;
+    const claimed = await database.update(contacts).set({ provenance: sql`${contacts.provenance} || ${JSON.stringify({ phoneLookup: { runId, status: 'pending', requestedAt: new Date().toISOString() } })}::jsonb` }).where(and(eq(contacts.id, contact.id), sql`COALESCE(${contacts.provenance}->'phoneLookup'->>'runId', '') <> ${runId}`, sql`COALESCE(${contacts.personalData}->>'phone', '') = ''`)).returning({id:contacts.id});
+    if (!claimed.length) continue;
+    let status = 'not_available', message: string | undefined;
+    try {
+      const result = await provider.revealPersonPhones(contact.firmablePersonId);
+      const person = mapFirmablePerson(result, { id: contact.firmablePersonId }, process.env.ALLOW_REAL_PERSONAL_DATA !== 'true');
+      if (person.phone && !/[*x•]/i.test(person.phone) && person.phone.replace(/\D/g, '').length >= 7) {
+        await database.update(contacts).set({ personalData: sql`${contacts.personalData} || ${JSON.stringify({ phone: person.phone, phoneAvailable: true, doNotContact: data.doNotContact === true || person.doNotContact })}::jsonb` }).where(eq(contacts.id, contact.id));
+        status = 'saved';
+      }
+    } catch (error) {
+      status = 'failed'; message = error instanceof Error ? error.message : 'Phone lookup failed';
+      await database.update(contacts).set({ provenance: sql`${contacts.provenance} || ${JSON.stringify({ phoneLookup: { runId, status, message } })}::jsonb` }).where(eq(contacts.id, contact.id));
+      if (error instanceof FirmableError && [401, 402, 403].includes(error.status)) throw error;
+    }
+    await database.update(contacts).set({ provenance: sql`${contacts.provenance} || ${JSON.stringify({ phoneLookup: { runId, status, message, checkedAt: new Date().toISOString() } })}::jsonb` }).where(eq(contacts.id, contact.id));
+  }
+  const current = await database.select().from(contacts).where(and(eq(contacts.organizationId, run.organizationId), eq(contacts.targetId, run.targetId)));
+  const saved = current.filter(c => Boolean((c.personalData as { phone?: string }).phone)).length;
+  const failed = current.filter(c => { const lookup = (c.provenance as {phoneLookup?: {runId:string;status:string}}).phoneLookup; return lookup?.runId === runId && ['failed', 'pending'].includes(lookup.status); }).length;
+  const nextOffset = Math.min(offset + batch.length, all.length), complete = nextOffset >= all.length;
+  await history.updateProgress(runId, { profilesFound: all.length, profilesSaved: saved, profilesFailed: failed, message: `Checked ${nextOffset}/${all.length} contacts; ${saved} phone numbers available` });
+  if (complete) await history.finishRun(runId, { found: all.length, saved, failed, searchComplete: true, message: `Phone lookup finished: ${saved} numbers available across ${all.length} contacts` });
+  return { nextOffset, complete, saved, failed };
 }

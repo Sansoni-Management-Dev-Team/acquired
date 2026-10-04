@@ -81,3 +81,24 @@ it('returns not found when both company searches have verified zero results',asy
  const {account}=setup([token(),Response.json({success:false,totalCompany:0,totalPeople:0}),Response.json({success:false,totalCompany:0,totalPeople:0})]);expect((await account.handle({...company,query:{fqdn:'clean.example',name:'Clean Pty Ltd'}})).status).toBe(404);
 });
 it('keeps malformed search responses as provider failures',async()=>{const {account}=setup([token(),Response.json({success:false,totalCompany:2})]);expect((await account.handle({...company,query:{fqdn:'clean.example'}})).status).toBe(502);});
+it('email-only profile retrieval never requests phone unlock and excludes phone data', async () => {
+ const { account, fetcher } = setup([token(), Response.json({id:'fp123',emails:[{value:'test@example.com'}],phones:[{value:'0412345678'}],phone:'0412345678'})]);
+ const result = await account.handle({path:'/people',method:'GET',query:{id:'fp123',includePhones:'false'}});
+ expect(result.status).toBe(200);expect(result.body.phones).toBeUndefined();expect(result.body.phone).toBeUndefined();expect(result.body.emails).toEqual([{value:'test@example.com'}]);
+ expect(fetcher.mock.calls.map(call=>String(call[0]))).not.toContain(expect.stringContaining('/phones/'));
+});
+it('requires explicit confirmation before a credit-bearing phone lookup', async () => {
+ const { account, fetcher } = setup([token()]);
+ expect((await account.handle({path:'/people/phones',method:'POST',query:{},body:{id:'fp123'}})).status).toBe(400);
+ expect(fetcher).not.toHaveBeenCalled();
+});
+it('does not unlock phone numbers again when already disclosed', async () => {
+ const { account, fetcher } = setup([token(),Response.json({phones:[{value:'0412345678'}],hasViewedPhonesAlready:true})]);
+ expect((await account.handle({path:'/people/phones',method:'POST',query:{},body:{id:'fp123',confirmCredits:true}})).body.phones).toEqual([{value:'0412345678'}]);
+ expect(fetcher.mock.calls.some(call=>String(call[0]).endsWith('/phones/show'))).toBe(false);
+});
+it('uses the captured phone unlock endpoint only for explicit manual retrieval', async () => {
+ const { account, fetcher } = setup([token(),Response.json({phones:[{masked_value:'04********'}],hasViewedPhonesAlready:false}),Response.json({phones:[{value:'0412345678',is_dnd:true}]})]);
+ expect((await account.handle({path:'/people/phones',method:'POST',query:{},body:{id:'fp123',confirmCredits:true}})).status).toBe(200);
+ expect(fetcher.mock.calls.filter(call=>String(call[0]).endsWith('/phones/show'))).toHaveLength(1);
+});

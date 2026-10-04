@@ -42,6 +42,10 @@ export async function upsertFirmableContact(args: {
       : [];
   const existingContactId = existing?.id;
   const values = firmableContactValues(args.person, args.candidate, args.companyId);
+  if (args.person.phone === undefined && typeof (existing?.personalData as { phone?: unknown } | undefined)?.phone === 'string') {
+    values.personalData.phone = (existing!.personalData as { phone: string }).phone;
+    values.personalData.phoneAvailable = true;
+  }
   if ((existing?.personalData as Record<string, unknown> | undefined)?.doNotContact === true) values.personalData.doNotContact = true;
   const [saved] = existingContactId
     ? await args.database.update(contacts).set({ ...values, firmablePersonId: args.person.id }).where(and(eq(contacts.id, existingContactId), eq(contacts.organizationId, args.organizationId))).returning({ id: contacts.id })

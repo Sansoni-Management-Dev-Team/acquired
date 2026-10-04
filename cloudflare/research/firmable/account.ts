@@ -93,9 +93,19 @@ export class FirmableAccount {
         data = await request('/people', { companyId: body.companyId, selectedCountry: 'AU', size, from, ...(body.position ? { search: { position: body.position } } : {}) });
         if (data.success !== true || !Array.isArray(data.records) || typeof data.total !== 'number') throw new ServiceError(502, 'invalid_upstream_response');
         data = { ...data, records: (data.records as RecordData[]).map(normalize) };
+      } else if (input.path === '/people/phones') {
+        const id = input.body?.id;
+        if (typeof id !== 'string' || !/^fp\d+$/.test(id) || input.body?.confirmCredits !== true) throw new ServiceError(400, 'phone_lookup_requires_explicit_action');
+        const available = await request(`/people/${id}/phones/new`);
+        if (!Array.isArray(available.phones) || typeof available.hasViewedPhonesAlready !== 'boolean') throw new ServiceError(502, 'invalid_upstream_response');
+        const disclosed = (available.phones as RecordData[]).some(phone => typeof phone.value === 'string' && !/[*x•]/i.test(phone.value) && phone.value.replace(/\D/g, '').length >= 7);
+        const phones = !available.phones.length || available.hasViewedPhonesAlready && disclosed ? available : await request(`/people/${id}/phones/show`);
+        if (!Array.isArray(phones.phones)) throw new ServiceError(502, 'invalid_upstream_response');
+        data = { id, phones: phones.phones };
       } else if (input.path === '/people') {
         if (!/^fp\d+$/.test(input.query.id || '')) throw new ServiceError(422, 'unsupported_identifier');
         data = normalize(await request(`/people/${input.query.id}`));
+        if (input.query.includePhones === 'false') { delete data.phones; delete data.phone; delete data.mobile; data.has_phone = false; data.phone_available = false; }
       } else throw new ServiceError(404, 'not_found');
       return { status: 200, body: data };
     } catch (error) {

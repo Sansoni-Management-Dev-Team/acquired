@@ -1,3 +1,4 @@
+import {queueCompanyPeople,tickCompanyPeople} from './company-people-research';
 import {discoveryQueryPlan,seedRelevant} from '@/adapters/business-web-search';
 import {cloudflareSearchResults} from '@/adapters/cloudflare-web-search';
 import {webCompanyRows,matchWebFirmableCompany,type WebCompany} from '@/domain/web-firmable-pipeline';
@@ -24,6 +25,7 @@ export async function firmableCompanyResearch(job:Job,payload:Record<string,unkn
  if(!hybrid&&String(payload.action).startsWith(web?'d-':'e-'))throw Error('Action does not match pipeline design');
  const [mandate]=await db.select().from(mandates).where(and(eq(mandates.id,job.mandateId),eq(mandates.organizationId,job.organizationId)));if(!mandate)throw Error('Mandate missing');
  const guard=and(eq(researchJobs.id,job.id),eq(researchJobs.organizationId,job.organizationId),sql`${researchJobs.status} <> 'cancelled'`);
+ if(payload.action==='company-people-status')return tickCompanyPeople(job);
  if(job.status==='cancelled')return {ok:false,stop:true};
  const client=new FirmableClient({retries:0});
  if(payload.action==='e-plan')return discoveryQueryPlan(config.searchTerms,config.geography);
@@ -52,7 +54,7 @@ export async function firmableCompanyResearch(job:Job,payload:Record<string,unkn
   const baseConfig={...config} as ResearchConfig & {firmableSearchPages?:unknown};delete baseConfig.firmableSearchPages;delete (baseConfig as Record<string,unknown>).webSearchPages;
   const childConfig={...baseConfig,...(hybrid?{discoveryOrigins:payload.sources,hybridFirmableId:web?null:row.id,hybridExpectedDomain:payload.expectedDomain}:{}),executionSlot:`d-${id}`,researchTask:'company',parentJobId:job.id,companyDomain:String(row.website||row.fqdn||'').replace(/^https?:\/\//,'').replace(/^www\./,'').split('/')[0],companyName:String(row.name||row.id),...(web?{webDiscovery:row}:{firmableCompanyId:row.id,firmableSearchRow:row}),parallelBusinessResearch:false};
   await db.insert(researchJobs).values({id,organizationId:job.organizationId,mandateId:job.mandateId,createdBy:job.createdBy,config:childConfig,status:'extracting',message:'Reading Firmable company profile'}).onConflictDoNothing();
-  const [existing]=await db.select().from(researchJobs).where(eq(researchJobs.id,id));if(existing.status==='complete')return {ok:true,matched:(existing.config as {firmableMatch?:string}).firmableMatch!=='not_found'&&(existing.config as {firmableMatch?:string}).firmableMatch!=='ambiguous'};
+  const [existing]=await db.select().from(researchJobs).where(eq(researchJobs.id,id));if(existing.status==='complete'){const saved=existing.config as ResearchConfig & {firmableCompanyId?:string;firmableProfile?:{firmableId:string};firmableMatch?:string};if(saved.firmableMatch==='matched'&&saved.targetId)await queueCompanyPeople(job,saved.targetId,saved.firmableProfile?.firmableId||saved.firmableCompanyId!);return {ok:true,matched:(existing.config as {firmableMatch?:string}).firmableMatch!=='not_found'&&(existing.config as {firmableMatch?:string}).firmableMatch!=='ambiguous'};}
   try{
    let matched=true,matchStatus='matched';let raw:Record<string,unknown>;
    if(web){try{raw=await matchWebFirmableCompany(row as unknown as WebCompany,identifier=>client.enrichCompany(identifier));}
@@ -89,15 +91,16 @@ export async function firmableCompanyResearch(job:Job,payload:Record<string,unkn
     if(abn)await tx.insert(researchFindings).values({jobId:id,organizationId:job.organizationId,mandateId:job.mandateId,targetId,evidenceKey:'firmable-abn',sourceUrl:`https://abr.business.gov.au/ABN/View?abn=${abn}`,observedAt:new Date(),confidence:.7,evidence:{kind:'identifier',name:'ABN',value:abn,quote:abnLookup?.record?.quote||JSON.stringify({entityName:abnLookup?.record?.entityName,abn,identityEvidence:abnLookup?.evidence}),relevance:'unclear'}}).onConflictDoNothing();
     await tx.update(researchJobs).set({status:'complete',pages:1,message:matched?'Company-only profile saved':`Discovered company saved; Firmable ${matchStatus}`,updatedAt:new Date(),config:{...childConfig,companyDomain:profile.domain,targetId,firmableProfile:matched?profile:null,firmableMatch:matchStatus,abnLookup,screening,newBusinessIds:supported?[targetId]:[]}}).where(eq(researchJobs.id,id));
    });
+   if(matched)await queueCompanyPeople(job,targetId,profile.firmableId);
    return {ok:true,matched};
   }catch(error){const message=error instanceof Error?error.message:'Profile failed';await db.update(researchJobs).set({status:'failed',updatedAt:new Date(),message}).where(eq(researchJobs.id,id));return {ok:false};}
  }
  if(['d-finish','d-fail','e-finish','e-fail','f-finish','f-fail'].includes(String(payload.action))){
-  const result=payload.result as Record<string,unknown>||{};const failed=['d-fail','e-fail','f-fail'].includes(String(payload.action))||Number(result.failed)>0||Number(result.searchFailed)>0||Number(result.discoveryFailed)>0||Number(result.unprocessed)>0||!['candidate_limit','exhausted'].includes(String(result.stopReason));
+  const result=payload.result as Record<string,unknown>||{};const people=config.includeCompanyPeople?await tickCompanyPeople(job,['d-fail','e-fail','f-fail'].includes(String(payload.action))):null;const failed=Boolean(people&&(!people.settled||people.failed||people.profilesFailed))||['d-fail','e-fail','f-fail'].includes(String(payload.action))||Number(result.failed)>0||Number(result.searchFailed)>0||Number(result.discoveryFailed)>0||Number(result.unprocessed)>0||!['candidate_limit','exhausted'].includes(String(result.stopReason));
   if(hybrid&&Array.isArray(result.selection))for(const item of result.selection as {domain:string;sources:string[];firmableId:string|null}[]){
    await db.update(researchJobs).set({config:sql`${researchJobs.config} || ${JSON.stringify({discoveryOrigins:item.sources,hybridFirmableId:item.firmableId})}::jsonb`}).where(and(eq(researchJobs.id,stableId(job.id,item.domain)),eq(researchJobs.organizationId,job.organizationId)));
   }
-  await db.update(researchJobs).set({status:failed?'partial':'complete',updatedAt:new Date(),message:failed?'Company retrieval completed with operational gaps':'Company retrieval completed; mandate fit requires review',config:sql`${researchJobs.config} || ${JSON.stringify({parallelResearchSettled:true,discoveryPending:false,...(hybrid?{hybridResult:result}:web?{webFirmableResult:result}:{firmableResult:result}),excludedCapabilities:['people','email']})}::jsonb`}).where(guard);return {ok:!failed};
+  await db.update(researchJobs).set({status:failed?'partial':'complete',updatedAt:new Date(),message:failed?'Company retrieval completed with operational gaps':'Company retrieval completed; mandate fit requires review',config:sql`${researchJobs.config} || ${JSON.stringify({parallelResearchSettled:true,discoveryPending:false,...(hybrid?{hybridResult:result}:web?{webFirmableResult:result}:{firmableResult:result}),excludedCapabilities:config.includeCompanyPeople?['phone']:['people','email']})}::jsonb`}).where(guard);return {ok:!failed};
  }
  throw Error('Unsupported D action');
 }

@@ -130,7 +130,7 @@ async function postResearchCallback(
   setResearchDatabaseContext({ jobId: job.id, organizationId: job.organizationId, mandateId: job.mandateId, runId: (job.config as ResearchConfig).researchRunId || job.id });
   configureResearchTelemetry(researchPerformanceFlags(job.config as ResearchConfig).telemetryBatching);
   const repo = new ResearchRepository(job.organizationId);
-  if (['d-search','d-company','d-finish','d-fail','e-plan','e-search','e-company','e-finish','e-fail','f-finish','f-fail'].includes(payload?.action)) return researchJsonResponse(await firmableCompanyResearch(job,payload));
+  if (['company-people-status','d-search','d-company','d-finish','d-fail','e-plan','e-search','e-company','e-finish','e-fail','f-finish','f-fail'].includes(payload?.action)) return researchJsonResponse(await firmableCompanyResearch(job,payload));
   if (payload?.action === 'balanced-wakeup') {
     const config = job.config as ResearchConfig;
     if (process.env.LOCAL_DEVELOPMENT !== 'true' || !['balanced-v1','corpus-v1'].includes(config.pipelineDesign || '') || config.researchRunId !== job.id) return researchJsonResponse({error:'Unavailable'}, {status:403});

@@ -42,3 +42,9 @@ it('counts retrieved size and revenue data while preserving missing fields', () 
   const withProfile = { ...company, config: { ...company.config, firmableProfile: { headcountExact: null, headcountBand: { min: 10, max: 20 }, revenueBand: null } } };
   expect(companyPipelineState(root, [root, withProfile])).toMatchObject({ headcounts: 1, revenueBands: 0 });
 });
+it('retains the progress screen until linked people research is settled', () => {
+ const job = { ...root, status: 'complete', config: { ...root.config, includeCompanyPeople: true, companyPeopleProgress: {total:1,active:1,queued:0,complete:0,failed:0,found:3,saved:1,profilesFailed:0,settled:false} } };
+ expect(companyPipelineState(job,[job,company]).settled).toBe(false);
+ expect(renderToStaticMarkup(<CompanyPipelineProgress job={job} jobs={[job,company]}/>)).toContain('Finding people and emails');
+ expect(companyPipelineState({...job,config:{...job.config,companyPeopleProgress:{...job.config.companyPeopleProgress,active:0,settled:true}}},[company]).settled).toBe(true);
+});

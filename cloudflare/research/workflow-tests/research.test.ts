@@ -465,3 +465,23 @@ it.each(['web-firmable-v1', 'hybrid-firmable-v1'] as const)('waits durably for f
   expect(searched.at - reserved.at).toBeGreaterThanOrEqual(45);
   expect(t.callbacks).toContainEqual(expect.objectContaining({ action: 'e-search' }));
 });
+it('waits for automatically queued people research before completing F', async () => {
+ const t = replay(); Object.assign(t.config, {mode:'automatic',workflow:'business',discover:true,pipelineDesign:'hybrid-firmable-v1',includeCompanyPeople:true,researchRunId:t.id,automaticDeadline:Date.now()+600000});
+ const original = vi.mocked(globalThis.fetch).getMockImplementation()!; let polls = 0;
+ vi.spyOn(globalThis,'fetch').mockImplementation(async (input,init)=>{
+   if (init?.body && JSON.parse(String(init.body)).action === 'company-people-status') { t.callbacks.push({action:'company-people-status'}); return Response.json({settled: ++polls > 1}); }
+   return original(input,init);
+ });
+ await using instance=await introspectWorkflowInstance(bindings.RESEARCH,t.id);await instance.modify(m=>m.disableSleeps());await bindings.RESEARCH.create({id:t.id,params:{jobId:t.id}});await instance.waitForStatus('complete');
+ expect(polls).toBe(2);expect(t.callbacks.findIndex(c=>c.action==='f-finish')).toBeGreaterThan(t.callbacks.findLastIndex(c=>c.action==='company-people-status'));
+});
+it('manual phone enrichment uses the phone branch without discovering people again', async () => {
+ const t = replay(); const original = vi.mocked(globalThis.fetch).getMockImplementation()!;
+ vi.spyOn(globalThis,'fetch').mockImplementation(async (input,init)=>{
+  const url=String(input instanceof Request?input.url:input);
+  if(url.endsWith(`/api/firmable/internal/${t.id}`)&&init?.body){const data=JSON.parse(String(init.body));t.callbacks.push(data);return Response.json(data.action==='company'?{companyId:'f123',phoneOnly:true}:{complete:true,nextOffset:5,saved:2});}
+  return original(input,init);
+ });
+ await using instance=await introspectWorkflowInstance(bindings.FIRMABLE,t.id);await instance.modify(m=>m.disableSleeps());await bindings.FIRMABLE.create({id:t.id,params:{runId:t.id,mandateId:crypto.randomUUID()}});await instance.waitForStatus('complete');
+ expect(t.callbacks.map(c=>c.action)).toEqual(['company','phones']);
+});

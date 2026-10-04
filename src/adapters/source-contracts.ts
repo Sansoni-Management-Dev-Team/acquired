@@ -19,5 +19,5 @@ export interface ContactProvider {
   searchPeople(companyId: string, filters?: { position?: string; seniority?: string; department?: string; max?: number }): Promise<PersonCandidate[]>;
   searchAllPeople(companyId: string): Promise<PersonCandidate[]>;
   searchDecisionMakers(companyId: string, options?: DecisionMakerSearchOptions): Promise<PersonCandidate[]>;
-  enrichPerson(identifier: PersonIdentifier): Promise<PersonDetail>;
+  enrichPerson(identifier: PersonIdentifier, options?: { includePhones?: boolean }): Promise<PersonDetail>;
 }

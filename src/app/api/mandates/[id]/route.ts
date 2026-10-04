@@ -176,7 +176,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         const abn = target.abn || target.sourceData?.manufacturingDirectory?.abn || target.sourceData?.firmable?.abn;
         if (!target.domain && !abn && !target.sourceData?.firmable?.firmableId) { warnings.push(`${target.companyName}: website, ABN or prior company match required; candidate retained.`); continue; }
         try {
-          const run = await history.queueRun({ organizationId: org, actorId: session.user.id, targetId, requestKey: `${requestId}:${targetId}` });
+          const run = await history.queueRun({ organizationId: org, actorId: session.user.id, targetId, requestKey: `${requestId}:${targetId}`, trigger: 'phones' });
+          if (run.trigger !== 'phones') { warnings.push(`${target.companyName}: contact research is still running; request phone numbers after it completes.`); continue; }
           const queued = { id: run.id, targetId, status: run.status };
           runs.push(queued);
           dispatches.push({ run: queued, companyName: target.companyName });

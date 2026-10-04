@@ -44,7 +44,7 @@ beforeEach(() => {
   mocks.session.mockResolvedValue({ user: { id: "user-a" }, session: { activeOrganizationId: "org-a" } });
   mocks.getMandate.mockResolvedValue({ id: mandateId, brief: emptyBrief() });
   mocks.memberships.mockResolvedValue([{ target: { id: targetId, companyName: "Example Industries", domain: "example.test", sourceData: {} }, assessment: initialAssessment, accreditations: [], researchFindings: [], version: 1 }]);
-  mocks.queueRun.mockResolvedValue({ id: runId, targetId, status: "queued" });
+  mocks.queueRun.mockResolvedValue({ id: runId, targetId, status: "queued", trigger: "phones" });
   mocks.worker.mockResolvedValue({ id: runId });
 });
 
@@ -56,7 +56,7 @@ it("persists a Firmable run before dispatching its named workflow and returns im
   }), context);
 
   expect(response.status).toBe(202);
-  expect(mocks.queueRun).toHaveBeenCalledWith({ organizationId: "org-a", actorId: "user-a", targetId, requestKey: `${requestId}:${targetId}` });
+  expect(mocks.queueRun).toHaveBeenCalledWith({ organizationId: "org-a", actorId: "user-a", targetId, requestKey: `${requestId}:${targetId}`, trigger: "phones" });
   expect(mocks.worker).toHaveBeenCalledWith(`/firmable/${runId}`, "POST", { mandateId }, 4000);
   expect(mocks.queueRun.mock.invocationCallOrder[0]).toBeLessThan(mocks.worker.mock.invocationCallOrder[0]);
   await expect(response.json()).resolves.toMatchObject({ refresh: { runs: [{ id: runId, targetId, status: "queued" }] } });
@@ -95,4 +95,9 @@ it("times out an unreachable stale workflow while retaining its saved data", asy
   mocks.worker.mockRejectedValueOnce(new Error("unreachable"));
   await recoverFirmableRefreshes({ failRun: mocks.failRun } as never, [{ id: staleId, status: "running", updatedAt: new Date(Date.now() - 660_000) }], mandateId);
   expect(mocks.failRun).toHaveBeenCalledWith(staleId, expect.stringContaining("timed out"));
+});
+it('does not turn ongoing automatic people retrieval into a paid phone action',async()=>{
+ mocks.queueRun.mockResolvedValue({id:runId,targetId,status:'running',trigger:'discovery'});
+ const response=await POST(new Request(`http://localhost/api/mandates/${mandateId}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'enrich',targetIds:[targetId],requestId})}),context);
+ expect(mocks.worker).not.toHaveBeenCalled();expect((await response.json()).warnings[0]).toContain('contact research is still running');
 });

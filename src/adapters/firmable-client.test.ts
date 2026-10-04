@@ -206,3 +206,10 @@ it('uses the cloud service without retrying its shared cooldown', async () => {
     expect(String(fetcher.mock.calls[0]?.[0])).toContain('https://worker.example/firmable/company?country=AU&fqdn=raymax.com.au&name=Raymax');
   } finally { vi.unstubAllEnvs(); }
 });
+it('keeps discovery people retrieval email-only even when a provider returns a phone', async () => {
+ const fetcher = vi.fn(async(input: RequestInfo | URL)=>{void input;return Response.json({id:'fp123',full_name:'Example Person',emails:{work:[{value:'person@example.com'}]},phones:[{value:'0412345678'}]});});
+ const client = new FirmableClient({apiKey:'test',fetch:fetcher,fictionalise:false});
+ const person = await client.enrichPerson({id:'fp123'},{includePhones:false});
+ expect(person.email).toBe('person@example.com');expect(person.phone).toBeUndefined();expect(person.phoneAvailable).toBe(false);
+ expect(String(fetcher.mock.calls[0][0])).toContain('includePhones=false');
+});

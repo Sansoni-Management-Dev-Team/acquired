@@ -1,3 +1,4 @@
+import {tickCompanyPeople} from '@/lib/company-people-research';
 import { dispatchBusinessPeople } from "@/lib/business-research-people";
 import { and, eq } from "drizzle-orm";
 import { requireDb } from "@/db/client";
@@ -127,6 +128,8 @@ export async function POST(
   if (body.data.action === "cancel") {
     if ((job.config as ResearchConfig).mode === "automatic") {
       const stopped = await repo.cancelRun(jobId);
+      const root = await repo.getExecution((job.config as ResearchConfig).researchRunId || jobId);
+      if (root && (root.config as ResearchConfig).includeCompanyPeople) await tickCompanyPeople(root, true);
       await Promise.allSettled(stopped.map(j => researchWorker(`/jobs/${j.id}`, "DELETE")));
       return Response.json({ ok: true, message: "Discovery and enrichment stopped; saved evidence retained." });
     }

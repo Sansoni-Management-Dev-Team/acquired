@@ -1,3 +1,4 @@
+import {tickCompanyPeople} from '@/lib/company-people-research';
 import {selectedResearchPipeline} from '@/domain/research-pipeline-design';
 import { researchJsonResponse, researchRequestJson } from "@/lib/research-request-observability";
 import { observeResearchRequest } from "@/lib/research-request-observability";
@@ -69,6 +70,9 @@ async function getMandateResearch(
     if (!root || settled || root.status === "cancelled" || Date.now() >= ((root.config as ResearchConfig).automaticDeadline || 0)) continue;
     try { if (await scheduleResearchRun(org, rootId, { recovery: true }) !== false) reviewChanged = true; }
     catch { reviewChanged = true; /* A partial pass may have saved queued jobs before failing. */ }
+  }
+  for (const job of initialJobs.filter(job => (job.config as ResearchConfig).includeCompanyPeople && !(job.config as ResearchConfig).companyPeopleProgress?.settled && (job.config as ResearchConfig).researchRunId === job.id && terminalResearchStates.includes(job.status))) {
+    await tickCompanyPeople(job); reviewChanged = true;
   }
   const jobs = reviewChanged ? await repo.listReview(id) : initialJobs;
   const evidence: Record<string, EvidenceCounts> = {};
@@ -226,7 +230,7 @@ export async function POST(
   if (!continueFrom) config.performanceFlags = newResearchPerformanceFlags();
   config = automaticResearchConfig(config);
   if(!continueFrom)config.pipelineDesign=selectedResearchPipeline(config,process.env.RESEARCH_PIPELINE_DESIGN,process.env.LOCAL_DEVELOPMENT==='true');
-  if(['firmable-v1','web-firmable-v1','hybrid-firmable-v1'].includes(config.pipelineDesign||'')){config.findPeople=false;config.parallelBusinessResearch=false;config.automaticDeadline=Date.now()+10*60000;}
+  if(['firmable-v1','web-firmable-v1','hybrid-firmable-v1'].includes(config.pipelineDesign||'')){config.includeCompanyPeople=config.pipelineDesign==='hybrid-firmable-v1';config.findPeople=Boolean(config.includeCompanyPeople);config.parallelBusinessResearch=false;config.automaticDeadline=Date.now()+10*60000;}
   if (config.mode === "automatic") config.researchRunId = requestId;
   try {
     const repo = new ResearchRepository(org);

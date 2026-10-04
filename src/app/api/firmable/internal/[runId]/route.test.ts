@@ -11,6 +11,7 @@ vi.mock("@/lib/firmable-refresh", () => ({
   refreshFirmablePeoplePage: vi.fn(),
   finalizeFirmablePeopleSearch: vi.fn(),
   refreshFirmableProfileBatch: vi.fn(),
+  refreshFirmablePhoneBatch: vi.fn(),
   completeFirmableRefresh: vi.fn(),
 }));
 

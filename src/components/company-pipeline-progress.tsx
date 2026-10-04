@@ -18,12 +18,13 @@ export function CompanyPipelineProgress({ job, jobs, mandateId }: { job: Researc
   const running = !state.settled;
   const researching = state.processed > 0 || state.active > 0;
   const title = running ? 'Finding businesses' : complete ? 'Research complete' : job.status === 'partial' ? 'Finished with issues' : `Research ${job.status}`;
-  const detail = running ? researching ? 'Finding headcounts, revenue bands and ABNs for the businesses we discover.' : 'Searching for businesses that match your acquisition brief.' : complete ? 'Company research finished. Your results are ready to review.' : 'Research has stopped. Review the available results and any missing information.';
+  const detail = running ? researching ? 'Finding headcounts, revenue bands, ABNs, people and email addresses for the businesses we discover.' : 'Searching for businesses that match your acquisition brief.' : complete ? 'Company research finished. Your results are ready to review.' : 'Research has stopped. Review the available results and any missing information.';
   const stages = [
     { label: 'Searching for businesses', count: undefined, active: running },
     { label: 'Finding headcounts', count: state.headcounts, active: running && researching },
     { label: 'Finding revenue bands', count: state.revenueBands, active: running && researching },
     { label: 'Verifying ABNs', count: state.abns, active: running && researching },
+    ...(job.config.includeCompanyPeople ? [{ label: 'Finding people and emails', count: state.peopleSaved, active: running && (state.peopleActive + state.peopleQueued > 0) }] : []),
     { label: 'Saving company results', count: state.savedIds.length, active: running && researching },
   ];
   return <section className="mx-auto my-8 max-w-3xl rounded-[10px] border border-[#d8deeb] bg-white px-5 py-10 text-center text-[#20252f] sm:px-9">
@@ -39,7 +40,7 @@ export function CompanyPipelineProgress({ job, jobs, mandateId }: { job: Researc
     <ol className="mx-auto mt-[23px] grid max-w-[350px] gap-[10px] text-left">
       {stages.map(({ label, count, active }, index) => <li key={label} className={`flex items-center gap-[9px] text-[11px] ${complete ? 'text-[#2c7958]' : active ? 'font-bold text-[#4541cf]' : 'text-[#8593aa]'}`}>
         <span aria-hidden="true" className={`flex size-[19px] shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${complete ? 'bg-[#e5f4eb]' : active ? 'bg-[#e6e5ff]' : 'bg-[#eceff5]'}`}>{complete ? <Check size={12} /> : index + 1}</span>
-        <span>{label}</span>{count !== undefined && <span className="ml-auto text-[#637592]">{count} {index === 4 ? 'saved' : 'found'}</span>}
+        <span>{label}</span>{count !== undefined && <span className="ml-auto text-[#637592]">{count} {label === 'Saving company results' ? 'saved' : 'found'}</span>}
       </li>)}
     </ol>
     <p className="mt-6 text-[11px] text-[#637592]">{state.savedIds.length} {state.savedIds.length === 1 ? 'company' : 'companies'} saved · {Math.floor(seconds / 60)}m {seconds % 60}s{state.settled ? ' elapsed' : ' so far'}</p>

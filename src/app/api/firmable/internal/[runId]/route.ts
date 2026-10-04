@@ -8,6 +8,7 @@ import {
   refreshFirmableCompany,
   refreshFirmablePeoplePage,
   refreshFirmableProfileBatch,
+  refreshFirmablePhoneBatch,
 } from "@/lib/firmable-refresh";
 import { FirmableHistoryRepository } from "@/db/firmable-history-repository";
 import { FirmableError } from "@/adapters/firmable-client";
@@ -18,6 +19,7 @@ const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("company"), mandateId: z.string().uuid() }),
   z.object({ action: z.literal("people-page"), offset: z.number().int().min(0).max(9_900) }),
   z.object({ action: z.literal("finalize-search"), offset: z.number().int().min(0).max(9_999) }),
+  z.object({ action: z.literal("phones"), offset: z.number().int().min(0).max(9_999) }),
   z.object({ action: z.literal("profiles"), offset: z.number().int().min(0).max(9_999) }),
   z.object({ action: z.literal("complete"), mandateId: z.string().uuid() }),
   z.object({ action: z.literal("fail"), message: z.string().trim().min(1).max(500) }),
@@ -48,6 +50,7 @@ async function postCallback(request: Request, context: { params: Promise<{ runId
     if (action.action === "company") return researchJsonResponse(await refreshFirmableCompany(runId, action.mandateId));
     if (action.action === "people-page") return researchJsonResponse(await refreshFirmablePeoplePage(runId, action.offset));
     if (action.action === "finalize-search") return researchJsonResponse(await finalizeFirmablePeopleSearch(runId, action.offset));
+    if (action.action === "phones") return researchJsonResponse(await refreshFirmablePhoneBatch(runId, action.offset));
     if (action.action === "profiles") return researchJsonResponse(await refreshFirmableProfileBatch(runId, action.offset));
     if (action.action === "complete") return researchJsonResponse(await completeFirmableRefresh(runId, action.mandateId));
     await failFirmableRefresh(runId, action.message);

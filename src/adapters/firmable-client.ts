@@ -126,7 +126,7 @@ export class FirmableClient {
     return Boolean(this.apiKey);
   }
 
-  private async request(path: string, init?: RequestInit) {
+  private async request(path: string, init?: RequestInit, retries = this.retries) {
     if (!this.apiKey) throw new FirmableError(path, 0, "Firmable is not configured");
     const logicalCallId = crypto.randomUUID();
     for (let attempt = 0; ; attempt++) {
@@ -156,7 +156,7 @@ export class FirmableClient {
       const errorPayload = payload as { error?: unknown } | null;
       const profileNotFound = response.status === 500 && errorPayload?.error === "Company profile not found";
       const retryable = !(this.sessionService && response.status === 429) && !profileNotFound && (response.status === 429 || response.status >= 500);
-      if (!retryable || attempt >= this.retries) {
+      if (!retryable || attempt >= retries) {
         throw new FirmableError(endpoint, response.status, (payload as { category?: string })?.category === "reconnect_required" ? "Firmable session needs reconnecting" : profileNotFound ? "Firmable company profile not found" : `Firmable request failed (${response.status})`);
       }
       await new Promise((resolve) => setTimeout(resolve, 100 * (2 ** attempt)));
@@ -245,10 +245,22 @@ export class FirmableClient {
     return ranked;
   }
 
-  async enrichPerson(identifier: PersonIdentifier): Promise<PersonDetail> {
+
+  async revealPersonPhones(id: string) {
+    if (!this.sessionService) throw new FirmableError('/people/phones', 0, 'Phone retrieval requires the session service');
+    // Credit-bearing requests never use the client's automatic retry loop.
+    return z.object({ id: z.string(), phones: z.array(z.record(z.string(), z.unknown())) }).parse(await this.request('/people/phones', { method: 'POST', body: JSON.stringify({ id, confirmCredits: true }) }, 0));
+  }
+
+  async enrichPerson(identifier: PersonIdentifier, options: { includePhones?: boolean } = {}): Promise<PersonDetail> {
     const selected = Object.entries({ id: identifier.id, ln_url: identifier.linkedinUrl, work_email: identifier.workEmail, personal_email: identifier.personalEmail }).find(([, value]) => value);
     if (!selected) throw new FirmableError("/people", 0, "A person identifier is required");
-    const raw = personSchema.parse(await this.request(`/people?${new URLSearchParams({ [selected[0]]: selected[1] as string })}`));
-    return mapFirmablePerson(raw, identifier, this.fictionalise);
+    const params = new URLSearchParams({ [selected[0]]: selected[1] as string });
+    if (options.includePhones === false) params.set('includePhones', 'false');
+    const raw = personSchema.parse(await this.request(`/people?${params}`));
+    if (options.includePhones === false) { delete raw.phones; delete raw.phone; delete raw.mobile; }
+    const person = mapFirmablePerson(raw, identifier, this.fictionalise);
+    if (options.includePhones === false) { person.phone = undefined; person.phoneAvailable = false; }
+    return person;
   }
 }

@@ -116,8 +116,8 @@ export class FirmableHistoryRepository {
     const rows = await this.database.selectDistinct({ id: contacts.id }).from(contacts)
       .innerJoin(mandateTargets, and(eq(mandateTargets.targetId, contacts.targetId), eq(mandateTargets.organizationId, organizationId), eq(mandateTargets.mandateId, mandateId)))
       .innerJoin(firmableSyncRuns, and(eq(firmableSyncRuns.targetId, contacts.targetId), eq(firmableSyncRuns.organizationId, organizationId), inArray(firmableSyncRuns.id, runIds)))
-      .innerJoin(firmablePersonResponses, and(eq(firmablePersonResponses.runId, firmableSyncRuns.id), eq(firmablePersonResponses.firmablePersonId, contacts.firmablePersonId), eq(firmablePersonResponses.successful, true)))
-      .where(eq(contacts.organizationId, organizationId));
+      .leftJoin(firmablePersonResponses, and(eq(firmablePersonResponses.runId, firmableSyncRuns.id), eq(firmablePersonResponses.firmablePersonId, contacts.firmablePersonId), eq(firmablePersonResponses.successful, true)))
+      .where(and(eq(contacts.organizationId, organizationId), or(eq(firmableSyncRuns.trigger, 'phones'), isNotNull(firmablePersonResponses.id))));
     return rows.map(row => row.id);
   }
 
