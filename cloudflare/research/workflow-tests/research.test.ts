@@ -475,6 +475,24 @@ it('waits for automatically queued people research before completing F', async (
  await using instance=await introspectWorkflowInstance(bindings.RESEARCH,t.id);await instance.modify(m=>m.disableSleeps());await bindings.RESEARCH.create({id:t.id,params:{jobId:t.id}});await instance.waitForStatus('complete');
  expect(polls).toBe(2);expect(t.callbacks.findIndex(c=>c.action==='f-finish')).toBeGreaterThan(t.callbacks.findLastIndex(c=>c.action==='company-people-status'));
 });
+it('completes F when contact waiting exceeds the completion step timeout', async () => {
+ const t = replay(); Object.assign(t.config, {mode:'automatic',workflow:'business',discover:true,pipelineDesign:'hybrid-firmable-v1',includeCompanyPeople:true,researchRunId:t.id,automaticDeadline:Date.now()+600000});
+ const original = vi.mocked(globalThis.fetch).getMockImplementation()!; let polls = 0, firstPoll = 0, lastPoll = 0;
+ vi.spyOn(globalThis,'fetch').mockImplementation(async (input,init)=>{
+   if (init?.body && JSON.parse(String(init.body)).action === 'company-people-status') {
+     firstPoll ||= Date.now();lastPoll=Date.now();t.callbacks.push({action:'company-people-status'});
+     return Response.json({settled: ++polls >= 14});
+   }
+   return original(input,init);
+ });
+ // Keep real durable sleeps: the previous implementation timed out at 120s.
+ await using instance=await introspectWorkflowInstance(bindings.RESEARCH,t.id);
+ await bindings.RESEARCH.create({id:t.id,params:{jobId:t.id}});await instance.waitForStatus('complete');
+ expect(lastPoll-firstPoll).toBeGreaterThanOrEqual(130000);
+ expect(polls).toBe(14);expect(t.callbacks.filter(c=>c.action==='f-finish')).toHaveLength(1);
+ expect(t.callbacks.some(c=>c.action==='f-fail')).toBe(false);
+ expect(JSON.parse(await instance.waitForStepResult({name:'f-finish'}) as string)).toEqual({ok:true});
+},180000);
 it('manual phone enrichment uses the phone branch without discovering people again', async () => {
  const t = replay(); const original = vi.mocked(globalThis.fetch).getMockImplementation()!;
  vi.spyOn(globalThis,'fetch').mockImplementation(async (input,init)=>{

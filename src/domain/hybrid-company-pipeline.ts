@@ -4,7 +4,7 @@ type Row=Record<string,unknown>;
 export type HybridCompany={domain:string;sources:('firmable'|'web')[];firmableRow?:Row;webRow?:WebCompany};
 /** Two discovery producers and one bounded enrichment queue. The first Firmable
  * page indexes known IDs before web matching, avoiding duplicate profile reads. */
-export async function runHybridCompanyPipeline(deps:{checkpoint:<T>(name:string,fn:()=>Promise<T>)=>Promise<T>;now:()=>number;control:()=>Promise<boolean>;plan:()=>Promise<WebQuery[]>;firmableSearch:()=>Promise<CompanySearchPage>;webSearch:(query:WebQuery,index:number)=>Promise<{rows:WebCompany[];ok:boolean}>;profile:(company:HybridCompany)=>Promise<{ok:boolean;matched?:boolean}>;finish:(result:Row)=>Promise<unknown>},options:{deadline:number;maxCompanies:number;concurrency:number}){
+export async function runHybridCompanyPipeline(deps:{checkpoint:<T>(name:string,fn:()=>Promise<T>)=>Promise<T>;now:()=>number;control:()=>Promise<boolean>;plan:()=>Promise<WebQuery[]>;firmableSearch:()=>Promise<CompanySearchPage>;webSearch:(query:WebQuery,index:number)=>Promise<{rows:WebCompany[];ok:boolean}>;profile:(company:HybridCompany)=>Promise<{ok:boolean;matched?:boolean}>;beforeFinish?:()=>Promise<unknown>;finish:(result:Row)=>Promise<unknown>},options:{deadline:number;maxCompanies:number;concurrency:number}){
  const plan=await deps.checkpoint('f-plan',deps.plan),selected=new Map<string,HybridCompany>(),knownFirmable=new Map<string,Row>(),seenWeb=new Set<string>(),queue:HybridCompany[]=[],overflow:HybridCompany[]=[];
  const quota=Math.floor(options.maxCompanies/2);let firmableSelected=0,webSelected=0,producersDone=0,searches=0,searchFailed=0,discoveryFailed=0,saved=0,matched=0,failed=0,stopReason='exhausted';let started=0;
  let listeners:(()=>void)[]=[];const wake=()=>{const pending=listeners;listeners=[];pending.forEach(fn=>fn());};const wait=()=>new Promise<void>(resolve=>listeners.push(resolve));
@@ -39,5 +39,7 @@ export async function runHybridCompanyPipeline(deps:{checkpoint:<T>(name:string,
  if(selected.size>=options.maxCompanies&&stopReason==='exhausted')stopReason='candidate_limit';
  const selection=[...selected.values()].map(c=>({domain:c.domain,sources:c.sources,firmableId:c.firmableRow?.id||null}));
  const result={candidates:selected.size,saved,matched,unmatched:saved-matched,failed,unprocessed:selected.size-started,searches,searchFailed,discoveryFailed,stopReason,firmableDiscovered:knownFirmable.size,webDiscovered:seenWeb.size,overlap:[...seenWeb].filter(domain=>knownFirmable.has(domain)).length,selection};
+ // Durable waits must run outside step.do: completion itself has a short timeout.
+ await deps.beforeFinish?.();
  await deps.checkpoint('f-finish',()=>deps.finish(result));return result;
 }
