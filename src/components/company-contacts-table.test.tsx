@@ -21,3 +21,11 @@ it("shows research leads even before they are saved as contacts", () => {
   for (const value of ["Alex Owner", "Managing Director", "alex@example.com", "Research lead · unverified", 'href="https://example.com/team"']) expect(html).toContain(value);
   for (const removed of ["Generate", "Preview", "Saved business", "Find a decision-maker"]) expect(html).not.toContain(removed);
 });
+it("distinguishes available profiles awaiting retrieval from verified zero", () => {
+  const pending = renderToStaticMarkup(<CompanyContactsTable contacts={[]} availablePeopleCount={30} />);
+  expect(pending).toContain("30 people profiles available");
+  expect(pending).toContain("Contact retrieval has not finished");
+  expect(pending).not.toContain("No contacts found yet");
+  const empty = renderToStaticMarkup(<CompanyContactsTable contacts={[]} availablePeopleCount={0} />);
+  expect(empty).toContain("No people profiles available for this company");
+});

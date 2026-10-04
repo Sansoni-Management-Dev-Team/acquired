@@ -1,6 +1,7 @@
 import type { FirmableSessionEnv } from '../firmable-session-validation';
 import { seal, unseal, validCredentials, type Credentials } from './credentials';
 import { domain, normalize, ServiceError, upstream, type RecordData } from './transport';
+import { expandCompanyProfile } from './company';
 export interface FirmableServiceEnv extends FirmableSessionEnv { FIRMABLE_SERVICE_SECRET?: string; FIRMABLE_CREDENTIAL_KEY?: string; FIRMABLE_SESSION_TOKEN?: string }
 export type ServiceInput = { path: string; method: string; query: Record<string, string>; body?: RecordData };
 type State = { credentials?: Awaited<ReturnType<typeof seal>>; reconnectRequired?: boolean; cooldownUntil?: number; nextRequestAt?: number };
@@ -82,8 +83,24 @@ export class FirmableAccount {
           if (!id) throw new ServiceError(404, 'company_not_found');
         }
         if (!/^f\d+$/.test(id)) throw new ServiceError(400, 'invalid_company_id');
-        data = normalize(await request(`/company/${id}`));
+        const country = input.query.country || 'AU';
+        if (!/^[A-Z]{2}$/.test(country)) throw new ServiceError(400, 'invalid_country');
+        data = expandCompanyProfile(await request(`/company/${id}`), country);
         if (data.id !== id) throw new ServiceError(502, 'unexpected_company_response');
+        if (input.query.includePeople === 'true') {
+          try {
+            const people = await request('/people', {companyId:id, companyName:data.name, selectedCountry:country, from:0, size:1});
+            const empty = people.success === false && people.totalPeople === 0 && (!people.records || Array.isArray(people.records) && people.records.length === 0);
+            if (!empty && (people.success !== true || !Array.isArray(people.records) || typeof people.total !== 'number' || !Number.isInteger(people.total) || people.total < 0)) throw new ServiceError(502, 'invalid_upstream_response');
+            data.available_people_count = empty ? 0 : people.total;
+            data.people_summary = {status:'complete', country, total:data.available_people_count, retrieved_at:new Date().toISOString()};
+          } catch (error) {
+            // A summary failure must not discard a successfully retrieved company.
+            data.people_summary = {status:'failed', country, category:error instanceof ServiceError ? error.category : 'service_unavailable', retrieved_at:new Date().toISOString()};
+            if (error instanceof ServiceError && error.status === 429) { state.cooldownUntil = Date.now() + error.retryAfter; await save(); }
+            if (error instanceof ServiceError && [401,403].includes(error.status)) { state.reconnectRequired = true; await save(); }
+          }
+        }
       } else if (input.path === '/people/search') {
         const body = input.body || {};
         if (typeof body.companyId !== 'string' || !/^f\d+$/.test(body.companyId)) throw new ServiceError(400, 'invalid_company_id');
@@ -91,6 +108,7 @@ export class FirmableAccount {
         const size = Number(body.size ?? 100), from = Number(body.from ?? 0);
         if (!Number.isInteger(size) || size < 1 || size > 100 || !Number.isInteger(from) || from < 0 || from > 10_000) throw new ServiceError(400, 'invalid_pagination');
         data = await request('/people', { companyId: body.companyId, selectedCountry: 'AU', size, from, ...(body.position ? { search: { position: body.position } } : {}) });
+        if (data.success === false && data.totalPeople === 0 && (!data.records || Array.isArray(data.records) && data.records.length === 0)) data = {success:true,records:[],total:0,browserResponse:data};
         if (data.success !== true || !Array.isArray(data.records) || typeof data.total !== 'number') throw new ServiceError(502, 'invalid_upstream_response');
         data = { ...data, records: (data.records as RecordData[]).map(normalize) };
       } else if (input.path === '/people/phones') {

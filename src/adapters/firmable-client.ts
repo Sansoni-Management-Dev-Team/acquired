@@ -169,12 +169,13 @@ export class FirmableClient {
     return z.object({success:z.literal(true),records:z.array(z.record(z.string(),z.unknown())),totalCompany:z.number().nonnegative(),predictedFilters:z.object({filters:z.record(z.string(),z.unknown()),operators:z.record(z.string(),z.unknown()),excluded:z.record(z.string(),z.unknown())}).optional(),predictedCountry:z.unknown().optional()}).passthrough().parse(raw);
   }
 
-  async enrichCompany(identifier: CompanyIdentifier) {
+  async enrichCompany(identifier: CompanyIdentifier, options: {includePeople?: boolean} = {}) {
     const ordered = Object.entries({ id: identifier.id, abn: identifier.abn?.replace(/\D/g, ""), fqdn: identifier.fqdn, ln_slug: identifier.linkedinSlug, ln_url: identifier.linkedinUrl, website: identifier.website });
     const selected = ordered.find(([, value]) => value);
     if (!selected) throw new FirmableError("/company", 0, "A company identifier is required");
     const params = new URLSearchParams({ country: "AU", [selected[0]]: selected[1] as string });
     if (this.sessionService && identifier.name) params.set("name", identifier.name);
+    if (this.sessionService) params.set('includePeople', String(options.includePeople !== false));
     return companySchema.parse(await this.request(`/company?${params}`));
   }
 

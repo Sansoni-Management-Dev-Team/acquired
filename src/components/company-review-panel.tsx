@@ -51,7 +51,7 @@ export function CompanyReviewPanel({ mandate, initial: member, onClose, position
       <div ref={content} className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8">
         <div id="company-panel-review" role="tabpanel" aria-labelledby="company-tab-review" hidden={tab !== "review"}><CompanyInfoSummary member={member} /></div>
         <div id="company-panel-contacts" role="tabpanel" aria-labelledby="company-tab-contacts" hidden={tab !== "contacts"}>
-          <CompanyContactsTable contacts={savedContacts} findings={member.researchFindings} loading={!contacts && !contactsError} error={contactsError} />
+          <CompanyContactsTable contacts={savedContacts} availablePeopleCount={member.target.sourceData?.firmable?.availablePeopleCount} findings={member.researchFindings} loading={!contacts && !contactsError} error={contactsError} />
         </div>
       </div>
     </div>

@@ -15,9 +15,14 @@ export function CompanyInfoSummary({ member }: { member: MembershipView }) {
   const hasEbitda = estimateEbitda(findings, undefined, preferredHeadcount === undefined ? undefined : { value: preferredHeadcount, source: "company data" }).status === "estimated";
   const industry = known(target.sector.value) ? target.sector.value : [...new Set(findings.filter(f => f.evidence.kind === "industry").map(f => f.evidence.value).filter(known))].join(" · ");
   const location = [target.suburb, target.state].filter(known).join(", ") || [...new Set(findings.filter(f => f.evidence.kind === "location").map(f => f.evidence.value).filter(known))].join(" · ");
+  const company = target.sourceData?.firmable;
+  const details = company?.companyDetails;
+  const address = details?.address && typeof details.address === "object" ? (details.address as Record<string, unknown>).full_address : undefined;
+  const locations = Array.isArray(details?.locations) ? details.locations.map(value => typeof value === "string" ? value : value && typeof value === "object" ? (value as Record<string, unknown>).name : undefined).filter((value): value is string => typeof value === "string") : company?.locations || [];
+  const codes = company?.rawResponse?.industry_codes as Record<string, unknown> | undefined;
   const description = target.sourceData?.firmable?.description || target.sourceData?.manufacturingDirectory?.description;
   const founded = target.establishedYear.value ?? findings.find(f => f.evidence.kind === "founded_year")?.evidence.value;
-  const hasData = hasHeadcount || hasRevenue || hasEbitda || known(industry) || known(location) || known(target.abn) || known(description) || founded != null;
+  const hasData = hasHeadcount || hasRevenue || hasEbitda || known(industry) || known(location) || known(target.abn) || known(description) || founded != null || Boolean(company);
   return <section aria-labelledby="company-info-heading" className="space-y-5">
     <h3 id="company-info-heading" className="text-lg font-semibold">Company information</h3>
     {!hasData ? <p className="rounded-[14px] bg-[var(--panel)] p-5 text-sm text-[var(--muted)]">No company details found yet.</p> : <>
@@ -30,6 +35,17 @@ export function CompanyInfoSummary({ member }: { member: MembershipView }) {
         {hasEbitda && <Info label="Estimated EBITDA (AUD)"><TargetEbitdaData findings={findings} preferredHeadcount={preferredHeadcount} /></Info>}
         {founded != null && <Info label="Established">{founded}</Info>}
         {known(target.abn) && <Info label="ABN">{target.abn}</Info>}
+        {known(company?.acn) && <Info label="ACN">{company?.acn}</Info>}
+        {known(company?.companyType) && <Info label="Company type">{company?.companyType}</Info>}
+        {known(company?.companySize) && <Info label="Employee band">{company?.companySize}</Info>}
+        {typeof address === "string" && known(address) && <Info label="Address">{address}</Info>}
+        {locations.length > 0 && <Info label="Company locations">{locations.join(" · ")}</Info>}
+        {company?.companyEmails?.length ? <Info label="Company emails">{company.companyEmails.map(email => <p key={email}>{email}</p>)}</Info> : null}
+        {company?.companyPhones?.length ? <Info label="Company phone numbers">{company.companyPhones.map(phone => <p key={phone}>{phone}</p>)}</Info> : null}
+        {company?.availablePeopleCount != null && <Info label="Available people profiles">{company.availablePeopleCount.toLocaleString("en-AU")}</Info>}
+        {known(company?.anzsic) && <Info label="ANZSIC">{company?.anzsic}</Info>}
+        {["naics", "sic"].map(code => typeof codes?.[code] === "string" && known(codes[code]) ? <Info key={code} label={code.toUpperCase()}>{codes[code] as string}</Info> : null)}
+        {company?.keywords?.length ? <Info label="Keywords">{company.keywords.join(" · ")}</Info> : null}
       </dl>
     </>}
   </section>;

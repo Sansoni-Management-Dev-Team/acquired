@@ -86,6 +86,11 @@ export type FirmableSourceData = {
   anzsic?: string;
   abnStatus?: string;
   linkedin?: string;
+  availablePeopleCount?: number;
+  peopleSummary?: Record<string, unknown>;
+  companyEmails?: string[];
+  companyPhones?: string[];
+  companyDetails?: Record<string, unknown>;
 };
 
 export type ManufacturingDirectorySourceData = {

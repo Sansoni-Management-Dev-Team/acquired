@@ -19,12 +19,13 @@ export function companyContactRows(contacts: OutreachContactView[], findings: Sa
   return rows;
 }
 
-export function CompanyContactsTable({ contacts, findings = [], loading = false, error }: {
-  contacts: OutreachContactView[]; findings?: SavedResearchFinding[]; loading?: boolean; error?: string;
+export function CompanyContactsTable({ contacts, findings = [], loading = false, error, availablePeopleCount }: {
+  contacts: OutreachContactView[]; findings?: SavedResearchFinding[]; loading?: boolean; error?: string; availablePeopleCount?: number;
 }) {
   const rows = companyContactRows(contacts, findings);
   return <section aria-labelledby="company-contacts-heading" className="space-y-4">
     <div className="flex items-center justify-between gap-4"><h3 id="company-contacts-heading" className="text-lg font-semibold">Contacts</h3><span className="text-sm text-[var(--muted)]">{rows.length} {rows.length === 1 ? "person" : "people"}</span></div>
+    {availablePeopleCount != null && <p className="text-sm text-[var(--muted)]">{availablePeopleCount} people profiles available · {rows.length} shown here</p>}
     {error && <p role="alert" className="text-sm text-[var(--status-red)]">{error}</p>}
     {loading && <p role="status" className="text-sm text-[var(--muted)]">Loading saved contacts…</p>}
     {rows.length ? <div className="overflow-x-auto rounded-[14px] border border-[var(--border)]"><table aria-label="Company contacts" className="w-full min-w-[620px] text-left text-sm">
@@ -36,7 +37,7 @@ export function CompanyContactsTable({ contacts, findings = [], loading = false,
         <td className="px-4 py-4">{row.sources.length ? row.sources.map((source, index) => <Source key={source} url={source} index={index} />) : <Missing />}</td>
         <td className={`px-4 py-4 text-xs ${row.status === "Do not contact" ? "text-[var(--status-red)]" : "text-[var(--muted)]"}`}>{row.status}</td>
       </tr>)}</tbody>
-    </table></div> : !loading && !error && <p className="rounded-[14px] bg-[var(--panel)] p-5 text-sm text-[var(--muted)]">No contacts found yet.</p>}
+    </table></div> : !loading && !error && <p className="rounded-[14px] bg-[var(--panel)] p-5 text-sm text-[var(--muted)]">{availablePeopleCount === 0 ? "No people profiles available for this company." : availablePeopleCount ? "People profiles are available. Contact retrieval has not finished." : "No contacts found yet."}</p>}
   </section>;
 }
 function Missing() { return <span aria-label="Not found" className="text-[var(--muted)]">—</span>; }

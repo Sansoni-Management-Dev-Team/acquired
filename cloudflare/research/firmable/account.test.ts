@@ -102,3 +102,31 @@ it('uses the captured phone unlock endpoint only for explicit manual retrieval',
  expect((await account.handle({path:'/people/phones',method:'POST',query:{},body:{id:'fp123',confirmCredits:true}})).status).toBe(200);
  expect(fetcher.mock.calls.filter(call=>String(call[0]).endsWith('/phones/show'))).toHaveLength(1);
 });
+
+it('expands company details and obtains the available contact count without phone unlocking',async()=>{
+ const {account,fetcher}=setup([token(),Response.json({id:'f123',name:'Example',employee_count:42,region:{AU:{employee_count:30,emails:['info@example.test'],business_identifiers:{acn:{value:'609047878'}}}}}),Response.json({success:true,total:30,records:[{id:'fp123'}]})]);
+ const result=await account.handle({...company,query:{id:'f123',country:'AU',includePeople:'true'}});
+ expect(result.status).toBe(200);expect(result.body.available_people_count).toBe(30);expect(result.body.acn).toBe('609047878');expect(result.body.company_emails).toEqual(['info@example.test']);expect(result.body.employee_count).toBe(42);
+ expect(JSON.parse(fetcher.mock.calls[2][1]!.body as string)).toEqual({companyId:'f123',companyName:'Example',selectedCountry:'AU',from:0,size:1});
+ expect(fetcher.mock.calls.some(([url])=>String(url).includes('/phones/'))).toBe(false);
+});
+it('preserves company data and an unknown contact count when summary retrieval fails',async()=>{
+ const {account}=setup([token(),Response.json({id:'f123',name:'Example'}),Response.json({}, {status:500})]);
+ const result=await account.handle({...company,query:{id:'f123',includePeople:'true'}});
+ expect(result.status).toBe(200);expect(result.body.name).toBe('Example');expect(result.body.available_people_count).toBeNull();expect(result.body.people_summary).toMatchObject({status:'failed'});
+});
+it('recognizes a verified empty contact search without conflating it with employee count',async()=>{
+ const {account}=setup([token(),Response.json({id:'f123',employee_count:42}),Response.json({success:false,totalPeople:0})]);
+ const result=await account.handle({...company,query:{id:'f123',includePeople:'true'}});
+ expect(result.body.available_people_count).toBe(0);expect(result.body.people_summary).toMatchObject({status:'complete',total:0});
+});
+it('returns a completed empty people page for Firmable totalPeople zero',async()=>{
+ const {account}=setup([token(),Response.json({success:false,totalPeople:0})]);
+ const r=await account.handle({path:'/people/search',method:'POST',query:{},body:{companyId:'f123',size:100,from:0}});
+ expect(r.status).toBe(200);expect(r.body).toMatchObject({success:true,total:0,records:[],browserResponse:{success:false,totalPeople:0}});
+});
+it('does not turn a malformed or unsuccessful nonempty people search into zero contacts',async()=>{
+ const {account}=setup([token(),Response.json({success:false,totalPeople:30})]);
+ const r=await account.handle({path:'/people/search',method:'POST',query:{},body:{companyId:'f123',size:100,from:0}});
+ expect(r.status).toBe(502);expect(r.body.category).toBe('invalid_upstream_response');
+});

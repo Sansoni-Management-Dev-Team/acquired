@@ -33,3 +33,10 @@ it("shows a clear empty state when no company facts have been obtained", () => {
   expect(html).toContain("No company details found yet.");
   expect(html).not.toContain("Unknown");
 });
+it("renders expanded persisted company facts independently of employee and contact counts", () => {
+  const initial = member();
+  initial.target.sourceData = { firmable: {firmableId: "f1", industries: [], states: [], locations: [], keywords: ["water treatment"], acn: "609047878", companySize: "11 - 50", companyEmails: ["info@example.com"], companyPhones: ["07 3608 7889"], availablePeopleCount: 0, companyDetails: {address: {full_address: "29 Lathe Street"}, locations: [{name: "Virginia, QLD"}]}, rawResponse: {industry_codes: {naics: "5416", sic: "8711"}}} };
+  const html = renderToStaticMarkup(<CompanyInfoSummary member={initial} />);
+  for (const value of ["609047878", "info@example.com", "07 3608 7889", "11 - 50", "29 Lathe Street", "Virginia, QLD", "5416", "8711", "water treatment", "Available people profiles"]) expect(html).toContain(value);
+  expect(html).toContain('>0</dd>');
+});

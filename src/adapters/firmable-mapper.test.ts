@@ -110,3 +110,10 @@ describe("Firmable mapping", () => {
     }));
   });
 });
+
+it('retains expanded company contacts and a verified zero people count independently of headcount',()=>{
+ const mandate=parseMandate('Find Australian water treatment businesses');
+ const raw={id:'f123',name:'Example',website:'https://example.test',employee_count:42,available_people_count:0,people_summary:{status:'complete',total:0},company_emails:['info@example.test'],company_phones:['1300 123 456'],company_details:{country:'AU',locations:[{name:'Virginia'}]},industry_codes:{abn:'26609047878',acn:'609047878'}};
+ const target=mapFirmableCompany(raw,{id:'p1',name:'Example',formattedAddress:'',website:'https://example.test'},mandate,'org1');
+ expect(target.sourceData?.firmable).toMatchObject({availablePeopleCount:0,peopleSummary:{status:'complete',total:0},companyEmails:['info@example.test'],companyPhones:['1300 123 456'],acn:'609047878',rawResponse:raw});
+});

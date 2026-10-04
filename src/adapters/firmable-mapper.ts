@@ -111,6 +111,11 @@ function firmableSourceData(raw: Record<string, unknown>, fallbackId: string, ca
     anzsic: stringValue(industryCodes.anzsic),
     abnStatus: stringValue(raw.abn_operation_status),
     linkedin: stringValue(raw.linkedin),
+    availablePeopleCount: numberValue(raw.available_people_count),
+    peopleSummary: raw.people_summary && typeof raw.people_summary === 'object' ? raw.people_summary as Record<string, unknown> : undefined,
+    companyEmails: strings(raw.company_emails),
+    companyPhones: strings(raw.company_phones),
+    companyDetails: raw.company_details && typeof raw.company_details === 'object' ? raw.company_details as Record<string, unknown> : undefined,
   };
 }
 
