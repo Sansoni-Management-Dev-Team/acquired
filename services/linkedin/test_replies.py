@@ -1,4 +1,5 @@
 import asyncio
+import copy
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import pytest
@@ -128,6 +129,14 @@ def test_query_changes_preserve_restli_structure_and_encode_scalar_values():
     message=change_path('/voyager/api/voyagerMessagingGraphQL/graphql?queryId=messengerMessages.test&variables=(conversationUrn:old)',{'conversationUrn':THREAD})
     assert 'conversationUrn:urn%3Ali%3A' in message
     assert query_parts(message)[2]['conversationUrn']==THREAD
+
+def test_encoded_replay_cannot_replace_observed_read_templates():
+    from urllib.parse import urlencode
+    from replies import capture_queries
+    worker=modern_worker();before=copy.deepcopy(worker.reply_queries)
+    path='/voyagerMessagingGraphQL?'+urlencode({'queryId':'messengerConversations.test','variables':f'(query:(predicateUnions:List((conversationCategoryPredicate:(category:SPAM)))),count:20,mailboxUrn:{ME})'})
+    assert capture_queries(worker.reply_queries,path,ME) is False
+    assert worker.reply_queries==before
 
 def category_page(items,cursor=None):
     return {'status':200,'data':{'data':{'messengerConversationsByCategoryQuery':{'elements':items,'metadata':{'nextCursor':cursor}}}}}

@@ -194,6 +194,8 @@ def category_query(folder):
 def capture_queries(queries,path,mailbox):
     parsed,query,values = query_parts(path)
     if not parsed.path.startswith(('/voyager/api/','/voyagerMessagingGraphQL')): return False
+    wire_variables=[part.split('=',1)[1] for part in parsed.query.split('&') if part.startswith('variables=')]
+    if len(wire_variables)!=1 or not wire_variables[0].startswith('(') or not wire_variables[0].endswith(')'): return False
     kind = query.get('queryId',[''])[0]
     before = json.dumps(queries,sort_keys=True)
     if kind.startswith('messengerConversations.') and values.get('mailboxUrn') == mailbox:
