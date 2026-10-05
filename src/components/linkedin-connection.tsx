@@ -6,7 +6,7 @@ type Connection = { status: string; saved?: boolean; fixture?: boolean; inboxCap
 type Draft = { id: string; kind: string; recipient: string; text: string; status: string; providerId?: string };
 const labels: Record<string, string> = { disconnected: "Not connected", login_required: "Complete login in the live browser", connected: "Connected", paused: "Session saved — browser paused", unavailable: "Connection service unavailable", browser_closed: "Browser closed" };
 
-export function LinkedInConnection() {
+export function LinkedInConnection({ fixturesEnabled = false }: { fixturesEnabled?: boolean }) {
   const [connection, setConnection] = useState<Connection>({ status: "disconnected" });
   const [dashboard, setDashboard] = useState<LinkedInDashboard>();
   const [viewer, setViewer] = useState("");
@@ -61,7 +61,7 @@ export function LinkedInConnection() {
     <p role="status" className="text-sm">{labels[connection.status] || connection.status}{connection.fixture ? " · Fictional test account" : ""}</p>
     <div className="flex flex-wrap gap-2">
       <button disabled={busy} onClick={() => void act("connection", { fixture: false })} className="rounded-md border border-[var(--border)] px-3 py-2 text-sm">{connection.saved && !connection.fixture ? "Resume LinkedIn browser" : "Connect LinkedIn"}</button>
-      {connection.status !== "unavailable" && <button disabled={busy} onClick={() => void act("connection", { fixture: true })} className="rounded-md border border-[var(--border)] px-3 py-2 text-sm">Test with fictional account</button>}
+      {fixturesEnabled && connection.status !== "unavailable" && <button disabled={busy} onClick={() => void act("connection", { fixture: true })} className="rounded-md border border-[var(--border)] px-3 py-2 text-sm">Test with fictional account</button>}
       {["connected", "login_required"].includes(connection.status) && <button disabled={busy} onClick={() => void act("connection", { action: "pause" })} className="rounded-md border border-[var(--border)] px-3 py-2 text-sm">Save and pause browser</button>}
       {connection.saved && <button disabled={busy} onClick={() => void act("connection", undefined, "DELETE")} className="rounded-md border border-[var(--border)] px-3 py-2 text-sm">Disconnect and delete saved session</button>}
     </div>

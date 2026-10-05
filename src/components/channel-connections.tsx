@@ -72,7 +72,7 @@ export function ChannelConnections({ gmail, notice }: { gmail?: GmailConnection;
         <p className="mt-4 text-xs text-[var(--muted)]">Gmail requires compose permission to send and read-only permission to check conversations and replies. Your mailbox address is read from Google after consent; refresh tokens remain encrypted at rest.</p>
       </ChannelCard>
       {linkedinEnabled ? <ChannelCard name="LinkedIn" icon={BriefcaseBusiness} description="Connect through an interactive browser and sync conversations." status="Browser connection"
-        action={<LinkedInConnection />}>
+        action={<LinkedInConnection fixturesEnabled={process.env.NODE_ENV === "development"} />}>
         <p className="text-[var(--muted)]">Your browser session is encrypted and saved on the connection service. Live sends and campaign delivery are disabled. LinkedIn may request verification or restrict unsupported automation.</p>
         <a href="https://www.linkedin.com/messaging/" target="_blank" rel="noopener noreferrer" className={`${actionClass} mt-3`}>Open LinkedIn<ExternalLink size={14} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a>
       </ChannelCard> : <ChannelCard name="LinkedIn" icon={BriefcaseBusiness} description="Use your outreach drafts to start conversations on LinkedIn." status="Manual outreach"
