@@ -7,7 +7,7 @@ linkedin.170.64.233.147.sslip.io {
     }
     # API routes authenticate with the server-only bearer secret. Viewer and
     # WebSocket routes validate short-lived grants in the connection service.
-    @service path /health /connection /settings /queue /inbox /actions /agent /view/* /stream/* /novnc/*
+    @service path /health /connection /settings /queue /inbox /replies /campaign /actions /agent /view/* /stream/* /novnc/*
     handle @service {
         reverse_proxy 127.0.0.1:18096
     }
