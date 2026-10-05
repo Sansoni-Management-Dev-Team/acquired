@@ -19,3 +19,9 @@ it("rejects raw inbox caches, failed and incomplete contracts rather than claimi
   fetcher.mockResolvedValueOnce(new Response("{}", { status: 503 }));
   await expect(readChannelReplies(actor, "whatsapp", null)).rejects.toThrow("WhatsApp reply monitor unavailable");
 });
+it("bounds LinkedIn history by the oldest monitored enrolment", async () => {
+  vi.stubEnv("LINKEDIN_SERVICE_URL", "https://linkedin.example.test"); vi.stubEnv("LINKEDIN_SERVICE_SECRET", "secret");
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ accountIdentity: "account", events: [], nextCursor: null, complete: true, checkedAt: new Date().toISOString() }))));
+  await readChannelReplies(actor, "linkedin", null, new Date("2026-10-06T00:00:00Z"));
+  expect(new URL(String(vi.mocked(fetch).mock.calls[0][0])).searchParams.get("since")).toBe("2026-10-06T00:00:00.000Z");
+});

@@ -6,6 +6,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 RUN useradd -m browser && mkdir /data && chown browser:browser /data
 COPY *.py ./
+COPY fixtures ./fixtures
 USER browser
 EXPOSE 8080
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8080", "--no-access-log", "--log-level", "warning"]

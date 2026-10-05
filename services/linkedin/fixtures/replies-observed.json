@@ -1,0 +1,368 @@
+{
+  "messengerConversationsByCategoryQuery": {
+    "data": {
+      "messengerConversationsByCategoryQuery": {
+        "metadata": {
+          "nextCursor": "synthetic-cursor"
+        },
+        "elements": [
+          {
+            "conversationParticipants": [
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+              },
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic3",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic4"
+              }
+            ],
+            "lastActivityAt": 1700000017000,
+            "entityUrn": "urn:li:msg_conversation:synthetic5",
+            "groupChat": false,
+            "incompleteRetriableData": false
+          },
+          {
+            "conversationParticipants": [
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+              },
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic6",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic7"
+              }
+            ],
+            "lastActivityAt": 1700000016000,
+            "entityUrn": "urn:li:msg_conversation:synthetic8",
+            "groupChat": false,
+            "incompleteRetriableData": false
+          },
+          {
+            "conversationParticipants": [
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+              },
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic9",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic10"
+              }
+            ],
+            "lastActivityAt": 1700000015000,
+            "entityUrn": "urn:li:msg_conversation:synthetic11",
+            "groupChat": false,
+            "incompleteRetriableData": false
+          },
+          {
+            "conversationParticipants": [
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic12",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic13"
+              },
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+              }
+            ],
+            "lastActivityAt": 1700000014000,
+            "entityUrn": "urn:li:msg_conversation:synthetic14",
+            "groupChat": false,
+            "incompleteRetriableData": false
+          },
+          {
+            "conversationParticipants": [
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+              },
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic15",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic16"
+              }
+            ],
+            "lastActivityAt": 1700000013000,
+            "entityUrn": "urn:li:msg_conversation:synthetic17",
+            "groupChat": false,
+            "incompleteRetriableData": false
+          },
+          {
+            "conversationParticipants": [
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+              },
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic18",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic19"
+              }
+            ],
+            "lastActivityAt": 1700000012000,
+            "entityUrn": "urn:li:msg_conversation:synthetic20",
+            "groupChat": false,
+            "incompleteRetriableData": false
+          },
+          {
+            "conversationParticipants": [
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+              },
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic21",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic22"
+              }
+            ],
+            "lastActivityAt": 1700000011000,
+            "entityUrn": "urn:li:msg_conversation:synthetic23",
+            "groupChat": false,
+            "incompleteRetriableData": false
+          },
+          {
+            "conversationParticipants": [
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic24",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic25"
+              },
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+              }
+            ],
+            "lastActivityAt": 1700000010000,
+            "entityUrn": "urn:li:msg_conversation:synthetic26",
+            "groupChat": false,
+            "incompleteRetriableData": false
+          },
+          {
+            "conversationParticipants": [
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+              },
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic27",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic28"
+              }
+            ],
+            "lastActivityAt": 1700000009000,
+            "entityUrn": "urn:li:msg_conversation:synthetic29",
+            "groupChat": false,
+            "incompleteRetriableData": false
+          },
+          {
+            "conversationParticipants": [
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+              },
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic9",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic10"
+              }
+            ],
+            "lastActivityAt": 1700000008000,
+            "entityUrn": "urn:li:msg_conversation:synthetic30",
+            "groupChat": false,
+            "incompleteRetriableData": false
+          },
+          {
+            "conversationParticipants": [
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+              },
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic31",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic32"
+              }
+            ],
+            "lastActivityAt": 1700000007000,
+            "entityUrn": "urn:li:msg_conversation:synthetic33",
+            "groupChat": false,
+            "incompleteRetriableData": false
+          },
+          {
+            "conversationParticipants": [
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+              },
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic34",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic35"
+              }
+            ],
+            "lastActivityAt": 1700000006000,
+            "entityUrn": "urn:li:msg_conversation:synthetic36",
+            "groupChat": false,
+            "incompleteRetriableData": false
+          },
+          {
+            "conversationParticipants": [
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+              },
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic37",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic38"
+              }
+            ],
+            "lastActivityAt": 1700000005000,
+            "entityUrn": "urn:li:msg_conversation:synthetic39",
+            "groupChat": false,
+            "incompleteRetriableData": false
+          },
+          {
+            "conversationParticipants": [
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+              },
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic40",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic41"
+              }
+            ],
+            "lastActivityAt": 1700000004000,
+            "entityUrn": "urn:li:msg_conversation:synthetic42",
+            "groupChat": false,
+            "incompleteRetriableData": false
+          },
+          {
+            "conversationParticipants": [
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+              },
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic43",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic44"
+              }
+            ],
+            "lastActivityAt": 1700000003000,
+            "entityUrn": "urn:li:msg_conversation:synthetic45",
+            "groupChat": false,
+            "incompleteRetriableData": false
+          },
+          {
+            "conversationParticipants": [
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+              },
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic46",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic47"
+              }
+            ],
+            "lastActivityAt": 1700000002000,
+            "entityUrn": "urn:li:msg_conversation:synthetic48",
+            "groupChat": false,
+            "incompleteRetriableData": false
+          },
+          {
+            "conversationParticipants": [
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic49",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic50"
+              },
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+              }
+            ],
+            "lastActivityAt": 1700000001000,
+            "entityUrn": "urn:li:msg_conversation:synthetic51",
+            "groupChat": false,
+            "incompleteRetriableData": false
+          },
+          {
+            "conversationParticipants": [
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+              },
+              {
+                "hostIdentityUrn": "urn:li:fsd_profile:synthetic52",
+                "entityUrn": "urn:li:msg_messagingParticipant:synthetic53"
+              }
+            ],
+            "lastActivityAt": 1700000000000,
+            "entityUrn": "urn:li:msg_conversation:synthetic54",
+            "groupChat": false,
+            "incompleteRetriableData": false
+          }
+        ]
+      }
+    }
+  },
+  "messengerConversationsByCategoryQuery-empty": {
+    "data": {
+      "messengerConversationsByCategoryQuery": {
+        "metadata": {
+          "nextCursor": null
+        },
+        "elements": []
+      }
+    }
+  },
+  "messengerMessagesBySyncToken": {
+    "data": {
+      "messengerMessagesBySyncToken": {
+        "metadata": {
+          "newSyncToken": "synthetic-cursor",
+          "shouldClearCache": true
+        },
+        "elements": [
+          {
+            "body": {
+              "attributes": [],
+              "text": "Synthetic content"
+            },
+            "deliveredAt": 1700000019000,
+            "entityUrn": "urn:li:msg_message:synthetic55",
+            "sender": {
+              "hostIdentityUrn": "urn:li:fsd_profile:synthetic1",
+              "entityUrn": "urn:li:msg_messagingParticipant:synthetic2"
+            },
+            "incompleteRetriableData": false,
+            "conversation": {
+              "entityUrn": "urn:li:msg_conversation:synthetic56"
+            }
+          },
+          {
+            "body": {
+              "attributes": [
+                {}
+              ],
+              "text": "Synthetic content"
+            },
+            "deliveredAt": 1700000018000,
+            "entityUrn": "urn:li:msg_message:synthetic57",
+            "sender": {
+              "hostIdentityUrn": "urn:li:fsd_profile:synthetic58",
+              "entityUrn": "urn:li:msg_messagingParticipant:synthetic59"
+            },
+            "incompleteRetriableData": false,
+            "conversation": {
+              "entityUrn": "urn:li:msg_conversation:synthetic56"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "messengerMessagesByAnchorTimestamp-empty": {
+    "data": {
+      "messengerMessagesByAnchorTimestamp": {
+        "metadata": {
+          "nextCursor": null,
+          "prevCursor": null
+        },
+        "elements": []
+      }
+    }
+  }
+}

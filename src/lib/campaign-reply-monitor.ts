@@ -77,8 +77,11 @@ export async function scanReplyChannel(actor: CampaignActor, channel: ReplyChann
   });
   if (!monitor) return { complete: false };
   try {
+    const [scope] = channel === "linkedin" ? await withCampaignDb(actor, client => rows<{ since: Date | null }>(client,
+      `SELECT min(i.since) AS since FROM campaign_reply_identities i WHERE i.organization_id = $1 AND i.owner_user_id = $2 AND i.channel = 'linkedin'
+       AND EXISTS (SELECT 1 FROM campaign_enrolments e WHERE e.organization_id = i.organization_id AND e.owner_user_id = i.owner_user_id AND e.contact_id = i.contact_id AND e.state IN ('active','paused','needs_review'))`, [actor.organizationId, actor.userId])) : [];
     return await collectReplyPages({ cursor: monitor.cursor, accountIdentity: monitor.account_identity,
-      read: cursor => channel === "email" ? readEmailReplies(actor, cursor) : readChannelReplies(actor, channel, cursor),
+      read: cursor => channel === "email" ? readEmailReplies(actor, cursor) : readChannelReplies(actor, channel, cursor, scope?.since ?? undefined),
       commit: page => withCampaignWorker(async client => {
         const [lease] = await rows(client, `SELECT channel FROM campaign_reply_monitors WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3 AND lease_token = $4 AND lease_until > now() FOR UPDATE`, [actor.organizationId, actor.userId, channel, token]);
         if (!lease) return false;

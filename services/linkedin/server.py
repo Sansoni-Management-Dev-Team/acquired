@@ -14,6 +14,7 @@ import tempfile
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from datetime import datetime
 from urllib.parse import urlparse, parse_qs, unquote
 from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import HTMLResponse
@@ -42,6 +43,7 @@ class Worker:
         self.origin = 'http://127.0.0.1:8080' if fixture else 'https://www.linkedin.com'
         self.directory = tempfile.mkdtemp(prefix='linkedin-profile-')
         self.processes = []
+        self.reply_queries = {}
         self.sync_token = self.mailbox = self.query_id = self.conversation_variables = self.conversation_request = self.message_request = None
         self.touched = time.time()
         self.agent_busy = False
@@ -69,6 +71,7 @@ class Worker:
         else:
             raise RuntimeError('Browser did not start')
         data = VAULT.load(self.owner)
+        self.reply_queries = data.get('replyReadQueries', {})
         state = data.get('browserState') if data.get('fixture') == self.fixture else None
         initial_pages = [page for context in self.browser.contexts for page in context.pages]
         self.context = await self.browser.new_context(storage_state=state, viewport={'width': 1280, 'height': 800})
@@ -100,6 +103,12 @@ class Worker:
             self.conversation_request = parsed.path + '?' + parsed.query
         if request.method == 'GET' and query_id.startswith('messengerMessages.') and 'conversationUrn:' in variables:
             self.message_request = parsed.path + '?' + parsed.query
+        if request.method == 'GET' and self.mailbox and query_id.startswith(('messengerConversations.','messengerMessages.')):
+            try:
+                if replies.capture_queries(self.reply_queries,parsed.path+'?'+parsed.query,self.mailbox):
+                    data=VAULT.load(self.owner);data['replyReadQueries']=self.reply_queries;VAULT.save(self.owner,data)
+            except ValueError:
+                pass
 
     async def authenticated(self):
         cookies = await asyncio.wait_for(self.context.cookies(self.origin), 5)
@@ -544,8 +553,16 @@ async def reply_inbox(request: Request):
     async with locks.setdefault(owner,asyncio.Lock()):
         worker = workers.get(owner)
         if not worker or await worker.status() != 'connected': raise HTTPException(409,'LinkedIn reply monitor needs reconnection')
-        if not worker.mailbox or not worker.conversation_request or not getattr(worker,'message_request',None):
+        modern = replies.modern_queries_ready(getattr(worker,'reply_queries',{}))
+        if not worker.mailbox or (not modern and (not worker.conversation_request or not getattr(worker,'message_request',None))):
             raise HTTPException(409,'Open LinkedIn Messaging and a conversation to capture the account read queries')
+        raw_since = request.query_params.get('since')
+        try:
+            parsed_since = datetime.fromisoformat(raw_since.replace('Z','+00:00')) if raw_since else None
+            if parsed_since and parsed_since.tzinfo is None: raise ValueError()
+            since = parsed_since.timestamp() if parsed_since else 0
+            if since<0 or since>time.time()+5: raise ValueError()
+        except (ValueError,TypeError): raise HTTPException(400,'Invalid reply scan start')
         cursor = request.query_params.get('cursor')
         if cursor and len(cursor)>4000: raise HTTPException(400,'Invalid reply checkpoint')
         data = VAULT.load(owner)
@@ -565,8 +582,10 @@ async def reply_inbox(request: Request):
             return result
         previous = copy.deepcopy(state.get('replyJournal'))
         try:
-            await replies.advance_scan(worker,state,read,now)
+            if modern: await replies.advance_modern_scan(worker,state,read,now,since)
+            else: await replies.advance_scan(worker,state,read,now)
             result = replies.journal_page(state,cursor)
+            data['replyReadQueries']=getattr(worker,'reply_queries',{})
             VAULT.save(owner,data)
             worker.touched = now
             return result
