@@ -6,6 +6,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Building2, House, Settings, Plus, PanelLeftClose, PanelLeftOpen, Menu, FileText, ListFilter, Users, Mail } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
+import { AcquisitionProgress } from "./acquisition-progress";
 
 import { mandateTabHref } from "@/domain/mandate-navigation";
 type SidebarState = { mandates: { id: string; name: string }[]; selected?: string; tab: string };
@@ -73,7 +74,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
       </aside>
-      <main className="min-w-0">{children}</main>
+      <main className="min-w-0"><Suspense fallback={null}><AcquisitionProgress /></Suspense>{children}</main>
     </div></SidebarContext.Provider>
   );
 }
