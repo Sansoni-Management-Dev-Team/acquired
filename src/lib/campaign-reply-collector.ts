@@ -12,12 +12,14 @@ export async function collectReplyPages(input: {
   const seen = new Set([cursor]);
   for (let count = 0; count < (input.maxPages ?? 5); count++) {
     const page = replyPageSchema.parse(await input.read(cursor));
+    const waiting = !page.complete && page.nextReadAt !== undefined && new Date(page.nextReadAt).getTime() > Date.now();
     if (accountIdentity && accountIdentity !== page.accountIdentity) throw new Error("Reply monitor account changed; review before reconnecting");
-    if (!page.complete && (page.nextCursor === null || seen.has(page.nextCursor))) throw new Error("Reply monitor checkpoint did not advance");
+    if (!page.complete && (page.nextCursor === null || (seen.has(page.nextCursor) && !(waiting && page.nextCursor === cursor)))) throw new Error("Reply monitor checkpoint did not advance");
     if (new Date(page.checkedAt).getTime() > Date.now() + 5000 || page.events.some(event => new Date(event.receivedAt).getTime() > Date.now() + 5000)) throw new Error("Invalid reply monitor timestamps");
     if (!await input.commit(page)) return { complete: false, cursor };
     cursor = page.nextCursor; accountIdentity = page.accountIdentity; seen.add(cursor);
     if (page.complete) return { complete: true, cursor };
+    if (waiting) return { complete: false, cursor, nextReadAt: page.nextReadAt };
   }
   return { complete: false, cursor };
 }

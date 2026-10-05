@@ -88,8 +88,8 @@ export async function scanReplyChannel(actor: CampaignActor, channel: ReplyChann
         await assertReplyMonitorMember(client, actor);
         for (const event of page.events) await applyCampaignReply(client, actor, channel, page.accountIdentity, event);
         await client.query(`UPDATE campaign_reply_monitors SET account_identity = $5, cursor = $6,
-          last_success_at = CASE WHEN $7 THEN $8 ELSE NULL END, last_error = CASE WHEN $7 THEN NULL ELSE 'Inbox scan incomplete' END
-          WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3 AND lease_token = $4`, [actor.organizationId, actor.userId, channel, token, page.accountIdentity, page.nextCursor, page.complete, new Date(page.checkedAt)]);
+          last_success_at = CASE WHEN $7 THEN $8 ELSE NULL END, last_error = CASE WHEN $7 THEN NULL ELSE $9 END
+          WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3 AND lease_token = $4`, [actor.organizationId, actor.userId, channel, token, page.accountIdentity, page.nextCursor, page.complete, new Date(page.checkedAt), page.nextReadAt ? `Inbox scan incomplete; next reader check after ${page.nextReadAt}` : "Inbox scan incomplete"]);
         return true;
       }),
     });

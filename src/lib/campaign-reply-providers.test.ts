@@ -12,6 +12,7 @@ it.each(["whatsapp", "linkedin"] as const)("reads %s replies with owner scope an
   const [url, options] = fetcher.mock.calls[0];
   expect(url.pathname).toBe("/replies"); expect(url.searchParams.get("organizationId")).toBe("org"); expect(url.searchParams.get("userId")).toBe("owner"); expect(url.searchParams.get("cursor")).toBe("1");
   expect(options.method).toBe("GET"); expect(options.cache).toBe("no-store"); expect(fetcher).toHaveBeenCalledOnce();
+  expect(url.searchParams.get("background")).toBe(channel === "linkedin" ? "true" : null);
 });
 it("rejects raw inbox caches, failed and incomplete contracts rather than claiming a successful check", async () => {
   fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ status: "ok", cache: { stale: false }, response: {} })));

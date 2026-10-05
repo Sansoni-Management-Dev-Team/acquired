@@ -48,3 +48,16 @@ it("rejects oversized pages and unexpected fields before commit", async () => {
     const commit = vi.fn(); await expect(collectReplyPages({ cursor: null, accountIdentity: null, read: async () => bad, commit })).rejects.toThrow(); expect(commit).not.toHaveBeenCalled();
   }
 });
+
+it("commits queued replies while waiting for the next provider read without looping or certifying freshness", async () => {
+  const nextReadAt = "2026-10-05T10:05:00Z";
+  const read = vi.fn().mockResolvedValue({ ...page, complete: false, nextCursor: "1", nextReadAt });
+  const commit = vi.fn().mockResolvedValue(true);
+  expect(await collectReplyPages({ cursor: "1", accountIdentity: page.accountIdentity, read, commit })).toEqual({ complete: false, cursor: "1", nextReadAt });
+  expect(read).toHaveBeenCalledOnce(); expect(commit).toHaveBeenCalledOnce();
+});
+it("does not accept a repeated checkpoint with an expired backoff", async () => {
+  const commit = vi.fn();
+  await expect(collectReplyPages({ cursor: "1", accountIdentity: null, read: async () => ({ ...page, complete: false, nextReadAt: "2026-10-05T10:00:01Z" }), commit })).rejects.toThrow("checkpoint");
+  expect(commit).not.toHaveBeenCalled();
+});

@@ -262,8 +262,11 @@ async def advance_modern_scan(worker,data,provider,now,since):
     journal=data.setdefault('replyJournal',{'accountIdentity':account,'events':[],'revision':0,'nextId':1})
     if journal['accountIdentity']!=account: raise ValueError('LinkedIn reply monitor account changed')
     scan=journal.get('scan')
-    if not scan or scan.get('protocol')!='cursor-v1' or scan['complete'] or since<scan['since']:
-        scan={'protocol':'cursor-v1','stage':'conversations','folder':0,'cursor':None,'seenCursors':[], 'threads':[],'index':0,'before':None,'startedAt':now,'since':since,'complete':False}
+    if not scan or scan.get('protocol')!='cursor-v1' or scan['complete'] or since<scan.get('requestedSince',scan['since']):
+        effective_since=since
+        if journal.get('coverageSince',float('inf'))<=since:
+            effective_since=max(since,journal['coverageAt']-120)
+        scan={'protocol':'cursor-v1','stage':'conversations','folder':0,'cursor':None,'seenCursors':[], 'threads':[],'index':0,'before':None,'startedAt':now,'since':effective_since,'requestedSince':since,'complete':False}
         journal['scan']=scan
     since=scan['since']
     if scan['stage']=='conversations':
@@ -327,3 +330,6 @@ async def advance_modern_scan(worker,data,provider,now,since):
         else: scan['before']=oldest
     journal['revision']+=1
     journal['checkedAt']=scan['startedAt'] if scan['complete'] else now
+    if scan['complete']:
+        journal['coverageAt']=scan['startedAt']
+        journal['coverageSince']=min(journal.get('coverageSince',scan['requestedSince']),scan['requestedSince'])

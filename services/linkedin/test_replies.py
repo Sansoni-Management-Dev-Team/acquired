@@ -243,3 +243,67 @@ def test_modern_authenticated_endpoint_advances_all_four_folders_atomically(setu
         assert result['complete']==(index==3)
     assert provider.await_count==4
     assert set(vault.load(owner)['replyReadQueries']['folders'])=={'PRIMARY_INBOX','SECONDARY_INBOX','ARCHIVE','SPAM'}
+
+def test_background_requests_queue_owner_scope_without_spending_provider_budget(setup,monkeypatch):
+    client,vault=setup;monkeypatch.setenv('LINKEDIN_REPLY_MONITOR_ENABLED','true')
+    worker=modern_worker();worker.status=AsyncMock(return_value='connected')
+    owner=vault.owner('test-org','alice');server.workers[owner]=worker
+    provider=AsyncMock();monkeypatch.setattr(server,'provider_request',provider)
+    params={'organizationId':'test-org','userId':'alice','background':'true','since':'1970-01-01T00:00:00Z'}
+    first=call(client,'get','/replies',params=params)
+    assert first.status_code==200 and not first.json()['complete']
+    assert 'nextReadAt' in first.json()
+    second=call(client,'get','/replies',params={**params,'cursor':first.json()['nextCursor']})
+    assert second.status_code==200 and second.json()['nextCursor']==first.json()['nextCursor']
+    assert vault.load(owner)['controls']['linkedin']['replyRequest']['since']==0
+    assert not vault.load(vault.owner('test-org','bob')).get('controls')
+    provider.assert_not_awaited()
+
+def test_background_reader_waits_for_budget_then_persists_one_page(setup,monkeypatch):
+    client,vault=setup;monkeypatch.setenv('LINKEDIN_REPLY_MONITOR_ENABLED','true')
+    worker=modern_worker();worker.status=AsyncMock(return_value='connected')
+    owner=vault.owner('test-org','alice');server.workers[owner]=worker
+    call(client,'get','/replies',params={'organizationId':'test-org','userId':'alice','background':'true','since':'1970-01-01T00:00:00Z'})
+    provider=AsyncMock(return_value=category_page([]));monkeypatch.setattr(server,'provider_request',provider)
+    data=vault.load(owner);data['controls']['linkedin']['nextRequestAt']=server.time.time()+60;vault.save(owner,data)
+    asyncio.run(server.background_reply_read(owner,worker));provider.assert_not_awaited()
+    data=vault.load(owner);data['controls']['linkedin']['nextRequestAt']=0;vault.save(owner,data)
+    asyncio.run(server.background_reply_read(owner,worker))
+    assert provider.await_count==1
+    assert vault.load(owner)['controls']['linkedin']['replyJournal']['scan']['folder']==1
+    assert not vault.load(owner)['controls']['linkedin']['replyJournal']['scan']['complete']
+
+def test_failed_background_read_preserves_events_and_checkpoint_without_marking_browser_disconnected(setup,monkeypatch):
+    client,vault=setup;monkeypatch.setenv('LINKEDIN_REPLY_MONITOR_ENABLED','true')
+    worker=modern_worker();worker.status=AsyncMock(return_value='connected')
+    owner=vault.owner('test-org','alice');server.workers[owner]=worker
+    call(client,'get','/replies',params={'organizationId':'test-org','userId':'alice','background':'true','since':'1970-01-01T00:00:00Z'})
+    original=copy.deepcopy(vault.load(owner)['controls']['linkedin']['replyJournal'])
+    monkeypatch.setattr(server,'provider_request',AsyncMock(side_effect=TimeoutError('private provider details')))
+    asyncio.run(server.background_reply_read(owner,worker))
+    state=vault.load(owner)['controls']['linkedin']
+    assert state['replyJournal']==original
+    assert 'private provider details' not in state['replyReadError']
+    assert not state.get('requiresVerification')
+
+def test_completed_scan_uses_durable_overlap_for_the_next_sweep_and_earlier_scope_backfills():
+    from replies import advance_modern_scan
+    worker=modern_worker();state={};provider=AsyncMock(return_value=category_page([]))
+    for step in range(4): asyncio.run(advance_modern_scan(worker,state,provider,1700001000+step,1700000000))
+    assert state['replyJournal']['coverageAt']==1700001000
+    asyncio.run(advance_modern_scan(worker,state,provider,1700001100,1700000000))
+    scan=state['replyJournal']['scan']
+    assert scan['since']==1700000880 and scan['requestedSince']==1700000000
+    asyncio.run(advance_modern_scan(worker,state,provider,1700001101,1699999000))
+    assert state['replyJournal']['scan']['since']==1699999000
+    assert state['replyJournal']['scan']['folder']==1
+
+def test_background_scope_expiry_or_disabled_monitor_spends_no_budget(setup,monkeypatch):
+    _,vault=setup;owner=vault.owner('test-org','alice');worker=modern_worker()
+    data={'controls':{'linkedin':{'replyRequest':{'since':0,'until':server.time.time()-1}}}}
+    vault.save(owner,data);provider=AsyncMock();monkeypatch.setattr(server,'provider_request',provider)
+    monkeypatch.setenv('LINKEDIN_REPLY_MONITOR_ENABLED','true')
+    asyncio.run(server.background_reply_read(owner,worker));provider.assert_not_awaited()
+    data['controls']['linkedin']['replyRequest']['until']=server.time.time()+600;vault.save(owner,data)
+    monkeypatch.setenv('LINKEDIN_REPLY_MONITOR_ENABLED','false')
+    asyncio.run(server.background_reply_read(owner,worker));provider.assert_not_awaited()

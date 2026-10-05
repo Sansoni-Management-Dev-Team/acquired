@@ -4,7 +4,7 @@ export const replyChannels = ["email", "whatsapp", "linkedin"] as const;
 export type ReplyChannel = typeof replyChannels[number];
 export type ReplyIdentity = { contactId: string; email: string; identity: string; since: Date };
 export const replyEventSchema = z.object({ id: z.string().min(1).max(500), fromIdentity: z.string().min(1).max(500), receivedAt: z.iso.datetime() }).strict();
-export const replyPageSchema = z.object({ accountIdentity: z.string().min(1).max(500), events: z.array(replyEventSchema).max(500), nextCursor: z.string().max(4000).nullable(), complete: z.boolean(), checkedAt: z.iso.datetime() }).strict();
+export const replyPageSchema = z.object({ accountIdentity: z.string().min(1).max(500), events: z.array(replyEventSchema).max(500), nextCursor: z.string().max(4000).nullable(), complete: z.boolean(), checkedAt: z.iso.datetime(), nextReadAt: z.iso.datetime().optional() }).strict();
 export type ReplyEvent = z.infer<typeof replyEventSchema>;
 export type ReplyPage = z.infer<typeof replyPageSchema>;
 export const replyChannelLabel = (channel: ReplyChannel) => channel === "email" ? "Email" : channel === "whatsapp" ? "WhatsApp" : "LinkedIn";

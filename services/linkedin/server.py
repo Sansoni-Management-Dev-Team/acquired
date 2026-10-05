@@ -178,6 +178,12 @@ def dashboard(owner):
                           'lastRunAt': state.get('lastKeepAliveAt'), 'nextRunAt': state.get('nextKeepAliveAt'),
                           'status': state.get('keepAliveStatus', 'Not scheduled')},
             'cache': {'fetchedAt': state.get('inbox', {}).get('fetchedAt')},
+            'replyReader': {'requested':reply_reader_requested(state),
+                            'stage':state.get('replyJournal',{}).get('scan',{}).get('stage'),
+                            'folder':state.get('replyJournal',{}).get('scan',{}).get('folder'),
+                            'lastAttemptAt':state.get('lastReplyReadAttemptAt'),
+                            'lastCompleteAt':state.get('replyJournal',{}).get('coverageAt'),
+                            'error':state.get('replyReadError')},
             'fixture': fixture}
 
 
@@ -288,7 +294,7 @@ async def background_once():
             data = VAULT.load(owner)
             fixture = bool(data.get('fixture',False))
             state = policy.control(data,fixture)
-            wants_browser = policy.settings(data,fixture)['keepAliveEnabled'] or any(a['status']=='queued' and a.get('fixture',False)==fixture for a in data.get('actions',{}).values())
+            wants_browser = reply_reader_requested(state) or policy.settings(data,fixture)['keepAliveEnabled'] or any(a['status']=='queued' and a.get('fixture',False)==fixture for a in data.get('actions',{}).values())
             if not data.get('browserState') or data.get('browserPaused') or not wants_browser or state.get('requiresVerification') or state.get('resumeAfter',0)>time.time():
                 continue
             async with allocation:
@@ -331,11 +337,12 @@ async def background_worker(owner, worker):
             if record['status']=='queued' and not record.get('campaignKey') and record.get('fixture',False)==worker.fixture:
                 await dispatch_action(owner,worker,record)
                 break
+        await background_reply_read(owner,worker)
         await keep_alive(owner,worker)
         with contextlib.suppress(Exception):
             await worker.snapshot()
         data = VAULT.load(owner)
-        keep_open = policy.settings(data,worker.fixture)['keepAliveEnabled'] or any(a['status']=='queued' for a in data.get('actions',{}).values())
+        keep_open = reply_reader_requested(policy.control(data,worker.fixture)) or policy.settings(data,worker.fixture)['keepAliveEnabled'] or any(a['status']=='queued' for a in data.get('actions',{}).values())
         if not keep_open and not getattr(worker,'viewer_count',0) and time.time()-worker.touched>1800:
             await worker.close()
             workers.pop(owner,None)
@@ -567,6 +574,29 @@ async def reply_inbox(request: Request):
         if cursor and len(cursor)>4000: raise HTTPException(400,'Invalid reply checkpoint')
         data = VAULT.load(owner)
         state = policy.control(data,worker.fixture)
+        if request.query_params.get('background')=='true':
+            if not modern: raise HTTPException(409,'Capture all LinkedIn inbox folders and history queries')
+            now=time.time()
+            account=('fixture:' if worker.fixture else '')+replies.profile(worker.mailbox)
+            journal=state.setdefault('replyJournal',{'accountIdentity':account,'events':[],'revision':0,'nextId':1,'checkedAt':0,'scan':{'complete':False}})
+            if journal['accountIdentity']!=account: raise HTTPException(409,'Reply account changed; review the connection')
+            # Validate before changing either the request or its durable scope.
+            try: result=replies.journal_page(state,cursor)
+            except (ValueError,KeyError,TypeError,json.JSONDecodeError): raise HTTPException(409,'Reply account or checkpoint changed; review the connection')
+            previous=state.get('replyRequest',{})
+            requested_since=min(since,previous['since']) if previous.get('until',0)>now else since
+            scan=journal.get('scan',{})
+            if requested_since<scan.get('requestedSince',scan.get('since',requested_since)):
+                journal['scan']={'complete':False};journal['checkedAt']=0;journal['revision']+=1
+            state['replyRequest']={'since':requested_since,'until':now+1800}
+            data['replyReadQueries']=worker.reply_queries
+            VAULT.save(owner,data)
+            result=replies.journal_page(state,cursor)
+            if state.get('replyReadError'): result['complete']=False
+            if not result['complete']:
+                due,_=policy.eligible(data,'read',worker.fixture,now)
+                result['nextReadAt']=replies.iso(max(now+10,due or now+300))
+            return result
         # Validate an existing checkpoint before spending the provider read budget.
         if cursor and state.get('replyJournal'):
             try: replies.journal_page(state,cursor)
@@ -598,6 +628,44 @@ async def reply_inbox(request: Request):
             VAULT.save(owner,data)
             reason = str(error) if isinstance(error,ValueError) and str(error).startswith(('LinkedIn','Unverified','Required','Invalid','Unknown','Capture')) else 'Inbox query or response requires review'
             raise HTTPException(503,'LinkedIn reply history could not be verified: '+reason)
+
+
+def reply_reader_requested(state,now=None):
+    return os.getenv('LINKEDIN_REPLY_MONITOR_ENABLED')=='true' and state.get('replyRequest',{}).get('until',0)>(time.time() if now is None else now)
+
+
+async def background_reply_read(owner,worker):
+    """Caller holds the owner lock. Poll at most one page per reserved read."""
+    data=VAULT.load(owner);state=policy.control(data,worker.fixture);now=time.time()
+    if not reply_reader_requested(state,now): return
+    # Reject missing/broken templates before consuming a provider reservation.
+    if not replies.modern_queries_ready(getattr(worker,'reply_queries',{})): return
+    try:
+        for name in ('categoryInitial','categoryCursor','messageInitial','messageBefore'):
+            replies.change_path(worker.reply_queries[name],{})
+    except ValueError:
+        state['replyReadError']='LinkedIn read templates require recapture';VAULT.save(owner,data);return
+    due,_=policy.eligible(data,'read',worker.fixture,now)
+    if due is None or due>now: return
+    due,_=policy.reserve(data,'read',worker.fixture,now)
+    if due is None or due>now: return
+    previous=copy.deepcopy(state.get('replyJournal'))
+    state['lastReplyReadAttemptAt']=now
+    VAULT.save(owner,data)
+    async def read(worker,path):
+        result=await provider_request(worker,path)
+        policy.provider_result(data,result,worker.fixture)
+        return result
+    try:
+        await replies.advance_modern_scan(worker,state,read,now,state['replyRequest']['since'])
+        state.pop('replyReadError',None)
+        worker.touched=now
+    except Exception:
+        if previous is None: state.pop('replyJournal',None)
+        else: state['replyJournal']=previous
+        state['replyReadError']='LinkedIn reply history could not be verified; review reader status'
+    data['replyReadQueries']=worker.reply_queries
+    VAULT.save(owner,data)
 
 
 @app.api_route('/inbox', methods=['GET','POST'])
