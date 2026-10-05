@@ -35,14 +35,14 @@ export function buildSequenceWorkflow(input: { versionId: string; sequenceName: 
   add("Start contact", "webhook", 2, { httpMethod: "POST", path: `acquire/campaign/${input.versionId}`, responseMode: "onReceived", options: {} }, 160, 300);
   nodes[0].webhookId = input.versionId;
   const entries = campaignStepEntries(input.definition);
-  const emails = entries.map(({ step }, index) => ({ step, index })).filter(({ step }) => step.kind === "email");
+  const actions = entries.map(({ step }, index) => ({ step, index })).filter(({ step }) => (step.kind === "email" || step.kind === "linkedin"));
   const nameFor = (prefix: string, index: number) => {
     const step = entries[index].step;
-    const duplicates = entries.filter(entry => entry.step.kind === "email" && entry.step.title === step.title).length > 1;
+    const duplicates = entries.filter(entry => (entry.step.kind === "email" || entry.step.kind === "linkedin") && entry.step.title === step.title).length > 1;
     return `${prefix}: ${step.title}${duplicates ? ` [${index + 1}]` : ""}`;
   };
   const condition = (leftValue: string, rightValue: string) => ({ options: { caseSensitive: true, leftValue: "", typeValidation: "strict", version: 2 }, conditions: [{ id: randomUUID(), leftValue, rightValue, operator: { type: "string", operation: "equals" } }], combinator: "and" });
-  for (const { index } of emails) {
+  for (const { index } of actions) {
     const x = 430 + index * 530;
     const y = entries[index].path === "pathA" ? 80 : entries[index].path === "pathB" ? 650 : 300;
     const sendName = nameFor("Send", index);
@@ -69,7 +69,7 @@ export function buildSequenceWorkflow(input: { versionId: string; sequenceName: 
   }
   link("Start contact", nameFor("Send", 0));
   const waits = new Set<string>();
-  for (const { index } of emails) {
+  for (const { index } of actions) {
     const options = campaignNextOptions(input.definition, index);
     let source = nameFor("Sent", index);
     if (options.length === 2) {

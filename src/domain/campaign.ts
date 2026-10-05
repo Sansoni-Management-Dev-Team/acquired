@@ -3,12 +3,20 @@ import { z } from "zod";
 const campaignPosition = z.object({ x: z.number().finite().min(-100000).max(100000), y: z.number().finite().min(-100000).max(100000) }).strict();
 const emailStep = z.object({ id: z.string().uuid(), kind: z.literal("email"), title: z.string().trim().min(1).max(100), subject: z.string().trim().min(1).max(200), body: z.string().trim().min(1).max(10000), position: campaignPosition.optional() }).strict();
 const waitStep = z.object({ id: z.string().uuid(), kind: z.literal("wait"), title: z.string().trim().min(1).max(100), days: z.number().int().min(1).max(30), position: campaignPosition.optional() }).strict();
-const linkedinStep = emailStep.omit({ subject: true }).extend({ kind: z.literal("linkedin") });
+const linkedinStep = emailStep.omit({ subject: true }).extend({
+  kind: z.literal("linkedin"), action: z.enum(["message", "connect"]).optional(),
+  body: z.string().trim().max(10000),
+}).superRefine((step, context) => {
+  if (step.action === "message" && step.body.length > 4000) context.addIssue({ code: "custom", message: "LinkedIn messages must be at most 4000 characters" });
+  if (step.action === "connect" ? step.body.length > 200 : !step.body.length)
+    context.addIssue({ code: "custom", message: step.action === "connect" ? "Connection notes must be at most 200 characters" : "LinkedIn messages need a body" });
+});
 const whatsappStep = emailStep.omit({ subject: true }).extend({ kind: z.literal("whatsapp") });
 export const campaignStep = z.discriminatedUnion("kind", [emailStep, waitStep, linkedinStep, whatsappStep]);
 export const campaignSplit = z.object({
   id: z.string().uuid(), title: z.string().trim().min(1).max(100), afterStepId: z.string().uuid(),
   percentage: z.number().int().min(1).max(99),
+  condition: z.object({ kind: z.literal("linkedin_connected"), timeoutDays: z.number().int().min(1).max(30) }).strict().optional(),
   position: campaignPosition.optional(),
   pathA: z.array(campaignStep).min(2).max(24), pathB: z.array(campaignStep).min(2).max(24),
 }).strict();
@@ -26,6 +34,7 @@ export const campaignDefinition = z.object({ schemaVersion: z.literal(1), steps:
   for (const split of definition.splits || []) {
     const anchor = definition.steps.find(step => step.id === split.afterStepId);
     if (!anchor || anchor.kind === "wait") issue("Split paths must follow a message in the main sequence");
+    if (split.condition && (anchor?.kind !== "linkedin" || anchor.action !== "connect")) issue("Wait for acceptance must follow a LinkedIn connection request in the main sequence");
     if (anchors.has(split.afterStepId)) issue("A message can have only one split");
     anchors.add(split.afterStepId);
     validateChain(split.pathA, true);
@@ -51,6 +60,7 @@ export function campaignStepEntries(definition: CampaignDraft): CampaignStepEntr
 }
 
 export function campaignPathFor(split: CampaignSplit, routingKey: string): "pathA" | "pathB" {
+  if (split.condition) throw new Error("Condition branches require an observed outcome");
   // A stable bucket per enrolment and split survives retries and worker restarts.
   let hash = 2166136261;
   for (const char of `${routingKey}:${split.id}`) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
@@ -94,16 +104,33 @@ export function renderCampaignTemplate(template: string, contact: { displayName:
   });
 }
 
-export function nextEmailAfter(definition: CampaignDefinition, sentIndex: number, sentAt: Date, routingKey = "") {
+export function nextCampaignStepAfter(definition: CampaignDefinition, sentIndex: number, sentAt: Date, routingKey = "", conditionPath?: "pathA" | "pathB") {
   const options = campaignNextOptions(definition, sentIndex);
   if (!options.length) return null;
   const split = definition.splits?.find(item => item.afterStepId === campaignStepEntries(definition)[sentIndex].step.id);
   if (split && !routingKey) throw new Error("Split paths require an enrolment routing key");
-  const next = options[split && campaignPathFor(split, routingKey) === "pathB" ? 1 : 0];
-  if (campaignStepEntries(definition)[next.index].step.kind !== "email") throw new Error("Invalid published campaign version");
+  if (split?.condition && !conditionPath) throw new Error("Condition branch has not been resolved");
+  const next = options[split && (split.condition ? conditionPath : campaignPathFor(split, routingKey)) === "pathB" ? 1 : 0];
   const nextAt = new Date(sentAt);
   nextAt.setUTCDate(nextAt.getUTCDate() + next.days);
   return { index: next.index, at: nextAt };
+}
+
+export function nextEmailAfter(definition: CampaignDefinition, sentIndex: number, sentAt: Date, routingKey = "") {
+  const next = nextCampaignStepAfter(definition, sentIndex, sentAt, routingKey);
+  if (next && campaignStepEntries(definition)[next.index].step.kind !== "email") throw new Error("Invalid published campaign version");
+  return next;
+}
+
+export function campaignStepLabel(step: CampaignStep) {
+  return step.kind === "linkedin" ? step.action === "connect" ? "LinkedIn connection request" : "LinkedIn message" : step.kind === "email" ? "Email" : step.kind === "wait" ? "Wait" : "WhatsApp";
+}
+
+export function acceptancePath(connected: boolean | null, sentAt: Date, timeoutDays: number, now: Date): "pathA" | "pathB" | null {
+  // Unknown provider responses never mean rejected/not connected.
+  if (connected === null) return null;
+  if (connected) return "pathA";
+  return now.getTime() >= sentAt.getTime() + timeoutDays * 86400_000 ? "pathB" : null;
 }
 
 export function campaignSendWindowOpen(input: Date, timeZone = "Australia/Melbourne") {

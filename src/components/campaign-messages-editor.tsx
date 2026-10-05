@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { campaignStepEntries, renderCampaignTemplate, type CampaignDraft, type CampaignStep } from "@/domain/campaign";
+import { campaignStepLabel, campaignStepEntries, renderCampaignTemplate, type CampaignDraft, type CampaignStep } from "@/domain/campaign";
 
 type Draft = CampaignDraft;
 type Contact = { id: string; name: string; company: string };
@@ -86,9 +86,10 @@ export function CampaignMessagesEditor({ draft, selectedStepId, onChange, onSele
           </details>)}</div>
         </> : channelSteps.length > 0 ? <div className="mt-4 space-y-3">{channelSteps.map(step => <div key={step.id} className="rounded-lg border border-[var(--border)] p-4">
           <label className="block text-xs font-medium">Title<input className={field} value={step.title} onChange={event => updateMessage(step.id, item => ({ ...item, title: event.target.value }))} /></label>
-          <label className="mt-3 block text-xs font-medium">Message<textarea className={field} rows={6} value={step.body} onChange={event => updateMessage(step.id, item => item.kind !== "wait" ? { ...item, body: event.target.value } : item)} /></label>
+          <p className="mt-2 text-xs font-semibold">{campaignStepLabel(step)}</p>
+          <label className="mt-3 block text-xs font-medium">{step.kind === "linkedin" && step.action === "connect" ? "Optional connection note (200 characters after personalisation)" : "Message"}<textarea className={field} rows={6} value={step.body} onChange={event => updateMessage(step.id, item => item.kind !== "wait" ? { ...item, body: event.target.value } : item)} /></label>
           <div className="mt-3 flex items-center justify-between"><button type="button" className={button} onClick={() => { onSelect(step.id); setCopyStatus(""); }}>Preview this message</button><span className="text-xs text-[var(--muted)]">{timingLabel(step.id)}</span></div>
-        </div>)}<p className="text-xs text-[var(--muted)]">Saved with your draft for manual use.</p></div> : <label className="mt-4 block text-sm font-semibold">{channel === "linkedin" ? "LinkedIn message" : "WhatsApp message"}<textarea rows={8} className={field} value={channel === "linkedin" ? linkedin : whatsapp} onChange={event => { if (channel === "linkedin") setLinkedin(event.target.value); else setWhatsapp(event.target.value); setCopyStatus(""); }} /><span className="mt-2 block text-xs font-normal text-[var(--muted)]">Sample for manual use. Sample edits last while this view is open.</span></label>}
+        </div>)}<p className="text-xs text-[var(--muted)]">Saved with your draft. LinkedIn messages require an accepted connection; connection requests skip existing connections.</p></div> : <label className="mt-4 block text-sm font-semibold">{channel === "linkedin" ? "LinkedIn message" : "WhatsApp message"}<textarea rows={8} className={field} value={channel === "linkedin" ? linkedin : whatsapp} onChange={event => { if (channel === "linkedin") setLinkedin(event.target.value); else setWhatsapp(event.target.value); setCopyStatus(""); }} /><span className="mt-2 block text-xs font-normal text-[var(--muted)]">Sample for manual use. Sample edits last while this view is open.</span></label>}
       </section>
     </div>
     <aside className={card}>

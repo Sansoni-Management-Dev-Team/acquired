@@ -315,7 +315,7 @@ async def background_worker(owner, worker):
             VAULT.save(owner,data)
             return
         for record in sorted(data.get('actions',{}).values(),key=lambda a:a.get('approvedAt',0)):
-            if record['status']=='queued' and record.get('fixture',False)==worker.fixture:
+            if record['status']=='queued' and not record.get('campaignKey') and record.get('fixture',False)==worker.fixture:
                 await dispatch_action(owner,worker,record)
                 break
         await keep_alive(owner,worker)
@@ -609,6 +609,14 @@ async def actions(request: Request):
         data['actions'][record['id']]=record
         VAULT.save(owner,data)
         return {'action':record}
+
+@app.post('/campaign')
+async def campaign(request: Request):
+    import sys
+    from campaign import operate
+    owner = owner_for(request)
+    async with locks.setdefault(owner, asyncio.Lock()):
+        return await operate(sys.modules[__name__], owner, await request.json())
 
 @app.post('/agent')
 async def agent(request: Request):

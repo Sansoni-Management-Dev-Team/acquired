@@ -43,3 +43,52 @@ async def conversations(worker):
     # LinkedIn versions can omit syncToken and use a different Voyager path.
     result = await request(worker, worker.conversation_request)
     return {'status': 'ok' if result['status'] == 200 else 'provider_error', 'response': result}
+
+
+def profile_identity(value):
+    """Accept a public profile URL or a member identifier, never an arbitrary URL."""
+    import re
+    if not isinstance(value, str):
+        raise ValueError('A LinkedIn profile is required')
+    if value.startswith('https://'):
+        parsed = urlparse(value)
+        if not (parsed.hostname == 'linkedin.com' or (parsed.hostname or '').endswith('.linkedin.com')):
+            raise ValueError('Invalid LinkedIn profile')
+        match = re.fullmatch(r'/in/([^/]+)/?', parsed.path)
+        value = match.group(1) if match else ''
+    elif value.startswith('urn:li:fsd_profile:'):
+        value = value.rsplit(':', 1)[-1]
+    if not re.fullmatch(r'[A-Za-z0-9_%\-]{1,200}', value):
+        raise ValueError('Invalid LinkedIn profile')
+    return value
+
+
+def parse_relationship(data, identity):
+    """Require target-bound evidence; missing fields are unknown, never false."""
+    import re
+    included = data.get('included', []) if isinstance(data, dict) else []
+    profiles = [item for item in included if isinstance(item, dict)
+                and re.fullmatch(r'urn:li:fsd_profile:[A-Za-z0-9_-]+', item.get('entityUrn', ''))
+                and (item.get('publicIdentifier') == identity or item['entityUrn'].rsplit(':', 1)[-1] == identity)]
+    if len(profiles) != 1:
+        return {'connected': None, 'recipient': None}
+    profile = profiles[0]
+    evidence = [profile]
+    # Supplementary fields may be normalised behind a referenced entity.
+    refs = {value for key, value in profile.items() if key.startswith('*') and isinstance(value, str)}
+    evidence += [item for item in included if isinstance(item, dict) and item.get('entityUrn') in refs]
+    degrees = set()
+    for item in evidence:
+        distance = item.get('distance')
+        raw = item.get('connectionDegree') or (distance.get('value') if isinstance(distance, dict) else distance)
+        if raw in ('DISTANCE_1', 'FIRST'): degrees.add(True)
+        elif raw in ('DISTANCE_2', 'SECOND', 'DISTANCE_3', 'THIRD', 'OUT_OF_NETWORK'): degrees.add(False)
+    return {'connected': next(iter(degrees)) if len(degrees) == 1 else None, 'recipient': profile['entityUrn']}
+
+
+async def relationship(worker, identity):
+    from urllib.parse import quote
+    # Same supplementary profile query used by Lattice's fetchProfileNetworkInfo.
+    path = '/voyager/api/identity/dash/profiles?q=memberIdentity&memberIdentity=' + quote(identity, safe='') + '&decorationId=com.linkedin.voyager.dash.deco.identity.profile.TopCardSupplementary-142'
+    result = await request(worker, path)
+    return result, parse_relationship(result.get('data'), identity)

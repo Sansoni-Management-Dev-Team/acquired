@@ -19,7 +19,7 @@ it.each(["whatsapp", "linkedin"] as const)("offers and edits a saved %s node", k
   const html = renderToStaticMarkup(<CampaignSequenceEditor draft={{ steps: [step] }} selectedStepId={step.id} onChange={() => {}} onSelect={() => {}} />);
   expect(html).toContain("WhatsApp");
   expect(html).toContain("LinkedIn");
-  expect(html.match(/draggable="true"/g)).toHaveLength(5);
+  expect(html.match(/draggable="true"/g)).toHaveLength(4);
   expect(html).toContain(`${kind === "whatsapp" ? "WhatsApp" : "LinkedIn"} settings`);
   expect(html).toContain("Hi {{first_name}}");
   expect(html).not.toContain("Days to wait");
@@ -118,4 +118,12 @@ it.each(["first", "a-message", "wait"])("persists free movement of %s without ch
   expect(next.splits![0].afterStepId).toBe(draft.splits![0].afterStepId);
   renderToStaticMarkup(<CampaignSequenceEditor draft={next} selectedStepId={id} onChange={() => {}} onSelect={() => {}} />);
   expect(capture.flow!.nodes!.find(node => node.id === id)!.position).toEqual(position);
+});
+
+it("edits an optional connection note without showing a message-body validation error", () => {
+  const step: CampaignStep = { id: "b03dfa99-0b7c-47c5-9a76-a815e171b822", kind: "linkedin", action: "connect", title: "Connect", body: "" };
+  const html = renderToStaticMarkup(<CampaignSequenceEditor draft={{ steps: [step] }} selectedStepId={step.id} onChange={() => {}} onSelect={() => {}} />);
+  expect(html).toContain("Connection note (optional");
+  expect(html).toContain("Send connection request");
+  expect(html).not.toContain("To save or publish:");
 });

@@ -4,7 +4,7 @@ import "@xyflow/react/dist/style.css";
 import { useEffect, useRef, useState, type DragEvent } from "react";
 import { Background, Controls, MiniMap, ReactFlow, type Edge, type Node, type ReactFlowInstance } from "@xyflow/react";
 import { Clock3, Mail, MessageCircle, BriefcaseBusiness, Plus, Trash2, GitFork, Copy, ClipboardPaste, Undo2, Redo2, ChevronDown, ChevronUp, RotateCcw, Maximize2, Minimize2 } from "lucide-react";
-import { campaignDefinition, campaignStepEntries, type CampaignDraft, type CampaignStep, type CampaignSplit } from "@/domain/campaign";
+import { campaignDefinition, campaignStepLabel, campaignStepEntries, type CampaignDraft, type CampaignStep, type CampaignSplit } from "@/domain/campaign";
 
 import { copyCampaignNode, parseCampaignClipboard, insertCampaignMessage, pasteCampaignNode, reconnectCampaign, type CampaignClipboard } from "@/domain/campaign-editor";
 import { campaignRunStatuses, type CampaignRun } from "@/domain/campaign-run";
@@ -21,8 +21,9 @@ const nodeGap = 120;
 const firstNodeY = 110;
 const mainX = 260;
 
-function newStep(kind: StepKind): CampaignStep {
-  if (kind === "linkedin" || kind === "whatsapp") return { id: crypto.randomUUID(), kind, title: `${stepLabels[kind]} follow-up`, body: "Hi {{first_name}}, would you be open to a short, confidential conversation about {{company_name}}?" };
+function newStep(kind: StepKind, action?: "connect" | "message"): CampaignStep {
+  if (kind === "linkedin" && action === "connect") return { id: crypto.randomUUID(), kind, action, title: "Send connection request", body: "" };
+  if (kind === "linkedin" || kind === "whatsapp") return { id: crypto.randomUUID(), kind, ...(kind === "linkedin" ? { action: "message" as const } : {}), title: `${stepLabels[kind]} follow-up`, body: "Hi {{first_name}}, would you be open to a short, confidential conversation about {{company_name}}?" };
   return kind === "wait"
     ? { id: crypto.randomUUID(), kind, title: "Wait three days", days: 3 }
     : { id: crypto.randomUUID(), kind, title: "Follow-up", subject: "Following up with {{company_name}}", body: "Hi {{first_name}},\n\nJust following up on my note.\n\nBest regards" };
@@ -42,6 +43,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
   draft: CampaignDraft; selectedStepId: string | null;
   onChange: (draft: CampaignDraft) => void; onSelect: (id: string | null) => void;
 }) {
+  const [linkedinMenu, setLinkedinMenu] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   useEffect(() => {
     if (!fullscreen) return;
@@ -117,14 +119,14 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
     };
     const addStep = (step: CampaignStep, x: number, y: number) => {
       const Icon = stepIcons[step.kind];
-      nodes.push({ id: step.id, position: moving?.id === step.id ? { x: moving.x ?? x, y: moving.y } : step.position || { x, y }, data: { label: <span className="flex items-center gap-2 text-left"><span className="rounded-md bg-[var(--accent-soft)] p-1"><Icon size={15} /></span><span className="min-w-0 flex-1"><span className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">{stepLabels[step.kind]}</span><span className="block truncate font-medium">{step.title}</span>{statuses.has(step.id) && <span className="mt-1 block text-[10px] text-[var(--muted)]">{statuses.get(step.id)}</span>}</span>{!readOnly && deleteButton(step.id, step.title)}</span> }, draggable: !readOnly, style: style(step.id) });
+      nodes.push({ id: step.id, position: moving?.id === step.id ? { x: moving.x ?? x, y: moving.y } : step.position || { x, y }, data: { label: <span className="flex items-center gap-2 text-left"><span className="rounded-md bg-[var(--accent-soft)] p-1"><Icon size={15} /></span><span className="min-w-0 flex-1"><span className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">{campaignStepLabel(step)}</span><span className="block truncate font-medium">{step.title}</span>{statuses.has(step.id) && <span className="mt-1 block text-[10px] text-[var(--muted)]">{statuses.get(step.id)}</span>}</span>{!readOnly && deleteButton(step.id, step.title)}</span> }, draggable: !readOnly, style: style(step.id) });
     };
     const link = (source: string, target: string, label?: string) => {
       const sourceStep = entries.find(entry => entry.step.id === source)?.step;
       const targetStep = entries.find(entry => entry.step.id === target)?.step;
       edges.push({ id: `${source}-${target}`, source, target, type: "campaign", reconnectable: !readOnly && sourceStep && sourceStep.kind !== "wait" && (targetStep?.kind === "wait" || draft.splits?.some(split => split.id === target)) ? "target" : false,
-        data: { label, canInsert: entries.length <= 23, ...(!readOnly ? { onInsert: (kind: Exclude<StepKind, "wait">) => {
-          try { const next = insertCampaignMessage(draft, source, target, newStep(kind)); onChange(next.draft); onSelect(next.selectedId); setFeedback(""); }
+        data: { label, canInsert: entries.length <= 23, ...(!readOnly ? { onInsert: (kind: Exclude<StepKind, "wait">, action?: "connect" | "message") => {
+          try { const next = insertCampaignMessage(draft, source, target, newStep(kind, action)); onChange(next.draft); onSelect(next.selectedId); setFeedback(""); }
           catch (error) { setFeedback(error instanceof Error ? error.message : "Could not insert message"); }
         }, ...(sourceStep && sourceStep.kind !== "wait" && !entries.find(entry => entry.step.id === source)?.split && !draft.splits?.some(split => split.afterStepId === source) && canAddSplit ? { onSplit: () => addSplit(source) } : {}) } : {}) },
       });
@@ -139,7 +141,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
       y += nodeGap;
       const split = draft.splits?.find(split => split.afterStepId === step.id);
       if (split) {
-        nodes.push({ id: split.id, position: moving?.id === split.id ? { x: moving.x ?? mainX, y: moving.y } : split.position || { x: mainX, y }, draggable: !readOnly, data: { label: <span className="flex items-center gap-2 text-left"><GitFork size={18} className="shrink-0" /><span className="min-w-0 flex-1"><span className="block text-[10px] uppercase text-[var(--muted)]">A/B split · {split.percentage}/{100 - split.percentage}</span><span className="block truncate font-medium">{split.title}</span>{statuses.has(split.id) && <span className="block text-[10px] text-[var(--muted)]">{statuses.get(split.id)}</span>}</span><button type="button" className="nodrag nopan flex size-6 shrink-0 items-center justify-center rounded hover:bg-[var(--panel-raised)]" aria-label={`${collapsed.includes(split.id) ? "Expand" : "Collapse"} ${split.title}`} onClick={event => { event.stopPropagation(); setCollapsed(ids => ids.includes(split.id) ? ids.filter(id => id !== split.id) : [...ids, split.id]); }}>{collapsed.includes(split.id) ? <ChevronDown size={14} /> : <ChevronUp size={14} />}</button>{!readOnly && deleteButton(split.id, split.title, true)}</span> }, style: style(split.id) });
+        nodes.push({ id: split.id, position: moving?.id === split.id ? { x: moving.x ?? mainX, y: moving.y } : split.position || { x: mainX, y }, draggable: !readOnly, data: { label: <span className="flex items-center gap-2 text-left"><GitFork size={18} className="shrink-0" /><span className="min-w-0 flex-1"><span className="block text-[10px] uppercase text-[var(--muted)]">{split.condition ? `Wait for acceptance · up to ${split.condition.timeoutDays} days` : `A/B split · ${split.percentage}/${100 - split.percentage}`}</span><span className="block truncate font-medium">{split.title}</span>{statuses.has(split.id) && <span className="block text-[10px] text-[var(--muted)]">{statuses.get(split.id)}</span>}</span><button type="button" className="nodrag nopan flex size-6 shrink-0 items-center justify-center rounded hover:bg-[var(--panel-raised)]" aria-label={`${collapsed.includes(split.id) ? "Expand" : "Collapse"} ${split.title}`} onClick={event => { event.stopPropagation(); setCollapsed(ids => ids.includes(split.id) ? ids.filter(id => id !== split.id) : [...ids, split.id]); }}>{collapsed.includes(split.id) ? <ChevronDown size={14} /> : <ChevronUp size={14} />}</button>{!readOnly && deleteButton(split.id, split.title, true)}</span> }, style: style(split.id) });
         link(step.id, split.id);
         if (collapsed.includes(split.id)) {
           previous = [split.id];
@@ -152,7 +154,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
           let from = split.id;
           split[path].forEach((branchStep, index) => {
             addStep(branchStep, pathIndex === 0 ? 80 : 440, y + index * nodeGap);
-            link(from, branchStep.id, index === 0 ? `Path ${pathIndex === 0 ? "A" : "B"} · ${pathIndex === 0 ? split.percentage : 100 - split.percentage}%` : undefined);
+            link(from, branchStep.id, index === 0 ? split.condition ? pathIndex === 0 ? "Accepted" : "Not accepted by timeout" : `Path ${pathIndex === 0 ? "A" : "B"} · ${pathIndex === 0 ? split.percentage : 100 - split.percentage}%` : undefined);
             from = branchStep.id;
           });
           previous.push(from);
@@ -160,7 +162,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
         y += Math.max(split.pathA.length, split.pathB.length) * nodeGap;
       }
     }
-    nodes.push({ id: "end", position: { x: mainX, y }, data: { label: <span>Complete · or stop on reply{readOnly && <span className="block text-[10px] text-[var(--muted)]">{statuses.get("end")}</span>}</span> }, draggable: false, selectable: false, style: style("end") });
+    nodes.push({ id: "end", position: { x: mainX, y }, data: { label: <span>Complete · or stop on email reply{readOnly && <span className="block text-[10px] text-[var(--muted)]">{statuses.get("end")}</span>}</span> }, draggable: false, selectable: false, style: style("end") });
     previous.forEach(id => link(id, "end"));
     return { nodes: nodes.map(node => ({ ...node, measured: dimensions[node.id] })), edges };
   })();
@@ -177,7 +179,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
     if (readOnly) return;
     onChange(split && path ? { ...draft, splits: draft.splits?.map(item => item.id === split.id ? { ...item, [path]: steps } : item) } : { ...draft, steps });
   }
-  function insert(kind: StepKind, afterId: string | null = selectedStepId) {
+  function insert(kind: StepKind, afterId: string | null = selectedStepId, action?: "connect" | "message") {
     if (readOnly || entries.length >= 25) return;
     const entry = entries.find(entry => entry.step.id === afterId);
     const split = draft.splits?.find(split => split.id === afterId);
@@ -186,7 +188,12 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
     const chain = owner && path ? owner[path] : draft.steps;
     const steps = [...chain];
     const index = entry ? chain.findIndex(step => step.id === entry.step.id) + 1 : chain.length;
-    const step = newStep(kind);
+    const step = newStep(kind, action);
+    if (kind !== "wait") {
+      try { const next = insertCampaignMessage(draft, entry?.step.id || chain.at(-1)!.id, "", step); onChange(next.draft); onSelect(next.selectedId); setDropTarget(null); }
+      catch (error) { setFeedback(error instanceof Error ? error.message : "Could not insert step"); }
+      return;
+    }
     steps.splice(index, 0, step);
     updateChain(steps, owner, path);
     onSelect(step.id); setDropTarget(null);
@@ -199,11 +206,13 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
     if (readOnly) return;
     onChange({ ...draft, splits: draft.splits?.map(split => split.id === next.id ? next : split) });
   }
-  function addSplit(afterId: string | null = selectedStepId) {
+  function addSplit(afterId: string | null = selectedStepId, acceptance = false) {
     const anchor = draft.steps.find(step => step.id === afterId);
+    if (acceptance && (!anchor || anchor.kind !== "linkedin" || anchor.action !== "connect")) { setFeedback("Select a main-sequence LinkedIn connection request first."); return; }
     if (readOnly || !anchor || anchor.kind === "wait" || !canAddSplit || draft.splits?.some(split => split.afterStepId === anchor.id)) return;
+    if (acceptance && (anchor.kind !== "linkedin" || anchor.action !== "connect")) { setFeedback("Select a main-sequence LinkedIn connection request first."); return; }
     const path = (name: string) => [newStep("wait"), { ...newStep("email"), title: `Path ${name} follow-up` }];
-    const split: CampaignSplit = { id: crypto.randomUUID(), title: "Split paths", afterStepId: anchor.id, percentage: 50, pathA: path("A"), pathB: path("B") };
+    const split: CampaignSplit = { id: crypto.randomUUID(), title: acceptance ? "Connection accepted?" : "Split paths", afterStepId: anchor.id, percentage: 50, ...(acceptance ? { condition: { kind: "linkedin_connected", timeoutDays: 7 } as const } : {}), pathA: acceptance ? [newStep("wait"), newStep("linkedin")] : path("A"), pathB: path(acceptance ? "No acceptance" : "B") };
     onChange({ ...draft, splits: [...(draft.splits || []), split] });
     onSelect(split.id);
   }
@@ -308,11 +317,19 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
       {activeRun && <p role="status" className="border-b border-[var(--border)] bg-[var(--accent-soft)] px-3 py-2 text-xs">Live published version {activeRun.version} · {activeRun.label}. Refreshes every 15 seconds. Select Edit draft to make changes.{activeRun.stopReason && ` Reason: ${activeRun.stopReason.replaceAll("_", " ")}.`}</p>}
       <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] bg-[var(--panel)] p-3">
         <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Add a node</span>
-        {(["email", "wait", "whatsapp", "linkedin"] as const).map(kind => {
+        {(["email", "wait", "whatsapp"] as const).map(kind => {
           const Icon = stepIcons[kind];
           return <button key={kind} type="button" draggable disabled={readOnly || entries.length >= 25} onDragStart={event => onPaletteDragStart(event, kind)} onClick={() => insert(kind)} className={button}><Icon size={16} /> {stepLabels[kind]} <Plus size={14} /></button>;
         })}
-        <button type="button" draggable disabled={readOnly || !canAddSplit} onDragStart={event => onPaletteDragStart(event, "split")} onClick={() => addSplit()} className={button} title="Drag onto the main sequence, or select a main message and click to add an A/B split"><GitFork size={16} /> Split paths <Plus size={14} /></button>
+        <div className="relative">
+          <button type="button" className={button} disabled={readOnly} aria-expanded={linkedinMenu} onClick={() => setLinkedinMenu(open => !open)}><BriefcaseBusiness size={16} /> LinkedIn <ChevronDown size={14} /></button>
+          {linkedinMenu && <div className="absolute left-0 top-full z-50 mt-1 w-64 rounded-lg border border-[var(--border)] bg-[var(--panel)] p-1 shadow-lg" aria-label="LinkedIn actions">
+            <button type="button" className="block w-full rounded p-3 text-left text-sm hover:bg-[var(--panel-raised)]" onClick={() => { insert("linkedin", selectedStepId, "connect"); setLinkedinMenu(false); }}>Send connection request</button>
+            <button type="button" className="block w-full rounded p-3 text-left text-sm hover:bg-[var(--panel-raised)]" onClick={() => { addSplit(selectedStepId, true); setLinkedinMenu(false); }}>Wait for acceptance</button>
+            <button type="button" className="block w-full rounded p-3 text-left text-sm hover:bg-[var(--panel-raised)]" onClick={() => { insert("linkedin", selectedStepId, "message"); setLinkedinMenu(false); }}>Send message</button>
+          </div>}
+        </div>
+        <button type="button" draggable disabled={readOnly || !canAddSplit} onDragStart={event => onPaletteDragStart(event, "split")} onClick={() => addSplit()} className={button} title="Drag onto the main sequence, or select a main message and click to add an A/B split"><GitFork size={16} /> A/B split <Plus size={14} /></button>
         <span className="text-xs text-[var(--muted)]">Drag into the flow, or add after the selected node. Split paths attach after a main message.</span>
       </div>
       <div className={`relative bg-[var(--background)] ${fullscreen ? "min-h-[400px] flex-1 lg:min-h-0" : "h-[650px]"}`} onDragOver={event => { if (readOnly || !event.dataTransfer.types.includes("application/x-acquire-campaign-step")) return; event.preventDefault(); event.dataTransfer.dropEffect = "copy"; setDropTarget(event.dataTransfer.types.includes("application/x-acquire-campaign-split") ? splitDropTarget(event.clientX, event.clientY) : targetAt(event.clientX, event.clientY)); }} onDragLeave={() => setDropTarget(null)} onDrop={onCanvasDrop}>
@@ -348,9 +365,13 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
       <fieldset disabled={readOnly} className="space-y-4">
       {selectedSplit ? <>
         <label className="block text-xs font-medium">Name<input value={selectedSplit.title} onChange={event => updateSplit({ ...selectedSplit, title: event.target.value })} className={field} /></label>
+        {selectedSplit.condition ? <>
+          <label className="block text-xs font-medium">Acceptance timeout (days)<input type="number" min={1} max={30} value={selectedSplit.condition.timeoutDays} onChange={event => updateSplit({ ...selectedSplit, condition: { kind: "linkedin_connected", timeoutDays: Number(event.target.value) } })} className={field} /></label>
+          <p className="text-xs text-[var(--muted)]">Accepted → path A. Not accepted by the timeout → path B. Unknown status holds the sequence for review. Path waits begin after the outcome is known; both paths rejoin the main sequence.</p>
+        </> : <>
         <label className="block text-xs font-medium">Path A allocation (%)<input type="number" min={1} max={99} value={selectedSplit.percentage} onChange={event => updateSplit({ ...selectedSplit, percentage: Number(event.target.value) })} className={field} /></label>
-        <p className="text-xs text-[var(--muted)]">Path A: {selectedSplit.percentage}% · Path B: {100 - selectedSplit.percentage}%. Each contact follows one stable path. Both paths rejoin the main sequence.</p>
-        {(["pathA", "pathB"] as const).map((path, index) => <button key={path} type="button" className={`${button} w-full`} onClick={() => onSelect(selectedSplit[path].at(-1)?.id || null)}>Edit path {index === 0 ? "A" : "B"}</button>)}
+        <p className="text-xs text-[var(--muted)]">Path A: {selectedSplit.percentage}% · Path B: {100 - selectedSplit.percentage}%. Each contact follows one stable path. Both paths rejoin the main sequence.</p></>}
+        {(["pathA", "pathB"] as const).map((path, index) => <button key={path} type="button" className={`${button} w-full`} onClick={() => onSelect(selectedSplit[path].at(-1)?.id || null)}>{selectedSplit.condition ? index === 0 ? "Edit accepted path" : "Edit timeout path" : `Edit path ${index === 0 ? "A" : "B"}`}</button>)}
         {(["pathA", "pathB"] as const).map(path => <div key={`copy-${path}`} className="flex flex-wrap gap-2"><button type="button" className={button} onClick={() => { void copyPath(selectedSplit, path); }}>Copy path {path === "pathA" ? "A" : "B"}</button><button type="button" className={button} onClick={() => duplicatePath(selectedSplit, path)}>Duplicate {path === "pathA" ? "A to B" : "B to A"}</button></div>)}
         <p className="text-xs text-[var(--muted)]">Select a node in either path to edit it or add more nodes to that path. Each path starts with a wait and ends with a message.</p>
         <button type="button" className={`${button} w-full`} onClick={() => removeNode(selectedSplit.id)}><Trash2 size={15} /> Remove split and both paths</button>
@@ -359,7 +380,12 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
         <label className="block text-xs font-medium">Name<input value={selectedStep.title} onChange={event => updateStep({ ...selectedStep, title: event.target.value })} className={field} /></label>
         {selectedStep.kind !== "wait" ? <>
           {selectedStep.kind === "email" && <label className="block text-xs font-medium">Subject<input value={selectedStep.subject} onChange={event => updateStep({ ...selectedStep, subject: event.target.value })} className={field} /></label>}
-          <label className="block text-xs font-medium">Body<textarea value={selectedStep.body} onChange={event => updateStep({ ...selectedStep, body: event.target.value })} rows={10} className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm" /></label>
+          {selectedStep.kind === "linkedin" && <>
+            <label className="block text-xs font-medium">LinkedIn action<select className={field} value={selectedStep.action || "message"} onChange={event => updateStep({ ...selectedStep, action: event.target.value as "connect" | "message" })}><option value="connect">Send connection request</option><option value="message">Send message</option></select></label>
+            {selectedStep.action === "connect" && !selectedEntry?.split && !draft.splits?.some(split => split.afterStepId === selectedStep.id) && <button type="button" className={`${button} w-full`} disabled={!canAddSplit} onClick={() => addSplit(selectedStep.id, true)}><GitFork size={15} /> Add acceptance branch</button>}
+            <p className="text-xs text-[var(--muted)]">{selectedStep.action === "connect" ? "Skips people already connected. Add a Wait for acceptance branch to follow up after they accept." : "Sends only to confirmed connections. An unconnected recipient is held for review."}</p>
+          </>}
+          <label className="block text-xs font-medium">{selectedStep.kind === "linkedin" && selectedStep.action === "connect" ? "Connection note (optional · 200 characters after personalisation)" : "Body"}<textarea value={selectedStep.body} onChange={event => updateStep({ ...selectedStep, body: event.target.value })} rows={10} className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm" /></label>
           <p className="text-xs text-[var(--muted)]">Use {"{{first_name}}"}, {"{{full_name}}"}, or {"{{company_name}}"}.</p>
         </> : <label className="block text-xs font-medium">Days to wait<input type="number" min={1} max={30} value={selectedStep.days} onChange={event => updateStep({ ...selectedStep, days: Number(event.target.value) })} className={field} /></label>}
         <button type="button" disabled={Boolean(removalReason(draft, selectedStep.id))} title={removalReason(draft, selectedStep.id)} onClick={() => removeNode(selectedStep.id)} className={`${button} w-full`}><Trash2 size={15} /> Remove this node</button>
@@ -368,7 +394,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
       {feedback && <p role="status" className="rounded-lg border border-[var(--border)] p-3 text-xs">{feedback}</p>}
       {!readOnly && <p className="text-xs text-[var(--muted)]">Use + on a connection to insert a message with its wait. Reconnect a message to a wait to move that pair, or to a split to relocate both branches.</p>}
       {issue && <p role="status" className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] p-3 text-xs">To save or publish: {issue}. Use a wait between messages; split paths start with a wait.</p>}
-      {entries.some(({ step }) => step.kind === "linkedin" || step.kind === "whatsapp") && <p className="text-xs text-[var(--muted)]">WhatsApp and LinkedIn nodes are saved for manual use. Publishing these sequences requires channel delivery support.</p>}
+      {entries.some(({ step }) => step.kind === "linkedin" || step.kind === "whatsapp") && <p className="text-xs text-[var(--muted)]">LinkedIn automation requires a connected account and enabled campaign delivery. WhatsApp steps remain available for manual use.</p>}
       <p className="text-xs text-[var(--muted)]">Drag message, wait and split nodes in any direction to arrange the canvas. Connections determine execution order. Save draft to keep your layout.</p>
     </div>
   </div>;

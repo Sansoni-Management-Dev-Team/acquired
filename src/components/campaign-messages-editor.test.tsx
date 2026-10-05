@@ -31,7 +31,7 @@ it("edits and previews saved channel nodes instead of temporary samples", () => 
   expect(html).toContain("LinkedIn sequence");
   expect(html).toContain("Connect on LinkedIn");
   expect(html).toContain("Hi Alex, about Harbour");
-  expect(html).toContain("Saved with your draft for manual use.");
+  expect(html).toContain("Saved with your draft. LinkedIn messages require an accepted connection");
 });
 
 it("shows and previews the selected branch message with its path", () => {

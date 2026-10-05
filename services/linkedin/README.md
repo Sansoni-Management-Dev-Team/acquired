@@ -49,3 +49,45 @@ GET `/inbox` serves the saved inbox when present, including while the browser is
 Enable **occasional read-only feed activity** in settings. It visits `/feed/` and performs one to three small scrolls, with variable intervals (45–180 minutes by default), on its own configured days (all seven days by default), within the configured timezone and daytime hours. Pausing outreach does not pause keep-alive. It has no like/comment/follow/message/invitation operations. It uses the same overall budget and cooldown checks, defers while a viewer is connected or actions are queued, and stops on verification. Off-hours visits are delayed with an additional variable offset. The worker saves session state every maintenance cycle. Enabled sessions can resume after a service restart unless the user explicitly paused the browser. This keeps a browser allocated and does not guarantee that LinkedIn will retain the session or refrain from detecting automation.
 
 Persistence and locking are for this single-process test deployment. Do not horizontally replicate it against the same state directory. Separate Acquire owner connections are not yet consolidated if the same physical LinkedIn account is linked across workspaces; prevent that before a multi-workspace production rollout. Shared queue/quota storage and production app enablement remain separate work. No database migration or proxy settings are required for this test implementation.
+
+### Sequence actions and acceptance branches
+
+The sequence editor distinguishes **Send connection request** (an optional note,
+limited to 200 characters after personalisation), **Send message** (confirmed
+connections only), and **Wait for acceptance**. The last action adds a condition
+branch after a main-sequence connection request: path A when connected, path B
+when still unconnected at the configured 1–30 day timeout. Each path's wait starts
+when its outcome is recorded. Unknown relationship data holds for review and does
+not count as a rejection. Existing LinkedIn nodes remain messages. A/B allocation
+is separate and retains its stable routing.
+
+The app worker now calls the private owner-scoped `/campaign` endpoint with a
+stable enrolment/step key. The encrypted service journal prevents replay after a
+submitted or uncertain request and rejects changed content under the same key.
+Already-connected invitation recipients are skipped. Campaign queues run only
+when the app calls for an eligible enrolment; background maintenance never sends
+them, so stopping/pausing an enrolment cannot leave an independently running queue.
+As with email, an operation already dispatched can finish after a concurrent pause.
+Branch decisions use existing audit-event JSON; **no database migration is needed**.
+
+Implementation references reviewed locally:
+- Lattice `extension/src/classes/LinkedInClient.ts`: invitation/message payloads,
+  `fetchProfileNetworkInfo` and `TopCardSupplementary-142` relationship reads.
+- Bella `bella/app/chrome_plugin/src/classes/LinkedIn.ts`: DM attributed body,
+  recipient URN, conversation creation, and origin-token fields.
+
+This integration is disabled by default. `CAMPAIGN_LINKEDIN_ENABLED=true` on the
+app permits publishing/running LinkedIn sequences when service credentials are
+configured. Real accounts additionally require `LINKEDIN_ALLOW_CAMPAIGNS=true`
+and the existing `LINKEDIN_ALLOW_LIVE_SENDS=true` on the service. These gates are
+not enabled by this change. The live profile response and private write endpoints
+still need account-specific verification; tests use synthetic provider responses.
+A 2xx write means **submitted**, not delivery confirmed. Gmail and an email address
+remain required by the existing enrolment system. LinkedIn DM reply monitoring is
+not implemented: only email replies stop a sequence automatically. Do not enable
+unattended real campaigns until that operational limitation is acceptable and live
+compatibility has been verified. WhatsApp publication remains blocked.
+
+Additional no-send tests: `pytest -q test_campaign.py`. These cover target-bound
+relationship parsing, invitation skips, unknown/nonconnected recipients, note
+limits, queue isolation, idempotent submission, and live feature gating.
