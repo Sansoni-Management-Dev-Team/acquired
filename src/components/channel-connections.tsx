@@ -1,5 +1,6 @@
 import { connectionCanCompose, gmailConnectionStatus, gmailStatusLabels, gmailStatusMessages } from "@/domain/gmail-connection";
 import { WhatsAppConnection } from "@/components/whatsapp-connection";
+import { LinkedInConnection } from "@/components/linkedin-connection";
 import { ChevronDown, ExternalLink, BriefcaseBusiness, Mail, MessageCircle, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -46,6 +47,7 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
 }
 
 export function ChannelConnections({ gmail, notice }: { gmail?: GmailConnection; notice: { gmail?: string; reason?: string } }) {
+  const linkedinLocalEnabled = process.env.NODE_ENV === "development" && Boolean(process.env.LINKEDIN_SERVICE_URL);
   const status = gmailConnectionStatus(gmail);
   const gmailConnected = Boolean(gmail && connectionCanCompose(gmail));
   const campaignReady = status === "ready";
@@ -69,11 +71,15 @@ export function ChannelConnections({ gmail, notice }: { gmail?: GmailConnection;
         </dl>
         <p className="mt-4 text-xs text-[var(--muted)]">Gmail requires compose permission to send and read-only permission to check conversations and replies. Your mailbox address is read from Google after consent; refresh tokens remain encrypted at rest.</p>
       </ChannelCard>
-      <ChannelCard name="LinkedIn" icon={BriefcaseBusiness} description="Use your outreach drafts to start conversations on LinkedIn." status="Manual outreach"
+      {linkedinLocalEnabled ? <ChannelCard name="LinkedIn" icon={BriefcaseBusiness} description="Connect through an interactive browser and test conversation syncing." status="Local prototype"
+        action={<LinkedInConnection />}>
+        <p className="text-[var(--muted)]">The local prototype saves encrypted session files. Live sends and campaign delivery are disabled. LinkedIn may request verification or restrict unsupported automation.</p>
+        <a href="https://www.linkedin.com/messaging/" target="_blank" rel="noopener noreferrer" className={`${actionClass} mt-3`}>Open LinkedIn<ExternalLink size={14} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a>
+      </ChannelCard> : <ChannelCard name="LinkedIn" icon={BriefcaseBusiness} description="Use your outreach drafts to start conversations on LinkedIn." status="Manual outreach"
         action={<a href="https://www.linkedin.com/messaging/" target="_blank" rel="noopener noreferrer" className={actionClass}>Open LinkedIn<ExternalLink size={14} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a>}>
         <dl className="space-y-3"><Detail label="Delivery">Send manually in LinkedIn</Detail><Detail label="Reply monitoring">Check replies in LinkedIn</Detail></dl>
         <p className="mt-4 text-xs text-[var(--muted)]">Account connections aren’t available yet. Copy your LinkedIn draft from outreach, then review and send it in LinkedIn.</p>
-      </ChannelCard>
+      </ChannelCard>}
       <ChannelCard name="WhatsApp" icon={MessageCircle} description="Link your WhatsApp account by scanning a QR code." status="Linked device"
         action={<WhatsAppConnection />}>
         <p className="text-[var(--muted)]">Your session is encrypted and saved so it can reconnect after a restart. You can disconnect here or unlink Acquire in WhatsApp’s Linked Devices. Campaign delivery remains manual.</p>
