@@ -1,5 +1,6 @@
 import { connectionCanCompose, gmailConnectionStatus, gmailStatusLabels, gmailStatusMessages } from "@/domain/gmail-connection";
 import { WhatsAppConnection } from "@/components/whatsapp-connection";
+import { ChannelHealthButton } from "@/components/channel-health-button";
 import { LinkedInConnection } from "@/components/linkedin-connection";
 import { ChevronDown, ExternalLink, BriefcaseBusiness, Mail, MessageCircle, type LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
@@ -59,7 +60,7 @@ export function ChannelConnections({ gmail, notice }: { gmail?: GmailConnection;
     {notice.gmail === "error" && <p role="alert" className="mt-5 rounded-md border border-red-900 bg-[var(--error-surface)] px-4 py-3 text-sm text-[var(--status-red)]">Gmail connection failed{notice.reason ? `: ${notice.reason}` : "."}</p>}
     <div className="mt-5 space-y-3">
       <ChannelCard name="Gmail" icon={Mail} description="Send email campaigns and monitor replies from your Gmail account." status={campaignReady ? "Connected" : gmailStatusLabels[status]} connected={campaignReady}
-        action={<a href="/api/mailbox/google/connect" className={actionClass}>{gmail ? "Reconnect Gmail" : "Connect Gmail"}</a>}>
+        action={<div className="flex flex-wrap items-start gap-3"><a href="/api/mailbox/google/connect" className={`${actionClass} min-h-12`}>{gmail ? "Reconnect Gmail" : "Connect Gmail"}</a><ChannelHealthButton provider="gmail" /></div>}>
         {!campaignReady && <p className="mb-4 text-[var(--status-amber)]">{gmailStatusMessages[status]}</p>}
         <dl className="space-y-3">
           <Detail label="Gmail account">{gmail?.address || (gmail ? "Connected address unavailable" : "—")}</Detail>
@@ -76,7 +77,7 @@ export function ChannelConnections({ gmail, notice }: { gmail?: GmailConnection;
         <p className="text-[var(--muted)]">Your browser session is encrypted and saved on the connection service. Live sends and campaign delivery are disabled. LinkedIn may request verification or restrict unsupported automation.</p>
         <a href="https://www.linkedin.com/messaging/" target="_blank" rel="noopener noreferrer" className={`${actionClass} mt-3`}>Open LinkedIn<ExternalLink size={14} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a>
       </ChannelCard> : <ChannelCard name="LinkedIn" icon={BriefcaseBusiness} description="Use your outreach drafts to start conversations on LinkedIn." status="Manual outreach"
-        action={<a href="https://www.linkedin.com/messaging/" target="_blank" rel="noopener noreferrer" className={actionClass}>Open LinkedIn<ExternalLink size={14} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a>}>
+        action={<div className="flex flex-wrap items-start gap-3"><a href="https://www.linkedin.com/messaging/" target="_blank" rel="noopener noreferrer" className={`${actionClass} min-h-12`}>Open LinkedIn<ExternalLink size={14} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a><ChannelHealthButton provider="linkedin" /></div>}>
         <dl className="space-y-3"><Detail label="Delivery">Send manually in LinkedIn</Detail><Detail label="Reply monitoring">Check replies in LinkedIn</Detail></dl>
         <p className="mt-4 text-xs text-[var(--muted)]">Account connections aren’t available yet. Copy your LinkedIn draft from outreach, then review and send it in LinkedIn.</p>
       </ChannelCard>}

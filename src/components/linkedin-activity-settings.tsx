@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { LinkedInDisclosure } from "@/components/linkedin-disclosure";
 
 export type LinkedInSettings = {
   outreachPaused: boolean; timezone: string; activeDays: number[]; startHour: number; endHour: number;
@@ -29,7 +30,7 @@ const numericFields: { key: keyof LinkedInSettings; label: string; min: number; 
   { key: "requestsDaily", label: "Total requests per 24 hours", min: 1, max: 500 },
 ];
 const inputClass = "mt-1 w-full rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm";
-const buttonClass = "rounded-md border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50";
+const buttonClass = "min-h-12 rounded-md border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50";
 export function LinkedInActivitySettings({ data, busy, act }: {
   data: LinkedInDashboard; busy: boolean;
   act: (operation: string, body?: unknown, method?: string) => Promise<unknown>;
@@ -40,19 +41,17 @@ export function LinkedInActivitySettings({ data, busy, act }: {
   const change = <K extends keyof LinkedInSettings>(key: K, value: LinkedInSettings[K]) => setChanges(previous => ({ ...previous, [key]: value }));
   const labels: Record<string, string> = { active: "Active", paused: "Outreach paused", cooling_down: "Cooling down", needs_verification: "Needs verification", scheduled: "Outside active hours" };
   const timezone = data.settings.timezone;
-  return <div className="space-y-4 border-t border-[var(--border)] pt-4">
-    <div className="rounded-lg border border-[var(--border)] p-3">
-      <p className="font-medium">Account activity · {labels[data.protection.status] || data.protection.status}</p>
-      {data.protection.reason && <p className="mt-1 text-sm text-[var(--muted)]">{data.protection.reason}</p>}
-      <p className="mt-1 text-xs text-[var(--muted)]">Next eligible message: {linkedinTime(data.protection.nextEligibleAt, timezone)}</p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        <button className={buttonClass} disabled={busy} onClick={() => void act("settings", { outreachPaused: !data.settings.outreachPaused })}>{data.settings.outreachPaused ? "Resume outreach" : "Pause outreach"}</button>
-        {data.protection.status === "needs_verification" && <button className={buttonClass} disabled={busy} onClick={() => void act("settings", { operation: "recover" })}>I completed verification</button>}
-      </div>
-      {!data.protection.liveSendsEnabled && !data.fixture && <p className="mt-2 text-xs text-[var(--muted)]">Live sending is disabled on this test instance. Settings and read-only feed activity can still be tested.</p>}
+  return <div className="space-y-0">
+    <div className="py-3">
+      <p className="text-sm">Outreach: {data.protection.liveSendsEnabled || data.fixture ? labels[data.protection.status] || data.protection.status : "Sending disabled"}<span className="mx-2 text-[var(--muted)]">·</span>Keep-alive: {data.settings.keepAliveEnabled ? "On" : "Off"}</p>
+      {data.protection.reason && <p role="status" className="mt-2 text-sm text-[var(--status-amber)]">{data.protection.reason}</p>}
+      {data.protection.status === "needs_verification" && <button className={`${buttonClass} mt-2`} disabled={busy} onClick={() => void act("settings", { operation: "recover" })}>I completed verification</button>}
     </div>
-    <details>
-      <summary className="cursor-pointer font-medium">Limits and schedule</summary>
+    <LinkedInDisclosure title="Limits and schedule" hint={timezone}>
+      <div className="mb-3 flex flex-wrap items-center gap-3">
+        <button className={buttonClass} disabled={busy} onClick={() => void act("settings", { outreachPaused: !data.settings.outreachPaused })}>{data.settings.outreachPaused ? "Resume outreach" : "Pause outreach"}</button>
+        {data.protection.nextEligibleAt && <p className="text-xs text-[var(--muted)]">Next eligible message: {linkedinTime(data.protection.nextEligibleAt, timezone)}</p>}
+      </div>
       <form className="mt-3 space-y-4" onSubmit={async event => { event.preventDefault(); const saved = await act("settings", changes); if (saved) setChanges({}); }}>
         <p className="text-xs text-[var(--muted)]">Limits count attempted requests in the preceding hour, 24 hours, or 7 days. They are application limits, not guaranteed LinkedIn allowances. Zero disables that action.</p>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{numericFields.map(({ key, label, min, max }) => <label key={key} className="text-sm">{label}<input className={inputClass} type="number" required min={min} max={max} value={values[key] as number} onChange={e => change(key, e.target.valueAsNumber as never)} /><span className="mt-1 block text-xs text-[var(--muted)]">{data.usage[key]?.used || 0} of {data.usage[key]?.limit ?? values[key]} used</span></label>)}</div>
@@ -80,8 +79,8 @@ export function LinkedInActivitySettings({ data, busy, act }: {
         </fieldset>
         <div className="flex gap-3"><button className={buttonClass} disabled={busy || !Object.keys(changes).length} type="submit">Save activity settings</button><button className={buttonClass} type="button" disabled={busy || !Object.keys(changes).length} onClick={() => setChanges({})}>Discard changes</button></div>
       </form>
-    </details>
-    <details><summary className="cursor-pointer font-medium">Action queue</summary><div className="mt-3 space-y-2">
+    </LinkedInDisclosure>
+    <LinkedInDisclosure title="Action queue" hint={`${data.queue.filter(action => action.status === "queued").length} queued`}><div className="space-y-2">
       {!data.queue.length && <p className="text-sm text-[var(--muted)]">No actions yet. Only approved drafts can be sent.</p>}
       {data.queue.map(action => <div key={action.id} className="rounded-lg border border-[var(--border)] p-3 text-sm">
         <div className="flex flex-wrap justify-between gap-2"><span>{action.kind === "invite" ? "Invitation" : "Message"} · {action.recipient}</span><span className="font-medium">{action.status}</span></div>
@@ -94,7 +93,7 @@ export function LinkedInActivitySettings({ data, busy, act }: {
         {action.status === "uncertain" && <p className="mt-2 text-xs text-[var(--muted)]">Check the conversation in LinkedIn. This action will not be automatically retried.</p>}
         {["blocked", "expired"].includes(action.status) && <button className={`${buttonClass} mt-2`} disabled={busy} onClick={() => void act("actions", { kind: action.kind, recipient: action.recipient, text: action.text })}>Create a fresh draft for review</button>}
       </div>)}
-    </div></details>
-    <details><summary className="cursor-pointer font-medium">Recent activity</summary><ul className="mt-3 space-y-2 text-sm">{data.activity.length ? data.activity.map((entry, index) => <li key={`${entry.at}-${index}`}><span className="text-xs text-[var(--muted)]">{linkedinTime(entry.at, timezone)} · {entry.status}</span><p>{entry.detail}</p></li>) : <li className="text-[var(--muted)]">No activity recorded.</li>}</ul></details>
+    </div></LinkedInDisclosure>
+    <LinkedInDisclosure title="Recent activity"><ul className="space-y-2 text-sm">{data.activity.length ? data.activity.map((entry, index) => <li key={`${entry.at}-${index}`}><span className="text-xs text-[var(--muted)]">{linkedinTime(entry.at, timezone)} · {entry.status}</span><p>{entry.detail}</p></li>) : <li className="text-[var(--muted)]">No activity recorded.</li>}</ul></LinkedInDisclosure>
   </div>;
 }
