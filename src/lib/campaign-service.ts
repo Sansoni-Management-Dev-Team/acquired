@@ -8,6 +8,7 @@ import { campaignDefinition, campaignFirstStepIndex, campaignStepEntries, campai
 import { connectionCanMonitorReplies } from "@/lib/gmail-connection";
 import { campaignMailboxForConnection, campaignTestSendAnytime } from "@/lib/campaign-mailbox";
 import { n8nCampaignEnabled, provisionSequenceWorkflow, removeSequenceWorkflow, startSequenceContact } from "@/lib/campaign-n8n";
+import { campaignWhatsapp, whatsappCampaignEnabled, whatsappRecipientFor, assertCampaignWhatsappConnected } from "@/lib/campaign-whatsapp";
 import { campaignLinkedin, linkedinCampaignEnabled, linkedinProfileFor } from "@/lib/campaign-linkedin";
 import type { PoolClient } from "pg";
 
@@ -125,7 +126,7 @@ export async function publishCampaign(actor: CampaignActor, sequenceId: string) 
     if (!sequence) throw new CampaignError("Sequence not found", 404);
     return { definition: parseDefinition(sequence.draft), name: sequence.name, version: sequence.published_version + 1, updatedAt: sequence.updated_at };
   });
-  if (campaignStepEntries(prepared.definition).some(({ step }) => step.kind === "whatsapp")) throw new CampaignError("WhatsApp publishing requires channel delivery support.");
+  if (campaignStepEntries(prepared.definition).some(({ step }) => step.kind === "whatsapp") && !whatsappCampaignEnabled()) throw new CampaignError("WhatsApp campaign delivery must be configured before publishing.");
   if (campaignStepEntries(prepared.definition).some(({ step }) => step.kind === "linkedin") && !linkedinCampaignEnabled()) throw new CampaignError("LinkedIn campaign delivery must be configured and enabled before publishing.");
   const versionId = randomUUID();
   const workflowId = n8nCampaignEnabled() ? await provisionSequenceWorkflow({ versionId, sequenceName: prepared.name, version: prepared.version, definition: prepared.definition }) : null;
@@ -156,6 +157,7 @@ export async function enrolContacts(actor: CampaignActor, sequenceId: string, co
     for (const id of uniqueIds) {
       const contact = await contactInMandate(client, actor, sequence.mandate_id, id);
       const email = emailForContact(contact);
+      if (campaignStepEntries(definition).some(({ step }) => step.kind === "whatsapp")) whatsappRecipientFor(personalData(contact.personal_data));
       if (campaignStepEntries(definition).some(({ step }) => step.kind === "linkedin")) linkedinProfileFor(personalData(contact.personal_data));
       if (seenEmails.has(email)) throw new CampaignError("Selected contacts contain the same email address more than once");
       seenEmails.add(email);
@@ -166,6 +168,7 @@ export async function enrolContacts(actor: CampaignActor, sequenceId: string, co
     }
     return { sequence, version, definition, mailbox, contacts };
   });
+  if (campaignStepEntries(prepared.definition).some(({ step }) => step.kind === "whatsapp")) await assertCampaignWhatsappConnected(actor);
   // A prior conversation is checked before enrolment, then checked again at send.
   const gmail = campaignMailboxForConnection({ encryptedRefreshToken: prepared.mailbox.encrypted_refresh_token, reconnectRequired: prepared.mailbox.reconnect_required, scopes: prepared.mailbox.scopes }, prepared.mailbox.id);
   const conversationChecks: { email: string; existing: boolean }[] = [];
@@ -268,7 +271,7 @@ async function claimSend(actor: CampaignActor, enrolmentId: string, expectedInde
     const [attempt] = existing
       ? await rows<{ id: string }>(client, "UPDATE campaign_send_attempts SET state = 'claimed', rfc_message_id = $2, claimed_at = now(), error = NULL WHERE id = $1 AND state = 'cancelled' RETURNING id", [existing.id, messageId])
       : await rows<{ id: string }>(client, "INSERT INTO campaign_send_attempts (organization_id, owner_user_id, enrolment_id, step_index, rfc_message_id) VALUES ($1,$2,$3,$4,$5) RETURNING id", [actor.organizationId, actor.userId, enrolment.id, expectedIndex, messageId]);
-    return { attemptId: attempt.id, messageId, mailbox };
+    return { attemptId: attempt.id, messageId, mailbox, contact };
   });
 }
 
@@ -355,6 +358,40 @@ async function processLinkedinStep(actor: CampaignActor, enrolment: EnrolmentRow
   return advanceCampaign(actor, enrolment, definition, contact, sentAt);
 }
 
+async function processWhatsappStep(actor: CampaignActor, enrolment: EnrolmentRow, definition: CampaignDefinition, contact: ContactRow) {
+  const step = campaignStepEntries(definition)[enrolment.step_index].step;
+  if (step.kind !== "whatsapp") throw new CampaignError("Invalid WhatsApp step");
+  const recipient = whatsappRecipientFor(personalData(contact.personal_data));
+  const text = renderCampaignTemplate(step.body, { displayName: contact.display_name, companyName: contact.company_name });
+  if (!text.trim() || text.length > 4000) throw new CampaignError("Personalised WhatsApp text must contain 1–4000 characters");
+  await assertCampaignWhatsappConnected(actor);
+  const claim = await claimSend(actor, enrolment.id, enrolment.step_index);
+  if (!claim || !await claimStillEligible(actor, enrolment, claim.attemptId)) return { outcome: "not_due" as const };
+  let sameRecipient = false;
+  try { sameRecipient = whatsappRecipientFor(personalData(claim.contact.personal_data)) === recipient; } catch { /* Invalid changed phones must also cancel the unsent claim. */ }
+  if (!sameRecipient) {
+    await withCampaignDb(actor, client => client.query("UPDATE campaign_send_attempts SET state = 'cancelled', error = 'Contact phone changed before send' WHERE id = $1 AND state = 'claimed'", [claim.attemptId]));
+    throw new CampaignError("Contact phone changed; send held for review");
+  }
+  let sentAt: Date;
+  try {
+    const result = await campaignWhatsapp(actor, { recipient, text });
+    sentAt = new Date();
+    await withCampaignDb(actor, async client => {
+      await client.query("UPDATE campaign_send_attempts SET state = 'sent', provider_message_id = $2, sent_at = $3 WHERE id = $1 AND state = 'claimed'", [claim.attemptId, `whatsapp:${result.id}`, sentAt]);
+      await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,'campaign.whatsapp_submitted','campaign_enrolment',$3,$4)", [actor.organizationId, actor.userId, enrolment.id, JSON.stringify({ stepIndex: enrolment.step_index, providerMessageId: result.id })]);
+    });
+  } catch (error) {
+    // A timeout or a failed DB commit after submission must never resend.
+    await withCampaignDb(actor, async client => {
+      await client.query("UPDATE campaign_send_attempts SET state = 'unknown', error = $2 WHERE id = $1 AND state = 'claimed'", [claim.attemptId, error instanceof Error ? error.message : "Unknown WhatsApp result"]);
+      await client.query("UPDATE campaign_enrolments SET state = 'needs_review', stop_reason = 'whatsapp_result_unknown', next_step_at = NULL, updated_at = now() WHERE id = $1 AND state = 'active'", [enrolment.id]);
+    });
+    return { outcome: "needs_review" as const };
+  }
+  return advanceCampaign(actor, enrolment, definition, contact, sentAt);
+}
+
 export async function processCampaignEnrolment(actor: CampaignActor, enrolmentId: string) {
   const loaded = await withCampaignDb(actor, async client => {
     const [enrolment] = await rows<EnrolmentRow>(client, "SELECT * FROM campaign_enrolments WHERE id = $3 AND organization_id = $1 AND owner_user_id = $2", [actor.organizationId, actor.userId, enrolmentId]);
@@ -387,11 +424,12 @@ export async function processCampaignEnrolment(actor: CampaignActor, enrolmentId
     }
     const definition = parseDefinition(loaded.version.definition);
     const step = campaignStepEntries(definition)[enrolment.step_index]?.step;
-    if (campaignStepEntries(definition).some(({ step }) => step.kind === "linkedin")) {
+    if (campaignStepEntries(definition).some(({ step }) => step.kind === "linkedin" || step.kind === "whatsapp")) {
       const [previous] = await withCampaignDb(actor, client => rows<{ state: string; sent_at: Date }>(client, "SELECT state, sent_at FROM campaign_send_attempts WHERE enrolment_id = $1 AND step_index = $2", [enrolment.id, enrolment.step_index]));
       if (previous?.state === "sent") return await advanceCampaign(actor, enrolment, definition, contact, previous.sent_at);
-      if (previous && ["claimed", "unknown"].includes(previous.state)) throw new CampaignError("LinkedIn sequence has an unresolved send attempt; review before continuing");
+      if (previous && ["claimed", "unknown"].includes(previous.state)) throw new CampaignError("Sequence has an unresolved send attempt; review before continuing");
     }
+    if (step?.kind === "whatsapp") return await processWhatsappStep(actor, enrolment, definition, contact);
     if (step?.kind === "linkedin") return await processLinkedinStep(actor, enrolment, definition, contact);
     if (!step || step.kind !== "email") throw new CampaignError("Published sequence step is invalid");
     const claim = await claimSend(actor, enrolment.id, enrolment.step_index);

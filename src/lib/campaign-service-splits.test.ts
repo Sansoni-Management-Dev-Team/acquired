@@ -46,11 +46,11 @@ describe("n8n split replay handling", () => {
     expect(await processN8nCampaignStep("contact", versionId, 0)).toEqual({ outcome: "finished", nextStepAt: null });
     expect(mocks.rows).toHaveBeenCalledTimes(1);
   });
-  it("blocks publishing manual channels anywhere in a split", async () => {
+  it("blocks publishing unconfigured WhatsApp delivery anywhere in a split", async () => {
     const split = definition.splits![0];
     const manual = { ...definition, splits: [{ ...split, pathB: [split.pathB[0], { id: split.pathB[1].id, kind: "whatsapp", title: "Manual", body: "Hi" }] }] };
     vi.mocked(withCampaignDb).mockResolvedValueOnce({ definition: manual, name: "Manual split", version: 1, updatedAt: new Date() });
-    await expect(publishCampaign({ organizationId: "org", userId: "user" }, "sequence")).rejects.toThrow("channel delivery support");
+    await expect(publishCampaign({ organizationId: "org", userId: "user" }, "sequence")).rejects.toThrow("must be configured");
   });
 });
 

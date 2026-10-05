@@ -35,10 +35,10 @@ export function buildSequenceWorkflow(input: { versionId: string; sequenceName: 
   add("Start contact", "webhook", 2, { httpMethod: "POST", path: `acquire/campaign/${input.versionId}`, responseMode: "onReceived", options: {} }, 160, 300);
   nodes[0].webhookId = input.versionId;
   const entries = campaignStepEntries(input.definition);
-  const actions = entries.map(({ step }, index) => ({ step, index })).filter(({ step }) => (step.kind === "email" || step.kind === "linkedin"));
+  const actions = entries.map(({ step }, index) => ({ step, index })).filter(({ step }) => step.kind !== "wait");
   const nameFor = (prefix: string, index: number) => {
     const step = entries[index].step;
-    const duplicates = entries.filter(entry => (entry.step.kind === "email" || entry.step.kind === "linkedin") && entry.step.title === step.title).length > 1;
+    const duplicates = entries.filter(entry => entry.step.kind !== "wait" && entry.step.title === step.title).length > 1;
     return `${prefix}: ${step.title}${duplicates ? ` [${index + 1}]` : ""}`;
   };
   const condition = (leftValue: string, rightValue: string) => ({ options: { caseSensitive: true, leftValue: "", typeValidation: "strict", version: 2 }, conditions: [{ id: randomUUID(), leftValue, rightValue, operator: { type: "string", operation: "equals" } }], combinator: "and" });

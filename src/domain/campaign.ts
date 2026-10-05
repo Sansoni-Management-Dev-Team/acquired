@@ -11,7 +11,7 @@ const linkedinStep = emailStep.omit({ subject: true }).extend({
   if (step.action === "connect" ? step.body.length > 200 : !step.body.length)
     context.addIssue({ code: "custom", message: step.action === "connect" ? "Connection notes must be at most 200 characters" : "LinkedIn messages need a body" });
 });
-const whatsappStep = emailStep.omit({ subject: true }).extend({ kind: z.literal("whatsapp") });
+const whatsappStep = emailStep.omit({ subject: true }).extend({ kind: z.literal("whatsapp"), body: z.string().trim().min(1).max(4000) });
 export const campaignStep = z.discriminatedUnion("kind", [emailStep, waitStep, linkedinStep, whatsappStep]);
 export const campaignSplit = z.object({
   id: z.string().uuid(), title: z.string().trim().min(1).max(100), afterStepId: z.union([z.string().uuid(), z.literal("start")]),

@@ -1,5 +1,11 @@
 # Gmail campaign automation
 
+## WhatsApp campaign delivery
+
+WhatsApp steps now compile to the same authenticated `/api/internal/campaigns/step` callback as email and LinkedIn. Acquire renders each message and sends through the sequence owner's existing WhatsApp service connection. Publishing requires `WHATSAPP_SERVICE_URL` and `WHATSAPP_SERVICE_SECRET`; enrolment requires a connected WhatsApp account and a contact phone number with an explicit international country code. Personalized messages are limited to 4000 characters.
+
+WhatsApp uses the existing campaign send claims, contact holds, sending windows and shared mailbox caps/spacing. Provider submission IDs are recorded before advancing; callback replays do not resend recorded messages. Unresolved attempts and ambiguous provider responses are held for review rather than automatically retried. n8n owns waits and retries for scheduling holds. Gmail remains required for campaign enrolment and email reply monitoring. WhatsApp and LinkedIn replies are not yet monitored; WhatsApp submission confirms provider acceptance, not delivery or reading. No database migration is needed.
+
 ## n8n sequence runtime (migration 0013)
 
 Publishing with `CAMPAIGN_N8N_ENABLED=true` creates and publishes one n8n workflow per immutable sequence version. The workflow contains a Webhook trigger, named email steps, a Wait node for each sequence delay, and Wait nodes for temporary send holds. A contact enrolment starts one execution of its pinned version. n8n owns the execution and timing; Acquire receives each step callback, checks Gmail replies and suppression, applies mailbox caps and business hours, then sends through the contact owner's Gmail grant. Workflow payloads contain the enrolment and version IDs, not Gmail tokens or email bodies.

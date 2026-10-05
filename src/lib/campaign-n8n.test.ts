@@ -85,3 +85,24 @@ it("routes subscription splits identically to enrolment and shares the continuat
   const sharedWait = workflow.connections["Sent: Intro A"].main[0][0].node;
   expect(workflow.connections[sharedWait].main[0][0].node).toBe("Send: Shared");
 });
+
+it("compiles WhatsApp steps through the same callback and retry loop as email and LinkedIn", () => {
+  const mixed = { ...definition, steps: [definition.steps[0], definition.steps[1], { id: "4fd7f1b2-7367-4a94-8129-cb1cf4954ad0", kind: "whatsapp" as const, title: "WhatsApp follow-up", body: "Hi" }, { ...definition.steps[1], id: "65caf381-c46a-42ea-88f1-4b2dc5a007ee" }, { id: "fb27389c-b213-4323-ab03-decc48ecb3b0", kind: "linkedin" as const, title: "LinkedIn follow-up", body: "Hi" }] };
+  const workflow = buildSequenceWorkflow({ versionId, sequenceName: "Mixed channels", version: 1, definition: mixed, appUrl: "https://app.test", credentialId: "credential" });
+  const send = workflow.nodes.find(node => node.name === "Send: WhatsApp follow-up")!;
+  expect(send.parameters.url).toBe("https://app.test/api/internal/campaigns/step");
+  expect(send.parameters.jsonBody).toContain("stepIndex: 2");
+  expect(send.credentials).toEqual({ httpHeaderAuth: { id: "credential", name: "Header Auth account" } });
+  expect(workflow.connections["Wait until allowed: WhatsApp follow-up"].main[0][0].node).toBe(send.name);
+  const nextWait = workflow.connections["Sent: WhatsApp follow-up"].main[0][0].node;
+  expect(workflow.connections[nextWait].main[0][0].node).toBe("Send: LinkedIn follow-up");
+});
+
+it("keeps repeated WhatsApp titles distinct across mixed-channel connections", () => {
+  const whatsapp = { kind: "whatsapp" as const, title: "Follow up", body: "Hi" };
+  const repeated = { ...definition, steps: [definition.steps[0], definition.steps[1], { ...whatsapp, id: "4fd7f1b2-7367-4a94-8129-cb1cf4954ad0" }, { ...definition.steps[1], id: "65caf381-c46a-42ea-88f1-4b2dc5a007ee" }, { ...whatsapp, id: "fb27389c-b213-4323-ab03-decc48ecb3b0" }] };
+  const workflow = buildSequenceWorkflow({ versionId, sequenceName: "Repeated WhatsApp", version: 1, definition: repeated, appUrl: "https://app.test" });
+  expect(new Set(workflow.nodes.map(node => node.name)).size).toBe(workflow.nodes.length);
+  expect(workflow.connections["Wait until allowed: Follow up [3]"].main[0][0].node).toBe("Send: Follow up [3]");
+  expect(workflow.connections["Wait until allowed: Follow up [5]"].main[0][0].node).toBe("Send: Follow up [5]");
+});
