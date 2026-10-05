@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { rows, withCampaignDb, withCampaignWorker, type CampaignActor } from "@/db/campaign-client";
 import { hasOutreachDetails } from "@/domain/outreach-contact";
-import { campaignDefinition, campaignStepEntries, campaignSendWindowOpen, nextAllowedCampaignSend, nextCampaignStepAfter, acceptancePath, campaignStepLabel, normalizeEmail, renderCampaignTemplate, type CampaignDefinition } from "@/domain/campaign";
+import { campaignDefinition, campaignFirstStepIndex, campaignStepEntries, campaignSendWindowOpen, nextAllowedCampaignSend, nextCampaignStepAfter, acceptancePath, campaignStepLabel, normalizeEmail, renderCampaignTemplate, type CampaignDefinition } from "@/domain/campaign";
 import { connectionCanMonitorReplies } from "@/lib/gmail-connection";
 import { campaignMailboxForConnection, campaignTestSendAnytime } from "@/lib/campaign-mailbox";
 import { n8nCampaignEnabled, provisionSequenceWorkflow, removeSequenceWorkflow, startSequenceContact } from "@/lib/campaign-n8n";
@@ -99,7 +99,7 @@ export async function listCampaignStudio(actor: CampaignActor, mandateId: string
       mailbox: mailbox[0] ? { status: gmailConnectionStatus({ hasRefreshToken: Boolean(mailbox[0].encrypted_refresh_token), reconnectRequired: mailbox[0].reconnect_required, scopes: mailbox[0].scopes }), address: mailbox[0].address, ready: connectionCanMonitorReplies({ encryptedRefreshToken: mailbox[0].encrypted_refresh_token, reconnectRequired: mailbox[0].reconnect_required, scopes: mailbox[0].scopes }), dailyCap: mailbox[0].daily_cap } : null,
     };
   });
-  return { ...studio, contacts: studio.contacts.filter(hasOutreachDetails) };
+  return { ...studio, n8nUrl: process.env.CAMPAIGN_N8N_URL?.replace(/\/$/, "") || null, contacts: studio.contacts.filter(hasOutreachDetails) };
 }
 
 export async function createCampaign(actor: CampaignActor, mandateId: string, name: string, definition: CampaignDefinition) {
@@ -137,7 +137,7 @@ export async function publishCampaign(actor: CampaignActor, sequenceId: string) 
     const version = sequence.published_version + 1;
     const [snapshot] = await rows<VersionRow>(client, "INSERT INTO campaign_sequence_versions (id, organization_id, owner_user_id, sequence_id, version, definition, n8n_workflow_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *", [versionId, actor.organizationId, actor.userId, sequenceId, version, JSON.stringify(definition), workflowId]);
     await client.query("UPDATE campaign_sequences SET published_version = $2, updated_at = now() WHERE id = $1", [sequenceId, version]);
-    return { id: snapshot.id, version };
+    return { id: snapshot.id, version, n8nWorkflowId: workflowId, localDevelopment: process.env.LOCAL_DEVELOPMENT === "true" };
   }); } catch (error) { if (workflowId) await removeSequenceWorkflow(workflowId).catch(() => undefined); throw error; }
 }
 
@@ -182,10 +182,13 @@ export async function enrolContacts(actor: CampaignActor, sequenceId: string, co
       const [assignment] = await rows<{ id: string }>(client, "SELECT id FROM campaign_contact_assignments WHERE organization_id = $1 AND contact_id = $2 AND email = $3 AND owner_user_id = $4", [actor.organizationId, contact.id, email, actor.userId]);
       if (!assignment) throw new CampaignError(`${contact.display_name} is assigned to another sender`);
       const existing = conversationChecks.find(check => check.email === email)?.existing || false;
+      const enrolmentId = randomUUID();
+      const firstIndex = campaignFirstStepIndex(prepared.definition, enrolmentId);
+      const firstStep = campaignStepEntries(prepared.definition)[firstIndex].step;
       const nextAt = existing ? null : nextSendAt(new Date());
-      const [enrolment] = await rows<EnrolmentRow>(client, `INSERT INTO campaign_enrolments (organization_id, owner_user_id, sequence_id, version_id, mandate_id, contact_id, mailbox_connection_id, recipient_email, state, stop_reason, next_step_at, runtime) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`, [actor.organizationId, actor.userId, sequenceId, prepared.version.id, prepared.sequence.mandate_id, contact.id, prepared.mailbox.id, email, existing ? "needs_review" : "active", existing ? "existing_conversation" : null, nextAt, n8nCampaignEnabled() ? "n8n" : "legacy"]);
-      await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,'campaign.subscribed','campaign_enrolment',$3,$4)", [actor.organizationId, actor.userId, enrolment.id, JSON.stringify({ sequenceId, version: prepared.version.version, contactId: contact.id, firstAction: prepared.definition.steps[0].title, existingConversation: existing })]);
-      results.push({ id: enrolment.id, contactId: contact.id, state: enrolment.state, nextStepAt: enrolment.next_step_at, firstAction: existing ? "Existing Gmail conversation found — review before sending" : `${campaignStepLabel(prepared.definition.steps[0])}: ${prepared.definition.steps[0].title}` });
+      const [enrolment] = await rows<EnrolmentRow>(client, `INSERT INTO campaign_enrolments (organization_id, owner_user_id, sequence_id, version_id, mandate_id, contact_id, mailbox_connection_id, recipient_email, state, stop_reason, next_step_at, runtime, id, step_index) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`, [actor.organizationId, actor.userId, sequenceId, prepared.version.id, prepared.sequence.mandate_id, contact.id, prepared.mailbox.id, email, existing ? "needs_review" : "active", existing ? "existing_conversation" : null, nextAt, n8nCampaignEnabled() ? "n8n" : "legacy", enrolmentId, firstIndex]);
+      await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,'campaign.subscribed','campaign_enrolment',$3,$4)", [actor.organizationId, actor.userId, enrolment.id, JSON.stringify({ sequenceId, version: prepared.version.version, contactId: contact.id, firstAction: firstStep.title, existingConversation: existing })]);
+      results.push({ id: enrolment.id, contactId: contact.id, state: enrolment.state, nextStepAt: enrolment.next_step_at, firstAction: existing ? "Existing Gmail conversation found — review before sending" : `${campaignStepLabel(firstStep)}: ${firstStep.title}` });
     }
     return results;
   });
@@ -369,7 +372,7 @@ export async function processCampaignEnrolment(actor: CampaignActor, enrolmentId
   try {
     const checked = await checkReplies(actor, enrolment, mailbox);
     if (checked.stopped) return { outcome: "reply_received" as const };
-    if (enrolment.step_index === 0 && !enrolment.initial_conversation_reviewed && await checked.gmail.hasConversation(enrolment.recipient_email)) {
+    if (enrolment.step_index === campaignFirstStepIndex(parseDefinition(loaded.version.definition), enrolment.id) && !enrolment.initial_conversation_reviewed && await checked.gmail.hasConversation(enrolment.recipient_email)) {
       await withCampaignDb(actor, client => client.query("UPDATE campaign_enrolments SET state = 'needs_review', stop_reason = 'existing_conversation', next_step_at = NULL, updated_at = now() WHERE id = $1 AND state = 'active'", [enrolment.id]).then(() => undefined));
       return { outcome: "existing_conversation" as const };
     }

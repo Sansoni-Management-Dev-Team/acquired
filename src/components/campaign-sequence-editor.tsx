@@ -32,7 +32,8 @@ function newStep(kind: StepKind, action?: "connect" | "message"): CampaignStep {
 function removalReason(draft: CampaignDraft, id: string) {
   const entry = campaignStepEntries(draft).find(entry => entry.step.id === id);
   if (!entry) return undefined;
-  if (entry.split && entry.path) return entry.split[entry.path].length <= 2 ? "Each path needs a wait and a message" : undefined;
+  if (entry.split && entry.path) return entry.split[entry.path].length <= (entry.split.afterStepId === "start" ? 1 : 2) ? entry.split.afterStepId === "start" ? "Each path needs an introduction message" : "Each path needs a wait and a message" : undefined;
+  if (draft.splits?.some(split => split.afterStepId === "start") && draft.steps[0]?.id === id) return "Keep a wait before the shared sequence";
   if (draft.steps.length <= 1) return "Keep at least one message in the sequence";
   if (draft.splits?.some(split => split.afterStepId === id)) return "Remove this message's split before deleting the message";
   return undefined;
@@ -79,7 +80,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
   useEffect(() => {
     if (selectedStepId && !selectedExists) onSelect(firstStepId);
   }, [selectedStepId, selectedExists, firstStepId, onSelect]);
-  const canAddSplit = entries.length <= 21 && (draft.splits?.length || 0) < 6 && draft.steps.some(step => step.kind !== "wait" && !draft.splits?.some(split => split.afterStepId === step.id));
+  const canAddSplit = entries.length <= 21 && (draft.splits?.length || 0) < 6 && (!draft.splits?.some(split => split.afterStepId === "start") || draft.steps.some(step => step.kind !== "wait" && !draft.splits?.some(split => split.afterStepId === step.id)));
   const validation = campaignDefinition.safeParse({ ...draft, schemaVersion: 1 });
   const issue = validation.success ? null : validation.error.issues[0]?.message || "Complete the sequence before saving.";
 
@@ -87,8 +88,8 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
     if (readOnly || removalReason(draft, id)) return;
     const split = draft.splits?.find(split => split.id === id);
     if (split) {
-      onChange({ ...draft, splits: draft.splits?.filter(item => item.id !== id) });
-      if (selectedStepId === id || [...split.pathA, ...split.pathB].some(step => step.id === selectedStepId)) onSelect(split.afterStepId);
+      onChange({ ...draft, steps: split.afterStepId === "start" ? draft.steps.slice(1) : draft.steps, splits: draft.splits?.filter(item => item.id !== id) });
+      if (selectedStepId === id || [...split.pathA, ...split.pathB].some(step => step.id === selectedStepId)) onSelect(split.afterStepId === "start" ? draft.steps.find(step => step.kind !== "wait")?.id || null : split.afterStepId);
       return;
     }
     const entry = campaignStepEntries(draft).find(entry => entry.step.id === id);
@@ -128,21 +129,24 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
         data: { label, canInsert: entries.length <= 23, ...(!readOnly ? { onInsert: (kind: Exclude<StepKind, "wait">, action?: "connect" | "message") => {
           try { const next = insertCampaignMessage(draft, source, target, newStep(kind, action)); onChange(next.draft); onSelect(next.selectedId); setFeedback(""); }
           catch (error) { setFeedback(error instanceof Error ? error.message : "Could not insert message"); }
-        }, ...(sourceStep && sourceStep.kind !== "wait" && !entries.find(entry => entry.step.id === source)?.split && !draft.splits?.some(split => split.afterStepId === source) && canAddSplit ? { onSplit: () => addSplit(source) } : {}) } : {}) },
+        }, ...((source === "start" || sourceStep && sourceStep.kind !== "wait") && !entries.find(entry => entry.step.id === source)?.split && !draft.splits?.some(split => split.afterStepId === source) && canAddSplit ? { onSplit: () => addSplit(source) } : {}) } : {}) },
       });
     };
     nodes.push({ id: "start", position: { x: mainX, y: 0 }, data: { label: <span>Contact subscribes{readOnly && <span className="block text-[10px] text-[var(--muted)]">Subscribed</span>}</span> }, draggable: false, selectable: false, style: style("start") });
     let previous = ["start"];
     let y = firstNodeY;
-    for (const step of draft.steps) {
-      addStep(step, mainX, y);
-      previous.forEach(id => link(id, step.id));
-      previous = [step.id];
-      y += nodeGap;
-      const split = draft.splits?.find(split => split.afterStepId === step.id);
+    const startSplit = draft.splits?.find(split => split.afterStepId === "start");
+    for (const anchor of [...(startSplit ? [{ id: "start", step: null }] : []), ...draft.steps.map(step => ({ id: step.id, step }))]) {
+      if (anchor.step) {
+        addStep(anchor.step, mainX, y);
+        previous.forEach(id => link(id, anchor.id));
+        previous = [anchor.id];
+        y += nodeGap;
+      }
+      const split = draft.splits?.find(split => split.afterStepId === anchor.id);
       if (split) {
         nodes.push({ id: split.id, position: moving?.id === split.id ? { x: moving.x ?? mainX, y: moving.y } : split.position || { x: mainX, y }, draggable: !readOnly, data: { label: <span className="flex items-center gap-2 text-left"><GitFork size={18} className="shrink-0" /><span className="min-w-0 flex-1"><span className="block text-[10px] uppercase text-[var(--muted)]">{split.condition ? `Wait for acceptance · up to ${split.condition.timeoutDays} days` : `A/B split · ${split.percentage}/${100 - split.percentage}`}</span><span className="block truncate font-medium">{split.title}</span>{statuses.has(split.id) && <span className="block text-[10px] text-[var(--muted)]">{statuses.get(split.id)}</span>}</span><button type="button" className="nodrag nopan flex size-6 shrink-0 items-center justify-center rounded hover:bg-[var(--panel-raised)]" aria-label={`${collapsed.includes(split.id) ? "Expand" : "Collapse"} ${split.title}`} onClick={event => { event.stopPropagation(); setCollapsed(ids => ids.includes(split.id) ? ids.filter(id => id !== split.id) : [...ids, split.id]); }}>{collapsed.includes(split.id) ? <ChevronDown size={14} /> : <ChevronUp size={14} />}</button>{!readOnly && deleteButton(split.id, split.title, true)}</span> }, style: style(split.id) });
-        link(step.id, split.id);
+        link(anchor.id, split.id);
         if (collapsed.includes(split.id)) {
           previous = [split.id];
           y += nodeGap;
@@ -209,11 +213,12 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
   function addSplit(afterId: string | null = selectedStepId, acceptance = false) {
     const anchor = draft.steps.find(step => step.id === afterId);
     if (acceptance && (!anchor || anchor.kind !== "linkedin" || anchor.action !== "connect")) { setFeedback("Select a main-sequence LinkedIn connection request first."); return; }
-    if (readOnly || !anchor || anchor.kind === "wait" || !canAddSplit || draft.splits?.some(split => split.afterStepId === anchor.id)) return;
-    if (acceptance && (anchor.kind !== "linkedin" || anchor.action !== "connect")) { setFeedback("Select a main-sequence LinkedIn connection request first."); return; }
-    const path = (name: string) => [newStep("wait"), { ...newStep("email"), title: `Path ${name} follow-up` }];
-    const split: CampaignSplit = { id: crypto.randomUUID(), title: acceptance ? "Connection accepted?" : "Split paths", afterStepId: anchor.id, percentage: 50, ...(acceptance ? { condition: { kind: "linkedin_connected", timeoutDays: 7 } as const } : {}), pathA: acceptance ? [newStep("wait"), newStep("linkedin")] : path("A"), pathB: path(acceptance ? "No acceptance" : "B") };
-    onChange({ ...draft, splits: [...(draft.splits || []), split] });
+    const atStart = afterId === "start";
+    if (readOnly || (!atStart && (!anchor || anchor.kind === "wait")) || !canAddSplit || draft.splits?.some(split => split.afterStepId === afterId)) return;
+    if (acceptance && (anchor?.kind !== "linkedin" || anchor.action !== "connect")) { setFeedback("Select a main-sequence LinkedIn connection request first."); return; }
+    const path = (name: string) => [...(atStart ? [] : [newStep("wait")]), { ...newStep("email"), title: `Path ${name} ${atStart ? "introduction" : "follow-up"}` }];
+    const split: CampaignSplit = { id: crypto.randomUUID(), title: acceptance ? "Connection accepted?" : "Split paths", afterStepId: atStart ? "start" : anchor!.id, percentage: 50, ...(acceptance ? { condition: { kind: "linkedin_connected", timeoutDays: 7 } as const } : {}), pathA: acceptance ? [newStep("wait"), newStep("linkedin")] : path("A"), pathB: path(acceptance ? "No acceptance" : "B") };
+    onChange({ ...draft, steps: atStart ? [newStep("wait"), ...draft.steps] : draft.steps, splits: [...(draft.splits || []), split] });
     onSelect(split.id);
   }
   function targetAt(clientX: number, clientY: number) {
@@ -226,7 +231,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
     }, undefined)?.id || null;
   }
   function splitAnchorAt(point: { x: number; y: number }, movingSplitId?: string) {
-    const candidates = graph.nodes.filter(node => draft.steps.some(step => step.id === node.id && step.kind !== "wait") && !draft.splits?.some(split => split.id !== movingSplitId && split.afterStepId === node.id));
+    const candidates = graph.nodes.filter(node => (node.id === "start" || draft.steps.some(step => step.id === node.id && step.kind !== "wait")) && !draft.splits?.some(split => split.id !== movingSplitId && split.afterStepId === node.id));
     return candidates.reduce<Node | undefined>((nearest, node) => {
       const distance = (item: Node) => Math.abs(item.position.y + nodeGap - point.y) + Math.abs(item.position.x - point.x);
       return !nearest || distance(node) < distance(nearest) ? node : nearest;
@@ -330,7 +335,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
           </div>}
         </div>
         <button type="button" draggable disabled={readOnly || !canAddSplit} onDragStart={event => onPaletteDragStart(event, "split")} onClick={() => addSplit()} className={button} title="Drag onto the main sequence, or select a main message and click to add an A/B split"><GitFork size={16} /> A/B split <Plus size={14} /></button>
-        <span className="text-xs text-[var(--muted)]">Drag into the flow, or add after the selected node. Split paths attach after a main message.</span>
+        <span className="text-xs text-[var(--muted)]">Drag into the flow, or add after the selected node. Split paths attach after subscription or a main message.</span>
       </div>
       <div className={`relative bg-[var(--background)] ${fullscreen ? "min-h-[400px] flex-1 lg:min-h-0" : "h-[650px]"}`} onDragOver={event => { if (readOnly || !event.dataTransfer.types.includes("application/x-acquire-campaign-step")) return; event.preventDefault(); event.dataTransfer.dropEffect = "copy"; setDropTarget(event.dataTransfer.types.includes("application/x-acquire-campaign-split") ? splitDropTarget(event.clientX, event.clientY) : targetAt(event.clientX, event.clientY)); }} onDragLeave={() => setDropTarget(null)} onDrop={onCanvasDrop}>
         <ReactFlow nodes={graph.nodes} edges={graph.edges} edgeTypes={campaignEdgeTypes} deleteKeyCode={null} nodesConnectable={!readOnly} nodesDraggable={!readOnly} edgesReconnectable={!readOnly} isValidConnection={connection => !readOnly && Boolean(reconnectCampaign(draft, connection.source, connection.target))} onConnect={connection => connect(connection.source, connection.target)} onReconnect={(_edge, connection) => connect(connection.source, connection.target)} onNodeContextMenu={(event, node) => { event.preventDefault(); onSelect(node.id); setFeedback("Use Duplicate, Copy or Paste above, or Ctrl/Cmd+D, C and V."); }} onInit={flow => { instance.current = flow; }} onNodesChange={changes => {
@@ -357,7 +362,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
           }
           onSelect(node.id);
         }} onNodeClick={(_event, node) => { if (entries.some(entry => entry.step.id === node.id) || draft.splits?.some(split => split.id === node.id)) onSelect(node.id); }} minZoom={0.15} fitView fitViewOptions={{ padding: 0.2, nodes: graph.nodes.slice(0, 5), maxZoom: 1 }} elementsSelectable><Background color="var(--border)" /><Controls showInteractive={false} /><MiniMap pannable zoomable nodeColor={node => statuses.get(node.id) === "Sent" ? "#16a34a" : statuses.get(node.id) === "Stopped" || statuses.get(node.id) === "Needs review" ? "#dc2626" : "#94a3b8"} style={{ background: "var(--panel)", width: 140, height: 100 }} /></ReactFlow>
-        {dropTarget && <div className="pointer-events-none absolute bottom-4 left-4 rounded-lg border border-[var(--accent)] bg-[var(--panel)] px-3 py-2 text-xs font-medium shadow-lg">Add after {entries.find(entry => entry.step.id === dropTarget)?.step.title}</div>}
+        {dropTarget && <div className="pointer-events-none absolute bottom-4 left-4 rounded-lg border border-[var(--accent)] bg-[var(--panel)] px-3 py-2 text-xs font-medium shadow-lg">Add after {dropTarget === "start" ? "Contact subscribes" : entries.find(entry => entry.step.id === dropTarget)?.step.title}</div>}
       </div>
     </div>
     <div className={`space-y-4 p-5 lg:border-l lg:border-[var(--border)] ${fullscreen ? "min-h-0 overflow-y-auto" : ""}`}>
@@ -393,7 +398,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
       </fieldset>
       {feedback && <p role="status" className="rounded-lg border border-[var(--border)] p-3 text-xs">{feedback}</p>}
       {!readOnly && <p className="text-xs text-[var(--muted)]">Use + on a connection to insert a message with its wait. Reconnect a message to a wait to move that pair, or to a split to relocate both branches.</p>}
-      {issue && <p role="status" className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] p-3 text-xs">To save or publish: {issue}. Use a wait between messages; split paths start with a wait.</p>}
+      {issue && <p role="status" className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] p-3 text-xs">To save or publish: {issue}. Use a wait between messages; subscription split paths start with a message; other split paths start with a wait.</p>}
       {entries.some(({ step }) => step.kind === "linkedin" || step.kind === "whatsapp") && <p className="text-xs text-[var(--muted)]">LinkedIn automation requires a connected account and enabled campaign delivery. WhatsApp steps remain available for manual use.</p>}
       <p className="text-xs text-[var(--muted)]">Drag message, wait and split nodes in any direction to arrange the canvas. Connections determine execution order. Save draft to keep your layout.</p>
     </div>

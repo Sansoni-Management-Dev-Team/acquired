@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { campaignFirstStepIndex, campaignPathFor } from "@/domain/campaign";
 import { buildSequenceWorkflow } from "./campaign-n8n";
 
 const versionId = "b74733ca-71e0-4595-afc4-559a3758f9ee";
@@ -60,4 +61,27 @@ it("keeps duplicate message titles from overwriting n8n connections", () => {
   expect(new Set(workflow.nodes.map(node => node.name)).size).toBe(workflow.nodes.length);
   expect(workflow.connections["Sent: Same title [1]"].main[0][0].node).toBe("Wait 3 days: Three days");
   expect(workflow.connections["Wait until allowed: Same title [3]"].main[0][0].node).toBe("Send: Same title [3]");
+});
+
+it("routes subscription splits identically to enrolment and shares the continuation", () => {
+  const split = { id: "57cff001-6c6b-46c1-bd2e-594b3216f116", title: "Initial", afterStepId: "start", percentage: 30,
+    pathA: [{ ...definition.steps[0], title: "Intro A" }],
+    pathB: [{ ...definition.steps[2], title: "Intro B" }],
+  };
+  const initial = { schemaVersion: 1 as const, steps: [definition.steps[1], { ...definition.steps[0], id: "4fd7f1b2-7367-4a94-8129-cb1cf4954ad0", title: "Shared" }], splits: [split] };
+  const workflow = buildSequenceWorkflow({ versionId, sequenceName: "Initial split", version: 1, definition: initial, appUrl: "https://app.test" });
+  const splitNode = workflow.nodes.find(node => node.name.startsWith("Split:"))!;
+  expect(workflow.connections["Start contact"].main[0][0].node).toBe(splitNode.name);
+  const expression = (splitNode.parameters.conditions as { conditions: { leftValue: string }[] }).conditions[0].leftValue;
+  const evaluate = new Function("$", `return ${expression.slice(3, -2)};`);
+  for (const path of ["pathA", "pathB"] as const) {
+    const key = Array.from({ length: 100 }, (_, i) => `contact-${i}`).find(key => campaignPathFor(split, key) === path)!;
+    expect(evaluate(() => ({ first: () => ({ json: { body: { enrolmentId: key } } }) }))).toBe(path);
+    const target = workflow.connections[splitNode.name].main[path === "pathA" ? 0 : 1][0].node;
+    expect(target).toBe(path === "pathA" ? "Send: Intro A" : "Send: Intro B");
+    expect(workflow.nodes.find(node => node.name === target)!.parameters.jsonBody).toContain(`stepIndex: ${campaignFirstStepIndex(initial, key)}`);
+  }
+  expect(workflow.connections["Sent: Intro A"].main[0]).toEqual(workflow.connections["Sent: Intro B"].main[0]);
+  const sharedWait = workflow.connections["Sent: Intro A"].main[0][0].node;
+  expect(workflow.connections[sharedWait].main[0][0].node).toBe("Send: Shared");
 });

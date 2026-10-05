@@ -49,3 +49,10 @@ it("routes local D through its local session worker and excludes fixed-cohort mo
 });
 
 it('enables E locally with the same Firmable service credentials',()=>{const config=localDevConfig({OPENROUTER_API_KEY:'test'},'test',3010,8787);enableLocalFirmableDesign(config,{FIRMABLE_CLIENT_COOKIE:'cookie',FIRMABLE_SESSION_ID:'session',FIRMABLE_ORGANIZATION_ID:'org',FIRMABLE_CREDENTIAL_KEY:'key',FIRMABLE_SERVICE_SECRET:'secret'},8787,'E');expect(config.app.RESEARCH_PIPELINE_DESIGN).toBe('web-firmable-v1');expect(config.worker.RESEARCH_PIPELINE_DESIGN).toBe('web-firmable-v1');expect(config.app.FIRMABLE_SERVICE_URL).toBe('http://127.0.0.1:8787/firmable');});
+
+it("connects local campaigns to OrbStack n8n with a callback to the selected app port", () => {
+  const config = localDevConfig({ ...env, CAMPAIGN_N8N_ENABLED: "true", CAMPAIGN_N8N_URL: "http://127.0.0.1:5679", CAMPAIGN_APP_URL: "https://production.example.com", OUTREACH_WORKER_SECRET: "local-worker" }, "s", 3011);
+  expect(config.app.CAMPAIGN_APP_URL).toBe("http://host.docker.internal:3011");
+  expect(config.app.OUTREACH_WORKER_SECRET).toBe("local-worker");
+  expect(() => localDevConfig({ ...env, CAMPAIGN_N8N_ENABLED: "true", CAMPAIGN_N8N_URL: "https://n8n.mlai.au" }, "s")).toThrow("OrbStack n8n");
+});

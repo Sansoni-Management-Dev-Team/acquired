@@ -22,7 +22,7 @@ export function campaignRunStatuses(run: CampaignRun, now = Date.now()) {
     else statuses.set(entry.step.id, "Pending");
   }
   for (const split of run.definition.splits || []) {
-    const anchorSent = run.attempts.some(attempt => attempt.stepId === split.afterStepId && attempt.state === "sent");
+    const anchorSent = split.afterStepId === "start" || run.attempts.some(attempt => attempt.stepId === split.afterStepId && attempt.state === "sent");
     const path = pathFor(split);
     statuses.set(split.id, anchorSent ? split.condition ? path === "pathA" ? "Accepted" : path === "pathB" ? "Acceptance timed out" : "Waiting for acceptance" : `Path ${path === "pathA" ? "A" : "B"}` : "Pending");
   }

@@ -2,6 +2,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 import type { Node, Edge, ReactFlowProps } from "@xyflow/react";
+import { campaignDefinition } from "@/domain/campaign";
 import type { CampaignDraft, CampaignStep } from "@/domain/campaign";
 
 const capture = vi.hoisted(() => ({ flow: null as ReactFlowProps<Node, Edge> | null }));
@@ -126,4 +127,29 @@ it("edits an optional connection note without showing a message-body validation 
   expect(html).toContain("Connection note (optional");
   expect(html).toContain("Send connection request");
   expect(html).not.toContain("To save or publish:");
+});
+
+it("offers a split at subscription, renders both introductions and removes it cleanly", () => {
+  const first: CampaignStep = { id: "b03dfa99-0b7c-47c5-9a76-a815e171b822", kind: "email", title: "Introduction", subject: "Hello", body: "Hi" };
+  const onChange = vi.fn(), onSelect = vi.fn();
+  renderToStaticMarkup(<CampaignSequenceEditor draft={{ steps: [first] }} selectedStepId={first.id} onChange={onChange} onSelect={onSelect} />);
+  const onSplit = capture.flow!.edges!.find(edge => edge.source === "start")!.data!.onSplit as () => void;
+  expect(onSplit).toBeTypeOf("function");
+  onSplit();
+  const draft = onChange.mock.calls[0][0] as CampaignDraft;
+  expect(campaignDefinition.safeParse({ ...draft, schemaVersion: 1 }).success).toBe(true);
+  const split = draft.splits![0];
+  expect(split.afterStepId).toBe("start");
+  expect(split.pathA[0].kind).toBe("email");
+  expect(split.pathB[0].kind).toBe("email");
+  renderToStaticMarkup(<CampaignSequenceEditor draft={draft} selectedStepId={split.id} onChange={onChange} onSelect={onSelect} />);
+  const edges = capture.flow!.edges!;
+  expect(edges.some(edge => edge.source === "start" && edge.target === split.id)).toBe(true);
+  for (const path of [split.pathA, split.pathB]) {
+    expect(edges.some(edge => edge.source === split.id && edge.target === path[0].id)).toBe(true);
+    expect(edges.some(edge => edge.source === path[0].id && edge.target === draft.steps[0].id)).toBe(true);
+  }
+  deleteButton(split.id).props.onClick!({ stopPropagation: vi.fn() } as unknown as React.MouseEvent<HTMLButtonElement>);
+  expect(onChange.mock.lastCall![0]).toEqual({ steps: [first], splits: [] });
+  expect(onSelect).toHaveBeenLastCalledWith(first.id);
 });

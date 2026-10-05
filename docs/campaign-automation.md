@@ -16,6 +16,10 @@ This build adds a separate Gmail-first campaign studio at `/mandates/:id/outreac
 
 ## Local no-send validation
 
+Local Acquire is connected to OrbStack n8n as of 5 October 2026. The editor is at `http://localhost:5679`; `.env.local` enables the n8n runtime and contains a dedicated local publishing API key. `pnpm dev` starts the n8n container when enabled and sets the callback URL to `http://host.docker.internal:<app-port>`. The local scheduler (`acquireCampaignLocal`) is active and calls Acquire on port 3010 every minute. The published `7-step introduction sequence test` v1 is synced as workflow `RTT7VySw8hDvviIK`. Existing versions can be synced through the authenticated sync endpoint; future publishes create workflows automatically. The studio's workflow link uses the configured n8n URL.
+
+Local and hosted n8n use the same sequence compiler, but have separate databases, workflows, callback URLs and credentials. This connection does not enable the test mailbox sink: sending still depends on the local app's mailbox configuration and explicit contact subscription. No contacts were enrolled or messages sent during connection verification. The historical no-send scheduler checks below predate this connection.
+
 The five campaign migrations have been applied to the dedicated OrbStack database at `127.0.0.1:5434/project_acquire` and to the production Supabase database with the user's approval. Production's ledger and migration hashes were verified through `0007` before applying `0008`–`0012`; the ledger and hashes were checked after each migration. No data was copied between environments.
 
 The local Compose stack includes an in-memory delivery sink and a separate n8n instance. The sink accepts synthetic email sends, inbound replies, manual outbound events, and simulated ambiguous provider responses. It has no external messaging credentials. `CAMPAIGN_TEST_SINK_URL` is rejected unless Acquire is running in local development against the dedicated loopback OrbStack database and sink. `CAMPAIGN_TEST_SEND_ANYTIME` is likewise confined to that setup.

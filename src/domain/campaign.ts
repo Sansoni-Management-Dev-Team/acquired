@@ -14,11 +14,11 @@ const linkedinStep = emailStep.omit({ subject: true }).extend({
 const whatsappStep = emailStep.omit({ subject: true }).extend({ kind: z.literal("whatsapp") });
 export const campaignStep = z.discriminatedUnion("kind", [emailStep, waitStep, linkedinStep, whatsappStep]);
 export const campaignSplit = z.object({
-  id: z.string().uuid(), title: z.string().trim().min(1).max(100), afterStepId: z.string().uuid(),
+  id: z.string().uuid(), title: z.string().trim().min(1).max(100), afterStepId: z.union([z.string().uuid(), z.literal("start")]),
   percentage: z.number().int().min(1).max(99),
   condition: z.object({ kind: z.literal("linkedin_connected"), timeoutDays: z.number().int().min(1).max(30) }).strict().optional(),
   position: campaignPosition.optional(),
-  pathA: z.array(campaignStep).min(2).max(24), pathB: z.array(campaignStep).min(2).max(24),
+  pathA: z.array(campaignStep).min(1).max(24), pathB: z.array(campaignStep).min(1).max(24),
 }).strict();
 export const campaignDefinition = z.object({ schemaVersion: z.literal(1), steps: z.array(campaignStep).min(1).max(25), splits: z.array(campaignSplit).max(6).optional() }).strict().superRefine((definition, context) => {
   const issue = (message: string) => context.addIssue({ code: "custom", message });
@@ -29,16 +29,17 @@ export const campaignDefinition = z.object({ schemaVersion: z.literal(1), steps:
       if ((steps[index].kind === "wait") === (steps[index - 1].kind === "wait")) issue("Message and wait steps must alternate");
     }
   };
-  validateChain(definition.steps);
+  const startSplit = definition.splits?.find(split => split.afterStepId === "start");
+  validateChain(definition.steps, Boolean(startSplit));
   const anchors = new Set<string>();
   for (const split of definition.splits || []) {
     const anchor = definition.steps.find(step => step.id === split.afterStepId);
-    if (!anchor || anchor.kind === "wait") issue("Split paths must follow a message in the main sequence");
+    if (split.afterStepId !== "start" && (!anchor || anchor.kind === "wait")) issue("Split paths must follow a message in the main sequence");
     if (split.condition && (anchor?.kind !== "linkedin" || anchor.action !== "connect")) issue("Wait for acceptance must follow a LinkedIn connection request in the main sequence");
     if (anchors.has(split.afterStepId)) issue("A message can have only one split");
     anchors.add(split.afterStepId);
-    validateChain(split.pathA, true);
-    validateChain(split.pathB, true);
+    validateChain(split.pathA, split.afterStepId !== "start");
+    validateChain(split.pathB, split.afterStepId !== "start");
   }
   const steps = campaignStepEntries(definition).map(entry => entry.step);
   if (steps.length > 25) issue("Sequences can contain at most 25 message and wait nodes across all paths");
@@ -53,10 +54,12 @@ export type CampaignStepEntry = { step: CampaignStep; split?: CampaignSplit; pat
 
 // Keep runtime indices monotonic on either path, and unchanged for old versions.
 export function campaignStepEntries(definition: CampaignDraft): CampaignStepEntry[] {
-  return definition.steps.flatMap(step => {
+  const start = definition.splits?.find(split => split.afterStepId === "start");
+  const branches = start ? (["pathA", "pathB"] as const).flatMap(path => start[path].map(step => ({ step, split: start, path }))) : [];
+  return [...branches, ...definition.steps.flatMap(step => {
     const split = definition.splits?.find(item => item.afterStepId === step.id);
     return [{ step }, ...(split ? (["pathA", "pathB"] as const).flatMap(path => split[path].map(step => ({ step, split, path }))) : [])];
-  });
+  })];
 }
 
 export function campaignPathFor(split: CampaignSplit, routingKey: string): "pathA" | "pathB" {
@@ -65,6 +68,13 @@ export function campaignPathFor(split: CampaignSplit, routingKey: string): "path
   let hash = 2166136261;
   for (const char of `${routingKey}:${split.id}`) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
   return (hash >>> 0) % 100 < split.percentage ? "pathA" : "pathB";
+}
+
+export function campaignFirstStepIndex(definition: CampaignDraft, routingKey: string) {
+  const split = definition.splits?.find(split => split.afterStepId === "start");
+  if (!split) return 0;
+  const step = split[campaignPathFor(split, routingKey)][0];
+  return campaignStepEntries(definition).findIndex(entry => entry.step.id === step.id);
 }
 
 export function campaignNextOptions(definition: CampaignDraft, sentIndex: number) {

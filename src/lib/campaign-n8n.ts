@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { campaignNextOptions, campaignStepEntries, type CampaignDefinition } from "@/domain/campaign";
+import { campaignNextOptions, campaignPathFor, campaignStepEntries, type CampaignDefinition } from "@/domain/campaign";
 
 type Node = { id: string; name: string; type: string; typeVersion: number; position: [number, number]; parameters: Record<string, unknown>; credentials?: Record<string, unknown>; webhookId?: string };
 type Link = { node: string; type: "main"; index: number };
@@ -67,7 +67,17 @@ export function buildSequenceWorkflow(input: { versionId: string; sequenceName: 
     link(retryName, retryWait);
     link(retryWait, sendName);
   }
-  link("Start contact", nameFor("Send", 0));
+  const startSplit = input.definition.splits?.find(split => split.afterStepId === "start");
+  if (startSplit) {
+    const splitName = `Split: ${startSplit.title} [${startSplit.id}]`;
+    const choosePath = `={{ (${campaignPathFor.toString()})(${JSON.stringify(startSplit)}, $('Start contact').first().json.body.enrolmentId) }}`;
+    add(splitName, "if", 2.2, { conditions: condition(choosePath, "pathA") }, 300, 300);
+    link("Start contact", splitName);
+    (["pathA", "pathB"] as const).forEach((path, branch) => {
+      const index = entries.findIndex(entry => entry.step.id === startSplit[path][0].id);
+      link(splitName, nameFor("Send", index), branch);
+    });
+  } else link("Start contact", nameFor("Send", 0));
   const waits = new Set<string>();
   for (const { index } of actions) {
     const options = campaignNextOptions(input.definition, index);

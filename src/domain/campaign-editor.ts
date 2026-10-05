@@ -17,7 +17,7 @@ export function parseCampaignClipboard(value: unknown): CampaignClipboard | null
     const steps = data.steps.map(step => campaignStep.safeParse(step));
     if (steps.some(step => !step.success)) return null;
     const parsed = steps.map(step => step.data!);
-    return parsed.length >= 2 && parsed.length <= 24 && parsed[0].kind === "wait" && parsed.at(-1)?.kind !== "wait" && parsed.every((step, index) => index === 0 || (step.kind === "wait") !== (parsed[index - 1].kind === "wait")) ? { kind: "path", steps: parsed } : null;
+    return parsed.length >= 1 && parsed.length <= 24 && parsed.at(-1)?.kind !== "wait" && parsed.every((step, index) => index === 0 || (step.kind === "wait") !== (parsed[index - 1].kind === "wait")) ? { kind: "path", steps: parsed } : null;
   }
   return null;
 }
@@ -49,16 +49,24 @@ export function insertCampaignMessage(draft: CampaignDraft, source: string, targ
   const sourceSplit = draft.splits?.find(split => split.id === source);
   const targetContext = campaignChain(draft, target);
   const startsPath = sourceSplit && targetContext?.split?.id === sourceSplit.id;
-  const context = sourceSplit ? startsPath ? targetContext : campaignChain(draft, sourceSplit.afterStepId) : campaignChain(draft, source) || targetContext;
+  const beforeStartSplit = source === "start" && target === draft.splits?.find(split => split.afterStepId === "start")?.id;
+  const sharedAfterStart = sourceSplit?.afterStepId === "start" && !startsPath;
+  const context = beforeStartSplit || sharedAfterStart
+    ? { step: draft.steps[0], steps: draft.steps }
+    : sourceSplit
+      ? startsPath ? targetContext : campaignChain(draft, sourceSplit.afterStepId)
+      : campaignChain(draft, source) || targetContext;
   if (!context) throw new Error("Select a connection in the sequence");
   const steps = [...context.steps];
   const index = source === "start" || startsPath ? 0 : steps.findIndex(step => step.id === (sourceSplit?.afterStepId || source)) + 1;
-  const additions = index === 0 && !context.split || steps[index - 1]?.kind === "wait" ? [message, wait(days)] : [wait(days), message];
+  const startsWithMessage = index === 0 && (!context.split || context.split.afterStepId === "start") && !sharedAfterStart;
+  const additions = startsWithMessage || steps[index - 1]?.kind === "wait" ? [message, wait(days)] : [wait(days), message];
+  if (beforeStartSplit) additions.pop();
   // A final message needs only its preceding wait, never a trailing wait.
   if (index === steps.length && additions[0].kind !== "wait") additions.pop();
   steps.splice(index, 0, ...additions);
   let next = replaceCampaignChain(draft, context, steps);
-  if (draft.splits?.some(split => split.id === target)) next = { ...next, splits: next.splits?.map(split => split.id === target ? { ...split, afterStepId: message.id } : split) };
+  if (draft.splits?.some(split => split.id === target)) next = { ...next, splits: next.splits?.map(split => split.id === target ? { ...split, afterStepId: message.id, ...(beforeStartSplit ? { pathA: [wait(days), ...split.pathA], pathB: [wait(days), ...split.pathB] } : {}) } : split) };
   if (campaignStepEntries(next).length > 25) throw new Error("Sequences can contain at most 25 message and wait nodes");
   return { draft: next, selectedId: message.id };
 }

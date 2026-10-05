@@ -57,7 +57,9 @@ describe("sequence editor operations", () => {
     const draft = fixture(), copied = copyCampaignNode(draft, draft.steps[2].id)!;
     expect(parseCampaignClipboard({ acquireSequenceClipboard: 1, ...copied })).toEqual(copied);
     expect(parseCampaignClipboard({ acquireSequenceClipboard: 1, kind: "message", message: {}, days: 2 })).toBeNull();
-    expect(parseCampaignClipboard({ acquireSequenceClipboard: 1, kind: "path", steps: [email("No wait")] })).toBeNull();
+    const introduction = email("Introduction");
+    expect(parseCampaignClipboard({ acquireSequenceClipboard: 1, kind: "path", steps: [introduction] })).toEqual({ kind: "path", steps: [introduction] });
+    expect(parseCampaignClipboard({ acquireSequenceClipboard: 1, kind: "path", steps: [wait()] })).toBeNull();
     expect(parseCampaignClipboard("random text")).toBeNull();
   });
   it("reconnects pairs within and across paths and rejects invalid or cyclic requests", () => {
@@ -86,4 +88,18 @@ describe("sequence editor operations", () => {
     expect(campaignHistoryReducer(undone, { type: "edit", draft: { ...draft, steps: [email("Other")] } }).future).toEqual([]);
     expect(campaignHistoryReducer(history, { type: "reset", draft: null })).toEqual({ present: null, past: [], future: [] });
   });
+});
+
+it("inserts messages within and before a subscription split without breaking alternation", () => {
+  const split = { id: randomUUID(), afterStepId: "start", title: "Initial", percentage: 50, pathA: [email("Intro A")], pathB: [email("Intro B")] };
+  const draft: CampaignDraft = { steps: [wait(), email("Shared")], splits: [split] };
+  const inPath = insertCampaignMessage(draft, split.id, split.pathA[0].id, email("New intro"));
+  expect(campaignDefinition.safeParse({ ...inPath.draft, schemaVersion: 1 }).success).toBe(true);
+  expect(inPath.draft.splits![0].pathA.map(step => step.kind)).toEqual(["email", "wait", "email"]);
+  const before = insertCampaignMessage(draft, "start", split.id, email("Before split"));
+  expect(campaignDefinition.safeParse({ ...before.draft, schemaVersion: 1 }).success).toBe(true);
+  expect(before.draft.splits![0].afterStepId).toBe(before.selectedId);
+  expect(before.draft.splits![0].pathA.map(step => step.kind)).toEqual(["wait", "email"]);
+  const shared = insertCampaignMessage(draft, split.id, draft.steps[0].id, email("Shared follow-up"));
+  expect(campaignDefinition.safeParse({ ...shared.draft, schemaVersion: 1 }).success).toBe(true);
 });

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { campaignDefinition, campaignNextOptions, campaignPathFor, campaignStepEntries, nextEmailAfter, type CampaignDefinition, type CampaignStep } from "./campaign";
+import { campaignDefinition, campaignFirstStepIndex, campaignNextOptions, campaignPathFor, campaignStepEntries, nextEmailAfter, type CampaignDefinition, type CampaignStep } from "./campaign";
 
 const email = (title: string): CampaignStep => ({ id: randomUUID(), kind: "email", title, subject: "Hello", body: "Hi" });
 const wait = (days: number): CampaignStep => ({ id: randomUUID(), kind: "wait", title: "Wait", days });
@@ -70,4 +70,23 @@ it("saves free canvas positions without changing branch routing", () => {
   const sentAt = new Date("2026-10-01T00:00:00Z");
   expect(nextEmailAfter(restored, 0, sentAt, "contact")).toEqual(nextEmailAfter(definition, 0, sentAt, "contact"));
   expect(campaignDefinition.safeParse({ ...positioned, steps: [{ ...positioned.steps[0], position: { x: Infinity, y: 0 } }] }).success).toBe(false);
+});
+
+it("starts on either subscription branch and rejoins the shared sequence after its wait", () => {
+  const definition: CampaignDefinition = { schemaVersion: 1, steps: [wait(3), email("Shared")], splits: [{ id: randomUUID(), title: "Initial variants", afterStepId: "start", percentage: 30, pathA: [email("Intro A"), wait(2), email("A follow-up")], pathB: [email("Intro B")] }] };
+  expect(campaignDefinition.parse(definition)).toEqual(definition);
+  const entries = campaignStepEntries(definition);
+  const split = definition.splits![0];
+  for (const path of ["pathA", "pathB"] as const) {
+    const key = Array.from({ length: 100 }, (_, i) => `contact-${i}`).find(key => campaignPathFor(split, key) === path)!;
+    const index = campaignFirstStepIndex(definition, key);
+    expect(entries[index].step.id).toBe(split[path][0].id);
+    expect(campaignFirstStepIndex(definition, key)).toBe(index);
+    const lastIndex = entries.findIndex(entry => entry.step.id === split[path].at(-1)!.id);
+    expect(nextEmailAfter(definition, lastIndex, new Date("2026-10-01T00:00:00Z"), key)).toEqual({ index: 5, at: new Date("2026-10-04T00:00:00Z") });
+  }
+  expect(campaignDefinition.safeParse({ ...definition, steps: definition.steps.slice(1) }).success).toBe(false);
+  expect(campaignDefinition.safeParse({ ...definition, splits: [{ ...split, pathA: [wait(1), email("Delayed")] }] }).success).toBe(false);
+  expect(campaignDefinition.safeParse({ ...definition, splits: [{ ...split, condition: { kind: "linkedin_connected", timeoutDays: 7 } }] }).success).toBe(false);
+  expect(campaignDefinition.safeParse({ ...definition, splits: [split, { ...split, id: randomUUID() }] }).success).toBe(false);
 });
