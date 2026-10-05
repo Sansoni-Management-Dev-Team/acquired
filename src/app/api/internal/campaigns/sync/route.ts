@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 
 export async function POST(request: Request) {
   const expected = process.env.OUTREACH_WORKER_SECRET;
-  const supplied = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  const supplied = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
   if (!expected || !supplied) return Response.json({ error: "Unauthorised" }, { status: 401 });
   const left = Buffer.from(expected);
   const right = Buffer.from(supplied);

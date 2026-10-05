@@ -7,7 +7,7 @@ const linkedinStep = emailStep.omit({ subject: true }).extend({
   kind: z.literal("linkedin"), action: z.enum(["message", "connect"]).optional(),
   body: z.string().trim().max(10000),
 }).superRefine((step, context) => {
-  if (step.action === "message" && step.body.length > 4000) context.addIssue({ code: "custom", message: "LinkedIn messages must be at most 4000 characters" });
+  if (step.action !== "connect" && step.body.length > 4000) context.addIssue({ code: "custom", message: "LinkedIn messages must be at most 4000 characters" });
   if (step.action === "connect" ? step.body.length > 200 : !step.body.length)
     context.addIssue({ code: "custom", message: step.action === "connect" ? "Connection notes must be at most 200 characters" : "LinkedIn messages need a body" });
 });
@@ -143,21 +143,25 @@ export function acceptancePath(connected: boolean | null, sentAt: Date, timeoutD
   return now.getTime() >= sentAt.getTime() + timeoutDays * 86400_000 ? "pathB" : null;
 }
 
-export function campaignSendWindowOpen(input: Date, timeZone = "Australia/Melbourne") {
-  const formatter = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short", hour: "numeric", hourCycle: "h23" });
+function sendWindowOpenWithFormatter(input: Date, formatter: Intl.DateTimeFormat) {
   const parts = formatter.formatToParts(input);
   const day = parts.find(part => part.type === "weekday")?.value;
   const hour = Number(parts.find(part => part.type === "hour")?.value);
   return day !== "Sat" && day !== "Sun" && hour >= 9 && hour < 17;
 }
 
+export function campaignSendWindowOpen(input: Date, timeZone = "Australia/Melbourne") {
+  return sendWindowOpenWithFormatter(input, new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short", hour: "numeric", hourCycle: "h23" }));
+}
+
 export function nextAllowedCampaignSend(input: Date, timeZone = "Australia/Melbourne") {
-  if (campaignSendWindowOpen(input, timeZone)) return new Date(input);
+  const formatter = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short", hour: "numeric", hourCycle: "h23" });
+  if (sendWindowOpenWithFormatter(input, formatter)) return new Date(input);
   const candidate = new Date(input);
   candidate.setUTCSeconds(0, 0);
   candidate.setUTCMinutes(candidate.getUTCMinutes() + 1);
   for (let index = 0; index < 7 * 24 * 60; index++) {
-    if (campaignSendWindowOpen(candidate, timeZone)) return candidate;
+    if (sendWindowOpenWithFormatter(candidate, formatter)) return candidate;
     candidate.setUTCMinutes(candidate.getUTCMinutes() + 1);
   }
   throw new Error("Could not find an allowed sending window");

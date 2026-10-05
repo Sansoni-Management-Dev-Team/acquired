@@ -1,9 +1,10 @@
-import makeWASocket, { DisconnectReason, Browsers, proto } from '@whiskeysockets/baileys';
+import makeWASocket, { DisconnectReason, Browsers, proto, jidNormalizedUser } from '@whiskeysockets/baileys';
 import { randomUUID } from 'node:crypto';
 import { RecentHistory } from './history.mjs';
 import { serviceConfig } from './routing.mjs';
 import QRCode from 'qrcode';
 import pino from 'pino';
+import { whatsappReplyEvent, replyCursor, parseReplyCursor } from './replies.mjs';
 
 export class Sessions {
   constructor(store, socketFactory = makeWASocket, config = store.config || serviceConfig()) {
@@ -79,6 +80,7 @@ export class Sessions {
     const socket = this.socketFactory({ auth: session.auth.state, logger: pino({ level: 'silent' }), browser: Browsers.ubuntu('Acquire'), syncFullHistory: false,
       shouldSyncHistoryMessage: () => true, markOnlineOnConnect: false, getMessage: async () => undefined });
     session.socket = socket;
+    session.replyReady = false;
     socket.ws?.on('close', () => console.info(JSON.stringify({ event: 'whatsapp_transport_close' })));
     const enqueue = fn => {
       session.events = session.events.then(async () => { if (!session.stopped && session.socket === socket) await fn(); }).catch(async () => {
@@ -91,13 +93,15 @@ export class Sessions {
       });
     };
     socket.ev.on('messaging-history.set', data => enqueue(async () => {
+      await this.persistReplies(session, data.messages);
       session.history.addContacts(data.contacts); session.history.addMessages(data.messages); session.history.syncEvents++;
     }));
-    socket.ev.on('messages.upsert', data => enqueue(async () => session.history.addMessages(data.messages)));
+    socket.ev.on('messages.upsert', data => enqueue(async () => { await this.persistReplies(session, data.messages); session.history.addMessages(data.messages); }));
     socket.ev.on('contacts.upsert', contacts => enqueue(async () => session.history.addContacts(contacts)));
     socket.ev.on('contacts.update', contacts => enqueue(async () => session.history.addContacts(contacts)));
     socket.ev.on('creds.update', () => enqueue(() => session.auth.saveCreds()));
     socket.ev.on('connection.update', update => enqueue(async () => {
+      if (update.receivedPendingNotifications) session.replyReady = true;
       if (update.qr) { session.qr = await QRCode.toDataURL(update.qr); session.status = 'qr'; await session.auth.update('qr'); }
       if (update.connection === 'open') {
         console.info(JSON.stringify({ event: 'whatsapp_connection_open' }));
@@ -129,6 +133,47 @@ export class Sessions {
     const matches = query ? session.history.searchContacts(query) : [];
     const jids = chatId ? [chatId] : query ? [...new Set(matches.flatMap(contact => [contact.id, contact.lid, contact.phoneNumber].filter(Boolean)))] : undefined;
     return { contacts: matches, messages: session.history.recent(limit, jids), cachedMessages: session.history.messages.size, cachedContacts: session.history.contacts.size, syncEvents: session.history.syncEvents };
+  }
+  replyAccount(session) {
+    const id = session.socket.user?.id || session.auth.state.creds.me?.id;
+    if (!id) throw new Error('WhatsApp reply account is not identified');
+    return `${session.auth.connectionId}:${jidNormalizedUser(id)}`;
+  }
+  async persistReplies(session, messages) {
+    if (!this.store.replyMonitoringEnabled) return;
+    const events = [];
+    for (const message of messages || []) {
+      const event = await whatsappReplyEvent(message, lid => session.socket.signalRepository?.lidMapping?.getPNForLID(lid));
+      if (event) events.push(event);
+    }
+    if (events.length) await session.auth.saveReplyEvents(this.replyAccount(session), events);
+  }
+  async readReplies(actor, cursor) {
+    await this.store.authorize(actor);
+    if (!this.store.replyMonitoringEnabled) throw Object.assign(new Error('Reply monitoring disabled'), { status: 503 });
+    const session = this.sessions.get(this.key(actor));
+    if (!session || session.stopped || session.status !== 'connected' || !session.replyReady) throw Object.assign(new Error('Reply inbox not synchronized'), { status: 409 });
+    // Drain persisted socket events before declaring the inbox checked.
+    let drained = false;
+    for (let attempt = 0; attempt < 5; attempt++) { const pending = session.events; await pending; if (pending === session.events) { drained = true; break; } }
+    if (!drained || session.stopped || session.status !== 'connected') throw new Error('Reply inbox is busy or disconnected');
+    const accountIdentity = this.replyAccount(session);
+    const after = parseReplyCursor(cursor, accountIdentity);
+    const checkedAt = new Date().toISOString();
+    const records = await session.auth.readReplyEvents(accountIdentity, after);
+    const page = records.slice(0, 500);
+    const events = [];
+    for (const record of page) {
+      let identity = record.from_identity;
+      if (!identity && record.remote_identity.endsWith('@lid')) {
+        identity = await session.socket.signalRepository?.lidMapping?.getPNForLID(record.remote_identity);
+        if (!/^[1-9]\d{6,14}@s\.whatsapp\.net$/.test(identity || '')) throw new Error('WhatsApp sender identity requires review');
+        await session.auth.resolveReplyIdentity(record.id, identity);
+      }
+      if (!identity) throw new Error('WhatsApp sender identity requires review');
+      events.push({ id: record.provider_event_id, fromIdentity: identity, receivedAt: new Date(record.received_at).toISOString() });
+    }
+    return { accountIdentity, events, nextCursor: replyCursor(accountIdentity, String(page.at(-1)?.id || after)), complete: records.length <= 500, checkedAt };
   }
   async requestHistory(actor, chatId) {
     await this.store.authorize(actor);

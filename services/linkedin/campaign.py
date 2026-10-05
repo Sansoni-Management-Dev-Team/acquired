@@ -68,9 +68,13 @@ async def operate(service, owner, body):
                   'recipient': observed['recipient'], 'text': text, 'status': 'queued',
                   'fingerprint': fingerprint, 'fixture': worker.fixture, 'createdAt': now,
                   'approvedAt': now, 'approvedUntil': now + 86400, 'campaignKey': key}
-        if operation == 'connect' and observed['connected']:
-            record.update(status='skipped', reason='Already connected', attemptedAt=now)
         data.setdefault('actions', {})[action_id] = record
+        service.VAULT.save(owner, data)
+    # Recheck queued retries too: the recipient may have connected while the
+    # invitation was waiting for its dispatch budget.
+    if operation == 'connect' and observed['connected']:
+        record.update(status='skipped', reason='Already connected', attemptedAt=now)
+        data['actions'][action_id] = record
         service.VAULT.save(owner, data)
     if record['status'] == 'queued':
         # Only a fresh call from the eligible enrolment may execute this action.

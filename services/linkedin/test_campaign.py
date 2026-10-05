@@ -42,6 +42,34 @@ def test_skip_existing_connection_and_replay(setup, monkeypatch):
     assert provider.call_count == 0
 
 
+def test_queued_invitation_skips_if_recipient_connects_before_retry(setup, monkeypatch):
+    client, vault, owner, lookup, provider = prepare(setup, monkeypatch)
+    queued = call(client, 'post', '/campaign', json=request()).json()['action']
+    assert queued['status'] == 'queued'
+    data = vault.load(owner)
+    state = server.policy.control(data, True)
+    state['relationships'].clear()
+    state['nextRequestAt'] = 0
+    vault.save(owner, data)
+    lookup.return_value = ({'status': 200}, {'connected': True, 'recipient': 'urn:li:fsd_profile:alex'})
+    result = call(client, 'post', '/campaign', json=request()).json()['action']
+    assert result['id'] == queued['id']
+    assert result['status'] == 'skipped'
+    assert result['reason'] == 'Already connected'
+    assert lookup.call_count == 2
+    assert provider.call_count == 0
+    assert vault.load(owner)['actions'][queued['id']]['status'] == 'skipped'
+    assert call(client, 'post', '/campaign', json=request()).json()['action']['status'] == 'skipped'
+    assert provider.call_count == 0
+
+
+def test_unknown_connection_status_never_sends_invitation(setup, monkeypatch):
+    client, _, _, lookup, provider = prepare(setup, monkeypatch, None)
+    assert call(client, 'post', '/campaign', json=request()).status_code == 409
+    assert lookup.call_count == 1
+    assert provider.call_count == 0
+
+
 def test_nonconnection_and_unknown_status_never_send_message(setup, monkeypatch):
     client, _, _, _, provider = prepare(setup, monkeypatch, False)
     assert call(client, 'post', '/campaign', json=request('message')).status_code == 409

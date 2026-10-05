@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, index, integer, jsonb, pgEnum, pgTable, primaryKey, real, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { bigserial, boolean, check, index, integer, jsonb, pgEnum, pgTable, primaryKey, real, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 
 export const targetBand = pgEnum("target_band", ["cold", "warm", "hot", "excluded"]);
 export const opportunityQualification = pgEnum("opportunity_qualification", ["priority", "develop", "research", "excluded"]);
@@ -228,6 +228,27 @@ export const campaignContactHolds = pgTable("campaign_contact_holds", {
   email: text("email").notNull(), reason: text("reason").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, table => [uniqueIndex("campaign_contact_hold_email_idx").on(table.organizationId, table.email)]);
 
+export const campaignReplyIdentities = pgTable("campaign_reply_identities", {
+  organizationId: text("organization_id").notNull().references(() => organization.id), ownerUserId: text("owner_user_id").notNull().references(() => user.id),
+  contactId: uuid("contact_id").notNull().references(() => contacts.id), channel: text("channel").notNull(), identity: text("identity").notNull(), sourceIdentity: text("source_identity").notNull(), email: text("email").notNull(), since: timestamp("since", { withTimezone: true }).notNull(),
+}, table => [primaryKey({ columns: [table.organizationId, table.ownerUserId, table.contactId, table.channel, table.identity, table.email] }), index("campaign_reply_identity_match_idx").on(table.organizationId, table.ownerUserId, table.channel, table.identity), check("campaign_reply_identity_channel_check", sql`${table.channel} IN ('email','whatsapp','linkedin')`)]).enableRLS();
+
+export const campaignReplyReceipts = pgTable("campaign_reply_receipts", {
+  organizationId: text("organization_id").notNull().references(() => organization.id), ownerUserId: text("owner_user_id").notNull().references(() => user.id),
+  channel: text("channel").notNull(), accountIdentity: text("account_identity").notNull(), providerEventId: text("provider_event_id").notNull(), fromIdentity: text("from_identity").notNull(), receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+}, table => [primaryKey({ columns: [table.organizationId, table.ownerUserId, table.channel, table.accountIdentity, table.providerEventId] }), index("campaign_reply_receipt_identity_idx").on(table.organizationId, table.ownerUserId, table.channel, table.fromIdentity, table.receivedAt), check("campaign_reply_receipt_channel_check", sql`${table.channel} IN ('email','whatsapp','linkedin')`)]).enableRLS();
+
+export const campaignReplyHolds = pgTable("campaign_reply_holds", {
+  organizationId: text("organization_id").notNull().references(() => organization.id), contactId: uuid("contact_id").notNull().references(() => contacts.id),
+  channel: text("channel").notNull(), providerEventId: text("provider_event_id").notNull(), receivedAt: timestamp("received_at", { withTimezone: true }).notNull(), reason: text("reason").notNull(),
+}, table => [primaryKey({ columns: [table.organizationId, table.contactId] }), check("campaign_reply_hold_channel_check", sql`${table.channel} IN ('email','whatsapp','linkedin')`), check("campaign_reply_hold_reason_check", sql`${table.reason} IN ('reply_received','reply_identity_ambiguous')`)]).enableRLS();
+
+export const campaignReplyMonitors = pgTable("campaign_reply_monitors", {
+  organizationId: text("organization_id").notNull().references(() => organization.id), ownerUserId: text("owner_user_id").notNull().references(() => user.id), channel: text("channel").notNull(),
+  accountIdentity: text("account_identity"), cursor: text("cursor"), lastSuccessAt: timestamp("last_success_at", { withTimezone: true }), lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }), lastError: text("last_error"),
+  leaseToken: uuid("lease_token"), leaseUntil: timestamp("lease_until", { withTimezone: true }),
+}, table => [primaryKey({ columns: [table.organizationId, table.ownerUserId, table.channel] }), check("campaign_reply_monitor_channel_check", sql`${table.channel} IN ('email','whatsapp','linkedin')`)]).enableRLS();
+
 export const campaignContactAssignments = pgTable("campaign_contact_assignments", {
   id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id),
   contactId: uuid("contact_id").notNull().references(() => contacts.id), email: text("email").notNull(), ownerUserId: text("owner_user_id").notNull().references(() => user.id),
@@ -297,3 +318,9 @@ export const whatsappSessionLeases = pgTable("whatsapp_session_leases", {
   ownerToken: uuid("owner_token").notNull(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 }, table => [index("whatsapp_session_lease_expiry_idx").on(table.expiresAt)]).enableRLS();
+
+// Durable inbound metadata only. WhatsApp message bodies remain in the channel.
+export const whatsappReplyEvents = pgTable("whatsapp_reply_events", {
+  id: bigserial("id", { mode: "bigint" }).primaryKey(), connectionId: uuid("connection_id").notNull().references(() => whatsappConnections.id, { onDelete: "cascade" }),
+  accountIdentity: text("account_identity").notNull(), providerEventId: text("provider_event_id").notNull(), remoteIdentity: text("remote_identity").notNull(), fromIdentity: text("from_identity"), receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
+}, table => [uniqueIndex("whatsapp_reply_event_provider_idx").on(table.connectionId, table.accountIdentity, table.providerEventId), index("whatsapp_reply_event_cursor_idx").on(table.connectionId, table.accountIdentity, table.id)]).enableRLS();

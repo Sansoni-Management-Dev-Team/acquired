@@ -18,7 +18,7 @@ export function createStore(env, options = {}) {
   }
   function owns(actor) { return shardFor(actor, config.shardIds) === config.shardId; }
   return {
-    config, authorize, owns,
+    config, authorize, owns, replyMonitoringEnabled: env.CAMPAIGN_REPLY_MONITOR_ENABLED === 'true',
     async health() {
       await pool.query('SELECT id FROM whatsapp_connections LIMIT 0');
       await pool.query('SELECT connection_id FROM whatsapp_auth_keys LIMIT 0');
@@ -97,6 +97,21 @@ export function createStore(env, options = {}) {
         clearInterval(timer); await pool.query('DELETE FROM whatsapp_session_leases WHERE connection_id=$1 AND owner_token=$2', [row.id, token]); throw error;
       }
       const handle = {
+        connectionId: row.id,
+        saveReplyEvents: (accountIdentity, events) => run(async connection => {
+          // Deduplicate a sync batch before ON CONFLICT, which cannot update the
+          // same provider row twice in one statement. Persist metadata in bulk.
+          const unique = [...new Map(events.map(event => [event.id,event])).values()];
+          for (let offset=0; offset<unique.length; offset+=500) {
+            const batch = unique.slice(offset,offset+500);
+            await connection.query(`INSERT INTO whatsapp_reply_events (connection_id,account_identity,provider_event_id,remote_identity,from_identity,received_at)
+              SELECT $1,$2,provider_id,remote_identity,from_identity,received_at FROM unnest($3::text[],$4::text[],$5::text[],$6::timestamptz[]) AS batch(provider_id,remote_identity,from_identity,received_at)
+              ON CONFLICT (connection_id,account_identity,provider_event_id) DO UPDATE SET from_identity=COALESCE(whatsapp_reply_events.from_identity,EXCLUDED.from_identity)`,
+            [row.id,accountIdentity,batch.map(event=>event.id),batch.map(event=>event.remoteIdentity),batch.map(event=>event.fromIdentity),batch.map(event=>event.receivedAt)]);
+          }
+        }),
+        readReplyEvents: (accountIdentity, after) => run(async connection => (await connection.query('SELECT * FROM whatsapp_reply_events WHERE connection_id=$1 AND account_identity=$2 AND id>$3 ORDER BY id LIMIT 501', [row.id, accountIdentity, after])).rows),
+        resolveReplyIdentity: (eventId, identity) => run(connection => connection.query('UPDATE whatsapp_reply_events SET from_identity=$3 WHERE connection_id=$1 AND id=$2 AND from_identity IS NULL', [row.id, eventId, identity])),
         state: { creds, keys: {
           get: (type, ids) => run(async connection => {
             const result = await connection.query('SELECT key_id,encrypted_value FROM whatsapp_auth_keys WHERE connection_id=$1 AND key_type=$2 AND key_id=ANY($3::text[])', [row.id, type, ids]);

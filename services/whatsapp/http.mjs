@@ -21,7 +21,7 @@ export function serviceServer(store, sessions, secret) {
       const url = new URL(request.url, 'http://localhost');
       if (url.pathname === '/health' && request.method === 'GET') { await store.health(); return reply(200, { ok: true }); }
       if (url.pathname === '/metrics' && request.method === 'GET') return reply(200, sessions.metrics());
-      if (!['/connection', '/history', '/group', '/message'].includes(url.pathname) || !['GET','POST','DELETE'].includes(request.method)) return reply(404, { error: 'Not found' });
+      if (!['/connection', '/history', '/group', '/message', '/replies'].includes(url.pathname) || !['GET','POST','DELETE'].includes(request.method)) return reply(404, { error: 'Not found' });
       const actor = { organizationId: url.searchParams.get('organizationId'), userId: url.searchParams.get('userId') };
       if (!actor.organizationId || !actor.userId || actor.organizationId.length > 200 || actor.userId.length > 200) return reply(400, { error: 'Invalid owner' });
       if (store.config) {
@@ -38,6 +38,10 @@ export function serviceServer(store, sessions, secret) {
             redirect: 'error', signal: AbortSignal.timeout(45000) });
           return reply(result.status, await result.json());
         }
+      }
+      if (url.pathname === '/replies') {
+        if (request.method !== 'GET') return reply(405, { error: 'Method not allowed' });
+        return reply(200, await sessions.readReplies(actor, url.searchParams.get('cursor')));
       }
       if (url.pathname === '/message') {
         if (request.method !== 'POST') return reply(405, { error: 'Method not allowed' });

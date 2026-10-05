@@ -23,6 +23,16 @@ export function n8nCampaignEnabled() { return process.env.CAMPAIGN_N8N_ENABLED =
 export function buildSequenceWorkflow(input: { versionId: string; sequenceName: string; version: number; definition: CampaignDefinition; appUrl: string; credentialId?: string }) {
   const nodes: Node[] = [];
   const connections: Record<string, { main: Link[][] }> = {};
+  const names = new Map<string, string>();
+  const usedNames = new Set<string>();
+  const uniqueName = (key: string, preferred: string) => {
+    const existing = names.get(key);
+    if (existing) return existing;
+    let name = preferred;
+    for (let suffix = 2; usedNames.has(name); suffix++) name = `${preferred} (${suffix})`;
+    names.set(key, name); usedNames.add(name);
+    return name;
+  };
   const add = (name: string, type: string, typeVersion: number, parameters: Record<string, unknown>, x: number, y: number, credentials?: Record<string, unknown>) => {
     nodes.push({ id: randomUUID(), name, type: `n8n-nodes-base.${type}`, typeVersion, position: [x, y], parameters, ...(credentials ? { credentials } : {}) });
   };
@@ -39,7 +49,7 @@ export function buildSequenceWorkflow(input: { versionId: string; sequenceName: 
   const nameFor = (prefix: string, index: number) => {
     const step = entries[index].step;
     const duplicates = entries.filter(entry => entry.step.kind !== "wait" && entry.step.title === step.title).length > 1;
-    return `${prefix}: ${step.title}${duplicates ? ` [${index + 1}]` : ""}`;
+    return uniqueName(`${prefix}:${step.id}`, `${prefix}: ${step.title}${duplicates ? ` [${index + 1}]` : ""}`);
   };
   const condition = (leftValue: string, rightValue: string) => ({ options: { caseSensitive: true, leftValue: "", typeValidation: "strict", version: 2 }, conditions: [{ id: randomUUID(), leftValue, rightValue, operator: { type: "string", operation: "equals" } }], combinator: "and" });
   for (const { index } of actions) {
@@ -94,7 +104,7 @@ export function buildSequenceWorkflow(input: { versionId: string; sequenceName: 
     options.forEach((next, branch) => {
       const wait = entries[next.index - 1].step;
       const duplicate = entries.filter(entry => entry.step.kind === "wait" && entry.step.title === wait.title).length > 1;
-      const waitName = `Wait ${next.days} days: ${wait.title}${duplicate ? ` [${next.index}]` : ""}`;
+      const waitName = uniqueName(`wait:${wait.id}`, `Wait ${next.days} days: ${wait.title}${duplicate ? ` [${next.index}]` : ""}`);
       if (!waits.has(waitName)) {
         const y = entries[next.index].path === "pathA" ? 80 : entries[next.index].path === "pathB" ? 650 : 300;
         add(waitName, "wait", 1.1, { resume: "specificTime", dateTime: "={{ $json.nextStepAt }}" }, 250 + next.index * 530, y);

@@ -153,3 +153,18 @@ it("offers a split at subscription, renders both introductions and removes it cl
   expect(onChange.mock.lastCall![0]).toEqual({ steps: [first], splits: [] });
   expect(onSelect).toHaveBeenLastCalledWith(first.id);
 });
+
+it("renders hostile titles and message text as escaped content", () => {
+  const step: CampaignStep = { id: "b03dfa99-0b7c-47c5-9a76-a815e171b822", kind: "email", title: '<script>alert("title")</script>', subject: '<img src=x onerror="alert(1)">', body: '</textarea><script>alert("body")</script>' };
+  const html = renderToStaticMarkup(<CampaignSequenceEditor draft={{ steps: [step] }} selectedStepId={step.id} onChange={() => {}} onSelect={() => {}} />);
+  expect(html).not.toContain("<script>"); expect(html).not.toContain("<img src=x"); expect(html).toContain("&lt;script&gt;");
+});
+
+it("does not accept a self-loop or an edge to an unknown node", () => {
+  const draft = deletionDraft(); const onChange = vi.fn();
+  renderToStaticMarkup(<CampaignSequenceEditor draft={draft} selectedStepId="first" onChange={onChange} onSelect={() => {}} />);
+  for (const connection of [{ source: "first", target: "first" }, { source: "missing", target: "a-wait" }, { source: "a-message", target: "missing" }]) {
+    expect(capture.flow!.isValidConnection!({ ...connection, sourceHandle: null, targetHandle: null })).toBe(false);
+  }
+  expect(onChange).not.toHaveBeenCalled();
+});

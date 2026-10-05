@@ -5,9 +5,10 @@ import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
-import { buildSequenceWorkflow } from "../src/lib/campaign-n8n.ts";
+import "./campaign-test-loader.mjs";
+const { buildSequenceWorkflow } = await import("../src/lib/campaign-n8n.ts");
 
-const apiKey = JSON.parse(await readFile(".local-data/n8n-test-api-key.json", "utf8")).key;
+const apiKey = process.env.CAMPAIGN_N8N_API_KEY || JSON.parse(await readFile(".local-data/n8n-test-api-key.json", "utf8")).key;
 const base = "http://127.0.0.1:5679";
 const versionId = randomUUID();
 const enrolmentId = randomUUID();

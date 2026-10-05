@@ -1,5 +1,6 @@
 import asyncio
 import contextlib
+import copy
 import hashlib
 import hmac
 import json
@@ -21,6 +22,7 @@ from playwright.async_api import async_playwright
 from storage import Vault
 from adapter import request as provider_request, conversations, payload, PATHS
 import policy
+import replies
 
 SECRET = os.environ['LINKEDIN_SERVICE_SECRET']
 if len(SECRET) < 32:
@@ -40,7 +42,7 @@ class Worker:
         self.origin = 'http://127.0.0.1:8080' if fixture else 'https://www.linkedin.com'
         self.directory = tempfile.mkdtemp(prefix='linkedin-profile-')
         self.processes = []
-        self.sync_token = self.mailbox = self.query_id = self.conversation_variables = self.conversation_request = None
+        self.sync_token = self.mailbox = self.query_id = self.conversation_variables = self.conversation_request = self.message_request = None
         self.touched = time.time()
         self.agent_busy = False
         self.viewer_count = 0
@@ -96,6 +98,8 @@ class Worker:
             self.sync_token, self.mailbox, self.query_id = token[1] if token else None, mailbox[1], query_id
             self.conversation_variables = query.get('variables', [''])[0]
             self.conversation_request = parsed.path + '?' + parsed.query
+        if request.method == 'GET' and query_id.startswith('messengerMessages.') and 'conversationUrn:' in variables:
+            self.message_request = parsed.path + '?' + parsed.query
 
     async def authenticated(self):
         cookies = await asyncio.wait_for(self.context.cookies(self.origin), 5)
@@ -199,7 +203,7 @@ async def dispatch_action(owner, worker, record):
             data = VAULT.load(owner)
             policy.provider_result(data, result, worker.fixture)
             record['providerStatus'] = result['status']
-            if 200 <= result['status'] < 300:
+            if 200 <= result['status'] < 300 and not result.get('redirect'):
                 record['status'] = 'submitted'
                 response = result.get('data') or {}
                 record['providerId'] = response.get('id') or response.get('entityUrn') if isinstance(response, dict) else None
@@ -530,6 +534,49 @@ async def queue(request: Request):
     owner=owner_for(request)
     async with locks.setdefault(owner,asyncio.Lock()):
         return dashboard(owner)
+
+
+@app.get('/replies')
+async def reply_inbox(request: Request):
+    owner = owner_for(request)
+    if os.getenv('LINKEDIN_REPLY_MONITOR_ENABLED') != 'true':
+        raise HTTPException(503,'LinkedIn reply monitoring has not been enabled')
+    async with locks.setdefault(owner,asyncio.Lock()):
+        worker = workers.get(owner)
+        if not worker or await worker.status() != 'connected': raise HTTPException(409,'LinkedIn reply monitor needs reconnection')
+        if not worker.mailbox or not worker.conversation_request or not getattr(worker,'message_request',None):
+            raise HTTPException(409,'Open LinkedIn Messaging and a conversation to capture the account read queries')
+        cursor = request.query_params.get('cursor')
+        if cursor and len(cursor)>4000: raise HTTPException(400,'Invalid reply checkpoint')
+        data = VAULT.load(owner)
+        state = policy.control(data,worker.fixture)
+        # Validate an existing checkpoint before spending the provider read budget.
+        if cursor and state.get('replyJournal'):
+            try: replies.journal_page(state,cursor)
+            except (ValueError,KeyError,TypeError): raise HTTPException(409,'Reply account or checkpoint changed; review the connection')
+        now = time.time()
+        due,reason = policy.reserve(data,'read',worker.fixture,now)
+        VAULT.save(owner,data)
+        if due is None or due>now:
+            raise HTTPException(429,reason,headers={'Retry-After':str(max(1,int((due or now+300)-now)))})
+        async def read(worker,path):
+            result = await provider_request(worker,path)
+            policy.provider_result(data,result,worker.fixture)
+            return result
+        previous = copy.deepcopy(state.get('replyJournal'))
+        try:
+            await replies.advance_scan(worker,state,read,now)
+            result = replies.journal_page(state,cursor)
+            VAULT.save(owner,data)
+            worker.touched = now
+            return result
+        except Exception:
+            # A shape/pagination/identity mismatch cannot authorize outreach.
+            # Save policy counters, but never return a successful empty inbox.
+            if previous is None: state.pop('replyJournal',None)
+            else: state['replyJournal'] = previous
+            VAULT.save(owner,data)
+            raise HTTPException(503,'LinkedIn reply history could not be verified; review the inbox queries')
 
 
 @app.api_route('/inbox', methods=['GET','POST'])
