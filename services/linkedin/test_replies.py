@@ -117,6 +117,18 @@ def modern_worker():
         'messageInitial':f'/voyagerMessagingGraphQL?queryId=messengerMessages.test&variables=(conversationUrn:{THREAD})',
         'messageBefore':f'/voyagerMessagingGraphQL?queryId=messengerMessages.test&variables=(deliveredAt:1,conversationUrn:{THREAD},countBefore:20,countAfter:0)'})
 
+def test_query_changes_preserve_restli_structure_and_encode_scalar_values():
+    from replies import change_path, query_parts
+    path='/voyager/api/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.test&variables=(query:(predicateUnions:List((conversationCategoryPredicate:(category:SPAM)))),count:20,mailboxUrn:urn%3Ali%3Afsd_profile%3Ame,nextCursor:old)'
+    changed=change_path(path,{'nextCursor':'abc+/=','query':'(predicateUnions:List((conversationCategoryPredicate:(category:PRIMARY_INBOX))))'})
+    assert 'variables=(query:(' in changed
+    assert 'mailboxUrn:urn%3Ali%3Afsd_profile%3Ame' in changed
+    assert 'nextCursor:abc%2B%2F%3D' in changed
+    assert query_parts(changed)[2]['nextCursor']=='abc+/='
+    message=change_path('/voyager/api/voyagerMessagingGraphQL/graphql?queryId=messengerMessages.test&variables=(conversationUrn:old)',{'conversationUrn':THREAD})
+    assert 'conversationUrn:urn%3Ali%3A' in message
+    assert query_parts(message)[2]['conversationUrn']==THREAD
+
 def category_page(items,cursor=None):
     return {'status':200,'data':{'data':{'messengerConversationsByCategoryQuery':{'elements':items,'metadata':{'nextCursor':cursor}}}}}
 
@@ -135,7 +147,7 @@ def test_modern_scan_covers_every_folder_and_history_before_certifying_completio
     assert len(journal_page(data,None)['events']) == 1
     paths=[call.args[1] for call in provider.call_args_list]
     assert all(any(folder in path for path in paths) for folder in ('PRIMARY_INBOX','SECONDARY_INBOX','ARCHIVE','SPAM'))
-    assert 'nextCursor=next' not in paths[1] and 'nextCursor%3Anext' in paths[1]
+    assert 'nextCursor=next' not in paths[1] and 'nextCursor:next' in paths[1]
 
 def test_modern_scan_rejects_repeated_cursors_wrong_thread_and_unverified_scope():
     from replies import advance_modern_scan

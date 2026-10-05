@@ -7,7 +7,7 @@ import base64
 import json
 import re
 from datetime import datetime, timezone
-from urllib.parse import urlparse, parse_qs, urlencode
+from urllib.parse import urlparse, parse_qs, urlencode, quote
 
 PROFILE = re.compile(r'urn:li:fsd_profile:[A-Za-z0-9_-]{1,200}\Z')
 
@@ -170,11 +170,22 @@ def query_parts(path):
     return parsed,query,values
 
 def change_path(template, changes):
-    parsed,query,_ = query_parts(template)
-    raw = query['variables'][0]
-    for key,value in changes.items(): raw = replace_variable(raw,key,str(value))
-    query['variables'] = [raw]
-    return parsed.path+'?'+urlencode(query,doseq=True)
+    parsed,_,_ = query_parts(template)
+    parts = parsed.query.split('&')
+    indices = [index for index,part in enumerate(parts) if part.startswith('variables=')]
+    if len(indices)!=1: raise ValueError('Unverified LinkedIn variables')
+    index=indices[0];raw=parts[index].split('=',1)[1]
+    # Rest.li structural punctuation stays literal; scalar URNs/cursors retain
+    # their separate percent encoding. Encoding the entire value changes its
+    # wire representation and is rejected by the observed GraphQL endpoint.
+    for key,value in changes.items():
+        if key=='query':
+            if value not in [category_query(folder) for folder in FOLDERS]: raise ValueError('Unknown LinkedIn inbox query')
+            encoded=value
+        else: encoded=quote(str(value),safe='')
+        raw=replace_variable(raw,key,encoded)
+    parts[index]='variables='+raw
+    return parsed.path+'?'+'&'.join(parts)
 
 def category_query(folder):
     if folder not in FOLDERS: raise ValueError('Unknown LinkedIn inbox folder')
