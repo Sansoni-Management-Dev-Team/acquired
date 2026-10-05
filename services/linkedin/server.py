@@ -141,7 +141,7 @@ class Worker:
                 except Exception:
                     # Keep the last saved storage when the page is navigating.
                     pass
-            data.update(browserState={'cookies': cookies, 'origins': origins}, fixture=self.fixture)
+            data.update(browserState={'cookies': cookies, 'origins': origins}, fixture=self.fixture, replyReadQueries=self.reply_queries)
             VAULT.save(self.owner, data)
 
     async def close(self, save=True):
@@ -589,13 +589,15 @@ async def reply_inbox(request: Request):
             VAULT.save(owner,data)
             worker.touched = now
             return result
-        except Exception:
+        except Exception as error:
             # A shape/pagination/identity mismatch cannot authorize outreach.
             # Save policy counters, but never return a successful empty inbox.
             if previous is None: state.pop('replyJournal',None)
             else: state['replyJournal'] = previous
+            data['replyReadQueries']=getattr(worker,'reply_queries',{})
             VAULT.save(owner,data)
-            raise HTTPException(503,'LinkedIn reply history could not be verified; review the inbox queries')
+            reason = str(error) if isinstance(error,ValueError) and str(error).startswith(('LinkedIn','Unverified','Required','Invalid','Unknown','Capture')) else 'Inbox query or response requires review'
+            raise HTTPException(503,'LinkedIn reply history could not be verified: '+reason)
 
 
 @app.api_route('/inbox', methods=['GET','POST'])

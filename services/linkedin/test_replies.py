@@ -151,7 +151,7 @@ def test_modern_scan_since_cutoff_is_conservative_and_new_earlier_contact_restar
     from replies import advance_modern_scan
     worker=modern_worker();data={}
     old={'entityUrn':THREAD,'conversationParticipants':[ME,OTHER],'lastActivityAt':1699999999000}
-    provider=AsyncMock(return_value=category_page([old],'older'))
+    provider=AsyncMock(return_value=category_page([old]))
     for step in range(4): asyncio.run(advance_modern_scan(worker,data,provider,1700000100+step,1700000000))
     assert journal_page(data,None)['complete'] is True and not journal_page(data,None)['events']
     asyncio.run(advance_modern_scan(worker,data,provider,1700000110,0))
@@ -190,4 +190,35 @@ def test_modern_endpoint_rejects_invalid_or_unscoped_since_dates(setup,monkeypat
     worker=modern_worker();worker.status=AsyncMock(return_value='connected')
     server.workers[vault.owner('test-org','alice')]=worker
     for value in ('garbage','2026-10-05','2999-01-01T00:00:00Z'):
-        assert call(client,'get','/replies',params={'since':value}).status_code==400
+        assert call(client,'get','/replies',params={'organizationId':'test-org','userId':'alice','since':value}).status_code==400
+
+
+def test_old_activity_does_not_hide_later_replies_behind_a_conversation_cursor():
+    from replies import advance_modern_scan
+    worker=modern_worker();data={}
+    old={'entityUrn':THREAD,'conversationParticipants':[ME,OTHER],'lastActivityAt':1699999999000}
+    provider=AsyncMock(return_value=category_page([old],'older'))
+    asyncio.run(advance_modern_scan(worker,data,provider,1700000100,1700000000))
+    assert data['replyJournal']['scan']['folder']==0
+    assert data['replyJournal']['scan']['cursor']=='older'
+    assert not journal_page(data,None)['complete']
+
+def test_cursor_cannot_inject_extra_restli_query_fields():
+    from replies import cursor_collection
+    with pytest.raises(ValueError):cursor_collection(category_page([], 'x,mailboxUrn:other')['data'],'messengerConversationsByCategoryQuery','nextCursor')
+
+def test_modern_authenticated_endpoint_advances_all_four_folders_atomically(setup,monkeypatch):
+    client,vault=setup;monkeypatch.setenv('LINKEDIN_REPLY_MONITOR_ENABLED','true')
+    worker=modern_worker();worker.status=AsyncMock(return_value='connected')
+    owner=vault.owner('test-org','alice');server.workers[owner]=worker
+    monkeypatch.setattr(server.policy,'reserve',lambda data,kind,fixture,now:(now,None))
+    provider=AsyncMock(return_value=category_page([]))
+    monkeypatch.setattr(server,'provider_request',provider)
+    cursor=None
+    for index in range(4):
+        response=call(client,'get','/replies',params={'organizationId':'test-org','userId':'alice','since':'1970-01-01T00:00:00Z',**({'cursor':cursor} if cursor else {})})
+        assert response.status_code==200
+        result=response.json();cursor=result['nextCursor']
+        assert result['complete']==(index==3)
+    assert provider.await_count==4
+    assert set(vault.load(owner)['replyReadQueries']['folders'])=={'PRIMARY_INBOX','SECONDARY_INBOX','ARCHIVE','SPAM'}

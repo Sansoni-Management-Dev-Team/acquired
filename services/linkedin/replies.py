@@ -228,7 +228,7 @@ def cursor_collection(raw,kind,direction):
     metadata=root.get('metadata')
     if not isinstance(metadata,dict) or direction not in metadata: raise ValueError('LinkedIn page completion is unverified')
     cursor=metadata[direction]
-    if cursor is not None and (not isinstance(cursor,str) or not cursor or len(cursor)>4000): raise ValueError('Invalid LinkedIn history cursor')
+    if cursor is not None and (not isinstance(cursor,str) or not re.fullmatch(r'[A-Za-z0-9_+=/%:.-]{1,4000}',cursor)): raise ValueError('Invalid LinkedIn history cursor')
     if not values and cursor is not None: raise ValueError('Empty LinkedIn page has a continuation')
     return values,cursor
 
@@ -262,8 +262,7 @@ async def advance_modern_scan(worker,data,provider,now,since):
         if result.get('status')!=200: raise ValueError('LinkedIn reply provider read failed')
         elements,cursor=cursor_collection(result.get('data'),'messengerConversationsByCategoryQuery','nextCursor')
         dates=[item.get('lastActivityAt') for item in elements]
-        if any(type(date) not in (int,float) or date<=0 or date>(now+5)*1000 for date in dates) or dates!=sorted(dates,reverse=True): raise ValueError('LinkedIn conversation ordering is unverified')
-        if dates and scan.get('lastActivityAt') is not None and dates[0]>scan['lastActivityAt']: raise ValueError('LinkedIn conversation page moved backwards')
+        if any(type(date) not in (int,float) or date<=0 or date>(now+5)*1000 for date in dates): raise ValueError('LinkedIn conversation timestamp is unverified')
         known={item['urn'] for item in scan['threads']}
         for item in elements:
             if item['lastActivityAt']<since*1000: continue
@@ -276,16 +275,15 @@ async def advance_modern_scan(worker,data,provider,now,since):
         if cursor is not None:
             if cursor in scan['seenCursors']: raise ValueError('LinkedIn conversation cursor did not advance')
             scan['seenCursors'].append(cursor)
-        # Sorted activity older than the oldest monitored enrolment cannot hide a
-        # later reply: any such reply moves the conversation's lastActivityAt.
-        if cursor is None or (dates and dates[-1]<since*1000):
-            scan['folder']+=1;scan['cursor']=None;scan['seenCursors']=[];scan.pop('lastActivityAt',None)
+        # Category pages can include recently updated/read older threads. Only
+        # the explicit cursor end certifies folder coverage, never an old date.
+        if cursor is None:
+            scan['folder']+=1;scan['cursor']=None;scan['seenCursors']=[]
             if scan['folder']==len(FOLDERS):
                 scan['stage']='messages'
                 if not scan['threads']: scan['complete']=True
         else:
             scan['cursor']=cursor
-            if dates: scan['lastActivityAt']=dates[-1]
     else:
         thread=scan['threads'][scan['index']]
         changes={'conversationUrn':thread['urn']}
