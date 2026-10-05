@@ -51,7 +51,7 @@ export function LinkedInActivitySettings({ data, busy, act }: {
       </div>
       {!data.protection.liveSendsEnabled && !data.fixture && <p className="mt-2 text-xs text-[var(--muted)]">Live sending is disabled on this test instance. Settings and read-only feed activity can still be tested.</p>}
     </div>
-    <details open>
+    <details>
       <summary className="cursor-pointer font-medium">Limits and schedule</summary>
       <form className="mt-3 space-y-4" onSubmit={async event => { event.preventDefault(); const saved = await act("settings", changes); if (saved) setChanges({}); }}>
         <p className="text-xs text-[var(--muted)]">Limits count attempted requests in the preceding hour, 24 hours, or 7 days. They are application limits, not guaranteed LinkedIn allowances. Zero disables that action.</p>
@@ -81,7 +81,7 @@ export function LinkedInActivitySettings({ data, busy, act }: {
         <div className="flex gap-3"><button className={buttonClass} disabled={busy || !Object.keys(changes).length} type="submit">Save activity settings</button><button className={buttonClass} type="button" disabled={busy || !Object.keys(changes).length} onClick={() => setChanges({})}>Discard changes</button></div>
       </form>
     </details>
-    <details open><summary className="cursor-pointer font-medium">Action queue</summary><div className="mt-3 space-y-2">
+    <details><summary className="cursor-pointer font-medium">Action queue</summary><div className="mt-3 space-y-2">
       {!data.queue.length && <p className="text-sm text-[var(--muted)]">No actions yet. Only approved drafts can be sent.</p>}
       {data.queue.map(action => <div key={action.id} className="rounded-lg border border-[var(--border)] p-3 text-sm">
         <div className="flex flex-wrap justify-between gap-2"><span>{action.kind === "invite" ? "Invitation" : "Message"} · {action.recipient}</span><span className="font-medium">{action.status}</span></div>
