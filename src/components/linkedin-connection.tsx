@@ -3,7 +3,6 @@ import { useEffect, useState } from "react";
 import { LinkedInActivitySettings, linkedinTime, type LinkedInDashboard } from "@/components/linkedin-activity-settings";
 
 type Connection = { status: string; saved?: boolean; fixture?: boolean; inboxCaptured?: boolean; agentConfigured?: boolean };
-type Draft = { id: string; kind: string; recipient: string; text: string; status: string; providerId?: string };
 const labels: Record<string, string> = { disconnected: "Not connected", login_required: "Complete login in the live browser", connected: "Connected", paused: "Session saved — browser paused", unavailable: "Connection service unavailable", browser_closed: "Browser closed" };
 
 export function LinkedInConnection({ fixturesEnabled = false }: { fixturesEnabled?: boolean }) {
@@ -13,10 +12,6 @@ export function LinkedInConnection({ fixturesEnabled = false }: { fixturesEnable
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<unknown>();
-  const [recipient, setRecipient] = useState("");
-  const [text, setText] = useState("");
-  const [kind, setKind] = useState("message");
-  const [draft, setDraft] = useState<Draft>();
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -47,8 +42,7 @@ export function LinkedInConnection({ fixturesEnabled = false }: { fixturesEnable
       if (operation === "connection") {
         setConnection(data); setViewer(data.viewerUrl || "");
       } else if (operation === "settings") setDashboard(data);
-      else if (operation === "actions") setDraft(data.action);
-      else { setResult(data); if (operation === "agent") setViewer(""); }
+      else if (operation !== "actions") { setResult(data); if (operation === "agent") setViewer(""); }
       if (operation !== "settings") {
         const updated = await fetch("/api/channels/linkedin?op=settings", { cache: "no-store" });
         if (updated.ok) setDashboard(await updated.json());
@@ -76,15 +70,6 @@ export function LinkedInConnection({ fixturesEnabled = false }: { fixturesEnable
       </div>
       <p className="text-xs text-[var(--muted)]">Agent inspection is read-only and sends visible page content to the configured model provider. The viewer pauses during inspection. Open LinkedIn Messaging to capture the inbox request.</p>
       <p className="text-xs text-[var(--muted)]">Last inbox sync: {linkedinTime(dashboard?.cache.fetchedAt, dashboard?.settings.timezone)}</p>
-      <details><summary className="cursor-pointer text-sm">Draft an invitation or message</summary><div className="mt-3 space-y-3">
-        <p className="text-xs text-[var(--muted)]">Review the exact recipient and message before approval. Editing these fields creates a separate draft; cancel any previous queued draft first.</p>
-        <label className="block text-sm">Action<select value={kind} onChange={e => { setKind(e.target.value); setDraft(undefined); }} className="ml-3 rounded border border-[var(--border)] bg-[var(--panel)] p-2"><option value="message">Direct message</option><option value="invite">Connection request</option></select></label>
-        <label className="block text-sm">Recipient profile URN<input value={recipient} onChange={e => { setRecipient(e.target.value); setDraft(undefined); }} placeholder="urn:li:fsd_profile:fixture" className="mt-1 block w-full rounded border border-[var(--border)] bg-[var(--panel)] p-2" /></label>
-        <label className="block text-sm">Exact message<textarea value={text} maxLength={kind === "invite" ? 200 : 4000} onChange={e => { setText(e.target.value); setDraft(undefined); }} className="mt-1 block w-full rounded border border-[var(--border)] bg-[var(--panel)] p-2" /></label>
-        <button disabled={busy || !recipient} onClick={() => void act("actions", { kind, recipient, text })} className="rounded border border-[var(--border)] px-3 py-2 text-sm">Review draft</button>
-        {draft && <div className="rounded border border-[var(--border)] p-3"><p className="text-sm">{draft.kind} to {draft.recipient}</p><p className="my-2 whitespace-pre-wrap text-sm">{draft.text}</p><p role="status" className="text-sm">Status: {draft.status}</p>
-          {draft.status === "draft" && <button disabled={busy || (!connection.fixture && !dashboard?.protection.liveSendsEnabled)} onClick={() => void act("actions", { operation: "execute", id: draft.id, approved: true })} className="mt-2 rounded border border-[var(--border)] px-3 py-2 text-sm">Approve exact draft and queue</button>}</div>}
-      </div></details>
     </div>}
     {dashboard && <LinkedInActivitySettings data={dashboard} busy={busy} act={act} />}
     {busy && <p role="status" className="text-sm">Working…</p>}
