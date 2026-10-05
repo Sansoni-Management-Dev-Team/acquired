@@ -1,5 +1,13 @@
 # DigitalOcean private LinkedIn test deployment
 
+## Production app access
+
+The existing pilot is now exposed at `https://linkedin.170.64.233.147.sslip.io` through host Caddy (`Caddyfile`). The container remains bound to loopback; Chromium/VNC ports stay private. Apply `compose.hosted.yml` alongside `compose.testing.yml` when restarting this deployment. The overlay disables fixtures and live sends and changes the advertised viewer URL to HTTPS. Preserve the encrypted volume and service encryption key.
+
+The DigitalOcean firewall retains its restricted SSH rule and permits TCP 80/443 for certificate issuance and HTTPS. Caddy proxies only the API/viewer/static routes, blocks fixture/docs routes, disables response caching, and restricts viewer framing to the production app and local development. API requests still require the server-only bearer secret; viewer/WebSocket requests require revocable 15-minute grants. Caddy handles HTTPS and WebSocket forwarding ([official documentation](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy)).
+
+Vercel Production uses `LINKEDIN_SERVICE_URL` and `LINKEDIN_SERVICE_SECRET`. Setting both enables the browser connection panel. Neither is exposed as a client environment variable. The pilot still supports just one simultaneous browser account; this rollout does not increase capacity. Sessions are scoped to the signed-in app organisation/user, so a different app identity needs its own connection. No database migration is required or applied.
+
 This deploys one container on a 2 GiB Basic Droplet in the `project_acquire` project. The test service supports one browser worker with a 1536 MiB memory limit. This is an account pilot, not a capacity guarantee for hundreds of linked users.
 
 Build the amd64 image in OrbStack and transfer the saved image to the host. The host needs Docker Engine and Compose. Copy `compose.testing.yml` and a separately generated mode-600 `.env.testing` to `/opt/acquire-linkedin/ops/linkedin/`, load the image, and run:

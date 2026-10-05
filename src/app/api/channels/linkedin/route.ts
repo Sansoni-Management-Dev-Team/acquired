@@ -13,7 +13,7 @@ async function proxy(request: Request) {
   if (!(request.method === "GET" ? reads : writes).has(operation) || (request.method === "DELETE" && operation !== "connection")) return Response.json({ error: "Invalid operation" }, { status: 400 });
   const base = process.env.LINKEDIN_SERVICE_URL;
   const secret = process.env.LINKEDIN_SERVICE_SECRET;
-  if (!base || !secret) return Response.json({ error: "Local LinkedIn service is not configured", status: "unavailable" }, { status: 503 });
+  if (!base || !secret) return Response.json({ error: "LinkedIn service is not configured", status: "unavailable" }, { status: 503 });
   const url = new URL(`/${operation}`, base);
   url.searchParams.set("organizationId", organizationId);
   url.searchParams.set("userId", session.user.id);

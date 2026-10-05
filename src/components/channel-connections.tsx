@@ -47,7 +47,7 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
 }
 
 export function ChannelConnections({ gmail, notice }: { gmail?: GmailConnection; notice: { gmail?: string; reason?: string } }) {
-  const linkedinLocalEnabled = process.env.NODE_ENV === "development" && Boolean(process.env.LINKEDIN_SERVICE_URL);
+  const linkedinEnabled = Boolean(process.env.LINKEDIN_SERVICE_URL && process.env.LINKEDIN_SERVICE_SECRET);
   const status = gmailConnectionStatus(gmail);
   const gmailConnected = Boolean(gmail && connectionCanCompose(gmail));
   const campaignReady = status === "ready";
@@ -71,9 +71,9 @@ export function ChannelConnections({ gmail, notice }: { gmail?: GmailConnection;
         </dl>
         <p className="mt-4 text-xs text-[var(--muted)]">Gmail requires compose permission to send and read-only permission to check conversations and replies. Your mailbox address is read from Google after consent; refresh tokens remain encrypted at rest.</p>
       </ChannelCard>
-      {linkedinLocalEnabled ? <ChannelCard name="LinkedIn" icon={BriefcaseBusiness} description="Connect through an interactive browser and test conversation syncing." status="Local prototype"
+      {linkedinEnabled ? <ChannelCard name="LinkedIn" icon={BriefcaseBusiness} description="Connect through an interactive browser and sync conversations." status="Browser connection"
         action={<LinkedInConnection />}>
-        <p className="text-[var(--muted)]">The local prototype saves encrypted session files. Live sends and campaign delivery are disabled. LinkedIn may request verification or restrict unsupported automation.</p>
+        <p className="text-[var(--muted)]">Your browser session is encrypted and saved on the connection service. Live sends and campaign delivery are disabled. LinkedIn may request verification or restrict unsupported automation.</p>
         <a href="https://www.linkedin.com/messaging/" target="_blank" rel="noopener noreferrer" className={`${actionClass} mt-3`}>Open LinkedIn<ExternalLink size={14} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a>
       </ChannelCard> : <ChannelCard name="LinkedIn" icon={BriefcaseBusiness} description="Use your outreach drafts to start conversations on LinkedIn." status="Manual outreach"
         action={<a href="https://www.linkedin.com/messaging/" target="_blank" rel="noopener noreferrer" className={actionClass}>Open LinkedIn<ExternalLink size={14} aria-hidden="true" /><span className="sr-only"> (opens in a new tab)</span></a>}>

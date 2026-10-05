@@ -4,7 +4,7 @@ import { LinkedInActivitySettings, linkedinTime, type LinkedInDashboard } from "
 
 type Connection = { status: string; saved?: boolean; fixture?: boolean; inboxCaptured?: boolean; agentConfigured?: boolean };
 type Draft = { id: string; kind: string; recipient: string; text: string; status: string; providerId?: string };
-const labels: Record<string, string> = { disconnected: "Not connected", login_required: "Complete login in the live browser", connected: "Connected", paused: "Session saved — browser paused", unavailable: "Local service unavailable", browser_closed: "Browser closed" };
+const labels: Record<string, string> = { disconnected: "Not connected", login_required: "Complete login in the live browser", connected: "Connected", paused: "Session saved — browser paused", unavailable: "Connection service unavailable", browser_closed: "Browser closed" };
 
 export function LinkedInConnection() {
   const [connection, setConnection] = useState<Connection>({ status: "disconnected" });
@@ -32,7 +32,7 @@ export function LinkedInConnection() {
           setConnection(response.ok ? data : { status: "unavailable" });
           if (settingsResponse.ok) setDashboard(settingsData);
         }
-      } catch { /* Keep the last known status while local service restarts. */ }
+      } catch { /* Keep the last known status while the service restarts. */ }
       if (!controller.signal.aborted) timer = setTimeout(poll, 5000);
     }
     void poll();

@@ -1,0 +1,7 @@
+# Overlay on compose.testing.yml; keeps encrypted state and private container ports.
+services:
+  linkedin:
+    environment:
+      LINKEDIN_PUBLIC_URL: https://linkedin.170.64.233.147.sslip.io
+      LINKEDIN_ENABLE_FIXTURES: "false"
+      LINKEDIN_ALLOW_LIVE_SENDS: "false"
