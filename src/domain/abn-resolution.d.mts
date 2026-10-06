@@ -1,5 +1,5 @@
 export type IdentityPage={url:string;text:string};
-export type AbnRecord={abn:string;entityName:string;active:boolean;names:string[];location:string;quote?:string;sourceUrl:string};
+export type AbnRecord={abn:string;entityName:string;active:boolean;names:string[];location:string;quote?:string;sourceUrl:string;registrySource?:'web_service'|'public_html'};
 export function visibleHtml(html:string):string;
 export function abnAliases(name:string):string[];
 export function abnSearchAliases(name:string,website:string,extra?:string[]):string[];
