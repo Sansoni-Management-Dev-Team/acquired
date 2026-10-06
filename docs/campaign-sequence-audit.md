@@ -84,3 +84,45 @@ The missing local reply-monitor tables prevent a real test of event deduplicatio
 A complete confidence check also needs a browser session covering save/publish/enrolment confirmation, a persisted n8n wait across restart, full Acquire-to-n8n-to-local-sink executions with reply enforcement enabled, and controlled live channel validation. Jody's profile can exercise the existing-connection and messaging paths when message content is specified; it cannot establish invitation submission or acceptance coverage.
 
 These gaps are recorded separately from passing checks so future work can close them without treating the current suite as complete coverage.
+
+## Integration implementation and run order
+
+The follow-up integration work found that the five reply-monitor tables are now present in the dedicated local database. No migration was applied by this harness. The earlier missing-schema observations above describe the original audit, not the current local database.
+
+The implementation adds a single runner, `scripts/test-campaign-integration-local.mjs`, with this order:
+
+| Stage | What the harness verifies | Isolation |
+| --- | --- | --- |
+| Preflight | Existing reply tables, local n8n health and API authentication | Fixed PostgreSQL on 5434 and n8n on 5679; no schema creation or migration |
+| PostgreSQL | Core constraints, reply receipt/hold/stop/audit replay, page rollback, cross-owner ambiguity, duplicate contacts, observe-to-enforce rollout, simultaneous scans, expired leases, stale scanner fencing, partial checkpoints and failure recovery | Real restricted roles and pooled transactions; rollback-only reply fixtures and explicitly cleaned committed monitor fixtures |
+| Provider HTTP | Account scope/authentication, connected-invitation skip result, LinkedIn/WhatsApp writes, Unicode text, cursor encoding, redirects and socket loss after write receipt | An ephemeral loopback HTTP server; no provider SDK, credentials or forwarding; synthetic recipients only |
+| n8n | Original retry/sequence wait plus eight mixed-channel, branch and terminal-callback scenarios | Dummy callback handlers; synthetic workflows deleted on exit |
+| App end to end (`--e2e`) | Authenticated signup, publication, enrolment, actual n8n dispatch, two sink deliveries across a compressed wait, completion, all three reply ingresses and late callback replay | Harness-owned Next app on 3013, separate build directory, pinned sink and database, enforced reply monitoring, live LinkedIn/WhatsApp services disabled |
+| Browser (`--browser`) | Save and reload a hostile literal subject, render the flow editor, publish another immutable version, cancel and confirm subscription, pause and stop | Separate synthetic Playwright session against the owned app; screenshot under `output/playwright/`; no delivery for the browser contact |
+| Restart (`--persist-wait`) | Durable n8n wait and exactly-once callback order across process restart | Explicit opt-in; refuses restart if other workflows are active or other executions are pending, or if pagination prevents proving isolation |
+
+The database integration exposed a production defect: PostgreSQL inferred the freshness checkpoint's `CASE` parameter as text. `campaign-reply-monitor.ts` now casts that parameter to `timestamptz`, allowing successful and partial inbox pages to commit. The real database tests reproduce this failure without mocking SQL.
+
+Run the suites with:
+
+```sh
+# PostgreSQL, real provider HTTP adapters and actual n8n callbacks
+pnpm test:campaign:integration
+
+# Add the harness-owned app and actual sink deliveries
+pnpm test:campaign:integration --e2e
+
+# Add the real browser workflow as well
+pnpm test:campaign:integration --browser
+
+# Only in a reserved/idle local n8n instance; this restarts its container
+pnpm test:campaign:integration --persist-wait
+```
+
+The runner reads only the n8n API key and worker secret from `.env.local`; it pins the app's database, ports, auth origin, sink, provider switches and test timing itself. It never runs `pnpm dev`, starts containers, invokes a migration, resets the shared sink or kills an existing dev server. The test app refuses an occupied port. Full app tests require an idle local campaign database because tick processes subscriptions globally. Known Next-generated configuration changes are restored after shutdown while unrelated edits are preserved. Database and n8n cleanup are constrained to the run's synthetic organisation and workflows; cleanup failures fail the suite.
+
+Executed follow-up evidence: 29 real database tests passed, 9 real provider HTTP tests passed, the original n8n scenario and eight adversarial scenarios passed, and the complete app/n8n/sink path passed with email, LinkedIn and WhatsApp reply enforcement. The real browser workflow passed save/reload, flow rendering, publication, cancellation, subscription confirmation, pause and permanent stop. Cleanup verification found zero synthetic database fixtures and zero test workflows remaining. LinkedIn/WhatsApp replies were synthetic HTTP ingestion events; their message delivery adapters were exercised against the loopback HTTP double, not live providers. Restart validation remains pending because the shared local n8n contains other active workflows. The guard was exercised and refused the restart.
+
+The final follow-up app suite passed 1844 tests with 55 skipped; 29 of those skips are the opt-in database tests, all of which passed separately. The combined database, provider HTTP and harness isolation run passed 56 checks. Type checking, linting of the changed code and diff whitespace checks passed.
+
+Remaining provider validation uses an explicit test recipient and specified message content. Jody's existing connection can validate invitation skipping and messaging; an unconnected test account is needed for invitation submission and acceptance. Those live checks, provider-side quota behaviour and outages outside the local doubles remain separate from this no-send suite.

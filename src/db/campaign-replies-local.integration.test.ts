@@ -10,6 +10,7 @@ describe.skipIf(process.env.CAMPAIGN_AUDIT_LOCAL_DB !== "1")("local reply monito
   const client = new pg.Client({ connectionString: "postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire", connectionTimeoutMillis: 5000 });
   const sqlClient = client as unknown as PoolClient;
   const org = `reply-test-${randomUUID()}`, user = `reply-test-${randomUUID()}`;
+  const other = `reply-test-${randomUUID()}`;
   const actor = { organizationId: org, userId: user };
   const mandate = randomUUID(), target = randomUUID(), mailbox = randomUUID();
   const contacts = Array.from({ length: 3 }, () => randomUUID());
@@ -18,9 +19,12 @@ describe.skipIf(process.env.CAMPAIGN_AUDIT_LOCAL_DB !== "1")("local reply monito
   beforeAll(async () => {
     vi.stubEnv("CAMPAIGN_REPLY_MONITOR_MODE", "enforce");
     await client.connect(); await client.query("BEGIN");
+    if (!(await client.query("SELECT to_regclass('public.campaign_reply_identities') name")).rows[0].name) throw new Error("Reply schema missing; this test never applies migrations. Approve drizzle/0016_campaign_reply_monitor.sql first.");
     await client.query('INSERT INTO "user" (id,name,email,email_verified,created_at,updated_at) VALUES ($1,$1,$2,false,now(),now())', [user, `${user}@example.invalid`]);
+    await client.query('INSERT INTO "user" (id,name,email,email_verified,created_at,updated_at) VALUES ($1,$1,$2,false,now(),now())', [other, `${other}@example.invalid`]);
     await client.query("INSERT INTO organization (id,name,slug) VALUES ($1,$1,$1)", [org]);
     await client.query("INSERT INTO member (id,organization_id,user_id,role) VALUES ($1,$2,$3,'owner')", [randomUUID(), org, user]);
+    await client.query("INSERT INTO member (id,organization_id,user_id,role) VALUES ($1,$2,$3,'member')", [randomUUID(), org, other]);
     await client.query("INSERT INTO mandates (id,organization_id,natural_language,filters,provenance,created_by) VALUES ($1,$2,'Synthetic reply test','{}','{}',$3)", [mandate, org, user]);
     await client.query("INSERT INTO targets (id,organization_id,mandate_id,company_name,firmographics) VALUES ($1,$2,$3,'Synthetic','{}')", [target, org, mandate]);
     await client.query("INSERT INTO mailbox_connections (id,organization_id,user_id,provider,address) VALUES ($1,$2,$3,'gmail','sender@example.invalid')", [mailbox, org, user]);
@@ -74,4 +78,60 @@ describe.skipIf(process.env.CAMPAIGN_AUDIT_LOCAL_DB !== "1")("local reply monito
     expect((await client.query("SELECT 1 FROM campaign_reply_holds WHERE organization_id=$1", [org])).rowCount).toBe(0);
     await client.query("SET LOCAL ROLE acquire_campaign_worker");
   });
+  async function isolated(callback: () => Promise<void>) {
+    await client.query("SAVEPOINT scenario");
+    try {
+      await client.query("UPDATE campaign_enrolments SET state='active',stop_reason=NULL,next_step_at=now() WHERE organization_id=$1", [org]);
+      await client.query("RESET ROLE");
+      await client.query("DELETE FROM campaign_reply_holds WHERE organization_id=$1", [org]);
+      await client.query("DELETE FROM campaign_contact_holds WHERE organization_id=$1", [org]);
+      await client.query("SET LOCAL ROLE acquire_campaign_worker");
+      await callback();
+    } finally { vi.stubEnv("CAMPAIGN_REPLY_MONITOR_MODE", "enforce"); await client.query("ROLLBACK TO SAVEPOINT scenario"); }
+  }
+  async function assignOtherOwner(contactId: string) {
+    // Ownership is protected by several composite foreign keys. Build a valid
+    // second-owner subscription rather than bypassing those constraints.
+    await client.query("RESET ROLE");
+    const previous = (await client.query("SELECT recipient_email FROM campaign_enrolments WHERE organization_id=$1 AND contact_id=$2", [org, contactId])).rows[0];
+    await client.query("DELETE FROM campaign_enrolments WHERE organization_id=$1 AND contact_id=$2", [org, contactId]);
+    await client.query("UPDATE campaign_contact_assignments SET owner_user_id=$3 WHERE organization_id=$1 AND contact_id=$2", [org, contactId, other]);
+    const sequence = randomUUID(), version = randomUUID(), otherMailbox = randomUUID();
+    await client.query("INSERT INTO mailbox_connections (id,organization_id,user_id,provider,address) VALUES ($1,$2,$3,'gmail','other@example.invalid')", [otherMailbox, org, other]);
+    await client.query("INSERT INTO campaign_sequences (id,organization_id,owner_user_id,mandate_id,name,draft) VALUES ($1,$2,$3,$4,'Other owner','{}')", [sequence, org, other, mandate]);
+    await client.query("INSERT INTO campaign_sequence_versions (id,organization_id,owner_user_id,sequence_id,version,definition) VALUES ($1,$2,$3,$4,1,'{}')", [version, org, other, sequence]);
+    await client.query("INSERT INTO campaign_enrolments (organization_id,owner_user_id,sequence_id,version_id,mandate_id,contact_id,mailbox_connection_id,recipient_email,next_step_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now())", [org, other, sequence, version, mandate, contactId, otherMailbox, previous.recipient_email]);
+    await client.query("SET LOCAL ROLE acquire_campaign_worker");
+  }
+  it.each(channels)("%s ambiguous identities across owners hold both contacts for review", async channel => isolated(async () => {
+    const i = channels.indexOf(channel), duplicate = contacts[(i + 1) % contacts.length];
+    await assignOtherOwner(duplicate);
+    await client.query("INSERT INTO campaign_reply_identities (organization_id,owner_user_id,contact_id,channel,identity,source_identity,email,since) VALUES ($1,$2,$3,$4,$5,$5,'different@example.invalid','2026-01-01')", [org, other, duplicate, channel, identities[i]]);
+    expect(await applyCampaignReply(sqlClient, actor, channel, "shared-account", { id: `ambiguous-${channel}`, fromIdentity: identities[i], receivedAt: "2026-10-06T00:00:00Z" })).toBe("review");
+    const rows = (await client.query("SELECT state,stop_reason FROM campaign_enrolments WHERE organization_id=$1 AND contact_id=ANY($2::uuid[])", [org, [contacts[i], duplicate]])).rows;
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(row).toEqual({ state: "needs_review", stop_reason: "reply_identity_ambiguous" });
+    expect((await client.query("SELECT count(*)::int n FROM campaign_reply_holds WHERE organization_id=$1", [org])).rows[0].n).toBe(2);
+  }));
+  it.each(channels)("%s duplicate contacts sharing an email stop across owners", async channel => isolated(async () => {
+    const i = channels.indexOf(channel), duplicate = contacts[(i + 1) % contacts.length];
+    await assignOtherOwner(duplicate);
+    await client.query("INSERT INTO campaign_reply_identities (organization_id,owner_user_id,contact_id,channel,identity,source_identity,email,since) VALUES ($1,$2,$3,$4,$5,$5,$6,'2026-01-01')", [org, other, duplicate, channel, identities[i], `reply-${i}@example.invalid`]);
+    expect(await applyCampaignReply(sqlClient, actor, channel, "shared-account", { id: `duplicate-${channel}`, fromIdentity: identities[i], receivedAt: "2026-10-06T00:00:00Z" })).toBe("stop");
+    const rows = (await client.query("SELECT state FROM campaign_enrolments WHERE organization_id=$1 AND contact_id=ANY($2::uuid[])", [org, [contacts[i], duplicate]])).rows;
+    expect(rows.map(row => row.state)).toEqual(["stopped", "stopped"]);
+  }));
+  it.each(channels)("%s observed events enforce on replay without duplicating inbound history", async channel => isolated(async () => {
+    const i = channels.indexOf(channel);
+    const event = { id: `rollout-${channel}`, fromIdentity: identities[i], receivedAt: "2026-10-06T00:00:00Z" };
+    vi.stubEnv("CAMPAIGN_REPLY_MONITOR_MODE", "observe");
+    await applyCampaignReply(sqlClient, actor, channel, "rollout-account", event);
+    expect((await client.query("SELECT state FROM campaign_enrolments WHERE organization_id=$1 AND contact_id=$2", [org, contacts[i]])).rows[0].state).toBe("active");
+    expect((await client.query("SELECT 1 FROM campaign_reply_holds WHERE organization_id=$1", [org])).rowCount).toBe(0);
+    vi.stubEnv("CAMPAIGN_REPLY_MONITOR_MODE", "enforce");
+    await applyCampaignReply(sqlClient, actor, channel, "rollout-account", event);
+    await applyCampaignReply(sqlClient, actor, channel, "rollout-account", event);
+    expect((await client.query("SELECT state FROM campaign_enrolments WHERE organization_id=$1 AND contact_id=$2", [org, contacts[i]])).rows[0].state).toBe("stopped");
+    expect((await client.query("SELECT count(*)::int n FROM campaign_reply_receipts WHERE organization_id=$1 AND provider_event_id=$2", [org, event.id])).rows[0].n).toBe(1);
+  }));
 });

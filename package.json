@@ -18,6 +18,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:campaign:integration": "node scripts/test-campaign-integration-local.mjs",
     "test:firmable-db": "RUN_FIRMABLE_DB_INTEGRATION=true vitest run src/db/firmable-history.integration.test.ts",
     "dev:parity": "node scripts/dev.mjs --parity",
     "test:workflows": "vitest run --config cloudflare/research/vitest.config.mts",
