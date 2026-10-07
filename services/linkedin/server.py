@@ -21,9 +21,10 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from playwright.async_api import async_playwright
 from storage import Vault
-from adapter import request as provider_request, conversations, payload, PATHS
+from adapter import request as provider_request, conversations, payload, PATHS, message_target, message_receipt
 import policy
 import replies
+import diagnostics as diag
 
 SECRET = os.environ['LINKEDIN_SERVICE_SECRET']
 if len(SECRET) < 32:
@@ -51,6 +52,12 @@ class Worker:
         self.page_crashed = False
 
     async def start(self):
+        with diag.span('browser.start', owner=self.owner, slot=self.slot, fixture=self.fixture):
+            result = await self._start()
+            diag.emit('browser.start.result', status=result if isinstance(result, str) else 'complete')
+            return result
+
+    async def _start(self):
         display = f':{80 + self.slot}'
         env = {**os.environ, 'DISPLAY': display}
         commands = [
@@ -61,34 +68,43 @@ class Worker:
              f'--remote-debugging-port={9200 + self.slot}', f'--user-data-dir={self.directory}', 'about:blank'],
         ]
         for command in commands:
-            self.processes.append(subprocess.Popen(command, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
-            await asyncio.sleep(0.3)
+            with diag.span('browser.process_launch', process=command[0]):
+                process = subprocess.Popen(command, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                self.processes.append(process)
+                await asyncio.sleep(0.3)
+                diag.emit('browser.process_state', process=command[0], exit_code=process.poll())
         for _ in range(60):
             try:
-                self.browser = await playwright.chromium.connect_over_cdp(f'http://127.0.0.1:{9200+self.slot}', timeout=1000)
+                with diag.span('browser.cdp_connect', timeout_ms=1000):
+                    self.browser = await playwright.chromium.connect_over_cdp(f'http://127.0.0.1:{9200+self.slot}', timeout=1000)
                 break
             except Exception:
                 await asyncio.sleep(0.3)
         else:
             raise RuntimeError('Browser did not start')
         data = VAULT.load(self.owner)
+        diag.emit('browser.restore_state', saved_session=bool(data.get('browserState')))
         self.reply_queries = data.get('replyReadQueries', {})
         state = data.get('browserState') if data.get('fixture') == self.fixture else None
         initial_pages = [page for context in self.browser.contexts for page in context.pages]
-        self.context = await self.browser.new_context(storage_state=state, viewport={'width': 1280, 'height': 800})
-        self.context.set_default_timeout(10000)
-        self.page = await self.context.new_page()
-        self.page.on('crash', self.mark_page_crashed)
-        session = await self.context.new_cdp_session(self.page)
-        window = await session.send('Browser.getWindowForTarget')
-        await session.send('Browser.setWindowBounds', {'windowId': window['windowId'], 'bounds': {'left': 0, 'top': 0, 'width': 1280, 'height': 900, 'windowState': 'normal'}})
-        await session.detach()
-        for page in initial_pages:
-            await page.close()
+        with diag.span('browser.restore_context', saved_session=bool(state)):
+            self.context = await self.browser.new_context(storage_state=state, viewport={'width': 1280, 'height': 800})
+        with diag.span('browser.configure_page'):
+            self.context.set_default_timeout(10000)
+            self.page = await self.context.new_page()
+            self.page.on('crash', self.mark_page_crashed)
+            session = await self.context.new_cdp_session(self.page)
+            window = await session.send('Browser.getWindowForTarget')
+            await session.send('Browser.setWindowBounds', {'windowId': window['windowId'], 'bounds': {'left': 0, 'top': 0, 'width': 1280, 'height': 900, 'windowState': 'normal'}})
+            await session.detach()
+            for page in initial_pages:
+                await page.close()
         self.context.on('request', self.capture)
-        await self.page.goto(self.origin + ('/fixture' if self.fixture else '/login'), wait_until='domcontentloaded', timeout=45000)
+        with diag.span('browser.navigate', stage='login', timeout_ms=45000):
+            await self.page.goto(self.origin + ('/fixture' if self.fixture else '/login'), wait_until='domcontentloaded', timeout=45000)
         if await self.authenticated():
-            await self.page.goto(self.origin + ('/fixture/inbox' if self.fixture else '/messaging/'), wait_until='domcontentloaded', timeout=45000)
+            with diag.span('browser.navigate', stage='messaging', timeout_ms=45000):
+                await self.page.goto(self.origin + ('/fixture/inbox' if self.fixture else '/messaging/'), wait_until='domcontentloaded', timeout=45000)
 
     def capture(self, request):
         parsed = urlparse(request.url)
@@ -113,13 +129,18 @@ class Worker:
                 pass
 
     async def authenticated(self):
-        cookies = await asyncio.wait_for(self.context.cookies(self.origin), 5)
+        with diag.span('browser.cookies', owner=self.owner, timeout_ms=5000):
+            cookies = await asyncio.wait_for(self.context.cookies(self.origin), 5)
         return any(c['name'] == 'li_at' and c['value'] for c in cookies)
 
     def mark_page_crashed(self, *_):
         self.page_crashed = True
 
     async def recover_page(self):
+        with diag.span('browser.recover', owner=self.owner, slot=self.slot):
+            await self._recover_page()
+
+    async def _recover_page(self):
         # Playwright rejects reload on a crashed target. A fresh tab in the
         # same context preserves the current cookies without restoring a vault.
         previous = self.page
@@ -128,7 +149,8 @@ class Worker:
             target = self.origin + ('/fixture' if self.fixture else '/login')
         page = await self.context.new_page()
         try:
-            await page.goto(target, wait_until='domcontentloaded', timeout=40000)
+            with diag.span('browser.navigate', stage='recovery', timeout_ms=40000):
+                await page.goto(target, wait_until='domcontentloaded', timeout=40000)
         except Exception:
             await page.close()
             raise
@@ -139,6 +161,12 @@ class Worker:
             await previous.close()
 
     async def status(self):
+        with diag.span('browser.status', owner=self.owner, slot=self.slot, fixture=self.fixture):
+            result = await self._status()
+            diag.emit('browser.status.result', status=result if isinstance(result, str) else 'complete')
+            return result
+
+    async def _status(self):
         if not self.browser.is_connected() or self.page.is_closed():
             return 'browser_closed'
         if self.page_crashed:
@@ -146,7 +174,8 @@ class Worker:
         try:
             # A crashed renderer retains its URL and cookies. Check the page
             # responds before treating those as a live session.
-            await asyncio.wait_for(self.page.evaluate('() => document.readyState'), 5)
+            with diag.span('browser.renderer_probe', timeout_ms=5000):
+                await asyncio.wait_for(self.page.evaluate('() => document.readyState'), 5)
         except Exception:
             return 'browser_crashed' if self.page_crashed else 'browser_unresponsive'
         if urlparse(self.page.url).netloc != urlparse(self.origin).netloc:
@@ -180,6 +209,10 @@ class Worker:
             VAULT.save(self.owner, data)
 
     async def close(self, save=True):
+        with diag.span('browser.close', owner=self.owner, slot=self.slot):
+            await self._close(save)
+
+    async def _close(self, save=True):
         if save:
             with contextlib.suppress(Exception):
                 await self.snapshot()
@@ -223,6 +256,17 @@ def dashboard(owner):
 
 
 async def dispatch_action(owner, worker, record):
+    with diag.context(trace_id=diag.CONTEXT.get().get('trace_id') or diag.trace_id(),
+                      owner=owner, action_id=record['id'], fixture=worker.fixture):
+        with diag.span('action.dispatch', kind=record['kind']):
+            diag.emit('action.initial_state', status=record['status'])
+            result = await _dispatch_action(owner, worker, record)
+            diag.emit('action.result', status=result['status'], provider_status=result.get('providerStatus'),
+                      next_eligible_at=result.get('nextEligibleAt'), has_receipt=bool(result.get('providerId')))
+            return result
+
+
+async def _dispatch_action(owner, worker, record):
     """Caller holds the owner lock; reserve and persist before any network await."""
     data = VAULT.load(owner)
     if record['status'] != 'queued':
@@ -240,23 +284,73 @@ async def dispatch_action(owner, worker, record):
         policy.control(data, worker.fixture).update(requiresVerification=True, reason='Complete login in the live browser')
         record['reason'] = 'Complete login in the live browser'
     else:
+        target = None
+        if record['kind'] == 'message':
+            cached = policy.control(data, worker.fixture).get('inbox', {})
+            # Keep the read valid through the configured request spacing, otherwise
+            # a long spacing window would cause endless refreshes before sending.
+            freshness = max(300, policy.settings(data, worker.fixture)['maxSpacingSeconds'] + 60)
+            if now - cached.get('fetchedAt', 0) > freshness:
+                due, reason = policy.reserve(data, 'read', worker.fixture, now)
+                record.update(nextEligibleAt=due, reason=reason)
+                if due is not None and due <= now:
+                    VAULT.save(owner, data)
+                    try:
+                        inbox = await conversations(worker)
+                    except Exception:
+                        inbox = {'status': 'provider_error', 'response': {'status': 0}}
+                    data = VAULT.load(owner)
+                    policy.provider_result(data, inbox.get('response', {}), worker.fixture)
+                    if inbox.get('status') == 'ok':
+                        policy.control(data, worker.fixture)['inbox'] = {'fetchedAt': now, 'result': inbox}
+                        record['reason'] = 'Inbox refreshed; waiting between requests before sending'
+                        record['nextEligibleAt'] = policy.control(data, worker.fixture).get('nextRequestAt')
+                    else:
+                        record['reason'] = 'Refresh LinkedIn Messaging before sending'
+                data['actions'][record['id']] = record
+                VAULT.save(owner, data)
+                return record
+            try:
+                with diag.span('action.resolve_conversation'):
+                    target = message_target(cached['result']['response']['data'], worker.mailbox, record['recipient'])
+                diag.emit('action.target_verified', conversation_id=diag.identifier(target['conversationUrn']), mailbox_id=diag.identifier(target['mailboxUrn']), recipient_id=diag.identifier(record['recipient']))
+            except (ValueError, KeyError, AttributeError):
+                record.update(status='blocked', reason='Refresh LinkedIn Messaging: a verified one-to-one conversation is required')
+                data['actions'][record['id']] = record
+                VAULT.save(owner, data)
+                return record
         due, reason = policy.reserve(data, record['kind'], worker.fixture, now)
         record.update(nextEligibleAt=due, reason=reason)
         if due is not None and due <= now:
-            record.update(status='uncertain', attemptedAt=now)
+            body = payload(record['kind'], record['recipient'], record['text'], record['id'], target)
+            if target:
+                record.update(conversationUrn=target['conversationUrn'], mailboxUrn=target['mailboxUrn'], originToken=body['message']['originToken'])
+            record.update(status='uncertain', attemptedAt=now, traceId=diag.CONTEXT.get().get('trace_id'))
+            diag.emit('action.attempt_reserved', status='uncertain')
             data['actions'][record['id']] = record
             VAULT.save(owner, data)
             try:
-                result = await provider_request(worker, PATHS[record['kind']], 'POST', payload(record['kind'], record['recipient'], record['text'], record['id']))
-            except Exception:
+                result = await provider_request(worker, PATHS[record['kind']], 'POST', body)
+            except Exception as error:
+                diag.emit('action.provider_error', error_type=type(error).__name__)
                 result = {'status': 0}
             data = VAULT.load(owner)
             policy.provider_result(data, result, worker.fixture)
             record['providerStatus'] = result['status']
+            record['providerEndpoint'] = PATHS[record['kind']]
+            record['providerRedirect'] = bool(result.get('redirect'))
+            error = result.get('data')
+            if isinstance(error, dict):
+                # Numeric error codes aid diagnosis without retaining response bodies or credentials.
+                record['providerErrorCodes'] = {key: error[key] for key in ('status', 'serviceErrorCode') if type(error.get(key)) is int}
             if 200 <= result['status'] < 300 and not result.get('redirect'):
-                record['status'] = 'submitted'
                 response = result.get('data') or {}
-                record['providerId'] = response.get('id') or response.get('entityUrn') if isinstance(response, dict) else None
+                receipt = message_receipt(response, body) if record['kind'] == 'message' else (response.get('id') or response.get('entityUrn') if isinstance(response, dict) else None)
+                record['providerId'] = receipt
+                if record['kind'] != 'message' or receipt:
+                    record['status'] = 'submitted'
+                else:
+                    record['reason'] = 'Response did not confirm this message; verify in LinkedIn before creating another action'
             elif result['status'] in (401,403,422,429,999) or result.get('redirect'):
                 record['status'] = 'blocked'
                 record['reason'] = policy.control(data, worker.fixture).get('reason', 'LinkedIn rejected this action')
@@ -415,6 +509,18 @@ async def private_headers(request, call_next):
     response.headers['Referrer-Policy'] = 'no-referrer'
     return response
 
+@asynccontextmanager
+async def traced_lock(lock, stage, owner):
+    with diag.span('account.lock_wait', stage=stage, owner=owner):
+        await lock.acquire()
+    started = time.monotonic()
+    try:
+        yield
+    finally:
+        lock.release()
+        diag.emit('account.lock_released', stage=stage, owner=owner, duration_ms=round((time.monotonic()-started)*1000, 1))
+
+
 def owner_for(request):
     if not hmac.compare_digest(request.headers.get('authorization', ''), 'Bearer ' + SECRET):
         raise HTTPException(401, 'Unauthorised')
@@ -438,6 +544,20 @@ def view_worker(token):
     worker.touched = time.time()
     return worker
 
+@app.middleware('http')
+async def trace_request(request: Request, call_next):
+    if request.url.path not in ('/connection', '/actions', '/inbox', '/settings', '/campaign', '/agent', '/replies'):
+        return await call_next(request)
+    supplied_trace = request.headers.get('x-linkedin-trace-id', '')
+    trace = supplied_trace if re.fullmatch(r'[a-f0-9]{32}', supplied_trace) else diag.trace_id()
+    with diag.context(trace_id=trace):
+        with diag.span('http.request', method=request.method, endpoint=request.url.path):
+            response = await call_next(request)
+            diag.emit('http.response', http_status=response.status_code)
+            response.headers['X-LinkedIn-Trace-Id'] = diag.CONTEXT.get()['trace_id']
+            return response
+
+
 @app.get('/health')
 async def health():
     return {'ok': True}
@@ -446,7 +566,7 @@ async def health():
 async def connection(request: Request):
     owner = owner_for(request)
     lock = locks.setdefault(owner, asyncio.Lock())
-    async with lock:
+    async with traced_lock(lock, 'connection', owner):
         worker = workers.get(owner)
         if request.method == 'DELETE':
             if worker:
@@ -763,7 +883,7 @@ async def inbox(request: Request):
 @app.post('/actions')
 async def actions(request: Request):
     owner = owner_for(request)
-    async with locks.setdefault(owner, asyncio.Lock()):
+    async with traced_lock(locks.setdefault(owner, asyncio.Lock()), 'actions', owner):
         body = await request.json()
         if not isinstance(body, dict): raise HTTPException(400, 'Expected an object')
         data=VAULT.load(owner)
@@ -850,7 +970,7 @@ async def fixture_inbox():
 async def fixture_reads():
     if os.getenv('LINKEDIN_ENABLE_FIXTURES') != 'true':
         raise HTTPException(404)
-    return {'conversations': [{'id': 'fixture-conversation', 'name': 'Alex Example', 'text': 'Hello from the fictional test account.'}]}
+    return {'conversations': [{'id': 'fixture-conversation', 'name': 'Alex Example', 'text': 'Hello from the fictional test account.'}], 'data': {'messengerConversationsBySyncToken': {'elements': [{'entityUrn': 'urn:li:msg_conversation:fixture-alex', 'groupChat': False, 'conversationParticipants': [{'hostIdentityUrn': 'urn:li:fsd_profile:fixture'}, {'hostIdentityUrn': 'urn:li:fsd_profile:fictional-alex'}]}]}}}
 
 @app.post('/voyager/api/{path:path}')
 async def fixture_writes(path: str, request: Request):
@@ -859,6 +979,17 @@ async def fixture_writes(path: str, request: Request):
     body = await request.json()
     if not request.cookies.get('li_at') or request.headers.get('csrf-token') != 'fixture-csrf':
         raise HTTPException(401)
+    if path == 'voyagerMessagingDashMessengerMessages' and request.query_params.get('action') == 'createMessage':
+        message = body.get('message', {})
+        if (body.get('mailboxUrn') != 'urn:li:fsd_profile:fixture'
+                or message.get('conversationUrn') != 'urn:li:msg_conversation:fixture-alex'
+                or body.get('dedupeByClientGeneratedToken') is not False
+                or len(body.get('trackingId', '')) != 16
+                or request.headers.get('content-type') != 'text/plain;charset=UTF-8'
+                or request.headers.get('accept') != 'application/json'
+                or request.headers.get('x-restli-protocol-version') != '2.0.0'):
+            raise HTTPException(400, 'Invalid modern message request')
+        return {'value': {**message, 'entityUrn': 'urn:li:msg_message:fixture-result'}}
     return {'id': 'fixture-'+hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:12]}
 
 @app.get('/fixture/feed', response_class=HTMLResponse)

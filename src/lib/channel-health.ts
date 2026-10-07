@@ -3,7 +3,7 @@ import { refreshGoogleAccessToken } from "@/lib/google-oauth";
 type HealthStatus = "healthy" | "attention" | "unavailable";
 export type ChannelHealth = { status: HealthStatus; message: string; checkedAt: string };
 const result = (status: HealthStatus, message: string): ChannelHealth => ({ status, message, checkedAt: new Date().toISOString() });
-const boundedFetch: typeof fetch = (input, init) => fetch(input, { ...init, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(10000) });
+const boundedFetch: typeof fetch = (input, init) => fetch(input, { ...init, cache: "no-store", redirect: "error", signal: init?.signal ?? AbortSignal.timeout(10000) });
 
 export async function checkGmailHealth(refreshToken: string, address: string | null, fetcher: typeof fetch = boundedFetch) {
   try {
@@ -31,13 +31,20 @@ export async function checkHostedHealth(provider: "linkedin" | "whatsapp", owner
     const connection = new URL("/connection", base);
     connection.search = new URLSearchParams(owner).toString();
     const headers = { Authorization: `Bearer ${secret}` };
-    const [health, session] = await Promise.all([
-      fetcher(new URL("/health", base), { headers }),
-      fetcher(connection, { headers }),
+    // Browser startup, account-lock waits and status probes can exceed ten
+    // seconds. Keep this below the button's 25-second request deadline.
+    const [healthProbe, sessionProbe] = await Promise.allSettled([
+      fetcher(new URL("/health", base), { headers, signal: AbortSignal.timeout(10000) }),
+      fetcher(connection, { headers, signal: AbortSignal.timeout(provider === "linkedin" ? 20000 : 10000) }),
     ]);
-    if (!health.ok || !session.ok) return result("unavailable", `${name} connection service could not be checked. Try again shortly.`);
+    if (healthProbe.status === "rejected") return result("unavailable", `${name} connection service could not be reached. Try again shortly.`);
+    const health = healthProbe.value;
+    if (!health.ok) return result("unavailable", `${name} connection service could not be checked. Try again shortly.`);
     const healthData = await health.json();
     if (healthData.ok !== true) return result("unavailable", `${name} connection service is unavailable.`);
+    if (sessionProbe.status === "rejected") return result("attention", `${name} service is reachable, but the session check did not finish. Open the browser and test again. No message was sent.`);
+    const session = sessionProbe.value;
+    if (!session.ok) return result("attention", `${name} service is reachable, but the session could not be checked. Open the browser and test again.`);
     const data = await session.json();
     if (data.status === "connected") return result("healthy", `${name} service is reachable and your session is connected. No message was sent.`);
     if (["browser_crashed", "browser_unresponsive", "browser_closed"].includes(data.status)) return result("attention", `${name} browser ${data.status === "browser_crashed" ? "has crashed" : data.status === "browser_closed" ? "is closed" : "is not responding"}. Open the browser to recover your session. No message was sent.`);

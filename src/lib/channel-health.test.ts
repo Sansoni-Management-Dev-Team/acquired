@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { checkGmailHealth, checkHostedHealth } from "./channel-health";
 const owner = { organizationId: "org", userId: "owner" };
 beforeEach(() => { vi.restoreAllMocks(); process.env.LINKEDIN_SERVICE_URL = "https://service.example"; process.env.LINKEDIN_SERVICE_SECRET = "private-secret"; process.env.WHATSAPP_SERVICE_URL = "https://whatsapp.example"; process.env.WHATSAPP_SERVICE_SECRET = "private-secret"; });
@@ -48,4 +48,42 @@ it.each(["browser_crashed", "browser_unresponsive", "browser_closed"])("reports 
   expect(result.status).toBe("attention");
   expect(result.message).toContain("Open the browser to recover");
   expect(result.message).not.toContain("session is connected");
+});
+
+
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
+it("allows a 12-second LinkedIn browser check through the production fetch wrapper", async () => {
+  vi.useFakeTimers();
+  vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(new DOMException("Timed out", "TimeoutError")), ms);
+    return controller.signal;
+  });
+  const network = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/health")) return Promise.resolve(Response.json({ ok: true }));
+    return new Promise<Response>((resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true });
+      setTimeout(() => resolve(Response.json({ status: "connected" })), 12000);
+    });
+  });
+  vi.stubGlobal("fetch", network);
+  const pending = checkHostedHealth("linkedin", owner);
+  await vi.advanceTimersByTimeAsync(12000);
+  expect((await pending).status).toBe("healthy");
+  expect(network.mock.calls.every(([, init]) => !init?.method)).toBe(true);
+});
+it("reports a slow session separately from an unreachable service", async () => {
+  vi.useFakeTimers();
+  vi.spyOn(AbortSignal, "timeout").mockImplementation(ms => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(new DOMException("Timed out", "TimeoutError")), ms);
+    return controller.signal;
+  });
+  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).endsWith("/health")) return Promise.resolve(Response.json({ ok: true }));
+    return new Promise<Response>((_, reject) => init?.signal?.addEventListener("abort", () => reject(init.signal?.reason), { once: true }));
+  }));
+  const pending = checkHostedHealth("linkedin", owner);
+  await vi.advanceTimersByTimeAsync(20000);
+  expect(await pending).toMatchObject({ status: "attention", message: expect.stringContaining("service is reachable") });
 });

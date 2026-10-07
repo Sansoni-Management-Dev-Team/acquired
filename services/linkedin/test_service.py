@@ -47,6 +47,8 @@ def test_uncertain_dispatch_is_never_retried(setup,monkeypatch):
         fixture=True
         status=AsyncMock(return_value='connected')
     server.workers[owner]=Worker()
+    server.workers[owner].mailbox = 'urn:li:fsd_profile:fixture'
+    seed_inbox(vault, owner)
     dispatch=AsyncMock(side_effect=TimeoutError())
     monkeypatch.setattr(server,'provider_request',dispatch)
     draft=call(client,'post','/actions',json={'kind':'message','recipient':'urn:li:fsd_profile:example','text':'Fixture hello'}).json()['action']
@@ -151,7 +153,11 @@ def test_concurrent_approvals_reserve_before_dispatch(setup,monkeypatch):
     client,vault=setup
     owner=vault.owner('test-org','alice')
     server.workers[owner]=SimpleNamespace(fixture=True,status=AsyncMock(return_value='connected'),viewer_count=0)
-    dispatch=AsyncMock(return_value={'status':200,'data':{'id':'fixture-result'}})
+    server.workers[owner].mailbox = 'urn:li:fsd_profile:fixture'
+    seed_inbox(vault, owner)
+    async def accepted(worker, path, method, body):
+        return {'status':200, 'data':{'value':{**body['message'], 'entityUrn':'urn:li:msg_message:fixture-result'}}}
+    dispatch=AsyncMock(side_effect=accepted)
     monkeypatch.setattr(server,'provider_request',dispatch)
     drafts=[call(client,'post','/actions',json={'kind':'message','recipient':'urn:li:fsd_profile:example','text':str(i)}).json()['action'] for i in range(2)]
     async def approve():
@@ -328,3 +334,14 @@ def test_open_browser_recovers_crash_without_replacing_login_cookies(setup, monk
         assert server.workers[owner] is worker
         assert response.json()['status'] == 'connected'
         assert 'old-viewer' not in server.viewers
+
+
+def seed_inbox(vault, owner):
+    import time
+    data = vault.load(owner)
+    server.policy.control(data, True)['inbox'] = {'fetchedAt': time.time(), 'result': {
+        'status': 'ok', 'response': {'status': 200, 'data': {'data': {'messengerConversationsBySyncToken': {'elements': [{
+            'entityUrn': 'urn:li:msg_conversation:example', 'groupChat': False,
+            'conversationParticipants': [{'hostIdentityUrn': 'urn:li:fsd_profile:fixture'}, {'hostIdentityUrn': 'urn:li:fsd_profile:example'}]
+        }]}}}}}}
+    vault.save(owner, data)

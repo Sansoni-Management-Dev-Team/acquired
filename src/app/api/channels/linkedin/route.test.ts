@@ -44,3 +44,33 @@ it("proxies settings with session ownership and preserves cooldown headers", asy
   expect(response.headers.get("retry-after")).toBe("900");
   expect(await response.json()).toEqual({ detail: "Cooling down", error: "Cooling down" });
 });
+
+
+it("logs a correlated request before fetch and after response without message content", async () => {
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  const fetch = vi.spyOn(globalThis, "fetch").mockImplementation(async () => {
+    expect(info).toHaveBeenCalledTimes(1);
+    return Response.json({ action: { id: "a".repeat(32), status: "submitted", text: "private-message", recipient: "private-recipient" } });
+  });
+  const response = await POST(new Request("http://localhost/api/channels/linkedin?op=actions", {
+    method: "POST", headers: { origin: "http://localhost" }, body: JSON.stringify({ text: "private-message" }),
+  }));
+  const rows = info.mock.calls.map(([line]) => JSON.parse(line));
+  const trace = response.headers.get("x-linkedin-trace-id");
+  expect(trace).toMatch(/^[a-f0-9]{32}$/);
+  expect((fetch.mock.calls[0][1]?.headers as Record<string, string>)["X-LinkedIn-Trace-Id"]).toBe(trace);
+  expect(rows.map(row => row.event)).toEqual(["linkedin.service_request.start", "linkedin.service_request.end"]);
+  expect(rows.every(row => row.traceId === trace)).toBe(true);
+  expect(rows[1]).toMatchObject({ httpStatus: 200, actionId: "a".repeat(32), actionStatus: "submitted" });
+  expect(rows[1].durationMs).toBeGreaterThanOrEqual(0);
+  for (const privateValue of ["private-message", "private-recipient", "private-service-secret"]) expect(JSON.stringify(rows)).not.toContain(privateValue);
+});
+it("logs transport failure with the trace and error type without raw error details", async () => {
+  const info = vi.spyOn(console, "info").mockImplementation(() => {});
+  vi.spyOn(globalThis, "fetch").mockRejectedValue(new DOMException("private-secret in diagnostic detail", "TimeoutError"));
+  const response = await GET(new Request("http://localhost/api/channels/linkedin"));
+  const rows = info.mock.calls.map(([line]) => JSON.parse(line));
+  expect(response.status).toBe(503);
+  expect(rows[1]).toMatchObject({ event: "linkedin.service_request.error", errorType: "TimeoutError", traceId: response.headers.get("x-linkedin-trace-id") });
+  expect(JSON.stringify(rows)).not.toContain("private-secret");
+});

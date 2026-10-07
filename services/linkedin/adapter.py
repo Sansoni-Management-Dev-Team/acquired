@@ -1,40 +1,98 @@
-"""Small, versioned Voyager adapter, adapted from Lattice. Live writes unverified."""
+"""Voyager adapter. Message wire format verified against a successful browser HAR."""
+import re
+import secrets
+import uuid
 from urllib.parse import urlparse
+import diagnostics as diag
 
 PATHS = {
     'invite': '/voyager/api/voyagerRelationshipsDashMemberRelationships?action=verifyQuotaAndCreate',
-    'message': '/voyager/api/voyagerMessagingDashMessengerConversations?action=createConversation',
+    'message': '/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage',
 }
 
-def payload(kind, recipient, text, token):
+def message_target(raw, mailbox, recipient):
+    """Resolve exactly one complete one-to-one thread; never use the open chat."""
+    from replies import observed_collection, profile
+    own, target = profile(mailbox), profile(recipient)
+    if own == target:
+        raise ValueError('Choose another recipient')
+    threads, _ = observed_collection(raw, 'messengerConversationsBySyncToken')
+    matches = set()
+    for thread in threads:
+        try:
+            participants = [profile(item) for item in thread.get('conversationParticipants', [])]
+        except ValueError:
+            continue
+        urn = thread.get('entityUrn', '')
+        if (thread.get('groupChat') is False and len(participants) == 2
+                and set(participants) == {own, target}
+                and isinstance(urn, str) and re.fullmatch(r'urn:li:msg_conversation:[A-Za-z0-9_(),:=%-]+', urn)):
+            matches.add(urn)
+    if len(matches) != 1:
+        raise ValueError('Refresh LinkedIn Messaging: exactly one verified one-to-one conversation is required')
+    return {'mailboxUrn': own, 'conversationUrn': matches.pop()}
+
+
+def payload(kind, recipient, text, token, target=None):
     if kind == 'invite':
         return {'trackingId': token, 'inviteeUrn': recipient, 'message': text}
-    return {'keyVersion': 'LEGACY_INBOX', 'conversationCreate': {
-        'eventCreate': {'originToken': token, 'trackingId': token,
-            'value': {'com.linkedin.voyager.messaging.create.MessageCreate': {
-                'attributedBody': {'text': text, 'attributes': []}, 'attachments': []}}},
-        'dedupeByClientGeneratedToken': True, 'recipients': [recipient], 'subtype': 'MEMBER_TO_MEMBER'}}
+    if not target:
+        raise ValueError('A verified existing conversation is required')
+    return {'message': {'body': {'attributes': [], 'text': text}, 'renderContentUnions': [],
+                        'conversationUrn': target['conversationUrn'], 'originToken': str(uuid.UUID(token))},
+            'mailboxUrn': target['mailboxUrn'], 'trackingId': secrets.token_urlsafe(12),
+            'dedupeByClientGeneratedToken': False}
+
+
+def message_receipt(data, body):
+    value = data.get('value') if isinstance(data, dict) else None
+    message = body['message']
+    if (isinstance(value, dict) and isinstance(value.get('entityUrn'), str)
+            and value['entityUrn'].startswith('urn:li:msg_message:')
+            and value.get('originToken') == message['originToken']
+            and value.get('conversationUrn') == message['conversationUrn']
+            and value.get('body') == message['body']):
+        return value['entityUrn']
+    return None
 
 async def request(worker, path, method='GET', body=None):
+    with diag.context(trace_id=diag.CONTEXT.get().get('trace_id') or diag.trace_id()):
+        with diag.span('provider.request', owner=getattr(worker, 'owner', None),
+                       fixture=getattr(worker, 'fixture', None), method=method,
+                       endpoint=diag.endpoint(path), timeout_ms=20000):
+            result = await _request(worker, path, method, body)
+            data = result.get('data')
+            value = data.get('value') if isinstance(data, dict) else None
+            diag.emit('provider.response', http_status=result.get('status'),
+                      redirect=bool(result.get('redirect')), retry_after=result.get('retryAfter'),
+                      has_data=data is not None, has_receipt=isinstance(value, dict) and bool(value.get('entityUrn')),
+                      service_error_code=data.get('serviceErrorCode') if isinstance(data, dict) and type(data.get('serviceErrorCode')) is int else None)
+            return result
+
+
+async def _request(worker, path, method='GET', body=None):
     if not path.startswith(('/voyager/api/', '/voyagerMessagingGraphQL/')):
         raise ValueError('Endpoint not allowed')
     if urlparse(worker.page.url).netloc != urlparse(worker.origin).netloc:
         raise ValueError('Return to LinkedIn before making a provider request')
-    cookies = await worker.context.cookies(worker.origin)
+    with diag.span('provider.cookies'):
+        cookies = await worker.context.cookies(worker.origin)
     csrf = next((c['value'].strip('"') for c in cookies if c['name'] == 'JSESSIONID'), None)
     if not csrf:
+        diag.emit('provider.preflight_rejected', reason_code='missing_csrf')
         return {'status': 401, 'error': 'Sign in to LinkedIn first'}
     # Execute in the authenticated page: Chrome supplies its own cookies.
-    return await worker.page.evaluate("""async ({path, method, body, csrf}) => {
-      const response = await fetch(path, {method, credentials: 'include', redirect: 'manual',
-        headers: {'csrf-token': csrf, 'accept': 'application/vnd.linkedin.normalized+json+2.1',
-                  ...(body ? {'content-type':'application/json'} : {})},
-        ...(body ? {body:JSON.stringify(body)} : {}), signal:AbortSignal.timeout(20000)});
-      let data = null; try { data = await response.json(); } catch {}
-      const retry = Number(response.headers.get('retry-after'));
-      return {status:response.status, data, redirect:response.type === 'opaqueredirect',
-              retryAfter: Number.isFinite(retry) && retry > 0 ? retry : null};
-    }""", {'path': path, 'method': method, 'body': body, 'csrf': csrf})
+    with diag.span('provider.fetch', timeout_ms=20000):
+        return await worker.page.evaluate("""async ({path, method, body, csrf, messageWrite}) => {
+          const response = await fetch(path, {method, credentials: 'include', redirect: 'manual',
+            headers: {'csrf-token': csrf, 'accept': messageWrite ? 'application/json' : 'application/vnd.linkedin.normalized+json+2.1',
+                      ...(messageWrite ? {'content-type':'text/plain;charset=UTF-8', 'x-restli-protocol-version':'2.0.0', 'x-li-lang':'en_US'} : body ? {'content-type':'application/json'} : {})},
+            ...(body ? {body:JSON.stringify(body)} : {}), signal:AbortSignal.timeout(20000)});
+          let data = null; try { data = await response.json(); } catch {}
+          const retry = Number(response.headers.get('retry-after'));
+          return {status:response.status, data, redirect:response.type === 'opaqueredirect',
+                  retryAfter: Number.isFinite(retry) && retry > 0 ? retry : null};
+        }""", {'path': path, 'method': method, 'body': body, 'csrf': csrf, 'messageWrite': method == 'POST' and path == PATHS['message']})
 
 async def conversations(worker):
     if not worker.conversation_request:

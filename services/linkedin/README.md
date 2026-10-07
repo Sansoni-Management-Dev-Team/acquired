@@ -91,3 +91,50 @@ compatibility has been verified. WhatsApp publication remains blocked.
 Additional no-send tests: `pytest -q test_campaign.py`. These cover target-bound
 relationship parsing, invitation skips, unknown/nonconnected recipients, note
 limits, queue isolation, idempotent submission, and live feature gating.
+
+### Existing-conversation message contract (local update)
+
+The message adapter now uses `voyagerMessagingDashMessengerMessages?action=createMessage`,
+matching the successful manual browser capture reviewed on 2026-10-07. It sends a
+UUID origin token, separate 16-character tracking ID, mailbox URN, conversation
+URN, and the observed JSON/text headers using the current browser session's CSRF
+cookie. No HAR credentials are copied into code or fixtures.
+
+Before sending, the service requires exactly one complete non-group conversation
+whose participants are the current mailbox and intended recipient. It uses the
+account's recent inbox response, refreshing through the captured read request
+when stale and respecting request spacing before the write. Cache freshness
+covers the configured spacing window. This lookup does not paginate or create a
+new conversation: a recipient absent from the captured inbox requires a Messaging
+refresh and a fresh draft. The service never guesses the target from the open chat.
+
+A successful message response must contain a matching `value.entityUrn`, origin
+token, conversation and body. Missing confirmation or a timeout remains uncertain
+and cannot be automatically retried. The encrypted action journal records the
+endpoint, HTTP status, redirect flag, numeric provider error codes, target thread,
+origin token and confirmed message ID; raw error bodies and authentication headers
+are excluded. Fixture coverage checks the modern wire contract and session restore.
+A user-approved existing-conversation message sent through the local OrbStack
+service on 2026-10-07 returned HTTP 200 with a matching receipt and appeared once
+in the live browser. Live sends were disabled again afterward. Other accounts,
+new conversations and unattended campaign sending remain unverified.
+
+### Request tracing
+
+Local app proxy calls emit JSON `linkedin.service_request.start/end/error` lines
+in `.local-data/dev-start.log`. The service emits JSON diagnostics to stdout;
+inspect them with `docker logs --since 10m project-acquire-linkedin`. Each app
+request passes a validated `X-LinkedIn-Trace-Id`, returned on the response and
+shared by service HTTP, account-lock, browser and provider events. Dispatched
+actions also retain `traceId` in the encrypted journal; background dispatches
+allocate their own trace. Viewer URLs and query variables are excluded.
+
+Each span logs `.start` before awaiting work, then `.end` or `.error` with elapsed
+milliseconds. Browser events distinguish process launch, CDP connection, saved
+context restoration, page setup, login versus Messaging navigation, renderer
+checks, recovery and shutdown. Provider events include endpoint/method, status,
+redirect/retry metadata, numeric error codes and receipt presence. Action events
+show recipient/thread verification using hashed identifiers and the final state.
+An unmatched start event shows work still pending or a process interrupted during
+that phase. Exceptions log their class only; message content, request/response
+bodies, cookies, authentication headers and raw exception text are never logged.
