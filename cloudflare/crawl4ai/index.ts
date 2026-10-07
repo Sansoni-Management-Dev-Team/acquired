@@ -20,12 +20,13 @@ const worker = {
       return env.READER.getByName("public-reader").fetch(new Request("http://container/health"));
     }
     if (request.method !== "POST" || new URL(request.url).pathname !== "/crawl") return new Response("Not found", {status:404});
-    const body = await request.json().catch(() => null) as { url?: unknown } | null;
+    const body = await request.json().catch(() => null) as { url?: unknown; only_main_content?: unknown } | null;
     const url = typeof body?.url === "string" ? publicResearchUrl(body.url) : null;
     if (!url) return Response.json({error:"Unsupported public URL"},{status:400});
+    if (body?.only_main_content !== undefined && typeof body.only_main_content !== "boolean") return Response.json({error:"Invalid content mode"},{status:400});
     // One on-demand instance with a bounded pool of three isolated browser reads.
     return env.READER.getByName("public-reader").fetch(new Request("http://container/crawl", {
-      method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({url}),
+      method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({url, ...(body?.only_main_content !== undefined ? {only_main_content:body.only_main_content} : {})}),
     }));
   },
 };

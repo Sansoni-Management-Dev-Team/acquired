@@ -4,6 +4,7 @@
   "account_id": "53019d98ec6f1d1d93112558076ee677",
   "main": "index.ts",
   "compatibility_date": "2026-09-08",
+  "compatibility_flags": ["global_fetch_strictly_public"],
   "ai": { "binding": "AI" },
   "workflows": [
     { "name": "acquire-research", "binding": "RESEARCH", "class_name": "AcquireResearch" },

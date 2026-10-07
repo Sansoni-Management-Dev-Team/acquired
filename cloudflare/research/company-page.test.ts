@@ -22,7 +22,10 @@ it('rejects a private final URL and a main-content-only response', async () => {
 });
 it('reports unavailable crawler without returning service credentials', async () => {
   const response = await companyPage(request('https://instruments.example.com'), env, vi.fn<typeof fetch>(async () => new Response(env.CRAWL4AI_SECRET, { status: 503 })));
-  expect(response.status).toBe(503); expect(await response.text()).not.toContain(env.CRAWL4AI_SECRET);
+  expect(response.status).toBe(503);
+  const body = await response.json();
+  expect(body).toMatchObject({ upstreamStatus: 503 });
+  expect(JSON.stringify(body)).not.toContain(env.CRAWL4AI_SECRET);
 });
 it('uses the bounded local reader endpoint with no crawler authorization', async () => {
   const fetcher = vi.fn<typeof fetch>(async () => Response.json({ url: 'https://instruments.example.com', html: '<html>Legal</html>', only_main_content: false }));

@@ -25,7 +25,7 @@ export async function companyPage(request: Request, env: CompanyPageEnv, fetcher
       method: 'POST', headers: { 'Content-Type': 'application/json', ...(!local ? { authorization: `Bearer ${env.CRAWL4AI_SECRET}` } : {}) },
       body: JSON.stringify({ url, only_main_content: false }), signal: AbortSignal.timeout(35000), redirect: 'manual',
     });
-    if (!response.ok) { await response.body?.cancel(); return Response.json({ error: 'Company page reader unavailable' }, { status: 503 }); }
+    if (!response.ok) { await response.body?.cancel(); return Response.json({ error: 'Company page reader unavailable', upstreamStatus: response.status }, { status: 503 }); }
     const reader = response.body?.getReader();
     if (!reader) throw Error('Missing response');
     const chunks: Uint8Array[] = []; let bytes = 0;
