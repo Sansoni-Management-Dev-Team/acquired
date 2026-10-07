@@ -1,0 +1,94 @@
+{
+  "mandate": "a9fb0c38-b87c-493e-9fbb-07a0227d4f50",
+  "observed": "2026-10-07T10:23:04.382Z",
+  "scope": {
+    "targets": 92,
+    "matched": 67,
+    "registry_abn": 45,
+    "recoverable_state_gaps": 20,
+    "different_au_headcount": 62,
+    "au_revenue_provider_missing": 67,
+    "description": 66,
+    "founded": 60,
+    "acn": 62
+  },
+  "abn": [
+    {
+      "status": null,
+      "count": 1
+    },
+    {
+      "status": "ambiguous",
+      "count": 4
+    },
+    {
+      "status": "not_found",
+      "count": 6
+    },
+    {
+      "status": "matched",
+      "count": 45
+    },
+    {
+      "status": "candidates_only",
+      "count": 34
+    },
+    {
+      "status": "request_failed",
+      "count": 1
+    },
+    {
+      "status": "deadline",
+      "count": 2
+    }
+  ],
+  "sync": [
+    {
+      "status": "complete",
+      "message": "Company data refresh complete",
+      "runs": 1,
+      "profiles_found": 65,
+      "profiles_saved": 65
+    },
+    {
+      "status": "complete",
+      "message": "Company data saved; no people found",
+      "runs": 1,
+      "profiles_found": 0,
+      "profiles_saved": 0
+    },
+    {
+      "status": "failed",
+      "message": "Company search time limit reached; saved contacts retained",
+      "runs": 65,
+      "profiles_found": 245,
+      "profiles_saved": 195
+    }
+  ],
+  "contacts": [
+    {
+      "qualification": "excluded",
+      "contacts": 265,
+      "companies": 2
+    }
+  ],
+  "later_completeness_projection": {
+    "targets": 92,
+    "fields_per_target": 53,
+    "cells": 4876,
+    "contact_saved_emails": 230,
+    "contact_missing_emails": 35,
+    "contact_saved_phones": 0,
+    "contact_phone_not_requested": 265,
+    "qualification_excluded": 59,
+    "qualification_review": 33,
+    "cell_status_counts": {
+      "verified": 45,
+      "reported": 1988,
+      "unavailable": 738,
+      "unattempted": 2042,
+      "estimated": 63
+    },
+    "scope": "Read-only organization-scoped source; corrected offline projection, not persisted production changes."
+  }
+}

@@ -1,12 +1,21 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { readFileSync } from "node:fs";
 import { Client, Pool } from "pg";
 
+const databaseContext = await vi.hoisted(async () => {
+  const { AsyncLocalStorage } = await import('node:async_hooks');
+  return new AsyncLocalStorage<unknown>();
+});
 vi.mock("./client", () => ({ requireDb: vi.fn() }));
+const worker = vi.hoisted(() => vi.fn().mockResolvedValue({ status: 'running' }));
+vi.mock('@/lib/research-service', () => ({ researchEnabled: () => true, researchWorker: worker }));
 
 import type { FirmableHttpObservation } from "@/adapters/firmable-client";
+import { requireDb } from './client';
+import { tickCompanyPeople } from '@/lib/company-people-research';
+import { recoverFirmableRefreshes } from '@/lib/firmable-run-recovery';
 import { FirmableHistoryRepository } from "./firmable-history-repository";
 import { upsertFirmableContact } from "./firmable-contacts";
 import { OrganizationRepository } from "./repositories";
@@ -26,6 +35,7 @@ describe.skipIf(!enabled)("Firmable history PostgreSQL integration", () => {
   let otherTargetId: string;
 
   beforeAll(async () => {
+    if (integrationUrl && !['localhost','127.0.0.1','::1'].includes(new URL(integrationUrl).hostname)) throw new Error('Firmable integration requires a local database host');
     if (!integrationUrl) throw new Error("FIRMABLE_INTEGRATION_DATABASE_URL is required when RUN_FIRMABLE_DB_INTEGRATION=true");
 
     client = new Client({ connectionString: integrationUrl });
@@ -33,6 +43,16 @@ describe.skipIf(!enabled)("Firmable history PostgreSQL integration", () => {
     await client.query("begin");
 
     const database = drizzle({ client, schema });
+    // The suite owns BEGIN/ROLLBACK. Repository transactions must be savepoints,
+    // otherwise a nested BEGIN/COMMIT would accidentally commit synthetic rows.
+    let savepoint = 0;
+    database.transaction = async callback => {
+      const name = `firmable_test_${++savepoint}`;
+      await client.query(`SAVEPOINT ${name}`);
+      try { const result = await callback(database as never); await client.query(`RELEASE SAVEPOINT ${name}`); return result; }
+      catch (error) { await client.query(`ROLLBACK TO SAVEPOINT ${name}`); throw error; }
+    };
+    vi.mocked(requireDb).mockImplementation(() => (databaseContext.getStore() || database) as never);
     repository = new FirmableHistoryRepository(database);
     const suffix = crypto.randomUUID();
     actorId = `firmable-integration-user-${suffix}`;
@@ -160,7 +180,10 @@ describe.skipIf(!enabled)("Firmable history PostgreSQL integration", () => {
 
     expect((await repository.successfulSearchPage(first.id, 0))?.returnedCount).toBe(1);
     expect((await repository.searchCandidates(first.id)).candidates.map(candidate => candidate.id)).toEqual([firstPerson, secondPerson]);
-    expect(await repository.profileProgress(first.id, [firstPerson, secondPerson])).toEqual({ found: 2, saved: 1, failed: 1, attempted: 2, pending: 0 });
+    // Provider success alone is not a saved contact.
+    expect(await repository.profileProgress(first.id, [firstPerson, secondPerson])).toEqual({ found: 2, saved: 0, failed: 1, attempted: 2, pending: 1 });
+    await client.query("insert into contacts (organization_id,target_id,display_name,firmable_person_id,personal_data,provenance) values ($1,$2,$3,$4,'{}','{}')", [organizationId, queuedTargetId, 'Synthetic owner', firstPerson]);
+    expect(await repository.reconcileProfileProgress(first.id)).toMatchObject({ saved: 1, failed: 1 });
 
     await repository.finishRun(first.id, { found: 2, saved: 1, failed: 1, searchComplete: true });
     const next = await repository.queueRun({ organizationId, actorId, targetId: queuedTargetId, requestKey: crypto.randomUUID() });
@@ -251,7 +274,7 @@ describe.skipIf(!enabled)("Firmable history PostgreSQL integration", () => {
   });
 
   it("enforces run and contact uniqueness across pooled database connections", async () => {
-    const pool = new Pool({ connectionString: integrationUrl, max: 12 });
+    const pool = new Pool({ connectionString: integrationUrl, max: 12, connectionTimeoutMillis: 5000, query_timeout: 5000, options: "-c statement_timeout=5000 -c lock_timeout=5000" });
     const database = drizzle({ client: pool, schema });
     const suffix = crypto.randomUUID();
     const pooledActorId = `firmable-pool-user-${suffix}`;
@@ -259,6 +282,7 @@ describe.skipIf(!enabled)("Firmable history PostgreSQL integration", () => {
     const pooledTargetId = crypto.randomUUID();
     const companyId = `firmable-pool-company-${suffix}`;
     const personId = `firmable-pool-person-${suffix}`;
+    const pooledMandateId = crypto.randomUUID(), pooledRootId = crypto.randomUUID();
     try {
       await database.insert(user).values({ id: pooledActorId, name: "Firmable pool integration", email: `${suffix}@firmable.pool.test` });
       await database.insert(organization).values({ id: pooledOrganizationId, name: "Firmable pool integration", slug: `firmable-pool-${suffix}` });
@@ -266,12 +290,31 @@ describe.skipIf(!enabled)("Firmable history PostgreSQL integration", () => {
       const pooledRepository = new FirmableHistoryRepository(database);
       const runs = await Promise.all(Array.from({ length: 12 }, () => pooledRepository.queueRun({ organizationId: pooledOrganizationId, actorId: pooledActorId, targetId: pooledTargetId, requestKey: crypto.randomUUID() })));
       expect(new Set(runs.map(run => run.id)).size).toBe(1);
+      // RC-10-integration: simultaneous manual entry/recovery claims admit one workflow.
+      const claims = await Promise.all(Array.from({length:12},()=>pooledRepository.claimManualRecovery(runs[0].id)));
+      expect(claims.filter(Boolean)).toHaveLength(1);
 
       await database.insert(firmableCompanies).values({ id: companyId, name: "Pool Example" });
       await database.insert(firmablePeople).values({ id: personId, name: "Pool Owner" });
       await Promise.all(Array.from({ length: 12 }, () => upsertFirmableContact({ database, organizationId: pooledOrganizationId, targetId: pooledTargetId, companyId, person: { id: personId, name: "Pool Owner", position: "Owner", email: "pool@example.test", emailAvailable: true, phoneAvailable: false, fictionalised: false, doNotContact: false } })));
       expect(await database.$count(contacts, and(eq(contacts.organizationId, pooledOrganizationId), eq(contacts.targetId, pooledTargetId), eq(contacts.firmablePersonId, personId)))).toBe(1);
+      // RC-11-generalization/integration: terminal writer and late counter writers
+      // race across real pooled connections; the final root snapshot must converge.
+      await database.insert(schema.mandates).values({id:pooledMandateId,organizationId:pooledOrganizationId,naturalLanguage:'Synthetic race',filters:{},provenance:{},createdBy:pooledActorId});
+      const [root]=await database.insert(schema.researchJobs).values({id:pooledRootId,organizationId:pooledOrganizationId,mandateId:pooledMandateId,createdBy:pooledActorId,status:'partial',config:{companyPeopleRunIds:[runs[0].id]}}).returning();
+      await pooledRepository.recordObservation(runs[0].id,observation('race-company','/company',{id:companyId,name:'Synthetic race'},200),{retainPersonalData:true});
+      await pooledRepository.recordObservation(runs[0].id,observation('race-search','/people/search',{records:[{person_id:personId,position:'Owner'}],totalPeople:1},200,undefined,{companyId,from:'0',size:'100'}),{retainPersonalData:true});
+      await pooledRepository.recordObservation(runs[0].id,observation('race-profile','/people',{id:personId,name:'Synthetic Owner'},200),{retainPersonalData:true});
+      // Context-local injection cannot bleed into the following test if this
+      // adversarial pool scenario times out while its cleanup is still running.
+      await databaseContext.run(database, () => Promise.all([tickCompanyPeople(root),...Array.from({length:12},()=>pooledRepository.reconcileProfileProgress(runs[0].id))]));
+      expect((await database.select().from(schema.researchJobs).where(eq(schema.researchJobs.id,pooledRootId)))[0]).toMatchObject({status:'partial',config:{companyPeopleProgress:{saved:1,settled:true}}});
+
     } finally {
+      await database.delete(schema.mandates).where(eq(schema.mandates.id, pooledMandateId));
+      // Retained response rows use SET NULL; remove this fixture's rows before run deletion.
+      const ownRuns=await database.select({id:schema.firmableSyncRuns.id}).from(schema.firmableSyncRuns).where(eq(schema.firmableSyncRuns.organizationId,pooledOrganizationId));
+      if(ownRuns.length) for(const table of [schema.firmableCompanyResponses,schema.firmablePeopleSearches,schema.firmablePersonResponses]) await database.delete(table).where(inArray(table.runId,ownRuns.map(run=>run.id)));
       await database.delete(targets).where(eq(targets.id, pooledTargetId));
       await database.delete(firmablePeople).where(eq(firmablePeople.id, personId));
       await database.delete(firmableCompanies).where(eq(firmableCompanies.id, companyId));
@@ -279,9 +322,100 @@ describe.skipIf(!enabled)("Firmable history PostgreSQL integration", () => {
       await database.delete(user).where(eq(user.id, pooledActorId));
       await pool.end();
     }
+  }, 20_000);
+
+  it('RC-10-integration: automatic recovery respects root slots, exclusions and deadlines', async () => {
+    const database = requireDb();
+    const mandateId = crypto.randomUUID();
+    await client.query("insert into mandates (id,organization_id,natural_language,filters,provenance,created_by) values ($1,$2,'Synthetic research','{}','{}',$3)", [mandateId,organizationId,actorId]);
+    const rootId = crypto.randomUUID();
+    const ids: string[] = [];
+    for (let i=0;i<3;i++) {
+      const tid=crypto.randomUUID();
+      await database.insert(targets).values({id:tid,organizationId,mandateId,companyName:`Synthetic ${i}`,fitScore:i===1?90:50,qualification:i===0?'excluded':'research',firmographics:{screening:{sector:'supported',geography:'supported',headcount:i===0?'excluded':'review'}}});
+      const companyId=`schedule-${crypto.randomUUID()}`;
+      await database.insert(firmableCompanies).values({id:companyId,name:'Synthetic'});
+      const run=await repository.queueRun({organizationId,actorId,targetId:tid,requestKey:crypto.randomUUID(),trigger:'discovery'});
+      await repository.linkRunCompany(run.id,companyId,'complete');ids.push(run.id);
+    }
+    const [root]=await database.insert(schema.researchJobs).values({id:rootId,organizationId,mandateId,createdBy:actorId,status:'extracting',config:{includeCompanyPeople:true,companyPeopleRunIds:ids,automaticDeadline:Date.now()+600000}}).returning();
+    worker.mockClear();
+    await tickCompanyPeople(root);
+    expect(await repository.run(ids[0])).toMatchObject({status:'cancelled',error:{origin:'admission',reason:'ineligible',attempted:false}});
+    const runTargets = []; for (const id of ids) runTargets.push((await repository.run(id))!.targetId);
+    await recoverFirmableRefreshes(repository, await repository.latestRuns(organizationId, runTargets), mandateId);
+    expect(worker.mock.calls.filter(call=>call[1]==='POST')).toHaveLength(1);
+    expect((await repository.run(ids[1]))?.status).toBe('running');
+    expect((await repository.run(ids[2]))?.status).toBe('queued');
+    await database.update(schema.researchJobs).set({config:{...root.config as object,automaticDeadline:Date.now()-1}}).where(eq(schema.researchJobs.id,rootId));
+    await tickCompanyPeople(root);
+    expect((await repository.run(ids[1]))?.status).toBe('failed');
+    expect(await repository.run(ids[2])).toMatchObject({status:'cancelled',error:{origin:'admission',reason:'deadline',attempted:false}});
+    expect(worker.mock.calls.filter(call=>call[1]==='POST')).toHaveLength(1);
+    await database.update(schema.researchJobs).set({status:'complete'}).where(eq(schema.researchJobs.id,rootId));
   });
 
-  it("can repeat the approved legacy backfill without duplicating history", async () => {
+  it('RC-11-integration: late durable writes reconcile terminal counts without reopening', async () => {
+    const run = await repository.queueRun({ organizationId, actorId, targetId, requestKey: crypto.randomUUID(), trigger: 'people' });
+    const companyId = `late-${crypto.randomUUID()}`, personId = `late-person-${crypto.randomUUID()}`;
+    await repository.markRunning(run.id);
+    await repository.recordObservation(run.id, observation('late-company', '/company', { id: companyId, name: 'Synthetic Company' }, 200), { retainPersonalData: true });
+    await repository.recordObservation(run.id, observation('late-search', '/people/search', { records: [{person_id:personId, position:'Owner'}], totalPeople:1 }, 200, undefined, {companyId,from:'0',size:'100'}), { retainPersonalData: true });
+    const mandateId=crypto.randomUUID(), rootId=crypto.randomUUID();
+    await client.query("insert into mandates (id,organization_id,natural_language,filters,provenance,created_by) values ($1,$2,'Synthetic late-write research','{}','{}',$3)",[mandateId,organizationId,actorId]);
+    await requireDb().insert(schema.researchJobs).values({id:rootId,organizationId,mandateId,createdBy:actorId,status:'partial',config:{companyPeopleRunIds:[run.id]}});
+    await repository.failRun(run.id, 'Contact deadline reached');
+    await repository.recordObservation(run.id, observation('late-profile', '/people', {id:personId,name:'Synthetic Owner'}, 200), { retainPersonalData: true });
+    expect(await repository.reconcileProfileProgress(run.id)).toMatchObject({saved:0,pending:1});
+    await client.query("insert into contacts (organization_id,target_id,display_name,firmable_person_id,personal_data,provenance) values ($1,$2,$3,$4,'{}','{}')", [organizationId,targetId,'Synthetic owner',personId]);
+    await repository.reconcileProfileProgress(run.id);
+    await repository.reconcileProfileProgress(run.id);
+    expect(await repository.run(run.id)).toMatchObject({status:'failed',profilesFound:1,profilesSaved:1,profilesFailed:0});
+    await tickCompanyPeople((await requireDb().select().from(schema.researchJobs).where(eq(schema.researchJobs.id,rootId)))[0]);
+    expect((await requireDb().select().from(schema.researchJobs).where(eq(schema.researchJobs.id,rootId)))[0]).toMatchObject({status:'partial',config:{companyPeopleProgress:{saved:1,failed:1,settled:true}}});
+  });
+
+  it('RC-11-regression: historical technicians and orphan observations survive modern contact caps', async () => {
+    const run=await repository.queueRun({organizationId,actorId,targetId,requestKey:crypto.randomUUID(),trigger:'discovery'});
+    const companyId=`historical-${crypto.randomUUID()}`;
+    await repository.markRunning(run.id);
+    await repository.recordObservation(run.id,observation('historical-company','/company',{id:companyId,name:'Synthetic historical workforce'},200),{retainPersonalData:true});
+    const searched=Array.from({length:8},(_,i)=>`historical-${crypto.randomUUID()}-${i}`);
+    await repository.recordObservation(run.id,observation('historical-search','/people/search',{records:searched.map(person_id=>({person_id,position:'Technician'})),totalPeople:8},200,undefined,{companyId,from:'0',size:'100'}),{retainPersonalData:true});
+    await repository.failRun(run.id,'Historical deadline');
+    const orphan=crypto.randomUUID(), failedOrphan=crypto.randomUUID(), unmaterialized=crypto.randomUUID();
+    for(const personId of [...searched,orphan,unmaterialized]) {
+      await repository.recordObservation(run.id,observation(`historical-profile-${personId}`,'/people',{id:personId,name:'Synthetic employee'},200),{retainPersonalData:true});
+      if(personId!==unmaterialized) await client.query("insert into contacts (organization_id,target_id,display_name,firmable_person_id,personal_data,provenance) values ($1,$2,'Synthetic employee',$3,'{}','{}')",[organizationId,targetId,personId]);
+    }
+    await repository.recordObservation(run.id,observation('historical-failed-orphan','/people',{error:'Synthetic rate limit'},429,undefined,undefined,{id:failedOrphan}),{retainPersonalData:true});
+    expect((await repository.searchCandidates(run.id)).candidates).toHaveLength(0);
+    expect(await repository.reconcileProfileProgress(run.id)).toMatchObject({found:11,saved:9,failed:1,pending:1});
+    expect(await repository.run(run.id)).toMatchObject({status:'failed',profilesFound:11,profilesSaved:9,profilesFailed:1});
+  });
+
+  it('RC-09-integration: discovered technicians do not consume the bounded decision maker set', async () => {
+    const run = await repository.queueRun({ organizationId, actorId, targetId, requestKey: crypto.randomUUID(), trigger:'discovery' });
+    const companyId=`bounded-${crypto.randomUUID()}`;
+    await repository.markRunning(run.id);
+    await repository.recordObservation(run.id, observation('bounded-company','/company',{id:companyId,name:'Synthetic Company'},200),{retainPersonalData:true});
+    await repository.recordObservation(run.id, observation('bounded-search','/people/search',{records:[...Array.from({length:90},(_,i)=>({person_id:`technician${i}`,position:'Technician'})),...Array.from({length:10},(_,i)=>({person_id:`owner${i}`,position:'Owner'}))],totalPeople:209},200,undefined,{companyId,from:'0',size:'100'}),{retainPersonalData:true});
+    const found=await repository.searchCandidates(run.id);
+    expect(found.discoveredCount).toBe(100);
+    expect(found.candidates.map(person=>person.id)).toEqual(['owner0','owner1','owner2','owner3','owner4']);
+    for(const person of found.candidates) {
+      await repository.recordObservation(run.id,observation(`bounded-profile-${person.id}`,'/people',{id:person.id,name:'Synthetic owner'},200),{retainPersonalData:true});
+      await client.query("insert into contacts (organization_id,target_id,display_name,firmable_person_id,personal_data,provenance) values ($1,$2,'Synthetic owner',$3,'{}','{}')",[organizationId,targetId,person.id]);
+    }
+    const selectedProgress=await repository.profileProgress(run.id,found.candidates.map(person=>person.id));
+    expect(selectedProgress).toMatchObject({found:5,saved:5,pending:0});
+    await repository.finishRun(run.id,{...selectedProgress,searchComplete:true});
+    await repository.reconcileProfileProgress(run.id);
+    expect(await repository.run(run.id)).toMatchObject({status:'complete',profilesFound:100,profilesSaved:5,profilesFailed:0});
+  });
+
+  // Requires current explicit approval for drizzle/0006_firmable_history.sql and both dedicated opt-ins; a generic integration flag cannot enable migration execution.
+  it.skipIf(process.env.RUN_FIRMABLE_MIGRATION_BACKFILL_TEST !== "true" || process.env.FIRMABLE_APPROVED_MIGRATION_FILE !== "drizzle/0006_firmable_history.sql")("can repeat the approved legacy backfill without duplicating history", async () => {
     const tables = ["firmable_companies", "firmable_company_responses", "firmable_people", "firmable_people_searches", "firmable_person_responses", "firmable_company_people"];
     const migration = readFileSync(new URL("../../drizzle/0006_firmable_history.sql", import.meta.url), "utf8");
     const backfill = migration.slice(migration.indexOf("-- Backfill shared company identities"));

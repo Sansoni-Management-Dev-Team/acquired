@@ -55,6 +55,7 @@ function replay(options: { searchReservationDelayMs?: number; read?: (url: strin
       const data = JSON.parse(String(init.body));
       callbacks.push(data);
       callbackTimes.push({ action: data.action, at: Date.now() });
+      if(data.action==='company-background-research'){status='complete';return Response.json({ok:true,saved:true});}
       if(data.action==='e-plan')return Response.json([{query:'cleaning Australia',page:1}]);
       if(data.action==='e-search')return Response.json({ok:true,rows:[{domain:'instruments.example.com',name:'Example Instruments',website:'https://instruments.example.com',discovery:{url:'https://instruments.example.com',title:'Example Instruments',snippet:'cleaning services'}}]});
       if(data.action==='e-company')return Response.json({ok:true,matched:true});
@@ -465,34 +466,19 @@ it.each(['web-firmable-v1', 'hybrid-firmable-v1'] as const)('waits durably for f
   expect(searched.at - reserved.at).toBeGreaterThanOrEqual(45);
   expect(t.callbacks).toContainEqual(expect.objectContaining({ action: 'e-search' }));
 });
-it('waits for automatically queued people research before completing F', async () => {
- const t = replay(); Object.assign(t.config, {mode:'automatic',workflow:'business',discover:true,pipelineDesign:'hybrid-firmable-v1',includeCompanyPeople:true,researchRunId:t.id,automaticDeadline:Date.now()+600000});
- const original = vi.mocked(globalThis.fetch).getMockImplementation()!; let polls = 0;
- vi.spyOn(globalThis,'fetch').mockImplementation(async (input,init)=>{
-   if (init?.body && JSON.parse(String(init.body)).action === 'company-people-status') { t.callbacks.push({action:'company-people-status'}); return Response.json({settled: ++polls > 1}); }
-   return original(input,init);
- });
+it('finishes company discovery while optional people research remains unsettled', async () => {
+ const t=replay();Object.assign(t.config,{mode:'automatic',workflow:'business',discover:true,pipelineDesign:'hybrid-firmable-v1',includeCompanyPeople:true,researchRunId:t.id,automaticDeadline:Date.now()+600000});
+ const original=vi.mocked(globalThis.fetch).getMockImplementation()!;
+ vi.spyOn(globalThis,'fetch').mockImplementation(async(input,init)=>{if(init?.body&&JSON.parse(String(init.body)).action==='company-people-status')throw Error('Company discovery must not wait for optional people');return original(input,init);});
  await using instance=await introspectWorkflowInstance(bindings.RESEARCH,t.id);await instance.modify(m=>m.disableSleeps());await bindings.RESEARCH.create({id:t.id,params:{jobId:t.id}});await instance.waitForStatus('complete');
- expect(polls).toBe(2);expect(t.callbacks.findIndex(c=>c.action==='f-finish')).toBeGreaterThan(t.callbacks.findLastIndex(c=>c.action==='company-people-status'));
+ expect(t.callbacks.filter(c=>c.action==='company-people-status')).toHaveLength(0);expect(t.callbacks.filter(c=>c.action==='f-finish')).toHaveLength(1);expect(t.callbacks.some(c=>c.action==='f-fail')).toBe(false);
 });
-it('completes F when contact waiting exceeds the completion step timeout', async () => {
- const t = replay(); Object.assign(t.config, {mode:'automatic',workflow:'business',discover:true,pipelineDesign:'hybrid-firmable-v1',includeCompanyPeople:true,researchRunId:t.id,automaticDeadline:Date.now()+600000});
- const original = vi.mocked(globalThis.fetch).getMockImplementation()!; let polls = 0, firstPoll = 0, lastPoll = 0;
- vi.spyOn(globalThis,'fetch').mockImplementation(async (input,init)=>{
-   if (init?.body && JSON.parse(String(init.body)).action === 'company-people-status') {
-     firstPoll ||= Date.now();lastPoll=Date.now();t.callbacks.push({action:'company-people-status'});
-     return Response.json({settled: ++polls >= 14});
-   }
-   return original(input,init);
- });
- // Keep real durable sleeps: the previous implementation timed out at 120s.
- await using instance=await introspectWorkflowInstance(bindings.RESEARCH,t.id);
- await bindings.RESEARCH.create({id:t.id,params:{jobId:t.id}});await instance.waitForStatus('complete');
- expect(lastPoll-firstPoll).toBeGreaterThanOrEqual(130000);
- expect(polls).toBe(14);expect(t.callbacks.filter(c=>c.action==='f-finish')).toHaveLength(1);
- expect(t.callbacks.some(c=>c.action==='f-fail')).toBe(false);
- expect(JSON.parse(await instance.waitForStepResult({name:'f-finish'}) as string)).toEqual({ok:true});
-},180000);
+it('routes durable background company fields to their dedicated callback without discovery or AI',async()=>{
+ const t=replay();Object.assign(t.config,{mode:'automatic',workflow:'business',researchTask:'field',purpose:'firmographics',parentJobId:'company-root',companyBackgroundResearch:{version:1,fields:['description','companyPhone'],sourceRootId:'company-root',verifyAbn:false,profileCapturedAt:'2026-10-08T00:00:00Z'}});
+ await using instance=await introspectWorkflowInstance(bindings.RESEARCH,t.id);await instance.modify(m=>m.disableSleeps());await bindings.RESEARCH.create({id:t.id,params:{jobId:t.id}});await instance.waitForStatus('complete');
+ expect(t.callbacks.filter(c=>c.action==='company-background-research')).toHaveLength(1);expect(t.callbacks.some(c=>['e-search','d-search','discover','targeted-followup'].includes(String(c.action)))).toBe(false);expect(t.requests.some(url=>url.includes('openrouter')||url.endsWith('/crawl'))).toBe(false);
+ expect(JSON.parse(await instance.waitForStepResult({name:'company-background-research'}) as string)).toEqual({ok:true,saved:true});
+});
 it('manual phone enrichment uses the phone branch without discovering people again', async () => {
  const t = replay(); const original = vi.mocked(globalThis.fetch).getMockImplementation()!;
  vi.spyOn(globalThis,'fetch').mockImplementation(async (input,init)=>{
@@ -502,4 +488,57 @@ it('manual phone enrichment uses the phone branch without discovering people aga
  });
  await using instance=await introspectWorkflowInstance(bindings.FIRMABLE,t.id);await instance.modify(m=>m.disableSleeps());await bindings.FIRMABLE.create({id:t.id,params:{runId:t.id,mandateId:crypto.randomUUID()}});await instance.waitForStatus('complete');
  expect(t.callbacks.map(c=>c.action)).toEqual(['company','phones']);
+});
+it('RC-12-integration: retryable application callback failure preserves sanitized origin diagnostics', async () => {
+ const t=replay();const original=vi.mocked(globalThis.fetch).getMockImplementation()!;let companyAttempts=0;
+ const errors=vi.spyOn(console,'error').mockImplementation(()=>{});
+ vi.spyOn(globalThis,'fetch').mockImplementation(async(input,init)=>{
+  const url=String(input instanceof Request?input.url:input);
+  if(url.endsWith(`/api/firmable/internal/${t.id}`)&&init?.body){
+   const data=JSON.parse(String(init.body));t.callbacks.push(data);
+   if(data.action==='company'&&++companyAttempts===1)return Response.json({code:'DATABASE_UNAVAILABLE',error:'private details'},{status:502,headers:{'x-request-id':'fixture-request'}});
+   return Response.json(data.action==='company'?{companyId:'fixture-company'}:data.action==='people-page'?{complete:true,nextOffset:100,found:0}:data.action==='finalize-search'?{complete:true,nextOffset:0,found:0}:{found:0,saved:0,failed:0});
+  }return original(input,init);
+ });
+ await using instance=await introspectWorkflowInstance(bindings.FIRMABLE,t.id);await instance.modify(m=>m.disableSleeps());
+ await bindings.FIRMABLE.create({id:t.id,params:{runId:t.id,mandateId:crypto.randomUUID()}});await instance.waitForStatus('complete');
+ expect(companyAttempts).toBe(2);
+ expect(errors).toHaveBeenCalledWith('firmable_callback_failure',expect.objectContaining({origin:'application-callback',action:'company',status:502,requestId:'fixture-request',errorCode:'DATABASE_UNAVAILABLE'}));
+ expect(JSON.stringify(errors.mock.calls)).not.toContain('private details');
+ expect(t.callbacks.at(-1)?.action).toBe('complete');
+},30000);
+
+it('scheduled recovery invokes the authenticated background dispatcher independently of a workflow', async () => {
+  const calls: { url: string; init?: RequestInit }[] = [];
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    calls.push({ url: String(input), init });
+    return Response.json({ dispatched: 2 });
+  });
+  await worker.scheduled({} as ScheduledController, bindings);
+  expect(calls).toHaveLength(1);
+  expect(calls[0].url).toBe('http://127.0.0.1:3010/api/research/internal/background');
+  expect(calls[0].init?.method).toBe('POST');
+  expect(new Headers(calls[0].init?.headers).get('authorization')).toBe(`Bearer ${bindings.SERVICE_SECRET}`);
+  expect(calls[0].init?.signal).toBeInstanceOf(AbortSignal);
+});
+it('scheduled recovery reports dispatcher failures for the next durable retry', async () => {
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('unavailable', { status: 503 }));
+  await expect(worker.scheduled({} as ScheduledController, bindings)).rejects.toThrow('Background research recovery failed (503)');
+});
+it('does not execute a cancelled background company field job', async () => {
+  const t = replay({ cancelled: true });
+  Object.assign(t.config, { researchTask: 'field', purpose: 'firmographics', companyBackgroundResearch: { version: 1, fields: ['companyPhone'], sourceRootId: 'root', verifyAbn: false, profileCapturedAt: '2026-10-08T00:00:00Z' } });
+  await using instance = await introspectWorkflowInstance(bindings.RESEARCH, t.id);
+  await instance.modify(m => m.disableSleeps());
+  await bindings.RESEARCH.create({ id: t.id, params: { jobId: t.id } });
+  await instance.waitForStatus('complete');
+  expect(t.callbacks.some(c => c.action === 'company-background-research')).toBe(false);
+  expect(t.requests.some(url => url.includes('openrouter') || url.endsWith('/crawl'))).toBe(false);
+});
+it('authenticates full-page company proxy before accepting a public URL', async () => {
+  const fetcher = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ url: 'https://instruments.example.com', html: '<html>Public company evidence</html>', only_main_content: false }));
+  const denied = await worker.fetch(new Request('https://worker.example/company-page', { method: 'POST', body: JSON.stringify({ url: 'https://instruments.example.com' }) }), bindings);
+  expect(denied.status).toBe(401); expect(fetcher).not.toHaveBeenCalled();
+  const allowed = await worker.fetch(new Request('https://worker.example/company-page', { method: 'POST', headers: { authorization: `Bearer ${bindings.SERVICE_SECRET}` }, body: JSON.stringify({ url: 'https://instruments.example.com' }) }), bindings);
+  expect(allowed.status).toBe(200); expect(await allowed.json()).toMatchObject({ html: '<html>Public company evidence</html>', only_main_content: false });
 });

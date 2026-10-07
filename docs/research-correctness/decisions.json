@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "decisions": [
+    {
+      "id": "D-01",
+      "finding_ids": [
+        "RC-01"
+      ],
+      "question": "Geography means headquarters, operating footprint, or an explicit per-criterion choice?",
+      "status": "resolved",
+      "choice": "State criteria use the sourced Australian operating footprint; primary regional headquarters remains separate.",
+      "rationale": "Branches must not overwrite HQ or accidentally exclude companies that operate in the requested state.",
+      "approved_by": "Codex engineering decision under the user's authorization to implement; not an explicit user selection of each default"
+    },
+    {
+      "id": "D-02",
+      "finding_ids": [
+        "RC-09"
+      ],
+      "question": "Which eligibility states may enter contact enrichment, and what role-selection policy applies?",
+      "status": "resolved",
+      "choice": "Automatic contacts require supported geography/activity and no hard exclusion; uncertain financial evidence may remain reviewable. Explicit manual selection permits review but not excluded companies. Rank owner/founder/leadership roles deterministically.",
+      "rationale": "Spend enrichment effort on plausible acquisition candidates rather than entire excluded workforces.",
+      "approved_by": "Codex engineering decision under the user's authorization to implement; not an explicit user selection of each default"
+    },
+    {
+      "id": "D-03",
+      "finding_ids": [
+        "RC-09",
+        "RC-10"
+      ],
+      "question": "Set per-company contact caps, concurrency, retry and deadline admission budgets.",
+      "status": "resolved",
+      "choice": "Select at most five profiles from three 100-person pages; one automatic workflow per root, one manual workflow per organisation, and at least 60 seconds remaining for automatic admission. Existing bounded provider retry policy applies.",
+      "rationale": "Bound costs, fairness and concurrency across entry and recovery paths while preserving observed search counts.",
+      "approved_by": "Codex engineering decision under the user's authorization to implement; not an explicit user selection of each default"
+    },
+    {
+      "id": "D-04",
+      "finding_ids": [
+        "RC-04",
+        "RC-05"
+      ],
+      "question": "Where may estimates inform fit, and what confidence/scope policy applies?",
+      "status": "resolved",
+      "choice": "Scoped headcount and sourced industry may produce provisional EBITDA estimates with benchmark/version provenance. Estimates cannot become observed earnings or establish bankability.",
+      "rationale": "Preserve useful estimates without inventing financial diligence.",
+      "approved_by": "Codex engineering decision under the user's authorization to implement; not an explicit user selection of each default"
+    },
+    {
+      "id": "D-05",
+      "finding_ids": [
+        "RC-15",
+        "RC-17"
+      ],
+      "question": "Which evidenced trading-name and group/subsidiary relationships may verify an ABN?",
+      "status": "resolved",
+      "choice": "Accept active registry identities through exact canonical registered entity/trading-name aliases with recorded reasons. Unrelated group/subsidiary registrations need explicit legal linkage; contained substrings are not independent entities.",
+      "rationale": "Normalisation improves exact matching while retaining strict legal identity verification.",
+      "approved_by": "Codex engineering decision under the user's authorization to implement; not an explicit user selection of each default"
+    },
+    {
+      "id": "D-06",
+      "finding_ids": [
+        "RC-13"
+      ],
+      "question": "Confirm automatic versus manual phone-acquisition policy and cost budget.",
+      "status": "resolved",
+      "choice": "Automatic contact acquisition does not request/unlock phones; explicit manual phone lookup remains separate. Retained manual numbers survive subsequent automatic refreshes.",
+      "rationale": "Preserve the existing credit policy and distinguish advertised availability from saved values.",
+      "approved_by": "Codex engineering decision under the user's authorization to implement; not an explicit user selection of each default"
+    },
+    {
+      "id": "D-07",
+      "finding_ids": [
+        "RC-11"
+      ],
+      "question": "Define terminal-write admission and reconciliation policy for late durable contact writes.",
+      "status": "resolved",
+      "choice": "Admitted in-flight writes may persist after termination and reconcile counts, but new terminal callbacks admit no work. Root/run state is not reopened; root aggregates update under a separate root lock after releasing run locks.",
+      "rationale": "Retain partial evidence and converge durable counters without lock inversion or a cancellation race.",
+      "approved_by": "Codex engineering decision under the user's authorization to implement; not an explicit user selection of each default"
+    }
+  ]
+}

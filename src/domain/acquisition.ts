@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { Mandate, RankedTarget } from "./models";
 import { providerNeutralText } from "./provider-display";
+import { screenCompanyCandidate } from './company-screening';
+import { resolveTargetEbitda } from './target-financial-evidence';
 import { publicResearchUrl } from "./research";
 
 export const criterionDefinitions = [
@@ -89,6 +91,7 @@ export function briefToMandate(brief: AcquisitionBrief): Mandate {
   return { sectors: criterion(brief, "subsectors").value.split(/[;\n]/).map(s => s.trim()).filter(Boolean), states, revenue: range("revenue"), ...(criterion(brief,"revenueCeiling").state === "specified" ? { revenueCeiling: range("revenueCeiling").min } : {}), ebitda: range("ebitda"), ...(criterion(brief, "headcount").state === "specified" ? { headcount: { min: range("headcount").min, max: range("headcount").max ?? Number.MAX_SAFE_INTEGER } } : {}), unknownFields: brief.criteria.filter(c => c.state === "unknown").map(c => c.key), requirements: brief.criteria.filter(c => c.importance === "requirement" && c.confirmed && c.state === "specified").map(c => c.key) };
 }
 export const evidenceSchema = z.object({
+  reviewState: z.enum(["provisional", "reviewed"]).optional(),
   criterionKey: z.enum(criterionDefinitions.map(([key]) => key) as [CriterionKey, ...CriterionKey[]]),
   assessment: z.enum(["supported", "potential", "fails", "unknown"]),
   kind: z.enum(["modelled", "website", "register", "inferred", "owner-stated", "document-verified"]),
@@ -112,11 +115,11 @@ export const financeReviewSchema = z.object({
 }).superRefine((r, ctx) => { if (Object.entries(r).some(([key, value]) => ["dscrAtStress", "customerConcentrationPct", "recurringRevenuePct", "addBacksPctOfCashFlow", "gmInPlace", "goodwillType"].includes(key) && value !== null) && !r.source.trim()) ctx.addIssue({ code: "custom", message: "Bankability inputs need a source" }); });
 export type FinanceReview = z.infer<typeof financeReviewSchema>;
 export function emptyFinanceReview(): FinanceReview { return { dscrAtStress: null, customerConcentrationPct: null, recurringRevenuePct: null, addBacksPctOfCashFlow: null, gmInPlace: null, goodwillType: null, source: "", sourceUrl: "", capturedAt: new Date().toISOString(), confidence: 0, structureReviewed: false }; }
-export const assessmentSchema = z.object({ financeReview: financeReviewSchema.optional(), stage: z.enum(pipelineStages), reason: z.string().max(2000), nextAction: z.string().max(1000), evidence: z.array(evidenceSchema).max(100), qualificationConfirmed: z.boolean() }).superRefine((a, ctx) => { if (new Set(a.evidence.map(e => e.criterionKey)).size !== a.evidence.length) ctx.addIssue({ code: "custom", message: "Only one current assessment per criterion is allowed" }); });
+export const assessmentSchema = z.object({ decisionOrigin:z.enum(["automatic","manual"]).optional(), financeReview: financeReviewSchema.optional(), stage: z.enum(pipelineStages), reason: z.string().max(2000), nextAction: z.string().max(1000), evidence: z.array(evidenceSchema).max(100), qualificationConfirmed: z.boolean() }).superRefine((a, ctx) => { if (new Set(a.evidence.map(e => e.criterionKey)).size !== a.evidence.length) ctx.addIssue({ code: "custom", message: "Only one current assessment per criterion is allowed" }); });
 export type Assessment = z.infer<typeof assessmentSchema>;
 export const initialAssessment: Assessment = { stage: "identified", reason: "", nextAction: "Review sub-sector relevance", evidence: [], qualificationConfirmed: false };
 export function qualificationGaps(brief: AcquisitionBrief, assessment: Assessment) {
-  return brief.criteria.filter(c => (c.state === "unknown" || !c.confirmed) || (c.importance === "requirement" && c.state === "specified" && !assessment.evidence.some(e => e.criterionKey === c.key && e.assessment === "supported" && ["owner-stated", "document-verified", "register"].includes(e.kind)))).map(c => criterionDefinitions.find(([key]) => key === c.key)![1]);
+  return brief.criteria.filter(c => (c.state === "unknown" || !c.confirmed) || (c.importance === "requirement" && c.state === "specified" && !assessment.evidence.some(e => e.reviewState !== "provisional" && e.criterionKey === c.key && e.assessment === "supported" && ["owner-stated", "document-verified", "register"].includes(e.kind)))).map(c => criterionDefinitions.find(([key]) => key === c.key)![1]);
 }
 export function transitionErrors(brief: AcquisitionBrief, assessment: Assessment) {
   if (["parked", "excluded"].includes(assessment.stage) && !assessment.reason.trim()) return ["Record a reason for parking or exclusion."];
@@ -125,15 +128,19 @@ export function transitionErrors(brief: AcquisitionBrief, assessment: Assessment
 }
 export function worksheet(brief: AcquisitionBrief, target: RankedTarget, assessment: Assessment): CriterionEvidence[] {
   return brief.criteria.map(c => {
-    const saved = assessment.evidence.find(e => e.criterionKey === c.key);
+    const saved = assessment.evidence.find(e => e.criterionKey === c.key && e.reviewState !== "provisional");
     if (saved) return { ...saved, value: providerNeutralText(saved.value), source: providerNeutralText(saved.source), nextStep: providerNeutralText(saved.nextStep) };
     if (c.key === "accreditations" && target.accreditations?.length) {
       const today = new Date().toISOString().slice(0,10);
       const current = target.accreditations.filter(a => a.status === "current" && a.verifiedAt <= today && (!a.expiresAt || a.expiresAt >= today));
       if (current.length) return { criterionKey: c.key, assessment: "potential" as const, kind: "register" as const, value: current.map(a => `${a.issuer}: ${a.scope}${a.site ? ` (${a.site})` : ""}`).join("; "), source: current[0].source, sourceUrl: current[0].sourceUrl, capturedAt: `${current[0].verifiedAt}T00:00:00.000Z`, confidence: Math.min(...current.map(a => a.confidence)), nextStep: "Check required accreditation, scope and site against each linked record" };
     }
-    const field = c.key === "revenue" ? target.revenue : c.key === "headcount" ? target.headcount : c.key === "ebitda" ? target.ebitda : c.key === "subsectors" ? target.sector : null;
-    return { criterionKey: c.key, assessment: field?.value != null ? "potential" : "unknown", kind: c.key === "revenue" ? "modelled" : "inferred", value: field?.value == null ? "" : typeof field.value === "object" ? (field.value.kind === "band" ? field.value.label : `$${field.value.min.toLocaleString("en-AU")}–$${field.value.max.toLocaleString("en-AU")}`) : String(field.value), source: providerNeutralText(field?.provenance.source || ""), sourceUrl: field?.provenance.sourceUrl || "", capturedAt: field?.provenance.capturedAt || new Date(0).toISOString(), confidence: field?.value == null ? 0 : field.provenance.confidence, nextStep: criterionDefinitions.find(([key]) => key === c.key)![2] === "contact" ? "Ask the owner and record supporting evidence" : "Verify relevance and source" };
+    const screen=screenCompanyCandidate(target,briefToMandate(brief));
+    if(c.key === 'geography')return {criterionKey:c.key,reviewState:'provisional' as const,assessment:screen.geography==='review'?'unknown' as const:screen.geography==='excluded'?'fails' as const:'potential' as const,kind:'inferred' as const,value:target.sourceData?.firmable?.scopedFacts?.operatingStates.value?.join(', ') || (target.state==='Unknown'?'':target.state),source:'Company operating footprint',sourceUrl:target.sourceData?.firmable?.website || '',capturedAt:target.sourceData?.firmable?.capturedAt || new Date(0).toISOString(),confidence:50,nextStep:'Verify operating footprint; headquarters is retained separately'};
+    if(c.key === 'ebitda' && target.ebitda.value===null){const estimate=resolveTargetEbitda([],target.headcount.value ?? undefined,target);return {criterionKey:c.key,reviewState:'provisional' as const,assessment:estimate.status==='estimated'?'potential' as const:'unknown' as const,kind:'modelled' as const,value:estimate.status==='estimated'?`AUD ${estimate.low}–${estimate.high} (modelled EBITDA; ${estimate.modelVersion}; ${estimate.match?.description})`:'',source:estimate.benchmark?.label || '',sourceUrl:estimate.benchmark?.sourceUrl || '',capturedAt:target.headcount.provenance.capturedAt,confidence:estimate.status==='estimated'?25:0,nextStep:'Obtain observed EBITDA from accounts; estimate is not earnings evidence'};}
+    const field = c.key === "revenue" || c.key === 'revenueCeiling' ? target.revenue : c.key === "headcount" ? target.headcount : c.key === "ebitda" ? target.ebitda : c.key === "subsectors" ? target.sector : null;
+    const scopedStatus = target.sourceData?.firmable?.scopedFacts && ['subsectors','headcount','revenue','revenueCeiling'].includes(c.key) ? screen[c.key==='subsectors'?'sector':c.key==='revenueCeiling'?'revenue':c.key as 'headcount'|'revenue'] : undefined;
+    return { criterionKey: c.key, reviewState:"provisional" as const, assessment: scopedStatus ? scopedStatus==='excluded'?'fails':scopedStatus==='supported'?'potential':'unknown' : field?.value != null && !/^unclassified|unknown$/i.test(String(field.value)) ? "potential" : "unknown", kind: c.key === "revenue" ? "modelled" : "inferred", value: field?.value == null ? "" : typeof field.value === "object" ? (field.value.kind === "band" ? field.value.label : `$${field.value.min.toLocaleString("en-AU")}–$${field.value.max.toLocaleString("en-AU")}`) : String(field.value), source: providerNeutralText(field?.provenance.source || ""), sourceUrl: field?.provenance.sourceUrl || "", capturedAt: field?.provenance.capturedAt || new Date(0).toISOString(), confidence: field?.value == null ? 0 : field.provenance.confidence, nextStep: criterionDefinitions.find(([key]) => key === c.key)![2] === "contact" ? "Ask the owner and record supporting evidence" : "Verify relevance and source" };
   });
 }
 export const valuationSchema = z.object({
@@ -148,3 +155,21 @@ export type CoverageSource = { name: string; status: "searched" | "partial" | "f
 export type CoverageRun = { id: string; sources: CoverageSource[]; createdAt: string };
 export type MandateView = { id: string; brief: AcquisitionBrief; createdAt: string };
 export type MembershipView = { researchFindings?: import("./research").SavedResearchFinding[]; target: RankedTarget; assessment: Assessment; accreditations: Accreditation[]; version: number };
+
+/** Explicit diligence states; a populated profile is not a finance review. */
+export function bankabilityReviewCells(assessment: Assessment) {
+ const definitions=[['dscrAtStress','Stress cash flow and proposed debt service'],['customerConcentrationPct','Customer revenue schedule'],['recurringRevenuePct','Recurring contract revenue schedule'],['addBacksPctOfCashFlow','Accounts and supported add-back reconciliation'],['gmInPlace','Management roles and independence evidence'],['goodwillType','Transferable contracts, operations and ownership evidence']] as const;
+ return definitions.map(([key,requiredEvidence])=>({key,value:assessment.financeReview?.[key] ?? null,status:assessment.financeReview?.[key]!=null&&Boolean(assessment.financeReview.source)?'reviewed' as const:assessment.financeReview?.source?'unavailable' as const:'unattempted' as const,requiredEvidence,structureReviewed:Boolean(assessment.financeReview?.structureReviewed)}));
+}
+
+/** Only the exact untouched legacy machine decision is reprojected; explicit human exclusions remain durable. */
+export function automaticAssessmentDecision(assessment:Assessment){
+ return assessment.decisionOrigin==='automatic' || assessment.decisionOrigin===undefined && assessment.stage==='excluded' && assessment.reason==='Outside an original mandate range' && assessment.nextAction==='Verify original mandate criteria' && assessment.evidence.length===0 && !assessment.qualificationConfirmed && !assessment.financeReview;
+}
+
+/** Read-only view of automatic screening decisions; original database assessment is untouched. */
+export function assessmentDecisionView(brief:AcquisitionBrief,target:RankedTarget,assessment:Assessment):Assessment {
+ if(!automaticAssessmentDecision(assessment))return assessment;
+ const excluded=screenCompanyCandidate(target,briefToMandate(brief)).eligibility==='excluded';
+ return {...assessment,decisionOrigin:'automatic',stage:excluded?'excluded':'identified',reason:excluded?'Outside current scoped mandate evidence':'Automatic screening reprojected; mandate fit requires review'};
+}

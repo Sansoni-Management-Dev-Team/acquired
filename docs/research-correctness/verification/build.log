@@ -1,0 +1,92 @@
+Already up to date
+Done in 188ms using pnpm v11.8.0
+$ next build
+▲ Next.js 16.3.2 (Turbopack)
+- Environments: .env.local, .env
+✓ Running next.config.ts took 15ms
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 26.3s
+  Running TypeScript ...
+  Finished TypeScript in 3.5s ...
+  Collecting page data using 13 workers ...
+  Generating static pages using 13 workers (0/37) ...
+  Generating static pages using 13 workers (9/37) 
+  Generating static pages using 13 workers (18/37) 
+  Generating static pages using 13 workers (27/37) 
+✓ Generating static pages using 13 workers (37/37) in 409ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ƒ /
+├ ○ /_not-found
+├ ƒ /api/auth/[...all]
+├ ƒ /api/campaign-enrolments/[id]/action
+├ ƒ /api/campaigns/[id]
+├ ƒ /api/campaigns/[id]/enrolments
+├ ƒ /api/campaigns/[id]/publish
+├ ƒ /api/channels/health
+├ ƒ /api/channels/linkedin
+├ ƒ /api/channels/whatsapp
+├ ƒ /api/firmable/internal/[runId]
+├ ƒ /api/health
+├ ƒ /api/health/ready
+├ ƒ /api/inbound/reply
+├ ƒ /api/internal/campaigns/replies
+├ ƒ /api/internal/campaigns/step
+├ ƒ /api/internal/campaigns/sync
+├ ƒ /api/internal/campaigns/tick
+├ ƒ /api/mailbox/google/callback
+├ ƒ /api/mailbox/google/connect
+├ ƒ /api/mandates
+├ ƒ /api/mandates/[id]
+├ ƒ /api/mandates/[id]/apollo-people
+├ ƒ /api/mandates/[id]/campaigns
+├ ƒ /api/mandates/[id]/companies
+├ ƒ /api/mandates/[id]/companies/[targetId]
+├ ƒ /api/mandates/[id]/outreach
+├ ƒ /api/mandates/[id]/research
+├ ƒ /api/mandates/generate
+├ ƒ /api/outreach/batch
+├ ƒ /api/outreach/drafts
+├ ƒ /api/outreach/messages/[id]
+├ ƒ /api/outreach/messages/[id]/approval
+├ ƒ /api/outreach/profile
+├ ƒ /api/research/[jobId]
+├ ƒ /api/research/internal/[jobId]
+├ ƒ /api/research/internal/[jobId]/timings
+├ ƒ /api/settings/research
+├ ƒ /api/targets/[id]/company-research
+├ ƒ /api/targets/[id]/contact
+├ ƒ /api/targets/[id]/contact-candidates
+├ ƒ /api/targets/[id]/people-research
+├ ƒ /api/targets/search
+├ ƒ /audit
+├ ○ /auth/complete
+├ ○ /forgot-password
+├ ƒ /mandates
+├ ƒ /mandates/[id]
+├ ƒ /mandates/[id]/outreach
+├ ƒ /mandates/[id]/outreach/campaigns
+├ ƒ /mandates/[id]/outreach/prototype
+├ ƒ /mandates/[id]/outreach/sequences
+├ ƒ /mandates/[id]/people
+├ ƒ /mandates/[id]/targets/[targetId]
+├ ƒ /mandates/new
+├ ƒ /onboarding
+├ ƒ /outreach
+├ ○ /preview/outreach
+├ ○ /privacy
+├ ƒ /reset-password
+├ ƒ /settings
+├ ƒ /sign-in
+├ ○ /sign-up
+├ ○ /targets
+└ ○ /terms-of-service
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

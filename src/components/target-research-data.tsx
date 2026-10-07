@@ -61,10 +61,10 @@ export function compactAud(value: number) {
   return `$${amount}${suffix}`;
 }
 
-export function TargetEbitdaData({ findings = [], preferredHeadcount }: { findings?: SavedResearchFinding[]; preferredHeadcount?: number }) {
-  const estimate = resolveTargetEbitda(findings, preferredHeadcount);
+export function TargetEbitdaData({ findings = [], preferredHeadcount, target }: { findings?: SavedResearchFinding[]; preferredHeadcount?: number; target?: import("@/domain/models").TargetCandidate }) {
+  const estimate = resolveTargetEbitda(findings, preferredHeadcount,target);
   if (estimate.status !== "estimated") return <div className="max-w-56"><DetailTooltip content={estimate.reason}><span className="text-[var(--muted)]">Unavailable</span></DetailTooltip></div>;
   const money = compactAud;
   const approximation = (estimate.low! + estimate.high!) / 2;
-  return <div className="max-w-56"><p className="font-medium">≈ {money(approximation)}</p><p className="text-xs text-[var(--muted)]">Estimated annual EBITDA</p>{preferredHeadcount !== undefined ? <p className="text-xs text-[var(--muted)]">Preferred company headcount</p> : estimate.headcountAggregation?.method === "mean" && <p className="text-xs text-[var(--status-amber)]">Averaged headcount</p>}</div>;
+  return <div className="max-w-56"><p className="font-medium">≈ {money(approximation)}</p><p className="text-xs text-[var(--muted)]">Estimated annual EBITDA</p><p className="text-xs text-[var(--muted)]">{target?.sourceData?.firmable?.scopedFacts ? "AU workforce input · " : ""}{estimate.modelVersion} · {estimate.match?.method === "fallback" ? "Industry unconfirmed" : estimate.benchmark?.label}</p>{preferredHeadcount !== undefined ? <p className="text-xs text-[var(--muted)]">Preferred company headcount</p> : estimate.headcountAggregation?.method === "mean" && <p className="text-xs text-[var(--status-amber)]">Averaged headcount</p>}</div>;
 }

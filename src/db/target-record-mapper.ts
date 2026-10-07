@@ -1,3 +1,6 @@
+import {normalizeFirmableProfile} from '@/domain/firmable-company-pipeline';
+import {applyScopedCompanyFacts} from '@/domain/company-scoped-facts';
+import {applyCompanyBackgroundProjection} from '@/domain/company-background-projection';
 import type { InferSelectModel } from "drizzle-orm";
 import type { DerivedValue, FinancialValue, FirmableSourceData, ManufacturingDirectorySourceData, RankedTarget, ScoreReason, Signal } from "@/domain/models";
 import { signals, targets } from "./schema";
@@ -17,6 +20,7 @@ type StoredFirmographics = {
   accreditations?: unknown;
   financeability?: unknown;
   firmable?: unknown;
+  abnVerification?: unknown;
   manufacturingDirectory?: unknown;
   scoreExplanation?: unknown;
 };
@@ -70,17 +74,20 @@ function scoreExplanation(value: unknown) {
 export function targetRecordToRankedTarget(row: TargetRecord, signalRows: SignalRecord[]): RankedTarget {
   const firmographics = (record(row.firmographics) || {}) as StoredFirmographics;
   const identifiers = record(row.identifiers) || {};
-  const firmable = record(firmographics.firmable) as FirmableSourceData | undefined;
+  const firmable = record(firmographics.firmable || (firmographics as Record<string,unknown>).websiteProfile) as FirmableSourceData | undefined;
+  const abnVerification = record(firmographics.abnVerification) as import("@/domain/models").AbnVerification | undefined;
   const manufacturingDirectory = record(firmographics.manufacturingDirectory) as ManufacturingDirectorySourceData | undefined;
   const explanation = scoreExplanation(firmographics.scoreExplanation);
   const placeId = text(identifiers.googlePlaceId);
 
-  return {
+  const reportedAbn = firmable?.firmableId && record(firmable.rawResponse) && !record(identifiers.identityEvidence) ? normalizeFirmableProfile(record(firmable.rawResponse)!).abn : null;
+
+  const retained:RankedTarget={
     id: row.id,
     organisationId: row.organizationId,
     companyName: row.companyName,
     domain: row.domain || "",
-    abn: text(identifiers.abn) || undefined,
+    abn: reportedAbn || text(identifiers.abn) || undefined,
     accreditations: Array.isArray(firmographics.accreditations) ? firmographics.accreditations as RankedTarget["accreditations"] : [],
     suburb: text(firmographics.suburb, "Unknown"),
     state: text(firmographics.state, "Unknown"),
@@ -93,7 +100,8 @@ export function targetRecordToRankedTarget(row: TargetRecord, signalRows: Signal
     financeability: firmographics.financeability as RankedTarget["financeability"],
     signals: storedSignals(signalRows),
     status: row.status === "identified" ? "identified" : "enriched",
-    sourceData: placeId || firmable || manufacturingDirectory ? {
+    sourceData: placeId || firmable || manufacturingDirectory || abnVerification ? {
+      ...(abnVerification ? {abnVerification} : {}),
       ...(placeId ? { googlePlaces: { placeId, types: [] } } : {}),
       ...(manufacturingDirectory ? { manufacturingDirectory } : {}),
       ...(firmable ? { firmable } : {}),
@@ -111,4 +119,10 @@ export function targetRecordToRankedTarget(row: TargetRecord, signalRows: Signal
       reasons: explanation.reasons,
     },
   };
+  const scoped=applyScopedCompanyFacts(retained);
+  for(const field of ['headcount','revenue','establishedYear'] as const){
+    const value=retained[field];
+    if(value.value!==null && value.provenance.basis!=='provider_reported' && value.provenance.basis!=='website' && value.provenance.scope!=='global' && !/firmable|persisted target|company website/i.test(value.provenance.source))Object.assign(scoped,{[field]:value});
+  }
+  return applyCompanyBackgroundProjection(scoped,(firmographics as Record<string,unknown>).backgroundResearch);
 }

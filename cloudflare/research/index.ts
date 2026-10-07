@@ -1,4 +1,4 @@
-import {waitForCompanyPeople} from '../../src/domain/company-people-progress';
+import { checkFirmableCallback } from './firmable-callback';
 import {runHybridCompanyPipeline} from '../../src/domain/hybrid-company-pipeline';
 import {runWebFirmablePipeline,type WebQuery,type WebCompany} from '../../src/domain/web-firmable-pipeline';
 import {isFirmableCompanyRoot,isWebFirmableRoot,isHybridCompanyRoot} from '../../src/domain/research-pipeline-design';
@@ -27,6 +27,7 @@ import { FreeOpenRouter, type FreeResearchRequest } from "../../src/adapters/ai/
 import { callbackOrigin } from "./callback-origin";
 import { cancelCrawl, crawlRetryUrl, CrawlerRequestError, requestBudgetStop, stalledResearch } from "./runtime-policy";
 import { targetedPrompt, targetedSchema, fallbackTargetedChoice } from "../../src/domain/targeted-research";
+import { companyPage } from './company-page';
 import { readFallback } from "./fallback";
 import { readSiteText } from "./site-file";
 import { ProviderCoordinator } from "./provider-coordinator";
@@ -99,7 +100,7 @@ async function callback(env: Env, id: string, body?: unknown, budget?: { used: n
   const origin = callbackOrigin(env.APP_ORIGIN, env.LOCAL_DEVELOPMENT === "true");
   if (budget) budget.used++;
   const action = (body as { action?: string } | undefined)?.action || "";
-  const timeoutMs = ["d-company","e-company"].includes(action) ? 90000 : action === "browser-permit"
+  const timeoutMs = action === "company-background-research" ? 105000 : ["d-company","e-company"].includes(action) ? 90000 : action === "browser-permit"
     ? 15000
     : ["browser-cooldown", "provider-release"].includes(action)
       ? 5000
@@ -120,6 +121,7 @@ async function callback(env: Env, id: string, body?: unknown, budget?: { used: n
 
 async function firmableCallback<T>(env: Env, id: string, body: unknown): Promise<T> {
   const origin = callbackOrigin(env.APP_ORIGIN, env.LOCAL_DEVELOPMENT === "true");
+  const startedAt = Date.now();
   const response = await researchFetch(env)(`${origin}/api/firmable/internal/${id}`, {
     method: "POST",
     headers: {
@@ -129,7 +131,8 @@ async function firmableCallback<T>(env: Env, id: string, body: unknown): Promise
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(55_000),
   });
-  if (!response.ok) throw new Error(`Firmable callback failed (${response.status})`);
+  const action = body && typeof body === 'object' && 'action' in body ? String(body.action) : 'unknown';
+  await checkFirmableCallback(response, action, startedAt);
   return response.json() as Promise<T>;
 }
 async function browser(env: Env, path: string, method = "GET", body?: unknown, budget?: { used: number; jobId?: string }) {
@@ -214,7 +217,15 @@ export class AcquireResearch extends WorkflowEntrypoint<
       if (name === "control-start") telemetryBatching ??= researchPerformanceFlags((result as ResearchControl).config).telemetryBatching;
       return result as T;
     };
-    const pipelineControl=await control();
+    const pipelineControl = await control();
+    if (pipelineControl.config.companyBackgroundResearch) {
+      if (["complete", "partial", "failed", "cancelled"].includes(pipelineControl.status)) return { stopped: true };
+      try {
+        return await checkpoint("company-background-research", () => callback(this.env, id, { action: "company-background-research" }, requestBudget));
+      } finally {
+        await timing.flush(32);
+      }
+    }
     if(isHybridCompanyRoot(pipelineControl.config,id)){
       const initial=await checkpoint('f-control',control);
       try{return await runHybridCompanyPipeline({checkpoint,now:()=>Date.now(),control:async()=>{const current=await control();return current.status!=='cancelled';},plan:()=>callback(this.env,id,{action:'e-plan'},requestBudget) as Promise<WebQuery[]>,firmableSearch:()=>callback(this.env,id,{action:'d-search',from:0},requestBudget) as Promise<CompanySearchPage>,webSearch:async(query,index)=>{
@@ -231,7 +242,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
           if(searchAttempt<2)await step.sleep(`f-search-retry-${index}-${searchAttempt}`,'3 seconds');
         }
         return {rows:[],ok:false};
-      },profile:company=>callback(this.env,id,{action:company.firmableRow?'d-company':'e-company',row:company.firmableRow||company.webRow,expectedDomain:company.domain,sources:company.sources},requestBudget) as Promise<{ok:boolean;matched?:boolean}>,beforeFinish:async()=>{if(initial.config.includeCompanyPeople)await waitForCompanyPeople({checkpoint,poll:()=>callback(this.env,id,{action:'company-people-status'},requestBudget) as Promise<{settled:boolean}>,sleep:(name,ms)=>step.sleep(name,ms)});},finish:result=>callback(this.env,id,{action:'f-finish',result},requestBudget)},{deadline:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:100,concurrency:2});}
+      },profile:company=>callback(this.env,id,{action:company.firmableRow?'d-company':'e-company',row:company.firmableRow||company.webRow,expectedDomain:company.domain,sources:company.sources},requestBudget) as Promise<{ok:boolean;matched?:boolean}>,finish:result=>callback(this.env,id,{action:'f-finish',result},requestBudget)},{deadline:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:100,concurrency:2});}
       catch(error){await checkpoint('f-fail',()=>callback(this.env,id,{action:'f-fail',result:{error:error instanceof Error?error.message:'F failed'}},requestBudget));return {failed:true};}
       finally{await timing.flush(32);}
     }
@@ -520,6 +531,18 @@ export class FirmableRefresh extends WorkflowEntrypoint<Env, { runId: string; ma
   }
 }
 const worker = {
+  async scheduled(_controller: ScheduledController, env: Env) {
+    const origin = callbackOrigin(env.APP_ORIGIN, env.LOCAL_DEVELOPMENT === "true");
+    const response = await researchFetch(env)(`${origin}/api/research/internal/background`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${env.SERVICE_SECRET}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ trigger: "scheduled" }),
+      signal: AbortSignal.timeout(15000),
+      redirect: "manual",
+    });
+    await response.body?.cancel();
+    if (!response.ok) throw new Error(`Background research recovery failed (${response.status})`);
+  },
   async fetch(request: Request, env: Env) {
     const firmableValidation = new URL(request.url).pathname === "/firmable/validate";
     const servicePath = new URL(request.url).pathname.replace(/^\/firmable/, "");
@@ -527,6 +550,7 @@ const worker = {
     const secret = firmableService ? env.FIRMABLE_SERVICE_SECRET || '' : firmableValidation ? env.FIRMABLE_VALIDATION_SECRET || env.SERVICE_SECRET : env.SERVICE_SECRET;
     if (!(await authorized(request, secret)))
       return Response.json({ error: "Unauthorized" }, { status: 401 });
+    if (new URL(request.url).pathname === '/company-page') return companyPage(request, env);
     if (firmableService) {
       const method = ['/company/search', '/people/search', '/people/phones', '/reconnect'].includes(servicePath) ? 'POST' : 'GET';
       if (request.method !== method) return Response.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: method } });

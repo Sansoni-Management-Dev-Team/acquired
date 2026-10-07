@@ -17,3 +17,21 @@ it('does not bypass equally supported cached website entities with a provider fa
 it('verifies a website-disclosed ABN before starting name searches',async()=>{const search=vi.fn<(name:string)=>Promise<PublicAbnLookupResult>>(async()=>result),read=vi.fn(async()=>record);const resolve=createAbnIdentityResolver({website:async url=>({url,html:'<footer>Company ABN 68 006 904 052</footer>'}),search,record:read});const r=await resolve({name:'Website Brand',website:'https://brand.com'});expect(r.abn).toBe(record.abn);expect(read).toHaveBeenCalledTimes(1);expect(search).not.toHaveBeenCalled();});
 it('searches the domain and website legal names when the saved name is a generic heading',async()=>{const search=vi.fn<(name:string)=>Promise<PublicAbnLookupResult>>(async()=>result);const resolve=createAbnIdentityResolver({website:async url=>({url,html:'<p>Viridian Glass Pty Ltd operates this website</p>'}),search,record:async()=>record});const r=await resolve({name:'Industrial Cleaning Services',website:'https://viridianglass.com'});expect(r.abn).toBe(record.abn);expect(search.mock.calls.some(c=>c[0]==='viridianglass')).toBe(true);expect(search.mock.calls.some(c=>c[0]==='Industrial Cleaning Services')).toBe(false);});
 it('does not verify cached registry records when the fresh read fails',async()=>{const resolve=createAbnIdentityResolver({website:async url=>({url,html:''}),search:async()=>result,record:async()=>{throw Error('registry unavailable');}});const r=await resolve({name:'Viridian Glass',website:'https://viridianglass.com',prior:{websitePages:[{url:'https://viridianglass.com',text:'ABN 68 006 904 052'}],records:[record]}});expect(r.abn).toBeNull();expect(r.status).toBe('request_failed');});
+
+it('RC-15 regression/integration: displayed SEO suffix resolves through exact registered alias and serializes evidence',async()=>{
+ const website=vi.fn(async url=>({url,html:''}));const resolve=createAbnIdentityResolver({website,search:async()=>result,record:async()=>record});
+ const r=JSON.parse(JSON.stringify(await resolve({name:'Viridian Glass - Your Glazing Partner',website:'https://viridianglass.com',explicitAbns:[{abn:record.abn,sourcePath:'region.AU.abn'}]})));
+ expect(r.abn).toBe(record.abn);expect(r.firmableCandidates[0].identityReason).toBe('exact_registered_alias');expect(website).not.toHaveBeenCalled();
+});
+it('RC-15 generalization: subsidiary identity cannot match a shortened group brand',async()=>{
+ const resolve=createAbnIdentityResolver({website:async url=>({url,html:''}),search:async()=>({...result,candidates:[]}),record:async()=>({...record,entityName:'VIRIDIAN LOGISTICS PTY LTD',names:[]})});
+ const r=await resolve({name:'Viridian Group - Glass Specialists',website:'https://viridiangroup.com',explicitAbns:[{abn:record.abn,sourcePath:'AU.abn'}]});expect(r.abn).toBeNull();expect(r.firmableCandidates[0].identityReason).toBe('registered_name_mismatch');
+});
+it('RC-16 integration: read failures coexist with candidate status and retain classified missing reason',async()=>{
+ const resolve=createAbnIdentityResolver({website:async()=>{throw Error('Identity website HTTP 403');},search:async()=>result,record:async()=>({...record,entityName:'OTHER GLASS PTY LTD',names:[]})});
+ const r=await resolve({name:'Glass Brand',website:'https://glass.com',explicitAbns:[{abn:record.abn,sourcePath:'AU.abn'}]});expect(r.status).toBe('candidates_only');expect(r.operationalStatus).toBe('partial');expect(r.missingReason).toBe('identity_verification_incomplete_due_to_read_errors');
+});
+it('RC-17 integration: fetched registry records cannot turn a contained name into ambiguity',async()=>{
+ const short={...record,abn:'56663118241',entityName:'GLASS PTY LTD',names:[]};const resolve=createAbnIdentityResolver({website:async url=>({url,html:'Viridian Glass Pty Ltd operates this website.'}),search:async()=>({...result,candidates:[...result.candidates,{...result.candidates[0],abn:short.abn,name:'Glass'}]}),record:async abn=>abn===short.abn?short:record});
+ const r=await resolve({name:'Viridian Glass',website:'https://viridianglass.com',prior:{websitePages:[],records:[short,record]}});expect(r.status).toBe('matched');expect(r.abn).toBe(record.abn);
+});

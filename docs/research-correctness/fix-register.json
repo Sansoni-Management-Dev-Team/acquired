@@ -1,0 +1,1185 @@
+{
+  "schema_version": 1,
+  "incident": {
+    "mandate": "b8e35133-faf2-4505-a359-44533ba6df9a",
+    "snapshot": "2026-10-07T06:46:03.730Z",
+    "source_report": "output/mandate-b8e35133/rca.json"
+  },
+  "findings": [
+    {
+      "id": "RC-01",
+      "title": "20 mapped location gaps",
+      "status": "verified",
+      "boundary": "facts",
+      "wave": 1,
+      "depends_on": [],
+      "owner": "diligence_rca",
+      "root_cause": "Normalization reads only top-level states and HQ text, ignoring retained AU address and operating locations. Mapping falls back to Unknown and screening misses available geography evidence.",
+      "classification": "Confirmed mapping defect",
+      "incident_evidence": "All 20 have AU addresses: 14 VIC, 3 QLD, 2 NSW, 1 WA. Firewize has AU VIC but mapped Unknown. Action Alliance has NSW primary address and a VIC branch. Primary address and operating geography are distinct.",
+      "source_references": [
+        "cloudflare/research/firmable/company.ts:20",
+        "src/domain/firmable-company-pipeline.ts:22",
+        "src/adapters/firmable-company-mapper.ts:7",
+        "src/adapters/firmable-mapper.ts:145",
+        "src/lib/firmable-company-research.ts:78"
+      ],
+      "acceptance": "HQ and operating locations retain separate scope and provenance; geography uses the declared mandate meaning.",
+      "scenario_ids": [
+        "RC-01-regression",
+        "RC-01-generalization",
+        "RC-01-integration"
+      ],
+      "verification": {
+        "finding_id": "RC-01",
+        "commit": "Working tree based on 66202e21cbd2bba3663977f87fa6a5cc99bd906c; RCA changes uncommitted",
+        "reviewer": "Codex local evidence review (not independent human approval)",
+        "verified_at": "2026-10-07T10:58:28.998072+00:00",
+        "decision_records": [
+          "D-01"
+        ],
+        "scenarios": [
+          {
+            "scenario_id": "RC-01-regression",
+            "test_file": "src/domain/company-screening.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-01-generalization",
+            "test_file": "src/domain/company-screening.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-01-integration",
+            "test_file": "src/db/scoped-company-diligence.integration.test.ts",
+            "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/db-suite.log"
+          }
+        ],
+        "reproduction_before": "Incident observations retained above and minimized synthetic fixtures reproduce the problematic input/state. A pre-fix execution of every scenario was not captured; no universal baseline-red claim is made.",
+        "result_after": "The three scoped scenario specifications pass in the linked local evidence. See verification/README.md for exact boundaries, suite results and safety limitations.",
+        "remaining_limitations": [
+          "No configurable per-criterion HQ-only mode; D-01 deliberately selects operating footprint. Evidence freshness policy is not implemented.",
+          "Verified locally only; no production deployment or paid provider replay."
+        ],
+        "rollout_evidence": null,
+        "source_fingerprint": "docs/research-correctness/verification/source-fingerprint.json"
+      }
+    },
+    {
+      "id": "RC-02",
+      "title": "50 headcount differences; 14 criterion changes",
+      "status": "verified",
+      "boundary": "facts",
+      "wave": 1,
+      "depends_on": [],
+      "owner": "diligence_rca",
+      "root_cause": "Mapped headcount uses top-level/profile count. AU count is retained separately but not selected for screening. Both values are valid provider observations with different scopes; they are not arithmetic corruption.",
+      "classification": "Confirmed scope-selection inconsistency",
+      "incident_evidence": "Alexon 29 mapped / 5 AU; BSE 114 / 85; EQUANS 343 / 209. Replaying 18\u201390 with AU counts changes 14 headcount statuses: 10 supported to excluded, 4 excluded to supported. This is conditional on an AU workforce criterion, not an overall qualification result.",
+      "source_references": [
+        "cloudflare/research/firmable/company.ts:17",
+        "cloudflare/research/firmable/company.test.ts:3",
+        "src/domain/firmable-company-pipeline.ts:22",
+        "src/adapters/firmable-company-mapper.ts:9",
+        "src/lib/firmable-company-research.ts:78"
+      ],
+      "acceptance": "AU criteria use AU headcount; global headcount remains separately available; missing regional evidence requires review.",
+      "scenario_ids": [
+        "RC-02-regression",
+        "RC-02-generalization",
+        "RC-02-integration"
+      ],
+      "verification": {
+        "finding_id": "RC-02",
+        "commit": "Working tree based on 66202e21cbd2bba3663977f87fa6a5cc99bd906c; RCA changes uncommitted",
+        "reviewer": "Codex local evidence review (not independent human approval)",
+        "verified_at": "2026-10-07T10:58:28.998229+00:00",
+        "decision_records": [],
+        "scenarios": [
+          {
+            "scenario_id": "RC-02-regression",
+            "test_file": "src/domain/company-screening.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-02-generalization",
+            "test_file": "src/domain/company-screening.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-02-integration",
+            "test_file": "src/db/scoped-company-diligence.integration.test.ts",
+            "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/db-suite.log"
+          }
+        ],
+        "reproduction_before": "Incident observations retained above and minimized synthetic fixtures reproduce the problematic input/state. A pre-fix execution of every scenario was not captured; no universal baseline-red claim is made.",
+        "result_after": "The three scoped scenario specifications pass in the linked local evidence. See verification/README.md for exact boundaries, suite results and safety limitations.",
+        "remaining_limitations": [
+          "Regional employee data may be absent or stale; no cross-date conflict resolution/freshness policy.",
+          "Verified locally only; no production deployment or paid provider replay."
+        ],
+        "rollout_evidence": null,
+        "source_fingerprint": "docs/research-correctness/verification/source-fingerprint.json"
+      }
+    },
+    {
+      "id": "RC-03",
+      "title": "61 profile revenue bands; zero AU revenue",
+      "status": "verified",
+      "boundary": "facts",
+      "wave": 1,
+      "depends_on": [],
+      "owner": "diligence_rca",
+      "root_cause": "All matched AU profiles explicitly report no revenue data. Profile bands lack confirmed currency, period and entity scope. Retrieval screens bands numerically, while displayed fit applies stricter currency-aware rules.",
+      "classification": "Provider limitation plus inconsistent comparison",
+      "incident_evidence": "All 61 region.AU.revenue values are No data available; no retained revenue_currency. Stored screening and displayed fit may disagree. No AU revenue value was dropped.",
+      "source_references": [
+        "cloudflare/research/firmable/company.ts:25",
+        "src/lib/firmable-company-research.ts:78",
+        "src/domain/target-financial-evidence.ts:6",
+        "src/domain/mandate-fit.ts:48"
+      ],
+      "acceptance": "Revenue has scope, currency, period and source; unknown AU revenue or currency cannot establish AU financial fit.",
+      "scenario_ids": [
+        "RC-03-regression",
+        "RC-03-generalization",
+        "RC-03-integration"
+      ],
+      "verification": {
+        "finding_id": "RC-03",
+        "commit": "Working tree based on 66202e21cbd2bba3663977f87fa6a5cc99bd906c; RCA changes uncommitted",
+        "reviewer": "Codex local evidence review (not independent human approval)",
+        "verified_at": "2026-10-07T10:58:28.998236+00:00",
+        "decision_records": [],
+        "scenarios": [
+          {
+            "scenario_id": "RC-03-regression",
+            "test_file": "src/domain/company-screening.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-03-generalization",
+            "test_file": "src/domain/company-screening.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-03-integration",
+            "test_file": "src/db/scoped-company-diligence.integration.test.ts",
+            "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/db-suite.log"
+          }
+        ],
+        "reproduction_before": "Incident observations retained above and minimized synthetic fixtures reproduce the problematic input/state. A pre-fix execution of every scenario was not captured; no universal baseline-red claim is made.",
+        "result_after": "The three scoped scenario specifications pass in the linked local evidence. See verification/README.md for exact boundaries, suite results and safety limitations.",
+        "remaining_limitations": [
+          "Unknown financial scope/currency/period remains review; no new provider financial observations are manufactured.",
+          "Verified locally only; no production deployment or paid provider replay."
+        ],
+        "rollout_evidence": null,
+        "source_fingerprint": "docs/research-correctness/verification/source-fingerprint.json"
+      }
+    },
+    {
+      "id": "RC-04",
+      "title": "Zero saved EBITDA observations",
+      "status": "verified",
+      "boundary": "facts",
+      "wave": 2,
+      "depends_on": [
+        "RC-02",
+        "RC-03"
+      ],
+      "owner": "diligence_rca",
+      "root_cause": "The mapper deliberately leaves observed EBITDA missing. A separate model can estimate earnings from headcount. Industry benchmark selection consumes research industry findings rather than retained provider descriptions.",
+      "classification": "Expected source gap; estimate provenance weakness",
+      "incident_evidence": "All 67 observed values are null. There are 59 mapped headcounts; estimates using them fall back to all-industries because the run saved only 40 ABN identifier findings. UI-selected headcount can have a different scope.",
+      "source_references": [
+        "src/adapters/firmable-mapper.ts:164",
+        "src/domain/mandate-fit.ts:55",
+        "src/domain/estimated-ebitda.ts:94",
+        "src/domain/estimated-ebitda.ts:49"
+      ],
+      "acceptance": "Estimated EBITDA is labelled separately from observed EBITDA and carries input scope, benchmark version and uncertainty.",
+      "scenario_ids": [
+        "RC-04-regression",
+        "RC-04-generalization",
+        "RC-04-integration"
+      ],
+      "verification": {
+        "finding_id": "RC-04",
+        "commit": "Working tree based on 66202e21cbd2bba3663977f87fa6a5cc99bd906c; RCA changes uncommitted",
+        "reviewer": "Codex local evidence review (not independent human approval)",
+        "verified_at": "2026-10-07T10:58:28.998240+00:00",
+        "decision_records": [
+          "D-04"
+        ],
+        "scenarios": [
+          {
+            "scenario_id": "RC-04-regression",
+            "test_file": "src/domain/company-screening.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-04-generalization",
+            "test_file": "src/domain/company-screening.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-04-integration",
+            "test_file": "src/db/scoped-company-diligence.integration.test.ts",
+            "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/db-suite.log"
+          }
+        ],
+        "reproduction_before": "Incident observations retained above and minimized synthetic fixtures reproduce the problematic input/state. A pre-fix execution of every scenario was not captured; no universal baseline-red claim is made.",
+        "result_after": "The three scoped scenario specifications pass in the linked local evidence. See verification/README.md for exact boundaries, suite results and safety limitations.",
+        "remaining_limitations": [
+          "Benchmark estimates are provisional, not observed EBITDA or bankability. Historical observed negative earnings are preserved; no automatic evidence freshness cutoff or exhaustive cross-date conflict policy is implemented.",
+          "Verified locally only; no production deployment or paid provider replay."
+        ],
+        "rollout_evidence": null,
+        "source_fingerprint": "docs/research-correctness/verification/source-fingerprint.json"
+      }
+    },
+    {
+      "id": "RC-05",
+      "title": "All 19 persisted worksheet criteria empty",
+      "status": "verified",
+      "boundary": "reporting",
+      "wave": 3,
+      "depends_on": [
+        "RC-01",
+        "RC-02",
+        "RC-03",
+        "RC-04"
+      ],
+      "owner": "diligence_rca",
+      "root_cause": "Company retrieval writes an empty reviewed-evidence array. The worksheet and fit matrix independently derive provisional facts and comparisons. Zero persisted evidence is not zero displayed values.",
+      "classification": "Intentional persistence policy; reporting correction",
+      "incident_evidence": "All 67 evidence arrays are empty. Provisional revenue and headcount can derive from 61 and 59 records. Sector placeholders may derive even from Unclassified. Geography derives in fit but not worksheet. The redundant $12m revenue ceiling is intentionally suppressed in fit.",
+      "source_references": [
+        "src/lib/firmable-company-research.ts:90",
+        "src/domain/acquisition.ts:126",
+        "src/components/target-worksheet.tsx:11",
+        "src/domain/mandate-fit.ts:38",
+        "src/domain/mandate-fit.ts:75"
+      ],
+      "acceptance": "Reviewed worksheet values and provisional derivations remain distinct; placeholder sectors do not become supported evidence.",
+      "scenario_ids": [
+        "RC-05-regression",
+        "RC-05-generalization",
+        "RC-05-integration"
+      ],
+      "verification": {
+        "finding_id": "RC-05",
+        "commit": "Working tree based on 66202e21cbd2bba3663977f87fa6a5cc99bd906c; RCA changes uncommitted",
+        "reviewer": "Codex local evidence review (not independent human approval)",
+        "verified_at": "2026-10-07T10:58:28.998245+00:00",
+        "decision_records": [
+          "D-04"
+        ],
+        "scenarios": [
+          {
+            "scenario_id": "RC-05-regression",
+            "test_file": "src/domain/company-screening.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-05-generalization",
+            "test_file": "src/domain/company-screening.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-05-integration",
+            "test_file": "src/db/scoped-company-diligence.integration.test.ts",
+            "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/db-suite.log"
+          }
+        ],
+        "reproduction_before": "Incident observations retained above and minimized synthetic fixtures reproduce the problematic input/state. A pre-fix execution of every scenario was not captured; no universal baseline-red claim is made.",
+        "result_after": "The three scoped scenario specifications pass in the linked local evidence. See verification/README.md for exact boundaries, suite results and safety limitations.",
+        "remaining_limitations": [
+          "Manual worksheet/finance answers remain review evidence, not a guarantee of bankability or a substitute for credit diligence.",
+          "Verified locally only; no production deployment or paid provider replay."
+        ],
+        "rollout_evidence": null,
+        "source_fingerprint": "docs/research-correctness/verification/source-fingerprint.json"
+      }
+    },
+    {
+      "id": "RC-06",
+      "title": "Six bankability inputs missing",
+      "status": "verified",
+      "boundary": "reporting",
+      "wave": 3,
+      "depends_on": [
+        "RC-05"
+      ],
+      "owner": "diligence_rca",
+      "root_cause": "No financeReview is saved. DSCR, concentration, recurring revenue, add-backs, GM and goodwill require sourced diligence and a reviewed financing structure, not profile ingestion.",
+      "classification": "Expected unperformed diligence",
+      "incident_evidence": "None of 67 assessments has financeReview. Bankability is unscored without structureReviewed. The six specified brief criteria are unconfirmed testing assumptions. Most other brief criteria are unspecified.",
+      "source_references": [
+        "src/domain/acquisition.ts:106",
+        "src/components/target-worksheet.tsx:19",
+        "src/domain/mandate-assessment.ts:40"
+      ],
+      "acceptance": "Each bankability criterion exposes reviewed, unavailable or unattempted status and names the evidence required.",
+      "scenario_ids": [
+        "RC-06-regression",
+        "RC-06-generalization",
+        "RC-06-integration"
+      ],
+      "verification": {
+        "finding_id": "RC-06",
+        "commit": "Working tree based on 66202e21cbd2bba3663977f87fa6a5cc99bd906c; RCA changes uncommitted",
+        "reviewer": "Codex local evidence review (not independent human approval)",
+        "verified_at": "2026-10-07T10:58:28.998249+00:00",
+        "decision_records": [],
+        "scenarios": [
+          {
+            "scenario_id": "RC-06-regression",
+            "test_file": "src/domain/company-screening.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-06-generalization",
+            "test_file": "src/domain/company-screening.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-06-integration",
+            "test_file": "src/db/scoped-company-diligence.integration.test.ts",
+            "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/db-suite.log"
+          }
+        ],
+        "reproduction_before": "Incident observations retained above and minimized synthetic fixtures reproduce the problematic input/state. A pre-fix execution of every scenario was not captured; no universal baseline-red claim is made.",
+        "result_after": "The three scoped scenario specifications pass in the linked local evidence. See verification/README.md for exact boundaries, suite results and safety limitations.",
+        "remaining_limitations": [
+          "Manual worksheet/finance answers remain review evidence, not a guarantee of bankability or a substitute for credit diligence.",
+          "Verified locally only; no production deployment or paid provider replay."
+        ],
+        "rollout_evidence": null,
+        "source_fingerprint": "docs/research-correctness/verification/source-fingerprint.json"
+      }
+    },
+    {
+      "id": "RC-07",
+      "title": "Six unmatched records remain thin",
+      "status": "verified",
+      "boundary": "identity",
+      "wave": 2,
+      "depends_on": [
+        "RC-01",
+        "RC-03"
+      ],
+      "owner": "mapping_rca",
+      "root_cause": "On Firmable 404/409 the fallback creates only discovery name and website, then completes company retrieval without website fact extraction. SEO titles can become company names.",
+      "classification": "Confirmed absent fallback research",
+      "incident_evidence": "Unmatched domains: onpointfire.com.au, fwsrgroup.com.au, firemastergroup.com.au, gemfire.com.au, vfp.com.au, fireprotectionservices.com.au. Two independently resolve ABNs.",
+      "source_references": [
+        "src/lib/firmable-company-research.ts:60",
+        "src/lib/firmable-company-research.ts:89",
+        "src/lib/firmable-company-research.ts:92"
+      ],
+      "acceptance": "Provider no-match is explicit; permitted website fallback produces evidence or a specific unavailable state, not a misleading complete profile.",
+      "scenario_ids": [
+        "RC-07-regression",
+        "RC-07-generalization",
+        "RC-07-integration"
+      ],
+      "verification": {
+        "finding_id": "RC-07",
+        "commit": "Working tree based on 66202e21cbd2bba3663977f87fa6a5cc99bd906c; RCA changes uncommitted",
+        "reviewer": "Codex local evidence review (not independent human approval)",
+        "verified_at": "2026-10-07T10:58:28.998253+00:00",
+        "decision_records": [],
+        "scenarios": [
+          {
+            "scenario_id": "RC-07-regression",
+            "test_file": "src/adapters/company-website-fallback.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-07-generalization",
+            "test_file": "src/adapters/company-website-fallback.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-07-integration",
+            "test_file": "src/lib/company-identity-boundary.integration.test.tsx",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          }
+        ],
+        "reproduction_before": "Incident observations retained above and minimized synthetic fixtures reproduce the problematic input/state. A pre-fix execution of every scenario was not captured; no universal baseline-red claim is made.",
+        "result_after": "The three scoped scenario specifications pass in the linked local evidence. See verification/README.md for exact boundaries, suite results and safety limitations.",
+        "remaining_limitations": [
+          "Public website coverage is bounded; website financial/identity inference remains deliberately unavailable. Exact historical websites are not replayed.",
+          "Verified locally only; no production deployment or paid provider replay."
+        ],
+        "rollout_evidence": null,
+        "source_fingerprint": "docs/research-correctness/verification/source-fingerprint.json"
+      }
+    },
+    {
+      "id": "RC-08",
+      "title": "49 supported sector flags are too permissive",
+      "status": "verified",
+      "boundary": "eligibility",
+      "wave": 2,
+      "depends_on": [
+        "RC-01",
+        "RC-02",
+        "RC-03"
+      ],
+      "owner": "diligence_rca",
+      "root_cause": "Any one keyword from fire/protection/maintenance appearing in provider industries or description satisfies the stored sector rule. A fire mention is insufficient evidence of recurring maintenance operations.",
+      "classification": "Confirmed classification weakness",
+      "incident_evidence": "BOSS Fire is a product wholesaler; Checkpoint Building Surveyors and Affinity Fire Engineering are consultancies. All are sector-supported despite unproven maintenance eligibility.",
+      "source_references": [
+        "src/lib/firmable-company-research.ts:79"
+      ],
+      "acceptance": "Sector support requires evidence of the required business activity; incidental keywords require review.",
+      "scenario_ids": [
+        "RC-08-regression",
+        "RC-08-generalization",
+        "RC-08-integration"
+      ],
+      "verification": {
+        "finding_id": "RC-08",
+        "commit": "Working tree based on 66202e21cbd2bba3663977f87fa6a5cc99bd906c; RCA changes uncommitted",
+        "reviewer": "Codex local evidence review (not independent human approval)",
+        "verified_at": "2026-10-07T10:58:28.998257+00:00",
+        "decision_records": [],
+        "scenarios": [
+          {
+            "scenario_id": "RC-08-regression",
+            "test_file": "src/domain/company-screening.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-08-generalization",
+            "test_file": "src/domain/company-screening.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-08-integration",
+            "test_file": "src/db/scoped-company-diligence.integration.test.ts",
+            "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/db-suite.log"
+          }
+        ],
+        "reproduction_before": "Incident observations retained above and minimized synthetic fixtures reproduce the problematic input/state. A pre-fix execution of every scenario was not captured; no universal baseline-red claim is made.",
+        "result_after": "The three scoped scenario specifications pass in the linked local evidence. See verification/README.md for exact boundaries, suite results and safety limitations.",
+        "remaining_limitations": [
+          "Conservative lexical evidence is not a complete semantic activity classifier; unknown descriptions remain review.",
+          "Verified locally only; no production deployment or paid provider replay."
+        ],
+        "rollout_evidence": null,
+        "source_fingerprint": "docs/research-correctness/verification/source-fingerprint.json"
+      }
+    },
+    {
+      "id": "RC-09",
+      "title": "Contacts on 5/67 companies; 174/179 on excluded companies",
+      "status": "verified",
+      "boundary": "scheduling",
+      "wave": 1,
+      "depends_on": [
+        "RC-02",
+        "RC-08"
+      ],
+      "owner": "enrichment_rca",
+      "root_cause": "Every matched company queues automatic people work even after exclusion. FIFO serial scheduling has no decision-maker filter or per-company profile cap.",
+      "classification": "Confirmed allocation defect",
+      "incident_evidence": "All 61 matches queued. EQUANS, already excluded on headcount, consumed 06:40:17\u201306:45:21 UTC and 162 contacts. AEFS 7, Pinnacle 4 and BOSS 1 are also excluded; Alexon has 5. Three completed workflows found zero people.",
+      "source_references": [
+        "src/lib/firmable-company-research.ts:89",
+        "src/lib/firmable-company-research.ts:94",
+        "src/lib/company-people-research.ts:28",
+        "src/lib/company-people-research.ts:48"
+      ],
+      "acceptance": "All contact dispatch paths apply one explicit eligibility, priority, company cap and decision-maker policy.",
+      "scenario_ids": [
+        "RC-09-regression",
+        "RC-09-generalization",
+        "RC-09-integration"
+      ],
+      "verification": {
+        "finding_id": "RC-09",
+        "commit": "Working tree based on 66202e21cbd2bba3663977f87fa6a5cc99bd906c; RCA changes uncommitted",
+        "reviewer": "Codex local evidence review (not independent human approval)",
+        "verified_at": "2026-10-07T10:58:28.998261+00:00",
+        "decision_records": [
+          "D-02",
+          "D-03"
+        ],
+        "scenarios": [
+          {
+            "scenario_id": "RC-09-regression",
+            "test_file": "src/domain/company-contact-policy.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-09-generalization",
+            "test_file": "src/domain/company-contact-policy.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-09-integration",
+            "test_file": "src/db/firmable-history.integration.test.ts",
+            "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/db-suite.log"
+          }
+        ],
+        "reproduction_before": "Incident observations retained above and minimized synthetic fixtures reproduce the problematic input/state. A pre-fix execution of every scenario was not captured; no universal baseline-red claim is made.",
+        "result_after": "The three scoped scenario specifications pass in the linked local evidence. See verification/README.md for exact boundaries, suite results and safety limitations.",
+        "remaining_limitations": [
+          "Contact provider coverage is not guaranteed; defaults five profiles/three100-result pages are engineering decisions, not user-selected values.",
+          "Verified locally only; no production deployment or paid provider replay."
+        ],
+        "rollout_evidence": null,
+        "source_fingerprint": "docs/research-correctness/verification/source-fingerprint.json"
+      }
+    },
+    {
+      "id": "RC-10",
+      "title": "54 time-limit failures and a late 53-workflow burst",
+      "status": "verified",
+      "boundary": "scheduling",
+      "wave": 1,
+      "depends_on": [],
+      "owner": "enrichment_rca",
+      "root_cause": "Root scheduling permits one people workflow, but recovery dispatches every queued workflow. The common 10-minute deadline bulk-fails queued/running work.",
+      "classification": "Confirmed shared-deadline and scheduler conflict",
+      "incident_evidence": "At 06:44:34 one was active and 53 queued. All 53 started 06:44:52.441\u201306:44:57.953; deadline was 06:45:09.583. All 54 remaining runs failed together at 06:45:21.383. Seven retained profile responses were 429 after the burst. The initiating recovery request and sole cause of rate limiting are unproven.",
+      "source_references": [
+        "src/lib/company-people-research.ts:24",
+        "src/lib/company-list-recovery.ts:29",
+        "src/lib/firmable-run-recovery.ts:7",
+        "src/app/api/mandates/[id]/route.ts:55"
+      ],
+      "acceptance": "Normal dispatch and recovery share concurrency, leases and deadline admission; work cannot burst past configured capacity.",
+      "scenario_ids": [
+        "RC-10-regression",
+        "RC-10-generalization",
+        "RC-10-integration"
+      ],
+      "verification": {
+        "finding_id": "RC-10",
+        "commit": "Working tree based on 66202e21cbd2bba3663977f87fa6a5cc99bd906c; RCA changes uncommitted",
+        "reviewer": "Codex local evidence review (not independent human approval)",
+        "verified_at": "2026-10-07T10:58:28.998265+00:00",
+        "decision_records": [
+          "D-03"
+        ],
+        "scenarios": [
+          {
+            "scenario_id": "RC-10-regression",
+            "test_file": "src/lib/firmable-run-recovery.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-10-generalization",
+            "test_file": "src/domain/company-people-progress.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-10-integration",
+            "test_file": "src/db/firmable-history.integration.test.ts",
+            "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/db-suite.log"
+          }
+        ],
+        "reproduction_before": "Incident observations retained above and minimized synthetic fixtures reproduce the problematic input/state. A pre-fix execution of every scenario was not captured; no universal baseline-red claim is made.",
+        "result_after": "The three scoped scenario specifications pass in the linked local evidence. See verification/README.md for exact boundaries, suite results and safety limitations.",
+        "remaining_limitations": [
+          "Manual admission is one active company-people run per organization; automatic admission is one per root. All production routes are not exercised simultaneously against paid providers.",
+          "Verified locally only; no production deployment or paid provider replay."
+        ],
+        "rollout_evidence": null,
+        "source_fingerprint": "docs/research-correctness/verification/source-fingerprint.json"
+      }
+    },
+    {
+      "id": "RC-11",
+      "title": "179 actual contacts versus 176 counter; hidden profile failures",
+      "status": "verified",
+      "boundary": "lifecycle",
+      "wave": 1,
+      "depends_on": [
+        "RC-10"
+      ],
+      "owner": "enrichment_rca",
+      "root_cause": "Five profile requests run concurrently. Progress updates occur after the batch settles; termination can happen earlier. Individual contact writes continue while progress updates refuse terminal runs.",
+      "classification": "Confirmed terminal-state race",
+      "incident_evidence": "EQUANS has 160 counted versus 162 contacts; BOSS 0 counted versus 1 contact saved at 06:45:32.835, after failure at 06:45:21.383. Seven persisted 429 failures coexist with profilesFailed=0. Counters also measure successful response attempts rather than always unique materialized contacts.",
+      "source_references": [
+        "src/lib/firmable-refresh.ts:177",
+        "src/db/firmable-history-repository.ts:128",
+        "src/db/firmable-history-repository.ts:172"
+      ],
+      "acceptance": "Persisted contact rows and run counts converge under late writes, retries and terminal transitions; counters have explicit unique-row semantics.",
+      "scenario_ids": [
+        "RC-11-regression",
+        "RC-11-generalization",
+        "RC-11-integration"
+      ],
+      "verification": {
+        "finding_id": "RC-11",
+        "commit": "Working tree based on 66202e21cbd2bba3663977f87fa6a5cc99bd906c; RCA changes uncommitted",
+        "reviewer": "Codex local evidence review (not independent human approval)",
+        "verified_at": "2026-10-07T10:58:28.998269+00:00",
+        "decision_records": [
+          "D-07"
+        ],
+        "scenarios": [
+          {
+            "scenario_id": "RC-11-regression",
+            "test_file": "src/lib/firmable-people-refresh.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-11-generalization",
+            "test_file": "src/lib/firmable-people-refresh.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-11-integration",
+            "test_file": "src/db/firmable-history.integration.test.ts",
+            "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/db-suite.log"
+          }
+        ],
+        "reproduction_before": "Incident observations retained above and minimized synthetic fixtures reproduce the problematic input/state. A pre-fix execution of every scenario was not captured; no universal baseline-red claim is made.",
+        "result_after": "The three scoped scenario specifications pass in the linked local evidence. See verification/README.md for exact boundaries, suite results and safety limitations.",
+        "remaining_limitations": [
+          "No production historical counters were rewritten; local SQL concurrency proves repository behavior, not production load characteristics.",
+          "Verified locally only; no production deployment or paid provider replay."
+        ],
+        "rollout_evidence": null,
+        "source_fingerprint": "docs/research-correctness/verification/source-fingerprint.json"
+      }
+    },
+    {
+      "id": "RC-12",
+      "title": "Jetfire callback HTTP 502",
+      "status": "verified",
+      "boundary": "lifecycle",
+      "wave": 2,
+      "depends_on": [
+        "RC-10",
+        "RC-11"
+      ],
+      "owner": "enrichment_rca",
+      "root_cause": "The worker throws on a non-2xx POST to the application callback endpoint. This is not proof of a Firmable-provider HTTP 502.",
+      "classification": "Boundary confirmed; underlying cause unknown",
+      "incident_evidence": "Jetfire run af91724c-82c2-4d39-b7eb-45f83a6e0d1d started 06:37:55.333 and failed 06:40:12.665 UTC; zero people-search observations. Historical Vercel query found no associated logs. Database, proxy, route and provider-induced causes remain hypotheses.",
+      "source_references": [
+        "cloudflare/research/index.ts:121",
+        "cloudflare/research/index.ts:467",
+        "cloudflare/research/index.ts:511"
+      ],
+      "acceptance": "Application callback failures and provider failures are separately observable and recoverable; the historical 502 cause remains unresolved without logs.",
+      "scenario_ids": [
+        "RC-12-regression",
+        "RC-12-generalization",
+        "RC-12-integration"
+      ],
+      "verification": {
+        "finding_id": "RC-12",
+        "commit": "Working tree based on 66202e21cbd2bba3663977f87fa6a5cc99bd906c; RCA changes uncommitted",
+        "reviewer": "Codex local evidence review (not independent human approval)",
+        "verified_at": "2026-10-07T10:58:28.998273+00:00",
+        "decision_records": [],
+        "scenarios": [
+          {
+            "scenario_id": "RC-12-regression",
+            "test_file": "cloudflare/research/firmable-callback.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-12-generalization",
+            "test_file": "cloudflare/research/firmable-callback.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-12-integration",
+            "test_file": "cloudflare/research/workflow-tests/research.test.ts",
+            "command": "pnpm test:workflows",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/workflows.log"
+          }
+        ],
+        "reproduction_before": "Incident observations retained above and minimized synthetic fixtures reproduce the problematic input/state. A pre-fix execution of every scenario was not captured; no universal baseline-red claim is made.",
+        "result_after": "The three scoped scenario specifications pass in the linked local evidence. See verification/README.md for exact boundaries, suite results and safety limitations.",
+        "remaining_limitations": [
+          "Observed historical downstream callback 502 is confirmed; its underlying application failure remains unproven because historical response/log detail is absent.",
+          "Verified locally only; no production deployment or paid provider replay."
+        ],
+        "rollout_evidence": null,
+        "source_fingerprint": "docs/research-correctness/verification/source-fingerprint.json"
+      }
+    },
+    {
+      "id": "RC-13",
+      "title": "Zero saved phones but 96 availability flags",
+      "status": "verified",
+      "boundary": "reporting",
+      "wave": 3,
+      "depends_on": [
+        "RC-11"
+      ],
+      "owner": "root",
+      "root_cause": "Automatic discovery uses includePhones:false. Saved availability ORs provider search-candidate flags with enriched flags, so potential availability remains true without a saved number.",
+      "classification": "Intentional policy plus ambiguous semantics",
+      "incident_evidence": "96/179 advertise potential phone availability; none has a fetched number. Phone lookup is a separate manual operation.",
+      "source_references": [
+        "src/lib/firmable-refresh.ts:184",
+        "src/lib/firmable-refresh.ts:244",
+        "src/adapters/firmable-client.ts:256",
+        "src/db/firmable-contacts.ts:20"
+      ],
+      "acceptance": "Phone availability does not mean a saved phone; automatic and manual phone acquisition policies are explicit.",
+      "scenario_ids": [
+        "RC-13-regression",
+        "RC-13-generalization",
+        "RC-13-integration"
+      ],
+      "verification": {
+        "finding_id": "RC-13",
+        "commit": "Working tree based on 66202e21cbd2bba3663977f87fa6a5cc99bd906c; RCA changes uncommitted",
+        "reviewer": "Codex local evidence review (not independent human approval)",
+        "verified_at": "2026-10-07T10:58:28.998277+00:00",
+        "decision_records": [
+          "D-06"
+        ],
+        "scenarios": [
+          {
+            "scenario_id": "RC-13-regression",
+            "test_file": "src/db/firmable-contact-completeness.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-13-generalization",
+            "test_file": "src/domain/contact-completeness.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-13-integration",
+            "test_file": "src/db/contact-completeness.integration.test.tsx",
+            "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/db-suite.log"
+          }
+        ],
+        "reproduction_before": "Six pre-fix contact semantic assertions failed; see verification/contact-before.log. Incident observations are retained above.",
+        "result_after": "The three scoped scenario specifications pass in the linked local evidence. See verification/README.md for exact boundaries, suite results and safety limitations.",
+        "remaining_limitations": [
+          "Automatic phone unlock is disabled; manual phone lookup is separate and was not paid/live-tested.",
+          "Verified locally only; no production deployment or paid provider replay."
+        ],
+        "rollout_evidence": null,
+        "source_fingerprint": "docs/research-correctness/verification/source-fingerprint.json"
+      }
+    },
+    {
+      "id": "RC-14",
+      "title": "147/179 contact emails",
+      "status": "verified",
+      "boundary": "reporting",
+      "wave": 3,
+      "depends_on": [
+        "RC-11"
+      ],
+      "owner": "root",
+      "root_cause": "All 32 missing emails are absent in both retained work and personal email arrays. The mapper correctly tries work then personal.",
+      "classification": "Confirmed provider coverage gap",
+      "incident_evidence": "Missing: EQUANS 28, Alexon 2, AEFS 1, Pinnacle 1. All 179 successful profile responses were inspected.",
+      "source_references": [
+        "src/adapters/firmable-client.ts:58"
+      ],
+      "acceptance": "Missing provider email is recorded as source unavailable, distinct from enrichment failure or unattempted research.",
+      "scenario_ids": [
+        "RC-14-regression",
+        "RC-14-generalization",
+        "RC-14-integration"
+      ],
+      "verification": {
+        "finding_id": "RC-14",
+        "commit": "Working tree based on 66202e21cbd2bba3663977f87fa6a5cc99bd906c; RCA changes uncommitted",
+        "reviewer": "Codex local evidence review (not independent human approval)",
+        "verified_at": "2026-10-07T10:58:28.998281+00:00",
+        "decision_records": [],
+        "scenarios": [
+          {
+            "scenario_id": "RC-14-regression",
+            "test_file": "src/domain/contact-completeness.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-14-generalization",
+            "test_file": "src/db/firmable-contact-completeness.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-14-integration",
+            "test_file": "src/db/contact-completeness.integration.test.tsx",
+            "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/db-suite.log"
+          }
+        ],
+        "reproduction_before": "Six pre-fix contact semantic assertions failed; see verification/contact-before.log. Incident observations are retained above.",
+        "result_after": "The three scoped scenario specifications pass in the linked local evidence. See verification/README.md for exact boundaries, suite results and safety limitations.",
+        "remaining_limitations": [
+          "Missing upstream email remains missing; deliverability is not established by a syntactically usable email.",
+          "Verified locally only; no production deployment or paid provider replay."
+        ],
+        "rollout_evidence": null,
+        "source_fingerprint": "docs/research-correctness/verification/source-fingerprint.json"
+      }
+    },
+    {
+      "id": "RC-15",
+      "title": "27 unverified registry ABNs",
+      "status": "verified",
+      "boundary": "identity",
+      "wave": 2,
+      "depends_on": [],
+      "owner": "mapping_rca",
+      "root_cause": "Verified persistence requires accepted active legal identity, not just a reported ABN. Twenty-two unresolved companies had provider ABNs: 21 active but name-mismatched, plus Kilargo with an inactive unrelated trust candidate. Five had no provider candidate.",
+      "classification": "Mixed identity, normalization and operational causes",
+      "incident_evidence": "26 results were candidates_only with zero evaluated website identity candidates; one was ambiguous. Broader existing search aliases yield active exact-name matches for five: AESG, Eptec Group, LINKfire, Mattioli, WRAP Consulting Engineering. Group/subsidiary candidates such as EQUANS Data Centre Services and HIROTEC Maintenance (QLD) need legal linkage.",
+      "source_references": [
+        "src/domain/abn-resolution.mjs:4",
+        "src/domain/abn-resolution.mjs:6",
+        "src/adapters/abn-identity-resolver.ts:32",
+        "src/adapters/abn-identity-resolver.ts:34",
+        "src/lib/firmable-company-research.ts:72"
+      ],
+      "acceptance": "ABN verification requires an explicit legal-entity relationship and evidence; normalisation never promotes unrelated active registrations.",
+      "scenario_ids": [
+        "RC-15-regression",
+        "RC-15-generalization",
+        "RC-15-integration"
+      ],
+      "verification": {
+        "finding_id": "RC-15",
+        "commit": "Working tree based on 66202e21cbd2bba3663977f87fa6a5cc99bd906c; RCA changes uncommitted",
+        "reviewer": "Codex local evidence review (not independent human approval)",
+        "verified_at": "2026-10-07T10:58:28.998285+00:00",
+        "decision_records": [
+          "D-05"
+        ],
+        "scenarios": [
+          {
+            "scenario_id": "RC-15-regression",
+            "test_file": "src/adapters/abn-identity-resolver.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-15-generalization",
+            "test_file": "src/adapters/abn-identity-resolver.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-15-integration",
+            "test_file": "src/lib/company-identity-boundary.integration.test.tsx",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          }
+        ],
+        "reproduction_before": "Incident observations retained above and minimized synthetic fixtures reproduce the problematic input/state. A pre-fix execution of every scenario was not captured; no universal baseline-red claim is made.",
+        "result_after": "The three scoped scenario specifications pass in the linked local evidence. See verification/README.md for exact boundaries, suite results and safety limitations.",
+        "remaining_limitations": [
+          "Exact canonical registered/trading aliases are supported; undisclosed subsidiary/brand linkage remains unverified.",
+          "Verified locally only; no production deployment or paid provider replay."
+        ],
+        "rollout_evidence": null,
+        "source_fingerprint": "docs/research-correctness/verification/source-fingerprint.json"
+      }
+    },
+    {
+      "id": "RC-16",
+      "title": "Nine ABN resolutions encountered read errors",
+      "status": "verified",
+      "boundary": "identity",
+      "wave": 2,
+      "depends_on": [
+        "RC-15"
+      ],
+      "owner": "mapping_rca",
+      "root_cause": "Reader protections and upstream failures prevented some corroborating evidence. These overlap identity gaps and are not the sole explanation for every unresolved ABN.",
+      "classification": "Confirmed operational contributors",
+      "incident_evidence": "1.5MB limit: AESG, Square1. Cross-domain redirects: BOSS, Bradford. Timeouts: On Point Fire, LINKfire. HTTP403: EQUANS. HTTP503: Karlayura. Missing ABN result table: Melfire.",
+      "source_references": [
+        "src/adapters/abn-identity-resolver.ts:12",
+        "src/adapters/abn-identity-resolver.ts:18"
+      ],
+      "acceptance": "Operational website-read errors stay distinct from identity ambiguity; bounded safe reads and retries produce diagnostic evidence.",
+      "scenario_ids": [
+        "RC-16-regression",
+        "RC-16-generalization",
+        "RC-16-integration"
+      ],
+      "verification": {
+        "finding_id": "RC-16",
+        "commit": "Working tree based on 66202e21cbd2bba3663977f87fa6a5cc99bd906c; RCA changes uncommitted",
+        "reviewer": "Codex local evidence review (not independent human approval)",
+        "verified_at": "2026-10-07T10:58:28.998289+00:00",
+        "decision_records": [],
+        "scenarios": [
+          {
+            "scenario_id": "RC-16-regression",
+            "test_file": "src/adapters/identity-website-reader.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-16-generalization",
+            "test_file": "src/adapters/identity-website-reader.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-16-integration",
+            "test_file": "src/lib/company-identity-boundary.integration.test.tsx",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          }
+        ],
+        "reproduction_before": "Incident observations retained above and minimized synthetic fixtures reproduce the problematic input/state. A pre-fix execution of every scenario was not captured; no universal baseline-red claim is made.",
+        "result_after": "The three scoped scenario specifications pass in the linked local evidence. See verification/README.md for exact boundaries, suite results and safety limitations.",
+        "remaining_limitations": [
+          "Retrieval limits and safe retries can leave identity evidence incomplete; no production outage cause is inferred.",
+          "Verified locally only; no production deployment or paid provider replay."
+        ],
+        "rollout_evidence": null,
+        "source_fingerprint": "docs/research-correctness/verification/source-fingerprint.json"
+      }
+    },
+    {
+      "id": "RC-17",
+      "title": "Fire System Maintenance false ambiguity",
+      "status": "verified",
+      "boundary": "identity",
+      "wave": 2,
+      "depends_on": [
+        "RC-15"
+      ],
+      "owner": "mapping_rca",
+      "root_cause": "Ambiguity counts legal names matched by substring. PROTECTION SERVICES PTY LTD is found inside FIRE PROTECTION SERVICES PTY LTD and counted as a second entity.",
+      "classification": "Confirmed resolver defect",
+      "incident_evidence": "One scored candidate (90), supported by four website pages, is suppressed. A read-only audit shows both names matching the same spans.",
+      "source_references": [
+        "src/domain/abn-resolution.mjs:12",
+        "src/domain/abn-resolution.mjs:32",
+        "src/domain/abn-resolution.mjs:33"
+      ],
+      "acceptance": "A shorter legal name contained in a longer name is not independent entity evidence; truly distinct entities remain ambiguous.",
+      "scenario_ids": [
+        "RC-17-regression",
+        "RC-17-generalization",
+        "RC-17-integration"
+      ],
+      "verification": {
+        "finding_id": "RC-17",
+        "commit": "Working tree based on 66202e21cbd2bba3663977f87fa6a5cc99bd906c; RCA changes uncommitted",
+        "reviewer": "Codex local evidence review (not independent human approval)",
+        "verified_at": "2026-10-07T10:58:28.998293+00:00",
+        "decision_records": [
+          "D-05"
+        ],
+        "scenarios": [
+          {
+            "scenario_id": "RC-17-regression",
+            "test_file": "src/domain/abn-resolution.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-17-generalization",
+            "test_file": "src/domain/abn-resolution.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-17-integration",
+            "test_file": "src/lib/company-identity-boundary.integration.test.tsx",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          }
+        ],
+        "reproduction_before": "Incident observations retained above and minimized synthetic fixtures reproduce the problematic input/state. A pre-fix execution of every scenario was not captured; no universal baseline-red claim is made.",
+        "result_after": "The three scoped scenario specifications pass in the linked local evidence. See verification/README.md for exact boundaries, suite results and safety limitations.",
+        "remaining_limitations": [
+          "Independently disclosed group entities remain ambiguous and need review.",
+          "Verified locally only; no production deployment or paid provider replay."
+        ],
+        "rollout_evidence": null,
+        "source_fingerprint": "docs/research-correctness/verification/source-fingerprint.json"
+      }
+    },
+    {
+      "id": "RC-18",
+      "title": "One monitoring gap",
+      "status": "verified",
+      "boundary": "reporting",
+      "wave": 3,
+      "depends_on": [],
+      "owner": "root",
+      "root_cause": "My read-only monitor used a 20-second client query timeout and initially fetched full job configs. A timeout exited the monitor; it reconnected with reduced fields.",
+      "classification": "Monitoring timeout; backend cause unproven",
+      "incident_evidence": "Last successful check 06:40:02, resumed 06:41:38 UTC. Query read timeout alone does not prove research stopped or explain Jetfire 502.",
+      "source_references": [
+        ".local-data/monitor-b8e35133.mjs:2"
+      ],
+      "acceptance": "Monitoring uses compact bounded reads, retries transient failures and records sampling gaps without attributing them to backend outages.",
+      "scenario_ids": [
+        "RC-18-regression",
+        "RC-18-generalization",
+        "RC-18-integration"
+      ],
+      "verification": {
+        "finding_id": "RC-18",
+        "commit": "Working tree based on 66202e21cbd2bba3663977f87fa6a5cc99bd906c; RCA changes uncommitted",
+        "reviewer": "Codex local evidence review (not independent human approval)",
+        "verified_at": "2026-10-07T10:58:28.998297+00:00",
+        "decision_records": [],
+        "scenarios": [
+          {
+            "scenario_id": "RC-18-regression",
+            "test_file": "scripts/tail-mandate.test.mjs",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-18-generalization",
+            "test_file": "scripts/tail-mandate.test.mjs",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          },
+          {
+            "scenario_id": "RC-18-integration",
+            "test_file": "scripts/tail-mandate.postgres.test.ts",
+            "command": "pnpm test",
+            "exit_code": 0,
+            "artifact": "docs/research-correctness/verification/unit-suite.log"
+          }
+        ],
+        "reproduction_before": "Incident observations retained above and minimized synthetic fixtures reproduce the problematic input/state. A pre-fix execution of every scenario was not captured; no universal baseline-red claim is made.",
+        "result_after": "The three scoped scenario specifications pass in the linked local evidence. See verification/README.md for exact boundaries, suite results and safety limitations.",
+        "remaining_limitations": [
+          "A monitoring gap is not evidence of a backend outage. Production monitoring was observational and does not verify deployment of these fixes.",
+          "Verified locally only; no production deployment or paid provider replay."
+        ],
+        "rollout_evidence": null,
+        "source_fingerprint": "docs/research-correctness/verification/source-fingerprint.json"
+      }
+    }
+  ],
+  "investigation_intake": [
+    {
+      "id": "INTAKE-01",
+      "subject": "Earlier Vercel mandate review",
+      "url": "https://project-acquire.vercel.app/mandates/a9fb0c38-b87c-493e-9fbb-07a0227d4f50?tab=targets",
+      "status": "resolved",
+      "required_evidence": "Read-only result snapshot, run identifiers and provider/application errors; reconcile against RC-01 through RC-18 and add distinct findings.",
+      "resolution": "Read-only A9 audit at 2026-10-07T10:23:04.382Z:92 targets,67 matched,45 registry-matched ABNs,20 recoverable state gaps,62 AU/global headcount differences,67 missing provider AU revenues. Contacts265 across2 companies, all excluded;65 deadline-failed profile runs saved195/245 found. Shared causes map to RC01-03,09-11,15-17; see verification/intake-audit.json. This is historical evidence, not a post-fix production replay."
+    },
+    {
+      "id": "INTAKE-02",
+      "subject": "Initial screenshot and Firmable error",
+      "url": "https://project-acquire.vercel.app",
+      "status": "resolved",
+      "required_evidence": "Identify the screenshot run and capture actual error origin/message; a 20% loading screen does not establish a Firmable failure.",
+      "resolution": "Bounded investigation complete: screenshot shows20% discovery and supplies no attributable run ID or backend error body. It cannot establish a Firmable error or tie reliably to either mandate. Historical callback 502 was observed downstream (RC12), but underlying cause remains unproven. No screenshot-specific error is invented; this uncertainty remains recorded in verification/README.md."
+    }
+  ],
+  "verification_scope": "Local implementation verification of explicitly scoped scenarios; not rollout approval or proof of every original broad dimension."
+}

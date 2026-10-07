@@ -1,0 +1,34 @@
+{
+  "finding_id": "RC-XX",
+  "commit": null,
+  "reviewer": null,
+  "verified_at": null,
+  "decision_records": [],
+  "scenarios": [
+    {
+      "scenario_id": "RC-XX-regression",
+      "test_file": null,
+      "command": null,
+      "exit_code": null,
+      "artifact": null
+    },
+    {
+      "scenario_id": "RC-XX-generalization",
+      "test_file": null,
+      "command": null,
+      "exit_code": null,
+      "artifact": null
+    },
+    {
+      "scenario_id": "RC-XX-integration",
+      "test_file": null,
+      "command": null,
+      "exit_code": null,
+      "artifact": null
+    }
+  ],
+  "reproduction_before": null,
+  "result_after": null,
+  "remaining_limitations": [],
+  "rollout_evidence": null
+}

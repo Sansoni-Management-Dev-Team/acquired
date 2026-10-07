@@ -78,7 +78,7 @@ export class ResearchRepository {
     return (result as { rows?: { ready: boolean }[] }).rows?.[0]?.ready === true;
   }
   async hasOtherActive(id: string, mandateId: string) {
-    const rows = await this.db.select({ id: researchJobs.id }).from(researchJobs).where(and(eq(researchJobs.organizationId, this.org), eq(researchJobs.mandateId, mandateId), sql`${researchJobs.id} <> ${id}`, notInArray(researchJobs.status, terminalResearchStates))).limit(1);
+    const rows = await this.db.select({ id: researchJobs.id }).from(researchJobs).where(and(eq(researchJobs.organizationId, this.org), eq(researchJobs.mandateId, mandateId), sql`${researchJobs.id} <> ${id}`, sql`${researchJobs.config}->'companyBackgroundResearch' IS NULL`, notInArray(researchJobs.status, terminalResearchStates))).limit(1);
     return rows.length > 0;
   }
   list(mandateId: string) {

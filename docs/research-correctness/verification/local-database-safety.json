@@ -1,0 +1,44 @@
+{
+  "database": "Local OrbStack only; production untouched",
+  "unintended_execution": "Legacy backfill slice of drizzle/0006_firmable_history.sql ran without specific approval; nested COMMIT escaped outer transaction; no CREATE/ALTER DDL in executed slice.",
+  "backfill_restoration": {
+    "exactly_attributed_new_company_responses": 1376,
+    "private_full_row_backup_mode": "0600",
+    "deleted_exact_guarded_ids": 1376,
+    "remaining_exact_ids": 0,
+    "guard_dimensions": [
+      "exact IDs",
+      "backfill request source",
+      "logical call ID",
+      "exact timestamp",
+      "transaction ID"
+    ],
+    "identity_link_contact_person_effect_review": "No associated row versions from the migration transactions remained; source rows predated them. Prior link values were not guessed or overwritten."
+  },
+  "synthetic_fixture_cleanup": {
+    "earlier_exact_fixtures": 2,
+    "later_exact_timed_out_fixture": 1,
+    "later_cleanup_rows": {
+      "companyResponses": 1,
+      "peopleSearches": 1,
+      "personResponses": 1,
+      "mandates": 1,
+      "contacts": 1,
+      "runs": 1,
+      "targets": 1,
+      "organizations": 1,
+      "users": 1,
+      "companies": 1,
+      "people": 1
+    },
+    "remaining_recent_fixture_users": 0,
+    "remaining_recent_fixture_organizations": 0
+  },
+  "prevention": [
+    "Nested SAVEPOINT transaction isolation",
+    "AsyncLocalStorage isolated database context",
+    "20-second pooled concurrency test timeout;5-second database timeouts",
+    "Migration case skipped unless both exact flags supplied and local host verified; specific user approval remains required"
+  ],
+  "private_backups_committed": false
+}

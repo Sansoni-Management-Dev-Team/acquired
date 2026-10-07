@@ -1,0 +1,481 @@
+{
+  "schema_version": 1,
+  "baseline_observed": "2026-10-07T06:46:03.730Z",
+  "fields": [
+    {
+      "field": "ABN",
+      "finding_ids": [
+        "RC-15",
+        "RC-16",
+        "RC-17"
+      ],
+      "baseline_available": 40,
+      "baseline_total": 67
+    },
+    {
+      "field": "ACN",
+      "finding_ids": [
+        "RC-07"
+      ],
+      "baseline_available": 59,
+      "baseline_total": 67
+    },
+    {
+      "field": "AU headcount",
+      "finding_ids": [
+        "RC-02",
+        "RC-07"
+      ],
+      "baseline_available": 58,
+      "baseline_total": 67
+    },
+    {
+      "field": "AU headcount band",
+      "finding_ids": [
+        "RC-02",
+        "RC-07"
+      ],
+      "baseline_available": 58,
+      "baseline_total": 67
+    },
+    {
+      "field": "AU revenue band",
+      "finding_ids": [
+        "RC-03",
+        "RC-07"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "AU state",
+      "finding_ids": [
+        "RC-01",
+        "RC-07"
+      ],
+      "baseline_available": 61,
+      "baseline_total": 67
+    },
+    {
+      "field": "AU suburb",
+      "finding_ids": [
+        "RC-01",
+        "RC-07"
+      ],
+      "baseline_available": 61,
+      "baseline_total": 67
+    },
+    {
+      "field": "Bankability: Add-backs %",
+      "finding_ids": [
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Bankability: DSCR at stress",
+      "finding_ids": [
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Bankability: Goodwill profile",
+      "finding_ids": [
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Bankability: Independent GM",
+      "finding_ids": [
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Bankability: Largest customer %",
+      "finding_ids": [
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Bankability: Recurring revenue %",
+      "finding_ids": [
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Company email",
+      "finding_ids": [
+        "RC-07"
+      ],
+      "baseline_available": 58,
+      "baseline_total": 67
+    },
+    {
+      "field": "Company name",
+      "finding_ids": [
+        "RC-07"
+      ],
+      "baseline_available": 67,
+      "baseline_total": 67
+    },
+    {
+      "field": "Company phone",
+      "finding_ids": [
+        "RC-07"
+      ],
+      "baseline_available": 60,
+      "baseline_total": 67
+    },
+    {
+      "field": "Description",
+      "finding_ids": [
+        "RC-07"
+      ],
+      "baseline_available": 61,
+      "baseline_total": 67
+    },
+    {
+      "field": "Domain",
+      "finding_ids": [
+        "RC-07"
+      ],
+      "baseline_available": 67,
+      "baseline_total": 67
+    },
+    {
+      "field": "Firmable identity",
+      "finding_ids": [
+        "RC-07"
+      ],
+      "baseline_available": 61,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: accreditations",
+      "finding_ids": [
+        "RC-05",
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: concentration",
+      "finding_ids": [
+        "RC-05",
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: dealBreakers",
+      "finding_ids": [
+        "RC-05",
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: ebitda",
+      "finding_ids": [
+        "RC-04",
+        "RC-05"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: geography",
+      "finding_ids": [
+        "RC-01",
+        "RC-05"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: headcount",
+      "finding_ids": [
+        "RC-02",
+        "RC-05"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: management",
+      "finding_ids": [
+        "RC-05",
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: margin",
+      "finding_ids": [
+        "RC-05",
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: multiple",
+      "finding_ids": [
+        "RC-05",
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: ownerDependence",
+      "finding_ids": [
+        "RC-05",
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: payback",
+      "finding_ids": [
+        "RC-05",
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: property",
+      "finding_ids": [
+        "RC-05",
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: revenue",
+      "finding_ids": [
+        "RC-03",
+        "RC-05"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: revenueCeiling",
+      "finding_ids": [
+        "RC-03",
+        "RC-05"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: sellerEngagement",
+      "finding_ids": [
+        "RC-05",
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: structure",
+      "finding_ids": [
+        "RC-05",
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: subsectors",
+      "finding_ids": [
+        "RC-08",
+        "RC-05"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: timing",
+      "finding_ids": [
+        "RC-05",
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mandate criterion: vendorMotivation",
+      "finding_ids": [
+        "RC-05",
+        "RC-06"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mapped headcount",
+      "finding_ids": [
+        "RC-02",
+        "RC-07"
+      ],
+      "baseline_available": 59,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mapped headcount band",
+      "finding_ids": [
+        "RC-02",
+        "RC-07"
+      ],
+      "baseline_available": 59,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mapped revenue",
+      "finding_ids": [
+        "RC-03",
+        "RC-07"
+      ],
+      "baseline_available": 61,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mapped sector",
+      "finding_ids": [
+        "RC-08",
+        "RC-05"
+      ],
+      "baseline_available": 60,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mapped state",
+      "finding_ids": [
+        "RC-01",
+        "RC-07"
+      ],
+      "baseline_available": 41,
+      "baseline_total": 67
+    },
+    {
+      "field": "Mapped suburb",
+      "finding_ids": [
+        "RC-01",
+        "RC-07"
+      ],
+      "baseline_available": 41,
+      "baseline_total": 67
+    },
+    {
+      "field": "Saved EBITDA",
+      "finding_ids": [
+        "RC-04"
+      ],
+      "baseline_available": 0,
+      "baseline_total": 67
+    },
+    {
+      "field": "Year founded",
+      "finding_ids": [
+        "RC-07"
+      ],
+      "baseline_available": 54,
+      "baseline_total": 67
+    },
+    {
+      "field": "Contact coverage by company",
+      "finding_ids": [
+        "RC-09",
+        "RC-10",
+        "RC-11"
+      ],
+      "baseline_available": null,
+      "baseline_total": null
+    },
+    {
+      "field": "Contact name and role",
+      "finding_ids": [
+        "RC-09",
+        "RC-11"
+      ],
+      "baseline_available": null,
+      "baseline_total": null
+    },
+    {
+      "field": "Contact email",
+      "finding_ids": [
+        "RC-14"
+      ],
+      "baseline_available": null,
+      "baseline_total": null
+    },
+    {
+      "field": "Contact saved phone",
+      "finding_ids": [
+        "RC-13"
+      ],
+      "baseline_available": null,
+      "baseline_total": null
+    },
+    {
+      "field": "Contact phone availability",
+      "finding_ids": [
+        "RC-13"
+      ],
+      "baseline_available": null,
+      "baseline_total": null
+    },
+    {
+      "field": "Run counts and failures",
+      "finding_ids": [
+        "RC-10",
+        "RC-11",
+        "RC-12"
+      ],
+      "baseline_available": null,
+      "baseline_total": null
+    },
+    {
+      "field": "Monitoring sample continuity",
+      "finding_ids": [
+        "RC-18"
+      ],
+      "baseline_available": null,
+      "baseline_total": null
+    }
+  ],
+  "cell_contract": {
+    "company_id": "Stable canonical company identifier",
+    "field": "Catalogue field",
+    "status": "reported | verified | estimated | reviewed | unavailable | unattempted | failed | not_applicable",
+    "value": null,
+    "source": null,
+    "observed_at": null,
+    "scope": null,
+    "currency": null,
+    "period": null,
+    "reason": null,
+    "finding_ids": [],
+    "evidence_ref": null
+  }
+}

@@ -1,9 +1,11 @@
+import { companyPeopleProgress } from '@/domain/company-people-progress';
+import { selectCompanyContacts } from '@/domain/company-contact-policy';
 import { and, asc, desc, eq, inArray, isNotNull, lt, lte, max, notInArray, or, sql } from "drizzle-orm";
 import { isEmptyFirmablePeopleSearchResponse, mapFirmableCandidate, type FirmableHttpObservation } from "@/adapters/firmable-client";
 import type { PersonCandidate } from "@/adapters/source-contracts";
 import { normalizeFirmableAbn, normalizeFirmableDomain, responseHash } from "@/domain/firmable-history";
 import { requireDb } from "./client";
-import { contacts, mandateTargets, firmableCompanies, firmableCompanyPeople, firmableCompanyResponses, firmablePeople, firmablePeopleSearches, firmablePersonResponses, firmableSyncRuns, targets } from "./schema";
+import { contacts, mandateTargets, firmableCompanies, firmableCompanyPeople, firmableCompanyResponses, firmablePeople, firmablePeopleSearches, firmablePersonResponses, firmableSyncRuns, targets, researchJobs } from "./schema";
 
 type Database = ReturnType<typeof requireDb>;
 
@@ -19,6 +21,7 @@ export type StoredFirmablePerson = {
   personId: string;
   searchRecord: Record<string, unknown>;
   profile?: Record<string, unknown>;
+  profileRequest?: Record<string, unknown>;
   fetchedAt?: Date;
 };
 
@@ -90,11 +93,26 @@ export class FirmableHistoryRepository {
     return (await this.database.select().from(firmableSyncRuns).where(eq(firmableSyncRuns.id, runId)).limit(1))[0];
   }
 
+  /** Lock per organization before claiming manual recovery; discovery uses root admission. */
+  async claimManualRecovery(runId: string) {
+    return this.database.transaction(async tx => {
+      const [candidate] = await tx.select().from(firmableSyncRuns).where(eq(firmableSyncRuns.id, runId));
+      if (!candidate || candidate.trigger === 'discovery' || candidate.status !== 'queued') return false;
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${'firmable-manual:' + candidate.organizationId}))`);
+      const active = await tx.select({ id: firmableSyncRuns.id }).from(firmableSyncRuns).where(and(eq(firmableSyncRuns.organizationId, candidate.organizationId), eq(firmableSyncRuns.status, 'running'))).limit(1);
+      if (active.length) return false;
+      const [claimed] = await tx.update(firmableSyncRuns).set({ status: 'running', startedAt: new Date(), updatedAt: new Date(), message: 'Contact workflow admitted' }).where(and(eq(firmableSyncRuns.id, runId), eq(firmableSyncRuns.status, 'queued'))).returning({ id: firmableSyncRuns.id });
+      return Boolean(claimed);
+    });
+  }
+
   async latestRuns(organizationId: string, targetIds: string[], runIds?: string[]) {
     if (!targetIds.length) return [];
     return this.database.selectDistinctOn([firmableSyncRuns.targetId], {
       id: firmableSyncRuns.id,
       targetId: firmableSyncRuns.targetId,
+      organizationId: firmableSyncRuns.organizationId,
+      trigger: firmableSyncRuns.trigger,
       status: firmableSyncRuns.status,
       companyStatus: firmableSyncRuns.companyStatus,
       searchStatus: firmableSyncRuns.searchStatus,
@@ -146,7 +164,7 @@ export class FirmableHistoryRepository {
     return (await this.database.select().from(firmablePeopleSearches).where(and(eq(firmablePeopleSearches.runId, runId), eq(firmablePeopleSearches.offset, offset), eq(firmablePeopleSearches.successful, true), isNotNull(firmablePeopleSearches.response))).orderBy(desc(firmablePeopleSearches.fetchedAt), desc(firmablePeopleSearches.id)).limit(1))[0];
   }
 
-  async searchCandidates(runId: string, beforeOffset?: number) {
+  async searchCandidates(runId: string, beforeOffset?: number, selection: 'selected' | 'all' = 'selected') {
     const pages = await this.database.select().from(firmablePeopleSearches).where(and(eq(firmablePeopleSearches.runId, runId), eq(firmablePeopleSearches.successful, true), isNotNull(firmablePeopleSearches.response), beforeOffset === undefined ? undefined : lt(firmablePeopleSearches.offset, beforeOffset))).orderBy(asc(firmablePeopleSearches.offset), asc(firmablePeopleSearches.fetchedAt));
     const candidates = new Map<string, PersonCandidate>();
     const reportedTotals = new Set<number>();
@@ -162,7 +180,9 @@ export class FirmableHistoryRepository {
       }
     }
     const [reportedTotal] = [...reportedTotals];
-    return { candidates: [...candidates.values()], reportedTotal, reportedTotals: [...reportedTotals], malformedCount, pages };
+    const run = await this.run(runId);
+    const selected = selection === 'selected' && run && ['discovery', 'people', 'manual'].includes(run.trigger) ? selectCompanyContacts([...candidates.values()]) : [...candidates.values()];
+    return { candidates: selected, discoveredCount: candidates.size, reportedTotal, reportedTotals: [...reportedTotals], malformedCount, pages };
   }
 
   async successfulPersonResponse(runId: string, personId: string) {
@@ -172,9 +192,41 @@ export class FirmableHistoryRepository {
   async profileProgress(runId: string, candidateIds: string[]) {
     if (!candidateIds.length) return { found: 0, saved: 0, failed: 0, attempted: 0, pending: 0 };
     const attempts = await this.database.select({ personId: firmablePersonResponses.firmablePersonId, successful: firmablePersonResponses.successful }).from(firmablePersonResponses).where(and(eq(firmablePersonResponses.runId, runId), inArray(firmablePersonResponses.firmablePersonId, candidateIds)));
-    const saved = new Set(attempts.filter(attempt => attempt.successful && attempt.personId).map(attempt => attempt.personId!));
+    const run = await this.run(runId);
+    const materialized = run ? await this.database.select({ personId: contacts.firmablePersonId }).from(contacts).where(and(eq(contacts.organizationId, run.organizationId), eq(contacts.targetId, run.targetId), inArray(contacts.firmablePersonId, candidateIds))) : [];
+    const successful = new Set(attempts.filter(attempt => attempt.successful && attempt.personId).map(attempt => attempt.personId!));
+    const saved = new Set(materialized.flatMap(contact => contact.personId && successful.has(contact.personId) ? [contact.personId] : []));
     const attempted = new Set(attempts.filter(attempt => attempt.personId).map(attempt => attempt.personId!));
-    return { found: candidateIds.length, saved: saved.size, failed: [...attempted].filter(id => !saved.has(id)).length, attempted: attempted.size, pending: candidateIds.filter(id => !attempted.has(id)).length };
+    return { found: candidateIds.length, saved: saved.size, failed: [...attempted].filter(id => !successful.has(id)).length, attempted: attempted.size, pending: candidateIds.filter(id => !attempted.has(id) || (successful.has(id) && !saved.has(id))).length };
+  }
+
+  /** Refresh durable counters without reopening a terminal run. */
+  async reconcileProfileProgress(runId: string) {
+    const result = await this.database.transaction(async tx => {
+      const [run] = await tx.select().from(firmableSyncRuns).where(eq(firmableSyncRuns.id, runId)).for('update');
+      if (!run || run.trigger === 'phones') return;
+      const history = new FirmableHistoryRepository(tx as unknown as Database);
+      // Durable history cannot be reinterpreted using today's role/cap policy.
+      // Include orphan attempts too: a lost search observation must not hide a
+      // successfully persisted contact or provider error belonging to this run.
+      const { candidates } = await history.searchCandidates(runId, undefined, 'all');
+      const observations = await tx.select({ personId: firmablePersonResponses.firmablePersonId }).from(firmablePersonResponses).where(eq(firmablePersonResponses.runId, runId));
+      const personIds = [...new Set([...candidates.map(person => person.id), ...observations.flatMap(row => row.personId ? [row.personId] : [])])];
+      const counts = await history.profileProgress(runId, personIds);
+      await tx.update(firmableSyncRuns).set({ profilesFound: counts.found, profilesSaved: counts.saved, profilesFailed: counts.failed }).where(eq(firmableSyncRuns.id, runId));
+      return counts;
+    });
+    // Reconcile parent aggregate after releasing the run lock. Root-before-run
+    // admission and run-before-root reconciliation cannot then deadlock.
+    if (result) await this.database.transaction(async tx => {
+      const roots = await tx.select().from(researchJobs).where(sql`COALESCE(${researchJobs.config}->'companyPeopleRunIds', '[]'::jsonb) @> ${JSON.stringify([runId])}::jsonb`).for('update');
+      for (const root of roots) {
+        const ids = (root.config as { companyPeopleRunIds: string[] }).companyPeopleRunIds;
+        const runs = await tx.select().from(firmableSyncRuns).where(inArray(firmableSyncRuns.id, ids));
+        await tx.update(researchJobs).set({ config: sql`${researchJobs.config} || ${JSON.stringify({ companyPeopleProgress: companyPeopleProgress(runs) })}::jsonb` }).where(eq(researchJobs.id, root.id));
+      }
+    });
+    return result;
   }
 
   async recordObservation(runId: string, observation: FirmableHttpObservation, options: { retainPersonalData: boolean }) {
@@ -290,16 +342,16 @@ export class FirmableHistoryRepository {
     const links = await this.database.select().from(firmableCompanyPeople).where(and(inArray(firmableCompanyPeople.firmableCompanyId, companyIds), eq(firmableCompanyPeople.active, true)));
     const personIds = [...new Set(links.map(link => link.firmablePersonId))];
     const allowRealPersonalData = process.env.ALLOW_REAL_PERSONAL_DATA === "true";
-    const profiles = allowRealPersonalData && personIds.length ? await this.database.selectDistinctOn([firmablePersonResponses.firmablePersonId], { firmablePersonId: firmablePersonResponses.firmablePersonId, response: firmablePersonResponses.response, fetchedAt: firmablePersonResponses.fetchedAt }).from(firmablePersonResponses).where(and(inArray(firmablePersonResponses.firmablePersonId, personIds), eq(firmablePersonResponses.successful, true), eq(firmablePersonResponses.privacyMode, "real"), isNotNull(firmablePersonResponses.response))).orderBy(firmablePersonResponses.firmablePersonId, desc(firmablePersonResponses.fetchedAt), desc(firmablePersonResponses.id)) : [];
-    const latestProfiles = new Map<string, { response: Record<string, unknown>; fetchedAt: Date }>();
-    for (const profile of profiles) if (profile.firmablePersonId && !latestProfiles.has(profile.firmablePersonId) && object(profile.response)) latestProfiles.set(profile.firmablePersonId, { response: object(profile.response)!, fetchedAt: profile.fetchedAt });
+    const profiles = allowRealPersonalData && personIds.length ? await this.database.selectDistinctOn([firmablePersonResponses.firmablePersonId], { firmablePersonId: firmablePersonResponses.firmablePersonId, response: firmablePersonResponses.response, request: firmablePersonResponses.request, fetchedAt: firmablePersonResponses.fetchedAt }).from(firmablePersonResponses).where(and(inArray(firmablePersonResponses.firmablePersonId, personIds), eq(firmablePersonResponses.successful, true), eq(firmablePersonResponses.privacyMode, "real"), isNotNull(firmablePersonResponses.response))).orderBy(firmablePersonResponses.firmablePersonId, desc(firmablePersonResponses.fetchedAt), desc(firmablePersonResponses.id)) : [];
+    const latestProfiles = new Map<string, { response: Record<string, unknown>; request: Record<string, unknown>; fetchedAt: Date }>();
+    for (const profile of profiles) if (profile.firmablePersonId && !latestProfiles.has(profile.firmablePersonId) && object(profile.response)) latestProfiles.set(profile.firmablePersonId, { response: object(profile.response)!, request: object(profile.request) || {}, fetchedAt: profile.fetchedAt });
     const result = new Map<string, StoredFirmablePerson[]>();
     for (const link of links) {
       const current = result.get(link.firmableCompanyId) || [];
       const profile = latestProfiles.get(link.firmablePersonId);
       const rawSearch = object(link.searchRecord) || {};
       const searchRecord = allowRealPersonalData ? rawSearch : { person_id: link.firmablePersonId, position: rawSearch.position, seniority: rawSearch.seniority, department: rawSearch.department, has_email: rawSearch.has_email, has_phone: rawSearch.has_phone };
-      current.push({ companyId: link.firmableCompanyId, personId: link.firmablePersonId, searchRecord, profile: profile?.response, fetchedAt: profile?.fetchedAt });
+      current.push({ companyId: link.firmableCompanyId, personId: link.firmablePersonId, searchRecord, profile: profile?.response, profileRequest: profile?.request, fetchedAt: profile?.fetchedAt });
       result.set(link.firmableCompanyId, current);
     }
     return result;

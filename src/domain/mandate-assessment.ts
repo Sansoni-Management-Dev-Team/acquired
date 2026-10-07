@@ -1,7 +1,7 @@
 import { reviewMandateFit } from "./mandate-fit";
 import type { SavedResearchFinding } from "./research";
 import type { BuyerProfile } from "./buyer-profile";
-import { briefToMandate, type AcquisitionBrief, type Assessment } from "./acquisition";
+import { automaticAssessmentDecision, briefToMandate, type AcquisitionBrief, type Assessment } from "./acquisition";
 import type { RankedTarget, FinanceabilityEvidence } from "./models";
 import { rankTarget } from "./scoring";
 
@@ -34,8 +34,8 @@ export function assessMembership(target: RankedTarget, brief: AcquisitionBrief, 
     ranked.scores.reasons.push({ axis: "ripeness", label: `Seller engagement: ${engagement.value}`, contribution: ranked.scores.ripeness, source: engagement.source, sourceUrl: engagement.sourceUrl || undefined });
   }
   // A fit preference failing is not a hard rejection. Inferences and estimates cannot hard-exclude.
-  const hardFailure = relevant.some(c => c.importance === "requirement" && assessment.evidence.some(e => e.criterionKey === c.key && e.assessment === "fails" && ["register", "owner-stated", "document-verified"].includes(e.kind) && e.confidence >= 80));
-  if (fit.eligibility.status === "excluded" || hardFailure || assessment.stage === "excluded") { ranked.scores.band = "excluded"; ranked.scores.qualification = "excluded"; }
+  const hardFailure = relevant.some(c => c.importance === "requirement" && assessment.evidence.some(e => e.reviewState !== "provisional" && e.criterionKey === c.key && e.assessment === "fails" && ["register", "owner-stated", "document-verified"].includes(e.kind) && e.confidence >= 80));
+  if (fit.eligibility.status === "excluded" || hardFailure || assessment.stage === "excluded" && !automaticAssessmentDecision(assessment)) { ranked.scores.band = "excluded"; ranked.scores.qualification = "excluded"; }
   else { ranked.scores.band = "cold"; ranked.scores.qualification = assessment.stage === "qualified" ? "priority" : ["shortlisted", "outreach-approved", "contacted", "in-conversation"].includes(assessment.stage) ? "develop" : "research"; }
   if (!finance?.structureReviewed) {
     ranked.scores.financeability = null;

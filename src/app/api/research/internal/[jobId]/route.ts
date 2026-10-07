@@ -1,3 +1,6 @@
+import {dispatchCompanyBackground} from '@/lib/company-background-dispatch';
+import {executeCompanyBackground} from '@/lib/company-background-execution';
+import {queueCompanyPeople} from '@/lib/company-people-research';
 import { firmableCompanyResearch } from '@/lib/firmable-company-research';
 import { researchCallbackContext } from '@/lib/research-egress-metrics';
 import { adaptiveDiscovery, discoveryLimit, discoveryRegions, resolveDiscoveryDecision, DISCOVERY_BATCH_SIZE, discoveryQueryId, type DiscoveryContext, type DiscoveryAttempt } from "@/domain/adaptive-discovery";
@@ -56,7 +59,7 @@ async function getJob(request: Request, jobId: string, lean = false) {
     await requireDb()
       .select(lean ? {
         ...researchExecutionSelection,
-        config: sql<ResearchConfig>`jsonb_build_object('researchRunId', ${researchJobs.config}->'researchRunId', 'budget', ${researchJobs.config}->'budget', 'automaticDeadline', ${researchJobs.config}->'automaticDeadline', 'newBusinessIds', ${researchJobs.config}->'newBusinessIds', 'performanceFlags', ${researchJobs.config}->'performanceFlags', 'discoveryCandidate', ${researchJobs.config}->'discoveryCandidate', 'parallelDiscovery', ${researchJobs.config}->'parallelDiscovery')`,
+        config: sql<ResearchConfig>`jsonb_build_object('researchRunId', ${researchJobs.config}->'researchRunId', 'budget', ${researchJobs.config}->'budget', 'automaticDeadline', ${researchJobs.config}->'automaticDeadline', 'newBusinessIds', ${researchJobs.config}->'newBusinessIds', 'performanceFlags', ${researchJobs.config}->'performanceFlags', 'discoveryCandidate', ${researchJobs.config}->'discoveryCandidate', 'parallelDiscovery', ${researchJobs.config}->'parallelDiscovery', 'companyBackgroundResearch', ${researchJobs.config}->'companyBackgroundResearch')`,
       } : researchExecutionSelection)
       .from(researchJobs)
       .where(eq(researchJobs.id, jobId))
@@ -93,7 +96,7 @@ async function controlSnapshot(job: NonNullable<Awaited<ReturnType<typeof getJob
   return {
     status: root?.status === "cancelled" ? "cancelled" : job.status,
     updatedAt: job.updatedAt.toISOString(), crawlId: job.crawlId, config: { ...(config.discoveryCandidate || config.parallelDiscovery ? { ...config, newBusinessIds: (root?.config as ResearchConfig | undefined)?.newBusinessIds || [] } : config), pipelineTiming: undefined }, seeds: job.seeds,
-    deadline: Math.min(job.createdAt.getTime() + config.budget.maxMinutes * 60000, (root?.config as ResearchConfig | undefined)?.automaticDeadline || Infinity),
+    deadline: config.companyBackgroundResearch ? config.automaticDeadline || Infinity : Math.min(job.createdAt.getTime() + config.budget.maxMinutes * 60000, (root?.config as ResearchConfig | undefined)?.automaticDeadline || Infinity),
     ...(includeFindings && (config.targetId || (config.parallelBusinessResearch && config.researchTask === 'field' && config.companyDomain)) ? { findings: (await runEvidence(job)).map(f => f.evidence) } : {}),
   };
 }
@@ -130,7 +133,21 @@ async function postResearchCallback(
   setResearchDatabaseContext({ jobId: job.id, organizationId: job.organizationId, mandateId: job.mandateId, runId: (job.config as ResearchConfig).researchRunId || job.id });
   configureResearchTelemetry(researchPerformanceFlags(job.config as ResearchConfig).telemetryBatching);
   const repo = new ResearchRepository(job.organizationId);
-  if (['company-people-status','d-search','d-company','d-finish','d-fail','e-plan','e-search','e-company','e-finish','e-fail','f-finish','f-fail'].includes(payload?.action)) return researchJsonResponse(await firmableCompanyResearch(job,payload));
+  if (['company-background-research','company-background-failed'].includes(payload?.action)) {
+    if(!(job.config as ResearchConfig).companyBackgroundResearch)return researchJsonResponse({error:'Not a background job'},{status:400});
+    const result=await executeCompanyBackground(job,payload.action==='company-background-failed');
+    after(()=>dispatchCompanyBackground(job.organizationId,job.mandateId));
+    return researchJsonResponse(result);
+  }
+  if (['company-people-status','d-search','d-company','d-finish','d-fail','e-plan','e-search','e-company','e-finish','e-fail','f-finish','f-fail'].includes(payload?.action)) {
+    const result=await firmableCompanyResearch(job,payload);
+    if(['d-company','e-company','d-finish','e-finish','f-finish'].includes(payload.action))after(async()=>{
+      await dispatchCompanyBackground(job.organizationId,job.mandateId);
+      const company=result as {matched?:boolean;targetId?:string;firmableId?:string};
+      if(company.matched&&company.targetId&&company.firmableId)await queueCompanyPeople(job,company.targetId,company.firmableId);
+    });
+    return researchJsonResponse(result);
+  }
   if (payload?.action === 'balanced-wakeup') {
     const config = job.config as ResearchConfig;
     if (process.env.LOCAL_DEVELOPMENT !== 'true' || !['balanced-v1','corpus-v1'].includes(config.pipelineDesign || '') || config.researchRunId !== job.id) return researchJsonResponse({error:'Unavailable'}, {status:403});

@@ -1,6 +1,10 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { ResearchConfig } from '@/domain/research';
-const mocks = vi.hoisted(() => ({ authorized: vi.fn(), get: vi.fn(), progress: vi.fn(), save: vi.fn(), after: vi.fn(), select: vi.fn(), cooldown: vi.fn() }));
+const mocks = vi.hoisted(() => ({ company:vi.fn(), background:vi.fn(), dispatch:vi.fn(), people:vi.fn(), authorized: vi.fn(), get: vi.fn(), progress: vi.fn(), save: vi.fn(), after: vi.fn(), select: vi.fn(), cooldown: vi.fn() }));
+vi.mock('@/lib/firmable-company-research',()=>({firmableCompanyResearch:mocks.company}));
+vi.mock('@/lib/company-background-execution',()=>({executeCompanyBackground:mocks.background}));
+vi.mock('@/lib/company-background-dispatch',()=>({dispatchCompanyBackground:mocks.dispatch}));
+vi.mock('@/lib/company-people-research',()=>({queueCompanyPeople:mocks.people}));
 vi.mock('@/lib/research-provider-queue', () => ({ coolDownResearchBrowser: mocks.cooldown, reserveResearchProvider: vi.fn(), releaseResearchProvider: vi.fn() }));
 vi.mock('next/server', () => ({ after: mocks.after }));
 vi.mock('@/lib/research-service', () => ({ researchEnabled: () => true, researchServiceAuthorized: mocks.authorized }));
@@ -124,4 +128,22 @@ it('normalizes website cooldowns for the SQL fallback while retaining global cap
 it.each(['private.example/path', 'user:secret@example.com', 'https://example.com', '', 123, 'example.com:443'])('rejects malformed cooldown domain %s without poisoning the shared queue', async domain => {
   expect((await call({ action: 'browser-cooldown', retryAfterMs: 3000, domain })).status).toBe(400);
   expect(mocks.cooldown).not.toHaveBeenCalled();
+});
+
+it('returns saved company result before background dispatch or optional people execution starts',async()=>{
+ mocks.company.mockResolvedValue({ok:true,matched:true,targetId:'target',firmableId:'f123',backgroundJobId:'background'});
+ mocks.dispatch.mockImplementation(()=>new Promise(()=>{}));
+ expect(await(await call({action:'d-company',row:{id:'f123'}})).json()).toMatchObject({ok:true,backgroundJobId:'background'});
+ expect(mocks.after).toHaveBeenCalledOnce();expect(mocks.dispatch).not.toHaveBeenCalled();expect(mocks.people).not.toHaveBeenCalled();
+});
+it('background callbacks execute independently and enqueue the next outbox dispatch only after settlement',async()=>{
+ job.config.companyBackgroundResearch={version:1,fields:['company_emails'],sourceRootId:'root',profileCapturedAt:new Date().toISOString(),verifyAbn:false};
+ mocks.background.mockResolvedValue({accepted:true,status:'complete'});
+ expect(await(await call({action:'company-background-research'})).json()).toMatchObject({accepted:true,status:'complete'});
+ expect(mocks.background).toHaveBeenCalledWith(job,false);expect(mocks.dispatch).not.toHaveBeenCalled();expect(mocks.company).not.toHaveBeenCalled();expect(mocks.after).toHaveBeenCalledOnce();
+});
+it('background control uses execution deadline rather than an expired discovery root deadline',async()=>{
+ const future=Date.now()+110000;job.config={...job.config,researchRunId:'root',automaticDeadline:future,companyBackgroundResearch:{version:1,fields:['company_emails'],sourceRootId:'root',profileCapturedAt:new Date().toISOString(),verifyAbn:false}};
+ mocks.get.mockResolvedValue({...job,id:'root',status:'complete',config:{automaticDeadline:Date.now()-60000}});
+ const response=await GET(new Request('http://app/api'),{params:Promise.resolve({jobId})});expect((await response.json()).deadline).toBe(future);
 });

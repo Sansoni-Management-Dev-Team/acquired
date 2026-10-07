@@ -1,0 +1,13 @@
+Already up to date
+Done in 218ms using pnpm v11.8.0
+
+ RUN  v4.1.11 <repository>
+
+(node:83803) DeprecationWarning: Calling client.query() when the client is already executing a query is deprecated and will be removed in pg@9.0. Use async/await or an external async flow control mechanism instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+
+ Test Files  4 passed (4)
+      Tests  19 passed | 1 skipped (20)
+   Start at  22:00:31
+   Duration  8.28s (transform 1.56s, setup 0ms, import 3.49s, tests 7.77s, environment 0ms)
+

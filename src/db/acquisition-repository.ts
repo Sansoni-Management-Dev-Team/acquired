@@ -3,7 +3,7 @@ import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { requireDb } from "./client";
 import { coverageRuns, mandates, mandateTargets, targets, valuationObservations, organization, researchFindings } from "./schema";
 import { OrganizationRepository } from "./repositories";
-import { assessmentSchema, briefSchema, briefToMandate, emptyBrief, initialAssessment, type AcquisitionBrief, type Accreditation, type Assessment, type CoverageRun, type CoverageSource, type MandateView, type MembershipView, type ValuationObservation } from "@/domain/acquisition";
+import { assessmentDecisionView, assessmentSchema, briefSchema, briefToMandate, emptyBrief, initialAssessment, type AcquisitionBrief, type Accreditation, type Assessment, type CoverageRun, type CoverageSource, type MandateView, type MembershipView, type ValuationObservation } from "@/domain/acquisition";
 import { assessMembership } from "@/domain/mandate-assessment";
 import { buyerProfileFromMetadata } from "@/domain/buyer-profile";
 
@@ -56,7 +56,8 @@ export class AcquisitionRepository {
       const assessment = assessmentSchema.safeParse(link.assessment);
       const accreditations = rows.find(r => r.id === target.id)?.accreditations;
       const targetFindings = findings.filter(({ finding }) => finding.targetId === target.id).map(({ finding }) => ({ ...finding, evidence: finding.evidence as import("@/domain/research").ResearchFinding, observedAt: finding.observedAt.toISOString() }));
-      return [{ researchFindings: targetFindings, target: assessMembership(target, mandate.brief, assessment.success ? assessment.data : initialAssessment, buyerProfileFromMetadata(orgRows[0]?.metadata), targetFindings), assessment: assessment.success ? assessment.data : { ...initialAssessment }, accreditations: Array.isArray(accreditations) ? accreditations : [], version: link.version }];
+      const decision=assessmentDecisionView(mandate.brief,target,assessment.success ? assessment.data : {...initialAssessment});
+      return [{ researchFindings: targetFindings, target: assessMembership(target, mandate.brief, decision, buyerProfileFromMetadata(orgRows[0]?.metadata), targetFindings), assessment: decision, accreditations: Array.isArray(accreditations) ? accreditations : [], version: link.version }];
     });
   }
   async attach(mandateId: string, targetId: string) {

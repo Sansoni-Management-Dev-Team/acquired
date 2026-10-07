@@ -3,6 +3,7 @@ import type { MembershipView } from "@/domain/acquisition";
 import { requireDb } from "./client";
 import { FirmableHistoryRepository, type StoredFirmablePerson } from "./firmable-history-repository";
 import { contacts } from "./schema";
+import { mapFirmablePerson } from "@/adapters/firmable-client";
 
 type Database = ReturnType<typeof requireDb>;
 export type WorkspaceContactSummary = { targetId: string; name: string; role: string | null; reachable: boolean };
@@ -12,23 +13,13 @@ function object(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
-function firstValue(value: unknown) {
-  if (!Array.isArray(value)) return undefined;
-  for (const entry of value) {
-    if (typeof entry === "string" && entry) return entry;
-    const record = object(entry);
-    if (typeof record?.value === "string" && record.value) return record.value;
-  }
-  return undefined;
-}
-
 export function storedFirmableContactData(person: StoredFirmablePerson): StoredFirmableContactData {
   const profile = person.profile || {};
   const search = person.searchRecord;
-  const emails = object(profile.emails);
+  const mapped = mapFirmablePerson(profile, { id: person.personId }, false);
   const phones = Array.isArray(profile.phones) ? profile.phones.map(object).filter(Boolean) as Record<string, unknown>[] : [];
-  const email = typeof profile.work_email === "string" ? profile.work_email : firstValue(emails?.work);
-  const phone = typeof profile.phone === "string" ? profile.phone : phones.map(item => item.value).find(value => typeof value === "string") as string | undefined;
+  const email = mapped.email;
+  const phone = object(person.profileRequest?.query)?.includePhones === "false" ? undefined : mapped.phone;
   const linkedinUrl = [profile.linkedin, profile.linkedin_url].find(value => typeof value === "string" && value.trim()) as string | undefined;
   const name = [profile.name, profile.full_name, search.name, search.pName].find(value => typeof value === "string" && value.trim()) as string | undefined;
   const role = [profile.position, search.position, profile.headline].find(value => typeof value === "string" && value.trim()) as string | undefined;

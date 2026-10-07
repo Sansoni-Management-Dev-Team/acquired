@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CompanyPipelineProgress } from "./company-pipeline-progress";
-import { researchRoot, isCompanyPipeline, companyPipelineState } from "./company-pipeline-state";
+import { researchRoot, isCompanyPipeline, companyPipelineState, type CompanyResearchCoverage } from "./company-pipeline-state";
 import { CompanySearchProgress } from "./company-search-progress";
 import { useActivePolling } from "./use-active-polling";
 import {
@@ -38,7 +38,7 @@ export function candidatesArrivedForRun(jobs: ResearchJob[], startedJobId: strin
     (job.config.discoveryCandidate || (job.config.newBusinessIds?.length || 0) > 0),
   );
 }
-export type ResearchPanelData = { timings?: Record<string, PipelineTimings>; pendingEnrichment?: { jobId: string; runId?: string; targetId?: string; purpose?: string }[]; active?: boolean; results?: { jobId: string; businessDomains?: string[]; added: number; updated: number; people: number }[]; enabled: boolean; jobs: ResearchJob[]; peopleJobs?: ResearchJob[]; companyJobs?: ResearchJob[]; findings: SavedResearchFinding[]; evidence?: Record<string, import("@/domain/evidence-status").EvidenceCounts> };
+export type ResearchPanelData = { timings?: Record<string, PipelineTimings & { coverage?: CompanyResearchCoverage }>; pendingEnrichment?: { jobId: string; runId?: string; targetId?: string; purpose?: string }[]; active?: boolean; results?: { jobId: string; businessDomains?: string[]; added: number; updated: number; people: number }[]; enabled: boolean; jobs: ResearchJob[]; peopleJobs?: ResearchJob[]; companyJobs?: ResearchJob[]; findings: SavedResearchFinding[]; evidence?: Record<string, import("@/domain/evidence-status").EvidenceCounts> };
 type Data = ResearchPanelData;
 // Workspace memberships change with saved evidence/results or run lifecycle,
 // while page counters and stage messages belong to the local progress display.
@@ -101,6 +101,7 @@ export function ResearchPanel({
     try {
       const next: Data = await request(`/api/mandates/${mandateId}/research`);
       setData(next);
+      setError("");
       const signature = researchWorkspaceSignature(next);
       const previous = signatureRef.current;
       changedRef.current(next, Boolean(previous?.mandateId === mandateId && signature !== previous.signature));
@@ -122,6 +123,7 @@ export function ResearchPanel({
   const relatedCompanies = (data.companyJobs || []).filter(inRun);
   const runJobs = [...data.jobs, ...relatedPeople, ...relatedCompanies].filter(inRun);
   const candidateJobs = runJobs.filter(j => j.config.discoveryCandidate);
+  const peopleSaved = (data.results || []).filter(result => runJobs.some(job => job.id === result.jobId)).reduce((total, result) => total + result.people, 0);
   useEffect(() => {
     if (!startedJobId.current || !onCandidatesFound) return;
     if (candidatesArrivedForRun(data.jobs, startedJobId.current)) {
@@ -194,8 +196,8 @@ export function ResearchPanel({
             </div>
           )}
           {currentJob && <div className="space-y-3" role="status">
-            <ResearchProgress mandateId={mandateId} job={currentJob} jobs={runJobs} count={newBusinessCount} identified={identifiedBusinessCount} active={Boolean(active)} enriching={enriching.length} />
-            {!isCompanyPipeline(currentJob) && currentJob.config.mode === "automatic" && <DiscoveryCandidateList jobs={candidateJobs} searching={Boolean(active)} />}
+            <ResearchProgress mandateId={mandateId} job={currentJob} jobs={runJobs} count={newBusinessCount} identified={identifiedBusinessCount} active={Boolean(active)} enriching={enriching.length} coverage={runId ? data.timings?.[runId]?.coverage : undefined} peopleSaved={peopleSaved} />
+            {showStartAction && !isCompanyPipeline(currentJob) && currentJob.config.mode === "automatic" && <DiscoveryCandidateList jobs={candidateJobs} searching={Boolean(active)} />}
             {showStartAction && <ResearchRunOutcome showSummary={false} status={currentJob.status} remaining={remainingFor(currentJob).length} active={Boolean(active)} canResume={!currentJob.config.purpose} busy={busy} onResume={() => resume(currentJob)} goal={currentJob.config.targetBusinesses} saved={newBusinessCount} />}
             {showStartAction && (currentJob.status === "failed" || currentJob.status === "partial" || currentJob.status === "cancelled") && currentJob.message && <p className="break-words text-sm text-[var(--muted)]">{currentJob.message}</p>}
             {showStartAction && searchHistory.length > 0 && <details className="rounded-lg border border-[var(--border)] p-3 text-sm">
@@ -454,8 +456,8 @@ export function ActiveResearchJob({ job, busy, onCancel, onRetry }: { job: Resea
   </div>;
 }
 
-export function ResearchProgress({ job, jobs = [job], active, enriching, mandateId }: { job: ResearchJob; jobs?: ResearchJob[]; count: number; identified: number; active: boolean; enriching: number; mandateId?: string }) {
-  if (isCompanyPipeline(job)) return <CompanyPipelineProgress job={job} jobs={jobs} mandateId={mandateId} />;
+export function ResearchProgress({ job, jobs = [job], active, enriching, mandateId, coverage, peopleSaved }: { job: ResearchJob; jobs?: ResearchJob[]; count: number; identified: number; active: boolean; enriching: number; mandateId?: string; coverage?: CompanyResearchCoverage; peopleSaved?: number }) {
+  if (isCompanyPipeline(job) || !job.config.purpose) return <CompanyPipelineProgress job={job} jobs={jobs} mandateId={mandateId} coverage={coverage} peopleSaved={peopleSaved} />;
   const running = jobs.filter(j => !terminalResearchStates.includes(j.status));
   const discovery = running.find(j => !j.config.purpose && !j.config.discoveryCandidate);
   const researching = running.filter(j => !j.config.purpose);

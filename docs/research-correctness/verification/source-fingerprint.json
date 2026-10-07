@@ -1,0 +1,320 @@
+{
+  "base_commit": "66202e21cbd2bba3663977f87fa6a5cc99bd906c",
+  "working_tree": "uncommitted; changed source files including unrelated existing changes",
+  "fingerprint_algorithm": "SHA256 of sorted canonical JSON path/file-SHA256 list",
+  "aggregate_sha256": "e8f12a9f13e5e212019c9d6419484acfe6a47016f0d000f8e32060b8a2eba13f",
+  "files": [
+    {
+      "path": "cloudflare/research/firmable-callback.test.ts",
+      "sha256": "f42fa53e0b7232a380b3f6fc8b15f56fdd1b67224c683b16f8ed4f42273638e3"
+    },
+    {
+      "path": "cloudflare/research/firmable-callback.ts",
+      "sha256": "989720726c7f4ee8d6d98c7be0bd1563a6457266dfb74b45960b15c85eea57c0"
+    },
+    {
+      "path": "cloudflare/research/index.ts",
+      "sha256": "0e83bf32ac48f7e01993a80544ceb616122caa208ae631369d871c5e8f82496f"
+    },
+    {
+      "path": "cloudflare/research/workflow-tests/research.test.ts",
+      "sha256": "86c42648f21bb32b1af288f7d501326ab387b2d87efdd741ed8594f912fff8f8"
+    },
+    {
+      "path": "scripts/render-research-completeness-report.mjs",
+      "sha256": "d52e812a1de4320cd980feb3c7efcbcda8ce605ad1cfbfe559c940b45d02e86d"
+    },
+    {
+      "path": "scripts/tail-mandate.d.mts",
+      "sha256": "66135551d7f070bce00d73f3552a541536fe7b3932f8c5183073e0719a7713b9"
+    },
+    {
+      "path": "scripts/tail-mandate.mjs",
+      "sha256": "8ef4f1816895ecb96a63309695342498b01df50e0d7b3436140ae37b35504061"
+    },
+    {
+      "path": "scripts/tail-mandate.postgres.test.ts",
+      "sha256": "ce50ada020253fa5db3a9d313129758480d09f35a451bf379d2ea4e019e50773"
+    },
+    {
+      "path": "scripts/tail-mandate.test.mjs",
+      "sha256": "6c56e43f51e0ad3c19162ed3badce199d8a508649421c108c6547c0ccb47dd66"
+    },
+    {
+      "path": "scripts/validate-research-correctness-plan.mjs",
+      "sha256": "53c0f3b4a33dbcf54ed15a5dda8ab4a842bf4b794f5811a58404bbfd4e1e5bf7"
+    },
+    {
+      "path": "scripts/validate-research-correctness-plan.selftest.mjs",
+      "sha256": "1c848d606845c09b6c85cadbd842ccdf44c2e26e4f322d2468214379d1aff2a5"
+    },
+    {
+      "path": "src/adapters/abn-identity-resolver.test.ts",
+      "sha256": "94b61da377721ce5c19adc57916e29d851af1278eb703d95c533f3d5db864418"
+    },
+    {
+      "path": "src/adapters/abn-identity-resolver.ts",
+      "sha256": "744d5be784060d56b10b57da5f91fa417ce0db34d93a5954053fdda986c2af1a"
+    },
+    {
+      "path": "src/adapters/company-website-fallback.test.ts",
+      "sha256": "de09a61abeb48415fde2d7facc94bcda6ed189f8eef8e232eedaf68122937a95"
+    },
+    {
+      "path": "src/adapters/company-website-fallback.ts",
+      "sha256": "45c1e5ccf377fe0ab7067df50f385503d340c4216f129029f376576e11609daa"
+    },
+    {
+      "path": "src/adapters/firmable-client.ts",
+      "sha256": "d290e584f11bf5542a108e6079dc729d1f5fc2a95dac80b3eb3ea0118fc52fa1"
+    },
+    {
+      "path": "src/adapters/firmable-company-mapper.ts",
+      "sha256": "77672c199ee3549f2d48a49a06b42ec2c8ed37cf4548c7180f03464aade36015"
+    },
+    {
+      "path": "src/adapters/firmable-mapper.ts",
+      "sha256": "012ff107105f26720502a31081718c54a1ca25c389f0d03f3d035337d3cc9ff7"
+    },
+    {
+      "path": "src/adapters/identity-website-reader.test.ts",
+      "sha256": "db90d212e1e5f4b12278b1c297e5466d6a4a797e920c11efa305d9a29da5d292"
+    },
+    {
+      "path": "src/adapters/source-contracts.ts",
+      "sha256": "16b69966b5ea81cd6d1f66319ab234d2339136010cf8eb07dd8aaaeb42d22a74"
+    },
+    {
+      "path": "src/app/api/firmable/internal/[runId]/route.ts",
+      "sha256": "9f6c294e171bb5c00bc71aa852ea56f0402ba16e3b727c03b650024be4683080"
+    },
+    {
+      "path": "src/app/api/mandates/[id]/companies/[targetId]/route.ts",
+      "sha256": "ed5d54df4beba180c0c76132d625aabf58032efc56896a9f56ac1c4be084b91a"
+    },
+    {
+      "path": "src/app/api/mandates/[id]/firmable-refresh.test.ts",
+      "sha256": "fa57012f9261dfe3ea9baed6d052ab977302b9977142f03701d7fde002c61426"
+    },
+    {
+      "path": "src/app/api/mandates/[id]/route.ts",
+      "sha256": "d35cd1586a7509d24ae49f1eca97619d2193ef7bb099666e638cfb6a05a34f2a"
+    },
+    {
+      "path": "src/app/privacy/loading.tsx",
+      "sha256": "f75ea5059b72d1eb7d83ec19f50830b5ac91521409511379e7e64286f0a00a2b"
+    },
+    {
+      "path": "src/app/privacy/page.tsx",
+      "sha256": "5619c18afc1cfd66231071fe67db364aa30b1c13613a0bffff2686534f8bf622"
+    },
+    {
+      "path": "src/app/sign-in/page.tsx",
+      "sha256": "da545b153d7c5a130f8622dd2f15383d65ecef340619f5e98572e383f8ec3a1a"
+    },
+    {
+      "path": "src/app/terms-of-service/loading.tsx",
+      "sha256": "f75ea5059b72d1eb7d83ec19f50830b5ac91521409511379e7e64286f0a00a2b"
+    },
+    {
+      "path": "src/app/terms-of-service/page.tsx",
+      "sha256": "98e3d03633f3350a572ad35fb60721ebe8e87507fa3ea98a23798376f1523683"
+    },
+    {
+      "path": "src/components/app-shell.tsx",
+      "sha256": "499ab44aada17031ecb9609a54d044581948dc0caae7e6ef3980555ca3f0e0bf"
+    },
+    {
+      "path": "src/components/company-contacts-table.tsx",
+      "sha256": "ede89e9b2136709717d484ee1785b72ca040f60c38692d0214b210f4b065c216"
+    },
+    {
+      "path": "src/components/company-info-summary.tsx",
+      "sha256": "5450067fe71993385026b28ff9179b1d7eb608be0577d65f057890eafcdedaa1"
+    },
+    {
+      "path": "src/components/company-pipeline-state.test.tsx",
+      "sha256": "52c2f574dea2b99ab32a860cb5e85f85b4efef81514b8e56c400064cc9304cd4"
+    },
+    {
+      "path": "src/components/company-pipeline-state.ts",
+      "sha256": "545eb8a4ef15b945b7db558b4a6e76e81e3a2db328d358dde7b76e4059104d79"
+    },
+    {
+      "path": "src/components/legal-page.tsx",
+      "sha256": "d44e086a62cb534d516e55f59cb288ff8fa4a17755ee3c7b29ef2d575066d0b3"
+    },
+    {
+      "path": "src/components/outreach-queue.tsx",
+      "sha256": "9c8d01524aa96a0a5411a54e8c69eed7e9a0e77762c5709a9643195eaa63bfd2"
+    },
+    {
+      "path": "src/components/target-research-data.tsx",
+      "sha256": "96f475d05c00751c00c10bd9a56b94cef9fdcf1892c6ead2f69291635953b062"
+    },
+    {
+      "path": "src/components/target-worksheet.tsx",
+      "sha256": "8d413dac4b7530e279ae2aeaaf28281636c8694e3c92031e58ca929413ed5a1c"
+    },
+    {
+      "path": "src/db/acquisition-repository.ts",
+      "sha256": "7a8cc88416b4f3c84874d306acff03900723759aa57e5357edf5837fa91726c3"
+    },
+    {
+      "path": "src/db/contact-completeness.integration.test.tsx",
+      "sha256": "06f2831c19647e5860a6353799a01f1b39cc168d1429fa774966fff8fcf4f568"
+    },
+    {
+      "path": "src/db/firmable-contact-completeness.test.ts",
+      "sha256": "b4fa9cbe77870b768f6fc016e6f969403e78b2c67895742c61c88a1abd436c09"
+    },
+    {
+      "path": "src/db/firmable-contacts.ts",
+      "sha256": "be98cb75768b38fe9694a1b0001d29bb7970d186deb6c306231e0396a9941b9b"
+    },
+    {
+      "path": "src/db/firmable-history-repository.ts",
+      "sha256": "d9df428bcea037fd4351e7d116d7a95817c2906e68d7bdfb9b455144d1580afc"
+    },
+    {
+      "path": "src/db/firmable-history.integration.test.ts",
+      "sha256": "41753ccc98b2c488266ba828ab110c93f5ac14f7c9a60e68ee774b34afb817c3"
+    },
+    {
+      "path": "src/db/firmable-read-model.test.ts",
+      "sha256": "84c71e0d818825cc29174007981d953dedc99168567a16ffec47aefcb5587e50"
+    },
+    {
+      "path": "src/db/firmable-read-model.ts",
+      "sha256": "1ec5bb49d324b0c65f6119ac3ee799dcf3f2be9cff34cc64137e328cad091eb8"
+    },
+    {
+      "path": "src/db/outreach-view.ts",
+      "sha256": "1143ae454ad9d720fa01b8c485ccf560f93e54c3df8f84b8d650a17a741483aa"
+    },
+    {
+      "path": "src/db/scoped-company-diligence.integration.test.ts",
+      "sha256": "5ed793e40ffe4d9ceaa4a1e399c1a39049372c0f1df6328e55fae7db9f5aeb48"
+    },
+    {
+      "path": "src/db/target-record-mapper.ts",
+      "sha256": "c731d1dcf0b50b40ed0888afbcf3e9a17c850557e59a8a5ad88b390fed46a0da"
+    },
+    {
+      "path": "src/domain/abn-resolution.mjs",
+      "sha256": "d15b01544b404501eadf1ed93acbfd0c093a9a5d720a781773698b3781d217e9"
+    },
+    {
+      "path": "src/domain/abn-resolution.test.ts",
+      "sha256": "7db56da8abd4a8d1b367bd11628debfe3da71d33b75ebe7918ae8190af9bb318"
+    },
+    {
+      "path": "src/domain/acquisition-eligibility.ts",
+      "sha256": "ba7eb5c53a610f2c688658ca2b1931f2f74a65794a62a639bbf998d1aafd8d4d"
+    },
+    {
+      "path": "src/domain/acquisition.ts",
+      "sha256": "5bbf99601b2cf5fc00e88837dcfb794eed37c5e64d5d289b180d411cad352728"
+    },
+    {
+      "path": "src/domain/company-contact-policy.test.ts",
+      "sha256": "0f1987f9d47b8024f92af2dd55e3893f0d5b0fc49dcbb6c8519b50710990413b"
+    },
+    {
+      "path": "src/domain/company-contact-policy.ts",
+      "sha256": "c1ba5ced80c48129b8b6159929727c58b23e7061eda21be94ce5a161067f7ca2"
+    },
+    {
+      "path": "src/domain/company-people-progress.test.ts",
+      "sha256": "3cd12c5c94b4b710df0f5e51558fa96a05d08c72f6050bba8613f271e06e43a5"
+    },
+    {
+      "path": "src/domain/company-people-progress.ts",
+      "sha256": "74a49e8b371cc038b4c8f7c7fde4c631fa81ac36dd12b37b5733937aeb492221"
+    },
+    {
+      "path": "src/domain/company-scoped-facts.ts",
+      "sha256": "b247f267115876c37bc9908020a53ceb512d7bd0f463f56ac07e525239c1acf6"
+    },
+    {
+      "path": "src/domain/company-screening.test.ts",
+      "sha256": "343ec3be1af04cfd736c83576d5224abe145a412b4f9bbeb21bbcaee447e6f50"
+    },
+    {
+      "path": "src/domain/company-screening.ts",
+      "sha256": "44f0593681af5ded153f0d04a4ca96cfc3092448764025267580f4d6ab3a3d03"
+    },
+    {
+      "path": "src/domain/contact-completeness.test.ts",
+      "sha256": "4563b38a410289486687e3d870cfe86cf398afd526e42bab64271bb36552f3ee"
+    },
+    {
+      "path": "src/domain/contact-completeness.ts",
+      "sha256": "109601abeed7a93397a444858563d8b87f4b5b4d48522bb0e062a886b41baf4d"
+    },
+    {
+      "path": "src/domain/mandate-assessment.ts",
+      "sha256": "6df818a8741cd732b57ccaf92a0a2a4c3aac32560e28d74731d2d1ca2ab7a2e5"
+    },
+    {
+      "path": "src/domain/mandate-fit.ts",
+      "sha256": "88aec06e1454b3f266efffbdfc50cbb038fa969aac88e5556f32e18d48b65ebb"
+    },
+    {
+      "path": "src/domain/models.ts",
+      "sha256": "b37b72e6ab79fa905152e506912a3916af8d6a21c574be99748ac2fa599b22ec"
+    },
+    {
+      "path": "src/domain/research-completeness.test.ts",
+      "sha256": "ee98dbda046556c81aa5302331818bb063fed1671de725a00f74c6df5c3cf497"
+    },
+    {
+      "path": "src/domain/research-completeness.ts",
+      "sha256": "82604f9b23cd00f51a9e18d1b171ede3b0d9f4a4b803f56474a7a00605ab4b8c"
+    },
+    {
+      "path": "src/domain/scoring.ts",
+      "sha256": "24f97fc8ebc7ad55a5b8a8d4e804a6dee6cf35038d89ae08f76569ec1c18883a"
+    },
+    {
+      "path": "src/domain/target-financial-evidence.ts",
+      "sha256": "bff0f02aa38a469ba3630bb433bf15fba971333960373e2d02019115dbc43fb7"
+    },
+    {
+      "path": "src/lib/company-identity-boundary.integration.test.tsx",
+      "sha256": "833678f19c81c2b7675514fb8909a59efe55408c0663432b2df71a035a2f40e3"
+    },
+    {
+      "path": "src/lib/company-list-recovery.ts",
+      "sha256": "423cc99e27fc550a6142f2fcdc2da5dd8eefe4ea0c190391f85b3439c725d822"
+    },
+    {
+      "path": "src/lib/company-people-research.ts",
+      "sha256": "9d71b7e732c0e7d56474e5dc53bc8b6462fec950e8034df337b706e48f978bd6"
+    },
+    {
+      "path": "src/lib/firmable-company-research.ts",
+      "sha256": "faf4dd9221257545468872193597731155f3f488031876ff6653b8b1efcdf856"
+    },
+    {
+      "path": "src/lib/firmable-people-refresh.test.ts",
+      "sha256": "f29e6beb50708cfc28c757a201304ce302f80f251177fc286100ac16d34b271a"
+    },
+    {
+      "path": "src/lib/firmable-refresh.ts",
+      "sha256": "3c38b877a37041753700a4b491bc98ce569111d2a304083cdf8a1a56f8dc4550"
+    },
+    {
+      "path": "src/lib/firmable-run-recovery.test.ts",
+      "sha256": "ceb79384f8c91ee74480821b7747b166fdc72804f79ca1868b4d9ea8457e247d"
+    },
+    {
+      "path": "src/lib/firmable-run-recovery.ts",
+      "sha256": "3693828fe9e516290caaea6fcc48d74335776cf3071cfad37035d92d71da6dd8"
+    },
+    {
+      "path": "src/test/fixtures/scoring-targets.ts",
+      "sha256": "0ad1e42e04e3492323986d002dd127694ec249612a82e92c2a2742d47cb9d6c1"
+    }
+  ]
+}

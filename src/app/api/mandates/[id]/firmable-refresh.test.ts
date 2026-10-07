@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   getMandate: vi.fn(),
   memberships: vi.fn(),
   queueRun: vi.fn(),
-  failRun: vi.fn(),
+  failRun: vi.fn(), claim: vi.fn(),
   worker: vi.fn(),
   release: vi.fn(),
 }));
@@ -20,7 +20,7 @@ vi.mock("@/db/acquisition-repository", () => ({
   },
 }));
 vi.mock("@/db/firmable-history-repository", () => ({
-  FirmableHistoryRepository: class { queueRun = mocks.queueRun; failRun = mocks.failRun; },
+  FirmableHistoryRepository: class { queueRun = mocks.queueRun; failRun = mocks.failRun; claimManualRecovery = mocks.claim; },
 }));
 vi.mock("@/db/repositories", () => ({ OrganizationRepository: class {} }));
 vi.mock("@/lib/research-service", () => ({ researchEnabled: () => true, researchWorker: mocks.worker }));
@@ -45,7 +45,8 @@ beforeEach(() => {
   mocks.getMandate.mockResolvedValue({ id: mandateId, brief: emptyBrief() });
   mocks.memberships.mockResolvedValue([{ target: { id: targetId, companyName: "Example Industries", domain: "example.test", sourceData: {} }, assessment: initialAssessment, accreditations: [], researchFindings: [], version: 1 }]);
   mocks.queueRun.mockResolvedValue({ id: runId, targetId, status: "queued", trigger: "phones" });
-  mocks.worker.mockResolvedValue({ id: runId });
+  mocks.worker.mockReset().mockResolvedValue({ id: runId });
+  mocks.claim.mockResolvedValue(true);
 });
 
 it("persists a Firmable run before dispatching its named workflow and returns immediately", async () => {
@@ -81,9 +82,9 @@ it("redispatches queued runs and closes a stale run whose workflow already ended
   const queued = { id: runId, status: "queued", updatedAt: new Date() };
   const staleId = "00000000-0000-4000-8000-000000000005";
   const stale = { id: staleId, status: "running", updatedAt: new Date(Date.now() - 180_000) };
-  mocks.worker.mockResolvedValueOnce({ id: runId }).mockResolvedValueOnce({ status: "complete" });
+  mocks.worker.mockImplementation(async (_path, method) => method === "GET" ? { status: "complete" } : { id: runId });
 
-  await recoverFirmableRefreshes({ failRun: mocks.failRun } as never, [queued, stale], mandateId);
+  await recoverFirmableRefreshes({ failRun: mocks.failRun, claimManualRecovery: mocks.claim } as never, [queued, stale], mandateId);
 
   expect(mocks.worker).toHaveBeenCalledWith(`/firmable/${runId}`, "POST", { mandateId }, 4000);
   expect(mocks.worker).toHaveBeenCalledWith(`/firmable/${staleId}`, "GET", undefined, 4000);
@@ -93,7 +94,7 @@ it("redispatches queued runs and closes a stale run whose workflow already ended
 it("times out an unreachable stale workflow while retaining its saved data", async () => {
   const staleId = "00000000-0000-4000-8000-000000000006";
   mocks.worker.mockRejectedValueOnce(new Error("unreachable"));
-  await recoverFirmableRefreshes({ failRun: mocks.failRun } as never, [{ id: staleId, status: "running", updatedAt: new Date(Date.now() - 660_000) }], mandateId);
+  await recoverFirmableRefreshes({ failRun: mocks.failRun, claimManualRecovery: mocks.claim } as never, [{ id: staleId, status: "running", updatedAt: new Date(Date.now() - 660_000) }], mandateId);
   expect(mocks.failRun).toHaveBeenCalledWith(staleId, expect.stringContaining("timed out"));
 });
 it('does not turn ongoing automatic people retrieval into a paid phone action',async()=>{

@@ -1,3 +1,4 @@
+import {firmableCompanyPayload} from './firmable-company-fields';
 import {abnChecksum as validAbn} from './abn-public-lookup.mjs';
 type Row=Record<string,unknown>;
 export type FirmableFilters={filters:Row;operators:Row;excluded:Row};
@@ -18,6 +19,7 @@ export function reportedFirmableAbns(raw:Row){
  const seen=new Set<string>();return paths.flatMap(sourcePath=>{let value:unknown=raw;for(const key of sourcePath.split('.'))value=value&&typeof value==='object'?(value as Row)[key]:undefined;const abn=typeof value==='string'||typeof value==='number'?String(value).replace(/\D/g,''):'';if(!validAbn(abn)||seen.has(abn))return[];seen.add(abn);return[{abn,sourcePath}];});
 }
 export function normalizeFirmableProfile(raw:Row){
+ raw=firmableCompanyPayload(raw);
  const abnCandidates=reportedFirmableAbns(raw),abn=abnCandidates[0]?.abn||null;
  return {firmableId:String(raw.id||''),companyName:String(raw.name||raw.company_name||''),domain:firmableDomain(raw.website||raw.fqdn),website:String(raw.website||''),abn,abnCandidates,headcountExact:typeof raw.employee_count==='number'&&Number.isInteger(raw.employee_count)&&raw.employee_count>0?raw.employee_count:null,headcountBand:parseCompanyBand(raw.company_size),revenueBand:parseCompanyBand(raw.revenue,true),industries:Array.isArray(raw.industries)?raw.industries.filter(v=>typeof v==='string'):raw.industries&&typeof raw.industries==='object'?Object.values(raw.industries).filter(v=>typeof v==='string'):[],states:[...new Set([...(Array.isArray(raw.states)?raw.states.map(String):raw.states&&typeof raw.states==='object'?Object.values(raw.states).map(String):[]),...(String(raw.hq_location||'').match(/\b(?:NSW|VIC|QLD|SA|WA|TAS|NT|ACT)\b/g)||[])])],description:String(raw.description||raw.tagline||''),rawResponse:raw,retrievedAt:new Date().toISOString()};
 }

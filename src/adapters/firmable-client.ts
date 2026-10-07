@@ -41,6 +41,14 @@ function firstContactValue(value: unknown, keys: string[]) {
   return "";
 }
 
+function firstValidEmail(value: unknown) {
+  for (const item of Array.isArray(value) ? value : [value]) {
+    const email = contactValue(item, ["value", "email"]);
+    if (z.email().safeParse(email).success) return email;
+  }
+  return "";
+}
+
 export function mapFirmableCandidate(record: Record<string, unknown>): PersonCandidate | undefined {
   const id = String(record.person_id || record.id || "");
   if (!id) return undefined;
@@ -58,15 +66,15 @@ export function mapFirmableCandidate(record: Record<string, unknown>): PersonCan
 export function mapFirmablePerson(raw: Record<string, unknown>, identifier: PersonIdentifier, fictionalise: boolean): PersonDetail {
   const phones = Array.isArray(raw.phones) ? raw.phones as Array<Record<string, unknown>> : [];
   const emails = raw.emails && typeof raw.emails === "object" && !Array.isArray(raw.emails) ? raw.emails as Record<string, unknown> : {};
-  const email = contactValue(raw.work_email)
-    || firstContactValue(emails.work, ["value", "email"])
-    || contactValue(raw.personal_email)
-    || firstContactValue(emails.personal, ["value", "email"]);
+  const email = firstValidEmail(raw.work_email)
+    || firstValidEmail(emails.work)
+    || firstValidEmail(raw.personal_email)
+    || firstValidEmail(emails.personal);
   const mobile = firstContactValue(phones, ["value", "number"])
     || contactValue(raw.phone);
   const source = { name: String(raw.full_name || raw.name || ""), email, mobile, linkedinUrl: String(raw.linkedin_url || raw.linkedin || "") };
   const output = fictionalise ? fictionalisePersonalData(source) : source;
-  return { id: String(raw.id || identifier.id || ""), position: String(raw.position || raw.title || "") || undefined, seniority: String(raw.seniority || "") || undefined, department: String(raw.department || "") || undefined, emailAvailable: Boolean(source.email), phoneAvailable: Boolean(source.mobile), name: output.name, email: output.email, phone: output.mobile, linkedinUrl: output.linkedinUrl, fictionalised: fictionalise, doNotContact: phones.some((phone) => phone.is_dnd === true), rawResponse: fictionalise ? undefined : raw };
+  return { id: String(raw.id || identifier.id || ""), position: String(raw.position || raw.title || "") || undefined, seniority: String(raw.seniority || "") || undefined, department: String(raw.department || "") || undefined, emailAvailable: Boolean(source.email), phoneAvailable: Boolean(source.mobile), emailLookupStatus: source.email ? "reported" : ["emails", "work_email", "personal_email"].some(key => raw[key] !== undefined) ? "unavailable" : "not_reported", phoneLookupStatus: source.mobile ? "reported" : ["phones", "phone"].some(key => raw[key] !== undefined) ? "unavailable" : "not_reported", name: output.name, email: output.email || undefined, phone: output.mobile || undefined, linkedinUrl: output.linkedinUrl, fictionalised: fictionalise, doNotContact: phones.some((phone) => phone.is_dnd === true), rawResponse: fictionalise ? undefined : raw };
 }
 
 export class FirmableError extends Error {
@@ -261,7 +269,7 @@ export class FirmableClient {
     const raw = personSchema.parse(await this.request(`/people?${params}`));
     if (options.includePhones === false) { delete raw.phones; delete raw.phone; delete raw.mobile; }
     const person = mapFirmablePerson(raw, identifier, this.fictionalise);
-    if (options.includePhones === false) { person.phone = undefined; person.phoneAvailable = false; }
+    if (options.includePhones === false) { person.phone = undefined; person.phoneAvailable = false; person.phoneLookupStatus = "not_requested"; }
     return person;
   }
 }

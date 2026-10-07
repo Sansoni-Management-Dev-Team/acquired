@@ -1,0 +1,39 @@
+Sanitized pre-fix contact semantics failure excerpt; provider/contact payload diffs omitted.
+ ❯ src/db/firmable-contact-completeness.test.ts (6 tests | 6 failed) 17ms
+ FAIL  src/db/firmable-contact-completeness.test.ts > RC-13/RC-14 contact values and source coverage > RC-13-regression: provider phone availability is separate from a saved phone
+AssertionError: expected { firmablePersonId: 'p', …(8) } to match object { …(4) }
+-   "emailLookupStatus": "unavailable",
+ ❯ src/db/firmable-contact-completeness.test.ts:10:32
+ FAIL  src/db/firmable-contact-completeness.test.ts > RC-13/RC-14 contact values and source coverage > RC-14-generalization: classify actual upstream email evidence {"work":[],"personal":[]}
+AssertionError: expected { id: 'p', position: undefined, …(11) } to match object { emailLookupStatus: 'unavailable' }
+-   "emailLookupStatus": "unavailable",
+ ❯ src/db/firmable-contact-completeness.test.ts:22:20
+     21|     expect(person.email || undefined).toBe(email);
+     22|     expect(person).toMatchObject({ emailLookupStatus: status });
+ FAIL  src/db/firmable-contact-completeness.test.ts > RC-13/RC-14 contact values and source coverage > RC-14-generalization: classify actual upstream email evidence {"work":[{"value":"person@example.test"}]}
+AssertionError: expected { id: 'p', position: undefined, …(11) } to match object { emailLookupStatus: 'reported' }
+-   "emailLookupStatus": "reported",
+ ❯ src/db/firmable-contact-completeness.test.ts:22:20
+     21|     expect(person.email || undefined).toBe(email);
+     22|     expect(person).toMatchObject({ emailLookupStatus: status });
+ FAIL  src/db/firmable-contact-completeness.test.ts > RC-13/RC-14 contact values and source coverage > RC-14-generalization: classify actual upstream email evidence {"personal":["personal@example.test"]}
+AssertionError: expected { id: 'p', position: undefined, …(11) } to match object { emailLookupStatus: 'reported' }
+-   "emailLookupStatus": "reported",
+ ❯ src/db/firmable-contact-completeness.test.ts:22:20
+     21|     expect(person.email || undefined).toBe(email);
+     22|     expect(person).toMatchObject({ emailLookupStatus: status });
+ FAIL  src/db/firmable-contact-completeness.test.ts > RC-13/RC-14 contact values and source coverage > RC-14-generalization: classify actual upstream email evidence {"work":["malformed"],"personal":["valid@example.test"]}
+AssertionError: expected 'malformed' to be 'valid@example.test' // Object.is equality
+ ❯ src/db/firmable-contact-completeness.test.ts:21:39
+     21|     expect(person.email || undefined).toBe(email);
+     22|     expect(person).toMatchObject({ emailLookupStatus: status });
+ FAIL  src/db/firmable-contact-completeness.test.ts > RC-13/RC-14 contact values and source coverage > RC-14-generalization: classify actual upstream email evidence undefined
+AssertionError: expected { id: 'p', position: undefined, …(11) } to match object { emailLookupStatus: 'not_reported' }
+-   "emailLookupStatus": "not_reported",
+ ❯ src/db/firmable-contact-completeness.test.ts:22:20
+     21|     expect(person.email || undefined).toBe(email);
+     22|     expect(person).toMatchObject({ emailLookupStatus: status });
+ Test Files  1 failed (1)
+      Tests  6 failed (6)
+   Start at  21:15:33
+   Duration  713ms (transform 79ms, setup 0ms, import 564ms, tests 17ms, environment 0ms)

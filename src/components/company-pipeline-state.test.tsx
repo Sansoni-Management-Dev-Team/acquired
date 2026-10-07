@@ -42,9 +42,20 @@ it('counts retrieved size and revenue data while preserving missing fields', () 
   const withProfile = { ...company, config: { ...company.config, firmableProfile: { headcountExact: null, headcountBand: { min: 10, max: 20 }, revenueBand: null } } };
   expect(companyPipelineState(root, [root, withProfile])).toMatchObject({ headcounts: 1, revenueBands: 0 });
 });
-it('retains the progress screen until linked people research is settled', () => {
- const job = { ...root, status: 'complete', config: { ...root.config, includeCompanyPeople: true, companyPeopleProgress: {total:1,active:1,queued:0,complete:0,failed:0,found:3,saved:1,profilesFailed:0,settled:false} } };
- expect(companyPipelineState(job,[job,company]).settled).toBe(false);
+it('finishes the company phase while linked people research continues independently', () => {
+ const job = { ...root, status: 'complete', config: { ...root.config, includeCompanyPeople: true, companyPeopleProgress: {total:1,active:1,queued:0,complete:0,failed:0,cancelled:0,found:3,saved:1,profilesFailed:0,settled:false} } };
+ expect(companyPipelineState(job,[job,company])).toMatchObject({settled:true,peopleSettled:false,peopleActive:1});
  expect(renderToStaticMarkup(<CompanyPipelineProgress job={job} jobs={[job,company]}/>)).toContain('Finding people and emails');
  expect(companyPipelineState({...job,config:{...job.config,companyPeopleProgress:{...job.config.companyPeopleProgress,active:0,settled:true}}},[company]).settled).toBe(true);
+});
+it('RC-07 integration: retained partial company remains saved and reports an operational issue',()=>{const partial={...company,status:'partial' as const,message:'Website research failed; company retained'};const state=companyPipelineState(root,[root,partial,partial]);expect(state.savedIds).toEqual(['saved']);expect(state.failed).toBe(1);expect(state.settled).toBe(true);const html=renderToStaticMarkup(<CompanyPipelineProgress job={root} jobs={[root,partial]} mandateId="mandate"/>);expect(html).toContain('1 company saved');expect(html).toContain('Finished with issues');});
+it('keeps results available while durable background company fields remain queued or reading', () => {
+  const job = { ...root, status: 'complete' as const };
+  const background = { ...company, id: 'background', status: 'reading' as const, config: { purpose: 'firmographics', researchTask: 'field', parentJobId: root.id, companyBackgroundResearch: { fields: ['companyPhone'] } } } as unknown as ResearchJob;
+  const queued = { ...background, id: 'queued', status: 'queued' as const };
+  expect(companyPipelineState(job, [job, company, background, queued])).toMatchObject({ settled: true, backgroundActive: 1, backgroundQueued: 1, processed: 1 });
+  const html = renderToStaticMarkup(<CompanyPipelineProgress job={job} jobs={[job, company, background, queued]} mandateId="mandate" />);
+  expect(html).toContain('Research complete');
+  expect(html).toContain('Company details continue updating in the background.');
+  expect(html).toContain('View companies');
 });

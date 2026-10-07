@@ -119,7 +119,7 @@ async def create_crawler():
     return crawler
 
 
-async def read_page(url):
+async def read_page(url, only_main_content=True):
     from crawl4ai import CrawlerRunConfig, CacheMode
     global pool
     if pool is None:
@@ -136,6 +136,8 @@ async def read_page(url):
             session_id=session, cache_mode=CacheMode.BYPASS,
             wait_until="domcontentloaded", delay_before_return_html=1,
             page_timeout=25000, check_robots_txt=True, verbose=False,
+            **({"word_count_threshold": 0, "excluded_tags": [], "excluded_selector": None}
+               if not only_main_content else {}),
         ))
         healthy = True
         status = getattr(result, "status_code", None)
@@ -148,7 +150,15 @@ async def read_page(url):
         final_url = getattr(result, "redirected_url", None) or result.url
         if not await asyncio.to_thread(public_url, final_url):
             raise ReadError("unsupported_redirect")
-        return {"url": final_url, "markdown": result.markdown.raw_markdown[:30000]}
+        markdown = result.markdown.raw_markdown
+        if only_main_content:
+            return {"url": final_url, "markdown": markdown[:30000]}
+        # Raw HTML retains short footer/contact blocks removed by a content
+        # extractor. Keep the full-page contract explicit and bounded.
+        html = getattr(result, "html", "") or ""
+        return {"url": final_url, "markdown": markdown[:100000], "html": html[:250000],
+                "only_main_content": False,
+                "truncated": len(markdown) > 100000 or len(html) > 250000}
     finally:
         if crawler is not None:
             try:
@@ -212,6 +222,9 @@ class Handler(BaseHTTPRequestHandler):
             url = data.get("url") if isinstance(data, dict) else None
             if not isinstance(url, str) or not public_url(url):
                 return self.send_json(400, {"error": "Unsupported public URL"})
+            only_main_content = data.get("only_main_content", True)
+            if not isinstance(only_main_content, bool):
+                return self.send_json(400, {"error": "Invalid content mode"})
             domain = urlsplit(url).hostname.lower().removeprefix("www.")
             self.crawl_domain = domain
             delay = claim_domain(domain)
@@ -219,7 +232,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(429, {"error": "Domain cooling down", "category": "domain_backoff"}, delay)
             host = domain
             async def bounded():
-                return await asyncio.wait_for(read_page(url), timeout=35)
+                return await asyncio.wait_for(read_page(url, only_main_content), timeout=35)
             # Crawl4AI shares async cache resources. All reads must use one loop,
             # including concurrent requests, rather than a new loop per thread.
             future = asyncio.run_coroutine_threadsafe(bounded(), reader_loop)

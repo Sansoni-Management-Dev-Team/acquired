@@ -135,6 +135,32 @@ class ReaderPoolTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(set(sessions)), 2)
             self.crawler.close.assert_not_awaited()
 
+    async def test_full_page_preserves_footer_html_and_explicit_bounded_mode(self):
+        result = self.crawler.arun.return_value
+        result.html = "<main>" + "x" * 40000 + "</main><footer>office@example.com</footer>"
+        result.markdown.raw_markdown = "x" * 40000 + "\nFooter office@example.com"
+        with patch.dict(sys.modules, {"crawl4ai": self.fake_module}), patch.object(reader, "CONCURRENCY", 1), patch.object(reader, "create_crawler", AsyncMock(return_value=self.crawler)), patch.object(reader, "public_url", return_value=True):
+            full = await reader.read_page("https://example.com/", False)
+            config = self.crawler.arun.await_args.kwargs["config"]
+            self.assertEqual(config.word_count_threshold, 0)
+            self.assertEqual(config.excluded_tags, [])
+            self.assertIn("<footer>office@example.com</footer>", full["html"])
+            self.assertIn("office@example.com", full["markdown"])
+            self.assertFalse(full["only_main_content"])
+            self.assertFalse(full["truncated"])
+            legacy = await reader.read_page("https://example.com/")
+            self.assertEqual(len(legacy["markdown"]), 30000)
+            self.assertNotIn("html", legacy)
+
+    async def test_full_page_truncation_is_explicit(self):
+        self.crawler.arun.return_value.html = "x" * 250001
+        self.crawler.arun.return_value.markdown.raw_markdown = "x" * 100001
+        with patch.dict(sys.modules, {"crawl4ai": self.fake_module}), patch.object(reader, "create_crawler", AsyncMock(return_value=self.crawler)), patch.object(reader, "public_url", return_value=True):
+            full = await reader.read_page("https://example.com/", False)
+            self.assertTrue(full["truncated"])
+            self.assertEqual(len(full["html"]), 250000)
+            self.assertEqual(len(full["markdown"]), 100000)
+
     async def test_discards_browser_after_cancellation(self):
         self.crawler.arun.side_effect = asyncio.CancelledError()
         with patch.dict(sys.modules, {"crawl4ai": self.fake_module}), patch.object(reader, "CONCURRENCY", 1), patch.object(reader, "create_crawler", AsyncMock(return_value=self.crawler)):

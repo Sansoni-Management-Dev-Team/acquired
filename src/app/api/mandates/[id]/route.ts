@@ -1,3 +1,4 @@
+import { contactCompanyEligible } from '@/domain/company-contact-policy';
 import {recoverFirmableRefreshes} from '@/lib/firmable-run-recovery';
 import { researchJsonResponse, researchRequestJson } from "@/lib/research-request-observability";
 import { observeResearchRequest } from "@/lib/research-request-observability";
@@ -94,7 +95,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         if (!drafts.some(d => enrolments.some(e => e.id === d.enrolmentId) && d.state === "approved")) errors.push("Approve an outreach draft before selecting this stage.");
       }
       if (errors.length) return researchJsonResponse({ error: errors.join(" ") }, { status: 409 });
-      await repo.saveAssessment(id, action.targetId, action.assessment, action.version, session.user.id);
+      await repo.saveAssessment(id, action.targetId, {...action.assessment,decisionOrigin:"manual"}, action.version, session.user.id);
     }
     if (action.action === "accreditations") {
       await repo.saveAccreditations(id, action.targetId, action.accreditations);
@@ -175,6 +176,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       const dispatches: { run: { id: string; targetId: string; status: string }; companyName: string }[] = [];
       for (const targetId of [...new Set(action.targetIds)]) {
         const target = memberships.find(m => m.target.id === targetId)!.target;
+        if (trigger === 'people' && !contactCompanyEligible(target.scores?.qualification === 'excluded' ? 'excluded' : memberships.find(m => m.target.id === targetId)?.assessment.stage, undefined, true)) { warnings.push(`${target.companyName}: contact enrichment excluded by company screening.`); continue; }
         const abn = target.abn || target.sourceData?.manufacturingDirectory?.abn || target.sourceData?.firmable?.abn;
         if (!target.domain && !abn && !target.sourceData?.firmable?.firmableId) { warnings.push(`${target.companyName}: website, ABN or prior company match required; candidate retained.`); continue; }
         try {
@@ -187,7 +189,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
           warnings.push(`${target.companyName}: refresh could not be queued; candidate retained.`);
         }
       }
-      const dispatched = await Promise.allSettled(dispatches.map(item => researchWorker(`/firmable/${item.run.id}`, "POST", { mandateId: id }, 4_000)));
+      const dispatched = await Promise.allSettled(dispatches.map(async item => {
+        if (await history.claimManualRecovery(item.run.id)) await researchWorker(`/firmable/${item.run.id}`, "POST", { mandateId: id }, 4_000);
+      }));
       dispatched.forEach((result, index) => {
         if (result.status === "rejected") warnings.push(`${dispatches[index].companyName}: refresh saved; dispatch is uncertain and will be retried automatically.`);
       });

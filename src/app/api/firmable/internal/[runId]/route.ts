@@ -45,7 +45,7 @@ async function postCallback(request: Request, context: { params: Promise<{ runId
   if (!parsed.success) return researchJsonResponse({ error: "Invalid Firmable workflow action" }, { status: 400 });
   const action = parsed.data;
   setResearchDatabaseContext({ runId, organizationId: run.organizationId, action: action.action, stage: "company-enrichment" });
-  if (run.status === "failed") return researchJsonResponse({ failed: true });
+  if (["failed", "cancelled", "partial"].includes(run.status)) return researchJsonResponse({ failed: true });
   try {
     if (action.action === "company") return researchJsonResponse(await refreshFirmableCompany(runId, action.mandateId));
     if (action.action === "people-page") return researchJsonResponse(await refreshFirmablePeoplePage(runId, action.offset));

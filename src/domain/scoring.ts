@@ -1,4 +1,5 @@
-import { effectiveRevenueRange } from "./target-financial-evidence";
+import { screenCompanyCandidate } from "./company-screening";
+import { financialInterval, targetRevenueCurrency, effectiveRevenueRange } from "./target-financial-evidence";
 import { acquisitionEligibility } from "./acquisition-eligibility";
 import type { DerivedValue, FinancialValue, Mandate, OpportunityQualification, RankedTarget, ScoreBand, Signal, TargetCandidate } from "./models";
 
@@ -13,14 +14,26 @@ function inRange(value: number, range: { min: number; max: number | null }) {
   return value >= range.min && (range.max === null || value <= range.max);
 }
 
-function financialMatch(value: FinancialValue, mandate: { min: number; max: number | null }) {
-  if (typeof value === "number") return inRange(value, mandate);
-  if (value.kind === "range") return (mandate.max === null || value.min <= mandate.max) && value.max >= mandate.min;
-  return undefined;
+function financialMatch(value: FinancialValue, mandate: { min: number; max: number | null }, currency?:string) {
+ const interval=financialInterval(value,currency);if(!interval)return undefined;
+ return (mandate.max === null || interval.min <= mandate.max) && (interval.max===null || interval.max >= mandate.min);
 }
 
 function calculateFit(target: TargetCandidate, mandate: Mandate) {
   const reasons: RankedTarget["scores"]["reasons"] = [];
+  if(target.sourceData?.firmable?.rawResponse || target.sourceData?.firmable?.scopedFacts){
+    const screening=screenCompanyCandidate(target,mandate);
+    let score=0,knownWeight=0;
+    for(const [key,weight] of [['geography',10],['sector',30],['revenue',25],['headcount',10]] as const){
+      if(screening[key]==='review')continue;
+      knownWeight+=weight;
+      if(screening[key]==='supported')score+=weight;
+      reasons.push({axis:'fit',label:`${key}: ${screening[key]} (scoped provider evidence; provisional)`,contribution:screening[key]==='supported'?weight:0,source:'Company scoped evidence',sourceUrl:target.sourceData.firmable.website});
+    }
+    const earnings=target.ebitda.value===null?undefined:financialMatch(target.ebitda.value,mandate.ebitda,target.ebitda.provenance.currency);
+    if(target.ebitda.value!==null && earnings!==undefined){knownWeight+=25;if(earnings)score+=25;}
+    return {score,completeness:knownWeight,evidenceConfidence:knownWeight?70:0,reasons,excluded:screening.eligibility==='excluded'};
+  }
   let score = 0;
   const locationKnown = /^(ACT|NSW|NT|QLD|SA|TAS|VIC|WA)$/.test(target.state) && mandate.states.length > 0;
   let knownWeight = locationKnown ? 10 : 0;
@@ -37,8 +50,8 @@ function calculateFit(target: TargetCandidate, mandate: Mandate) {
       const actual = value.toLowerCase(); const requested = sector.toLowerCase();
       return actual.includes(requested) || requested.includes(actual);
     }) },
-    { field: target.revenue, weight: 25, label: "Revenue within mandate", match: (value) => financialMatch(value as FinancialValue, mandate.revenue) },
-    { field: target.ebitda, weight: 25, label: "EBITDA within mandate", match: (value) => financialMatch(value as FinancialValue, mandate.ebitda) },
+    { field: target.revenue, weight: 25, label: "Revenue within mandate", match: (value) => financialMatch(value as FinancialValue, mandate.revenue,targetRevenueCurrency(target)) },
+    { field: target.ebitda, weight: 25, label: "EBITDA within mandate", match: (value) => financialMatch(value as FinancialValue, mandate.ebitda,target.ebitda.provenance.currency) },
     {
       field: target.headcount,
       weight: 10,

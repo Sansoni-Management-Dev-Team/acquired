@@ -1,3 +1,5 @@
+import {firmableCompanyPayload,projectFirmableCompanyFields} from '@/domain/firmable-company-fields';
+import {applyScopedCompanyFacts} from '@/domain/company-scoped-facts';
 import type { GooglePlaceCandidate } from "./google-places-client";
 import type { DerivedValue, FinancialValue, Mandate, TargetCandidate } from "@/domain/models";
 import { COMPANY_DATA_SOURCE } from "@/domain/provider-display";
@@ -81,43 +83,7 @@ function sectorEvidence(raw: Record<string, unknown>, place: GooglePlaceCandidat
   return value(bestSector(raw, mandate), COMPANY_DATA_SOURCE, capturedAt, 60, website);
 }
 
-function firmableSourceData(raw: Record<string, unknown>, fallbackId: string, capturedAt: string) {
-  const industryCodes = raw.industry_codes && typeof raw.industry_codes === "object" && !Array.isArray(raw.industry_codes)
-    ? raw.industry_codes as Record<string, unknown>
-    : {};
-  return {
-    firmableId: stringValue(raw.id) || fallbackId,
-    capturedAt,
-    // Retain the complete provider response because a company enrichment consumes
-    // credits and Firmable may add fields that the normalized model does not use yet.
-    rawResponse: raw,
-    name: stringValue(raw.name),
-    website: stringValue(raw.website),
-    domain: stringValue(raw.fqdn),
-    description: stringValue(raw.description),
-    tagline: stringValue(raw.tagline),
-    companyType: stringValue(raw.company_type) || strings(raw.company_type).join(" ") || undefined,
-    companySize: stringValue(raw.company_size),
-    revenueBand: stringValue(raw.revenue),
-    employeeCount: numberValue(raw.au_employee_count) ?? numberValue(raw.employee_count),
-    yearFounded: numberValue(raw.year_founded),
-    industries: strings(raw.industries),
-    keywords: strings(raw.keywords),
-    headquarters: stringValue(raw.hq_location),
-    states: strings(raw.states),
-    locations: strings(raw.locations),
-    abn: stringValue(industryCodes.abn),
-    acn: stringValue(industryCodes.acn),
-    anzsic: stringValue(industryCodes.anzsic),
-    abnStatus: stringValue(raw.abn_operation_status),
-    linkedin: stringValue(raw.linkedin),
-    availablePeopleCount: numberValue(raw.available_people_count),
-    peopleSummary: raw.people_summary && typeof raw.people_summary === 'object' ? raw.people_summary as Record<string, unknown> : undefined,
-    companyEmails: strings(raw.company_emails),
-    companyPhones: strings(raw.company_phones),
-    companyDetails: raw.company_details && typeof raw.company_details === 'object' ? raw.company_details as Record<string, unknown> : undefined,
-  };
-}
+function firmableSourceData(raw:Record<string,unknown>,fallbackId:string,capturedAt:string){return projectFirmableCompanyFields(raw,fallbackId,capturedAt);}
 
 export function mapGooglePlace(place: GooglePlaceCandidate, _mandate: Mandate, organisationId: string, enrichmentReason = "Company data enrichment not attempted") : TargetCandidate {
   const capturedAt = new Date().toISOString();
@@ -141,6 +107,7 @@ export function mapGooglePlace(place: GooglePlaceCandidate, _mandate: Mandate, o
 }
 
 export function mapFirmableCompany(raw: Record<string, unknown>, place: GooglePlaceCandidate, mandate: Mandate, organisationId: string): TargetCandidate {
+  raw=firmableCompanyPayload(raw);
   const capturedAt = new Date().toISOString();
   const states = strings(raw.states);
   const hq = stringValue(raw.hq_location) || place.formattedAddress;
@@ -148,7 +115,7 @@ export function mapFirmableCompany(raw: Record<string, unknown>, place: GooglePl
   const location = place.locality && place.state ? { suburb: place.locality, state: place.state } : locationFrom(discoveryAddress, states[0] || place.state);
   const website = stringValue(raw.website) || place.website;
   const headcount = numberValue(raw.au_employee_count) ?? numberValue(raw.employee_count);
-  const establishedYear = numberValue(raw.year_founded);
+  const establishedYear = projectFirmableCompanyFields(raw,'',capturedAt).yearFounded;
   const firmableId = stringValue(raw.id) || place.id;
   return {
     id: `firmable-${firmableId}`,
@@ -171,8 +138,9 @@ export function mapFirmableCompany(raw: Record<string, unknown>, place: GooglePl
 }
 
 export function applyStoredFirmableCompany(target: import("@/domain/models").RankedTarget, raw: Record<string, unknown>, capturedAt: string): import("@/domain/models").RankedTarget {
+  raw=firmableCompanyPayload(raw);
   const headcount = numberValue(raw.au_employee_count) ?? numberValue(raw.employee_count);
-  const establishedYear = numberValue(raw.year_founded);
+  const establishedYear = projectFirmableCompanyFields(raw,'',capturedAt).yearFounded;
   const website = stringValue(raw.website);
   const firmableId = stringValue(raw.id);
   const hq = stringValue(raw.hq_location);
@@ -181,7 +149,7 @@ export function applyStoredFirmableCompany(target: import("@/domain/models").Ran
   const company = firmableId ? firmableSourceData(raw, firmableId, capturedAt) : undefined;
   const providerName = stringValue(raw.name);
   const directoryName = target.sourceData?.manufacturingDirectory?.name;
-  return {
+  return applyScopedCompanyFacts({
     ...target,
     // Older enrichment writes may have persisted the provider name. Recover a
     // retained discovery name only when the stored target still exactly matches
@@ -196,5 +164,5 @@ export function applyStoredFirmableCompany(target: import("@/domain/models").Ran
     headcount: headcount === undefined ? missing("Not provided by the company data service", COMPANY_DATA_SOURCE, capturedAt) : value(headcount, COMPANY_DATA_SOURCE, capturedAt, 75, website),
     establishedYear: establishedYear === undefined ? missing("Not provided by the company data service", COMPANY_DATA_SOURCE, capturedAt) : value(establishedYear, COMPANY_DATA_SOURCE, capturedAt, 75, website),
     sourceData: company ? { ...target.sourceData, firmable: company } : target.sourceData,
-  };
+  });
 }

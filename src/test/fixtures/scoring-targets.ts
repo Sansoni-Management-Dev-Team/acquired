@@ -63,3 +63,6 @@ export const seedTargets: TargetCandidate[] = [
     signals: [signal("sig-tenure", "Founder tenure of 29 years", "high", "Synthetic ASIC extract", 91), signal("sig-gm", "Experienced CEO appointed", "high", "Company team page", 86)],
   },
 ];
+
+// Monetary fixture values explicitly represent Australian dollars.
+for(const target of seedTargets){target.revenue.provenance.currency='AUD';target.ebitda.provenance.currency='AUD';}

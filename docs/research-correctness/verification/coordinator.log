@@ -1,0 +1,16 @@
+Already up to date
+Done in 208ms using pnpm v11.8.0
+$ vitest run --config cloudflare/research/coordinator-vitest.config.mts
+
+ RUN  v4.1.11 <repository>
+
+⎔ Establishing remote connection...
+▲ [WARNING] AI bindings always access remote resources, and so may incur usage charges even in local dev. To suppress this warning, set `remote: true` for the binding definition in your configuration file.
+
+
+
+ Test Files  1 passed (1)
+      Tests  6 passed (6)
+   Start at  21:31:20
+   Duration  7.15s (transform 513ms, setup 0ms, import 27ms, tests 2.47s, environment 0ms)
+

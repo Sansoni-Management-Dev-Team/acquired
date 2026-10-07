@@ -16,12 +16,36 @@ export function startDevLog(path, stdout = process.stdout, stderr = process.stde
   for (const stream of [stdout, stderr]) {
     const original = stream.write;
     const decoder = new StringDecoder("utf8");
+    let closedPipe = false;
+    const onError = error => {
+      if (error.code === "EPIPE") closedPipe = true;
+      // Preserve the stream's ordinary error behavior for failures unrelated
+      // to a detached terminal. Other existing listeners retain ownership.
+      else if (stream.listenerCount("error") === 1) throw error;
+    };
+    stream.on("error", onError);
     stream.write = function (chunk, encoding, callback) {
       const text = typeof chunk === "string" ? chunk : decoder.write(chunk);
       record(text);
-      return original.call(this, chunk, encoding, callback);
+      const done = typeof encoding === "function" ? encoding : callback;
+      if (closedPipe) {
+        if (done) queueMicrotask(() => done());
+        return true;
+      }
+      const complete = done ? error => {
+        if (error?.code === "EPIPE") { closedPipe = true; done(); }
+        else done(error);
+      } : undefined;
+      try {
+        return original.call(this, chunk, typeof encoding === "string" ? encoding : undefined, complete);
+      } catch (error) {
+        if (error.code !== "EPIPE") throw error;
+        closedPipe = true;
+        if (done) queueMicrotask(() => done());
+        return true;
+      }
     };
-    restore.push(() => { stream.write = original; });
+    restore.push(() => { stream.write = original; stream.removeListener("error", onError); });
   }
   return {
     reset,

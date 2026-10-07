@@ -19,6 +19,12 @@ export function firmableContactValues(person: PersonDetail, candidate: PersonCan
       department: person.department || candidate?.department,
       emailAvailable: person.emailAvailable || candidate?.emailAvailable || false,
       phoneAvailable: person.phoneAvailable || candidate?.phoneAvailable || false,
+      emailPotentiallyAvailable: person.emailAvailable || candidate?.emailAvailable || false,
+      phonePotentiallyAvailable: person.phoneAvailable || candidate?.phoneAvailable || false,
+      emailSaved: Boolean(person.email?.trim()),
+      phoneSaved: Boolean(person.phone?.trim()),
+      emailLookupStatus: person.email ? "reported" : person.emailLookupStatus || "not_reported",
+      phoneLookupStatus: person.phone ? "reported" : person.phoneLookupStatus || "not_reported",
       doNotContact: person.doNotContact,
     },
     provenance: { source: COMPANY_DATA_SOURCE, capturedAt: new Date().toISOString(), companyId },
@@ -45,6 +51,9 @@ export async function upsertFirmableContact(args: {
   if (args.person.phone === undefined && typeof (existing?.personalData as { phone?: unknown } | undefined)?.phone === 'string') {
     values.personalData.phone = (existing!.personalData as { phone: string }).phone;
     values.personalData.phoneAvailable = true;
+    values.personalData.phoneSaved = true;
+    values.personalData.phonePotentiallyAvailable = true;
+    values.personalData.phoneLookupStatus = "reported";
   }
   if ((existing?.personalData as Record<string, unknown> | undefined)?.doNotContact === true) values.personalData.doNotContact = true;
   const [saved] = existingContactId

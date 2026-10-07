@@ -1,6 +1,7 @@
 import { briefToMandate, criterionDefinitions, type AcquisitionBrief, type Assessment, type CriterionKey } from "./acquisition";
 import { parseHeadcount } from "./company-facts";
 import { financialInterval, resolveTargetEbitda, targetRevenueCurrency } from "./target-financial-evidence";
+import { screenCompanyCandidate } from './company-screening';
 import { acquisitionEligibility } from "./acquisition-eligibility";
 import type { FinancialValue, TargetCandidate } from "./models";
 import type { SavedResearchFinding } from "./research";
@@ -37,8 +38,15 @@ export function reviewMandateFit(brief: AcquisitionBrief, target: TargetCandidat
   const observations = (kind: string): Observation[] => findings.filter(f => f.evidence.kind === kind && !f.evidence.factMetadata?.identityNote).map(f => ({ value: f.evidence.value, sources: [f.sourceUrl], estimated: f.evidence.factMetadata?.basis !== "reported" || f.evidence.factMetadata?.scope === "group" }));
   const rows: FitRow[] = brief.criteria.filter(c => c.state === "specified" && !(c.key === "revenueCeiling" && filters.revenue.max !== null && filters.revenueCeiling !== undefined && filters.revenueCeiling >= filters.revenue.max)).map(c => {
     const row: FitRow = { key: c.key, label: criterionDefinitions.find(([key]) => key === c.key)![1], mandate: c.value, weight: c.importance === "requirement" ? 2 : 1, status: "unknown", reason: "No comparable evidence; needs review", sources: [] };
-    const reviewed = assessment.evidence.find(e => e.criterionKey === c.key);
+    const reviewed = assessment.evidence.find(e => e.criterionKey === c.key && e.reviewState !== "provisional");
     if (reviewed) return { ...row, status: reviewed.assessment === "supported" && ["modelled", "inferred"].includes(reviewed.kind) ? "potential" : reviewed.assessment, reason: `${reviewed.value || "No evidence"}${reviewed.kind === "modelled" || reviewed.kind === "inferred" ? " (estimated)" : " (reviewed)"}`, sources: reviewed.sourceUrl ? [reviewed.sourceUrl] : [] };
+    const scoped=target.sourceData?.firmable?.scopedFacts || target.sourceData?.firmable?.rawResponse;
+    if(scoped && ['subsectors','geography','headcount','revenue','revenueCeiling'].includes(c.key)) {
+      const screening=screenCompanyCandidate(target,filters);
+      const field=c.key==='subsectors'?'sector':c.key==='revenueCeiling'?'revenue':c.key as 'geography'|'headcount'|'revenue';
+      const status=screening[field];
+      return {...row,status:status==='excluded'?'fails':status==='review'?'unknown':'potential',reason:status==='review'?'No comparable scoped evidence; needs review':status==='excluded'?'Scoped provider evidence outside mandate':'Scoped provider evidence provisionally matches mandate',sources:target.sourceData?.firmable?.website?[target.sourceData.firmable.website]:[]};
+    }
     let values: Observation[] = [];
     let range: { min: number; max: number | null } | undefined;
     if (c.key === "headcount") {
@@ -55,7 +63,7 @@ export function reviewMandateFit(brief: AcquisitionBrief, target: TargetCandidat
     } else if (c.key === "ebitda") {
       values = financial(target.ebitda.value, target.ebitda.provenance.sourceUrl, target.ebitda.provenance.currency).map(o => ({ ...o, estimated: target.ebitda.provenance.confidence < 80 }));
       if (!values.length) {
-        const estimate = resolveTargetEbitda(findings, target.headcount.value ?? undefined);
+        const estimate = resolveTargetEbitda(findings, target.headcount.value ?? undefined,target);
         if (estimate.status === "estimated") values = [{ value: `${estimate.low}–${estimate.high} AUD (modelled EBITDA)`, min: estimate.low, max: estimate.high, estimated: true, sources: estimate.benchmark ? [estimate.benchmark.sourceUrl] : [] }];
       }
       range = filters.ebitda;

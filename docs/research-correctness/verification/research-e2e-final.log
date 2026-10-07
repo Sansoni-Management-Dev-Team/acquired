@@ -1,0 +1,13 @@
+Already up to date
+Done in 202ms using pnpm v11.8.0
+$ node scripts/test-research-e2e.mjs
+PASS Synthetic authenticated account and mandate persist through real APIs
+PASS Real Chromium → Workflow extraction → PostgreSQL saves source-supported evidence within budget
+PASS Lost progress response retries without duplicating evidence; timing IDs are acknowledged
+PASS Unavailable free route falls back deterministically; failed timing delivery recovers
+PASS Heartbeat, replay and budget rejection use bounded real database requests
+PASS Real Worker search parses fixed results from OrbStack Chromium
+PASS Cancellation stops the real Workflow without saving later evidence
+PASS Independent ABN/headcount/revenue/website jobs and sitemap page jobs persist through real Chromium, Workflows and PostgreSQL
+PASS Inactive polling uses a single review read and excludes execution page payloads
+Report: <private local harness report; synthetic fixture data not copied>

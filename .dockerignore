@@ -23,3 +23,6 @@ ops/app/**
 !.local-data/manufacturing-search-index.json
 src/**/*.test.*
 src/**/*.integration.test.*
+!cloudflare
+!cloudflare/research
+!cloudflare/research/local-reader.ts

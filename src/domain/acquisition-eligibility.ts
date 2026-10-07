@@ -1,9 +1,11 @@
+import { screenCompanyCandidate } from './company-screening';
 import type { Mandate, TargetCandidate } from './models';
 import { financialInterval, targetRevenueCurrency, effectiveRevenueRange } from './target-financial-evidence';
 
 /** Keep uncertain provider facts reviewable; only explicit entity types hard-exclude. */
 export function acquisitionEligibility(target: TargetCandidate, mandate: Mandate) {
   const provider = target.sourceData?.firmable;
+  if(provider?.rawResponse || provider?.scopedFacts){const screening=screenCompanyCandidate(target,mandate);return {status:screening.eligibility==='supported'?'pending' as const:screening.eligibility,reasons:screening.reasons};}
   const rawType = provider?.rawResponse?.company_type;
   const type = provider?.companyType || (typeof rawType === 'string' ? rawType : rawType && typeof rawType === 'object' ? Object.values(rawType).filter(v => typeof v === 'string').join(' ') : '');
   const excluded = /\b(?:government|local authority|municipal|public sector|council)\b/i.test(type);

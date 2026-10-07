@@ -1,3 +1,5 @@
+import {after} from 'next/server';
+import {dispatchCompanyBackground} from '@/lib/company-background-dispatch';
 import {tickCompanyPeople} from '@/lib/company-people-research';
 import {selectedResearchPipeline} from '@/domain/research-pipeline-design';
 import { researchJsonResponse, researchRequestJson } from "@/lib/research-request-observability";
@@ -49,8 +51,9 @@ async function getMandateResearch(
     repo.resultCounts(id),
     repo.targetEvidence(id),
   ]);
+  if(initialJobs.some(job=>(job.config as ResearchConfig).companyBackgroundResearch && job.status==='queued'))after(()=>dispatchCompanyBackground(org,id));
   let reviewChanged = false;
-  for (const job of initialJobs.filter(j => !terminalResearchStates.includes(j.status) && Date.now() - j.updatedAt.getTime() > 90000)) {
+  for (const job of initialJobs.filter(j => !(j.config as ResearchConfig).companyBackgroundResearch && !terminalResearchStates.includes(j.status) && Date.now() - j.updatedAt.getTime() > 90000)) {
     try {
       const worker = await researchWorker(`/jobs/${job.id}`) as { status: string };
       if (["running", "waiting"].includes(worker.status) && Date.now() - job.updatedAt.getTime() > 10 * 60000) {

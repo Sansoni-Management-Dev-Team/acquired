@@ -12,5 +12,6 @@
   "durable_objects": { "bindings": [{ "name": "PROVIDER_COORDINATOR", "class_name": "ProviderCoordinator" }] },
   "exports": { "ProviderCoordinator": { "type": "durable-object", "storage": "sqlite" } },
   "vars": { "APP_ORIGIN": "https://acquire.mlai.au" },
+  "triggers": { "crons": ["*/1 * * * *"] },
   "observability": { "enabled": true }
 }

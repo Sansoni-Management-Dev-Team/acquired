@@ -1,0 +1,60 @@
+{
+  "captured_at": "2026-10-07T11:02:13.195634+00:00",
+  "artifacts": [
+    {
+      "artifact": "docs/research-correctness/verification/unit-suite.log",
+      "sha256": "7a42d92cf33edce792dc91980bf8203e4887501fea1e3e55690498b324cdd862",
+      "sanitization": "ANSI/local paths/private harness report path removed; contact-before excerpt omits payload diffs."
+    },
+    {
+      "artifact": "docs/research-correctness/verification/db-suite.log",
+      "sha256": "fd27f5a990830c9472adeac70ccd41b05e6c28c0dad476950194faa45b16a212",
+      "sanitization": "ANSI/local paths/private harness report path removed; contact-before excerpt omits payload diffs."
+    },
+    {
+      "artifact": "docs/research-correctness/verification/workflows.log",
+      "sha256": "6df00334ad6813fe3dc270e9f792d896e6c2ac290b0a0d2ea515f37fd1885684",
+      "sanitization": "ANSI/local paths/private harness report path removed; contact-before excerpt omits payload diffs."
+    },
+    {
+      "artifact": "docs/research-correctness/verification/coordinator.log",
+      "sha256": "4e867a232c6d679f344dd70d8c574eb0d785f184233c4f64d27ee727aa94e5cf",
+      "sanitization": "ANSI/local paths/private harness report path removed; contact-before excerpt omits payload diffs."
+    },
+    {
+      "artifact": "docs/research-correctness/verification/research-e2e-final.log",
+      "sha256": "d84c0c09ff3031f1b34e8d7c0611d5664e13726cb646b6ad7e92dfe2d2ae848a",
+      "sanitization": "ANSI/local paths/private harness report path removed; contact-before excerpt omits payload diffs."
+    },
+    {
+      "artifact": "docs/research-correctness/verification/research-live.log",
+      "sha256": "4358cccf54ec8c361a4fa2ded0ed64319591b2052db1c4a25781898c95794177",
+      "sanitization": "ANSI/local paths/private harness report path removed; contact-before excerpt omits payload diffs."
+    },
+    {
+      "artifact": "docs/research-correctness/verification/typecheck.log",
+      "sha256": "342a9a2048c9eabd139c1a3effcdb1b1df80444fd2df6981fab9dd1824309cd4",
+      "sanitization": "ANSI/local paths/private harness report path removed; contact-before excerpt omits payload diffs."
+    },
+    {
+      "artifact": "docs/research-correctness/verification/lint.log",
+      "sha256": "0f9671476a2188bb24f06fc385ca843b15ee3f32226eb0f8e39b68b566a2f6dc",
+      "sanitization": "ANSI/local paths/private harness report path removed; contact-before excerpt omits payload diffs."
+    },
+    {
+      "artifact": "docs/research-correctness/verification/build.log",
+      "sha256": "f4ac77f6294d155bda66761014303eb6dd357dca51e6947555ceef94f5efa931",
+      "sanitization": "ANSI/local paths/private harness report path removed; contact-before excerpt omits payload diffs."
+    },
+    {
+      "artifact": "docs/research-correctness/verification/contact-before.log",
+      "sha256": "90c5fe6449494a93d2f053f45304866cbc3709f6520d0c09bc3e21c402d4f865",
+      "sanitization": "ANSI/local paths/private harness report path removed; contact-before excerpt omits payload diffs."
+    },
+    {
+      "artifact": "docs/research-correctness/verification/evidence-gate.log",
+      "sha256": "25f8d7624db68999484d6fb2ae71a2a0b66f08af025f268014dcde0186d31371",
+      "sanitization": "Metadata validator and Node test runner output only."
+    }
+  ]
+}

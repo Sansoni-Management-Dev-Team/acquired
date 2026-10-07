@@ -1,12 +1,18 @@
 import type { FirmableHistoryRepository } from "@/db/firmable-history-repository";
 import { researchEnabled, researchWorker } from "./research-service";
 
-type RecoverableFirmableRun = { id: string; status: string; updatedAt: Date };
-export async function recoverFirmableRefreshes(history: Pick<FirmableHistoryRepository, "failRun">, runs: RecoverableFirmableRun[], mandateId: string, now = Date.now()) {
+type RecoverableFirmableRun = { id: string; status: string; updatedAt: Date; trigger?: string; organizationId?: string };
+export async function recoverFirmableRefreshes(history: Pick<FirmableHistoryRepository, "failRun" | "claimManualRecovery">, runs: RecoverableFirmableRun[], mandateId: string, now = Date.now()) {
   if (!researchEnabled()) return;
+  const automatic = runs.find(run => run.status === 'queued' && run.trigger === 'discovery' && run.organizationId);
+  if (automatic?.organizationId) {
+    const { recoverAutomaticCompanyPeople } = await import('./company-people-research');
+    await recoverAutomaticCompanyPeople(automatic.organizationId, mandateId);
+  }
   await Promise.allSettled(runs.map(async run => {
+    if (run.status === "queued" && run.trigger === 'discovery') return;
     if (run.status === "queued") {
-      await researchWorker(`/firmable/${run.id}`, "POST", { mandateId }, 4_000);
+      if (await history.claimManualRecovery(run.id)) await researchWorker(`/firmable/${run.id}`, "POST", { mandateId }, 4_000);
       return;
     }
     if (run.status !== "running" || now - run.updatedAt.getTime() < 120_000) return;

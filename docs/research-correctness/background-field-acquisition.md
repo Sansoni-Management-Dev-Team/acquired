@@ -1,0 +1,23 @@
+# Background missing-field acquisition
+
+The retrieval component in `src/adapters/company-missing-field-research.ts` returns source observations and operational coverage for fields requested by a background job. It does not mutate provider snapshots or perform persistence. `src/lib/company-background-research.ts` owns independent job admission and persistence; the company workflow integration remains a separate responsibility.
+
+The supported field set is description, company email, company phone, founded year, ACN, reported website address, workforce, revenue and published accreditation contacts. Financial/workforce statements retain their declared or unspecified scope; a website number is not automatically Australian revenue or workforce. A reported website address is not asserted headquarters. NATA contacts retain an administrative accreditation role rather than an inferred executive role.
+
+Retrieval reads the full homepage, including footer text and plain email addresses. It follows same-domain contact/about/legal links, robots sitemap declarations and bounded sitemap indexes, then searches unresolved objectives. Search snippets and titles identify candidate URLs only. Facts come from fetched first-party pages or an official NATA listing linked to the exact company domain. Off-domain redirects, unrelated company results and hidden script/comment contact values are rejected.
+
+The limits are 110 seconds total, eight page reads, four discovery-document reads and three field-specific queries, sequentially. Email is searched first. A field that was not searched before the budget ends remains `research_incomplete`; exhausting a bounded successful page/search attempt without a value is `not_disclosed`. Actual sourced values remain `reported` even if another source fails. These are retrieval coverage classifications, not guarantees of complete public-web coverage.
+
+Each fact carries a source URL, a quote from retrieved page content, capture time, reader name and page-read timing. Attempts record elapsed time and safe failure reasons. The result is additive; failures return no destructive replacement for saved provider values. Background persistence separately preserves prior observations, manual answers, organizational isolation, cancellation and replay guards.
+
+The existing Crawl4AI HTTP `/crawl` contract now accepts `only_main_content=false`. This is our HTTP flag, not an undocumented Crawl4AI SDK parameter. It maps to unexcluded full-page processing with low block thresholds and returns bounded raw HTML (250,000 characters), Markdown (100,000 characters) and explicit truncation. Ordinary requests retain their previous 30,000-character Markdown shape. The full-page adapter refuses an old Markdown-only response rather than claiming it read the footer. A container rebuild/restart is required to serve the changed HTTP contract; this component's verification did not restart any service.
+
+NATA URLs are extracted from retained register metadata, including regional and browser-wrapped payloads. No Firmable Local Registers endpoint is invented. A known public NATA URL can be passed explicitly; broader register retrieval remains dependent on known sources.
+
+Verification:
+
+- Nine retrieval tests pass, including footer email beyond the old 30,000-character boundary, sitemap contact page, targeted-result page proof, immutable provider input after failure, NATA association, deadline classification, HTTP full-page contract and successful undisclosed classification. Six existing register/parser/capture tests also pass.
+- Thirteen Python HTTP-reader tests pass, including bounded footer/raw-HTML retention, explicit truncation and legacy response compatibility. These use a controlled crawler fixture rather than a live rebuilt container.
+- Background persistence tests independently pass five unit cases and four PostgreSQL cases with rollback verification. They cover a completed/expired parent, duplicate queue, immutable paid-provider snapshot, corporate versus person channels, retained prior observations after failure, administrative contact role, manual ABN, partial registry status and authorization/replay/cancellation guards.
+- A read-only full-HTML request to the actual Geoteknix homepage found the expected published email and phone. All emitted facts retained source, quote, reader and capture time. This smoke used the injectable public HTTP reader; it is not a claim that the running Crawl4AI container had already been upgraded.
+- Typecheck and focused ESLint passed. No migration, paid lookup, service restart or production deployment was performed by this retrieval work.

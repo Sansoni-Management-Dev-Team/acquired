@@ -6,6 +6,10 @@ export type SignalWeight = "low" | "medium" | "high" | "very-high";
 
 export type Provenance = {
   currency?: string;
+  scope?: "AU" | "global" | "unknown";
+  period?: string;
+  basis?: "provider_reported" | "website" | "modelled";
+  assumption?: string;
   source: string;
   sourceUrl?: string;
   capturedAt: string;
@@ -63,6 +67,21 @@ export type GooglePlacesSourceData = {
 };
 
 export type FirmableSourceData = {
+  industryCodes?: Record<string,unknown>;
+  socialMedia?: Record<string,unknown>;
+  regions?: Record<string,unknown>;
+  organizationRegisters?: Record<string,unknown>;
+  secondaryIndustries?: string[];
+  firmableVerified?: boolean;
+  providerFields?: Record<string,unknown>;
+  fieldCoverage?: Array<{sourceField:string;destination:string;projection:string}>;
+  headquartersCountry?: string;
+  profiles?: Record<string,unknown>;
+  logo?: unknown;
+  slug?: string;
+  searchRank?: number;
+  nextGen?: unknown;
+  scopedFacts?: import("./company-scoped-facts").ScopedCompanyFacts;
   firmableId: string;
   capturedAt?: string;
   rawResponse?: Record<string, unknown>;
@@ -118,7 +137,12 @@ export type ManufacturingDirectorySourceData = {
   sourceRecords: Array<{ source: string; sourceId: string; sourceUrl: string }>;
 };
 
+export type AbnVerification = { status: string; operationalStatus: string; missingReason: string | null; errors?: Array<{operation:string;message:string}> };
+
 export type TargetSourceData = {
+  publishedTeamMembers?: import('./company-background-types').PublishedCompanyTeamMember[];
+  backgroundResearch?: import('./company-background-types').BackgroundCompanyEvidence;
+  abnVerification?: AbnVerification;
   googlePlaces?: GooglePlacesSourceData;
   manufacturingDirectory?: ManufacturingDirectorySourceData;
   firmable?: FirmableSourceData;

@@ -1,4 +1,5 @@
-import {queueCompanyPeople,tickCompanyPeople} from './company-people-research';
+import {tickCompanyPeople} from './company-people-research';
+import {queueCompanyBackgroundResearch} from './company-background-research';
 import {discoveryQueryPlan,seedRelevant} from '@/adapters/business-web-search';
 import {cloudflareSearchResults} from '@/adapters/cloudflare-web-search';
 import {webCompanyRows,matchWebFirmableCompany,type WebCompany} from '@/domain/web-firmable-pipeline';
@@ -8,10 +9,9 @@ import {and,eq,sql} from 'drizzle-orm';
 import {requireDb} from '@/db/client';
 import {firmableCompanies,mandates,mandateTargets,researchFindings,researchJobs,targets} from '@/db/schema';
 import {FirmableClient,FirmableError} from '@/adapters/firmable-client';
-import type {IdentityPage,AbnRecord} from '@/domain/abn-resolution.mjs';
-import {resolvePublicCompanyAbn} from '@/adapters/abn-identity-resolver';
-import {normalizeFirmableProfile,screenBand,originalRevenueRange,type FirmableFilters} from '@/domain/firmable-company-pipeline';
+import {normalizeFirmableProfile,originalRevenueRange,type FirmableFilters} from '@/domain/firmable-company-pipeline';
 import {mapFirmableProfile} from '@/adapters/firmable-company-mapper';
+import {screenCompanyCandidate} from '@/domain/company-screening';
 import {rankTarget} from '@/domain/scoring';
 import type {Mandate} from '@/domain/models';
 import type {ResearchConfig} from '@/domain/research';
@@ -54,49 +54,48 @@ export async function firmableCompanyResearch(job:Job,payload:Record<string,unkn
   const baseConfig={...config} as ResearchConfig & {firmableSearchPages?:unknown};delete baseConfig.firmableSearchPages;delete (baseConfig as Record<string,unknown>).webSearchPages;
   const childConfig={...baseConfig,...(hybrid?{discoveryOrigins:payload.sources,hybridFirmableId:web?null:row.id,hybridExpectedDomain:payload.expectedDomain}:{}),executionSlot:`d-${id}`,researchTask:'company',parentJobId:job.id,companyDomain:String(row.website||row.fqdn||'').replace(/^https?:\/\//,'').replace(/^www\./,'').split('/')[0],companyName:String(row.name||row.id),...(web?{webDiscovery:row}:{firmableCompanyId:row.id,firmableSearchRow:row}),parallelBusinessResearch:false};
   await db.insert(researchJobs).values({id,organizationId:job.organizationId,mandateId:job.mandateId,createdBy:job.createdBy,config:childConfig,status:'extracting',message:'Reading Firmable company profile'}).onConflictDoNothing();
-  const [existing]=await db.select().from(researchJobs).where(eq(researchJobs.id,id));if(existing.status==='complete'){const saved=existing.config as ResearchConfig & {firmableCompanyId?:string;firmableProfile?:{firmableId:string};firmableMatch?:string};if(saved.firmableMatch==='matched'&&saved.targetId)await queueCompanyPeople(job,saved.targetId,saved.firmableProfile?.firmableId||saved.firmableCompanyId!);return {ok:true,matched:(existing.config as {firmableMatch?:string}).firmableMatch!=='not_found'&&(existing.config as {firmableMatch?:string}).firmableMatch!=='ambiguous'};}
+  const [existing]=await db.select().from(researchJobs).where(eq(researchJobs.id,id));if(existing.status==='complete'){const saved=existing.config as ResearchConfig & {firmableCompanyId?:string;firmableProfile?:{firmableId:string};firmableMatch?:string};return {ok:true,matched:saved.firmableMatch==='matched',targetId:saved.targetId,firmableId:saved.firmableProfile?.firmableId||saved.firmableCompanyId};}
   try{
    let matched=true,matchStatus='matched';let raw:Record<string,unknown>;
    if(web){try{raw=await matchWebFirmableCompany(row as unknown as WebCompany,identifier=>client.enrichCompany(identifier));}
     catch(error){if(!(error instanceof FirmableError)||![404,409].includes(error.status))throw error;
-     matched=false;matchStatus=error.status===409?'ambiguous':'not_found';raw={name:row.name,website:row.website};}
+     matched=false;matchStatus=error.status===409?'ambiguous':'not_found';raw={name:String(row.name),website:String(row.website),websiteResearch:{status:'queued',fields:{description:'research_incomplete',company_emails:'research_incomplete',company_phones:'research_incomplete',year_founded:'research_incomplete',acn:'research_incomplete',website_address:'research_incomplete',employee_count:'research_incomplete',revenue:'research_incomplete'},errors:[]}};}
    }else raw=await client.enrichCompany({id:String(row.id)});
+   const websiteResearch=raw.websiteResearch as {status?:string;errors?:unknown[]}|undefined;
+   const websiteOperationalPartial=!matched && ['failed','partial'].includes(websiteResearch?.status || '');
    const profile=normalizeFirmableProfile(raw);
    if(hybrid&&profile.domain!==payload.expectedDomain)throw Error('Hybrid company profile domain mismatch');
    if(!profile.domain||!profile.companyName)throw Error('Profile has no company identity');
-   let abnLookup:Awaited<ReturnType<typeof resolvePublicCompanyAbn>>|null=null;let registryAbn:string|null=null;
-   // Reuse only recent, completed evidence belonging to this organization and domain.
-   const [previous]=await db.select({config:researchJobs.config}).from(researchJobs).where(and(eq(researchJobs.organizationId,job.organizationId),eq(researchJobs.status,'complete'),sql`${researchJobs.id} <> ${id}`,sql`${researchJobs.config}->>'companyDomain' = ${profile.domain}`,sql`${researchJobs.updatedAt} > NOW() - INTERVAL '24 hours'`)).orderBy(sql`${researchJobs.updatedAt} DESC`).limit(1);
-   const saved=(previous?.config as {abnLookup?:{websitePages?:IdentityPage[];records?:AbnRecord[]}}|undefined)?.abnLookup;
-   const prior=saved&&Array.isArray(saved.websitePages)&&Array.isArray(saved.records)?{websitePages:saved.websitePages,records:saved.records}:undefined;
-   abnLookup=await resolvePublicCompanyAbn({name:profile.companyName,website:profile.website||`https://${profile.domain}`,deadline:config.automaticDeadline,explicitAbns:profile.abnCandidates,firmableProfileUrl:matched?`https://app.firmable.com/dashboard/company/${profile.firmableId}`:undefined,prior});registryAbn=abnLookup.abn;
+   const abnLookup={status:matched&&profile.abn?'provider_reported':'pending',operationalStatus:'complete',missingReason:null,errors:[]};
    const original=mandate.filters as Mandate;
    // Respect the narrower original brief revenue range rather than the parser's separate ceiling.
    const brief=(mandate.filters as {brief?:{criteria?:{key:string;value?:string}[]}}).brief;
    const revenueRange=originalRevenueRange(brief?.criteria,original.revenue);
    const targetId=stableId(job.id,`domain:${profile.domain}`);
-   const screening={headcount:screenBand(profile.headcountExact?{min:profile.headcountExact,max:profile.headcountExact}:profile.headcountBand,original.headcount),revenue:screenBand(profile.revenueBand,revenueRange),geography:profile.states.length?(profile.states.some(s=>original.states.includes(s))?'supported':'excluded'):'review',sector:'review',diligence:'review'};
-   const content=`${profile.industries.join(' ')} ${profile.description}`.toLowerCase();
-   if(original.sectors.some(s=>s.toLowerCase().split(/\W+/).filter(w=>w.length>3&&!['services','commercial','industrial','specialty','and'].includes(w)).some(w=>content.includes(w))))screening.sector='supported';
-   const excluded=Object.values(screening).includes('excluded');const supported=['headcount','revenue','geography','sector'].every(k=>screening[k as keyof typeof screening]==='supported');
-   const abn=registryAbn;
    const candidate=mapFirmableProfile(raw,original,job.organizationId);
+   const screening=screenCompanyCandidate(candidate,{...original,revenue:revenueRange || original.revenue});
+   const excluded=screening.eligibility==='excluded';
+   const supported=['headcount','revenue','geography','sector'].every(k=>screening[k as 'headcount'|'revenue'|'geography'|'sector']==='supported');
+   const abn=matched?profile.abn:null;
+   const abnSource=matched&&profile.abn?{source:'Firmable',sourceUrl:`https://app.firmable.com/dashboard/company/${profile.firmableId}`,capturedAt:profile.retrievedAt}:undefined;
    const ranked=rankTarget(candidate,original);
+   let backgroundJobId:string|null=null;
    await db.transaction(async tx=>{
     const [root]=await tx.select({status:researchJobs.status}).from(researchJobs).where(eq(researchJobs.id,job.id)).for('share');
     if(root?.status==='cancelled')throw Error('D root was cancelled');
     if(matched)await tx.insert(firmableCompanies).values({id:profile.firmableId,name:profile.companyName,domain:profile.domain,abn}).onConflictDoUpdate({target:firmableCompanies.id,set:{name:profile.companyName,domain:profile.domain,abn,updatedAt:new Date()}});
-    await tx.insert(targets).values({id:targetId,organizationId:job.organizationId,mandateId:job.mandateId,companyName:profile.companyName,domain:profile.domain,firmableCompanyId:matched?profile.firmableId:null,identifiers:{...(matched?{firmableId:profile.firmableId}:{}),abn},firmographics:{suburb:ranked.suburb,state:ranked.state,sector:ranked.sector,revenue:ranked.revenue,ebitda:ranked.ebitda,headcount:ranked.headcount,headcountBand:candidate.headcountBand,establishedYear:ranked.establishedYear,...(matched?{firmable:{...ranked.sourceData?.firmable,rawResponse:raw,employeeCount:undefined}}:{webDiscovery:row,firmableMatch:matchStatus}),screening},status:'enriched',band:excluded?'excluded':ranked.scores.band,qualification:excluded?'excluded':'research',fitScore:ranked.scores.fit,ripenessScore:ranked.scores.ripeness,confidenceScore:ranked.scores.confidence,financeabilityScore:ranked.scores.financeability}).onConflictDoNothing();
-    await tx.insert(mandateTargets).values({organizationId:job.organizationId,mandateId:job.mandateId,targetId,assessment:{stage:excluded?'excluded':'identified',reason:excluded?'Outside an original mandate range':'Company-only profile; bands and diligence require review',nextAction:'Verify original mandate criteria',evidence:[],qualificationConfirmed:false}}).onConflictDoNothing();
-    if(abn)await tx.insert(researchFindings).values({jobId:id,organizationId:job.organizationId,mandateId:job.mandateId,targetId,evidenceKey:'firmable-abn',sourceUrl:`https://abr.business.gov.au/ABN/View?abn=${abn}`,observedAt:new Date(),confidence:.7,evidence:{kind:'identifier',name:'ABN',value:abn,quote:abnLookup?.record?.quote||JSON.stringify({entityName:abnLookup?.record?.entityName,abn,identityEvidence:abnLookup?.evidence}),relevance:'unclear'}}).onConflictDoNothing();
-    await tx.update(researchJobs).set({status:'complete',pages:1,message:matched?'Company-only profile saved':`Discovered company saved; Firmable ${matchStatus}`,updatedAt:new Date(),config:{...childConfig,companyDomain:profile.domain,targetId,firmableProfile:matched?profile:null,firmableMatch:matchStatus,abnLookup,screening,newBusinessIds:supported?[targetId]:[]}}).where(eq(researchJobs.id,id));
+    await tx.insert(targets).values({id:targetId,organizationId:job.organizationId,mandateId:job.mandateId,companyName:profile.companyName,domain:profile.domain,firmableCompanyId:matched?profile.firmableId:null,identifiers:{...(matched?{firmableId:profile.firmableId}:{}),abn,...(abnSource?{abnSource}:{})},firmographics:{abnVerification:{status:abnLookup.status,operationalStatus:abnLookup.operationalStatus,missingReason:abnLookup.missingReason,errors:abnLookup.errors},suburb:ranked.suburb,state:ranked.state,sector:ranked.sector,revenue:ranked.revenue,ebitda:ranked.ebitda,headcount:ranked.headcount,headcountBand:candidate.headcountBand,establishedYear:ranked.establishedYear,...(matched?{firmable:{...ranked.sourceData?.firmable,rawResponse:raw}}:{webDiscovery:row,firmableMatch:matchStatus,websiteResearch:raw.websiteResearch,websiteProfile:ranked.sourceData?.firmable}),screening},status:'enriched',band:excluded?'excluded':ranked.scores.band,qualification:excluded?'excluded':'research',fitScore:ranked.scores.fit,ripenessScore:ranked.scores.ripeness,confidenceScore:ranked.scores.confidence,financeabilityScore:ranked.scores.financeability}).onConflictDoNothing();
+    await tx.insert(mandateTargets).values({organizationId:job.organizationId,mandateId:job.mandateId,targetId,assessment:{decisionOrigin:'automatic',stage:excluded?'excluded':'identified',reason:excluded?'Outside an original mandate range':'Company-only profile; bands and diligence require review',nextAction:'Verify original mandate criteria',evidence:[],qualificationConfirmed:false}}).onConflictDoNothing();
+    if(abn)await tx.insert(researchFindings).values({jobId:id,organizationId:job.organizationId,mandateId:job.mandateId,targetId,evidenceKey:'firmable-abn',sourceUrl:abnSource?.sourceUrl||`https://abr.business.gov.au/ABN/View?abn=${abn}`,observedAt:new Date(),confidence:.7,evidence:{kind:'identifier',name:'ABN',value:abn,quote:`Firmable company profile reports ABN ${abn}`,relevance:'unclear'}}).onConflictDoNothing();
+    backgroundJobId=(await queueCompanyBackgroundResearch(job,{...ranked,id:targetId,abn:abn||undefined,sourceData:{...ranked.sourceData,abnVerification:abnLookup}},tx)).jobId;
+    await tx.update(researchJobs).set({status:websiteOperationalPartial?'partial':'complete',pages:1,message:websiteOperationalPartial?`Discovered company retained; website research ${websiteResearch?.status}; Firmable ${matchStatus}`:matched?'Company-only profile saved':`Discovered company saved; Firmable ${matchStatus}`,updatedAt:new Date(),config:{...childConfig,companyDomain:profile.domain,targetId,firmableProfile:matched?profile:null,firmableMatch:matchStatus,websiteResearch:raw.websiteResearch,abnLookup,screening,newBusinessIds:supported?[targetId]:[]}}).where(eq(researchJobs.id,id));
    });
-   if(matched)await queueCompanyPeople(job,targetId,profile.firmableId);
-   return {ok:true,matched};
+   return {ok:true,matched,targetId,firmableId:matched?profile.firmableId:undefined,backgroundJobId};
   }catch(error){const message=error instanceof Error?error.message:'Profile failed';await db.update(researchJobs).set({status:'failed',updatedAt:new Date(),message}).where(eq(researchJobs.id,id));return {ok:false};}
  }
  if(['d-finish','d-fail','e-finish','e-fail','f-finish','f-fail'].includes(String(payload.action))){
-  const result=payload.result as Record<string,unknown>||{};const people=config.includeCompanyPeople?await tickCompanyPeople(job,['d-fail','e-fail','f-fail'].includes(String(payload.action))):null;const failed=Boolean(people&&(!people.settled||people.failed||people.profilesFailed))||['d-fail','e-fail','f-fail'].includes(String(payload.action))||Number(result.failed)>0||Number(result.searchFailed)>0||Number(result.discoveryFailed)>0||Number(result.unprocessed)>0||!['candidate_limit','exhausted'].includes(String(result.stopReason));
+  const [partialCompany]=await db.select({id:researchJobs.id}).from(researchJobs).where(and(eq(researchJobs.organizationId,job.organizationId),eq(researchJobs.mandateId,job.mandateId),eq(researchJobs.status,'partial'),sql`${researchJobs.config}->>'parentJobId' = ${job.id}`,sql`${researchJobs.config}->>'researchTask' = 'company'`)).limit(1);
+  const result=payload.result as Record<string,unknown>||{};const failed=Boolean(partialCompany)||['d-fail','e-fail','f-fail'].includes(String(payload.action))||Number(result.failed)>0||Number(result.searchFailed)>0||Number(result.discoveryFailed)>0||Number(result.unprocessed)>0||!['candidate_limit','exhausted'].includes(String(result.stopReason));
   if(hybrid&&Array.isArray(result.selection))for(const item of result.selection as {domain:string;sources:string[];firmableId:string|null}[]){
    await db.update(researchJobs).set({config:sql`${researchJobs.config} || ${JSON.stringify({discoveryOrigins:item.sources,hybridFirmableId:item.firmableId})}::jsonb`}).where(and(eq(researchJobs.id,stableId(job.id,item.domain)),eq(researchJobs.organizationId,job.organizationId)));
   }

@@ -1,0 +1,545 @@
+{
+  "schema_version": 1,
+  "scenarios": [
+    {
+      "id": "RC-01-regression",
+      "finding": "RC-01",
+      "level": "regression",
+      "status": "verified",
+      "specification": "Retained AU address and VIC operating footprint remain distinct from NSW headquarters; eligibility uses sourced operating footprint.",
+      "test_file": "src/domain/company-screening.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-01-generalization",
+      "finding": "RC-01",
+      "level": "generalization",
+      "status": "verified",
+      "specification": "Wrapped/nested provider shape, full state names, missing regional data and reordered operating locations preserve scope; unsourced legacy state does not establish geography.",
+      "test_file": "src/domain/company-screening.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-01-integration",
+      "finding": "RC-01",
+      "level": "integration",
+      "status": "verified",
+      "specification": "Actual PostgreSQL stored provider JSON reload via AcquisitionRepository.memberships drives scoped headcount/geography/revenue, shared fit, activity, provisional earnings, worksheet and completeness; historical automatic exclusion is reprojected without mutating persisted decision.",
+      "test_file": "src/db/scoped-company-diligence.integration.test.ts",
+      "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+      "evidence": "docs/research-correctness/verification/db-suite.log"
+    },
+    {
+      "id": "RC-02-regression",
+      "finding": "RC-02",
+      "level": "regression",
+      "status": "verified",
+      "specification": "AU35/global150 conflict uses AU35 for Australian mandate and keeps global evidence separately.",
+      "test_file": "src/domain/company-screening.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-02-generalization",
+      "finding": "RC-02",
+      "level": "generalization",
+      "status": "verified",
+      "specification": "Missing AU, observed zero and tested range boundaries remain review/excluded/supported as applicable; reordered regional evidence does not change scope.",
+      "test_file": "src/domain/company-screening.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-02-integration",
+      "finding": "RC-02",
+      "level": "integration",
+      "status": "verified",
+      "specification": "Actual PostgreSQL stored provider JSON reload via AcquisitionRepository.memberships drives scoped headcount/geography/revenue, shared fit, activity, provisional earnings, worksheet and completeness; historical automatic exclusion is reprojected without mutating persisted decision.",
+      "test_file": "src/db/scoped-company-diligence.integration.test.ts",
+      "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+      "evidence": "docs/research-correctness/verification/db-suite.log"
+    },
+    {
+      "id": "RC-03-regression",
+      "finding": "RC-03",
+      "level": "regression",
+      "status": "verified",
+      "specification": "Global revenue band with absent AU revenue leaves regional criterion review and observed AU revenue absent.",
+      "test_file": "src/domain/company-screening.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-03-generalization",
+      "finding": "RC-03",
+      "level": "generalization",
+      "status": "verified",
+      "specification": "AUD exact/numeric-string/zero observations versus USD, unknown metadata and malformed sentinels are classified without fabricating AU revenue.",
+      "test_file": "src/domain/company-screening.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-03-integration",
+      "finding": "RC-03",
+      "level": "integration",
+      "status": "verified",
+      "specification": "Actual PostgreSQL stored provider JSON reload via AcquisitionRepository.memberships drives scoped headcount/geography/revenue, shared fit, activity, provisional earnings, worksheet and completeness; historical automatic exclusion is reprojected without mutating persisted decision.",
+      "test_file": "src/db/scoped-company-diligence.integration.test.ts",
+      "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+      "evidence": "docs/research-correctness/verification/db-suite.log"
+    },
+    {
+      "id": "RC-04-regression",
+      "finding": "RC-04",
+      "level": "regression",
+      "status": "verified",
+      "specification": "AU35 rather than global150 feeds explicitly modelled earnings; observed EBITDA stays absent and benchmark version is retained.",
+      "test_file": "src/domain/company-screening.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-04-generalization",
+      "finding": "RC-04",
+      "level": "generalization",
+      "status": "verified",
+      "specification": "Missing AU inputs do not generate a scoped estimate, including global-only and other-country headcounts.",
+      "test_file": "src/domain/company-screening.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-04-integration",
+      "finding": "RC-04",
+      "level": "integration",
+      "status": "verified",
+      "specification": "Actual PostgreSQL stored provider JSON reload via AcquisitionRepository.memberships drives scoped headcount/geography/revenue, shared fit, activity, provisional earnings, worksheet and completeness; historical automatic exclusion is reprojected without mutating persisted decision.",
+      "test_file": "src/db/scoped-company-diligence.integration.test.ts",
+      "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+      "evidence": "docs/research-correctness/verification/db-suite.log"
+    },
+    {
+      "id": "RC-05-regression",
+      "finding": "RC-05",
+      "level": "regression",
+      "status": "verified",
+      "specification": "Worksheet criteria expose provisional evidence and distinguish an empty manual review from supported sourced facts.",
+      "test_file": "src/domain/company-screening.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-05-generalization",
+      "finding": "RC-05",
+      "level": "generalization",
+      "status": "verified",
+      "specification": "Explicit reviewed document evidence wins over automatic placeholders; incidental industry/placeholder sector is not a supported criterion.",
+      "test_file": "src/domain/company-screening.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-05-integration",
+      "finding": "RC-05",
+      "level": "integration",
+      "status": "verified",
+      "specification": "Actual AcquisitionRepository.saveAssessment and PostgreSQL reload preserve provisional versus owner-reviewed worksheet evidence, source/time metadata, zero/false financial answers, unavailable missing finance cells and absent complete financeability. Transaction rollback is checked.",
+      "test_file": "src/db/scoped-company-diligence.integration.test.ts",
+      "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+      "evidence": "docs/research-correctness/verification/db-suite.log"
+    },
+    {
+      "id": "RC-06-regression",
+      "finding": "RC-06",
+      "level": "regression",
+      "status": "verified",
+      "specification": "Six bankability cells without manual financial evidence remain unattempted with required evidence and no assessed financeability.",
+      "test_file": "src/domain/company-screening.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-06-generalization",
+      "finding": "RC-06",
+      "level": "generalization",
+      "status": "verified",
+      "specification": "An explicit reviewed finance cell can persist in serialized assessment without implying structure review or complete financeability.",
+      "test_file": "src/domain/company-screening.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-06-integration",
+      "finding": "RC-06",
+      "level": "integration",
+      "status": "verified",
+      "specification": "Actual AcquisitionRepository.saveAssessment and PostgreSQL reload preserve provisional versus owner-reviewed worksheet evidence, source/time metadata, zero/false financial answers, unavailable missing finance cells and absent complete financeability. Transaction rollback is checked.",
+      "test_file": "src/db/scoped-company-diligence.integration.test.ts",
+      "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+      "evidence": "docs/research-correctness/verification/db-suite.log"
+    },
+    {
+      "id": "RC-07-regression",
+      "finding": "RC-07",
+      "level": "regression",
+      "status": "verified",
+      "specification": "Website HTML with provider no-match yields sourced description, reported contact/year/address/ACN fields without invented legal identity or finances.",
+      "test_file": "src/adapters/company-website-fallback.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-07-generalization",
+      "finding": "RC-07",
+      "level": "generalization",
+      "status": "verified",
+      "specification": "Bounded same-domain legal pages, non-Australian content, deadlines and absent disclosures remain explicit; address is reported website address, not asserted HQ.",
+      "test_file": "src/adapters/company-website-fallback.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-07-integration",
+      "finding": "RC-07",
+      "level": "integration",
+      "status": "verified",
+      "specification": "Actual company-research handler to fake persistence, real target mapper and server-rendered summary handles provider404/409, partial website failures, cancellation and root finish classification. PostgreSQL is covered by separate generic E2E, not this fixture.",
+      "test_file": "src/lib/company-identity-boundary.integration.test.tsx",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-08-regression",
+      "finding": "RC-08",
+      "level": "regression",
+      "status": "verified",
+      "specification": "Operating fire-maintenance evidence supports activity; supplier/manufacturer/consultancy/topic-only text remains review.",
+      "test_file": "src/domain/company-screening.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-08-generalization",
+      "finding": "RC-08",
+      "level": "generalization",
+      "status": "verified",
+      "specification": "Industrial cleaning positive and unrelated/negated/article/training/customer-context negative fixtures prevent fire-specific shortcuts.",
+      "test_file": "src/domain/company-screening.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-08-integration",
+      "finding": "RC-08",
+      "level": "integration",
+      "status": "verified",
+      "specification": "Actual PostgreSQL stored provider JSON reload via AcquisitionRepository.memberships drives scoped headcount/geography/revenue, shared fit, activity, provisional earnings, worksheet and completeness; historical automatic exclusion is reprojected without mutating persisted decision.",
+      "test_file": "src/db/scoped-company-diligence.integration.test.ts",
+      "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+      "evidence": "docs/research-correctness/verification/db-suite.log"
+    },
+    {
+      "id": "RC-09-regression",
+      "finding": "RC-09",
+      "level": "regression",
+      "status": "verified",
+      "specification": "Automatic supported geography/activity with no hard exclusions passes admission; excluded/review activity and ineligible targets do not.",
+      "test_file": "src/domain/company-contact-policy.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-09-generalization",
+      "finding": "RC-09",
+      "level": "generalization",
+      "status": "verified",
+      "specification": "Role ordering and deterministic decision-maker selection cap at five; manual review policy stays explicit and excluded targets remain blocked.",
+      "test_file": "src/domain/company-contact-policy.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-09-integration",
+      "finding": "RC-09",
+      "level": "integration",
+      "status": "verified",
+      "specification": "Actual PostgreSQL bounded-run fixture observes 100 search profiles, dispatch selection remains 5 decision makers and completion/durable counters remain consistent.",
+      "test_file": "src/db/firmable-history.integration.test.ts",
+      "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+      "evidence": "docs/research-correctness/verification/db-suite.log"
+    },
+    {
+      "id": "RC-10-regression",
+      "finding": "RC-10",
+      "level": "regression",
+      "status": "verified",
+      "specification": "53 queued recovery children delegate to the shared root scheduler instead of individual fanout; failed/terminal/stale/manual cases use bounded claims.",
+      "test_file": "src/lib/firmable-run-recovery.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-10-generalization",
+      "finding": "RC-10",
+      "level": "generalization",
+      "status": "verified",
+      "specification": "Deadline-cancelled queued work counts as unattempted admission incomplete; ineligible cancellations do not; saved running results stay partial. Policy retains explicit minimum budget.",
+      "test_file": "src/domain/company-people-progress.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-10-integration",
+      "finding": "RC-10",
+      "level": "integration",
+      "status": "verified",
+      "specification": "Actual latestRuns recovery consumer returns required root metadata; 12 simultaneous pooled manual claims admit one and use finite timeout with isolated transaction context.",
+      "test_file": "src/db/firmable-history.integration.test.ts",
+      "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+      "evidence": "docs/research-correctness/verification/db-suite.log"
+    },
+    {
+      "id": "RC-11-regression",
+      "finding": "RC-11",
+      "level": "regression",
+      "status": "verified",
+      "specification": "Incomplete callback batches reconcile individually persisted contacts; failed writes remain unsaved and terminal new work is rejected.",
+      "test_file": "src/lib/firmable-people-refresh.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-11-generalization",
+      "finding": "RC-11",
+      "level": "generalization",
+      "status": "verified",
+      "specification": "Missing/partial batch outcomes and terminal admission are classified without transient increments becoming durable success.",
+      "test_file": "src/lib/firmable-people-refresh.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-11-integration",
+      "finding": "RC-11",
+      "level": "integration",
+      "status": "verified",
+      "specification": "PostgreSQL historical 9-contact fixture including nondecision makers survives current cap 5; orphan failures/pending materialization, late admitted writes and 12 concurrent writers/root termination reconcile without reopening terminal root.",
+      "test_file": "src/db/firmable-history.integration.test.ts",
+      "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+      "evidence": "docs/research-correctness/verification/db-suite.log"
+    },
+    {
+      "id": "RC-12-regression",
+      "finding": "RC-12",
+      "level": "regression",
+      "status": "verified",
+      "specification": "Application callback 502 yields safe structured origin/action/status/request-ID/duration diagnostics distinct from provider errors.",
+      "test_file": "cloudflare/research/firmable-callback.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-12-generalization",
+      "finding": "RC-12",
+      "level": "generalization",
+      "status": "verified",
+      "specification": "HTML503 and diagnostic headers are sanitized without raw bodies, credentials or contact payloads.",
+      "test_file": "cloudflare/research/firmable-callback.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-12-integration",
+      "finding": "RC-12",
+      "level": "integration",
+      "status": "verified",
+      "specification": "Actual Cloudflare workflow injects one callback 502, records application failure and succeeds via bounded retry; this proves future observability/recovery, not the historical502 cause.",
+      "test_file": "cloudflare/research/workflow-tests/research.test.ts",
+      "command": "pnpm test:workflows",
+      "evidence": "docs/research-correctness/verification/workflows.log"
+    },
+    {
+      "id": "RC-13-regression",
+      "finding": "RC-13",
+      "level": "regression",
+      "status": "verified",
+      "specification": "Potential provider phone availability does not become a saved phone or completed lookup without a value.",
+      "test_file": "src/db/firmable-contact-completeness.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-13-generalization",
+      "finding": "RC-13",
+      "level": "generalization",
+      "status": "verified",
+      "specification": "Legacy true/false/undefined flags and automatic no-phone policy remain distinguishable from persisted actual values.",
+      "test_file": "src/domain/contact-completeness.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-13-integration",
+      "finding": "RC-13",
+      "level": "integration",
+      "status": "verified",
+      "specification": "PostgreSQL provider response to materialized contact, shared completeness model and rendered contact table separates advertised versus actual phones; manual saved phone survives automatic refresh.",
+      "test_file": "src/db/contact-completeness.integration.test.tsx",
+      "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+      "evidence": "docs/research-correctness/verification/db-suite.log"
+    },
+    {
+      "id": "RC-14-regression",
+      "finding": "RC-14",
+      "level": "regression",
+      "status": "verified",
+      "specification": "Attempted provider email missing is upstream empty; unattempted lookup is separate and actual values alone count complete.",
+      "test_file": "src/domain/contact-completeness.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-14-generalization",
+      "finding": "RC-14",
+      "level": "generalization",
+      "status": "verified",
+      "specification": "Alternate email arrays, personal fallback and malformed/empty email values map deterministically to values and lookup status.",
+      "test_file": "src/db/firmable-contact-completeness.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-14-integration",
+      "finding": "RC-14",
+      "level": "integration",
+      "status": "verified",
+      "specification": "PostgreSQL response persistence to shared read model and rendered table reconciles actual email values/status without counting availability flags as saved data.",
+      "test_file": "src/db/contact-completeness.integration.test.tsx",
+      "command": "RUN_FIRMABLE_DB_INTEGRATION=true FIRMABLE_INTEGRATION_DATABASE_URL=postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire pnpm exec vitest run src/db/firmable-history.integration.test.ts src/db/contact-completeness.integration.test.tsx scripts/tail-mandate.postgres.test.ts src/db/scoped-company-diligence.integration.test.ts",
+      "evidence": "docs/research-correctness/verification/db-suite.log"
+    },
+    {
+      "id": "RC-15-regression",
+      "finding": "RC-15",
+      "level": "regression",
+      "status": "verified",
+      "specification": "Exact active registry identity or registered alias validates provider ABN; unrelated provider identity stays unverified.",
+      "test_file": "src/adapters/abn-identity-resolver.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-15-generalization",
+      "finding": "RC-15",
+      "level": "generalization",
+      "status": "verified",
+      "specification": "Conflicting exact entities, inactive records, website/provider disagreement and suffix normalization preserve relationship requirements.",
+      "test_file": "src/adapters/abn-identity-resolver.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-15-integration",
+      "finding": "RC-15",
+      "level": "integration",
+      "status": "verified",
+      "specification": "Actual company-research handler through fake persistence, target mapper and server-rendered summary retains registered-alias verification; this fixture does not write PostgreSQL.",
+      "test_file": "src/lib/company-identity-boundary.integration.test.tsx",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-16-regression",
+      "finding": "RC-16",
+      "level": "regression",
+      "status": "verified",
+      "specification": "Bounded oversized HTML keeps useful prefix with truncation metadata; failure retains operational error instead of definitive no-match.",
+      "test_file": "src/adapters/identity-website-reader.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-16-generalization",
+      "finding": "RC-16",
+      "level": "generalization",
+      "status": "verified",
+      "specification": "503 bounded retry, private/unapproved redirect and elapsed deadline are safe operational classifications.",
+      "test_file": "src/adapters/identity-website-reader.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-16-integration",
+      "finding": "RC-16",
+      "level": "integration",
+      "status": "verified",
+      "specification": "Actual company-research handler through fake persistence and summary UI exposes partial identity-read failure without falsely claiming multiple legal entities.",
+      "test_file": "src/lib/company-identity-boundary.integration.test.tsx",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-17-regression",
+      "finding": "RC-17",
+      "level": "regression",
+      "status": "verified",
+      "specification": "A short legal name contained inside a longer name cannot manufacture a second entity.",
+      "test_file": "src/domain/abn-resolution.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-17-generalization",
+      "finding": "RC-17",
+      "level": "generalization",
+      "status": "verified",
+      "specification": "Record ordering, non-fire industries and separately disclosed shorter entity preserve real ambiguity rather than collapsing distinct entities.",
+      "test_file": "src/domain/abn-resolution.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-17-integration",
+      "finding": "RC-17",
+      "level": "integration",
+      "status": "verified",
+      "specification": "Actual company-research handler through fake persistence, target mapping and rendered summary retains a contained-name resolution without false ambiguity.",
+      "test_file": "src/lib/company-identity-boundary.integration.test.tsx",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-18-regression",
+      "finding": "RC-18",
+      "level": "regression",
+      "status": "verified",
+      "specification": "Temporary read failure yields a visible monitoring gap and recovery rather than a backend-outage claim.",
+      "test_file": "scripts/tail-mandate.test.mjs",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-18-generalization",
+      "finding": "RC-18",
+      "level": "generalization",
+      "status": "verified",
+      "specification": "Bounded retries and unknown states do not become false terminal completion; observed state and unavailable sample remain separate.",
+      "test_file": "scripts/tail-mandate.test.mjs",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    },
+    {
+      "id": "RC-18-integration",
+      "finding": "RC-18",
+      "level": "integration",
+      "status": "verified",
+      "specification": "Actual local PostgreSQL compact read-only sampling reconnects after injected connection failure and records a terminal sample.",
+      "test_file": "scripts/tail-mandate.postgres.test.ts",
+      "command": "pnpm test",
+      "evidence": "docs/research-correctness/verification/unit-suite.log"
+    }
+  ]
+}
