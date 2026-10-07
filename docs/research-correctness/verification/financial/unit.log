@@ -1,0 +1,7 @@
+RUN  v4.1.11 /Users/callum/Documents/Development/project-acquire
+
+
+ Test Files  286 passed | 20 skipped (306)
+      Tests  2076 passed | 75 skipped (2151)
+   Start at  10:52:20
+   Duration  8.53s (transform 11.39s, setup 0ms, import 48.35s, tests 16.10s, environment 15ms)

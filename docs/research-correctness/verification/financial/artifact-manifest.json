@@ -1,0 +1,58 @@
+{
+  "files": [
+    {
+      "path": "docs/research-correctness/verification/financial/historical-replay.json",
+      "sha256": "4f80ff1b32346fb316b1bd7c9b7c4cef2c7f9e56c8b4aaac2a59f94cc4f72f51"
+    },
+    {
+      "path": "docs/research-correctness/verification/financial/unit.log",
+      "sha256": "7eec16684349433606008f01097101fce7dafaba14ee46644c63bb8dc11c28ac"
+    },
+    {
+      "path": "docs/research-correctness/verification/financial/typecheck.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "docs/research-correctness/verification/financial/lint.log",
+      "sha256": "28cf9792308e71fbe300008d49550c6a770ea4c2b8305f9e2291e154b9e0cbd4"
+    }
+  ],
+  "tdd": [
+    {
+      "area": "Primary company revenue",
+      "redFailures": 8
+    },
+    {
+      "area": "Revenue EBITDA",
+      "redFailures": 6
+    },
+    {
+      "area": "Revenue and reported earnings display",
+      "redFailures": 2
+    },
+    {
+      "area": "Financial scope validation",
+      "redFailures": 1
+    },
+    {
+      "area": "Financial scope selector",
+      "redFailures": 1
+    },
+    {
+      "area": "Scope preservation on description regeneration",
+      "redFailures": 1
+    },
+    {
+      "area": "AU earnings worksheet and fit",
+      "redFailures": 1
+    },
+    {
+      "area": "AU earnings scoring",
+      "redFailures": 1
+    }
+  ],
+  "historicalDatabaseWrites": 0,
+  "migrationsApplied": 0,
+  "productionImage": "acquire-app:revenue-margin-20261008",
+  "productionImageId": "sha256:d2037abd7bbed363061f1b0d9a81f29d8f0297246f7ba59aa09be56f18039b76"
+}

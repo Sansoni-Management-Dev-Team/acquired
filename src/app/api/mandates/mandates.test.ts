@@ -59,3 +59,11 @@ it("returns the current brief without regenerating an unchanged description", as
   expect(mocks.generateMandate).not.toHaveBeenCalled();
   expect(mocks.saveBrief).not.toHaveBeenCalled();
 });
+
+it('preserves explicitly selected financial scope when regenerating description criteria', async () => {
+  const existing = { ...emptyBrief(), financialScope: 'AU' as const };
+  mocks.getMandate.mockResolvedValue({ id, brief: existing });
+  mocks.generateMandate.mockResolvedValue({ ...emptyBrief(), naturalLanguage: 'Acquire manufacturers in Australia.' });
+  const response = await update(request({ action: 'brief-description', description: 'Acquire manufacturers in Australia.' }), context);
+  expect((await response.json()).brief.financialScope).toBe('AU');
+});

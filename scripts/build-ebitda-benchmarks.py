@@ -1,6 +1,9 @@
 """Refresh the checked-in ABS reference data. Downloads a workbook; never accesses a database."""
 import io
 import json
+import math
+import argparse
+import hashlib
 from pathlib import Path
 import re
 import urllib.request
@@ -26,13 +29,18 @@ def slug(value):
 
 def number(value):
     try:
-        return float(value)
+        result = float(value)
+        return result if math.isfinite(result) else None
     except (ValueError, TypeError):
         return None
 
 
 def main():
-    archive = zipfile.ZipFile(io.BytesIO(urllib.request.urlopen(SOURCE, timeout=60).read()))
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--workbook', type=Path, help='Use an already downloaded official source workbook')
+    args = parser.parse_args()
+    workbook = args.workbook.read_bytes() if args.workbook else urllib.request.urlopen(SOURCE, timeout=60).read()
+    archive = zipfile.ZipFile(io.BytesIO(workbook))
     strings = [''.join(item.itertext()) for item in ET.fromstring(archive.read('xl/sharedStrings.xml'))]
 
     def rows(sheet):
@@ -44,12 +52,19 @@ def main():
                     values[re.sub(r'\d', '', cell.attrib['r'])] = strings[int(value.text)] if cell.get('t') == 's' else value.text
             yield int(row.attrib['r']), values
 
-    def observation(values, row, period, employment_col, ebitda_col):
+    def observation(values, row, period, employment_col, ebitda_col, sales_col):
         employment, ebitda = number(values.get(employment_col)), number(values.get(ebitda_col))
         if employment is None or employment <= 0 or ebitda is None:
             return None
-        return {'period': period, 'employmentThousands': employment, 'ebitdaMillions': ebitda,
-                'cells': f'{employment_col}{row}, {ebitda_col}{row}'}
+        sales = number(values.get(sales_col))
+        result = {'period': period, 'employmentThousands': employment, 'ebitdaMillions': ebitda,
+                  'cells': f'{employment_col}{row}, {ebitda_col}{row}',
+                  'salesServiceIncomeMillions': sales, 'salesServiceIncomeCell': f'{sales_col}{row}'}
+        if sales is None:
+            result['salesServiceIncomeMissingReason'] = 'ABS source cell blank (denominator unavailable)' if not values.get(sales_col) else 'ABS source cell non-numeric (denominator unavailable)'
+        elif sales <= 0:
+            result['salesServiceIncomeMissingReason'] = 'ABS source denominator non-positive (ratio unavailable)'
+        return result
 
     records = {}
     label = ''
@@ -73,7 +88,7 @@ def main():
                 industry, key, level = division, f'division-{slug(division)}', 'division'
             else:
                 continue
-        item = observation(values, row, value, 'B', 'H')
+        item = observation(values, row, value, 'B', 'H', 'D')
         if item:
             record = records.setdefault(key, {'id': key, 'label': industry, 'division': division,
                 'level': level, 'sizeMin': None, 'sizeMax': None, 'sheet': 'Table_1', 'observations': []})
@@ -91,8 +106,8 @@ def main():
             continue
         if band is None or industry not in [name for _, _, name in DIVISIONS]:
             continue
-        observations = [observation(values, row, period, emp, ebitda)
-            for period, emp, ebitda in zip(PERIODS, ['B', 'C', 'D'], ['W', 'X', 'Y'])]
+        observations = [observation(values, row, period, emp, ebitda, sales)
+            for period, emp, ebitda, sales in zip(PERIODS, ['B', 'C', 'D'], ['W', 'X', 'Y'], ['H', 'I', 'J'])]
         observations = [item for item in observations if item]
         if observations:
             key = f'size-{slug(industry)}-{band[0]}-{band[1] or "plus"}'
@@ -106,6 +121,11 @@ def main():
     assert sum(r['level'] == 'size' for r in benchmarks) == 72
     output = {'sourceUrl': SOURCE, 'releaseDate': '2026-06-19', 'latestPeriod': '2024-25',
         'methodologyUrl': 'https://www.abs.gov.au/methodologies/australian-industry-methodology/2024-25',
+        'sourceSha256': hashlib.sha256(workbook).hexdigest(),
+        'revenueDenominator': {'metric': 'Sales and service income', 'units': 'AUD millions (current prices)',
+            'table1Column': 'D', 'table5Columns': {'2022-23': 'H', '2023-24': 'I', '2024-25': 'J'},
+            'ratioDefinition': 'EBITDA divided by sales and service income in the same industry population and period; not the ABS OPBT profit margin statistic',
+            'missingPolicy': 'Blank/non-numeric denominator remains unavailable; non-positive denominator is not usable for a ratio; retain zero and negative EBITDA without clipping'},
         'benchmarks': benchmarks}
     path = Path(__file__).resolve().parents[1] / 'src/domain/data/abs-ebitda-benchmarks.json'
     path.write_text(json.dumps(output, indent=2) + '\n')

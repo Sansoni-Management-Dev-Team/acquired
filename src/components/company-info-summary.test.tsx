@@ -18,6 +18,7 @@ it("omits missing financials and unavailable estimates instead of inventing data
   const initial = member();
   initial.target.headcount = { value: null, provenance: { ...initial.target.headcount.provenance, source: "Firmable" } };
   initial.target.revenue = { ...initial.target.revenue, value: null };
+  initial.target.ebitda = { ...initial.target.ebitda, value: null };
   const html = renderToStaticMarkup(<CompanyInfoSummary member={initial} />);
   for (const removed of ["Headcount", "Revenue", "EBITDA", "No data available", "Unknown", "$0"]) expect(html).not.toContain(removed);
 });
@@ -25,6 +26,7 @@ it("shows a clear empty state when no company facts have been obtained", () => {
   const initial = member();
   initial.target.headcount.value = null;
   initial.target.revenue.value = null;
+  initial.target.ebitda.value = null;
   initial.target.establishedYear.value = null;
   initial.target.sector.value = null;
   initial.target.state = "Unknown";

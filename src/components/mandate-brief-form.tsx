@@ -22,6 +22,7 @@ async function postJson(url: string, body: unknown, timeoutMs: number) {
 export function MandateBriefForm({ mandateId, brief, onSaved }: { mandateId: string; brief: AcquisitionBrief; onSaved?: (brief: AcquisitionBrief) => void }) {
   const router = useRouter();
   const [currentBrief, setCurrentBrief] = useState(brief);
+  const [savedFinancialScope, setSavedFinancialScope] = useState(brief.financialScope || "company");
   const [criteria, setCriteria] = useState(brief.criteria);
   const [savedCriteria, setSavedCriteria] = useState(brief.criteria);
   const [savingCriteria, setSavingCriteria] = useState(false);
@@ -37,9 +38,10 @@ export function MandateBriefForm({ mandateId, brief, onSaved }: { mandateId: str
     setBusy(true);
     setError("");
     try {
-      if (JSON.stringify(criteria) !== JSON.stringify(savedCriteria)) {
+      if ((JSON.stringify(criteria) !== JSON.stringify(savedCriteria) || (currentBrief.financialScope || "company") !== savedFinancialScope)) {
         await postJson(`/api/mandates/${mandateId}`, { action: "brief", brief: { ...currentBrief, criteria } }, 40000);
         setSavedCriteria(criteria);
+        setSavedFinancialScope(currentBrief.financialScope || "company");
         setCurrentBrief({ ...currentBrief, criteria });
         onSaved?.({ ...currentBrief, criteria });
       }
@@ -71,6 +73,7 @@ export function MandateBriefForm({ mandateId, brief, onSaved }: { mandateId: str
     try {
       await postJson(`/api/mandates/${mandateId}`, { action: "brief", brief: { ...currentBrief, criteria } }, 40000);
       setSavedCriteria(criteria);
+        setSavedFinancialScope(currentBrief.financialScope || "company");
       setCurrentBrief({ ...currentBrief, criteria });
       onSaved?.({ ...currentBrief, criteria });
       setCriteriaMessage("Criteria saved.");
@@ -90,7 +93,9 @@ export function MandateBriefForm({ mandateId, brief, onSaved }: { mandateId: str
     <div className="flex justify-end"><button disabled={busy || savingCriteria || description.trim().length < 10} className="min-h-12 rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--on-accent)] disabled:opacity-50">{busy ? "Finding companies…" : "Find companies"}</button></div>
   </form>
     <p className="text-sm text-[var(--muted)]">Criteria extracted from your brief inform provisional fit. Review them to confirm requirements and preferences. Unspecified conditions remain unknown.</p>
+    <label className="block text-sm font-semibold">Financial scope<select aria-label="Financial scope" value={currentBrief.financialScope || "company"} onChange={event => setCurrentBrief({ ...currentBrief, financialScope: event.target.value as "company" | "AU" })} className="mt-2 min-h-12 w-full rounded-lg border border-[var(--border)] bg-[var(--panel)] p-3"><option value="company">Company/group revenue</option><option value="AU">Australian operations only</option></select></label>
+    <p className="text-xs text-[var(--muted)]">Company revenue is the default financial screen. Australian operations require a separate AU-scoped figure; company totals remain available as context.</p>
     <BriefCriteria criteria={criteria} onChange={setCriteria} />
-    <div className="flex items-center justify-end gap-3">{criteriaMessage && <p role="status" className="text-sm">{criteriaMessage}</p>}<button type="button" disabled={savingCriteria || JSON.stringify(criteria) === JSON.stringify(savedCriteria)} onClick={() => void saveCriteria()} className="min-h-12 rounded-lg border border-[var(--border)] px-5 text-sm disabled:opacity-50">{savingCriteria ? "Saving…" : "Save criteria"}</button></div>
+    <div className="flex items-center justify-end gap-3">{criteriaMessage && <p role="status" className="text-sm">{criteriaMessage}</p>}<button type="button" disabled={savingCriteria || (JSON.stringify(criteria) === JSON.stringify(savedCriteria) && (currentBrief.financialScope || "company") === savedFinancialScope)} onClick={() => void saveCriteria()} className="min-h-12 rounded-lg border border-[var(--border)] px-5 text-sm disabled:opacity-50">{savingCriteria ? "Saving…" : "Save criteria"}</button></div>
   </div>;
 }

@@ -79,7 +79,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       let generated;
       try { generated = await generateMandate(action.description); }
       catch { return researchJsonResponse({ error: "Could not update the search from your description. Please try again." }, { status: 503 }); }
-      const brief = { ...generated, naturalLanguage: action.description, researchSources: mandate.brief.researchSources, disclosureApproved: mandate.brief.disclosureApproved };
+      const brief = { ...generated, financialScope: mandate.brief.financialScope, naturalLanguage: action.description, researchSources: mandate.brief.researchSources, disclosureApproved: mandate.brief.disclosureApproved };
       await repo.saveBrief(brief, session.user.id, id);
       return researchJsonResponse({ ok: true, brief });
     }

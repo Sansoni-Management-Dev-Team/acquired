@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Mandate, RankedTarget } from "./models";
 import { providerNeutralText } from "./provider-display";
 import { screenCompanyCandidate } from './company-screening';
-import { resolveTargetEbitda } from './target-financial-evidence';
+import { resolveTargetEbitda, resolveTargetRevenue } from './target-financial-evidence';
 import { publicResearchUrl } from "./research";
 
 export const criterionDefinitions = [
@@ -37,6 +37,7 @@ export const criterionSchema = z.object({
   sourceQuote: z.string().max(1500).optional(),
 });
 export const briefSchema = z.object({
+  financialScope: z.enum(["company", "AU"]).optional(),
   name: z.string().trim().min(1).max(100),
   naturalLanguage: z.string().max(10000),
   researchSources: z.array(z.string().url().refine(value => Boolean(publicResearchUrl(value)), "Use a public HTTPS URL without credentials")).max(10).default([]),
@@ -88,7 +89,7 @@ export function briefToMandate(brief: AcquisitionBrief): Mandate {
     const values = amounts.map((a, i) => Number(a[1].replaceAll(",", "")) * ({ m: 1e6, million: 1e6, k: 1e3, b: 1e9, billion: 1e9 }[a[2]?.toLowerCase() || (i === 0 ? amounts[1]?.[2]?.toLowerCase() : "")] || 1));
     return c.state !== "specified" ? { min: 0, max: null } : { min: values[0] ?? 0, max: values[1] ?? null };
   }
-  return { sectors: criterion(brief, "subsectors").value.split(/[;\n]/).map(s => s.trim()).filter(Boolean), states, revenue: range("revenue"), ...(criterion(brief,"revenueCeiling").state === "specified" ? { revenueCeiling: range("revenueCeiling").min } : {}), ebitda: range("ebitda"), ...(criterion(brief, "headcount").state === "specified" ? { headcount: { min: range("headcount").min, max: range("headcount").max ?? Number.MAX_SAFE_INTEGER } } : {}), unknownFields: brief.criteria.filter(c => c.state === "unknown").map(c => c.key), requirements: brief.criteria.filter(c => c.importance === "requirement" && c.confirmed && c.state === "specified").map(c => c.key) };
+  return { financialScope: brief.financialScope, sectors: criterion(brief, "subsectors").value.split(/[;\n]/).map(s => s.trim()).filter(Boolean), states, revenue: range("revenue"), ...(criterion(brief,"revenueCeiling").state === "specified" ? { revenueCeiling: range("revenueCeiling").min } : {}), ebitda: range("ebitda"), ...(criterion(brief, "headcount").state === "specified" ? { headcount: { min: range("headcount").min, max: range("headcount").max ?? Number.MAX_SAFE_INTEGER } } : {}), unknownFields: brief.criteria.filter(c => c.state === "unknown").map(c => c.key), requirements: brief.criteria.filter(c => c.importance === "requirement" && c.confirmed && c.state === "specified").map(c => c.key) };
 }
 export const evidenceSchema = z.object({
   reviewState: z.enum(["provisional", "reviewed"]).optional(),
@@ -137,8 +138,8 @@ export function worksheet(brief: AcquisitionBrief, target: RankedTarget, assessm
     }
     const screen=screenCompanyCandidate(target,briefToMandate(brief));
     if(c.key === 'geography')return {criterionKey:c.key,reviewState:'provisional' as const,assessment:screen.geography==='review'?'unknown' as const:screen.geography==='excluded'?'fails' as const:'potential' as const,kind:'inferred' as const,value:target.sourceData?.firmable?.scopedFacts?.operatingStates.value?.join(', ') || (target.state==='Unknown'?'':target.state),source:'Company operating footprint',sourceUrl:target.sourceData?.firmable?.website || '',capturedAt:target.sourceData?.firmable?.capturedAt || new Date(0).toISOString(),confidence:50,nextStep:'Verify operating footprint; headquarters is retained separately'};
-    if(c.key === 'ebitda' && target.ebitda.value===null){const estimate=resolveTargetEbitda([],target.headcount.value ?? undefined,target);return {criterionKey:c.key,reviewState:'provisional' as const,assessment:estimate.status==='estimated'?'potential' as const:'unknown' as const,kind:'modelled' as const,value:estimate.status==='estimated'?`AUD ${estimate.low}–${estimate.high} (modelled EBITDA; ${estimate.modelVersion}; ${estimate.match?.description})`:'',source:estimate.benchmark?.label || '',sourceUrl:estimate.benchmark?.sourceUrl || '',capturedAt:target.headcount.provenance.capturedAt,confidence:estimate.status==='estimated'?25:0,nextStep:'Obtain observed EBITDA from accounts; estimate is not earnings evidence'};}
-    const field = c.key === "revenue" || c.key === 'revenueCeiling' ? target.revenue : c.key === "headcount" ? target.headcount : c.key === "ebitda" ? target.ebitda : c.key === "subsectors" ? target.sector : null;
+    if(c.key === 'ebitda' && (target.ebitda.value===null || brief.financialScope==='AU' && target.ebitda.provenance.scope!=='AU')){const estimate=resolveTargetEbitda([],target.headcount.value ?? undefined,target,undefined,brief.financialScope);return {criterionKey:c.key,reviewState:'provisional' as const,assessment:estimate.status==='estimated'?'potential' as const:'unknown' as const,kind:'modelled' as const,value:estimate.status==='estimated'?`AUD ${estimate.low}–${estimate.high} (modelled EBITDA; ${estimate.modelVersion}; ${estimate.match?.description})`:'',source:estimate.benchmark?.label || '',sourceUrl:estimate.benchmark?.sourceUrl || '',capturedAt:estimate.modelBasis==='revenue'?resolveTargetRevenue(target,brief.financialScope).provenance.capturedAt:target.headcount.provenance.capturedAt,confidence:estimate.status==='estimated'?25:0,nextStep:'Obtain observed EBITDA from accounts; estimate is not earnings evidence'};}
+    const field = c.key === "revenue" || c.key === 'revenueCeiling' ? resolveTargetRevenue(target,brief.financialScope) : c.key === "headcount" ? target.headcount : c.key === "ebitda" ? target.ebitda : c.key === "subsectors" ? target.sector : null;
     const scopedStatus = target.sourceData?.firmable?.scopedFacts && ['subsectors','headcount','revenue','revenueCeiling'].includes(c.key) ? screen[c.key==='subsectors'?'sector':c.key==='revenueCeiling'?'revenue':c.key as 'headcount'|'revenue'] : undefined;
     return { criterionKey: c.key, reviewState:"provisional" as const, assessment: scopedStatus ? scopedStatus==='excluded'?'fails':scopedStatus==='supported'?'potential':'unknown' : field?.value != null && !/^unclassified|unknown$/i.test(String(field.value)) ? "potential" : "unknown", kind: c.key === "revenue" ? "modelled" : "inferred", value: field?.value == null ? "" : typeof field.value === "object" ? (field.value.kind === "band" ? field.value.label : `$${field.value.min.toLocaleString("en-AU")}–$${field.value.max.toLocaleString("en-AU")}`) : String(field.value), source: providerNeutralText(field?.provenance.source || ""), sourceUrl: field?.provenance.sourceUrl || "", capturedAt: field?.provenance.capturedAt || new Date(0).toISOString(), confidence: field?.value == null ? 0 : field.provenance.confidence, nextStep: criterionDefinitions.find(([key]) => key === c.key)![2] === "contact" ? "Ask the owner and record supporting evidence" : "Verify relevance and source" };
   });

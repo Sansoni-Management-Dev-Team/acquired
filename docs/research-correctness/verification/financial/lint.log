@@ -1,0 +1,9 @@
+> acquired@0.1.0 lint
+> eslint .
+
+
+/Users/callum/Documents/Development/project-acquire/src/domain/firmable-company-pipeline.test.ts
+  6:145  warning  'from' is defined but never used      @typescript-eslint/no-unused-vars
+  6:157  warning  '_filters' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 2 problems (0 errors, 2 warnings)

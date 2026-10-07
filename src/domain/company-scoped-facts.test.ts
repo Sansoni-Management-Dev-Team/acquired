@@ -20,7 +20,7 @@ it('uses the company band for an AU-only Australian profile with explicit assump
  expect(facts.revenue.AU.assumption).toContain('AUD currency assumed');
  expect(facts.revenue.AU.missingReason).toBeUndefined();
  expect(facts.revenue.global).toMatchObject({value:{label:'<$1M'},scope:'global'});
- expect(facts.revenue.global.currency).toBeUndefined();
+ expect(facts.revenue.global.currency).toBe('AUD');expect(facts.revenue.global.assumption).toContain('AUD currency assumed');
  expect(JSON.stringify(raw)).toBe(before);
 });
 
@@ -49,7 +49,7 @@ it('explicit regional revenue including zero wins; explicit profile currency and
 
 it('new mappings and legacy JSON reloads drive usable revenue, provisional fit, UI and completeness without a backfill',()=>{
  const candidate=mapFirmableProfile(raw,mandate,'synthetic-org');
- expect(candidate.revenue).toMatchObject({value:{kind:'band',label:'<$1M'},researchState:'estimated',provenance:{currency:'AUD',scope:'AU',confidence:60}});
+ expect(candidate.revenue).toMatchObject({value:{kind:'band',label:'<$1M'},researchState:'observed',provenance:{currency:'AUD',scope:'global',confidence:60}});
  const t=rankTarget(candidate,mandate);
  const row=JSON.parse(JSON.stringify({id:t.id,organizationId:t.organisationId,companyName:t.companyName,domain:t.domain,identifiers:{},firmographics:{state:t.state,suburb:t.suburb,sector:t.sector,revenue:{...t.revenue,value:null},headcount:t.headcount,ebitda:t.ebitda,establishedYear:t.establishedYear,firmable:{...t.sourceData?.firmable,scopedFacts:undefined}},fitScore:0,ripenessScore:0,confidenceScore:0,financeabilityScore:null,band:'cold',qualification:'research',status:'enriched'}));
  const projected=targetRecordToRankedTarget(row,[]);
@@ -57,7 +57,7 @@ it('new mappings and legacy JSON reloads drive usable revenue, provisional fit, 
  const brief=emptyBrief();Object.assign(criterion(brief,'revenue'),{state:'specified',value:'6000000–30000000'});
  const member={target:projected,assessment:initialAssessment,accreditations:[],version:1};
  const report=companyCompleteness(member,brief);
- for(const field of ['AU revenue band','Mapped revenue'])expect(report.cells.find(c=>c.field===field)).toMatchObject({status:'estimated',currency:'AUD',reason:expect.stringContaining('AU scope assumed')});
+ expect(report.cells.find(c=>c.field==='AU revenue band')).toMatchObject({status:'estimated',currency:'AUD',reason:expect.stringContaining('AU scope assumed')});expect(report.cells.find(c=>c.field==='Mapped revenue')).toMatchObject({currency:'AUD',scope:'global',value:{kind:'band',label:'<$1M'}});
  expect(reviewMandateFit(brief,projected,initialAssessment).rows.find(r=>r.key==='revenue')).toMatchObject({status:'fails'});
  const html=renderToStaticMarkup(React.createElement(CompanyInfoSummary,{member}));
  expect(html).toContain('&lt;$1M');expect(html).toContain('Revenue assumptions');expect(html).toContain('AUD currency assumed');

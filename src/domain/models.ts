@@ -28,6 +28,7 @@ export type DerivedValue<T> = {
 export type FinancialValue = number | { kind: "range"; min: number; max: number } | { kind: "band"; label: string };
 
 export type Mandate = {
+  financialScope?: "company" | "AU";
   unknownFields?: string[];
   requirements?: string[];
   sectors: string[];

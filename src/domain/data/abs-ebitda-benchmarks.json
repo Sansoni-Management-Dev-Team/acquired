@@ -3,6 +3,19 @@
   "releaseDate": "2026-06-19",
   "latestPeriod": "2024-25",
   "methodologyUrl": "https://www.abs.gov.au/methodologies/australian-industry-methodology/2024-25",
+  "sourceSha256": "3af5337562b64c0a4f8170f7f1f53cfebdefc18facd950d4dcb5e28106b2f667",
+  "revenueDenominator": {
+    "metric": "Sales and service income",
+    "units": "AUD millions (current prices)",
+    "table1Column": "D",
+    "table5Columns": {
+      "2022-23": "H",
+      "2023-24": "I",
+      "2024-25": "J"
+    },
+    "ratioDefinition": "EBITDA divided by sales and service income in the same industry population and period; not the ABS OPBT profit margin statistic",
+    "missingPolicy": "Blank/non-numeric denominator remains unavailable; non-positive denominator is not usable for a ratio; retain zero and negative EBITDA without clipping"
+  },
   "benchmarks": [
     {
       "id": "anzsic-01",
@@ -17,19 +30,25 @@
           "period": "2022-23",
           "employmentThousands": 342.4,
           "ebitdaMillions": 22633.0,
-          "cells": "B9, H9"
+          "cells": "B9, H9",
+          "salesServiceIncomeMillions": 113916.0,
+          "salesServiceIncomeCell": "D9"
         },
         {
           "period": "2023-24",
           "employmentThousands": 334.1,
           "ebitdaMillions": 13700.0,
-          "cells": "B10, H10"
+          "cells": "B10, H10",
+          "salesServiceIncomeMillions": 98363.0,
+          "salesServiceIncomeCell": "D10"
         },
         {
           "period": "2024-25",
           "employmentThousands": 342.1,
           "ebitdaMillions": 16390.0,
-          "cells": "B11, H11"
+          "cells": "B11, H11",
+          "salesServiceIncomeMillions": 105629.0,
+          "salesServiceIncomeCell": "D11"
         }
       ]
     },
@@ -46,19 +65,25 @@
           "period": "2022-23",
           "employmentThousands": 7.3,
           "ebitdaMillions": 253.0,
-          "cells": "B13, H13"
+          "cells": "B13, H13",
+          "salesServiceIncomeMillions": 2343.0,
+          "salesServiceIncomeCell": "D13"
         },
         {
           "period": "2023-24",
           "employmentThousands": 7.5,
           "ebitdaMillions": 220.0,
-          "cells": "B14, H14"
+          "cells": "B14, H14",
+          "salesServiceIncomeMillions": 2596.0,
+          "salesServiceIncomeCell": "D14"
         },
         {
           "period": "2024-25",
           "employmentThousands": 7.8,
           "ebitdaMillions": 168.0,
-          "cells": "B15, H15"
+          "cells": "B15, H15",
+          "salesServiceIncomeMillions": 2700.0,
+          "salesServiceIncomeCell": "D15"
         }
       ]
     },
@@ -75,19 +100,25 @@
           "period": "2022-23",
           "employmentThousands": 10.4,
           "ebitdaMillions": 799.0,
-          "cells": "B17, H17"
+          "cells": "B17, H17",
+          "salesServiceIncomeMillions": 4051.0,
+          "salesServiceIncomeCell": "D17"
         },
         {
           "period": "2023-24",
           "employmentThousands": 10.2,
           "ebitdaMillions": 787.0,
-          "cells": "B18, H18"
+          "cells": "B18, H18",
+          "salesServiceIncomeMillions": 4083.0,
+          "salesServiceIncomeCell": "D18"
         },
         {
           "period": "2024-25",
           "employmentThousands": 10.4,
           "ebitdaMillions": 808.0,
-          "cells": "B19, H19"
+          "cells": "B19, H19",
+          "salesServiceIncomeMillions": 4354.0,
+          "salesServiceIncomeCell": "D19"
         }
       ]
     },
@@ -104,19 +135,25 @@
           "period": "2022-23",
           "employmentThousands": 9.9,
           "ebitdaMillions": 574.0,
-          "cells": "B21, H21"
+          "cells": "B21, H21",
+          "salesServiceIncomeMillions": 2369.0,
+          "salesServiceIncomeCell": "D21"
         },
         {
           "period": "2023-24",
           "employmentThousands": 9.3,
           "ebitdaMillions": 598.0,
-          "cells": "B22, H22"
+          "cells": "B22, H22",
+          "salesServiceIncomeMillions": 2480.0,
+          "salesServiceIncomeCell": "D22"
         },
         {
           "period": "2024-25",
           "employmentThousands": 8.7,
           "ebitdaMillions": 649.0,
-          "cells": "B23, H23"
+          "cells": "B23, H23",
+          "salesServiceIncomeMillions": 2503.0,
+          "salesServiceIncomeCell": "D23"
         }
       ]
     },
@@ -133,19 +170,25 @@
           "period": "2022-23",
           "employmentThousands": 48.3,
           "ebitdaMillions": 2707.0,
-          "cells": "B25, H25"
+          "cells": "B25, H25",
+          "salesServiceIncomeMillions": 11825.0,
+          "salesServiceIncomeCell": "D25"
         },
         {
           "period": "2023-24",
           "employmentThousands": 46.7,
           "ebitdaMillions": 2211.0,
-          "cells": "B26, H26"
+          "cells": "B26, H26",
+          "salesServiceIncomeMillions": 12167.0,
+          "salesServiceIncomeCell": "D26"
         },
         {
           "period": "2024-25",
           "employmentThousands": 47.1,
           "ebitdaMillions": 2332.0,
-          "cells": "B27, H27"
+          "cells": "B27, H27",
+          "salesServiceIncomeMillions": 12960.0,
+          "salesServiceIncomeCell": "D27"
         }
       ]
     },
@@ -162,19 +205,25 @@
           "period": "2022-23",
           "employmentThousands": 418.2,
           "ebitdaMillions": 26966.0,
-          "cells": "B29, H29"
+          "cells": "B29, H29",
+          "salesServiceIncomeMillions": 134504.0,
+          "salesServiceIncomeCell": "D29"
         },
         {
           "period": "2023-24",
           "employmentThousands": 407.9,
           "ebitdaMillions": 17516.0,
-          "cells": "B30, H30"
+          "cells": "B30, H30",
+          "salesServiceIncomeMillions": 119689.0,
+          "salesServiceIncomeCell": "D30"
         },
         {
           "period": "2024-25",
           "employmentThousands": 416.1,
           "ebitdaMillions": 20348.0,
-          "cells": "B31, H31"
+          "cells": "B31, H31",
+          "salesServiceIncomeMillions": 128145.0,
+          "salesServiceIncomeCell": "D31"
         }
       ]
     },
@@ -191,19 +240,25 @@
           "period": "2022-23",
           "employmentThousands": 42.5,
           "ebitdaMillions": 73623.0,
-          "cells": "B34, H34"
+          "cells": "B34, H34",
+          "salesServiceIncomeMillions": 152698.0,
+          "salesServiceIncomeCell": "D34"
         },
         {
           "period": "2023-24",
           "employmentThousands": 46.9,
           "ebitdaMillions": 36319.0,
-          "cells": "B35, H35"
+          "cells": "B35, H35",
+          "salesServiceIncomeMillions": 115667.0,
+          "salesServiceIncomeCell": "D35"
         },
         {
           "period": "2024-25",
           "employmentThousands": 49.4,
           "ebitdaMillions": 18332.0,
-          "cells": "B36, H36"
+          "cells": "B36, H36",
+          "salesServiceIncomeMillions": 94593.0,
+          "salesServiceIncomeCell": "D36"
         }
       ]
     },
@@ -220,19 +275,25 @@
           "period": "2022-23",
           "employmentThousands": 18.3,
           "ebitdaMillions": 89231.0,
-          "cells": "B38, H38"
+          "cells": "B38, H38",
+          "salesServiceIncomeMillions": 131465.0,
+          "salesServiceIncomeCell": "D38"
         },
         {
           "period": "2023-24",
           "employmentThousands": 19.2,
           "ebitdaMillions": 72522.0,
-          "cells": "B39, H39"
+          "cells": "B39, H39",
+          "salesServiceIncomeMillions": 113073.0,
+          "salesServiceIncomeCell": "D39"
         },
         {
           "period": "2024-25",
           "employmentThousands": 19.6,
           "ebitdaMillions": 68033.0,
-          "cells": "B40, H40"
+          "cells": "B40, H40",
+          "salesServiceIncomeMillions": 110675.0,
+          "salesServiceIncomeCell": "D40"
         }
       ]
     },
@@ -249,19 +310,25 @@
           "period": "2022-23",
           "employmentThousands": 94.2,
           "ebitdaMillions": 100528.0,
-          "cells": "B42, H42"
+          "cells": "B42, H42",
+          "salesServiceIncomeMillions": 198890.0,
+          "salesServiceIncomeCell": "D42"
         },
         {
           "period": "2023-24",
           "employmentThousands": 101.2,
           "ebitdaMillions": 109507.0,
-          "cells": "B43, H43"
+          "cells": "B43, H43",
+          "salesServiceIncomeMillions": 214221.0,
+          "salesServiceIncomeCell": "D43"
         },
         {
           "period": "2024-25",
           "employmentThousands": 104.3,
           "ebitdaMillions": 93396.0,
-          "cells": "B44, H44"
+          "cells": "B44, H44",
+          "salesServiceIncomeMillions": 201128.0,
+          "salesServiceIncomeCell": "D44"
         }
       ]
     },
@@ -278,19 +345,25 @@
           "period": "2022-23",
           "employmentThousands": 14.8,
           "ebitdaMillions": 11298.0,
-          "cells": "B46, H46"
+          "cells": "B46, H46",
+          "salesServiceIncomeMillions": 21232.0,
+          "salesServiceIncomeCell": "D46"
         },
         {
           "period": "2023-24",
           "employmentThousands": 16.0,
           "ebitdaMillions": 11890.0,
-          "cells": "B47, H47"
+          "cells": "B47, H47",
+          "salesServiceIncomeMillions": 22850.0,
+          "salesServiceIncomeCell": "D47"
         },
         {
           "period": "2024-25",
           "employmentThousands": 16.9,
           "ebitdaMillions": 2851.0,
-          "cells": "B48, H48"
+          "cells": "B48, H48",
+          "salesServiceIncomeMillions": 14050.0,
+          "salesServiceIncomeCell": "D48"
         }
       ]
     },
@@ -307,19 +380,25 @@
           "period": "2022-23",
           "employmentThousands": 49.0,
           "ebitdaMillions": 397.0,
-          "cells": "B50, H50"
+          "cells": "B50, H50",
+          "salesServiceIncomeMillions": 20717.0,
+          "salesServiceIncomeCell": "D50"
         },
         {
           "period": "2023-24",
           "employmentThousands": 53.1,
           "ebitdaMillions": 302.0,
-          "cells": "B51, H51"
+          "cells": "B51, H51",
+          "salesServiceIncomeMillions": 24328.0,
+          "salesServiceIncomeCell": "D51"
         },
         {
           "period": "2024-25",
           "employmentThousands": 51.2,
           "ebitdaMillions": 568.0,
-          "cells": "B52, H52"
+          "cells": "B52, H52",
+          "salesServiceIncomeMillions": 25069.0,
+          "salesServiceIncomeCell": "D52"
         }
       ]
     },
@@ -336,19 +415,25 @@
           "period": "2022-23",
           "employmentThousands": 218.7,
           "ebitdaMillions": 275078.0,
-          "cells": "B54, H54"
+          "cells": "B54, H54",
+          "salesServiceIncomeMillions": 525002.0,
+          "salesServiceIncomeCell": "D54"
         },
         {
           "period": "2023-24",
           "employmentThousands": 236.4,
           "ebitdaMillions": 230538.0,
-          "cells": "B55, H55"
+          "cells": "B55, H55",
+          "salesServiceIncomeMillions": 490138.0,
+          "salesServiceIncomeCell": "D55"
         },
         {
           "period": "2024-25",
           "employmentThousands": 241.4,
           "ebitdaMillions": 183179.0,
-          "cells": "B56, H56"
+          "cells": "B56, H56",
+          "salesServiceIncomeMillions": 445515.0,
+          "salesServiceIncomeCell": "D56"
         }
       ]
     },
@@ -365,19 +450,25 @@
           "period": "2022-23",
           "employmentThousands": 213.6,
           "ebitdaMillions": 8293.0,
-          "cells": "B59, H59"
+          "cells": "B59, H59",
+          "salesServiceIncomeMillions": 123921.0,
+          "salesServiceIncomeCell": "D59"
         },
         {
           "period": "2023-24",
           "employmentThousands": 224.0,
           "ebitdaMillions": 10388.0,
-          "cells": "B60, H60"
+          "cells": "B60, H60",
+          "salesServiceIncomeMillions": 130515.0,
+          "salesServiceIncomeCell": "D60"
         },
         {
           "period": "2024-25",
           "employmentThousands": 231.5,
           "ebitdaMillions": 11203.0,
-          "cells": "B61, H61"
+          "cells": "B61, H61",
+          "salesServiceIncomeMillions": 137164.0,
+          "salesServiceIncomeCell": "D61"
         }
       ]
     },
@@ -394,19 +485,25 @@
           "period": "2022-23",
           "employmentThousands": 38.7,
           "ebitdaMillions": 1228.0,
-          "cells": "B63, H63"
+          "cells": "B63, H63",
+          "salesServiceIncomeMillions": 20852.0,
+          "salesServiceIncomeCell": "D63"
         },
         {
           "period": "2023-24",
           "employmentThousands": 40.5,
           "ebitdaMillions": 2189.0,
-          "cells": "B64, H64"
+          "cells": "B64, H64",
+          "salesServiceIncomeMillions": 22265.0,
+          "salesServiceIncomeCell": "D64"
         },
         {
           "period": "2024-25",
           "employmentThousands": 39.9,
           "ebitdaMillions": 2275.0,
-          "cells": "B65, H65"
+          "cells": "B65, H65",
+          "salesServiceIncomeMillions": 22997.0,
+          "salesServiceIncomeCell": "D65"
         }
       ]
     },
@@ -423,19 +520,25 @@
           "period": "2022-23",
           "employmentThousands": 28.1,
           "ebitdaMillions": 950.0,
-          "cells": "B67, H67"
+          "cells": "B67, H67",
+          "salesServiceIncomeMillions": 7854.0,
+          "salesServiceIncomeCell": "D67"
         },
         {
           "period": "2023-24",
           "employmentThousands": 27.2,
           "ebitdaMillions": 861.0,
-          "cells": "B68, H68"
+          "cells": "B68, H68",
+          "salesServiceIncomeMillions": 7943.0,
+          "salesServiceIncomeCell": "D68"
         },
         {
           "period": "2024-25",
           "employmentThousands": 24.5,
           "ebitdaMillions": 569.0,
-          "cells": "B69, H69"
+          "cells": "B69, H69",
+          "salesServiceIncomeMillions": 7280.0,
+          "salesServiceIncomeCell": "D69"
         }
       ]
     },
@@ -452,19 +555,25 @@
           "period": "2022-23",
           "employmentThousands": 48.0,
           "ebitdaMillions": 3252.0,
-          "cells": "B71, H71"
+          "cells": "B71, H71",
+          "salesServiceIncomeMillions": 17369.0,
+          "salesServiceIncomeCell": "D71"
         },
         {
           "period": "2023-24",
           "employmentThousands": 47.1,
           "ebitdaMillions": 2356.0,
-          "cells": "B72, H72"
+          "cells": "B72, H72",
+          "salesServiceIncomeMillions": 16755.0,
+          "salesServiceIncomeCell": "D72"
         },
         {
           "period": "2024-25",
           "employmentThousands": 47.8,
           "ebitdaMillions": 2420.0,
-          "cells": "B73, H73"
+          "cells": "B73, H73",
+          "salesServiceIncomeMillions": 17278.0,
+          "salesServiceIncomeCell": "D73"
         }
       ]
     },
@@ -481,19 +590,26 @@
           "period": "2022-23",
           "employmentThousands": 15.3,
           "ebitdaMillions": 715.0,
-          "cells": "B75, H75"
+          "cells": "B75, H75",
+          "salesServiceIncomeMillions": 10919.0,
+          "salesServiceIncomeCell": "D75"
         },
         {
           "period": "2023-24",
           "employmentThousands": 14.6,
           "ebitdaMillions": 951.0,
-          "cells": "B76, H76"
+          "cells": "B76, H76",
+          "salesServiceIncomeMillions": 11054.0,
+          "salesServiceIncomeCell": "D76"
         },
         {
           "period": "2024-25",
           "employmentThousands": 13.7,
           "ebitdaMillions": 911.0,
-          "cells": "B77, H77"
+          "cells": "B77, H77",
+          "salesServiceIncomeMillions": null,
+          "salesServiceIncomeCell": "D77",
+          "salesServiceIncomeMissingReason": "ABS source cell blank (denominator unavailable)"
         }
       ]
     },
@@ -510,19 +626,25 @@
           "period": "2022-23",
           "employmentThousands": 26.2,
           "ebitdaMillions": 943.0,
-          "cells": "B79, H79"
+          "cells": "B79, H79",
+          "salesServiceIncomeMillions": 7721.0,
+          "salesServiceIncomeCell": "D79"
         },
         {
           "period": "2023-24",
           "employmentThousands": 25.5,
           "ebitdaMillions": 725.0,
-          "cells": "B80, H80"
+          "cells": "B80, H80",
+          "salesServiceIncomeMillions": 6740.0,
+          "salesServiceIncomeCell": "D80"
         },
         {
           "period": "2024-25",
           "employmentThousands": 24.0,
           "ebitdaMillions": 810.0,
-          "cells": "B81, H81"
+          "cells": "B81, H81",
+          "salesServiceIncomeMillions": 7335.0,
+          "salesServiceIncomeCell": "D81"
         }
       ]
     },
@@ -539,19 +661,27 @@
           "period": "2022-23",
           "employmentThousands": 3.9,
           "ebitdaMillions": 1428.0,
-          "cells": "B83, H83"
+          "cells": "B83, H83",
+          "salesServiceIncomeMillions": null,
+          "salesServiceIncomeCell": "D83",
+          "salesServiceIncomeMissingReason": "ABS source cell blank (denominator unavailable)"
         },
         {
           "period": "2023-24",
           "employmentThousands": 3.7,
           "ebitdaMillions": 950.0,
-          "cells": "B84, H84"
+          "cells": "B84, H84",
+          "salesServiceIncomeMillions": 17335.0,
+          "salesServiceIncomeCell": "D84"
         },
         {
           "period": "2024-25",
           "employmentThousands": 3.6,
           "ebitdaMillions": 759.0,
-          "cells": "B85, H85"
+          "cells": "B85, H85",
+          "salesServiceIncomeMillions": null,
+          "salesServiceIncomeCell": "D85",
+          "salesServiceIncomeMissingReason": "ABS source cell blank (denominator unavailable)"
         }
       ]
     },
@@ -568,19 +698,25 @@
           "period": "2022-23",
           "employmentThousands": 50.3,
           "ebitdaMillions": 5253.0,
-          "cells": "B87, H87"
+          "cells": "B87, H87",
+          "salesServiceIncomeMillions": 42984.0,
+          "salesServiceIncomeCell": "D87"
         },
         {
           "period": "2023-24",
           "employmentThousands": 50.3,
           "ebitdaMillions": 3240.0,
-          "cells": "B88, H88"
+          "cells": "B88, H88",
+          "salesServiceIncomeMillions": 38859.0,
+          "salesServiceIncomeCell": "D88"
         },
         {
           "period": "2024-25",
           "employmentThousands": 50.0,
           "ebitdaMillions": 3827.0,
-          "cells": "B89, H89"
+          "cells": "B89, H89",
+          "salesServiceIncomeMillions": 41950.0,
+          "salesServiceIncomeCell": "D89"
         }
       ]
     },
@@ -597,19 +733,25 @@
           "period": "2022-23",
           "employmentThousands": 40.4,
           "ebitdaMillions": 2141.0,
-          "cells": "B91, H91"
+          "cells": "B91, H91",
+          "salesServiceIncomeMillions": 18372.0,
+          "salesServiceIncomeCell": "D91"
         },
         {
           "period": "2023-24",
           "employmentThousands": 40.0,
           "ebitdaMillions": 1956.0,
-          "cells": "B92, H92"
+          "cells": "B92, H92",
+          "salesServiceIncomeMillions": 17423.0,
+          "salesServiceIncomeCell": "D92"
         },
         {
           "period": "2024-25",
           "employmentThousands": 40.9,
           "ebitdaMillions": 1611.0,
-          "cells": "B93, H93"
+          "cells": "B93, H93",
+          "salesServiceIncomeMillions": 18679.0,
+          "salesServiceIncomeCell": "D93"
         }
       ]
     },
@@ -626,19 +768,25 @@
           "period": "2022-23",
           "employmentThousands": 44.1,
           "ebitdaMillions": 3225.0,
-          "cells": "B95, H95"
+          "cells": "B95, H95",
+          "salesServiceIncomeMillions": 24947.0,
+          "salesServiceIncomeCell": "D95"
         },
         {
           "period": "2023-24",
           "employmentThousands": 43.3,
           "ebitdaMillions": 3635.0,
-          "cells": "B96, H96"
+          "cells": "B96, H96",
+          "salesServiceIncomeMillions": 26747.0,
+          "salesServiceIncomeCell": "D96"
         },
         {
           "period": "2024-25",
           "employmentThousands": 42.2,
           "ebitdaMillions": 3712.0,
-          "cells": "B97, H97"
+          "cells": "B97, H97",
+          "salesServiceIncomeMillions": 26749.0,
+          "salesServiceIncomeCell": "D97"
         }
       ]
     },
@@ -655,19 +803,25 @@
           "period": "2022-23",
           "employmentThousands": 43.2,
           "ebitdaMillions": 5428.0,
-          "cells": "B99, H99"
+          "cells": "B99, H99",
+          "salesServiceIncomeMillions": 74418.0,
+          "salesServiceIncomeCell": "D99"
         },
         {
           "period": "2023-24",
           "employmentThousands": 42.4,
           "ebitdaMillions": 3856.0,
-          "cells": "B100, H100"
+          "cells": "B100, H100",
+          "salesServiceIncomeMillions": 75470.0,
+          "salesServiceIncomeCell": "D100"
         },
         {
           "period": "2024-25",
           "employmentThousands": 40.1,
           "ebitdaMillions": 3419.0,
-          "cells": "B101, H101"
+          "cells": "B101, H101",
+          "salesServiceIncomeMillions": 93436.0,
+          "salesServiceIncomeCell": "D101"
         }
       ]
     },
@@ -684,19 +838,25 @@
           "period": "2022-23",
           "employmentThousands": 110.6,
           "ebitdaMillions": 4722.0,
-          "cells": "B103, H103"
+          "cells": "B103, H103",
+          "salesServiceIncomeMillions": 44222.0,
+          "salesServiceIncomeCell": "D103"
         },
         {
           "period": "2023-24",
           "employmentThousands": 109.5,
           "ebitdaMillions": 5104.0,
-          "cells": "B104, H104"
+          "cells": "B104, H104",
+          "salesServiceIncomeMillions": 43706.0,
+          "salesServiceIncomeCell": "D104"
         },
         {
           "period": "2024-25",
           "employmentThousands": 114.8,
           "ebitdaMillions": 5357.0,
-          "cells": "B105, H105"
+          "cells": "B105, H105",
+          "salesServiceIncomeMillions": 44235.0,
+          "salesServiceIncomeCell": "D105"
         }
       ]
     },
@@ -713,19 +873,25 @@
           "period": "2022-23",
           "employmentThousands": 84.6,
           "ebitdaMillions": 3750.0,
-          "cells": "B107, H107"
+          "cells": "B107, H107",
+          "salesServiceIncomeMillions": 33775.0,
+          "salesServiceIncomeCell": "D107"
         },
         {
           "period": "2023-24",
           "employmentThousands": 88.4,
           "ebitdaMillions": 3689.0,
-          "cells": "B108, H108"
+          "cells": "B108, H108",
+          "salesServiceIncomeMillions": 39944.0,
+          "salesServiceIncomeCell": "D108"
         },
         {
           "period": "2024-25",
           "employmentThousands": 85.4,
           "ebitdaMillions": 3887.0,
-          "cells": "B109, H109"
+          "cells": "B109, H109",
+          "salesServiceIncomeMillions": 42031.0,
+          "salesServiceIncomeCell": "D109"
         }
       ]
     },
@@ -742,19 +908,25 @@
           "period": "2022-23",
           "employmentThousands": 109.3,
           "ebitdaMillions": 6930.0,
-          "cells": "B111, H111"
+          "cells": "B111, H111",
+          "salesServiceIncomeMillions": 50782.0,
+          "salesServiceIncomeCell": "D111"
         },
         {
           "period": "2023-24",
           "employmentThousands": 106.1,
           "ebitdaMillions": 6844.0,
-          "cells": "B112, H112"
+          "cells": "B112, H112",
+          "salesServiceIncomeMillions": 50862.0,
+          "salesServiceIncomeCell": "D112"
         },
         {
           "period": "2024-25",
           "employmentThousands": 106.4,
           "ebitdaMillions": 6849.0,
-          "cells": "B113, H113"
+          "cells": "B113, H113",
+          "salesServiceIncomeMillions": 53980.0,
+          "salesServiceIncomeCell": "D113"
         }
       ]
     },
@@ -771,19 +943,26 @@
           "period": "2022-23",
           "employmentThousands": 36.6,
           "ebitdaMillions": 1323.0,
-          "cells": "B115, H115"
+          "cells": "B115, H115",
+          "salesServiceIncomeMillions": null,
+          "salesServiceIncomeCell": "D115",
+          "salesServiceIncomeMissingReason": "ABS source cell blank (denominator unavailable)"
         },
         {
           "period": "2023-24",
           "employmentThousands": 36.8,
           "ebitdaMillions": 1234.0,
-          "cells": "B116, H116"
+          "cells": "B116, H116",
+          "salesServiceIncomeMillions": 9821.0,
+          "salesServiceIncomeCell": "D116"
         },
         {
           "period": "2024-25",
           "employmentThousands": 36.0,
           "ebitdaMillions": 1121.0,
-          "cells": "B117, H117"
+          "cells": "B117, H117",
+          "salesServiceIncomeMillions": 9850.0,
+          "salesServiceIncomeCell": "D117"
         }
       ]
     },
@@ -800,19 +979,25 @@
           "period": "2022-23",
           "employmentThousands": 892.9,
           "ebitdaMillions": 49581.0,
-          "cells": "B119, H119"
+          "cells": "B119, H119",
+          "salesServiceIncomeMillions": 507581.0,
+          "salesServiceIncomeCell": "D119"
         },
         {
           "period": "2023-24",
           "employmentThousands": 899.3,
           "ebitdaMillions": 47977.0,
-          "cells": "B120, H120"
+          "cells": "B120, H120",
+          "salesServiceIncomeMillions": 515438.0,
+          "salesServiceIncomeCell": "D120"
         },
         {
           "period": "2024-25",
           "employmentThousands": 900.8,
           "ebitdaMillions": 48730.0,
-          "cells": "B121, H121"
+          "cells": "B121, H121",
+          "salesServiceIncomeMillions": 551184.0,
+          "salesServiceIncomeCell": "D121"
         }
       ]
     },
@@ -829,19 +1014,25 @@
           "period": "2022-23",
           "employmentThousands": 54.6,
           "ebitdaMillions": 17087.0,
-          "cells": "B124, H124"
+          "cells": "B124, H124",
+          "salesServiceIncomeMillions": 101407.0,
+          "salesServiceIncomeCell": "D124"
         },
         {
           "period": "2023-24",
           "employmentThousands": 59.8,
           "ebitdaMillions": 18930.0,
-          "cells": "B125, H125"
+          "cells": "B125, H125",
+          "salesServiceIncomeMillions": 105442.0,
+          "salesServiceIncomeCell": "D125"
         },
         {
           "period": "2024-25",
           "employmentThousands": 63.8,
           "ebitdaMillions": 19415.0,
-          "cells": "B126, H126"
+          "cells": "B126, H126",
+          "salesServiceIncomeMillions": 113798.0,
+          "salesServiceIncomeCell": "D126"
         }
       ]
     },
@@ -858,19 +1049,25 @@
           "period": "2022-23",
           "employmentThousands": 3.1,
           "ebitdaMillions": 2689.0,
-          "cells": "B128, H128"
+          "cells": "B128, H128",
+          "salesServiceIncomeMillions": 14146.0,
+          "salesServiceIncomeCell": "D128"
         },
         {
           "period": "2023-24",
           "employmentThousands": 3.3,
           "ebitdaMillions": 2494.0,
-          "cells": "B129, H129"
+          "cells": "B129, H129",
+          "salesServiceIncomeMillions": 13973.0,
+          "salesServiceIncomeCell": "D129"
         },
         {
           "period": "2024-25",
           "employmentThousands": 3.3,
           "ebitdaMillions": 2263.0,
-          "cells": "B130, H130"
+          "cells": "B130, H130",
+          "salesServiceIncomeMillions": 14679.0,
+          "salesServiceIncomeCell": "D130"
         }
       ]
     },
@@ -887,19 +1084,25 @@
           "period": "2022-23",
           "employmentThousands": 33.7,
           "ebitdaMillions": 10167.0,
-          "cells": "B132, H132"
+          "cells": "B132, H132",
+          "salesServiceIncomeMillions": 24071.0,
+          "salesServiceIncomeCell": "D132"
         },
         {
           "period": "2023-24",
           "employmentThousands": 36.5,
           "ebitdaMillions": 10879.0,
-          "cells": "B133, H133"
+          "cells": "B133, H133",
+          "salesServiceIncomeMillions": 26061.0,
+          "salesServiceIncomeCell": "D133"
         },
         {
           "period": "2024-25",
           "employmentThousands": 38.5,
           "ebitdaMillions": 11810.0,
-          "cells": "B134, H134"
+          "cells": "B134, H134",
+          "salesServiceIncomeMillions": 28179.0,
+          "salesServiceIncomeCell": "D134"
         }
       ]
     },
@@ -916,19 +1119,25 @@
           "period": "2022-23",
           "employmentThousands": 43.4,
           "ebitdaMillions": 2872.0,
-          "cells": "B136, H136"
+          "cells": "B136, H136",
+          "salesServiceIncomeMillions": 21270.0,
+          "salesServiceIncomeCell": "D136"
         },
         {
           "period": "2023-24",
           "employmentThousands": 42.2,
           "ebitdaMillions": 2924.0,
-          "cells": "B137, H137"
+          "cells": "B137, H137",
+          "salesServiceIncomeMillions": 21330.0,
+          "salesServiceIncomeCell": "D137"
         },
         {
           "period": "2024-25",
           "employmentThousands": 44.6,
           "ebitdaMillions": 3443.0,
-          "cells": "B138, H138"
+          "cells": "B138, H138",
+          "salesServiceIncomeMillions": 24020.0,
+          "salesServiceIncomeCell": "D138"
         }
       ]
     },
@@ -945,19 +1154,25 @@
           "period": "2022-23",
           "employmentThousands": 134.8,
           "ebitdaMillions": 32816.0,
-          "cells": "B140, H140"
+          "cells": "B140, H140",
+          "salesServiceIncomeMillions": 160893.0,
+          "salesServiceIncomeCell": "D140"
         },
         {
           "period": "2023-24",
           "employmentThousands": 141.7,
           "ebitdaMillions": 35227.0,
-          "cells": "B141, H141"
+          "cells": "B141, H141",
+          "salesServiceIncomeMillions": 166805.0,
+          "salesServiceIncomeCell": "D141"
         },
         {
           "period": "2024-25",
           "employmentThousands": 150.2,
           "ebitdaMillions": 36931.0,
-          "cells": "B142, H142"
+          "cells": "B142, H142",
+          "salesServiceIncomeMillions": 180676.0,
+          "salesServiceIncomeCell": "D142"
         }
       ]
     },
@@ -974,19 +1189,25 @@
           "period": "2022-23",
           "employmentThousands": 247.5,
           "ebitdaMillions": 16008.0,
-          "cells": "B145, H145"
+          "cells": "B145, H145",
+          "salesServiceIncomeMillions": 215104.0,
+          "salesServiceIncomeCell": "D145"
         },
         {
           "period": "2023-24",
           "employmentThousands": 253.9,
           "ebitdaMillions": 16498.0,
-          "cells": "B146, H146"
+          "cells": "B146, H146",
+          "salesServiceIncomeMillions": 232598.0,
+          "salesServiceIncomeCell": "D146"
         },
         {
           "period": "2024-25",
           "employmentThousands": 258.8,
           "ebitdaMillions": 17829.0,
-          "cells": "B147, H147"
+          "cells": "B147, H147",
+          "salesServiceIncomeMillions": 250346.0,
+          "salesServiceIncomeCell": "D147"
         }
       ]
     },
@@ -1003,19 +1224,25 @@
           "period": "2022-23",
           "employmentThousands": 142.4,
           "ebitdaMillions": 6623.0,
-          "cells": "B149, H149"
+          "cells": "B149, H149",
+          "salesServiceIncomeMillions": 101619.0,
+          "salesServiceIncomeCell": "D149"
         },
         {
           "period": "2023-24",
           "employmentThousands": 159.5,
           "ebitdaMillions": 9555.0,
-          "cells": "B150, H150"
+          "cells": "B150, H150",
+          "salesServiceIncomeMillions": 119446.0,
+          "salesServiceIncomeCell": "D150"
         },
         {
           "period": "2024-25",
           "employmentThousands": 165.9,
           "ebitdaMillions": 10072.0,
-          "cells": "B151, H151"
+          "cells": "B151, H151",
+          "salesServiceIncomeMillions": 129918.0,
+          "salesServiceIncomeCell": "D151"
         }
       ]
     },
@@ -1032,19 +1259,25 @@
           "period": "2022-23",
           "employmentThousands": 841.6,
           "ebitdaMillions": 37022.0,
-          "cells": "B153, H153"
+          "cells": "B153, H153",
+          "salesServiceIncomeMillions": 248327.0,
+          "salesServiceIncomeCell": "D153"
         },
         {
           "period": "2023-24",
           "employmentThousands": 883.0,
           "ebitdaMillions": 37219.0,
-          "cells": "B154, H154"
+          "cells": "B154, H154",
+          "salesServiceIncomeMillions": 270522.0,
+          "salesServiceIncomeCell": "D154"
         },
         {
           "period": "2024-25",
           "employmentThousands": 888.3,
           "ebitdaMillions": 39212.0,
-          "cells": "B155, H155"
+          "cells": "B155, H155",
+          "salesServiceIncomeMillions": 284605.0,
+          "salesServiceIncomeCell": "D155"
         }
       ]
     },
@@ -1061,19 +1294,25 @@
           "period": "2022-23",
           "employmentThousands": 1231.5,
           "ebitdaMillions": 59654.0,
-          "cells": "B157, H157"
+          "cells": "B157, H157",
+          "salesServiceIncomeMillions": 565050.0,
+          "salesServiceIncomeCell": "D157"
         },
         {
           "period": "2023-24",
           "employmentThousands": 1296.4,
           "ebitdaMillions": 63271.0,
-          "cells": "B158, H158"
+          "cells": "B158, H158",
+          "salesServiceIncomeMillions": 622566.0,
+          "salesServiceIncomeCell": "D158"
         },
         {
           "period": "2024-25",
           "employmentThousands": 1313.0,
           "ebitdaMillions": 67113.0,
-          "cells": "B159, H159"
+          "cells": "B159, H159",
+          "salesServiceIncomeMillions": 664869.0,
+          "salesServiceIncomeCell": "D159"
         }
       ]
     },
@@ -1090,19 +1329,25 @@
           "period": "2022-23",
           "employmentThousands": 118.6,
           "ebitdaMillions": 14541.0,
-          "cells": "B162, H162"
+          "cells": "B162, H162",
+          "salesServiceIncomeMillions": 255535.0,
+          "salesServiceIncomeCell": "D162"
         },
         {
           "period": "2023-24",
           "employmentThousands": 129.0,
           "ebitdaMillions": 13186.0,
-          "cells": "B163, H163"
+          "cells": "B163, H163",
+          "salesServiceIncomeMillions": 251745.0,
+          "salesServiceIncomeCell": "D163"
         },
         {
           "period": "2024-25",
           "employmentThousands": 134.7,
           "ebitdaMillions": 13083.0,
-          "cells": "B164, H164"
+          "cells": "B164, H164",
+          "salesServiceIncomeMillions": 245328.0,
+          "salesServiceIncomeCell": "D164"
         }
       ]
     },
@@ -1119,19 +1364,25 @@
           "period": "2022-23",
           "employmentThousands": 184.6,
           "ebitdaMillions": 12217.0,
-          "cells": "B166, H166"
+          "cells": "B166, H166",
+          "salesServiceIncomeMillions": 179166.0,
+          "salesServiceIncomeCell": "D166"
         },
         {
           "period": "2023-24",
           "employmentThousands": 192.6,
           "ebitdaMillions": 13686.0,
-          "cells": "B167, H167"
+          "cells": "B167, H167",
+          "salesServiceIncomeMillions": 181333.0,
+          "salesServiceIncomeCell": "D167"
         },
         {
           "period": "2024-25",
           "employmentThousands": 200.0,
           "ebitdaMillions": 14422.0,
-          "cells": "B168, H168"
+          "cells": "B168, H168",
+          "salesServiceIncomeMillions": 187818.0,
+          "salesServiceIncomeCell": "D168"
         }
       ]
     },
@@ -1148,19 +1399,25 @@
           "period": "2022-23",
           "employmentThousands": 54.4,
           "ebitdaMillions": 4482.0,
-          "cells": "B170, H170"
+          "cells": "B170, H170",
+          "salesServiceIncomeMillions": 82730.0,
+          "salesServiceIncomeCell": "D170"
         },
         {
           "period": "2023-24",
           "employmentThousands": 53.0,
           "ebitdaMillions": 5046.0,
-          "cells": "B171, H171"
+          "cells": "B171, H171",
+          "salesServiceIncomeMillions": 97007.0,
+          "salesServiceIncomeCell": "D171"
         },
         {
           "period": "2024-25",
           "employmentThousands": 52.4,
           "ebitdaMillions": 4660.0,
-          "cells": "B172, H172"
+          "cells": "B172, H172",
+          "salesServiceIncomeMillions": 96078.0,
+          "salesServiceIncomeCell": "D172"
         }
       ]
     },
@@ -1177,19 +1434,25 @@
           "period": "2022-23",
           "employmentThousands": 99.1,
           "ebitdaMillions": 5089.0,
-          "cells": "B174, H174"
+          "cells": "B174, H174",
+          "salesServiceIncomeMillions": 103727.0,
+          "salesServiceIncomeCell": "D174"
         },
         {
           "period": "2023-24",
           "employmentThousands": 95.4,
           "ebitdaMillions": 5245.0,
-          "cells": "B175, H175"
+          "cells": "B175, H175",
+          "salesServiceIncomeMillions": 103094.0,
+          "salesServiceIncomeCell": "D175"
         },
         {
           "period": "2024-25",
           "employmentThousands": 93.7,
           "ebitdaMillions": 5722.0,
-          "cells": "B176, H176"
+          "cells": "B176, H176",
+          "salesServiceIncomeMillions": 110348.0,
+          "salesServiceIncomeCell": "D176"
         }
       ]
     },
@@ -1206,19 +1469,25 @@
           "period": "2022-23",
           "employmentThousands": 108.5,
           "ebitdaMillions": 5818.0,
-          "cells": "B178, H178"
+          "cells": "B178, H178",
+          "salesServiceIncomeMillions": 102581.0,
+          "salesServiceIncomeCell": "D178"
         },
         {
           "period": "2023-24",
           "employmentThousands": 109.2,
           "ebitdaMillions": 6901.0,
-          "cells": "B179, H179"
+          "cells": "B179, H179",
+          "salesServiceIncomeMillions": 107334.0,
+          "salesServiceIncomeCell": "D179"
         },
         {
           "period": "2024-25",
           "employmentThousands": 110.7,
           "ebitdaMillions": 5743.0,
-          "cells": "B180, H180"
+          "cells": "B180, H180",
+          "salesServiceIncomeMillions": 107698.0,
+          "salesServiceIncomeCell": "D180"
         }
       ]
     },
@@ -1235,19 +1504,25 @@
           "period": "2022-23",
           "employmentThousands": 31.8,
           "ebitdaMillions": 2374.0,
-          "cells": "B182, H182"
+          "cells": "B182, H182",
+          "salesServiceIncomeMillions": 25432.0,
+          "salesServiceIncomeCell": "D182"
         },
         {
           "period": "2023-24",
           "employmentThousands": 31.7,
           "ebitdaMillions": 2414.0,
-          "cells": "B183, H183"
+          "cells": "B183, H183",
+          "salesServiceIncomeMillions": 25693.0,
+          "salesServiceIncomeCell": "D183"
         },
         {
           "period": "2024-25",
           "employmentThousands": 30.9,
           "ebitdaMillions": 2284.0,
-          "cells": "B184, H184"
+          "cells": "B184, H184",
+          "salesServiceIncomeMillions": 25932.0,
+          "salesServiceIncomeCell": "D184"
         }
       ]
     },
@@ -1264,19 +1539,25 @@
           "period": "2022-23",
           "employmentThousands": 597.0,
           "ebitdaMillions": 44522.0,
-          "cells": "B186, H186"
+          "cells": "B186, H186",
+          "salesServiceIncomeMillions": 749172.0,
+          "salesServiceIncomeCell": "D186"
         },
         {
           "period": "2023-24",
           "employmentThousands": 611.0,
           "ebitdaMillions": 46477.0,
-          "cells": "B187, H187"
+          "cells": "B187, H187",
+          "salesServiceIncomeMillions": 766206.0,
+          "salesServiceIncomeCell": "D187"
         },
         {
           "period": "2024-25",
           "employmentThousands": 622.5,
           "ebitdaMillions": 45912.0,
-          "cells": "B188, H188"
+          "cells": "B188, H188",
+          "salesServiceIncomeMillions": 773200.0,
+          "salesServiceIncomeCell": "D188"
         }
       ]
     },
@@ -1293,19 +1574,25 @@
           "period": "2022-23",
           "employmentThousands": 117.0,
           "ebitdaMillions": 6299.0,
-          "cells": "B191, H191"
+          "cells": "B191, H191",
+          "salesServiceIncomeMillions": 112759.0,
+          "salesServiceIncomeCell": "D191"
         },
         {
           "period": "2023-24",
           "employmentThousands": 119.0,
           "ebitdaMillions": 6294.0,
-          "cells": "B192, H192"
+          "cells": "B192, H192",
+          "salesServiceIncomeMillions": 126430.0,
+          "salesServiceIncomeCell": "D192"
         },
         {
           "period": "2024-25",
           "employmentThousands": 119.7,
           "ebitdaMillions": 5315.0,
-          "cells": "B193, H193"
+          "cells": "B193, H193",
+          "salesServiceIncomeMillions": 128914.0,
+          "salesServiceIncomeCell": "D193"
         }
       ]
     },
@@ -1322,19 +1609,25 @@
           "period": "2022-23",
           "employmentThousands": 47.9,
           "ebitdaMillions": 2774.0,
-          "cells": "B195, H195"
+          "cells": "B195, H195",
+          "salesServiceIncomeMillions": 57951.0,
+          "salesServiceIncomeCell": "D195"
         },
         {
           "period": "2023-24",
           "employmentThousands": 56.1,
           "ebitdaMillions": 2337.0,
-          "cells": "B196, H196"
+          "cells": "B196, H196",
+          "salesServiceIncomeMillions": 59534.0,
+          "salesServiceIncomeCell": "D196"
         },
         {
           "period": "2024-25",
           "employmentThousands": 60.0,
           "ebitdaMillions": 2707.0,
-          "cells": "B197, H197"
+          "cells": "B197, H197",
+          "salesServiceIncomeMillions": 63335.0,
+          "salesServiceIncomeCell": "D197"
         }
       ]
     },
@@ -1351,19 +1644,25 @@
           "period": "2022-23",
           "employmentThousands": 518.7,
           "ebitdaMillions": 12518.0,
-          "cells": "B199, H199"
+          "cells": "B199, H199",
+          "salesServiceIncomeMillions": 172591.0,
+          "salesServiceIncomeCell": "D199"
         },
         {
           "period": "2023-24",
           "employmentThousands": 506.3,
           "ebitdaMillions": 12903.0,
-          "cells": "B200, H200"
+          "cells": "B200, H200",
+          "salesServiceIncomeMillions": 177639.0,
+          "salesServiceIncomeCell": "D200"
         },
         {
           "period": "2024-25",
           "employmentThousands": 496.0,
           "ebitdaMillions": 13956.0,
-          "cells": "B201, H201"
+          "cells": "B201, H201",
+          "salesServiceIncomeMillions": 183460.0,
+          "salesServiceIncomeCell": "D201"
         }
       ]
     },
@@ -1380,19 +1679,25 @@
           "period": "2022-23",
           "employmentThousands": 731.7,
           "ebitdaMillions": 24786.0,
-          "cells": "B203, H203"
+          "cells": "B203, H203",
+          "salesServiceIncomeMillions": 239447.0,
+          "salesServiceIncomeCell": "D203"
         },
         {
           "period": "2023-24",
           "employmentThousands": 754.2,
           "ebitdaMillions": 26491.0,
-          "cells": "B204, H204"
+          "cells": "B204, H204",
+          "salesServiceIncomeMillions": 246408.0,
+          "salesServiceIncomeCell": "D204"
         },
         {
           "period": "2024-25",
           "employmentThousands": 750.8,
           "ebitdaMillions": 27347.0,
-          "cells": "B205, H205"
+          "cells": "B205, H205",
+          "salesServiceIncomeMillions": 249119.0,
+          "salesServiceIncomeCell": "D205"
         }
       ]
     },
@@ -1409,19 +1714,25 @@
           "period": "2022-23",
           "employmentThousands": 62.7,
           "ebitdaMillions": 2686.0,
-          "cells": "B207, H207"
+          "cells": "B207, H207",
+          "salesServiceIncomeMillions": 30095.0,
+          "salesServiceIncomeCell": "D207"
         },
         {
           "period": "2023-24",
           "employmentThousands": 66.4,
           "ebitdaMillions": 2837.0,
-          "cells": "B208, H208"
+          "cells": "B208, H208",
+          "salesServiceIncomeMillions": 32310.0,
+          "salesServiceIncomeCell": "D208"
         },
         {
           "period": "2024-25",
           "employmentThousands": 67.4,
           "ebitdaMillions": 3751.0,
-          "cells": "B209, H209"
+          "cells": "B209, H209",
+          "salesServiceIncomeMillions": 35293.0,
+          "salesServiceIncomeCell": "D209"
         }
       ]
     },
@@ -1438,19 +1749,25 @@
           "period": "2022-23",
           "employmentThousands": 1478.0,
           "ebitdaMillions": 49064.0,
-          "cells": "B211, H211"
+          "cells": "B211, H211",
+          "salesServiceIncomeMillions": 612842.0,
+          "salesServiceIncomeCell": "D211"
         },
         {
           "period": "2023-24",
           "employmentThousands": 1502.0,
           "ebitdaMillions": 50862.0,
-          "cells": "B212, H212"
+          "cells": "B212, H212",
+          "salesServiceIncomeMillions": 642319.0,
+          "salesServiceIncomeCell": "D212"
         },
         {
           "period": "2024-25",
           "employmentThousands": 1493.8,
           "ebitdaMillions": 53077.0,
-          "cells": "B213, H213"
+          "cells": "B213, H213",
+          "salesServiceIncomeMillions": 660121.0,
+          "salesServiceIncomeCell": "D213"
         }
       ]
     },
@@ -1467,19 +1784,25 @@
           "period": "2022-23",
           "employmentThousands": 134.7,
           "ebitdaMillions": 4046.0,
-          "cells": "B216, H216"
+          "cells": "B216, H216",
+          "salesServiceIncomeMillions": 22350.0,
+          "salesServiceIncomeCell": "D216"
         },
         {
           "period": "2023-24",
           "employmentThousands": 131.7,
           "ebitdaMillions": 4420.0,
-          "cells": "B217, H217"
+          "cells": "B217, H217",
+          "salesServiceIncomeMillions": 24483.0,
+          "salesServiceIncomeCell": "D217"
         },
         {
           "period": "2024-25",
           "employmentThousands": 136.8,
           "ebitdaMillions": 5473.0,
-          "cells": "B218, H218"
+          "cells": "B218, H218",
+          "salesServiceIncomeMillions": 26296.0,
+          "salesServiceIncomeCell": "D218"
         }
       ]
     },
@@ -1496,19 +1819,25 @@
           "period": "2022-23",
           "employmentThousands": 1065.0,
           "ebitdaMillions": 13831.0,
-          "cells": "B220, H220"
+          "cells": "B220, H220",
+          "salesServiceIncomeMillions": 118290.0,
+          "salesServiceIncomeCell": "D220"
         },
         {
           "period": "2023-24",
           "employmentThousands": 1072.6,
           "ebitdaMillions": 13309.0,
-          "cells": "B221, H221"
+          "cells": "B221, H221",
+          "salesServiceIncomeMillions": 127890.0,
+          "salesServiceIncomeCell": "D221"
         },
         {
           "period": "2024-25",
           "employmentThousands": 1100.5,
           "ebitdaMillions": 13847.0,
-          "cells": "B222, H222"
+          "cells": "B222, H222",
+          "salesServiceIncomeMillions": 134077.0,
+          "salesServiceIncomeCell": "D222"
         }
       ]
     },
@@ -1525,19 +1854,25 @@
           "period": "2022-23",
           "employmentThousands": 1199.7,
           "ebitdaMillions": 17877.0,
-          "cells": "B224, H224"
+          "cells": "B224, H224",
+          "salesServiceIncomeMillions": 140639.0,
+          "salesServiceIncomeCell": "D224"
         },
         {
           "period": "2023-24",
           "employmentThousands": 1204.3,
           "ebitdaMillions": 17729.0,
-          "cells": "B225, H225"
+          "cells": "B225, H225",
+          "salesServiceIncomeMillions": 152373.0,
+          "salesServiceIncomeCell": "D225"
         },
         {
           "period": "2024-25",
           "employmentThousands": 1237.3,
           "ebitdaMillions": 19320.0,
-          "cells": "B226, H226"
+          "cells": "B226, H226",
+          "salesServiceIncomeMillions": 160373.0,
+          "salesServiceIncomeCell": "D226"
         }
       ]
     },
@@ -1554,19 +1889,25 @@
           "period": "2022-23",
           "employmentThousands": 294.7,
           "ebitdaMillions": 10246.0,
-          "cells": "B229, H229"
+          "cells": "B229, H229",
+          "salesServiceIncomeMillions": 81579.0,
+          "salesServiceIncomeCell": "D229"
         },
         {
           "period": "2023-24",
           "employmentThousands": 279.6,
           "ebitdaMillions": 11159.0,
-          "cells": "B230, H230"
+          "cells": "B230, H230",
+          "salesServiceIncomeMillions": 86486.0,
+          "salesServiceIncomeCell": "D230"
         },
         {
           "period": "2024-25",
           "employmentThousands": 285.0,
           "ebitdaMillions": 11807.0,
-          "cells": "B231, H231"
+          "cells": "B231, H231",
+          "salesServiceIncomeMillions": 93221.0,
+          "salesServiceIncomeCell": "D231"
         }
       ]
     },
@@ -1583,19 +1924,25 @@
           "period": "2022-23",
           "employmentThousands": 43.7,
           "ebitdaMillions": 3652.0,
-          "cells": "B233, H233"
+          "cells": "B233, H233",
+          "salesServiceIncomeMillions": 20446.0,
+          "salesServiceIncomeCell": "D233"
         },
         {
           "period": "2023-24",
           "employmentThousands": 45.6,
           "ebitdaMillions": 3783.0,
-          "cells": "B234, H234"
+          "cells": "B234, H234",
+          "salesServiceIncomeMillions": 22148.0,
+          "salesServiceIncomeCell": "D234"
         },
         {
           "period": "2024-25",
           "employmentThousands": 47.5,
           "ebitdaMillions": 3736.0,
-          "cells": "B235, H235"
+          "cells": "B235, H235",
+          "salesServiceIncomeMillions": 22710.0,
+          "salesServiceIncomeCell": "D235"
         }
       ]
     },
@@ -1612,19 +1959,25 @@
           "period": "2022-23",
           "employmentThousands": 7.8,
           "ebitdaMillions": 312.0,
-          "cells": "B237, H237"
+          "cells": "B237, H237",
+          "salesServiceIncomeMillions": 3312.0,
+          "salesServiceIncomeCell": "D237"
         },
         {
           "period": "2023-24",
           "employmentThousands": 8.1,
           "ebitdaMillions": 673.0,
-          "cells": "B238, H238"
+          "cells": "B238, H238",
+          "salesServiceIncomeMillions": 3932.0,
+          "salesServiceIncomeCell": "D238"
         },
         {
           "period": "2024-25",
           "employmentThousands": 8.1,
           "ebitdaMillions": 704.0,
-          "cells": "B239, H239"
+          "cells": "B239, H239",
+          "salesServiceIncomeMillions": 4260.0,
+          "salesServiceIncomeCell": "D239"
         }
       ]
     },
@@ -1641,13 +1994,17 @@
           "period": "2023-24",
           "employmentThousands": 41.9,
           "ebitdaMillions": 6037.0,
-          "cells": "B242, H242"
+          "cells": "B242, H242",
+          "salesServiceIncomeMillions": 33328.0,
+          "salesServiceIncomeCell": "D242"
         },
         {
           "period": "2024-25",
           "employmentThousands": 42.5,
           "ebitdaMillions": 6607.0,
-          "cells": "B243, H243"
+          "cells": "B243, H243",
+          "salesServiceIncomeMillions": 35169.0,
+          "salesServiceIncomeCell": "D243"
         }
       ]
     },
@@ -1664,13 +2021,17 @@
           "period": "2023-24",
           "employmentThousands": 17.8,
           "ebitdaMillions": 2751.0,
-          "cells": "B246, H246"
+          "cells": "B246, H246",
+          "salesServiceIncomeMillions": 6407.0,
+          "salesServiceIncomeCell": "D246"
         },
         {
           "period": "2024-25",
           "employmentThousands": 15.5,
           "ebitdaMillions": 2818.0,
-          "cells": "B247, H247"
+          "cells": "B247, H247",
+          "salesServiceIncomeMillions": 6789.0,
+          "salesServiceIncomeCell": "D247"
         }
       ]
     },
@@ -1687,19 +2048,25 @@
           "period": "2022-23",
           "employmentThousands": 97.5,
           "ebitdaMillions": 1507.0,
-          "cells": "B249, H249"
+          "cells": "B249, H249",
+          "salesServiceIncomeMillions": 20943.0,
+          "salesServiceIncomeCell": "D249"
         },
         {
           "period": "2023-24",
           "employmentThousands": 108.3,
           "ebitdaMillions": 2836.0,
-          "cells": "B250, H250"
+          "cells": "B250, H250",
+          "salesServiceIncomeMillions": 23453.0,
+          "salesServiceIncomeCell": "D250"
         },
         {
           "period": "2024-25",
           "employmentThousands": 125.8,
           "ebitdaMillions": 3631.0,
-          "cells": "B251, H251"
+          "cells": "B251, H251",
+          "salesServiceIncomeMillions": 26536.0,
+          "salesServiceIncomeCell": "D251"
         }
       ]
     },
@@ -1716,19 +2083,25 @@
           "period": "2022-23",
           "employmentThousands": 127.7,
           "ebitdaMillions": 15304.0,
-          "cells": "B253, H253"
+          "cells": "B253, H253",
+          "salesServiceIncomeMillions": 61976.0,
+          "salesServiceIncomeCell": "D253"
         },
         {
           "period": "2023-24",
           "employmentThousands": 132.3,
           "ebitdaMillions": 16278.0,
-          "cells": "B254, H254"
+          "cells": "B254, H254",
+          "salesServiceIncomeMillions": 59620.0,
+          "salesServiceIncomeCell": "D254"
         },
         {
           "period": "2024-25",
           "employmentThousands": 139.9,
           "ebitdaMillions": 18367.0,
-          "cells": "B255, H255"
+          "cells": "B255, H255",
+          "salesServiceIncomeMillions": 65347.0,
+          "salesServiceIncomeCell": "D255"
         }
       ]
     },
@@ -1745,19 +2118,25 @@
           "period": "2022-23",
           "employmentThousands": 24.6,
           "ebitdaMillions": 1496.0,
-          "cells": "B257, H257"
+          "cells": "B257, H257",
+          "salesServiceIncomeMillions": 11332.0,
+          "salesServiceIncomeCell": "D257"
         },
         {
           "period": "2023-24",
           "employmentThousands": 25.3,
           "ebitdaMillions": 1650.0,
-          "cells": "B258, H258"
+          "cells": "B258, H258",
+          "salesServiceIncomeMillions": 10079.0,
+          "salesServiceIncomeCell": "D258"
         },
         {
           "period": "2024-25",
           "employmentThousands": 26.6,
           "ebitdaMillions": 1600.0,
-          "cells": "B259, H259"
+          "cells": "B259, H259",
+          "salesServiceIncomeMillions": 10567.0,
+          "salesServiceIncomeCell": "D259"
         }
       ]
     },
@@ -1774,19 +2153,25 @@
           "period": "2022-23",
           "employmentThousands": 652.1,
           "ebitdaMillions": 41203.0,
-          "cells": "B261, H261"
+          "cells": "B261, H261",
+          "salesServiceIncomeMillions": 235940.0,
+          "salesServiceIncomeCell": "D261"
         },
         {
           "period": "2023-24",
           "employmentThousands": 658.8,
           "ebitdaMillions": 45167.0,
-          "cells": "B262, H262"
+          "cells": "B262, H262",
+          "salesServiceIncomeMillions": 245453.0,
+          "salesServiceIncomeCell": "D262"
         },
         {
           "period": "2024-25",
           "employmentThousands": 690.9,
           "ebitdaMillions": 49271.0,
-          "cells": "B263, H263"
+          "cells": "B263, H263",
+          "salesServiceIncomeMillions": 264599.0,
+          "salesServiceIncomeCell": "D263"
         }
       ]
     },
@@ -1803,19 +2188,25 @@
           "period": "2022-23",
           "employmentThousands": 43.8,
           "ebitdaMillions": 722.0,
-          "cells": "B266, H266"
+          "cells": "B266, H266",
+          "salesServiceIncomeMillions": 29439.0,
+          "salesServiceIncomeCell": "D266"
         },
         {
           "period": "2023-24",
           "employmentThousands": 43.9,
           "ebitdaMillions": 1353.0,
-          "cells": "B267, H267"
+          "cells": "B267, H267",
+          "salesServiceIncomeMillions": 33001.0,
+          "salesServiceIncomeCell": "D267"
         },
         {
           "period": "2024-25",
           "employmentThousands": 44.8,
           "ebitdaMillions": 2126.0,
-          "cells": "B268, H268"
+          "cells": "B268, H268",
+          "salesServiceIncomeMillions": 38253.0,
+          "salesServiceIncomeCell": "D268"
         }
       ]
     },
@@ -1832,19 +2223,25 @@
           "period": "2022-23",
           "employmentThousands": 44.4,
           "ebitdaMillions": 635.0,
-          "cells": "B270, H270"
+          "cells": "B270, H270",
+          "salesServiceIncomeMillions": 10315.0,
+          "salesServiceIncomeCell": "D270"
         },
         {
           "period": "2023-24",
           "employmentThousands": 45.5,
           "ebitdaMillions": 1268.0,
-          "cells": "B271, H271"
+          "cells": "B271, H271",
+          "salesServiceIncomeMillions": 10189.0,
+          "salesServiceIncomeCell": "D271"
         },
         {
           "period": "2024-25",
           "employmentThousands": 44.2,
           "ebitdaMillions": 1168.0,
-          "cells": "B272, H272"
+          "cells": "B272, H272",
+          "salesServiceIncomeMillions": 11015.0,
+          "salesServiceIncomeCell": "D272"
         }
       ]
     },
@@ -1861,19 +2258,25 @@
           "period": "2022-23",
           "employmentThousands": 53.7,
           "ebitdaMillions": 14747.0,
-          "cells": "B282, H282"
+          "cells": "B282, H282",
+          "salesServiceIncomeMillions": 44574.0,
+          "salesServiceIncomeCell": "D282"
         },
         {
           "period": "2023-24",
           "employmentThousands": 50.9,
           "ebitdaMillions": 15410.0,
-          "cells": "B283, H283"
+          "cells": "B283, H283",
+          "salesServiceIncomeMillions": 45556.0,
+          "salesServiceIncomeCell": "D283"
         },
         {
           "period": "2024-25",
           "employmentThousands": 47.1,
           "ebitdaMillions": 16772.0,
-          "cells": "B284, H284"
+          "cells": "B284, H284",
+          "salesServiceIncomeMillions": 46800.0,
+          "salesServiceIncomeCell": "D284"
         }
       ]
     },
@@ -1890,19 +2293,25 @@
           "period": "2022-23",
           "employmentThousands": 22.1,
           "ebitdaMillions": 3306.0,
-          "cells": "B286, H286"
+          "cells": "B286, H286",
+          "salesServiceIncomeMillions": 14270.0,
+          "salesServiceIncomeCell": "D286"
         },
         {
           "period": "2023-24",
           "employmentThousands": 22.2,
           "ebitdaMillions": 4023.0,
-          "cells": "B287, H287"
+          "cells": "B287, H287",
+          "salesServiceIncomeMillions": 16046.0,
+          "salesServiceIncomeCell": "D287"
         },
         {
           "period": "2024-25",
           "employmentThousands": 23.5,
           "ebitdaMillions": 4908.0,
-          "cells": "B288, H288"
+          "cells": "B288, H288",
+          "salesServiceIncomeMillions": 18294.0,
+          "salesServiceIncomeCell": "D288"
         }
       ]
     },
@@ -1919,19 +2328,25 @@
           "period": "2022-23",
           "employmentThousands": 1.7,
           "ebitdaMillions": 41.0,
-          "cells": "B290, H290"
+          "cells": "B290, H290",
+          "salesServiceIncomeMillions": 301.0,
+          "salesServiceIncomeCell": "D290"
         },
         {
           "period": "2023-24",
           "employmentThousands": 1.9,
           "ebitdaMillions": 44.0,
-          "cells": "B291, H291"
+          "cells": "B291, H291",
+          "salesServiceIncomeMillions": 301.0,
+          "salesServiceIncomeCell": "D291"
         },
         {
           "period": "2024-25",
           "employmentThousands": 2.0,
           "ebitdaMillions": 34.0,
-          "cells": "B292, H292"
+          "cells": "B292, H292",
+          "salesServiceIncomeMillions": 339.0,
+          "salesServiceIncomeCell": "D292"
         }
       ]
     },
@@ -1948,19 +2363,25 @@
           "period": "2022-23",
           "employmentThousands": 189.0,
           "ebitdaMillions": 21550.0,
-          "cells": "B294, H294"
+          "cells": "B294, H294",
+          "salesServiceIncomeMillions": 111359.0,
+          "salesServiceIncomeCell": "D294"
         },
         {
           "period": "2023-24",
           "employmentThousands": 187.4,
           "ebitdaMillions": 24007.0,
-          "cells": "B295, H295"
+          "cells": "B295, H295",
+          "salesServiceIncomeMillions": 117822.0,
+          "salesServiceIncomeCell": "D295"
         },
         {
           "period": "2024-25",
           "employmentThousands": 184.6,
           "ebitdaMillions": 26597.0,
-          "cells": "B296, H296"
+          "cells": "B296, H296",
+          "salesServiceIncomeMillions": 127863.0,
+          "salesServiceIncomeCell": "D296"
         }
       ]
     },
@@ -1977,19 +2398,25 @@
           "period": "2022-23",
           "employmentThousands": 173.0,
           "ebitdaMillions": 14331.0,
-          "cells": "B299, H299"
+          "cells": "B299, H299",
+          "salesServiceIncomeMillions": 73887.0,
+          "salesServiceIncomeCell": "D299"
         },
         {
           "period": "2023-24",
           "employmentThousands": 174.8,
           "ebitdaMillions": 14282.0,
-          "cells": "B300, H300"
+          "cells": "B300, H300",
+          "salesServiceIncomeMillions": 80936.0,
+          "salesServiceIncomeCell": "D300"
         },
         {
           "period": "2024-25",
           "employmentThousands": 180.7,
           "ebitdaMillions": 15979.0,
-          "cells": "B301, H301"
+          "cells": "B301, H301",
+          "salesServiceIncomeMillions": 90587.0,
+          "salesServiceIncomeCell": "D301"
         }
       ]
     },
@@ -2006,19 +2433,25 @@
           "period": "2022-23",
           "employmentThousands": 88.9,
           "ebitdaMillions": 13620.0,
-          "cells": "B304, H304"
+          "cells": "B304, H304",
+          "salesServiceIncomeMillions": 40733.0,
+          "salesServiceIncomeCell": "D304"
         },
         {
           "period": "2023-24",
           "employmentThousands": 90.4,
           "ebitdaMillions": 13448.0,
-          "cells": "B305, H305"
+          "cells": "B305, H305",
+          "salesServiceIncomeMillions": 41173.0,
+          "salesServiceIncomeCell": "D305"
         },
         {
           "period": "2024-25",
           "employmentThousands": 89.5,
           "ebitdaMillions": 13565.0,
-          "cells": "B306, H306"
+          "cells": "B306, H306",
+          "salesServiceIncomeMillions": 41852.0,
+          "salesServiceIncomeCell": "D306"
         }
       ]
     },
@@ -2035,19 +2468,25 @@
           "period": "2022-23",
           "employmentThousands": 336.1,
           "ebitdaMillions": 55627.0,
-          "cells": "B308, H308"
+          "cells": "B308, H308",
+          "salesServiceIncomeMillions": 131276.0,
+          "salesServiceIncomeCell": "D308"
         },
         {
           "period": "2023-24",
           "employmentThousands": 325.2,
           "ebitdaMillions": 61193.0,
-          "cells": "B309, H309"
+          "cells": "B309, H309",
+          "salesServiceIncomeMillions": 143893.0,
+          "salesServiceIncomeCell": "D309"
         },
         {
           "period": "2024-25",
           "employmentThousands": 323.7,
           "ebitdaMillions": 64683.0,
-          "cells": "B310, H310"
+          "cells": "B310, H310",
+          "salesServiceIncomeMillions": 153286.0,
+          "salesServiceIncomeCell": "D310"
         }
       ]
     },
@@ -2064,19 +2503,25 @@
           "period": "2022-23",
           "employmentThousands": 425.0,
           "ebitdaMillions": 69247.0,
-          "cells": "B312, H312"
+          "cells": "B312, H312",
+          "salesServiceIncomeMillions": 172009.0,
+          "salesServiceIncomeCell": "D312"
         },
         {
           "period": "2023-24",
           "employmentThousands": 415.5,
           "ebitdaMillions": 74641.0,
-          "cells": "B313, H313"
+          "cells": "B313, H313",
+          "salesServiceIncomeMillions": 185067.0,
+          "salesServiceIncomeCell": "D313"
         },
         {
           "period": "2024-25",
           "employmentThousands": 413.2,
           "ebitdaMillions": 78247.0,
-          "cells": "B314, H314"
+          "cells": "B314, H314",
+          "salesServiceIncomeMillions": 195137.0,
+          "salesServiceIncomeCell": "D314"
         }
       ]
     },
@@ -2093,19 +2538,25 @@
           "period": "2022-23",
           "employmentThousands": 1046.9,
           "ebitdaMillions": 34167.0,
-          "cells": "B317, H317"
+          "cells": "B317, H317",
+          "salesServiceIncomeMillions": 247881.0,
+          "salesServiceIncomeCell": "D317"
         },
         {
           "period": "2023-24",
           "employmentThousands": 1063.1,
           "ebitdaMillions": 37916.0,
-          "cells": "B318, H318"
+          "cells": "B318, H318",
+          "salesServiceIncomeMillions": 268413.0,
+          "salesServiceIncomeCell": "D318"
         },
         {
           "period": "2024-25",
           "employmentThousands": 1085.9,
           "ebitdaMillions": 36163.0,
-          "cells": "B319, H319"
+          "cells": "B319, H319",
+          "salesServiceIncomeMillions": 279024.0,
+          "salesServiceIncomeCell": "D319"
         }
       ]
     },
@@ -2122,19 +2573,25 @@
           "period": "2022-23",
           "employmentThousands": 258.6,
           "ebitdaMillions": 7254.0,
-          "cells": "B321, H321"
+          "cells": "B321, H321",
+          "salesServiceIncomeMillions": 77411.0,
+          "salesServiceIncomeCell": "D321"
         },
         {
           "period": "2023-24",
           "employmentThousands": 252.9,
           "ebitdaMillions": 7827.0,
-          "cells": "B322, H322"
+          "cells": "B322, H322",
+          "salesServiceIncomeMillions": 84539.0,
+          "salesServiceIncomeCell": "D322"
         },
         {
           "period": "2024-25",
           "employmentThousands": 254.2,
           "ebitdaMillions": 9965.0,
-          "cells": "B323, H323"
+          "cells": "B323, H323",
+          "salesServiceIncomeMillions": 86970.0,
+          "salesServiceIncomeCell": "D323"
         }
       ]
     },
@@ -2151,19 +2608,25 @@
           "period": "2022-23",
           "employmentThousands": 1305.5,
           "ebitdaMillions": 41421.0,
-          "cells": "B325, H325"
+          "cells": "B325, H325",
+          "salesServiceIncomeMillions": 325292.0,
+          "salesServiceIncomeCell": "D325"
         },
         {
           "period": "2023-24",
           "employmentThousands": 1316.0,
           "ebitdaMillions": 45744.0,
-          "cells": "B326, H326"
+          "cells": "B326, H326",
+          "salesServiceIncomeMillions": 352952.0,
+          "salesServiceIncomeCell": "D326"
         },
         {
           "period": "2024-25",
           "employmentThousands": 1340.2,
           "ebitdaMillions": 46128.0,
-          "cells": "B327, H327"
+          "cells": "B327, H327",
+          "salesServiceIncomeMillions": 365994.0,
+          "salesServiceIncomeCell": "D327"
         }
       ]
     },
@@ -2180,19 +2643,25 @@
           "period": "2022-23",
           "employmentThousands": 781.5,
           "ebitdaMillions": 8274.0,
-          "cells": "B330, H330"
+          "cells": "B330, H330",
+          "salesServiceIncomeMillions": 109998.0,
+          "salesServiceIncomeCell": "D330"
         },
         {
           "period": "2023-24",
           "employmentThousands": 776.9,
           "ebitdaMillions": 8971.0,
-          "cells": "B331, H331"
+          "cells": "B331, H331",
+          "salesServiceIncomeMillions": 116058.0,
+          "salesServiceIncomeCell": "D331"
         },
         {
           "period": "2024-25",
           "employmentThousands": 779.3,
           "ebitdaMillions": 9317.0,
-          "cells": "B332, H332"
+          "cells": "B332, H332",
+          "salesServiceIncomeMillions": 121874.0,
+          "salesServiceIncomeCell": "D332"
         }
       ]
     },
@@ -2209,19 +2678,25 @@
           "period": "2022-23",
           "employmentThousands": 219.7,
           "ebitdaMillions": 5179.0,
-          "cells": "B334, H334"
+          "cells": "B334, H334",
+          "salesServiceIncomeMillions": 25903.0,
+          "salesServiceIncomeCell": "D334"
         },
         {
           "period": "2023-24",
           "employmentThousands": 227.1,
           "ebitdaMillions": 4826.0,
-          "cells": "B335, H335"
+          "cells": "B335, H335",
+          "salesServiceIncomeMillions": 28192.0,
+          "salesServiceIncomeCell": "D335"
         },
         {
           "period": "2024-25",
           "employmentThousands": 233.9,
           "ebitdaMillions": 4666.0,
-          "cells": "B336, H336"
+          "cells": "B336, H336",
+          "salesServiceIncomeMillions": 30321.0,
+          "salesServiceIncomeCell": "D336"
         }
       ]
     },
@@ -2238,19 +2713,25 @@
           "period": "2022-23",
           "employmentThousands": 1001.2,
           "ebitdaMillions": 13452.0,
-          "cells": "B338, H338"
+          "cells": "B338, H338",
+          "salesServiceIncomeMillions": 135901.0,
+          "salesServiceIncomeCell": "D338"
         },
         {
           "period": "2023-24",
           "employmentThousands": 1004.0,
           "ebitdaMillions": 13797.0,
-          "cells": "B339, H339"
+          "cells": "B339, H339",
+          "salesServiceIncomeMillions": 144250.0,
+          "salesServiceIncomeCell": "D339"
         },
         {
           "period": "2024-25",
           "employmentThousands": 1013.2,
           "ebitdaMillions": 13983.0,
-          "cells": "B340, H340"
+          "cells": "B340, H340",
+          "salesServiceIncomeMillions": 152195.0,
+          "salesServiceIncomeCell": "D340"
         }
       ]
     },
@@ -2267,19 +2748,25 @@
           "period": "2022-23",
           "employmentThousands": 99.2,
           "ebitdaMillions": 1351.0,
-          "cells": "B343, H343"
+          "cells": "B343, H343",
+          "salesServiceIncomeMillions": 13744.0,
+          "salesServiceIncomeCell": "D343"
         },
         {
           "period": "2023-24",
           "employmentThousands": 107.5,
           "ebitdaMillions": 1325.0,
-          "cells": "B344, H344"
+          "cells": "B344, H344",
+          "salesServiceIncomeMillions": 15215.0,
+          "salesServiceIncomeCell": "D344"
         },
         {
           "period": "2024-25",
           "employmentThousands": 108.1,
           "ebitdaMillions": 1552.0,
-          "cells": "B345, H345"
+          "cells": "B345, H345",
+          "salesServiceIncomeMillions": 16023.0,
+          "salesServiceIncomeCell": "D345"
         }
       ]
     },
@@ -2296,19 +2783,25 @@
           "period": "2022-23",
           "employmentThousands": 99.2,
           "ebitdaMillions": 1351.0,
-          "cells": "B347, H347"
+          "cells": "B347, H347",
+          "salesServiceIncomeMillions": 13744.0,
+          "salesServiceIncomeCell": "D347"
         },
         {
           "period": "2023-24",
           "employmentThousands": 107.5,
           "ebitdaMillions": 1325.0,
-          "cells": "B348, H348"
+          "cells": "B348, H348",
+          "salesServiceIncomeMillions": 15215.0,
+          "salesServiceIncomeCell": "D348"
         },
         {
           "period": "2024-25",
           "employmentThousands": 108.1,
           "ebitdaMillions": 1552.0,
-          "cells": "B349, H349"
+          "cells": "B349, H349",
+          "salesServiceIncomeMillions": 16023.0,
+          "salesServiceIncomeCell": "D349"
         }
       ]
     },
@@ -2325,19 +2818,25 @@
           "period": "2022-23",
           "employmentThousands": 296.9,
           "ebitdaMillions": 3657.0,
-          "cells": "B352, H352"
+          "cells": "B352, H352",
+          "salesServiceIncomeMillions": 32558.0,
+          "salesServiceIncomeCell": "D352"
         },
         {
           "period": "2023-24",
           "employmentThousands": 306.9,
           "ebitdaMillions": 4109.0,
-          "cells": "B353, H353"
+          "cells": "B353, H353",
+          "salesServiceIncomeMillions": 37452.0,
+          "salesServiceIncomeCell": "D353"
         },
         {
           "period": "2024-25",
           "employmentThousands": 319.0,
           "ebitdaMillions": 3471.0,
-          "cells": "B354, H354"
+          "cells": "B354, H354",
+          "salesServiceIncomeMillions": 39960.0,
+          "salesServiceIncomeCell": "D354"
         }
       ]
     },
@@ -2354,19 +2853,25 @@
           "period": "2022-23",
           "employmentThousands": 77.4,
           "ebitdaMillions": 1791.0,
-          "cells": "B356, H356"
+          "cells": "B356, H356",
+          "salesServiceIncomeMillions": 12352.0,
+          "salesServiceIncomeCell": "D356"
         },
         {
           "period": "2023-24",
           "employmentThousands": 76.4,
           "ebitdaMillions": 1210.0,
-          "cells": "B357, H357"
+          "cells": "B357, H357",
+          "salesServiceIncomeMillions": 12519.0,
+          "salesServiceIncomeCell": "D357"
         },
         {
           "period": "2024-25",
           "employmentThousands": 85.0,
           "ebitdaMillions": 1524.0,
-          "cells": "B358, H358"
+          "cells": "B358, H358",
+          "salesServiceIncomeMillions": 13267.0,
+          "salesServiceIncomeCell": "D358"
         }
       ]
     },
@@ -2383,19 +2888,25 @@
           "period": "2022-23",
           "employmentThousands": 119.9,
           "ebitdaMillions": 1742.0,
-          "cells": "B360, H360"
+          "cells": "B360, H360",
+          "salesServiceIncomeMillions": 11370.0,
+          "salesServiceIncomeCell": "D360"
         },
         {
           "period": "2023-24",
           "employmentThousands": 131.0,
           "ebitdaMillions": 1995.0,
-          "cells": "B361, H361"
+          "cells": "B361, H361",
+          "salesServiceIncomeMillions": 12222.0,
+          "salesServiceIncomeCell": "D361"
         },
         {
           "period": "2024-25",
           "employmentThousands": 138.2,
           "ebitdaMillions": 2089.0,
-          "cells": "B362, H362"
+          "cells": "B362, H362",
+          "salesServiceIncomeMillions": 14123.0,
+          "salesServiceIncomeCell": "D362"
         }
       ]
     },
@@ -2412,19 +2923,25 @@
           "period": "2022-23",
           "employmentThousands": 494.3,
           "ebitdaMillions": 7191.0,
-          "cells": "B364, H364"
+          "cells": "B364, H364",
+          "salesServiceIncomeMillions": 56281.0,
+          "salesServiceIncomeCell": "D364"
         },
         {
           "period": "2023-24",
           "employmentThousands": 514.3,
           "ebitdaMillions": 7315.0,
-          "cells": "B365, H365"
+          "cells": "B365, H365",
+          "salesServiceIncomeMillions": 62193.0,
+          "salesServiceIncomeCell": "D365"
         },
         {
           "period": "2024-25",
           "employmentThousands": 542.3,
           "ebitdaMillions": 7084.0,
-          "cells": "B366, H366"
+          "cells": "B366, H366",
+          "salesServiceIncomeMillions": 67350.0,
+          "salesServiceIncomeCell": "D366"
         }
       ]
     },
@@ -2441,19 +2958,25 @@
           "period": "2022-23",
           "employmentThousands": 151.6,
           "ebitdaMillions": 926.0,
-          "cells": "B369, H369"
+          "cells": "B369, H369",
+          "salesServiceIncomeMillions": 22349.0,
+          "salesServiceIncomeCell": "D369"
         },
         {
           "period": "2023-24",
           "employmentThousands": 155.4,
           "ebitdaMillions": 1209.0,
-          "cells": "B370, H370"
+          "cells": "B370, H370",
+          "salesServiceIncomeMillions": 23445.0,
+          "salesServiceIncomeCell": "D370"
         },
         {
           "period": "2024-25",
           "employmentThousands": 158.6,
           "ebitdaMillions": 1213.0,
-          "cells": "B371, H371"
+          "cells": "B371, H371",
+          "salesServiceIncomeMillions": 24783.0,
+          "salesServiceIncomeCell": "D371"
         }
       ]
     },
@@ -2470,19 +2993,25 @@
           "period": "2022-23",
           "employmentThousands": 562.2,
           "ebitdaMillions": 31939.0,
-          "cells": "B373, H373"
+          "cells": "B373, H373",
+          "salesServiceIncomeMillions": 103787.0,
+          "salesServiceIncomeCell": "D373"
         },
         {
           "period": "2023-24",
           "employmentThousands": 574.7,
           "ebitdaMillions": 32287.0,
-          "cells": "B374, H374"
+          "cells": "B374, H374",
+          "salesServiceIncomeMillions": 105159.0,
+          "salesServiceIncomeCell": "D374"
         },
         {
           "period": "2024-25",
           "employmentThousands": 626.8,
           "ebitdaMillions": 33002.0,
-          "cells": "B375, H375"
+          "cells": "B375, H375",
+          "salesServiceIncomeMillions": 113070.0,
+          "salesServiceIncomeCell": "D375"
         }
       ]
     },
@@ -2499,19 +3028,25 @@
           "period": "2022-23",
           "employmentThousands": 356.5,
           "ebitdaMillions": 2485.0,
-          "cells": "B377, H377"
+          "cells": "B377, H377",
+          "salesServiceIncomeMillions": 34555.0,
+          "salesServiceIncomeCell": "D377"
         },
         {
           "period": "2023-24",
           "employmentThousands": 390.2,
           "ebitdaMillions": 1556.0,
-          "cells": "B378, H378"
+          "cells": "B378, H378",
+          "salesServiceIncomeMillions": 40143.0,
+          "salesServiceIncomeCell": "D378"
         },
         {
           "period": "2024-25",
           "employmentThousands": 418.6,
           "ebitdaMillions": 1736.0,
-          "cells": "B379, H379"
+          "cells": "B379, H379",
+          "salesServiceIncomeMillions": 43593.0,
+          "salesServiceIncomeCell": "D379"
         }
       ]
     },
@@ -2528,19 +3063,25 @@
           "period": "2022-23",
           "employmentThousands": 596.1,
           "ebitdaMillions": 1080.0,
-          "cells": "B381, H381"
+          "cells": "B381, H381",
+          "salesServiceIncomeMillions": 48988.0,
+          "salesServiceIncomeCell": "D381"
         },
         {
           "period": "2023-24",
           "employmentThousands": 683.3,
           "ebitdaMillions": 2732.0,
-          "cells": "B382, H382"
+          "cells": "B382, H382",
+          "salesServiceIncomeMillions": 56973.0,
+          "salesServiceIncomeCell": "D382"
         },
         {
           "period": "2024-25",
           "employmentThousands": 702.7,
           "ebitdaMillions": 4647.0,
-          "cells": "B383, H383"
+          "cells": "B383, H383",
+          "salesServiceIncomeMillions": 65505.0,
+          "salesServiceIncomeCell": "D383"
         }
       ]
     },
@@ -2557,19 +3098,25 @@
           "period": "2022-23",
           "employmentThousands": 1666.4,
           "ebitdaMillions": 36430.0,
-          "cells": "B385, H385"
+          "cells": "B385, H385",
+          "salesServiceIncomeMillions": 209679.0,
+          "salesServiceIncomeCell": "D385"
         },
         {
           "period": "2023-24",
           "employmentThousands": 1803.6,
           "ebitdaMillions": 37784.0,
-          "cells": "B386, H386"
+          "cells": "B386, H386",
+          "salesServiceIncomeMillions": 225719.0,
+          "salesServiceIncomeCell": "D386"
         },
         {
           "period": "2024-25",
           "employmentThousands": 1906.7,
           "ebitdaMillions": 40598.0,
-          "cells": "B387, H387"
+          "cells": "B387, H387",
+          "salesServiceIncomeMillions": 246951.0,
+          "salesServiceIncomeCell": "D387"
         }
       ]
     },
@@ -2586,19 +3133,25 @@
           "period": "2022-23",
           "employmentThousands": 9.8,
           "ebitdaMillions": 15.0,
-          "cells": "B390, H390"
+          "cells": "B390, H390",
+          "salesServiceIncomeMillions": 1026.0,
+          "salesServiceIncomeCell": "D390"
         },
         {
           "period": "2023-24",
           "employmentThousands": 10.9,
           "ebitdaMillions": 20.0,
-          "cells": "B391, H391"
+          "cells": "B391, H391",
+          "salesServiceIncomeMillions": 1211.0,
+          "salesServiceIncomeCell": "D391"
         },
         {
           "period": "2024-25",
           "employmentThousands": 12.0,
           "ebitdaMillions": -19.0,
-          "cells": "B392, H392"
+          "cells": "B392, H392",
+          "salesServiceIncomeMillions": 1232.0,
+          "salesServiceIncomeCell": "D392"
         }
       ]
     },
@@ -2615,19 +3168,25 @@
           "period": "2022-23",
           "employmentThousands": 49.2,
           "ebitdaMillions": 1568.0,
-          "cells": "B394, H394"
+          "cells": "B394, H394",
+          "salesServiceIncomeMillions": 5676.0,
+          "salesServiceIncomeCell": "D394"
         },
         {
           "period": "2023-24",
           "employmentThousands": 47.0,
           "ebitdaMillions": 1664.0,
-          "cells": "B395, H395"
+          "cells": "B395, H395",
+          "salesServiceIncomeMillions": 5827.0,
+          "salesServiceIncomeCell": "D395"
         },
         {
           "period": "2024-25",
           "employmentThousands": 47.5,
           "ebitdaMillions": 1454.0,
-          "cells": "B396, H396"
+          "cells": "B396, H396",
+          "salesServiceIncomeMillions": 6187.0,
+          "salesServiceIncomeCell": "D396"
         }
       ]
     },
@@ -2644,19 +3203,25 @@
           "period": "2022-23",
           "employmentThousands": 165.0,
           "ebitdaMillions": 3221.0,
-          "cells": "B398, H398"
+          "cells": "B398, H398",
+          "salesServiceIncomeMillions": 23199.0,
+          "salesServiceIncomeCell": "D398"
         },
         {
           "period": "2023-24",
           "employmentThousands": 188.0,
           "ebitdaMillions": 2516.0,
-          "cells": "B399, H399"
+          "cells": "B399, H399",
+          "salesServiceIncomeMillions": 25117.0,
+          "salesServiceIncomeCell": "D399"
         },
         {
           "period": "2024-25",
           "employmentThousands": 196.8,
           "ebitdaMillions": 2880.0,
-          "cells": "B400, H400"
+          "cells": "B400, H400",
+          "salesServiceIncomeMillions": 26752.0,
+          "salesServiceIncomeCell": "D400"
         }
       ]
     },
@@ -2673,19 +3238,25 @@
           "period": "2022-23",
           "employmentThousands": 33.0,
           "ebitdaMillions": 2745.0,
-          "cells": "B402, H402"
+          "cells": "B402, H402",
+          "salesServiceIncomeMillions": 17224.0,
+          "salesServiceIncomeCell": "D402"
         },
         {
           "period": "2023-24",
           "employmentThousands": 32.8,
           "ebitdaMillions": 2644.0,
-          "cells": "B403, H403"
+          "cells": "B403, H403",
+          "salesServiceIncomeMillions": 17800.0,
+          "salesServiceIncomeCell": "D403"
         },
         {
           "period": "2024-25",
           "employmentThousands": 33.2,
           "ebitdaMillions": 2897.0,
-          "cells": "B404, H404"
+          "cells": "B404, H404",
+          "salesServiceIncomeMillions": 17311.0,
+          "salesServiceIncomeCell": "D404"
         }
       ]
     },
@@ -2702,19 +3273,25 @@
           "period": "2022-23",
           "employmentThousands": 257.0,
           "ebitdaMillions": 7548.0,
-          "cells": "B406, H406"
+          "cells": "B406, H406",
+          "salesServiceIncomeMillions": 47125.0,
+          "salesServiceIncomeCell": "D406"
         },
         {
           "period": "2023-24",
           "employmentThousands": 278.7,
           "ebitdaMillions": 6843.0,
-          "cells": "B407, H407"
+          "cells": "B407, H407",
+          "salesServiceIncomeMillions": 49955.0,
+          "salesServiceIncomeCell": "D407"
         },
         {
           "period": "2024-25",
           "employmentThousands": 289.6,
           "ebitdaMillions": 7212.0,
-          "cells": "B408, H408"
+          "cells": "B408, H408",
+          "salesServiceIncomeMillions": 51484.0,
+          "salesServiceIncomeCell": "D408"
         }
       ]
     },
@@ -2731,19 +3308,25 @@
           "period": "2022-23",
           "employmentThousands": 213.1,
           "ebitdaMillions": 7133.0,
-          "cells": "B411, H411"
+          "cells": "B411, H411",
+          "salesServiceIncomeMillions": 47995.0,
+          "salesServiceIncomeCell": "D411"
         },
         {
           "period": "2023-24",
           "employmentThousands": 223.3,
           "ebitdaMillions": 7469.0,
-          "cells": "B412, H412"
+          "cells": "B412, H412",
+          "salesServiceIncomeMillions": 58793.0,
+          "salesServiceIncomeCell": "D412"
         },
         {
           "period": "2024-25",
           "employmentThousands": 222.7,
           "ebitdaMillions": 8181.0,
-          "cells": "B413, H413"
+          "cells": "B413, H413",
+          "salesServiceIncomeMillions": 61020.0,
+          "salesServiceIncomeCell": "D413"
         }
       ]
     },
@@ -2760,19 +3343,25 @@
           "period": "2022-23",
           "employmentThousands": 371.7,
           "ebitdaMillions": -1129.0,
-          "cells": "B415, H415"
+          "cells": "B415, H415",
+          "salesServiceIncomeMillions": 40375.0,
+          "salesServiceIncomeCell": "D415"
         },
         {
           "period": "2023-24",
           "employmentThousands": 354.3,
           "ebitdaMillions": -1478.0,
-          "cells": "B416, H416"
+          "cells": "B416, H416",
+          "salesServiceIncomeMillions": 41423.0,
+          "salesServiceIncomeCell": "D416"
         },
         {
           "period": "2024-25",
           "employmentThousands": 364.8,
           "ebitdaMillions": -103.0,
-          "cells": "B417, H417"
+          "cells": "B417, H417",
+          "salesServiceIncomeMillions": 44460.0,
+          "salesServiceIncomeCell": "D417"
         }
       ]
     },
@@ -2789,19 +3378,25 @@
           "period": "2022-23",
           "employmentThousands": 584.8,
           "ebitdaMillions": 6004.0,
-          "cells": "B419, H419"
+          "cells": "B419, H419",
+          "salesServiceIncomeMillions": 88370.0,
+          "salesServiceIncomeCell": "D419"
         },
         {
           "period": "2023-24",
           "employmentThousands": 577.6,
           "ebitdaMillions": 5991.0,
-          "cells": "B420, H420"
+          "cells": "B420, H420",
+          "salesServiceIncomeMillions": 100216.0,
+          "salesServiceIncomeCell": "D420"
         },
         {
           "period": "2024-25",
           "employmentThousands": 587.5,
           "ebitdaMillions": 8078.0,
-          "cells": "B421, H421"
+          "cells": "B421, H421",
+          "salesServiceIncomeMillions": 105480.0,
+          "salesServiceIncomeCell": "D421"
         }
       ]
     },
@@ -2818,19 +3413,25 @@
           "period": "2022-23",
           "employmentThousands": 13018.3,
           "ebitdaMillions": 815287.0,
-          "cells": "B423, H423"
+          "cells": "B423, H423",
+          "salesServiceIncomeMillions": 4865271.0,
+          "salesServiceIncomeCell": "D423"
         },
         {
           "period": "2023-24",
           "employmentThousands": 13337.3,
           "ebitdaMillions": 786494.0,
-          "cells": "B424, H424"
+          "cells": "B424, H424",
+          "salesServiceIncomeMillions": 5055313.0,
+          "salesServiceIncomeCell": "D424"
         },
         {
           "period": "2024-25",
           "employmentThousands": 13632.0,
           "ebitdaMillions": 769337.0,
-          "cells": "B425, H425"
+          "cells": "B425, H425",
+          "salesServiceIncomeMillions": 5247747.0,
+          "salesServiceIncomeCell": "D425"
         }
       ]
     },
@@ -2847,19 +3448,25 @@
           "period": "2022-23",
           "employmentThousands": 259.3,
           "ebitdaMillions": 18223.0,
-          "cells": "B9, W9"
+          "cells": "B9, W9",
+          "salesServiceIncomeMillions": 74333.0,
+          "salesServiceIncomeCell": "H9"
         },
         {
           "period": "2023-24",
           "employmentThousands": 249.6,
           "ebitdaMillions": 13285.0,
-          "cells": "C9, X9"
+          "cells": "C9, X9",
+          "salesServiceIncomeMillions": 62344.0,
+          "salesServiceIncomeCell": "I9"
         },
         {
           "period": "2024-25",
           "employmentThousands": 251.8,
           "ebitdaMillions": 12710.0,
-          "cells": "D9, Y9"
+          "cells": "D9, Y9",
+          "salesServiceIncomeMillions": 65717.0,
+          "salesServiceIncomeCell": "J9"
         }
       ]
     },
@@ -2876,19 +3483,25 @@
           "period": "2022-23",
           "employmentThousands": 7.9,
           "ebitdaMillions": 31795.0,
-          "cells": "B10, W10"
+          "cells": "B10, W10",
+          "salesServiceIncomeMillions": 59042.0,
+          "salesServiceIncomeCell": "H10"
         },
         {
           "period": "2023-24",
           "employmentThousands": 9.2,
           "ebitdaMillions": 26313.0,
-          "cells": "C10, X10"
+          "cells": "C10, X10",
+          "salesServiceIncomeMillions": 54425.0,
+          "salesServiceIncomeCell": "I10"
         },
         {
           "period": "2024-25",
           "employmentThousands": 7.8,
           "ebitdaMillions": 23194.0,
-          "cells": "D10, Y10"
+          "cells": "D10, Y10",
+          "salesServiceIncomeMillions": 51692.0,
+          "salesServiceIncomeCell": "J10"
         }
       ]
     },
@@ -2905,19 +3518,25 @@
           "period": "2022-23",
           "employmentThousands": 102.6,
           "ebitdaMillions": 5215.0,
-          "cells": "B11, W11"
+          "cells": "B11, W11",
+          "salesServiceIncomeMillions": 34315.0,
+          "salesServiceIncomeCell": "H11"
         },
         {
           "period": "2023-24",
           "employmentThousands": 108.2,
           "ebitdaMillions": 5262.0,
-          "cells": "C11, X11"
+          "cells": "C11, X11",
+          "salesServiceIncomeMillions": 37002.0,
+          "salesServiceIncomeCell": "I11"
         },
         {
           "period": "2024-25",
           "employmentThousands": 107.6,
           "ebitdaMillions": 5886.0,
-          "cells": "D11, Y11"
+          "cells": "D11, Y11",
+          "salesServiceIncomeMillions": 37573.0,
+          "salesServiceIncomeCell": "J11"
         }
       ]
     },
@@ -2934,19 +3553,25 @@
           "period": "2022-23",
           "employmentThousands": 8.5,
           "ebitdaMillions": 3143.0,
-          "cells": "B12, W12"
+          "cells": "B12, W12",
+          "salesServiceIncomeMillions": 14031.0,
+          "salesServiceIncomeCell": "H12"
         },
         {
           "period": "2023-24",
           "employmentThousands": 8.8,
           "ebitdaMillions": 2742.0,
-          "cells": "C12, X12"
+          "cells": "C12, X12",
+          "salesServiceIncomeMillions": 15697.0,
+          "salesServiceIncomeCell": "I12"
         },
         {
           "period": "2024-25",
           "employmentThousands": 17.6,
           "ebitdaMillions": 3431.0,
-          "cells": "D12, Y12"
+          "cells": "D12, Y12",
+          "salesServiceIncomeMillions": 19898.0,
+          "salesServiceIncomeCell": "J12"
         }
       ]
     },
@@ -2963,19 +3588,25 @@
           "period": "2022-23",
           "employmentThousands": 526.8,
           "ebitdaMillions": 32891.0,
-          "cells": "B13, W13"
+          "cells": "B13, W13",
+          "salesServiceIncomeMillions": 213685.0,
+          "salesServiceIncomeCell": "H13"
         },
         {
           "period": "2023-24",
           "employmentThousands": 561.7,
           "ebitdaMillions": 34153.0,
-          "cells": "C13, X13"
+          "cells": "C13, X13",
+          "salesServiceIncomeMillions": 226077.0,
+          "salesServiceIncomeCell": "I13"
         },
         {
           "period": "2024-25",
           "employmentThousands": 550.6,
           "ebitdaMillions": 35355.0,
-          "cells": "D13, Y13"
+          "cells": "D13, Y13",
+          "salesServiceIncomeMillions": 260819.0,
+          "salesServiceIncomeCell": "J13"
         }
       ]
     },
@@ -2992,19 +3623,25 @@
           "period": "2022-23",
           "employmentThousands": 82.4,
           "ebitdaMillions": 3905.0,
-          "cells": "B14, W14"
+          "cells": "B14, W14",
+          "salesServiceIncomeMillions": 65026.0,
+          "salesServiceIncomeCell": "H14"
         },
         {
           "period": "2023-24",
           "employmentThousands": 77.5,
           "ebitdaMillions": 6354.0,
-          "cells": "C14, X14"
+          "cells": "C14, X14",
+          "salesServiceIncomeMillions": 78479.0,
+          "salesServiceIncomeCell": "I14"
         },
         {
           "period": "2024-25",
           "employmentThousands": 85.5,
           "ebitdaMillions": 6522.0,
-          "cells": "D14, Y14"
+          "cells": "D14, Y14",
+          "salesServiceIncomeMillions": 71646.0,
+          "salesServiceIncomeCell": "J14"
         }
       ]
     },
@@ -3021,19 +3658,25 @@
           "period": "2022-23",
           "employmentThousands": 221.8,
           "ebitdaMillions": 8531.0,
-          "cells": "B15, W15"
+          "cells": "B15, W15",
+          "salesServiceIncomeMillions": 87569.0,
+          "salesServiceIncomeCell": "H15"
         },
         {
           "period": "2023-24",
           "employmentThousands": 199.3,
           "ebitdaMillions": 9397.0,
-          "cells": "C15, X15"
+          "cells": "C15, X15",
+          "salesServiceIncomeMillions": 80621.0,
+          "salesServiceIncomeCell": "I15"
         },
         {
           "period": "2024-25",
           "employmentThousands": 198.7,
           "ebitdaMillions": 7916.0,
-          "cells": "D15, Y15"
+          "cells": "D15, Y15",
+          "salesServiceIncomeMillions": 78521.0,
+          "salesServiceIncomeCell": "J15"
         }
       ]
     },
@@ -3050,19 +3693,25 @@
           "period": "2022-23",
           "employmentThousands": 165.1,
           "ebitdaMillions": 3256.0,
-          "cells": "B16, W16"
+          "cells": "B16, W16",
+          "salesServiceIncomeMillions": 20800.0,
+          "salesServiceIncomeCell": "H16"
         },
         {
           "period": "2023-24",
           "employmentThousands": 138.9,
           "ebitdaMillions": 2863.0,
-          "cells": "C16, X16"
+          "cells": "C16, X16",
+          "salesServiceIncomeMillions": 22885.0,
+          "salesServiceIncomeCell": "I16"
         },
         {
           "period": "2024-25",
           "employmentThousands": 211.9,
           "ebitdaMillions": 5658.0,
-          "cells": "D16, Y16"
+          "cells": "D16, Y16",
+          "salesServiceIncomeMillions": 28108.0,
+          "salesServiceIncomeCell": "J16"
         }
       ]
     },
@@ -3079,19 +3728,25 @@
           "period": "2022-23",
           "employmentThousands": 226.0,
           "ebitdaMillions": 9984.0,
-          "cells": "B17, W17"
+          "cells": "B17, W17",
+          "salesServiceIncomeMillions": 42770.0,
+          "salesServiceIncomeCell": "H17"
         },
         {
           "period": "2023-24",
           "employmentThousands": 238.0,
           "ebitdaMillions": 10506.0,
-          "cells": "C17, X17"
+          "cells": "C17, X17",
+          "salesServiceIncomeMillions": 41196.0,
+          "salesServiceIncomeCell": "I17"
         },
         {
           "period": "2024-25",
           "employmentThousands": 233.4,
           "ebitdaMillions": 10596.0,
-          "cells": "D17, Y17"
+          "cells": "D17, Y17",
+          "salesServiceIncomeMillions": 39873.0,
+          "salesServiceIncomeCell": "J17"
         }
       ]
     },
@@ -3108,19 +3763,25 @@
           "period": "2022-23",
           "employmentThousands": 22.2,
           "ebitdaMillions": 1134.0,
-          "cells": "B18, W18"
+          "cells": "B18, W18",
+          "salesServiceIncomeMillions": 6154.0,
+          "salesServiceIncomeCell": "H18"
         },
         {
           "period": "2023-24",
           "employmentThousands": 26.1,
           "ebitdaMillions": 1535.0,
-          "cells": "C18, X18"
+          "cells": "C18, X18",
+          "salesServiceIncomeMillions": 5980.0,
+          "salesServiceIncomeCell": "I18"
         },
         {
           "period": "2024-25",
           "employmentThousands": 27.9,
           "ebitdaMillions": 1632.0,
-          "cells": "D18, Y18"
+          "cells": "D18, Y18",
+          "salesServiceIncomeMillions": 6732.0,
+          "salesServiceIncomeCell": "J18"
         }
       ]
     },
@@ -3137,19 +3798,25 @@
           "period": "2022-23",
           "employmentThousands": 216.5,
           "ebitdaMillions": 49718.0,
-          "cells": "B19, W19"
+          "cells": "B19, W19",
+          "salesServiceIncomeMillions": 101560.0,
+          "salesServiceIncomeCell": "H19"
         },
         {
           "period": "2023-24",
           "employmentThousands": 197.3,
           "ebitdaMillions": 55655.0,
-          "cells": "C19, X19"
+          "cells": "C19, X19",
+          "salesServiceIncomeMillions": 114784.0,
+          "salesServiceIncomeCell": "I19"
         },
         {
           "period": "2024-25",
           "employmentThousands": 208.5,
           "ebitdaMillions": 59693.0,
-          "cells": "D19, Y19"
+          "cells": "D19, Y19",
+          "salesServiceIncomeMillions": 122950.0,
+          "salesServiceIncomeCell": "J19"
         }
       ]
     },
@@ -3166,19 +3833,25 @@
           "period": "2022-23",
           "employmentThousands": 343.1,
           "ebitdaMillions": 24592.0,
-          "cells": "B20, W20"
+          "cells": "B20, W20",
+          "salesServiceIncomeMillions": 82584.0,
+          "salesServiceIncomeCell": "H20"
         },
         {
           "period": "2023-24",
           "employmentThousands": 381.1,
           "ebitdaMillions": 26512.0,
-          "cells": "C20, X20"
+          "cells": "C20, X20",
+          "salesServiceIncomeMillions": 88563.0,
+          "salesServiceIncomeCell": "I20"
         },
         {
           "period": "2024-25",
           "employmentThousands": 384.4,
           "ebitdaMillions": 27126.0,
-          "cells": "D20, Y20"
+          "cells": "D20, Y20",
+          "salesServiceIncomeMillions": 94133.0,
+          "salesServiceIncomeCell": "J20"
         }
       ]
     },
@@ -3195,19 +3868,25 @@
           "period": "2022-23",
           "employmentThousands": 157.8,
           "ebitdaMillions": 6821.0,
-          "cells": "B21, W21"
+          "cells": "B21, W21",
+          "salesServiceIncomeMillions": 23175.0,
+          "salesServiceIncomeCell": "H21"
         },
         {
           "period": "2023-24",
           "employmentThousands": 158.1,
           "ebitdaMillions": 5998.0,
-          "cells": "C21, X21"
+          "cells": "C21, X21",
+          "salesServiceIncomeMillions": 27299.0,
+          "salesServiceIncomeCell": "I21"
         },
         {
           "period": "2024-25",
           "employmentThousands": 169.0,
           "ebitdaMillions": 6688.0,
-          "cells": "D21, Y21"
+          "cells": "D21, Y21",
+          "salesServiceIncomeMillions": 34069.0,
+          "salesServiceIncomeCell": "J21"
         }
       ]
     },
@@ -3224,19 +3903,25 @@
           "period": "2022-23",
           "employmentThousands": 16.3,
           "ebitdaMillions": 482.0,
-          "cells": "B22, W22"
+          "cells": "B22, W22",
+          "salesServiceIncomeMillions": 3646.0,
+          "salesServiceIncomeCell": "H22"
         },
         {
           "period": "2023-24",
           "employmentThousands": 13.6,
           "ebitdaMillions": 561.0,
-          "cells": "C22, X22"
+          "cells": "C22, X22",
+          "salesServiceIncomeMillions": 3035.0,
+          "salesServiceIncomeCell": "I22"
         },
         {
           "period": "2024-25",
           "employmentThousands": 15.5,
           "ebitdaMillions": 385.0,
-          "cells": "D22, Y22"
+          "cells": "D22, Y22",
+          "salesServiceIncomeMillions": 3299.0,
+          "salesServiceIncomeCell": "J22"
         }
       ]
     },
@@ -3253,19 +3938,25 @@
           "period": "2022-23",
           "employmentThousands": 54.0,
           "ebitdaMillions": 2026.0,
-          "cells": "B23, W23"
+          "cells": "B23, W23",
+          "salesServiceIncomeMillions": 7442.0,
+          "salesServiceIncomeCell": "H23"
         },
         {
           "period": "2023-24",
           "employmentThousands": 55.3,
           "ebitdaMillions": 1776.0,
-          "cells": "C23, X23"
+          "cells": "C23, X23",
+          "salesServiceIncomeMillions": 7450.0,
+          "salesServiceIncomeCell": "I23"
         },
         {
           "period": "2024-25",
           "employmentThousands": 48.7,
           "ebitdaMillions": 1645.0,
-          "cells": "D23, Y23"
+          "cells": "D23, Y23",
+          "salesServiceIncomeMillions": 8146.0,
+          "salesServiceIncomeCell": "J23"
         }
       ]
     },
@@ -3282,19 +3973,25 @@
           "period": "2022-23",
           "employmentThousands": 236.7,
           "ebitdaMillions": 24212.0,
-          "cells": "B24, W24"
+          "cells": "B24, W24",
+          "salesServiceIncomeMillions": 54346.0,
+          "salesServiceIncomeCell": "H24"
         },
         {
           "period": "2023-24",
           "employmentThousands": 260.1,
           "ebitdaMillions": 24078.0,
-          "cells": "C24, X24"
+          "cells": "C24, X24",
+          "salesServiceIncomeMillions": 53867.0,
+          "salesServiceIncomeCell": "I24"
         },
         {
           "period": "2024-25",
           "employmentThousands": 274.6,
           "ebitdaMillions": 24015.0,
-          "cells": "D24, Y24"
+          "cells": "D24, Y24",
+          "salesServiceIncomeMillions": 53372.0,
+          "salesServiceIncomeCell": "J24"
         }
       ]
     },
@@ -3311,19 +4008,25 @@
           "period": "2022-23",
           "employmentThousands": 50.8,
           "ebitdaMillions": 2310.0,
-          "cells": "B25, W25"
+          "cells": "B25, W25",
+          "salesServiceIncomeMillions": 8000.0,
+          "salesServiceIncomeCell": "H25"
         },
         {
           "period": "2023-24",
           "employmentThousands": 54.1,
           "ebitdaMillions": 2308.0,
-          "cells": "C25, X25"
+          "cells": "C25, X25",
+          "salesServiceIncomeMillions": 8224.0,
+          "salesServiceIncomeCell": "I25"
         },
         {
           "period": "2024-25",
           "employmentThousands": 45.7,
           "ebitdaMillions": 2855.0,
-          "cells": "D25, Y25"
+          "cells": "D25, Y25",
+          "salesServiceIncomeMillions": 8680.0,
+          "salesServiceIncomeCell": "J25"
         }
       ]
     },
@@ -3340,19 +4043,25 @@
           "period": "2022-23",
           "employmentThousands": 235.2,
           "ebitdaMillions": 4474.0,
-          "cells": "B26, W26"
+          "cells": "B26, W26",
+          "salesServiceIncomeMillions": 28241.0,
+          "salesServiceIncomeCell": "H26"
         },
         {
           "period": "2023-24",
           "employmentThousands": 206.4,
           "ebitdaMillions": 5846.0,
-          "cells": "C26, X26"
+          "cells": "C26, X26",
+          "salesServiceIncomeMillions": 31421.0,
+          "salesServiceIncomeCell": "I26"
         },
         {
           "period": "2024-25",
           "employmentThousands": 197.9,
           "ebitdaMillions": 6670.0,
-          "cells": "D26, Y26"
+          "cells": "D26, Y26",
+          "salesServiceIncomeMillions": 30531.0,
+          "salesServiceIncomeCell": "J26"
         }
       ]
     },
@@ -3369,19 +4078,25 @@
           "period": "2022-23",
           "employmentThousands": 69.1,
           "ebitdaMillions": 6568.0,
-          "cells": "B29, W29"
+          "cells": "B29, W29",
+          "salesServiceIncomeMillions": 30063.0,
+          "salesServiceIncomeCell": "H29"
         },
         {
           "period": "2023-24",
           "employmentThousands": 69.2,
           "ebitdaMillions": 2812.0,
-          "cells": "C29, X29"
+          "cells": "C29, X29",
+          "salesServiceIncomeMillions": 26744.0,
+          "salesServiceIncomeCell": "I29"
         },
         {
           "period": "2024-25",
           "employmentThousands": 79.4,
           "ebitdaMillions": 3976.0,
-          "cells": "D29, Y29"
+          "cells": "D29, Y29",
+          "salesServiceIncomeMillions": 27770.0,
+          "salesServiceIncomeCell": "J29"
         }
       ]
     },
@@ -3398,19 +4113,25 @@
           "period": "2022-23",
           "employmentThousands": 10.0,
           "ebitdaMillions": 11949.0,
-          "cells": "B30, W30"
+          "cells": "B30, W30",
+          "salesServiceIncomeMillions": 26433.0,
+          "salesServiceIncomeCell": "H30"
         },
         {
           "period": "2023-24",
           "employmentThousands": 10.7,
           "ebitdaMillions": 9768.0,
-          "cells": "C30, X30"
+          "cells": "C30, X30",
+          "salesServiceIncomeMillions": 24680.0,
+          "salesServiceIncomeCell": "I30"
         },
         {
           "period": "2024-25",
           "employmentThousands": 10.8,
           "ebitdaMillions": 7589.0,
-          "cells": "D30, Y30"
+          "cells": "D30, Y30",
+          "salesServiceIncomeMillions": 22000.0,
+          "salesServiceIncomeCell": "J30"
         }
       ]
     },
@@ -3427,19 +4148,25 @@
           "period": "2022-23",
           "employmentThousands": 159.4,
           "ebitdaMillions": 5692.0,
-          "cells": "B31, W31"
+          "cells": "B31, W31",
+          "salesServiceIncomeMillions": 54080.0,
+          "salesServiceIncomeCell": "H31"
         },
         {
           "period": "2023-24",
           "employmentThousands": 149.7,
           "ebitdaMillions": 6322.0,
-          "cells": "C31, X31"
+          "cells": "C31, X31",
+          "salesServiceIncomeMillions": 52554.0,
+          "salesServiceIncomeCell": "I31"
         },
         {
           "period": "2024-25",
           "employmentThousands": 160.6,
           "ebitdaMillions": 6368.0,
-          "cells": "D31, Y31"
+          "cells": "D31, Y31",
+          "salesServiceIncomeMillions": 54284.0,
+          "salesServiceIncomeCell": "J31"
         }
       ]
     },
@@ -3456,19 +4183,25 @@
           "period": "2022-23",
           "employmentThousands": 12.8,
           "ebitdaMillions": 1261.0,
-          "cells": "B32, W32"
+          "cells": "B32, W32",
+          "salesServiceIncomeMillions": 7243.0,
+          "salesServiceIncomeCell": "H32"
         },
         {
           "period": "2023-24",
           "employmentThousands": 10.1,
           "ebitdaMillions": 1135.0,
-          "cells": "C32, X32"
+          "cells": "C32, X32",
+          "salesServiceIncomeMillions": 8382.0,
+          "salesServiceIncomeCell": "I32"
         },
         {
           "period": "2024-25",
           "employmentThousands": 9.7,
           "ebitdaMillions": 1736.0,
-          "cells": "D32, Y32"
+          "cells": "D32, Y32",
+          "salesServiceIncomeMillions": 7631.0,
+          "salesServiceIncomeCell": "J32"
         }
       ]
     },
@@ -3485,19 +4218,25 @@
           "period": "2022-23",
           "employmentThousands": 259.6,
           "ebitdaMillions": 9112.0,
-          "cells": "B33, W33"
+          "cells": "B33, W33",
+          "salesServiceIncomeMillions": 84035.0,
+          "salesServiceIncomeCell": "H33"
         },
         {
           "period": "2023-24",
           "employmentThousands": 244.3,
           "ebitdaMillions": 7572.0,
-          "cells": "C33, X33"
+          "cells": "C33, X33",
+          "salesServiceIncomeMillions": 101850.0,
+          "salesServiceIncomeCell": "I33"
         },
         {
           "period": "2024-25",
           "employmentThousands": 256.4,
           "ebitdaMillions": 11844.0,
-          "cells": "D33, Y33"
+          "cells": "D33, Y33",
+          "salesServiceIncomeMillions": 110621.0,
+          "salesServiceIncomeCell": "J33"
         }
       ]
     },
@@ -3514,19 +4253,25 @@
           "period": "2022-23",
           "employmentThousands": 116.3,
           "ebitdaMillions": 8914.0,
-          "cells": "B34, W34"
+          "cells": "B34, W34",
+          "salesServiceIncomeMillions": 120660.0,
+          "salesServiceIncomeCell": "H34"
         },
         {
           "period": "2023-24",
           "employmentThousands": 109.5,
           "ebitdaMillions": 5671.0,
-          "cells": "C34, X34"
+          "cells": "C34, X34",
+          "salesServiceIncomeMillions": 99342.0,
+          "salesServiceIncomeCell": "I34"
         },
         {
           "period": "2024-25",
           "employmentThousands": 122.6,
           "ebitdaMillions": 7348.0,
-          "cells": "D34, Y34"
+          "cells": "D34, Y34",
+          "salesServiceIncomeMillions": 107173.0,
+          "salesServiceIncomeCell": "J34"
         }
       ]
     },
@@ -3543,19 +4288,25 @@
           "period": "2022-23",
           "employmentThousands": 259.1,
           "ebitdaMillions": 8816.0,
-          "cells": "B35, W35"
+          "cells": "B35, W35",
+          "salesServiceIncomeMillions": 98227.0,
+          "salesServiceIncomeCell": "H35"
         },
         {
           "period": "2023-24",
           "employmentThousands": 282.2,
           "ebitdaMillions": 9362.0,
-          "cells": "C35, X35"
+          "cells": "C35, X35",
+          "salesServiceIncomeMillions": 105236.0,
+          "salesServiceIncomeCell": "I35"
         },
         {
           "period": "2024-25",
           "employmentThousands": 271.9,
           "ebitdaMillions": 7183.0,
-          "cells": "D35, Y35"
+          "cells": "D35, Y35",
+          "salesServiceIncomeMillions": 104020.0,
+          "salesServiceIncomeCell": "J35"
         }
       ]
     },
@@ -3572,19 +4323,25 @@
           "period": "2022-23",
           "employmentThousands": 359.7,
           "ebitdaMillions": 2428.0,
-          "cells": "B36, W36"
+          "cells": "B36, W36",
+          "salesServiceIncomeMillions": 33708.0,
+          "salesServiceIncomeCell": "H36"
         },
         {
           "period": "2023-24",
           "employmentThousands": 346.7,
           "ebitdaMillions": 3141.0,
-          "cells": "C36, X36"
+          "cells": "C36, X36",
+          "salesServiceIncomeMillions": 35713.0,
+          "salesServiceIncomeCell": "I36"
         },
         {
           "period": "2024-25",
           "employmentThousands": 293.6,
           "ebitdaMillions": 2551.0,
-          "cells": "D36, Y36"
+          "cells": "D36, Y36",
+          "salesServiceIncomeMillions": 33473.0,
+          "salesServiceIncomeCell": "J36"
         }
       ]
     },
@@ -3601,19 +4358,25 @@
           "period": "2022-23",
           "employmentThousands": 58.0,
           "ebitdaMillions": 2913.0,
-          "cells": "B37, W37"
+          "cells": "B37, W37",
+          "salesServiceIncomeMillions": 24052.0,
+          "salesServiceIncomeCell": "H37"
         },
         {
           "period": "2023-24",
           "employmentThousands": 61.4,
           "ebitdaMillions": 2204.0,
-          "cells": "C37, X37"
+          "cells": "C37, X37",
+          "salesServiceIncomeMillions": 26070.0,
+          "salesServiceIncomeCell": "I37"
         },
         {
           "period": "2024-25",
           "employmentThousands": 51.8,
           "ebitdaMillions": 2350.0,
-          "cells": "D37, Y37"
+          "cells": "D37, Y37",
+          "salesServiceIncomeMillions": 23937.0,
+          "salesServiceIncomeCell": "J37"
         }
       ]
     },
@@ -3630,19 +4393,25 @@
           "period": "2022-23",
           "employmentThousands": 15.9,
           "ebitdaMillions": 310.0,
-          "cells": "B38, W38"
+          "cells": "B38, W38",
+          "salesServiceIncomeMillions": 4427.0,
+          "salesServiceIncomeCell": "H38"
         },
         {
           "period": "2023-24",
           "employmentThousands": 16.9,
           "ebitdaMillions": 1044.0,
-          "cells": "C38, X38"
+          "cells": "C38, X38",
+          "salesServiceIncomeMillions": 6164.0,
+          "salesServiceIncomeCell": "I38"
         },
         {
           "period": "2024-25",
           "employmentThousands": 18.1,
           "ebitdaMillions": 975.0,
-          "cells": "D38, Y38"
+          "cells": "D38, Y38",
+          "salesServiceIncomeMillions": 6042.0,
+          "salesServiceIncomeCell": "J38"
         }
       ]
     },
@@ -3659,19 +4428,25 @@
           "period": "2022-23",
           "employmentThousands": 97.9,
           "ebitdaMillions": 6431.0,
-          "cells": "B39, W39"
+          "cells": "B39, W39",
+          "salesServiceIncomeMillions": 25574.0,
+          "salesServiceIncomeCell": "H39"
         },
         {
           "period": "2023-24",
           "employmentThousands": 88.2,
           "ebitdaMillions": 4824.0,
-          "cells": "C39, X39"
+          "cells": "C39, X39",
+          "salesServiceIncomeMillions": 20717.0,
+          "salesServiceIncomeCell": "I39"
         },
         {
           "period": "2024-25",
           "employmentThousands": 79.7,
           "ebitdaMillions": 6213.0,
-          "cells": "D39, Y39"
+          "cells": "D39, Y39",
+          "salesServiceIncomeMillions": 23977.0,
+          "salesServiceIncomeCell": "J39"
         }
       ]
     },
@@ -3688,19 +4463,25 @@
           "period": "2022-23",
           "employmentThousands": 257.7,
           "ebitdaMillions": 5043.0,
-          "cells": "B40, W40"
+          "cells": "B40, W40",
+          "salesServiceIncomeMillions": 53513.0,
+          "salesServiceIncomeCell": "H40"
         },
         {
           "period": "2023-24",
           "employmentThousands": 241.2,
           "ebitdaMillions": 11226.0,
-          "cells": "C40, X40"
+          "cells": "C40, X40",
+          "salesServiceIncomeMillions": 67178.0,
+          "salesServiceIncomeCell": "I40"
         },
         {
           "period": "2024-25",
           "employmentThousands": 238.9,
           "ebitdaMillions": 4591.0,
-          "cells": "D40, Y40"
+          "cells": "D40, Y40",
+          "salesServiceIncomeMillions": 58016.0,
+          "salesServiceIncomeCell": "J40"
         }
       ]
     },
@@ -3717,19 +4498,25 @@
           "period": "2022-23",
           "employmentThousands": 100.0,
           "ebitdaMillions": 1971.0,
-          "cells": "B41, W41"
+          "cells": "B41, W41",
+          "salesServiceIncomeMillions": 16299.0,
+          "salesServiceIncomeCell": "H41"
         },
         {
           "period": "2023-24",
           "employmentThousands": 107.6,
           "ebitdaMillions": 2271.0,
-          "cells": "C41, X41"
+          "cells": "C41, X41",
+          "salesServiceIncomeMillions": 20329.0,
+          "salesServiceIncomeCell": "I41"
         },
         {
           "period": "2024-25",
           "employmentThousands": 88.8,
           "ebitdaMillions": 2213.0,
-          "cells": "D41, Y41"
+          "cells": "D41, Y41",
+          "salesServiceIncomeMillions": 18469.0,
+          "salesServiceIncomeCell": "J41"
         }
       ]
     },
@@ -3746,19 +4533,25 @@
           "period": "2022-23",
           "employmentThousands": 8.4,
           "ebitdaMillions": 188.0,
-          "cells": "B42, W42"
+          "cells": "B42, W42",
+          "salesServiceIncomeMillions": 1213.0,
+          "salesServiceIncomeCell": "H42"
         },
         {
           "period": "2023-24",
           "employmentThousands": 9.6,
           "ebitdaMillions": 322.0,
-          "cells": "C42, X42"
+          "cells": "C42, X42",
+          "salesServiceIncomeMillions": 1766.0,
+          "salesServiceIncomeCell": "I42"
         },
         {
           "period": "2024-25",
           "employmentThousands": 10.1,
           "ebitdaMillions": 310.0,
-          "cells": "D42, Y42"
+          "cells": "D42, Y42",
+          "salesServiceIncomeMillions": 1783.0,
+          "salesServiceIncomeCell": "J42"
         }
       ]
     },
@@ -3775,19 +4568,25 @@
           "period": "2022-23",
           "employmentThousands": 67.8,
           "ebitdaMillions": 526.0,
-          "cells": "B43, W43"
+          "cells": "B43, W43",
+          "salesServiceIncomeMillions": 5878.0,
+          "salesServiceIncomeCell": "H43"
         },
         {
           "period": "2023-24",
           "employmentThousands": 64.8,
           "ebitdaMillions": 601.0,
-          "cells": "C43, X43"
+          "cells": "C43, X43",
+          "salesServiceIncomeMillions": 5910.0,
+          "salesServiceIncomeCell": "I43"
         },
         {
           "period": "2024-25",
           "employmentThousands": 61.4,
           "ebitdaMillions": 454.0,
-          "cells": "D43, Y43"
+          "cells": "D43, Y43",
+          "salesServiceIncomeMillions": 6023.0,
+          "salesServiceIncomeCell": "J43"
         }
       ]
     },
@@ -3804,19 +4603,25 @@
           "period": "2022-23",
           "employmentThousands": 293.4,
           "ebitdaMillions": 5131.0,
-          "cells": "B44, W44"
+          "cells": "B44, W44",
+          "salesServiceIncomeMillions": 31206.0,
+          "salesServiceIncomeCell": "H44"
         },
         {
           "period": "2023-24",
           "employmentThousands": 198.1,
           "ebitdaMillions": 4523.0,
-          "cells": "C44, X44"
+          "cells": "C44, X44",
+          "salesServiceIncomeMillions": 27002.0,
+          "salesServiceIncomeCell": "I44"
         },
         {
           "period": "2024-25",
           "employmentThousands": 236.0,
           "ebitdaMillions": 4681.0,
-          "cells": "D44, Y44"
+          "cells": "D44, Y44",
+          "salesServiceIncomeMillions": 29693.0,
+          "salesServiceIncomeCell": "J44"
         }
       ]
     },
@@ -3833,19 +4638,25 @@
           "period": "2022-23",
           "employmentThousands": 41.2,
           "ebitdaMillions": 1356.0,
-          "cells": "B45, W45"
+          "cells": "B45, W45",
+          "salesServiceIncomeMillions": 5818.0,
+          "salesServiceIncomeCell": "H45"
         },
         {
           "period": "2023-24",
           "employmentThousands": 34.9,
           "ebitdaMillions": 508.0,
-          "cells": "C45, X45"
+          "cells": "C45, X45",
+          "salesServiceIncomeMillions": 5135.0,
+          "salesServiceIncomeCell": "I45"
         },
         {
           "period": "2024-25",
           "employmentThousands": 44.0,
           "ebitdaMillions": 813.0,
-          "cells": "D45, Y45"
+          "cells": "D45, Y45",
+          "salesServiceIncomeMillions": 5614.0,
+          "salesServiceIncomeCell": "J45"
         }
       ]
     },
@@ -3862,19 +4673,25 @@
           "period": "2022-23",
           "employmentThousands": 164.6,
           "ebitdaMillions": 2252.0,
-          "cells": "B46, W46"
+          "cells": "B46, W46",
+          "salesServiceIncomeMillions": 27884.0,
+          "salesServiceIncomeCell": "H46"
         },
         {
           "period": "2023-24",
           "employmentThousands": 154.3,
           "ebitdaMillions": 1599.0,
-          "cells": "C46, X46"
+          "cells": "C46, X46",
+          "salesServiceIncomeMillions": 27802.0,
+          "salesServiceIncomeCell": "I46"
         },
         {
           "period": "2024-25",
           "employmentThousands": 174.8,
           "ebitdaMillions": 1138.0,
-          "cells": "D46, Y46"
+          "cells": "D46, Y46",
+          "salesServiceIncomeMillions": 30690.0,
+          "salesServiceIncomeCell": "J46"
         }
       ]
     },
@@ -3891,19 +4708,25 @@
           "period": "2022-23",
           "employmentThousands": 70.6,
           "ebitdaMillions": 2094.0,
-          "cells": "B49, W49"
+          "cells": "B49, W49",
+          "salesServiceIncomeMillions": 23722.0,
+          "salesServiceIncomeCell": "H49"
         },
         {
           "period": "2023-24",
           "employmentThousands": 69.5,
           "ebitdaMillions": 1303.0,
-          "cells": "C49, X49"
+          "cells": "C49, X49",
+          "salesServiceIncomeMillions": 23286.0,
+          "salesServiceIncomeCell": "I49"
         },
         {
           "period": "2024-25",
           "employmentThousands": 62.7,
           "ebitdaMillions": 3009.0,
-          "cells": "D49, Y49"
+          "cells": "D49, Y49",
+          "salesServiceIncomeMillions": 24960.0,
+          "salesServiceIncomeCell": "J49"
         }
       ]
     },
@@ -3920,19 +4743,25 @@
           "period": "2022-23",
           "employmentThousands": 29.0,
           "ebitdaMillions": 33090.0,
-          "cells": "B50, W50"
+          "cells": "B50, W50",
+          "salesServiceIncomeMillions": 66403.0,
+          "salesServiceIncomeCell": "H50"
         },
         {
           "period": "2023-24",
           "employmentThousands": 28.1,
           "ebitdaMillions": 24432.0,
-          "cells": "C50, X50"
+          "cells": "C50, X50",
+          "salesServiceIncomeMillions": 59730.0,
+          "salesServiceIncomeCell": "I50"
         },
         {
           "period": "2024-25",
           "employmentThousands": 29.9,
           "ebitdaMillions": 8762.0,
-          "cells": "D50, Y50"
+          "cells": "D50, Y50",
+          "salesServiceIncomeMillions": 44378.0,
+          "salesServiceIncomeCell": "J50"
         }
       ]
     },
@@ -3949,19 +4778,25 @@
           "period": "2022-23",
           "employmentThousands": 304.3,
           "ebitdaMillions": 13399.0,
-          "cells": "B51, W51"
+          "cells": "B51, W51",
+          "salesServiceIncomeMillions": 129755.0,
+          "salesServiceIncomeCell": "H51"
         },
         {
           "period": "2023-24",
           "employmentThousands": 300.7,
           "ebitdaMillions": 11756.0,
-          "cells": "C51, X51"
+          "cells": "C51, X51",
+          "salesServiceIncomeMillions": 128555.0,
+          "salesServiceIncomeCell": "I51"
         },
         {
           "period": "2024-25",
           "employmentThousands": 292.5,
           "ebitdaMillions": 11256.0,
-          "cells": "D51, Y51"
+          "cells": "D51, Y51",
+          "salesServiceIncomeMillions": 131332.0,
+          "salesServiceIncomeCell": "J51"
         }
       ]
     },
@@ -3978,19 +4813,25 @@
           "period": "2022-23",
           "employmentThousands": 25.0,
           "ebitdaMillions": 3987.0,
-          "cells": "B52, W52"
+          "cells": "B52, W52",
+          "salesServiceIncomeMillions": 24679.0,
+          "salesServiceIncomeCell": "H52"
         },
         {
           "period": "2023-24",
           "employmentThousands": 26.5,
           "ebitdaMillions": 3538.0,
-          "cells": "C52, X52"
+          "cells": "C52, X52",
+          "salesServiceIncomeMillions": 22530.0,
+          "salesServiceIncomeCell": "I52"
         },
         {
           "period": "2024-25",
           "employmentThousands": 22.2,
           "ebitdaMillions": 3998.0,
-          "cells": "D52, Y52"
+          "cells": "D52, Y52",
+          "salesServiceIncomeMillions": 26434.0,
+          "salesServiceIncomeCell": "J52"
         }
       ]
     },
@@ -4007,19 +4848,25 @@
           "period": "2022-23",
           "employmentThousands": 272.4,
           "ebitdaMillions": 10394.0,
-          "cells": "B53, W53"
+          "cells": "B53, W53",
+          "salesServiceIncomeMillions": 148524.0,
+          "salesServiceIncomeCell": "H53"
         },
         {
           "period": "2023-24",
           "employmentThousands": 307.9,
           "ebitdaMillions": 12508.0,
-          "cells": "C53, X53"
+          "cells": "C53, X53",
+          "salesServiceIncomeMillions": 160283.0,
+          "salesServiceIncomeCell": "I53"
         },
         {
           "period": "2024-25",
           "employmentThousands": 316.7,
           "ebitdaMillions": 11248.0,
-          "cells": "D53, Y53"
+          "cells": "D53, Y53",
+          "salesServiceIncomeMillions": 150614.0,
+          "salesServiceIncomeCell": "J53"
         }
       ]
     },
@@ -4036,19 +4883,25 @@
           "period": "2022-23",
           "employmentThousands": 203.3,
           "ebitdaMillions": 16135.0,
-          "cells": "B54, W54"
+          "cells": "B54, W54",
+          "salesServiceIncomeMillions": 240773.0,
+          "salesServiceIncomeCell": "H54"
         },
         {
           "period": "2023-24",
           "employmentThousands": 192.6,
           "ebitdaMillions": 17978.0,
-          "cells": "C54, X54"
+          "cells": "C54, X54",
+          "salesServiceIncomeMillions": 243543.0,
+          "salesServiceIncomeCell": "I54"
         },
         {
           "period": "2024-25",
           "employmentThousands": 215.2,
           "ebitdaMillions": 17503.0,
-          "cells": "D54, Y54"
+          "cells": "D54, Y54",
+          "salesServiceIncomeMillions": 261232.0,
+          "salesServiceIncomeCell": "J54"
         }
       ]
     },
@@ -4065,19 +4918,25 @@
           "period": "2022-23",
           "employmentThousands": 260.2,
           "ebitdaMillions": 7414.0,
-          "cells": "B55, W55"
+          "cells": "B55, W55",
+          "salesServiceIncomeMillions": 137634.0,
+          "salesServiceIncomeCell": "H55"
         },
         {
           "period": "2023-24",
           "employmentThousands": 275.5,
           "ebitdaMillions": 5102.0,
-          "cells": "C55, X55"
+          "cells": "C55, X55",
+          "salesServiceIncomeMillions": 145516.0,
+          "salesServiceIncomeCell": "I55"
         },
         {
           "period": "2024-25",
           "employmentThousands": 267.6,
           "ebitdaMillions": 8678.0,
-          "cells": "D55, Y55"
+          "cells": "D55, Y55",
+          "salesServiceIncomeMillions": 152100.0,
+          "salesServiceIncomeCell": "J55"
         }
       ]
     },
@@ -4094,19 +4953,25 @@
           "period": "2022-23",
           "employmentThousands": 355.9,
           "ebitdaMillions": 6565.0,
-          "cells": "B56, W56"
+          "cells": "B56, W56",
+          "salesServiceIncomeMillions": 48294.0,
+          "salesServiceIncomeCell": "H56"
         },
         {
           "period": "2023-24",
           "employmentThousands": 364.2,
           "ebitdaMillions": 5823.0,
-          "cells": "C56, X56"
+          "cells": "C56, X56",
+          "salesServiceIncomeMillions": 52938.0,
+          "salesServiceIncomeCell": "I56"
         },
         {
           "period": "2024-25",
           "employmentThousands": 314.1,
           "ebitdaMillions": 5040.0,
-          "cells": "D56, Y56"
+          "cells": "D56, Y56",
+          "salesServiceIncomeMillions": 49259.0,
+          "salesServiceIncomeCell": "J56"
         }
       ]
     },
@@ -4123,19 +4988,25 @@
           "period": "2022-23",
           "employmentThousands": 102.0,
           "ebitdaMillions": 7101.0,
-          "cells": "B57, W57"
+          "cells": "B57, W57",
+          "salesServiceIncomeMillions": 43756.0,
+          "salesServiceIncomeCell": "H57"
         },
         {
           "period": "2023-24",
           "employmentThousands": 73.5,
           "ebitdaMillions": 7197.0,
-          "cells": "C57, X57"
+          "cells": "C57, X57",
+          "salesServiceIncomeMillions": 39541.0,
+          "salesServiceIncomeCell": "I57"
         },
         {
           "period": "2024-25",
           "employmentThousands": 118.9,
           "ebitdaMillions": 10056.0,
-          "cells": "D57, Y57"
+          "cells": "D57, Y57",
+          "salesServiceIncomeMillions": 57736.0,
+          "salesServiceIncomeCell": "J57"
         }
       ]
     },
@@ -4152,19 +5023,25 @@
           "period": "2022-23",
           "employmentThousands": 43.1,
           "ebitdaMillions": 2627.0,
-          "cells": "B58, W58"
+          "cells": "B58, W58",
+          "salesServiceIncomeMillions": 16523.0,
+          "salesServiceIncomeCell": "H58"
         },
         {
           "period": "2023-24",
           "employmentThousands": 36.5,
           "ebitdaMillions": 2788.0,
-          "cells": "C58, X58"
+          "cells": "C58, X58",
+          "salesServiceIncomeMillions": 16420.0,
+          "salesServiceIncomeCell": "I58"
         },
         {
           "period": "2024-25",
           "employmentThousands": 36.9,
           "ebitdaMillions": 3820.0,
-          "cells": "D58, Y58"
+          "cells": "D58, Y58",
+          "salesServiceIncomeMillions": 20358.0,
+          "salesServiceIncomeCell": "J58"
         }
       ]
     },
@@ -4181,19 +5058,25 @@
           "period": "2022-23",
           "employmentThousands": 62.1,
           "ebitdaMillions": 5222.0,
-          "cells": "B59, W59"
+          "cells": "B59, W59",
+          "salesServiceIncomeMillions": 21423.0,
+          "salesServiceIncomeCell": "H59"
         },
         {
           "period": "2023-24",
           "employmentThousands": 84.2,
           "ebitdaMillions": 5675.0,
-          "cells": "C59, X59"
+          "cells": "C59, X59",
+          "salesServiceIncomeMillions": 26540.0,
+          "salesServiceIncomeCell": "I59"
         },
         {
           "period": "2024-25",
           "employmentThousands": 72.9,
           "ebitdaMillions": 4227.0,
-          "cells": "D59, Y59"
+          "cells": "D59, Y59",
+          "salesServiceIncomeMillions": 23218.0,
+          "salesServiceIncomeCell": "J59"
         }
       ]
     },
@@ -4210,19 +5093,25 @@
           "period": "2022-23",
           "employmentThousands": 391.6,
           "ebitdaMillions": 7010.0,
-          "cells": "B60, W60"
+          "cells": "B60, W60",
+          "salesServiceIncomeMillions": 101827.0,
+          "salesServiceIncomeCell": "H60"
         },
         {
           "period": "2023-24",
           "employmentThousands": 379.5,
           "ebitdaMillions": 3002.0,
-          "cells": "C60, X60"
+          "cells": "C60, X60",
+          "salesServiceIncomeMillions": 103744.0,
+          "salesServiceIncomeCell": "I60"
         },
         {
           "period": "2024-25",
           "employmentThousands": 384.7,
           "ebitdaMillions": 6204.0,
-          "cells": "D60, Y60"
+          "cells": "D60, Y60",
+          "salesServiceIncomeMillions": 111397.0,
+          "salesServiceIncomeCell": "J60"
         }
       ]
     },
@@ -4239,19 +5128,25 @@
           "period": "2022-23",
           "employmentThousands": 296.6,
           "ebitdaMillions": 3041.0,
-          "cells": "B61, W61"
+          "cells": "B61, W61",
+          "salesServiceIncomeMillions": 41944.0,
+          "salesServiceIncomeCell": "H61"
         },
         {
           "period": "2023-24",
           "employmentThousands": 297.0,
           "ebitdaMillions": 2599.0,
-          "cells": "C61, X61"
+          "cells": "C61, X61",
+          "salesServiceIncomeMillions": 41831.0,
+          "salesServiceIncomeCell": "I61"
         },
         {
           "period": "2024-25",
           "employmentThousands": 274.9,
           "ebitdaMillions": 2805.0,
-          "cells": "D61, Y61"
+          "cells": "D61, Y61",
+          "salesServiceIncomeMillions": 37108.0,
+          "salesServiceIncomeCell": "J61"
         }
       ]
     },
@@ -4268,19 +5163,25 @@
           "period": "2022-23",
           "employmentThousands": 26.0,
           "ebitdaMillions": 452.0,
-          "cells": "B62, W62"
+          "cells": "B62, W62",
+          "salesServiceIncomeMillions": 3514.0,
+          "salesServiceIncomeCell": "H62"
         },
         {
           "period": "2023-24",
           "employmentThousands": 29.2,
           "ebitdaMillions": 306.0,
-          "cells": "C62, X62"
+          "cells": "C62, X62",
+          "salesServiceIncomeMillions": 4053.0,
+          "salesServiceIncomeCell": "I62"
         },
         {
           "period": "2024-25",
           "employmentThousands": 25.6,
           "ebitdaMillions": 397.0,
-          "cells": "D62, Y62"
+          "cells": "D62, Y62",
+          "salesServiceIncomeMillions": 4090.0,
+          "salesServiceIncomeCell": "J62"
         }
       ]
     },
@@ -4297,19 +5198,25 @@
           "period": "2022-23",
           "employmentThousands": 184.0,
           "ebitdaMillions": 2011.0,
-          "cells": "B63, W63"
+          "cells": "B63, W63",
+          "salesServiceIncomeMillions": 20581.0,
+          "salesServiceIncomeCell": "H63"
         },
         {
           "period": "2023-24",
           "employmentThousands": 168.5,
           "ebitdaMillions": 2189.0,
-          "cells": "C63, X63"
+          "cells": "C63, X63",
+          "salesServiceIncomeMillions": 20292.0,
+          "salesServiceIncomeCell": "I63"
         },
         {
           "period": "2024-25",
           "employmentThousands": 180.5,
           "ebitdaMillions": 2035.0,
-          "cells": "D63, Y63"
+          "cells": "D63, Y63",
+          "salesServiceIncomeMillions": 20636.0,
+          "salesServiceIncomeCell": "J63"
         }
       ]
     },
@@ -4326,19 +5233,25 @@
           "period": "2022-23",
           "employmentThousands": 376.4,
           "ebitdaMillions": 4419.0,
-          "cells": "B64, W64"
+          "cells": "B64, W64",
+          "salesServiceIncomeMillions": 41747.0,
+          "salesServiceIncomeCell": "H64"
         },
         {
           "period": "2023-24",
           "employmentThousands": 492.9,
           "ebitdaMillions": 4175.0,
-          "cells": "C64, X64"
+          "cells": "C64, X64",
+          "salesServiceIncomeMillions": 50442.0,
+          "salesServiceIncomeCell": "I64"
         },
         {
           "period": "2024-25",
           "employmentThousands": 576.1,
           "ebitdaMillions": 6823.0,
-          "cells": "D64, Y64"
+          "cells": "D64, Y64",
+          "salesServiceIncomeMillions": 65950.0,
+          "salesServiceIncomeCell": "J64"
         }
       ]
     },
@@ -4355,19 +5268,25 @@
           "period": "2022-23",
           "employmentThousands": 64.3,
           "ebitdaMillions": 406.0,
-          "cells": "B65, W65"
+          "cells": "B65, W65",
+          "salesServiceIncomeMillions": 8081.0,
+          "salesServiceIncomeCell": "H65"
         },
         {
           "period": "2023-24",
           "employmentThousands": 93.4,
           "ebitdaMillions": 677.0,
-          "cells": "C65, X65"
+          "cells": "C65, X65",
+          "salesServiceIncomeMillions": 11051.0,
+          "salesServiceIncomeCell": "I65"
         },
         {
           "period": "2024-25",
           "employmentThousands": 99.9,
           "ebitdaMillions": 344.0,
-          "cells": "D65, Y65"
+          "cells": "D65, Y65",
+          "salesServiceIncomeMillions": 11480.0,
+          "salesServiceIncomeCell": "J65"
         }
       ]
     },
@@ -4384,19 +5303,25 @@
           "period": "2022-23",
           "employmentThousands": 110.1,
           "ebitdaMillions": -197.0,
-          "cells": "B66, W66"
+          "cells": "B66, W66",
+          "salesServiceIncomeMillions": 20322.0,
+          "salesServiceIncomeCell": "H66"
         },
         {
           "period": "2023-24",
           "employmentThousands": 141.6,
           "ebitdaMillions": -889.0,
-          "cells": "C66, X66"
+          "cells": "C66, X66",
+          "salesServiceIncomeMillions": 27169.0,
+          "salesServiceIncomeCell": "I66"
         },
         {
           "period": "2024-25",
           "employmentThousands": 133.2,
           "ebitdaMillions": 389.0,
-          "cells": "D66, Y66"
+          "cells": "D66, Y66",
+          "salesServiceIncomeMillions": 28898.0,
+          "salesServiceIncomeCell": "J66"
         }
       ]
     },
@@ -4413,19 +5338,25 @@
           "period": "2022-23",
           "employmentThousands": 19.2,
           "ebitdaMillions": 82.0,
-          "cells": "B69, W69"
+          "cells": "B69, W69",
+          "salesServiceIncomeMillions": 6387.0,
+          "salesServiceIncomeCell": "H69"
         },
         {
           "period": "2023-24",
           "employmentThousands": 19.5,
           "ebitdaMillions": 116.0,
-          "cells": "C69, X69"
+          "cells": "C69, X69",
+          "salesServiceIncomeMillions": 7315.0,
+          "salesServiceIncomeCell": "I69"
         },
         {
           "period": "2024-25",
           "employmentThousands": 22.2,
           "ebitdaMillions": 652.0,
-          "cells": "D69, Y69"
+          "cells": "D69, Y69",
+          "salesServiceIncomeMillions": 9699.0,
+          "salesServiceIncomeCell": "J69"
         }
       ]
     },
@@ -4442,19 +5373,25 @@
           "period": "2022-23",
           "employmentThousands": 171.9,
           "ebitdaMillions": 198243.0,
-          "cells": "B70, W70"
+          "cells": "B70, W70",
+          "salesServiceIncomeMillions": 373124.0,
+          "salesServiceIncomeCell": "H70"
         },
         {
           "period": "2023-24",
           "employmentThousands": 188.5,
           "ebitdaMillions": 170026.0,
-          "cells": "C70, X70"
+          "cells": "C70, X70",
+          "salesServiceIncomeMillions": 351303.0,
+          "salesServiceIncomeCell": "I70"
         },
         {
           "period": "2024-25",
           "employmentThousands": 193.0,
           "ebitdaMillions": 143634.0,
-          "cells": "D70, Y70"
+          "cells": "D70, Y70",
+          "salesServiceIncomeMillions": 327445.0,
+          "salesServiceIncomeCell": "J70"
         }
       ]
     },
@@ -4471,19 +5408,25 @@
           "period": "2022-23",
           "employmentThousands": 326.7,
           "ebitdaMillions": 25275.0,
-          "cells": "B71, W71"
+          "cells": "B71, W71",
+          "salesServiceIncomeMillions": 289430.0,
+          "salesServiceIncomeCell": "H71"
         },
         {
           "period": "2023-24",
           "employmentThousands": 340.8,
           "ebitdaMillions": 24637.0,
-          "cells": "C71, X71"
+          "cells": "C71, X71",
+          "salesServiceIncomeMillions": 297327.0,
+          "salesServiceIncomeCell": "I71"
         },
         {
           "period": "2024-25",
           "employmentThousands": 340.0,
           "ebitdaMillions": 25220.0,
-          "cells": "D71, Y71"
+          "cells": "D71, Y71",
+          "salesServiceIncomeMillions": 327994.0,
+          "salesServiceIncomeCell": "J71"
         }
       ]
     },
@@ -4500,19 +5443,25 @@
           "period": "2022-23",
           "employmentThousands": 88.6,
           "ebitdaMillions": 24424.0,
-          "cells": "B72, W72"
+          "cells": "B72, W72",
+          "salesServiceIncomeMillions": 114940.0,
+          "salesServiceIncomeCell": "H72"
         },
         {
           "period": "2023-24",
           "employmentThousands": 96.3,
           "ebitdaMillions": 27813.0,
-          "cells": "C72, X72"
+          "cells": "C72, X72",
+          "salesServiceIncomeMillions": 120195.0,
+          "salesServiceIncomeCell": "I72"
         },
         {
           "period": "2024-25",
           "employmentThousands": 100.8,
           "ebitdaMillions": 27765.0,
-          "cells": "D72, Y72"
+          "cells": "D72, Y72",
+          "salesServiceIncomeMillions": 126713.0,
+          "salesServiceIncomeCell": "J72"
         }
       ]
     },
@@ -4529,19 +5478,25 @@
           "period": "2022-23",
           "employmentThousands": 172.7,
           "ebitdaMillions": 7258.0,
-          "cells": "B73, W73"
+          "cells": "B73, W73",
+          "salesServiceIncomeMillions": 118806.0,
+          "salesServiceIncomeCell": "H73"
         },
         {
           "period": "2023-24",
           "employmentThousands": 182.6,
           "ebitdaMillions": 9039.0,
-          "cells": "C73, X73"
+          "cells": "C73, X73",
+          "salesServiceIncomeMillions": 134355.0,
+          "salesServiceIncomeCell": "I73"
         },
         {
           "period": "2024-25",
           "employmentThousands": 189.3,
           "ebitdaMillions": 8667.0,
-          "cells": "D73, Y73"
+          "cells": "D73, Y73",
+          "salesServiceIncomeMillions": 142815.0,
+          "salesServiceIncomeCell": "J73"
         }
       ]
     },
@@ -4558,19 +5513,25 @@
           "period": "2022-23",
           "employmentThousands": 194.9,
           "ebitdaMillions": 15568.0,
-          "cells": "B74, W74"
+          "cells": "B74, W74",
+          "salesServiceIncomeMillions": 322712.0,
+          "salesServiceIncomeCell": "H74"
         },
         {
           "period": "2023-24",
           "employmentThousands": 231.5,
           "ebitdaMillions": 16474.0,
-          "cells": "C74, X74"
+          "cells": "C74, X74",
+          "salesServiceIncomeMillions": 344842.0,
+          "salesServiceIncomeCell": "I74"
         },
         {
           "period": "2024-25",
           "employmentThousands": 199.1,
           "ebitdaMillions": 14539.0,
-          "cells": "D74, Y74"
+          "cells": "D74, Y74",
+          "salesServiceIncomeMillions": 333149.0,
+          "salesServiceIncomeCell": "J74"
         }
       ]
     },
@@ -4587,19 +5548,25 @@
           "period": "2022-23",
           "employmentThousands": 736.9,
           "ebitdaMillions": 24303.0,
-          "cells": "B75, W75"
+          "cells": "B75, W75",
+          "salesServiceIncomeMillions": 289413.0,
+          "salesServiceIncomeCell": "H75"
         },
         {
           "period": "2023-24",
           "employmentThousands": 745.0,
           "ebitdaMillions": 27001.0,
-          "cells": "C75, X75"
+          "cells": "C75, X75",
+          "salesServiceIncomeMillions": 310946.0,
+          "salesServiceIncomeCell": "I75"
         },
         {
           "period": "2024-25",
           "employmentThousands": 755.5,
           "ebitdaMillions": 29300.0,
-          "cells": "D75, Y75"
+          "cells": "D75, Y75",
+          "salesServiceIncomeMillions": 325480.0,
+          "salesServiceIncomeCell": "J75"
         }
       ]
     },
@@ -4616,19 +5583,25 @@
           "period": "2022-23",
           "employmentThousands": 319.0,
           "ebitdaMillions": 5628.0,
-          "cells": "B76, W76"
+          "cells": "B76, W76",
+          "salesServiceIncomeMillions": 37837.0,
+          "salesServiceIncomeCell": "H76"
         },
         {
           "period": "2023-24",
           "employmentThousands": 354.6,
           "ebitdaMillions": 5901.0,
-          "cells": "C76, X76"
+          "cells": "C76, X76",
+          "salesServiceIncomeMillions": 40838.0,
+          "salesServiceIncomeCell": "I76"
         },
         {
           "period": "2024-25",
           "employmentThousands": 417.7,
           "ebitdaMillions": 6071.0,
-          "cells": "D76, Y76"
+          "cells": "D76, Y76",
+          "salesServiceIncomeMillions": 49532.0,
+          "salesServiceIncomeCell": "J76"
         }
       ]
     },
@@ -4645,19 +5618,25 @@
           "period": "2022-23",
           "employmentThousands": 266.1,
           "ebitdaMillions": 21205.0,
-          "cells": "B77, W77"
+          "cells": "B77, W77",
+          "salesServiceIncomeMillions": 125361.0,
+          "salesServiceIncomeCell": "H77"
         },
         {
           "period": "2023-24",
           "employmentThousands": 285.8,
           "ebitdaMillions": 25260.0,
-          "cells": "C77, X77"
+          "cells": "C77, X77",
+          "salesServiceIncomeMillions": 138647.0,
+          "salesServiceIncomeCell": "I77"
         },
         {
           "period": "2024-25",
           "employmentThousands": 286.9,
           "ebitdaMillions": 26269.0,
-          "cells": "D77, Y77"
+          "cells": "D77, Y77",
+          "salesServiceIncomeMillions": 143053.0,
+          "salesServiceIncomeCell": "J77"
         }
       ]
     },
@@ -4674,19 +5653,25 @@
           "period": "2022-23",
           "employmentThousands": 107.9,
           "ebitdaMillions": 17479.0,
-          "cells": "B78, W78"
+          "cells": "B78, W78",
+          "salesServiceIncomeMillions": 84256.0,
+          "salesServiceIncomeCell": "H78"
         },
         {
           "period": "2023-24",
           "employmentThousands": 107.8,
           "ebitdaMillions": 18639.0,
-          "cells": "C78, X78"
+          "cells": "C78, X78",
+          "salesServiceIncomeMillions": 89258.0,
+          "salesServiceIncomeCell": "I78"
         },
         {
           "period": "2024-25",
           "employmentThousands": 101.8,
           "ebitdaMillions": 20170.0,
-          "cells": "D78, Y78"
+          "cells": "D78, Y78",
+          "salesServiceIncomeMillions": 94731.0,
+          "salesServiceIncomeCell": "J78"
         }
       ]
     },
@@ -4703,19 +5688,25 @@
           "period": "2022-23",
           "employmentThousands": 48.5,
           "ebitdaMillions": 7876.0,
-          "cells": "B79, W79"
+          "cells": "B79, W79",
+          "salesServiceIncomeMillions": 23452.0,
+          "salesServiceIncomeCell": "H79"
         },
         {
           "period": "2023-24",
           "employmentThousands": 45.9,
           "ebitdaMillions": 8486.0,
-          "cells": "C79, X79"
+          "cells": "C79, X79",
+          "salesServiceIncomeMillions": 23027.0,
+          "salesServiceIncomeCell": "I79"
         },
         {
           "period": "2024-25",
           "employmentThousands": 52.1,
           "ebitdaMillions": 8114.0,
-          "cells": "D79, Y79"
+          "cells": "D79, Y79",
+          "salesServiceIncomeMillions": 24992.0,
+          "salesServiceIncomeCell": "J79"
         }
       ]
     },
@@ -4732,19 +5723,25 @@
           "period": "2022-23",
           "employmentThousands": 313.1,
           "ebitdaMillions": 4776.0,
-          "cells": "B80, W80"
+          "cells": "B80, W80",
+          "salesServiceIncomeMillions": 87368.0,
+          "salesServiceIncomeCell": "H80"
         },
         {
           "period": "2023-24",
           "employmentThousands": 314.2,
           "ebitdaMillions": 5004.0,
-          "cells": "C80, X80"
+          "cells": "C80, X80",
+          "salesServiceIncomeMillions": 93468.0,
+          "salesServiceIncomeCell": "I80"
         },
         {
           "period": "2024-25",
           "employmentThousands": 332.2,
           "ebitdaMillions": 8207.0,
-          "cells": "D80, Y80"
+          "cells": "D80, Y80",
+          "salesServiceIncomeMillions": 102448.0,
+          "salesServiceIncomeCell": "J80"
         }
       ]
     },
@@ -4761,19 +5758,25 @@
           "period": "2022-23",
           "employmentThousands": 446.8,
           "ebitdaMillions": 1619.0,
-          "cells": "B81, W81"
+          "cells": "B81, W81",
+          "salesServiceIncomeMillions": 54483.0,
+          "salesServiceIncomeCell": "H81"
         },
         {
           "period": "2023-24",
           "employmentThousands": 441.2,
           "ebitdaMillions": 2929.0,
-          "cells": "C81, X81"
+          "cells": "C81, X81",
+          "salesServiceIncomeMillions": 54791.0,
+          "salesServiceIncomeCell": "I81"
         },
         {
           "period": "2024-25",
           "employmentThousands": 480.4,
           "ebitdaMillions": 2277.0,
-          "cells": "D81, Y81"
+          "cells": "D81, Y81",
+          "salesServiceIncomeMillions": 62550.0,
+          "salesServiceIncomeCell": "J81"
         }
       ]
     },
@@ -4790,19 +5793,25 @@
           "period": "2022-23",
           "employmentThousands": 48.4,
           "ebitdaMillions": 229.0,
-          "cells": "B82, W82"
+          "cells": "B82, W82",
+          "salesServiceIncomeMillions": 5371.0,
+          "salesServiceIncomeCell": "H82"
         },
         {
           "period": "2023-24",
           "employmentThousands": 55.1,
           "ebitdaMillions": 135.0,
-          "cells": "C82, X82"
+          "cells": "C82, X82",
+          "salesServiceIncomeMillions": 6361.0,
+          "salesServiceIncomeCell": "I82"
         },
         {
           "period": "2024-25",
           "employmentThousands": 56.9,
           "ebitdaMillions": 461.0,
-          "cells": "D82, Y82"
+          "cells": "D82, Y82",
+          "salesServiceIncomeMillions": 6852.0,
+          "salesServiceIncomeCell": "J82"
         }
       ]
     },
@@ -4819,19 +5828,25 @@
           "period": "2022-23",
           "employmentThousands": 188.5,
           "ebitdaMillions": 2627.0,
-          "cells": "B83, W83"
+          "cells": "B83, W83",
+          "salesServiceIncomeMillions": 22379.0,
+          "salesServiceIncomeCell": "H83"
         },
         {
           "period": "2023-24",
           "employmentThousands": 225.7,
           "ebitdaMillions": 2748.0,
-          "cells": "C83, X83"
+          "cells": "C83, X83",
+          "salesServiceIncomeMillions": 28540.0,
+          "salesServiceIncomeCell": "I83"
         },
         {
           "period": "2024-25",
           "employmentThousands": 251.7,
           "ebitdaMillions": 2951.0,
-          "cells": "D83, Y83"
+          "cells": "D83, Y83",
+          "salesServiceIncomeMillions": 32544.0,
+          "salesServiceIncomeCell": "J83"
         }
       ]
     },
@@ -4848,19 +5863,25 @@
           "period": "2022-23",
           "employmentThousands": 759.9,
           "ebitdaMillions": 2668.0,
-          "cells": "B84, W84"
+          "cells": "B84, W84",
+          "salesServiceIncomeMillions": 82381.0,
+          "salesServiceIncomeCell": "H84"
         },
         {
           "period": "2023-24",
           "employmentThousands": 852.5,
           "ebitdaMillions": 5007.0,
-          "cells": "C84, X84"
+          "cells": "C84, X84",
+          "salesServiceIncomeMillions": 94408.0,
+          "salesServiceIncomeCell": "I84"
         },
         {
           "period": "2024-25",
           "employmentThousands": 820.0,
           "ebitdaMillions": 5078.0,
-          "cells": "D84, Y84"
+          "cells": "D84, Y84",
+          "salesServiceIncomeMillions": 97937.0,
+          "salesServiceIncomeCell": "J84"
         }
       ]
     },
@@ -4877,19 +5898,25 @@
           "period": "2022-23",
           "employmentThousands": 100.7,
           "ebitdaMillions": 3477.0,
-          "cells": "B85, W85"
+          "cells": "B85, W85",
+          "salesServiceIncomeMillions": 25226.0,
+          "salesServiceIncomeCell": "H85"
         },
         {
           "period": "2023-24",
           "employmentThousands": 96.3,
           "ebitdaMillions": 3350.0,
-          "cells": "C85, X85"
+          "cells": "C85, X85",
+          "salesServiceIncomeMillions": 25546.0,
+          "salesServiceIncomeCell": "I85"
         },
         {
           "period": "2024-25",
           "employmentThousands": 99.9,
           "ebitdaMillions": 3200.0,
-          "cells": "D85, Y85"
+          "cells": "D85, Y85",
+          "salesServiceIncomeMillions": 25709.0,
+          "salesServiceIncomeCell": "J85"
         }
       ]
     },
@@ -4906,19 +5933,25 @@
           "period": "2022-23",
           "employmentThousands": 75.0,
           "ebitdaMillions": -525.0,
-          "cells": "B86, W86"
+          "cells": "B86, W86",
+          "salesServiceIncomeMillions": 11923.0,
+          "salesServiceIncomeCell": "H86"
         },
         {
           "period": "2023-24",
           "employmentThousands": 75.2,
           "ebitdaMillions": -566.0,
-          "cells": "C86, X86"
+          "cells": "C86, X86",
+          "salesServiceIncomeMillions": 13825.0,
+          "salesServiceIncomeCell": "I86"
         },
         {
           "period": "2024-25",
           "employmentThousands": 81.6,
           "ebitdaMillions": -119.0,
-          "cells": "D86, Y86"
+          "cells": "D86, Y86",
+          "salesServiceIncomeMillions": 15361.0,
+          "salesServiceIncomeCell": "J86"
         }
       ]
     }

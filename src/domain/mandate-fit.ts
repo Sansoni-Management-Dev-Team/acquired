@@ -1,6 +1,6 @@
 import { briefToMandate, criterionDefinitions, type AcquisitionBrief, type Assessment, type CriterionKey } from "./acquisition";
 import { parseHeadcount } from "./company-facts";
-import { financialInterval, resolveTargetEbitda, targetRevenueCurrency } from "./target-financial-evidence";
+import { financialInterval, resolveTargetEbitda, resolveTargetRevenue } from "./target-financial-evidence";
 import { screenCompanyCandidate } from './company-screening';
 import { acquisitionEligibility } from "./acquisition-eligibility";
 import type { FinancialValue, TargetCandidate } from "./models";
@@ -54,16 +54,17 @@ export function reviewMandateFit(brief: AcquisitionBrief, target: TargetCandidat
       if (!values.length && target.headcount.value !== null) values = [{ value: String(target.headcount.value), min: target.headcount.value, max: target.headcount.value, sources: target.headcount.provenance.sourceUrl ? [target.headcount.provenance.sourceUrl] : [], estimated: target.headcount.provenance.confidence < 80 }];
       range = filters.headcount;
     } else if (c.key === "revenue" || c.key === "revenueCeiling") {
-      values = findings.filter(f => f.evidence.kind === "revenue" && !f.evidence.factMetadata?.identityNote).map(revenueObservation);
+      const revenue = resolveTargetRevenue(target, filters.financialScope);
+      values = findings.filter(f => f.evidence.kind === "revenue" && !f.evidence.factMetadata?.identityNote && filters.financialScope !== "AU").map(revenueObservation);
       if (!values.length) {
-        values = financial(target.revenue.value, target.revenue.provenance.sourceUrl, targetRevenueCurrency(target)).map(o => ({ ...o, estimated: o.estimated || target.revenue.provenance.confidence < 80 }));
-        if (!values.length && typeof target.revenue.value === "object" && target.revenue.value?.kind === "band") values = [{ value: target.revenue.value.label, note: "currency not confirmed as AUD or band needs review", sources: target.revenue.provenance.sourceUrl ? [target.revenue.provenance.sourceUrl] : [] }];
+        values = financial(revenue.value, revenue.provenance.sourceUrl, revenue.provenance.currency).map(o => ({ ...o, estimated: o.estimated || revenue.provenance.confidence < 80 }));
+        if (!values.length && typeof revenue.value === "object" && revenue.value?.kind === "band") values = [{ value: revenue.value.label, note: "currency not confirmed as AUD or band needs review", sources: revenue.provenance.sourceUrl ? [revenue.provenance.sourceUrl] : [] }];
       }
       range = c.key === "revenueCeiling" ? { min: 0, max: filters.revenueCeiling ?? null } : filters.revenue;
     } else if (c.key === "ebitda") {
-      values = financial(target.ebitda.value, target.ebitda.provenance.sourceUrl, target.ebitda.provenance.currency).map(o => ({ ...o, estimated: target.ebitda.provenance.confidence < 80 }));
+      values = filters.financialScope === "AU" && target.ebitda.provenance.scope !== "AU" ? [] : financial(target.ebitda.value, target.ebitda.provenance.sourceUrl, target.ebitda.provenance.currency).map(o => ({ ...o, estimated: target.ebitda.provenance.confidence < 80 }));
       if (!values.length) {
-        const estimate = resolveTargetEbitda(findings, target.headcount.value ?? undefined,target);
+        const estimate = resolveTargetEbitda(findings, target.headcount.value ?? undefined,target,undefined,filters.financialScope);
         if (estimate.status === "estimated") values = [{ value: `${estimate.low}–${estimate.high} AUD (modelled EBITDA)`, min: estimate.low, max: estimate.high, estimated: true, sources: estimate.benchmark ? [estimate.benchmark.sourceUrl] : [] }];
       }
       range = filters.ebitda;

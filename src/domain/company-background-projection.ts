@@ -1,6 +1,6 @@
 import type { TargetCandidate,Provenance } from './models';
 import type { BackgroundCompanyField as CompanyMissingField,BackgroundCompanyFact as CompanyMissingFieldFact,BackgroundCompanyEvidence,PublishedCompanyTeamMember as PublishedTeamMember } from './company-background-types';
-import { australianState,companyScopedFacts,type CompanyFact } from './company-scoped-facts';
+import { australianState,companyScopedFacts,revenueFromCompanyFact,type CompanyFact } from './company-scoped-facts';
 import { parseCompanyBand } from './firmable-company-pipeline';
 import { publicResearchUrl } from './research';
 import type { Accreditation } from './acquisition';
@@ -49,6 +49,7 @@ export function applyCompanyBackgroundProjection<T extends TargetCandidate>(targ
    if(facts.headcount[s==='AU'?'AU':'global'].value===null)facts.headcount[s==='AU'?'AU':'global']=factValue(f,f.value);
    if(s==='AU'&&projected.headcount.value===null)projected.headcount={value:f.value,provenance:provenance(f),researchState:'observed'};
   }
+  if(projected.revenue.value===null&&facts.revenue.global.value!==null)projected.revenue=revenueFromCompanyFact(facts.revenue.global);
   for(const f of observations('revenue')){
    const s=scope(f),band=typeof f.value==='number'&&Number.isFinite(f.value)&&f.value>=0?{label:String(f.value),min:f.value,max:f.value}:parseCompanyBand(f.value,true);if(s==='unknown'||!band)continue;
    if(facts.revenue[s==='AU'?'AU':'global'].value===null)facts.revenue[s==='AU'?'AU':'global']=factValue(f,band);

@@ -61,10 +61,10 @@ export function compactAud(value: number) {
   return `$${amount}${suffix}`;
 }
 
-export function TargetEbitdaData({ findings = [], preferredHeadcount, target }: { findings?: SavedResearchFinding[]; preferredHeadcount?: number; target?: import("@/domain/models").TargetCandidate }) {
-  const estimate = resolveTargetEbitda(findings, preferredHeadcount,target);
+export function TargetEbitdaData({ findings = [], preferredHeadcount, target, financialScope = "company" }: { findings?: SavedResearchFinding[]; preferredHeadcount?: number; target?: import("@/domain/models").TargetCandidate; financialScope?: "company" | "AU" }) {
+  const estimate = resolveTargetEbitda(findings, preferredHeadcount,target,undefined,financialScope);
   if (estimate.status !== "estimated") return <div className="max-w-56"><DetailTooltip content={estimate.reason}><span className="text-[var(--muted)]">Unavailable</span></DetailTooltip></div>;
   const money = compactAud;
   const approximation = (estimate.low! + estimate.high!) / 2;
-  return <div className="max-w-56"><p className="font-medium">≈ {money(approximation)}</p><p className="text-xs text-[var(--muted)]">Estimated annual EBITDA</p><p className="text-xs text-[var(--muted)]">{target?.sourceData?.firmable?.scopedFacts ? "AU workforce input · " : ""}{estimate.modelVersion} · {estimate.match?.method === "fallback" ? "Industry unconfirmed" : estimate.benchmark?.label}</p>{preferredHeadcount !== undefined ? <p className="text-xs text-[var(--muted)]">Preferred company headcount</p> : estimate.headcountAggregation?.method === "mean" && <p className="text-xs text-[var(--status-amber)]">Averaged headcount</p>}</div>;
+  return <div className="max-w-56"><p className="font-medium">{estimate.modelBasis === "reported" ? `${money(estimate.low!)}${estimate.low !== estimate.high ? `–${money(estimate.high!)}` : ""}` : `≈ ${money(approximation)}`}</p><p className="text-xs text-[var(--muted)]">{estimate.modelBasis === "reported" ? "Reported annual EBITDA" : "Estimated annual EBITDA"}</p><p className="text-xs text-[var(--muted)]">{estimate.modelBasis === "revenue" ? `${estimate.revenueRange?.scope === "AU" ? "AU operations" : "Company/group"} revenue input · ` : estimate.modelBasis === "reported" ? "Reported earnings · " : target?.sourceData?.firmable?.scopedFacts ? "AU workforce input · " : ""}{estimate.modelVersion} · {estimate.match?.method === "fallback" ? "Industry unconfirmed" : estimate.benchmark?.label}</p>{preferredHeadcount !== undefined ? <p className="text-xs text-[var(--muted)]">Preferred company headcount</p> : estimate.headcountAggregation?.method === "mean" && <p className="text-xs text-[var(--status-amber)]">Averaged headcount</p>}</div>;
 }

@@ -30,7 +30,7 @@ function calculateFit(target: TargetCandidate, mandate: Mandate) {
       if(screening[key]==='supported')score+=weight;
       reasons.push({axis:'fit',label:`${key}: ${screening[key]} (scoped provider evidence; provisional)`,contribution:screening[key]==='supported'?weight:0,source:'Company scoped evidence',sourceUrl:target.sourceData.firmable.website});
     }
-    const earnings=target.ebitda.value===null?undefined:financialMatch(target.ebitda.value,mandate.ebitda,target.ebitda.provenance.currency);
+    const earnings=target.ebitda.value===null || mandate.financialScope==='AU' && target.ebitda.provenance.scope!=='AU'?undefined:financialMatch(target.ebitda.value,mandate.ebitda,target.ebitda.provenance.currency);
     if(target.ebitda.value!==null && earnings!==undefined){knownWeight+=25;if(earnings)score+=25;}
     return {score,completeness:knownWeight,evidenceConfidence:knownWeight?70:0,reasons,excluded:screening.eligibility==='excluded'};
   }
@@ -51,7 +51,7 @@ function calculateFit(target: TargetCandidate, mandate: Mandate) {
       return actual.includes(requested) || requested.includes(actual);
     }) },
     { field: target.revenue, weight: 25, label: "Revenue within mandate", match: (value) => financialMatch(value as FinancialValue, mandate.revenue,targetRevenueCurrency(target)) },
-    { field: target.ebitda, weight: 25, label: "EBITDA within mandate", match: (value) => financialMatch(value as FinancialValue, mandate.ebitda,target.ebitda.provenance.currency) },
+    { field: target.ebitda, weight: 25, label: "EBITDA within mandate", match: (value) => (mandate.financialScope === "AU" && target.ebitda.provenance.scope !== "AU") ? undefined : financialMatch(value as FinancialValue, mandate.ebitda,target.ebitda.provenance.currency) },
     {
       field: target.headcount,
       weight: 10,

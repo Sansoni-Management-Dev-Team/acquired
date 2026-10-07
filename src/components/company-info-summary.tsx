@@ -1,19 +1,20 @@
 import type { ReactNode } from "react";
 import type { MembershipView } from "@/domain/acquisition";
 import { isCompanyDataSource, COMPANY_DATA_SOURCE } from "@/domain/provider-display";
-import { resolveTargetEbitda } from "@/domain/target-financial-evidence";
+import { resolveTargetEbitda, resolveTargetRevenue } from "@/domain/target-financial-evidence";
 import { TargetResearchData, TargetEbitdaData } from "./target-research-data";
 
 const known = (value?: string | null) => Boolean(value?.trim() && !/^(unknown|unavailable|classification unresolved|unspecified|n\/a)$/i.test(value.trim()));
 
-export function CompanyInfoSummary({ member }: { member: MembershipView }) {
-  const { target } = member;
+export function CompanyInfoSummary({ member, financialScope = "company" }: { member: MembershipView; financialScope?: "company" | "AU" }) {
+  const target = { ...member.target, revenue: resolveTargetRevenue(member.target, financialScope) };
   const abnVerification=target.sourceData?.abnVerification;
   const findings = member.researchFindings || [];
   const preferredHeadcount = target.headcount.value !== null && isCompanyDataSource(target.headcount.provenance.source) ? target.headcount.value : undefined;
   const hasHeadcount = target.headcount.value !== null || findings.some(f => f.evidence.kind === "headcount");
   const hasRevenue = target.revenue.value !== null || findings.some(f => f.evidence.kind === "revenue");
-  const hasEbitda = resolveTargetEbitda(findings,preferredHeadcount,target).status === "estimated";
+  const earnings = resolveTargetEbitda(findings,preferredHeadcount,target,undefined,financialScope);
+  const hasEbitda = earnings.status === "estimated";
   const industry = known(target.sector.value) ? target.sector.value : [...new Set(findings.filter(f => f.evidence.kind === "industry").map(f => f.evidence.value).filter(known))].join(" · ");
   const location = [target.suburb, target.state].filter(known).join(", ") || [...new Set(findings.filter(f => f.evidence.kind === "location").map(f => f.evidence.value).filter(known))].join(" · ");
   const company = target.sourceData?.firmable;
@@ -46,9 +47,9 @@ export function CompanyInfoSummary({ member }: { member: MembershipView }) {
         {hasHeadcount && <Info label={company?.scopedFacts ? "Australian headcount" : "Headcount"}><TargetResearchData findings={findings} kind="headcount" fallback={target.headcount.value?.toLocaleString("en-AU") ?? ""} preferred={preferredHeadcount !== undefined ? { value: preferredHeadcount.toLocaleString("en-AU"), source: COMPANY_DATA_SOURCE, sourceUrl: target.headcount.provenance.sourceUrl } : undefined} /></Info>}
         {hasRevenue && <Info label="Revenue (source currency)"><TargetResearchData findings={findings} kind="revenue" fallback={target.revenue.value == null ? "" : `${financialValue(target.revenue.value)} ${target.revenue.provenance.currency || "(currency unconfirmed)"}`} preferred={target.revenue.value !== null && isCompanyDataSource(target.revenue.provenance.source) ? { value: financialValue(target.revenue.value), source: COMPANY_DATA_SOURCE, sourceUrl: target.revenue.provenance.sourceUrl } : undefined} /></Info>}
         {hasRevenue && target.revenue.provenance.assumption && <Info label="Revenue assumptions">{target.revenue.provenance.assumption}</Info>}
-        {hasEbitda && <Info label="Estimated EBITDA (AUD)"><TargetEbitdaData findings={findings} preferredHeadcount={preferredHeadcount} target={target} /></Info>}
+        {hasEbitda && <Info label={earnings.modelBasis === "reported" ? "Reported EBITDA (AUD)" : "Estimated EBITDA (AUD)"}><TargetEbitdaData findings={findings} preferredHeadcount={preferredHeadcount} target={target} financialScope={financialScope} /></Info>}
         {company?.scopedFacts?.headcount.global.value != null && <Info label="Profile workforce (global)">{company.scopedFacts.headcount.global.value.toLocaleString("en-AU")}</Info>}
-        {company?.scopedFacts?.revenue.global.value && <Info label="Profile revenue (global; currency unconfirmed)">{company.scopedFacts.revenue.global.value.label}</Info>}
+        {company?.scopedFacts?.revenue.global.value && <Info label={`Company/group revenue (${company.scopedFacts.revenue.global.currency || "currency unconfirmed"})`}>{company.scopedFacts.revenue.global.value.label}</Info>}
         {founded != null && <Info label="Established">{founded}</Info>}
         {known(target.abn) && <Info label="ABN">{target.abn}</Info>}
         {known(company?.acn) && <Info label="ACN">{company?.acn}</Info>}

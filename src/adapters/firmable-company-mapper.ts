@@ -1,4 +1,4 @@
-import {companyScopedFacts} from '@/domain/company-scoped-facts';
+import {companyScopedFacts,applyScopedCompanyFacts} from '@/domain/company-scoped-facts';
 import type {Mandate} from '@/domain/models';
 import {normalizeFirmableProfile} from '@/domain/firmable-company-pipeline';
 import {mapFirmableCompany} from './firmable-mapper';
@@ -19,5 +19,5 @@ export function mapFirmableProfile(raw:Record<string,unknown>,mandate:Mandate,or
  if(facts.headquarters.value){candidate.state=facts.headquarters.value.state;candidate.suburb=facts.headquarters.value.suburb;}
  candidate.headcountBand=profile.headcountBand?{value:profile.headcountBand,provenance:{source:'Firmable company profile',capturedAt:profile.retrievedAt,confidence:70}}:undefined;
  if(candidate.sourceData?.firmable){candidate.sourceData.firmable.rawResponse=raw;candidate.sourceData.firmable.scopedFacts=facts;candidate.sourceData.firmable.capturedAt=profile.retrievedAt;candidate.sourceData.firmable.employeeCount=profile.headcountExact??undefined;candidate.sourceData.firmable.states=profile.states;}
- return candidate;
+ return applyScopedCompanyFacts(candidate);
 }

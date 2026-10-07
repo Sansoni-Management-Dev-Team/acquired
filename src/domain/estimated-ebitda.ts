@@ -49,17 +49,28 @@ export function matchEbitdaBenchmark(industries: string[]): BenchmarkMatch {
   return { id: "all-industries", method: "fallback", description: "Industry match unconfirmed. Using the broad Australian industry benchmark; choose a closer industry below.", needsReview: true };
 }
 export type EbitdaScenario = {
-  id: string; label: string; low: number; high: number; headcountLow: number; headcountHigh: number;
-  perPersonLow: number; perPersonHigh: number; perPerson: number; period: string;
+  id: string; label: string; low: number; high: number; headcountLow?: number; headcountHigh?: number;
+  perPersonLow?: number; perPersonHigh?: number; perPerson?: number; period: string;
   sourceUrl: string; sheet: string; cells: string; periods: string[];
+  modelBasis?: 'revenue'|'headcount'|'reported';
+  marginRange?: {min:number;max:number};
+  revenueRange?: {min:number;max:number;scope:'company'|'AU';currency:'AUD'};
 };
 export type EstimatedEbitda = {
   status: "estimated" | "unavailable"; reason?: string; low?: number; high?: number;
   currency: "AUD"; metric: "EBITDA"; benchmark?: EbitdaScenario; match?: BenchmarkMatch;
   sizeComparisons: EbitdaScenario[]; headcountFindingIds: string[]; headcountBasis?: "reported" | "estimated";
   headcountAggregation?: { method: "single" | "mean"; observations: number; low: number; high: number };
-  modelVersion: "abs-headcount-v4"; limitations: string[];
+  modelVersion: "abs-headcount-v4" | "abs-revenue-margin-v1" | "reported-ebitda-v1"; limitations: string[];
+  modelBasis?: 'revenue'|'headcount'|'reported';
+  earningsBasis?: 'reported'|'modelled';
+  source?: import('./models').Provenance;
+  revenueRange?: {min:number;max:number;scope:'company'|'AU';currency:'AUD'};
+  marginRange?: {min:number;max:number};
+  modelWarnings?: string[];
+  headcountComparison?: EstimatedEbitda;
 };
+export function ebitdaBenchmarkId(id:string){return legacyIds[id] || id;}
 function scenario(benchmark: Benchmark, min: number, max: number): EbitdaScenario {
   const rates = benchmark.observations.map(o => o.ebitdaMillions * 1000 / o.employmentThousands);
   const values = rates.flatMap(rate => [min * rate, max * rate]);

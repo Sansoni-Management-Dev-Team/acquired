@@ -1,7 +1,7 @@
 import type { Mandate, TargetCandidate } from './models';
 import { companyScopedFacts } from './company-scoped-facts';
 import { screenBand } from './firmable-company-pipeline';
-import { effectiveRevenueRange, financialInterval, targetRevenueCurrency } from './target-financial-evidence';
+import { effectiveRevenueRange, financialInterval, resolveTargetRevenue } from './target-financial-evidence';
 export type CompanyScreenStatus='supported'|'review'|'excluded';
 /** Activity needs an actual service claim. A topic keyword or supplier category alone is not evidence. */
 export function activityScreen(target:TargetCandidate,mandate:Mandate):CompanyScreenStatus {
@@ -25,7 +25,8 @@ export function activityScreen(target:TargetCandidate,mandate:Mandate):CompanySc
 export function screenCompanyCandidate(target:TargetCandidate,mandate:Mandate){
  const provider=target.sourceData?.firmable;const facts=provider?.scopedFacts||(provider?.rawResponse?companyScopedFacts(provider.rawResponse,provider.capturedAt):undefined);
  const count=facts?.headcount.AU.value ?? (target.headcount.provenance.scope==='AU'?target.headcount.value:null);
- const revenue=facts?financialInterval(facts.revenue.AU.value?facts.revenue.AU.value.min===facts.revenue.AU.value.max?{kind:'range',min:facts.revenue.AU.value.min,max:facts.revenue.AU.value.max}:{kind:'band',label:facts.revenue.AU.value.label}:null,facts.revenue.AU.currency):target.revenue.provenance.scope==='AU'?financialInterval(target.revenue.value,targetRevenueCurrency(target)):null;
+ const revenueField=resolveTargetRevenue(target,mandate.financialScope);
+ const revenue=mandate.financialScope==='AU'&&revenueField.provenance.scope!=='AU'?null:financialInterval(revenueField.value,revenueField.provenance.currency);
  const operating=facts ? facts.operatingStates.value || [] : target.state!=='Unknown'?[target.state]:[];
  const geography:CompanyScreenStatus=!mandate.states.length?'supported':operating.length?operating.some(state=>mandate.states.includes(state))?'supported':'excluded':'review';
  const rawType=provider?.rawResponse?.company_type;const type=provider?.companyType || (typeof rawType==='string'?rawType:rawType&&typeof rawType==='object'?Object.values(rawType).filter(v=>typeof v==='string').join(' '):'');

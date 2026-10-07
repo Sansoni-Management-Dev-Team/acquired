@@ -1,0 +1,58 @@
+{
+  "retrievedAt": "2026-10-07T23:50:55.995Z",
+  "readOnly": true,
+  "reports": [
+    {
+      "mandate": "e7b2cf86-8333-4051-872a-7b871fd217ef",
+      "companies": 100,
+      "retainedCompanyBands": 85,
+      "primaryRevenue": 85,
+      "audPrimaryRevenue": 82,
+      "auOnlyRevenue": 23,
+      "revenueEbitda": 82,
+      "headcountFallback": 3,
+      "reportedEbitda": 0,
+      "unavailable": 15,
+      "review": 68
+    },
+    {
+      "mandate": "fac91964-2826-4090-b306-bd926a031771",
+      "companies": 100,
+      "retainedCompanyBands": 64,
+      "primaryRevenue": 64,
+      "audPrimaryRevenue": 0,
+      "auOnlyRevenue": 64,
+      "revenueEbitda": 0,
+      "headcountFallback": 63,
+      "reportedEbitda": 0,
+      "unavailable": 37,
+      "review": 50
+    },
+    {
+      "mandate": "b8e35133-faf2-4505-a359-44533ba6df9a",
+      "companies": 67,
+      "retainedCompanyBands": 61,
+      "primaryRevenue": 61,
+      "audPrimaryRevenue": 0,
+      "auOnlyRevenue": 61,
+      "revenueEbitda": 0,
+      "headcountFallback": 58,
+      "reportedEbitda": 0,
+      "unavailable": 9,
+      "review": 44
+    },
+    {
+      "mandate": "a9fb0c38-b87c-493e-9fbb-07a0227d4f50",
+      "companies": 92,
+      "retainedCompanyBands": 66,
+      "primaryRevenue": 66,
+      "audPrimaryRevenue": 0,
+      "auOnlyRevenue": 66,
+      "revenueEbitda": 0,
+      "headcountFallback": 63,
+      "reportedEbitda": 0,
+      "unavailable": 29,
+      "review": 35
+    }
+  ]
+}

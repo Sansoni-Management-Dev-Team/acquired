@@ -7,7 +7,7 @@ import { terminalResearchStates, type SavedResearchFinding } from "@/domain/rese
 import { EbitdaEstimatePanel } from "./ebitda-estimate-panel";
 type Data = { enabled: boolean; active?: boolean; jobs: { id: string; status: string; message: string; config?: { targetedSearches?: string[] } }[]; findings: SavedResearchFinding[] };
 const button = "min-h-12 rounded-md border border-[var(--border)] px-4 py-2 text-sm disabled:opacity-40";
-export function CompanyFactsPanel({ targetId, mandateId, preferredHeadcount }: { targetId: string; mandateId: string; preferredHeadcount?: number }) {
+export function CompanyFactsPanel({ targetId, mandateId, preferredHeadcount, target }: { targetId: string; mandateId: string; preferredHeadcount?: number; target?: import("@/domain/models").TargetCandidate }) {
   const [data, setData] = useState<Data>(), [error, setError] = useState(""), [busy, setBusy] = useState(false);
   const url = `/api/targets/${targetId}/company-research`;
   const refresh = useCallback(async () => {
@@ -39,7 +39,7 @@ export function CompanyFactsPanel({ targetId, mandateId, preferredHeadcount }: {
       <CompanyEvidenceSummary findings={findings} searches={(data?.jobs || []).reduce((sum, j) => sum + (j.config?.targetedSearches?.length || 0), 0)} researching={Boolean(active)} />
       {findings.some(f => f.evidence.kind === "company_relationship") && <p className="text-sm">A group or brand relationship was found. Check whether these figures cover the target business or a wider group.</p>}
       {!findings.length ? <p className="text-sm">No supported company details found yet.</p> : <ul className="space-y-3">{findings.map(f => <li key={f.id} className="text-sm"><strong>{f.evidence.name}:</strong> {f.evidence.value}<blockquote className="mt-1 text-[var(--muted)]">{f.evidence.quote}</blockquote><a className="underline" href={f.sourceUrl} target="_blank" rel="noreferrer">Source</a><span className="text-xs text-[var(--muted)]"> · Retrieved {new Date(f.observedAt).toLocaleDateString()} · {f.evidence.factMetadata?.basis === "search_snippet" ? "Search-result estimate (unverified)" : f.evidence.factMetadata?.basis === "third_party_estimate" ? "Third-party estimate" : "Published statement"}{f.evidence.factMetadata?.identityNote ? ` · ${f.evidence.factMetadata.identityNote}` : ""} · Scope: {f.evidence.factMetadata?.scope || "unspecified"} · Reporting period: {f.evidence.factMetadata?.period || "unknown"}{f.evidence.kind === "revenue" && ` · Currency: ${f.evidence.factMetadata?.currency || "unspecified"}`}</span></li>)}</ul>}
-      <EbitdaEstimatePanel key={targetId} findings={findings} preferredHeadcount={preferredHeadcount} />
+      <EbitdaEstimatePanel key={targetId} findings={findings} preferredHeadcount={preferredHeadcount} target={target} />
     </>}
   </section>;
 }
