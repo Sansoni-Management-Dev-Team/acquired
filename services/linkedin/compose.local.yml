@@ -8,6 +8,7 @@ services:
       LINKEDIN_PUBLIC_URL: http://127.0.0.1:18096
       LINKEDIN_MAX_WORKERS: "2"
       LINKEDIN_STATE_DIR: /data
+      LINKEDIN_DIAGNOSTICS_PATH: /data/diagnostics.jsonl
     volumes:
       - ../../.local-data/linkedin/state:/data
     ports:

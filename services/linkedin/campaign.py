@@ -7,8 +7,21 @@ import time
 from fastapi import HTTPException
 from adapter import profile_identity, relationship
 import policy
+import diagnostics as diag
 
 async def operate(service, owner, body):
+    operation = body.get('operation') if isinstance(body, dict) else None
+    stage = operation if operation in ('status', 'connect', 'message') else 'invalid'
+    with diag.span('campaign.operation', owner=owner, stage=stage):
+        result = await _operate(service, owner, body)
+        action = result.get('action')
+        diag.emit('campaign.result', action_id=action.get('id') if action else None,
+                  status=action['status'] if action else result.get('status') or
+                  ('unknown' if result.get('connected') is None else 'connected' if result['connected'] else 'not_connected'),
+                  next_eligible_at=result.get('nextEligibleAt'))
+        return result
+
+async def _operate(service, owner, body):
     if not isinstance(body, dict) or body.get('operation') not in ('status', 'connect', 'message'):
         raise HTTPException(400, 'Invalid campaign operation')
     operation = body['operation']
@@ -36,19 +49,29 @@ async def operate(service, owner, body):
             if record.get('fingerprint') != fingerprint:
                 raise HTTPException(409, 'Campaign recipient or content changed; review before continuing')
             if record['status'] != 'queued': return {'action': record}
+        if operation == 'connect' and text.strip():
+            raise HTTPException(400, 'Invitation notes require a verified browser capture; send without a note')
     # Short cache prevents a budgeted profile read from starving the following
     # send on every retry. Mode and target are part of the cache key.
     state = policy.control(data, worker.fixture)
     cached = state.get('relationships', {}).get(identity)
     if cached and now - cached['checkedAt'] < 300:
+        diag.emit('relationship.cache', stage='hit', recipient_id=diag.identifier(identity))
         observed = cached
     else:
-        due, reason = policy.reserve(data, 'profile', worker.fixture, now)
+        diag.emit('relationship.cache', stage='miss', recipient_id=diag.identifier(identity))
+        with diag.span('relationship.reserve_read'):
+            due, reason = policy.reserve(data, 'profile', worker.fixture, now)
         service.VAULT.save(owner, data)
         if due is None or due > now:
+            diag.emit('relationship.deferred', reason_code='read_budget', next_eligible_at=due)
             return {'status': 'retry', 'nextEligibleAt': due or now + 300, 'reason': reason}
-        try: result, observed = await relationship(worker, identity)
-        except Exception: result, observed = {'status': 0}, {'connected': None, 'recipient': None}
+        try:
+            with diag.span('campaign.relationship_read'):
+                result, observed = await relationship(worker, identity)
+        except Exception as error:
+            diag.emit('campaign.relationship_error', error_type=type(error).__name__)
+            result, observed = {'status': 0}, {'connected': None, 'recipient': None}
         data = service.VAULT.load(owner)
         policy.provider_result(data, result, worker.fixture)
         if result.get('status') != 200: observed = {'connected': None, 'recipient': None}
@@ -58,6 +81,7 @@ async def operate(service, owner, body):
         service.VAULT.save(owner, data)
     if operation == 'status': return observed
     if observed['connected'] is None or not observed['recipient']:
+        diag.emit('campaign.preflight_rejected', reason_code='unknown_relationship')
         raise HTTPException(409, 'LinkedIn connection status is unknown; review the profile')
     if operation == 'message' and not observed['connected']:
         raise HTTPException(409, 'Recipient has not accepted the LinkedIn connection request')
@@ -73,6 +97,7 @@ async def operate(service, owner, body):
     # Recheck queued retries too: the recipient may have connected while the
     # invitation was waiting for its dispatch budget.
     if operation == 'connect' and observed['connected']:
+        diag.emit('invitation.skipped', action_id=action_id, reason_code='already_connected')
         record.update(status='skipped', reason='Already connected', attemptedAt=now)
         data['actions'][action_id] = record
         service.VAULT.save(owner, data)

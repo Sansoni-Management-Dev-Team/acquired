@@ -138,3 +138,46 @@ show recipient/thread verification using hashed identifiers and the final state.
 An unmatched start event shows work still pending or a process interrupted during
 that phase. Exceptions log their class only; message content, request/response
 bodies, cookies, authentication headers and raw exception text are never logged.
+The local Compose service also persists diagnostics under
+`.local-data/linkedin/state/diagnostics.jsonl`, with two rotated backups and a
+2 MiB limit per file. Files are mode 600 and survive container recreation.
+Set `LINKEDIN_DIAGNOSTICS_PATH` to a writable persistent path to enable this
+additional sink in another environment; stdout logging remains enabled.
+
+### Connection-request contract (local validation)
+
+The local invitation adapter follows the successful browser HAR reviewed on
+2026-10-07: `verifyQuotaAndCreateV2`, the
+`InvitationCreationResultWithInvitee-2` decoration, and
+`invitee.inviteeUnion.memberProfile`. It uses the observed normalized JSON headers
+and current session CSRF cookie. A confirmed submission requires matching
+`data.value.invitationUrn`, `*invitation` and an included invitation entity.
+An unconfirmed response stays uncertain and cannot be automatically retried.
+The capture covers requests without a note; unverified invitation notes are
+rejected before provider requests.
+
+Connection checks also resolve the target profile's stateful-action references
+to its MemberRelationship and Connection, requiring the connected member to match
+the target. Unrelated included connections and ambiguous evidence cannot establish
+the relationship. Existing distance-based parsing remains supported. Confirmed
+existing connections skip invitations; unknown status holds for review. This
+checks accepted connection status; it does not independently verify whether an
+outstanding invitation is still pending or has been withdrawn.
+
+Tracing covers relationship cache hits/misses, read budgeting, provider reads,
+parsing, skips/rejections, account locks, write budgeting, payload construction,
+durable attempt persistence, provider writes and the final action state. These
+local changes have fixture coverage and a real existing-connection read check.
+On 2026-10-07, one user-approved invitation without a note sent through the local
+OrbStack service returned HTTP 200 with a matching invitation receipt; the
+intended recipient's live profile then showed Pending. Live sends were disabled
+again and the original outreach hours restored. This verifies submission of that
+request, not recipient acceptance or broader account compatibility.
+
+A second local test on 2026-10-07 sent exactly one approved request without a
+note and returned HTTP 200 with a matching invitation receipt. All 39 correlated
+send events survived container recreation. The profile subsequently showed a
+first-degree connection, and a fresh API relationship check returned connected.
+The hosted Compose overlay enables the same bounded persistent diagnostic sink
+in the existing encrypted-state volume; message bodies and credentials remain
+excluded. Live sends remain disabled by default.

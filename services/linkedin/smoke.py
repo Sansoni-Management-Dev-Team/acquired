@@ -38,7 +38,7 @@ async def main():
                 assert cached['cache']['cached']
                 for kind in ('invite','message'):
                     await asyncio.sleep(1.1)
-                    draft=(await api('POST','/actions',body={'kind':kind,'recipient':'urn:li:fsd_profile:fictional-alex','text':'Fictional test only'}))['action']
+                    draft=(await api('POST','/actions',body={'kind':kind,'recipient':'urn:li:fsd_profile:fictional-alex','text':'' if kind=='invite' else 'Fictional test only'}))['action']
                     body={'operation':'execute','id':draft['id'],'approved':True}
                     sent=(await api('POST','/actions',body=body))['action']
                     assert sent['status']=='submitted',sent

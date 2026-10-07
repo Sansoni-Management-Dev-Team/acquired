@@ -70,3 +70,36 @@ def test_trace_header_is_validated_and_context_does_not_leak(setup,events):
     bad=client.get('/connection?organizationId=o&userId=u',headers={'authorization':'Bearer '+__import__('server').SECRET,'x-linkedin-trace-id':'private-secret'})
     assert bad.headers['x-linkedin-trace-id']!='private-secret'
     assert diag.CONTEXT.get()=={}
+
+
+def test_file_log_survives_reopening_and_excludes_payloads(tmp_path):
+    path = tmp_path/'diagnostics.jsonl'
+    for event in ('provider.request.start', 'provider.request.end'):
+        handler = diag.file_handler(path)
+        diag.LOGGER.addHandler(handler)
+        try:
+            with diag.context(trace_id='d'*32):
+                diag.emit(event, body='private-message', http_status=200)
+        finally:
+            diag.LOGGER.removeHandler(handler)
+            handler.close()
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    assert [r['event'] for r in rows] == ['provider.request.start', 'provider.request.end']
+    assert {r['trace_id'] for r in rows} == {'d'*32}
+    assert 'private-message' not in path.read_text()
+    assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_file_rotation_is_bounded_and_retains_private_permissions(tmp_path):
+    path = tmp_path/'diagnostics.jsonl'
+    handler = diag.file_handler(path, max_bytes=150)
+    diag.LOGGER.addHandler(handler)
+    try:
+        for _ in range(12): diag.emit('rotation.test', trace_id='e'*32)
+    finally:
+        diag.LOGGER.removeHandler(handler)
+        handler.close()
+    files = list(tmp_path.glob('diagnostics.jsonl*'))
+    assert len(files) == 3
+    assert all(p.stat().st_mode & 0o777 == 0o600 for p in files)
+    assert all(json.loads(line)['event'] == 'rotation.test' for p in files for line in p.read_text().splitlines())

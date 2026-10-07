@@ -3,18 +3,36 @@ import contextvars
 import hashlib
 import json
 import logging
+import os
 import sys
 import time
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from logging.handlers import RotatingFileHandler
 from urllib.parse import urlparse, parse_qs
+
+class PrivateRotatingFileHandler(RotatingFileHandler):
+    """Keep every current/rotated log owner-readable only, including after rollover."""
+    def _open(self):
+        descriptor = os.open(self.baseFilename, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        os.fchmod(descriptor, 0o600)
+        return os.fdopen(descriptor, self.mode, encoding=self.encoding, errors=self.errors)
+
+
+def file_handler(path, max_bytes=2 * 1024 * 1024):
+    handler = PrivateRotatingFileHandler(path, maxBytes=max_bytes, backupCount=2, encoding='utf-8')
+    handler.setFormatter(logging.Formatter('%(message)s'))
+    return handler
+
 
 LOGGER = logging.getLogger('linkedin.diagnostics')
 if not LOGGER.handlers:
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(logging.Formatter('%(message)s'))
     LOGGER.addHandler(handler)
+    if os.getenv('LINKEDIN_DIAGNOSTICS_PATH'):
+        LOGGER.addHandler(file_handler(os.environ['LINKEDIN_DIAGNOSTICS_PATH']))
 LOGGER.setLevel(logging.INFO)
 LOGGER.propagate = False
 CONTEXT = contextvars.ContextVar('linkedin_trace', default={})
@@ -38,7 +56,7 @@ def endpoint(path):
              '/voyager/api/identity/dash/profiles')
     name = parsed.path if parsed.path in known else '/voyagerMessagingGraphQL/graphql' if parsed.path.startswith('/voyagerMessagingGraphQL/') else 'other'
     action = parse_qs(parsed.query).get('action', [''])[0]
-    if action in ('createMessage', 'verifyQuotaAndCreate'):
+    if action in ('createMessage', 'verifyQuotaAndCreate', 'verifyQuotaAndCreateV2'):
         name += '?action=' + action
     return name
 

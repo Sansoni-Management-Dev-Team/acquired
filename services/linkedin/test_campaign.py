@@ -24,7 +24,8 @@ def prepare(setup, monkeypatch, connected=False):
     server.workers[owner] = SimpleNamespace(fixture=True, status=AsyncMock(return_value='connected'), touched=time.time())
     lookup = AsyncMock(return_value=({'status': 200}, {'connected': connected, 'recipient': 'urn:li:fsd_profile:alex'}))
     monkeypatch.setattr(campaign, 'relationship', lookup)
-    provider = AsyncMock(return_value={'status': 200, 'data': {}})
+    urn = 'urn:li:fsd_invitation:fictional'
+    provider = AsyncMock(return_value={'status': 200, 'data': {'data': {'value': {'invitationUrn': urn, '*invitation': urn}}, 'included': [{'entityUrn': urn}]}})
     monkeypatch.setattr(server, 'provider_request', provider)
     return client, vault, owner, lookup, provider
 

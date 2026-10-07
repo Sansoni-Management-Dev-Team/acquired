@@ -5,6 +5,7 @@ services:
       LINKEDIN_PUBLIC_URL: https://linkedin.170.64.233.147.sslip.io
       LINKEDIN_ENABLE_FIXTURES: "false"
       LINKEDIN_ALLOW_LIVE_SENDS: "false"
+      LINKEDIN_DIAGNOSTICS_PATH: /data/diagnostics.jsonl
       LINKEDIN_MAX_WORKERS: "5"
     # Hosted capacity: 4 vCPUs / 8 GiB, with 1 GiB reserved for the host.
     shm_size: 1g

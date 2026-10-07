@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from playwright.async_api import async_playwright
 from storage import Vault
-from adapter import request as provider_request, conversations, payload, PATHS, message_target, message_receipt
+from adapter import request as provider_request, conversations, payload, PATHS, message_target, message_receipt, invitation_receipt
 import policy
 import replies
 import diagnostics as diag
@@ -280,11 +280,15 @@ async def _dispatch_action(owner, worker, record):
         record['reason'] = 'Live sends are disabled on the test service'
     elif getattr(worker, 'viewer_count', 0):
         record['reason'] = 'Waiting while the live browser is open'
+    elif record['kind'] == 'invite' and record['text'].strip():
+        record.update(status='blocked', reason='Invitation notes require a verified browser capture; send without a note')
     elif await worker.status() != 'connected':
         policy.control(data, worker.fixture).update(requiresVerification=True, reason='Complete login in the live browser')
         record['reason'] = 'Complete login in the live browser'
     else:
         target = None
+        if record['kind'] == 'invite':
+            diag.emit('invitation.preflight', recipient_id=diag.identifier(record['recipient']))
         if record['kind'] == 'message':
             cached = policy.control(data, worker.fixture).get('inbox', {})
             # Keep the read valid through the configured request spacing, otherwise
@@ -319,16 +323,19 @@ async def _dispatch_action(owner, worker, record):
                 data['actions'][record['id']] = record
                 VAULT.save(owner, data)
                 return record
-        due, reason = policy.reserve(data, record['kind'], worker.fixture, now)
+        with diag.span('action.reserve_write'):
+            due, reason = policy.reserve(data, record['kind'], worker.fixture, now)
         record.update(nextEligibleAt=due, reason=reason)
         if due is not None and due <= now:
-            body = payload(record['kind'], record['recipient'], record['text'], record['id'], target)
+            with diag.span('action.build_payload'):
+                body = payload(record['kind'], record['recipient'], record['text'], record['id'], target)
             if target:
                 record.update(conversationUrn=target['conversationUrn'], mailboxUrn=target['mailboxUrn'], originToken=body['message']['originToken'])
             record.update(status='uncertain', attemptedAt=now, traceId=diag.CONTEXT.get().get('trace_id'))
-            diag.emit('action.attempt_reserved', status='uncertain')
             data['actions'][record['id']] = record
-            VAULT.save(owner, data)
+            with diag.span('action.persist_attempt'):
+                VAULT.save(owner, data)
+            diag.emit('action.attempt_reserved', status='uncertain')
             try:
                 result = await provider_request(worker, PATHS[record['kind']], 'POST', body)
             except Exception as error:
@@ -345,12 +352,12 @@ async def _dispatch_action(owner, worker, record):
                 record['providerErrorCodes'] = {key: error[key] for key in ('status', 'serviceErrorCode') if type(error.get(key)) is int}
             if 200 <= result['status'] < 300 and not result.get('redirect'):
                 response = result.get('data') or {}
-                receipt = message_receipt(response, body) if record['kind'] == 'message' else (response.get('id') or response.get('entityUrn') if isinstance(response, dict) else None)
+                receipt = message_receipt(response, body) if record['kind'] == 'message' else invitation_receipt(response)
                 record['providerId'] = receipt
-                if record['kind'] != 'message' or receipt:
+                if receipt:
                     record['status'] = 'submitted'
                 else:
-                    record['reason'] = 'Response did not confirm this message; verify in LinkedIn before creating another action'
+                    record['reason'] = 'Response did not confirm this action; verify in LinkedIn before creating another action'
             elif result['status'] in (401,403,422,429,999) or result.get('redirect'):
                 record['status'] = 'blocked'
                 record['reason'] = policy.control(data, worker.fixture).get('reason', 'LinkedIn rejected this action')
@@ -909,6 +916,8 @@ async def actions(request: Request):
             return {'action':await dispatch_action(owner,worker,record)}
         kind,recipient,text=body.get('kind'),body.get('recipient'),body.get('text','')
         if kind not in PATHS or not isinstance(recipient,str) or not re.fullmatch(r'urn:li:(?:fsd_profile|fs_miniProfile|member):[A-Za-z0-9_-]+',recipient) or not isinstance(text,str) or len(text)>(200 if kind=='invite' else 4000) or (kind=='message' and not text.strip()): raise HTTPException(400,'Invalid draft; invitation notes are limited to 200 characters')
+        if kind == 'invite' and text.strip():
+            raise HTTPException(400, 'Invitation notes require a verified browser capture; send without a note')
         fixture=mode_for(owner)
         fingerprint=hashlib.sha256(json.dumps([fixture,kind,recipient,text]).encode()).hexdigest()
         existing=next((a for a in data['actions'].values() if a.get('fingerprint')==fingerprint and a['status'] not in ('cancelled','expired','blocked')),None)
@@ -924,7 +933,7 @@ async def campaign(request: Request):
     import sys
     from campaign import operate
     owner = owner_for(request)
-    async with locks.setdefault(owner, asyncio.Lock()):
+    async with traced_lock(locks.setdefault(owner, asyncio.Lock()), 'campaign', owner):
         return await operate(sys.modules[__name__], owner, await request.json())
 
 @app.post('/agent')
@@ -990,6 +999,16 @@ async def fixture_writes(path: str, request: Request):
                 or request.headers.get('x-restli-protocol-version') != '2.0.0'):
             raise HTTPException(400, 'Invalid modern message request')
         return {'value': {**message, 'entityUrn': 'urn:li:msg_message:fixture-result'}}
+    if path == 'voyagerRelationshipsDashMemberRelationships':
+        if (request.query_params.get('action') != 'verifyQuotaAndCreateV2'
+                or request.query_params.get('decorationId') != 'com.linkedin.voyager.dash.deco.relationships.InvitationCreationResultWithInvitee-2'
+                or body != {'invitee': {'inviteeUnion': {'memberProfile': 'urn:li:fsd_profile:fictional-alex'}}}
+                or request.headers.get('content-type') != 'application/json; charset=UTF-8'
+                or request.headers.get('accept') != 'application/vnd.linkedin.normalized+json+2.1'
+                or request.headers.get('x-restli-protocol-version') != '2.0.0'):
+            raise HTTPException(400, 'Invalid modern invitation request')
+        urn = 'urn:li:fsd_invitation:fixture-result'
+        return {'data': {'value': {'invitationUrn': urn, '*invitation': urn}}, 'included': [{'entityUrn': urn}]}
     return {'id': 'fixture-'+hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:12]}
 
 @app.get('/fixture/feed', response_class=HTMLResponse)
