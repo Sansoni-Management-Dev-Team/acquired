@@ -12,6 +12,7 @@ async function proxy(request: Request) {
   if (request.method !== "GET" && !hasTrustedRequestOrigin(request)) return Response.json({ error: "Invalid origin" }, { status: 403 });
   const operation = incoming.searchParams.get("op") || "connection";
   if (!(request.method === "GET" ? reads : writes).has(operation) || (request.method === "DELETE" && operation !== "connection")) return Response.json({ error: "Invalid operation" }, { status: 400 });
+  const traceId = crypto.randomUUID().replaceAll("-", "");
   const base = process.env.LINKEDIN_SERVICE_URL;
   const secret = process.env.LINKEDIN_SERVICE_SECRET;
   if (!base || !secret) return Response.json({ error: "LinkedIn service is not configured", status: "unavailable" }, { status: 503, headers: { "X-LinkedIn-Trace-Id": traceId } });
@@ -24,7 +25,6 @@ async function proxy(request: Request) {
     if (body.length > 16384) return Response.json({ error: "Request too large" }, { status: 413 });
     try { JSON.parse(body); } catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
   }
-  const traceId = crypto.randomUUID().replaceAll("-", "");
   const started = performance.now();
   const log = (event: string, fields: Record<string, unknown> = {}) => console.info(JSON.stringify({
     event, traceId, method: request.method, operation, ...fields,

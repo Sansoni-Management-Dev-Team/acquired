@@ -35,6 +35,15 @@ it("rejects unknown operations and invalid JSON before contacting service", asyn
   expect((await POST(new Request("http://localhost/api/channels/linkedin", { method: "POST", headers: { origin: "http://localhost" }, body: "{" }))).status).toBe(400);
   expect(fetch).not.toHaveBeenCalled();
 });
+it.each(["LINKEDIN_SERVICE_URL", "LINKEDIN_SERVICE_SECRET"])("returns a traced unavailable response when %s is missing", async (name) => {
+  vi.stubEnv(name, "");
+  const fetch = vi.spyOn(globalThis, "fetch");
+  const response = await GET(new Request("http://localhost/api/channels/linkedin"));
+  expect(response.status).toBe(503);
+  expect(await response.json()).toEqual({ error: "LinkedIn service is not configured", status: "unavailable" });
+  expect(response.headers.get("x-linkedin-trace-id")).toMatch(/^[a-f0-9]{32}$/);
+  expect(fetch).not.toHaveBeenCalled();
+});
 it("proxies settings with session ownership and preserves cooldown headers", async () => {
   const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ detail: "Cooling down", cookies: "private" }, { status: 429, headers: { "Retry-After": "900" } }));
   const response = await POST(new Request("http://localhost/api/channels/linkedin?op=settings&userId=another", { method: "POST", headers: { origin: "http://localhost" }, body: JSON.stringify({ messagesDaily: 10 }) }));
