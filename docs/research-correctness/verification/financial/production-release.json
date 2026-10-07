@@ -1,0 +1,23 @@
+{
+  "applicationCodeCommit": "5815492",
+  "githubBranch": "main",
+  "applicationUrl": "https://acquire.mlai.au",
+  "image": "acquire-app:revenue-margin-20261008",
+  "imageId": "sha256:63d9c5fdc49e95833a3423a1ec8dbac779620a8abafc53421d102313b795f94e",
+  "architecture": "linux/amd64",
+  "applicationHealth": "healthy",
+  "databaseReadiness": "passed",
+  "publicHealth": {
+    "status": 200,
+    "body": {
+      "status": "ok"
+    }
+  },
+  "deployedAt": "2026-10-07T23:56:39.062Z",
+  "databaseMigrationsApplied": [],
+  "historicalReplayCompanies": 359,
+  "historicalReplayMandates": 4,
+  "unitTestsPassed": 2076,
+  "researchWorkerChanged": false,
+  "crawlerWorkerChanged": false
+}

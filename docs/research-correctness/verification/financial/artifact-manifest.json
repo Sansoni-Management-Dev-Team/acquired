@@ -54,5 +54,6 @@
   "historicalDatabaseWrites": 0,
   "migrationsApplied": 0,
   "productionImage": "acquire-app:revenue-margin-20261008",
-  "productionImageId": "sha256:d2037abd7bbed363061f1b0d9a81f29d8f0297246f7ba59aa09be56f18039b76"
+  "productionImageId": "sha256:63d9c5fdc49e95833a3423a1ec8dbac779620a8abafc53421d102313b795f94e",
+  "productionImageConfigDigest": "sha256:d2037abd7bbed363061f1b0d9a81f29d8f0297246f7ba59aa09be56f18039b76"
 }
