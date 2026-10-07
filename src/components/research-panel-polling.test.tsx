@@ -8,6 +8,15 @@ import {ResearchPanel} from './research-panel';
 const job:ResearchJob={id:'root',status:'crawling',pages:0,modelCalls:0,message:'Reading',createdAt:'2026-09-30',seeds:[],config:{approved:true,searchTerms:[],seeds:[],geography:'AU',discover:false,budget:{maxPages:5,maxModelCalls:5,maxDomains:5,maxMinutes:5}}};
 const snapshot=(overrides:Partial<ResearchPanelData>={}):ResearchPanelData=>({enabled:true,active:true,jobs:[job],findings:[],results:[],...overrides});
 beforeEach(()=>{vi.resetAllMocks();});afterEach(()=>{vi.unstubAllGlobals();});
+it('shows the company pipeline layout before the first research snapshot arrives', () => {
+ const html=renderToStaticMarkup(<ResearchPanel mandateId="mandate" startedRunId="root" showStartAction={false} onResultsChanged={()=>{}} />);
+ for(const label of ['Searching for businesses','Finding headcounts','Finding revenue bands','Verifying ABNs','Finding people and emails','Saving company results']) expect(html).toContain(label);
+ expect(html).toContain('0 companies researched');
+ expect(html).toContain('0 companies saved');
+ expect(html).not.toContain('Stage 1 of 4');
+ expect(html).not.toContain('Find candidates');
+ expect(html).not.toContain('aria-valuenow');
+});
 async function observe(responses:ResearchPanelData[]) {
  const changed=vi.fn();
  vi.stubGlobal('fetch',vi.fn().mockImplementation(async()=>Response.json(responses.shift())));

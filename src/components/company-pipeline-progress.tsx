@@ -4,27 +4,31 @@ import { Check } from 'lucide-react';
 import type { ResearchJob } from './research-panel';
 import { companyPipelineState } from './company-pipeline-state';
 
-export function CompanyPipelineProgress({ job, jobs, mandateId }: { job: ResearchJob; jobs: ResearchJob[]; mandateId?: string }) {
-  const state = companyPipelineState(job, jobs);
+export function CompanyPipelineProgress({ job, jobs = [], mandateId, detail: startupDetail }: { job?: ResearchJob; jobs?: ResearchJob[]; mandateId?: string; detail?: string }) {
+  const state = job ? companyPipelineState(job, jobs) : {
+    settled: false, processed: 0, active: 0, headcounts: 0, revenueBands: 0,
+    abns: 0, peopleSaved: 0, peopleActive: 0, peopleQueued: 0, savedIds: [],
+  };
+  const [startedAt] = useState(Date.now);
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     if (state.settled) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
   }, [state.settled]);
-  const end = state.settled ? new Date(job.updatedAt || job.createdAt).getTime() : now;
-  const seconds = Math.max(0, Math.floor((end - new Date(job.createdAt).getTime()) / 1000));
-  const complete = state.settled && job.status === 'complete';
+  const end = state.settled && job ? new Date(job.updatedAt || job.createdAt).getTime() : now;
+  const seconds = Math.max(0, Math.floor((end - (job ? new Date(job.createdAt).getTime() : startedAt)) / 1000));
+  const complete = state.settled && job?.status === 'complete';
   const running = !state.settled;
   const researching = state.processed > 0 || state.active > 0;
-  const title = running ? 'Finding businesses' : complete ? 'Research complete' : job.status === 'partial' ? 'Finished with issues' : `Research ${job.status}`;
-  const detail = running ? researching ? 'Finding headcounts, revenue bands, ABNs, people and email addresses for the businesses we discover.' : 'Searching for businesses that match your acquisition brief.' : complete ? 'Company research finished. Your results are ready to review.' : 'Research has stopped. Review the available results and any missing information.';
+  const title = running ? 'Finding businesses' : complete ? 'Research complete' : job?.status === 'partial' ? 'Finished with issues' : `Research ${job?.status}`;
+  const detail = startupDetail || (running ? researching ? 'Finding headcounts, revenue bands, ABNs, people and email addresses for the businesses we discover.' : 'Searching for businesses that match your acquisition brief.' : complete ? 'Company research finished. Your results are ready to review.' : 'Research has stopped. Review the available results and any missing information.');
   const stages = [
     { label: 'Searching for businesses', count: undefined, active: running },
     { label: 'Finding headcounts', count: state.headcounts, active: running && researching },
     { label: 'Finding revenue bands', count: state.revenueBands, active: running && researching },
     { label: 'Verifying ABNs', count: state.abns, active: running && researching },
-    ...(job.config.includeCompanyPeople ? [{ label: 'Finding people and emails', count: state.peopleSaved, active: running && (state.peopleActive + state.peopleQueued > 0) }] : []),
+    ...((job ? job.config.includeCompanyPeople : true) ? [{ label: 'Finding people and emails', count: state.peopleSaved, active: running && (state.peopleActive + state.peopleQueued > 0) }] : []),
     { label: 'Saving company results', count: state.savedIds.length, active: running && researching },
   ];
   return <section className="mx-auto my-8 max-w-3xl rounded-[10px] border border-[#d8deeb] bg-white px-5 py-10 text-center text-[#20252f] sm:px-9">

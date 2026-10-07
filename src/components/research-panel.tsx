@@ -180,7 +180,7 @@ export function ResearchPanel({
   return (
     <section className="mx-auto my-[8vh] w-full max-w-[620px] space-y-5">
       {loading ? (
-        <CompanySearchProgress detail="Checking research service…" />
+        <CompanyPipelineProgress detail="Checking research service…" />
       ) : !data.enabled ? (
         <p>Website research is awaiting activation.</p>
       ) : (

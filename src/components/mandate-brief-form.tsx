@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { BriefCriteria } from "./brief-criteria";
 import { useState } from "react";
 import { CompanyDiscoveryLoading } from "./company-discovery-loading";
-import { CompanySearchProgress } from "./company-search-progress";
+import { CompanyPipelineProgress } from "./company-pipeline-progress";
 import type { AcquisitionBrief } from "@/domain/acquisition";
 
 async function postJson(url: string, body: unknown, timeoutMs: number) {
@@ -80,7 +80,7 @@ export function MandateBriefForm({ mandateId, brief, onSaved }: { mandateId: str
   }
 
   if (searchRun) return <CompanyDiscoveryLoading mandateId={mandateId} startedJobId={searchRun.jobId} />;
-  if (busy) return <div className="mx-auto my-[8vh] max-w-[620px]"><CompanySearchProgress detail={progress || undefined} /></div>;
+  if (busy) return <div className="mx-auto my-[8vh] max-w-[620px]"><CompanyPipelineProgress detail={progress || undefined} /></div>;
 
   return <div className="mx-auto max-w-4xl space-y-5"><form onSubmit={event => { event.preventDefault(); void findCompanies(); }} className="mx-auto max-w-4xl space-y-5 rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5 sm:p-8">
     <label htmlFor="acquisition-description" className="block text-sm font-semibold">Describe the acquisition brief</label>

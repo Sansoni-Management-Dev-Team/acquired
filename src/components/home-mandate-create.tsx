@@ -5,7 +5,7 @@ import Link from "next/link";
 import { ArrowRight, CircleAlert, Clock3 } from "lucide-react";
 import type { AcquisitionBrief, MandateView } from "@/domain/acquisition";
 import { CompanyDiscoveryLoading } from "./company-discovery-loading";
-import { CompanySearchProgress } from "./company-search-progress";
+import { CompanyPipelineProgress } from "./company-pipeline-progress";
 import { nextTestMandate } from "@/domain/test-mandates";
 import { DetailTooltip } from "./detail-tooltip";
 
@@ -64,7 +64,7 @@ export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
   }
 
   if (searchRun) return <CompanyDiscoveryLoading mandateId={searchRun.mandateId} startedJobId={searchRun.jobId} />;
-  if (busy) return <div className="mx-auto my-[8vh] max-w-[620px] px-4 sm:px-0"><CompanySearchProgress detail={progress || undefined} /></div>;
+  if (busy) return <div className="mx-auto my-[8vh] max-w-[620px] px-4 sm:px-0"><CompanyPipelineProgress detail={progress || undefined} /></div>;
 
   return <div className="mx-auto max-w-6xl space-y-10 p-5 sm:p-8">
     <section className="rounded-3xl px-5 py-16 text-[var(--foreground)] sm:px-10 sm:py-20">
