@@ -1,0 +1,22 @@
+{
+  "checkedAt": "2026-10-07T21:39:57.378Z",
+  "/sign-in": {
+    "status": 200
+  },
+  "/privacy": {
+    "status": 200
+  },
+  "/terms-of-service": {
+    "status": 200
+  },
+  "recovery": {
+    "status": 200,
+    "pending": 0
+  },
+  "fullPage": {
+    "status": 200,
+    "fullContent": true,
+    "htmlCharacters": 163110,
+    "markdownCharacters": 6302
+  }
+}

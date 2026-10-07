@@ -1,11 +1,11 @@
 {
   "workflows-final.log": {
-    "sha256": "92544e9a731d3c5d9eb9f4adb6072b980ae0df2a5ee528c6a5715c4e2df3eef3",
-    "bytes": 3696
+    "sha256": "3dbc65d78cbafe262e096211e9fe398adcb528c1721e843e7a37c7e2b40066cc",
+    "bytes": 4070
   },
   "unit-final.log": {
-    "sha256": "90b90d5260cf183b7dd96f9bb7e0ae186797b45d083c6ca0bd4da779b14b45ca",
-    "bytes": 321
+    "sha256": "b3a487a6276065ae544311f7bc91d29269dc6fd62d71c4ec00c5a9f328749e1e",
+    "bytes": 319
   },
   "worker-typecheck-final.log": {
     "sha256": "564613c30e699967bb3ec2d8db30f2d248922cd3461edbac5d9e0d46c58a70c9",
@@ -15,6 +15,22 @@
     "sha256": "1ca9deeed306a9edd46d59c078862ab40eb8d539a56c2111cb46d47a7d77e7c0",
     "bytes": 67
   },
+  "production-build-final.log": {
+    "sha256": "2df6a61a668a3f4fd3783f261344baae483b5c804a07412bba1c1c7b0d293333",
+    "bytes": 7160
+  },
+  "production-cron.json": {
+    "sha256": "4f0a3522e68b4cf2c3c600b108706b478b55ae5aa3515360d865d4ad000b894b",
+    "bytes": 222
+  },
+  "production-smoke.json": {
+    "sha256": "bee754106ef514b17060971a904e618bb474af3e8d52b0c68e3c6ecde5c1e494",
+    "bytes": 355
+  },
+  "production-release.json": {
+    "sha256": "9a81f8dd277ad40a791ec03f6df2d21cc25adc2682bc82a20e1ae3d03cae97a9",
+    "bytes": 936
+  },
   "postgres-final.log": {
     "sha256": "fae4c8e59310db1f2d3f32e7dcfca6b1daf2461627e00be5c1078693861b6070",
     "bytes": 251
@@ -22,6 +38,10 @@
   "lint-final.log": {
     "sha256": "3a0955e6dd85fc56b850a1ffc9469a23d1f1f20c1ecd42d88a57b4555ed215d6",
     "bytes": 342
+  },
+  "gateway-final.log": {
+    "sha256": "a07d14278bfc65cd170e44deff58e2c0006135162399b0410a866b317a56032c",
+    "bytes": 249
   },
   "coordinator.log": {
     "sha256": "1fceec2a1f87bd111d29e600024de86bebf775498a1a36222985619f7ca75ff6",

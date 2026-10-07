@@ -1,5 +1,5 @@
 Already up to date
-Done in 227ms using pnpm v11.8.0
+Done in 219ms using pnpm v11.8.0
 $ vitest run --config cloudflare/research/vitest.config.mts
 
  RUN  v4.1.11 <repository>
@@ -15,7 +15,8 @@ uncaught exception; source = Uncaught (in promise); stack = Error: Callback fail
     at Object.progress (<repository>/cloudflare/research/index.ts:342:28)
     at Object.measure (<repository>/cloudflare/research/pipeline-timing.ts:11:24)
     at AsyncFunction.<anonymous> (<repository>/cloudflare/research/index.ts:213:181)
-uncaught exception; source = Uncaught (in promise); stack = Error: Firmable application callback profiles failed (503); request unknown; 2ms
+An RPC stub was not disposed properly. You must call dispose() on all stubs in order to let the other side know that you are no longer using them. You cannot rely on the garbage collector for this because it may take arbitrarily long before actually collecting unreachable objects. As a shortcut, calling dispose() on the result of an RPC call disposes all stubs within it.
+uncaught exception; source = Uncaught (in promise); stack = Error: Firmable application callback profiles failed (503); request unknown; 0ms
     at checkFirmableCallback (<repository>/cloudflare/research/firmable-callback.ts:18:9)
     at firmableCallback (<repository>/cloudflare/research/index.ts:135:3)
     at AsyncFunction.<anonymous> (<repository>/cloudflare/research/index.ts:484:37)
@@ -23,7 +24,7 @@ uncaught exception; source = Uncaught (in promise); stack = Error: Firmable appl
     at checkFirmableCallback (<repository>/cloudflare/research/firmable-callback.ts:18:9)
     at firmableCallback (<repository>/cloudflare/research/index.ts:135:3)
     at AsyncFunction.<anonymous> (<repository>/cloudflare/research/index.ts:484:37)
-uncaught exception; source = Uncaught (in promise); stack = Error: Firmable application callback people-page failed (503); request unknown; 0ms
+uncaught exception; source = Uncaught (in promise); stack = Error: Firmable application callback people-page failed (503); request unknown; 1ms
     at checkFirmableCallback (<repository>/cloudflare/research/firmable-callback.ts:18:9)
     at firmableCallback (<repository>/cloudflare/research/index.ts:135:3)
     at AsyncFunction.<anonymous> (<repository>/cloudflare/research/index.ts:484:37)
@@ -34,13 +35,13 @@ uncaught exception; source = Uncaught (in promise); stack = Error: Firmable appl
 uncaught exception; source = Uncaught (in promise); stack = Error: Firmable application callback people-page failed (503); request unknown; 1ms
     at async doWrapper (file://<repository>/node_modules/.pnpm/miniflare@5.20260911.0-alpha_@types+node@26.3.0/node_modules/miniflare/dist/src/workers/workflows/binding.worker.js:13525:53)
     at async Context.do (file://<repository>/node_modules/.pnpm/miniflare@5.20260911.0-alpha_@types+node@26.3.0/node_modules/miniflare/dist/src/workers/workflows/binding.worker.js:13789:17)
-uncaught exception; source = Uncaught (in promise); stack = Error: Firmable application callback company failed (502); request fixture-request; 1ms; DATABASE_UNAVAILABLE
+uncaught exception; source = Uncaught (in promise); stack = Error: Firmable application callback company failed (502); request fixture-request; 0ms; DATABASE_UNAVAILABLE
     at checkFirmableCallback (<repository>/cloudflare/research/firmable-callback.ts:18:9)
     at firmableCallback (<repository>/cloudflare/research/index.ts:135:3)
     at AsyncFunction.<anonymous> (<repository>/cloudflare/research/index.ts:484:37)
 
  Test Files  1 passed (1)
       Tests  33 passed (33)
-   Start at  08:22:38
-   Duration  79.52s (transform 412ms, setup 0ms, import 877ms, tests 77.76s, environment 0ms)
+   Start at  08:39:48
+   Duration  79.82s (transform 312ms, setup 0ms, import 679ms, tests 78.35s, environment 0ms)
 

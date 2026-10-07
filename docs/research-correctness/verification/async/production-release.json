@@ -1,0 +1,27 @@
+{
+  "applicationCodeCommit": "3989c99",
+  "gatewayCodeCommit": "2df35a7",
+  "githubBranch": "main",
+  "applicationUrl": "https://acquire.mlai.au",
+  "applicationImage": "acquire-app:async-enrichment-20261008",
+  "imageManifest": "sha256:008e13df8c9629d85b99e62addd7327e4a8b3794093451ae03567cbc116c78c0",
+  "architecture": "linux/amd64",
+  "applicationHealth": "healthy",
+  "databaseReadiness": "passed",
+  "researchWorkerVersion": "2a7004bf-6810-43ec-8e24-8d30ee284c08",
+  "crawlerWorkerVersion": "78470176-b572-4d46-8f20-d3fbb77d76b2",
+  "recoverySchedule": "*/1 * * * *",
+  "databaseMigrationsApplied": [],
+  "privateProviderPayloadsCommitted": false,
+  "productionFullPageSmoke": {
+    "status": 200,
+    "fullContent": true,
+    "htmlCharacters": 163110,
+    "markdownCharacters": 6302
+  },
+  "scheduledRecoveryObserved": {
+    "outcome": "ok",
+    "exceptions": 0,
+    "workerVersion": "2a7004bf-6810-43ec-8e24-8d30ee284c08"
+  }
+}

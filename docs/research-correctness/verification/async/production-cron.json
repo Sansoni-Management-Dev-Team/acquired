@@ -1,0 +1,13 @@
+[
+  {
+    "outcome": "ok",
+    "exceptions": 0,
+    "event": {
+      "cron": "*/1 * * * *",
+      "scheduledTime": 1791409309000
+    },
+    "scriptVersion": {
+      "id": "2a7004bf-6810-43ec-8e24-8d30ee284c08"
+    }
+  }
+]
