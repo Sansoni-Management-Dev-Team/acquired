@@ -7,6 +7,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Building2, House, Settings, Plus, PanelLeftClose, PanelLeftOpen, Menu, FileText, ListFilter, Users, Mail } from "lucide-react";
 import { ThemeToggle } from "./theme-toggle";
 import { AcquisitionProgress } from "./acquisition-progress";
+import { LegalLinks } from "./legal-page";
 
 import { mandateTabHref } from "@/domain/mandate-navigation";
 type SidebarState = { mandates: { id: string; name: string }[]; selected?: string; tab: string };
@@ -37,7 +38,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const sidebar: SidebarState = JSON.parse(sidebarJson);
-  if (["/sign-in", "/sign-up", "/forgot-password", "/reset-password", "/onboarding", "/auth/complete"].includes(pathname)) return <><div className="absolute right-4 top-4"><ThemeToggle /></div><main>{children}</main></>;
+  if (["/privacy", "/terms-of-service"].includes(pathname)) return <><div className="absolute right-4 top-4"><ThemeToggle /></div><main>{children}</main></>;
+  if (["/sign-in", "/sign-up", "/forgot-password", "/reset-password", "/onboarding", "/auth/complete"].includes(pathname)) return <><div className="absolute right-4 top-4"><ThemeToggle /></div><main>{children}</main>{pathname !== "/sign-in" && <footer className="px-6 pb-8"><LegalLinks /></footer>}</>;
 
   return (
     <SidebarContext.Provider value={setSidebarJson}><Suspense fallback={null}><SidebarRouteSync update={setSidebarJson} /></Suspense><div className={`min-h-screen lg:grid ${collapsed ? "lg:grid-cols-[80px_minmax(0,1fr)]" : "lg:grid-cols-[272px_minmax(0,1fr)]"}`}>
