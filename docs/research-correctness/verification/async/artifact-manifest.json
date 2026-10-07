@@ -30,5 +30,9 @@
   "python.log": {
     "sha256": "9b0476c2658047331efa78ea0cee3374f1846136ba47c7a3be76d92caa293629",
     "bytes": 112
+  },
+  "original-postgres-final.log": {
+    "sha256": "b602560c41c0b430570ce0dd4e2b113914bfcf82caac44e23499bb54929200f9",
+    "bytes": 552
   }
 }
