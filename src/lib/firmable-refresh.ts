@@ -181,8 +181,8 @@ export async function refreshFirmableProfileBatch(runId: string, offset: number)
       if (stored && !raw && existingIds.has(candidate.id)) return;
       const person = raw
         ? mapFirmablePerson(raw, { id: candidate.id }, process.env.ALLOW_REAL_PERSONAL_DATA !== "true")
-        : await provider.enrichPerson({ id: candidate.id }, { includePhones: run.trigger !== 'discovery' });
-      if (run.trigger === 'discovery') { person.phone = undefined; person.phoneAvailable = false; }
+        : await provider.enrichPerson({ id: candidate.id }, { includePhones: !['discovery', 'people'].includes(run.trigger) });
+      if (['discovery', 'people'].includes(run.trigger)) { person.phone = undefined; person.phoneAvailable = false; }
       await upsertFirmableContact({ database, organizationId: run.organizationId, targetId: run.targetId, companyId: run.firmableCompanyId!, person, candidate });
     } catch (error) {
       if (error instanceof FirmableError && ![401, 402, 403].includes(error.status)) return;

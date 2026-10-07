@@ -29,6 +29,7 @@ const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("brief-description"), description: z.string().trim().min(10).max(10000) }),
   z.object({ action: z.literal("discover") }),
   z.object({ action: z.literal("import"), records: z.array(importedRecord).min(1).max(1000) }),
+  z.object({ action: z.literal("load-people"), targetIds: z.array(z.string().uuid()).min(1).max(20), requestId: z.string().uuid().optional() }),
   z.object({ action: z.literal("enrich"), targetIds: z.array(z.string().uuid()).min(1).max(20), requestId: z.string().uuid().optional() }),
   z.object({ action: z.literal("assessment"), targetId: z.string().uuid(), assessment: assessmentSchema, version: z.number().int().positive() }),
   z.object({ action: z.literal("accreditations"), targetId: z.string().uuid(), accreditations: z.array(accreditationSchema).max(100) }),
@@ -118,7 +119,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       await repo.saveValuation(id, action.observation);
       await new OrganizationRepository(requireDb(), org).appendAudit({ actorId: session.user.id, action: "mandate.valuation_recorded", entityType: "mandate", entityId: id, metadata: { observationId: action.observation.id } });
     }
-    if (["discover", "enrich", "import"].includes(action.action)) release = acquireTargetSearch(org);
+    if (["discover", "enrich", "load-people", "import"].includes(action.action)) release = acquireTargetSearch(org);
     const filters = briefToMandate(mandate.brief);
     if (action.action === "discover") {
       const errors = searchReadiness(mandate.brief);
@@ -161,7 +162,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       await repo.recordCoverage(id, [{ name: "Sourced record import", status: "partial", discovered: action.records.length, unique: added, overlap: action.records.length - added, checkedAt: new Date().toISOString(), note: "User-supplied records; source population completeness has not been established." }]);
       return researchJsonResponse({ ok: true, warnings });
     }
-    if (action.action === "enrich") {
+    if (action.action === "enrich" || action.action === "load-people") {
+      const trigger = action.action === "load-people" ? "people" : "phones";
       if (!researchEnabled()) return researchJsonResponse({ error: "Company data refresh is awaiting service activation" }, { status: 503 });
       if (process.env.TARGET_DATA_PROVIDER !== "fixture" && !process.env.FIRMABLE_API_KEY) return researchJsonResponse({ error: "Company data enrichment is not configured" }, { status: 503 });
       const memberships = await repo.memberships(id);
@@ -176,11 +178,11 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         const abn = target.abn || target.sourceData?.manufacturingDirectory?.abn || target.sourceData?.firmable?.abn;
         if (!target.domain && !abn && !target.sourceData?.firmable?.firmableId) { warnings.push(`${target.companyName}: website, ABN or prior company match required; candidate retained.`); continue; }
         try {
-          const run = await history.queueRun({ organizationId: org, actorId: session.user.id, targetId, requestKey: `${requestId}:${targetId}`, trigger: 'phones' });
-          if (run.trigger !== 'phones') { warnings.push(`${target.companyName}: contact research is still running; request phone numbers after it completes.`); continue; }
+          const run = await history.queueRun({ organizationId: org, actorId: session.user.id, targetId, requestKey: `${requestId}:${targetId}`, trigger });
+          if (trigger === 'phones' && run.trigger !== 'phones') { warnings.push(`${target.companyName}: contact research is still running; request phone numbers after it completes.`); continue; }
           const queued = { id: run.id, targetId, status: run.status };
           runs.push(queued);
-          dispatches.push({ run: queued, companyName: target.companyName });
+          if (run.trigger === trigger) dispatches.push({ run: queued, companyName: target.companyName });
         } catch {
           warnings.push(`${target.companyName}: refresh could not be queued; candidate retained.`);
         }

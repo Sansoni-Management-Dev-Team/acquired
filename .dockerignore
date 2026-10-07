@@ -1,0 +1,25 @@
+# Allow only application build inputs. Never send environment files or keys.
+**
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!next.config.ts
+!next-env.d.ts
+!tsconfig.json
+!postcss.config.mjs
+!src
+!src/**
+!public
+!public/**
+!ops
+ops/**
+!ops/app
+ops/app/**
+!ops/app/Dockerfile
+!ops/app/build.mjs
+!ops/app/runtime.mjs
+!.local-data
+.local-data/**
+!.local-data/manufacturing-search-index.json
+src/**/*.test.*
+src/**/*.integration.test.*

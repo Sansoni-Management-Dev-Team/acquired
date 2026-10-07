@@ -1,0 +1,14 @@
+# Supply APP_DOMAIN only after choosing and validating the owned hostname.
+{$APP_DOMAIN} {
+    encode zstd gzip
+    request_body {
+        max_size 10MB
+    }
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+    reverse_proxy 127.0.0.1:18098 {
+        flush_interval -1
+    }
+}

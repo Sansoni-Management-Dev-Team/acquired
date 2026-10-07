@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ getSession: vi.fn(), checkHostedHealth: vi.fn(), checkGmailHealth: vi.fn(), requireDb: vi.fn(), decryptToken: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: mocks.getSession } } }));
 vi.mock("@/lib/channel-health", () => ({ checkHostedHealth: mocks.checkHostedHealth, checkGmailHealth: mocks.checkGmailHealth }));
@@ -32,4 +32,14 @@ it("does not return credential or database errors", async () => {
   mocks.requireDb.mockImplementation(() => { throw new Error("private database connection"); });
   const data = await (await POST(request("gmail"))).json();
   expect(data.status).toBe("unavailable"); expect(JSON.stringify(data)).not.toContain("private");
+});
+
+afterEach(() => vi.unstubAllEnvs());
+it("tests the public HTTPS origin behind an internal container address", async () => {
+  vi.stubEnv("APP_URL", "https://acquire.mlai.au");
+  mocks.checkHostedHealth.mockResolvedValue({ status: "healthy" });
+  const response = await POST(new Request("http://0.0.0.0:3000/api/channels/health?provider=linkedin", { method: "POST", headers: { origin: "https://acquire.mlai.au" } }));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ status: "healthy" });
+  expect(mocks.checkHostedHealth).toHaveBeenCalledWith("linkedin", { organizationId: "org", userId: "owner" });
 });

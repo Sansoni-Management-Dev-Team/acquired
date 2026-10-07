@@ -122,3 +122,17 @@ def test_live_campaigns_have_a_separate_gate(setup, monkeypatch):
     monkeypatch.delenv('LINKEDIN_ALLOW_CAMPAIGNS', raising=False)
     assert call(client, 'post', '/campaign', json=request()).status_code == 403
     assert provider.call_count == lookup.call_count == 0
+
+
+def test_live_relationship_check_does_not_enable_campaign_writes(setup, monkeypatch):
+    client, vault, owner, lookup, provider = prepare(setup, monkeypatch, True)
+    server.workers[owner].fixture = False
+    monkeypatch.delenv('LINKEDIN_ALLOW_CAMPAIGNS', raising=False)
+    monkeypatch.delenv('LINKEDIN_ALLOW_LIVE_SENDS', raising=False)
+    result = call(client, 'post', '/campaign', json={'operation':'status','profile':'https://www.linkedin.com/in/alex'})
+    assert result.status_code == 200
+    assert result.json()['connected'] is True
+    assert call(client, 'post', '/campaign', json=request('message')).status_code == 403
+    assert vault.load(owner).get('actions', {}) == {}
+    lookup.assert_awaited_once()
+    provider.assert_not_called()

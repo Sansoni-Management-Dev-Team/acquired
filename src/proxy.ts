@@ -1,10 +1,11 @@
 import { getSessionCookie } from "better-auth/cookies";
 import { NextRequest, NextResponse } from "next/server";
+import { appRedirectUrl } from "@/lib/request-origin";
 
 export function proxy(request: NextRequest) {
   if (getSessionCookie(request)) return NextResponse.next();
 
-  const signIn = new URL("/sign-in", request.url);
+  const signIn = appRedirectUrl("/sign-in", request);
   signIn.searchParams.set("next", `${request.nextUrl.pathname}${request.nextUrl.search}`);
   return NextResponse.redirect(signIn);
 }

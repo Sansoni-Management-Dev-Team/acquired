@@ -277,3 +277,54 @@ def test_failed_browser_does_not_block_other_accounts(setup,monkeypatch):
     good_worker.snapshot.assert_awaited_once()
     assert server.policy.control(vault.load(bad),True)['requiresVerification']
     assert not server.policy.control(vault.load(good),True).get('requiresVerification')
+
+@pytest.mark.parametrize('failure, expected', [
+    ('healthy', 'connected'), ('crash', 'browser_crashed'),
+    ('unresponsive', 'browser_unresponsive'), ('closed', 'browser_closed'),
+    ('disconnected', 'browser_closed'), ('challenge', 'login_required'),
+])
+def test_worker_status_checks_renderer_even_with_login_cookie(failure, expected):
+    from types import SimpleNamespace
+    import shutil
+    worker = server.Worker('renderer-status-test', 0)
+    worker.browser = SimpleNamespace(is_connected=lambda: failure != 'disconnected')
+    worker.page = SimpleNamespace(is_closed=lambda: failure == 'closed',
+        url=worker.origin + ('/checkpoint/challenge' if failure == 'challenge' else '/feed/'),
+        evaluate=AsyncMock(return_value='complete'))
+    worker.context = SimpleNamespace(cookies=AsyncMock(return_value=[{'name':'li_at','value':'saved-login'}]))
+    if failure == 'crash':
+        worker.mark_page_crashed()
+    elif failure == 'unresponsive':
+        worker.page.evaluate.side_effect = TimeoutError('Renderer did not respond')
+    try:
+        assert asyncio.run(worker.status()) == expected
+        if failure in ('crash', 'unresponsive', 'closed', 'disconnected'):
+            worker.context.cookies.assert_not_called()
+    finally:
+        shutil.rmtree(worker.directory, ignore_errors=True)
+
+@pytest.mark.parametrize('reload_fails', [False, True])
+def test_open_browser_recovers_crash_without_replacing_login_cookies(setup, monkeypatch, reload_fails):
+    from types import SimpleNamespace
+    client, vault = setup
+    owner = vault.owner('test-org', 'alice')
+    worker = SimpleNamespace(fixture=False, page_crashed=True,
+        status=AsyncMock(side_effect=['browser_crashed', 'connected']),
+        recover_page=AsyncMock(side_effect=TimeoutError() if reload_fails else None), close=AsyncMock())
+    replacement = SimpleNamespace(fixture=False, slot=0, start=AsyncMock(), status=AsyncMock(return_value='login_required'))
+    monkeypatch.setattr(server, 'Worker', lambda *args: replacement)
+    server.workers[owner] = worker
+    server.viewers['old-viewer'] = (owner, server.time.time()+900)
+    response = call(client, 'post', '/connection', json={'fixture':False})
+    worker.recover_page.assert_awaited_once()
+    if reload_fails:
+        assert response.status_code == 200
+        assert server.workers[owner] is replacement
+        worker.close.assert_awaited_once_with(save=False)
+        replacement.start.assert_awaited_once()
+        assert response.json()['status'] == 'login_required'
+    else:
+        assert response.status_code == 200
+        assert server.workers[owner] is worker
+        assert response.json()['status'] == 'connected'
+        assert 'old-viewer' not in server.viewers

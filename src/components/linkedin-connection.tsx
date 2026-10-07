@@ -5,7 +5,7 @@ import { LinkedInDisclosure } from "@/components/linkedin-disclosure";
 import { LinkedInActivitySettings, linkedinTime, type LinkedInDashboard } from "@/components/linkedin-activity-settings";
 
 type Connection = { status: string; saved?: boolean; fixture?: boolean; inboxCaptured?: boolean; agentConfigured?: boolean };
-const labels: Record<string, string> = { checking: "Checking connection…", disconnected: "Not connected", login_required: "Complete login in the live browser", connected: "Connected", paused: "Session saved — browser paused", unavailable: "Connection service unavailable", browser_closed: "Browser closed" };
+const labels: Record<string, string> = { checking: "Checking connection…", disconnected: "Not connected", login_required: "Complete login in the live browser", connected: "Connected", paused: "Session saved — browser paused", unavailable: "Connection service unavailable", browser_closed: "Browser closed — reopen to recover", browser_crashed: "Browser crashed — reopen to recover", browser_unresponsive: "Browser not responding — reopen to recover" };
 
 export function LinkedInConnection({ fixturesEnabled = false }: { fixturesEnabled?: boolean }) {
   const [connection, setConnection] = useState<Connection>({ status: "checking" });
@@ -79,7 +79,7 @@ export function LinkedInConnection({ fixturesEnabled = false }: { fixturesEnable
     {(connection.saved || fixturesEnabled) && <LinkedInDisclosure title="Manage session">
       <p className="mb-3 text-sm text-[var(--muted)]">Pausing saves your session and stops browser activity until you reopen it. Disconnecting removes your saved session.</p>
       <div className="flex flex-wrap gap-2">
-        {["connected", "login_required"].includes(connection.status) && <button disabled={busy} onClick={() => void act("connection", { action: "pause" })} className="min-h-12 rounded-md border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50">Save and pause browser</button>}
+        {["connected", "login_required", "browser_crashed", "browser_unresponsive", "browser_closed"].includes(connection.status) && <button disabled={busy} onClick={() => void act("connection", { action: "pause" })} className="min-h-12 rounded-md border border-[var(--border)] px-3 py-2 text-sm disabled:opacity-50">Save and pause browser</button>}
         {connection.saved && <button disabled={busy} onClick={() => void act("connection", undefined, "DELETE")} className="min-h-12 rounded-md border border-[var(--border)] px-3 py-2 text-sm text-[var(--status-red)] disabled:opacity-50">Disconnect LinkedIn</button>}
         {fixturesEnabled && <button disabled={busy} onClick={() => void act("connection", { fixture: true })} className="min-h-12 rounded-md border border-[var(--border)] px-3 py-2 text-sm">Test with fictional account</button>}
       </div>

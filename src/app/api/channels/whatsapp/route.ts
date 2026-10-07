@@ -1,11 +1,12 @@
 import { auth } from "@/lib/auth";
+import { hasTrustedRequestOrigin } from "@/lib/request-origin";
 
 async function proxy(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return Response.json({ error: "Sign in to connect WhatsApp" }, { status: 401 });
   const organizationId = session.session.activeOrganizationId;
   if (!organizationId) return Response.json({ error: "Choose an organisation" }, { status: 403 });
-  if (request.method !== "GET" && request.headers.get("origin") !== new URL(request.url).origin) return Response.json({ error: "Invalid origin" }, { status: 403 });
+  if (request.method !== "GET" && !hasTrustedRequestOrigin(request)) return Response.json({ error: "Invalid origin" }, { status: 403 });
   const base = process.env.WHATSAPP_SERVICE_URL;
   const secret = process.env.WHATSAPP_SERVICE_SECRET;
   if (!base || !secret) return Response.json({ error: "WhatsApp connection service is not configured", status: "unavailable" }, { status: 503 });

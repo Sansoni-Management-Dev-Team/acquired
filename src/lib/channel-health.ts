@@ -40,6 +40,7 @@ export async function checkHostedHealth(provider: "linkedin" | "whatsapp", owner
     if (healthData.ok !== true) return result("unavailable", `${name} connection service is unavailable.`);
     const data = await session.json();
     if (data.status === "connected") return result("healthy", `${name} service is reachable and your session is connected. No message was sent.`);
+    if (["browser_crashed", "browser_unresponsive", "browser_closed"].includes(data.status)) return result("attention", `${name} browser ${data.status === "browser_crashed" ? "has crashed" : data.status === "browser_closed" ? "is closed" : "is not responding"}. Open the browser to recover your session. No message was sent.`);
     if (data.status === "paused") return result("attention", `${name} session is saved but paused. Open the browser to resume it.`);
     if (["login_required", "reconnect_required"].includes(data.status)) return result("attention", `${name} needs you to reconnect or complete verification.`);
     if (["connecting", "reconnecting", "qr"].includes(data.status)) return result("attention", `${name} is still connecting. Complete setup and test again.`);

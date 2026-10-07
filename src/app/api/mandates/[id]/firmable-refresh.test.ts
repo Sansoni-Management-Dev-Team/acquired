@@ -101,3 +101,32 @@ it('does not turn ongoing automatic people retrieval into a paid phone action',a
  const response=await POST(new Request(`http://localhost/api/mandates/${mandateId}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'enrich',targetIds:[targetId],requestId})}),context);
  expect(mocks.worker).not.toHaveBeenCalled();expect((await response.json()).warnings[0]).toContain('contact research is still running');
 });
+
+it("queues people retrieval separately from paid phone lookup", async () => {
+  mocks.queueRun.mockResolvedValue({ id: runId, targetId, status: "queued", trigger: "people" });
+  const response = await POST(new Request(`http://localhost/api/mandates/${mandateId}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "load-people", targetIds: [targetId], requestId }),
+  }), context);
+  expect(response.status).toBe(202);
+  expect(mocks.queueRun).toHaveBeenCalledWith(expect.objectContaining({trigger:"people",requestKey:`${requestId}:${targetId}`}));
+  expect(mocks.worker).toHaveBeenCalledWith(`/firmable/${runId}`, "POST", {mandateId}, 4000);
+});
+it("follows existing discovery instead of dispatching a duplicate workflow", async () => {
+  mocks.queueRun.mockResolvedValue({id:runId,targetId,status:"running",trigger:"discovery"});
+  const response = await POST(new Request(`http://localhost/api/mandates/${mandateId}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "load-people", targetIds: [targetId], requestId }),
+  }), context);
+  expect(mocks.worker).not.toHaveBeenCalled();
+  expect(await response.json()).toMatchObject({refresh:{runs:[{id:runId,status:"running"}]}});
+});
+it("rejects people retrieval for companies outside the mandate", async () => {
+  mocks.memberships.mockResolvedValue([]);
+  const response = await POST(new Request(`http://localhost/api/mandates/${mandateId}`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "load-people", targetIds: [targetId], requestId }),
+  }), context);
+  expect(response.status).toBe(404);
+  expect(mocks.queueRun).not.toHaveBeenCalled();
+});

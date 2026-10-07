@@ -1,12 +1,20 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ getSession: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: mocks.getSession } } }));
 import { GET, POST } from "./route";
+afterEach(() => vi.unstubAllEnvs());
 beforeEach(() => {
   vi.restoreAllMocks();
   mocks.getSession.mockResolvedValue({ user: { id: "owner" }, session: { activeOrganizationId: "org" } });
   process.env.LINKEDIN_SERVICE_URL = "http://localhost:18096";
   process.env.LINKEDIN_SERVICE_SECRET = "private-service-secret";
+});
+it("proxies browser controls from the public origin behind a container proxy", async () => {
+  vi.stubEnv("APP_URL", "https://acquire.mlai.au");
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ status: "connected" }));
+  const response = await POST(new Request("http://0.0.0.0:3000/api/channels/linkedin", { method: "POST", headers: { origin: "https://acquire.mlai.au" }, body: "{}" }));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ status: "connected" });
 });
 it("requires authenticated ownership and rejects foreign origins", async () => {
   mocks.getSession.mockResolvedValueOnce(null);

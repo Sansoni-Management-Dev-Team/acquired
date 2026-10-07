@@ -17,7 +17,7 @@ async def operate(service, owner, body):
     worker = service.workers.get(owner)
     if not worker or await worker.status() != 'connected':
         raise HTTPException(409, 'Resume and sign in to LinkedIn before running this sequence')
-    if not worker.fixture and os.getenv('LINKEDIN_ALLOW_CAMPAIGNS') != 'true':
+    if operation != 'status' and not worker.fixture and os.getenv('LINKEDIN_ALLOW_CAMPAIGNS') != 'true':
         raise HTTPException(403, 'LinkedIn campaign delivery has not been enabled on this service')
     data = service.VAULT.load(owner)
     now = time.time()

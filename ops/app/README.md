@@ -1,0 +1,110 @@
+# Dedicated DigitalOcean app host
+
+This deployment runs alongside the existing Vercel configuration. It does not
+apply database migrations or configure external schedulers, DNS or OAuth.
+See [the deployment and cutover plan](../../docs/37-digitalocean-app-deployment-plan.md)
+for the remaining integration gates.
+
+## Build and deploy
+
+Build off-server. Docker must support `linux/amd64`; the image uses Node
+22.23.1 and pnpm 11.8.0. Only the manufacturing index is included from local
+data. Production secrets are supplied at runtime, never as build arguments.
+
+```sh
+node scripts/app-image-build.mjs https://acquire.mlai.au acquire-app:<release-tag>
+node scripts/app-environment.mjs /restricted/runtime.json /restricted/runtime.env
+node scripts/app-deploy.mjs acquire-app:<release-tag> /restricted/runtime.env
+```
+
+The hostname above was approved and is now active. Both runtime URL
+variables must match the image's exact origin. Environment values use Compose's
+raw format, without shell quoting; the serializer encodes the database PEM
+certificate as `DATABASE_SSL_CA_BASE64`. Existing auth and encryption keys must
+be preserved. Keep actual environment files and deployment records out of Git.
+
+The deploy command targets only the pinned host recorded in
+`.local-data/app/digitalocean-deployment.json`, checks the SSH host key, transfers
+the image and restricted environment, and waits for container health and an
+authenticated database-readiness check. It stops the app on a failed first
+deployment or restores the previous image and environment after a failed update.
+Run one deployment at a time. This is a manual process; Git pushes do not deploy
+to DigitalOcean.
+
+Browser-origin checks and app-owned redirects must use the configured public
+`APP_URL`. Self-hosted Next.js request URLs can contain the container's internal
+listening address. Channel origin checks and Gmail/sign-in redirects use
+`src/lib/request-origin.ts`; do not replace these with request-URL or forwarded
+header comparisons. Check Gmail connect and failed callback redirects on the
+public host after releases, as well as signed-in channel connection controls.
+
+The container publishes only `127.0.0.1:18098`, uses a 1400 MiB memory limit,
+90-second shutdown grace, non-root user, bounded logs and a persistent cache.
+An app release rollback never restores or changes database data.
+
+## Initial private verification (historical)
+
+The initial deployment used `http://localhost:3014` and disabled research/n8n. It has been replaced by the public-origin image. The following tunnel procedure applies only if deliberately restoring that private image; it is not the active public login URL.
+Use a tunnel with matching local origin, after stopping any local app on 3014:
+
+```sh
+ssh -i .local-data/app/deploy_ed25519 \
+  -o UserKnownHostsFile=.local-data/app/known_hosts \
+  -o StrictHostKeyChecking=yes -o HostKeyAlgorithms=ssh-ed25519 \
+  -L 3014:127.0.0.1:18098 acquire@134.199.155.67
+```
+
+Visit `http://localhost:3014/sign-in`. This private instance uses the existing
+production database; user actions can change real data. OAuth is not ready for
+this private origin, and live provider/scheduler credentials are not installed.
+The public Caddy endpoint now serves the approved HTTPS hostname. Research and n8n are now enabled on the public deployment; both Google redirects passed registration checks. The private diagnostic environment remains disabled.
+
+## Server operations
+
+Use the same SSH key and pinned-host options for all server commands. On-host:
+
+```sh
+cd /opt/acquire-app/ops/app
+docker compose -f compose.hosted.yml ps
+docker stats --no-stream
+docker compose -f compose.hosted.yml logs --tail 100 app
+df -h /
+```
+
+Treat logs as potentially sensitive. Do not print environment files or run
+`docker inspect` in a shared transcript: it can display runtime secrets.
+Liveness is `/api/health`; readiness is `/api/health/ready` with the operator's
+bearer secret. The readiness secret is not a browser/public API credential.
+
+After a successful update, `releases/previous-image.env` and
+`releases/previous-runtime.env` hold the prior configuration. To restore it:
+
+```sh
+cp releases/previous-image.env .env
+cp releases/previous-runtime.env .env.hosted
+docker compose -f compose.hosted.yml up -d --wait --wait-timeout 120
+docker compose -f compose.hosted.yml exec -T app node -e "fetch('http://127.0.0.1:3000/api/health/ready',{headers:{Authorization:'Bearer '+process.env.APP_READINESS_SECRET}}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+```
+
+Do not prune the current or previous image. Review disk usage before removing
+older images. CPU/memory/disk alerts notify the verified DigitalOcean account email after 10 minutes above 90%/90%/85%; external uptime monitoring is pending. Droplet backups are currently off; Supabase recovery is separate.
+SSH firewall access is restricted to the recorded operator IP. If that changes,
+update the dedicated firewall through DigitalOcean before connecting, retaining
+the SSH host-key check. The deployment SSH key grants Docker/sudo administration;
+protect and back it up securely.
+
+## Public routing and Vercel fallback
+
+Caddy is installed with the approved `acquire.mlai.au` hostname and valid HTTPS. For replacement hosts, install the template `Caddyfile` after DNS readiness.
+Set `APP_DOMAIN` for the Caddy service or replace the template variable with the
+approved hostname. Validate before reload and verify real HTTPS, redirects,
+streaming, login and callbacks. Rebuild the image for the public origin first.
+
+The active runtime uses `RESEARCH_ENABLED=true`, `RESEARCH_PIPELINE_DESIGN=hybrid-firmable-v1`, `CAMPAIGN_N8N_ENABLED=true` and `CAMPAIGN_REPLY_MONITOR_MODE=observe`. Research Worker callbacks and the two original Acquire n8n workflows target `https://acquire.mlai.au`. The one-off `app-service-cutover.mjs` helper has completed; do not rerun it for routine releases. Keep external callback configuration aligned when restoring a different host.
+
+Vercel's Git repository is disconnected and `git.deploymentEnabled` is false.
+Its existing project and environment are retained. To return, first verify quota
+availability, deploy a compatible release deliberately, restore callback routing
+and ensure only one scheduler dispatches. Reconnect Git and remove/change the
+override only when automatic Vercel deployment is intended. A powered-off
+Droplet still incurs charges; deletion is a separate decision.

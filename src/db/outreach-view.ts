@@ -42,6 +42,7 @@ export async function loadOutreach(organizationId: string, mandateId: string, us
       id: target.id, companyName: sharedTarget?.companyName || target.companyName, domain: sharedTarget?.domain || target.domain || undefined, status: target.status, stage: membership?.assessment.stage,
       sector: sharedTarget?.sector.value || (typeof sector === "string" ? sector : undefined), description: sharedTarget?.sourceData?.firmable?.description || (typeof outreach.description === "string" ? outreach.description : undefined),
       establishedYear: sharedTarget?.establishedYear.value ?? (typeof established === "number" ? established : undefined), firmableId: sharedTarget?.sourceData?.firmable?.firmableId || (typeof identifiers.firmableId === "string" ? identifiers.firmableId : undefined),
+      availablePeopleCount: sharedTarget?.sourceData?.firmable?.availablePeopleCount,
       contacts: contactRows.filter((row) => row.targetId === target.id).map((row) => {
         const personal = row.personalData as Record<string, unknown>;
         const personId = row.firmablePersonId || (typeof personal.firmablePersonId === "string" ? personal.firmablePersonId : undefined);

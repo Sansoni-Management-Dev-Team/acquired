@@ -5,6 +5,7 @@ import { mailboxConnections } from "@/db/schema";
 import { encryptToken } from "@/lib/token-crypto";
 import { exchangeGoogleCode, fetchGoogleUserInfo, verifyGoogleState } from "@/lib/google-oauth";
 import { connectionCanMonitorReplies } from "@/lib/gmail-connection";
+import { appRedirectUrl } from "@/lib/request-origin";
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -25,9 +26,9 @@ export async function GET(request: Request) {
     const values = { organizationId: state.organizationId, userId: state.userId, provider: "gmail" as const, address: profile.email, encryptedRefreshToken: encryptToken(token.refresh_token), keyVersion: "v1", scopes, expiresAt: new Date(Date.now() + token.expires_in * 1000), reconnectRequired: false };
     if (existing[0]) await database.update(mailboxConnections).set(values).where(eq(mailboxConnections.id, existing[0].id));
     else await database.insert(mailboxConnections).values(values);
-    return NextResponse.redirect(new URL("/settings?gmail=connected", request.url));
+    return NextResponse.redirect(appRedirectUrl("/settings?gmail=connected", request));
   } catch (error) {
     const message = error instanceof Error ? error.message : "Gmail connection failed";
-    return NextResponse.redirect(new URL(`/settings?gmail=error&reason=${encodeURIComponent(message)}`, request.url));
+    return NextResponse.redirect(appRedirectUrl(`/settings?gmail=error&reason=${encodeURIComponent(message)}`, request));
   }
 }

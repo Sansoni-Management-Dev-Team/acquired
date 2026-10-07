@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { hasTrustedRequestOrigin } from "@/lib/request-origin";
 
 const reads = new Set(["connection", "inbox", "settings", "queue"]);
 const writes = new Set(["connection", "actions", "agent", "settings", "inbox"]);
@@ -8,7 +9,7 @@ async function proxy(request: Request) {
   const organizationId = session.session.activeOrganizationId;
   if (!organizationId) return Response.json({ error: "Choose an organisation" }, { status: 403 });
   const incoming = new URL(request.url);
-  if (request.method !== "GET" && request.headers.get("origin") !== incoming.origin) return Response.json({ error: "Invalid origin" }, { status: 403 });
+  if (request.method !== "GET" && !hasTrustedRequestOrigin(request)) return Response.json({ error: "Invalid origin" }, { status: 403 });
   const operation = incoming.searchParams.get("op") || "connection";
   if (!(request.method === "GET" ? reads : writes).has(operation) || (request.method === "DELETE" && operation !== "connection")) return Response.json({ error: "Invalid operation" }, { status: 400 });
   const base = process.env.LINKEDIN_SERVICE_URL;

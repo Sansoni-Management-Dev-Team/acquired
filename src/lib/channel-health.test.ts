@@ -41,3 +41,11 @@ it("handles Google permission failures and timeouts without exposing errors", as
   const result = await checkGmailHealth("refresh", "owner@example.com", timeout);
   expect(result.status).toBe("unavailable"); expect(result.message).not.toContain("private");
 });
+
+it.each(["browser_crashed", "browser_unresponsive", "browser_closed"])("reports %s LinkedIn browsers as needing recovery", async status => {
+  const fetcher = vi.fn().mockResolvedValueOnce(Response.json({ ok: true })).mockResolvedValueOnce(Response.json({ status }));
+  const result = await checkHostedHealth("linkedin", owner, fetcher);
+  expect(result.status).toBe("attention");
+  expect(result.message).toContain("Open the browser to recover");
+  expect(result.message).not.toContain("session is connected");
+});

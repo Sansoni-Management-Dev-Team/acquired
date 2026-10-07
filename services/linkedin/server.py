@@ -48,6 +48,7 @@ class Worker:
         self.touched = time.time()
         self.agent_busy = False
         self.viewer_count = 0
+        self.page_crashed = False
 
     async def start(self):
         display = f':{80 + self.slot}'
@@ -77,6 +78,7 @@ class Worker:
         self.context = await self.browser.new_context(storage_state=state, viewport={'width': 1280, 'height': 800})
         self.context.set_default_timeout(10000)
         self.page = await self.context.new_page()
+        self.page.on('crash', self.mark_page_crashed)
         session = await self.context.new_cdp_session(self.page)
         window = await session.send('Browser.getWindowForTarget')
         await session.send('Browser.setWindowBounds', {'windowId': window['windowId'], 'bounds': {'left': 0, 'top': 0, 'width': 1280, 'height': 900, 'windowState': 'normal'}})
@@ -114,15 +116,48 @@ class Worker:
         cookies = await asyncio.wait_for(self.context.cookies(self.origin), 5)
         return any(c['name'] == 'li_at' and c['value'] for c in cookies)
 
+    def mark_page_crashed(self, *_):
+        self.page_crashed = True
+
+    async def recover_page(self):
+        # Playwright rejects reload on a crashed target. A fresh tab in the
+        # same context preserves the current cookies without restoring a vault.
+        previous = self.page
+        target = previous.url
+        if urlparse(target).netloc != urlparse(self.origin).netloc:
+            target = self.origin + ('/fixture' if self.fixture else '/login')
+        page = await self.context.new_page()
+        try:
+            await page.goto(target, wait_until='domcontentloaded', timeout=40000)
+        except Exception:
+            await page.close()
+            raise
+        self.page = page
+        self.page_crashed = False
+        page.on('crash', self.mark_page_crashed)
+        with contextlib.suppress(Exception):
+            await previous.close()
+
     async def status(self):
-        if self.page.is_closed():
+        if not self.browser.is_connected() or self.page.is_closed():
             return 'browser_closed'
+        if self.page_crashed:
+            return 'browser_crashed'
+        try:
+            # A crashed renderer retains its URL and cookies. Check the page
+            # responds before treating those as a live session.
+            await asyncio.wait_for(self.page.evaluate('() => document.readyState'), 5)
+        except Exception:
+            return 'browser_crashed' if self.page_crashed else 'browser_unresponsive'
         if urlparse(self.page.url).netloc != urlparse(self.origin).netloc:
             return 'login_required'
         path = urlparse(self.page.url).path
         if any(s in path for s in ('checkpoint', 'challenge', 'login', 'authwall')):
             return 'login_required'
-        return 'connected' if await self.authenticated() else 'login_required'
+        try:
+            return 'connected' if await self.authenticated() else 'login_required'
+        except Exception:
+            return 'browser_unresponsive'
 
     async def snapshot(self):
         if await self.status() == 'connected':
@@ -435,6 +470,24 @@ async def connection(request: Request):
                     workers.pop(owner, None)
                 revoke(owner)
                 return {'status': 'paused', 'saved': bool(VAULT.load(owner).get('browserState'))}
+            if worker:
+                status = await worker.status()
+                if status in ('browser_crashed', 'browser_unresponsive'):
+                    # Preserve cookies from an unsaved login in the same context.
+                    try:
+                        await worker.recover_page()
+                    except Exception:
+                        # If the browser transport has failed too, a new tab
+                        # cannot help. Restart using the last encrypted session.
+                        await worker.close(save=False)
+                        workers.pop(owner, None)
+                        revoke(owner)
+                        worker = None
+                elif status == 'browser_closed':
+                    await worker.close(save=False)
+                    workers.pop(owner, None)
+                    revoke(owner)
+                    worker = None
             if not worker:
                 async with allocation:
                     used = {w.slot for w in workers.values()}

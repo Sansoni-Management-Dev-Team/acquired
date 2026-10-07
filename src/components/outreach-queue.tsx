@@ -16,7 +16,7 @@ type PreviewDraft = { step: number; subject: string; body: string; channels?: Pa
 const channelLabels: Record<OutreachChannel, string> = { email: "Email", linkedin: "LinkedIn", whatsapp: "WhatsApp" };
 export type OutreachTargetView = {
   id: string; companyName: string; domain?: string; status: string; stage?: string; sector?: string; description?: string;
-  establishedYear?: number; firmableId?: string; contacts: OutreachContactView[]; signals: Signal[]; drafts: OutreachDraftView[];
+  establishedYear?: number; availablePeopleCount?: number; firmableId?: string; contacts: OutreachContactView[]; signals: Signal[]; drafts: OutreachDraftView[];
 };
 
 export function OutreachQueue({ initialTargets, initialBuyerProfile, mandateId, initialTargetId, embedded = false, canCompose = false, showPeopleSearch = true, onRefresh, onDirtyChange }: { canCompose?: boolean; showPeopleSearch?: boolean; onDirtyChange?: (dirty: boolean) => void; embedded?: boolean; onRefresh?: () => void; mandateId: string; initialTargetId?: string; initialTargets: OutreachTargetView[]; initialBuyerProfile: BuyerProfile | null }) {

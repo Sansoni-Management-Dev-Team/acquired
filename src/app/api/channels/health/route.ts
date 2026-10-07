@@ -4,13 +4,14 @@ import { requireDb } from "@/db/client";
 import { mailboxConnections } from "@/db/schema";
 import { decryptToken } from "@/lib/token-crypto";
 import { checkGmailHealth, checkHostedHealth } from "@/lib/channel-health";
+import { hasTrustedRequestOrigin } from "@/lib/request-origin";
 
 export async function POST(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return Response.json({ error: "Sign in to test your connection" }, { status: 401 });
   const organizationId = session.session.activeOrganizationId;
   if (!organizationId) return Response.json({ error: "Choose an organisation" }, { status: 403 });
-  if (request.headers.get("origin") !== new URL(request.url).origin) return Response.json({ error: "Invalid origin" }, { status: 403 });
+  if (!hasTrustedRequestOrigin(request)) return Response.json({ error: "Invalid origin" }, { status: 403 });
   const provider = new URL(request.url).searchParams.get("provider");
   if (!["gmail", "linkedin", "whatsapp"].includes(provider || "")) return Response.json({ error: "Unknown channel" }, { status: 400 });
   const headers = { "Cache-Control": "no-store" };
