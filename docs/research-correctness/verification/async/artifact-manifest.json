@@ -1,0 +1,34 @@
+{
+  "workflows-final.log": {
+    "sha256": "92544e9a731d3c5d9eb9f4adb6072b980ae0df2a5ee528c6a5715c4e2df3eef3",
+    "bytes": 3696
+  },
+  "unit-final.log": {
+    "sha256": "90b90d5260cf183b7dd96f9bb7e0ae186797b45d083c6ca0bd4da779b14b45ca",
+    "bytes": 321
+  },
+  "worker-typecheck-final.log": {
+    "sha256": "564613c30e699967bb3ec2d8db30f2d248922cd3461edbac5d9e0d46c58a70c9",
+    "bytes": 52
+  },
+  "typecheck-final.log": {
+    "sha256": "1ca9deeed306a9edd46d59c078862ab40eb8d539a56c2111cb46d47a7d77e7c0",
+    "bytes": 67
+  },
+  "postgres-final.log": {
+    "sha256": "fae4c8e59310db1f2d3f32e7dcfca6b1daf2461627e00be5c1078693861b6070",
+    "bytes": 251
+  },
+  "lint-final.log": {
+    "sha256": "3a0955e6dd85fc56b850a1ffc9469a23d1f1f20c1ecd42d88a57b4555ed215d6",
+    "bytes": 342
+  },
+  "coordinator.log": {
+    "sha256": "1fceec2a1f87bd111d29e600024de86bebf775498a1a36222985619f7ca75ff6",
+    "bytes": 878
+  },
+  "python.log": {
+    "sha256": "9b0476c2658047331efa78ea0cee3374f1846136ba47c7a3be76d92caa293629",
+    "bytes": 112
+  }
+}

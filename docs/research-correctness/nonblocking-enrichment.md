@@ -53,3 +53,5 @@ The actual full-HTML homepage and official registry replay also exercises addres
 Private live responses and company completeness snapshots remain local because they contain provider payloads and contact data. Repeatable regression tests and sanitized execution evidence are retained in the repository. Production release does not apply a database migration.
 
 The final live local check runs through the actual Next application, Cloudflare Workflow runtime, Crawl4AI service and PostgreSQL. It acquired a footer/homepage email absent from provider data and an independently matched official registry contact. Both jobs settled partial because other fields remained unavailable or had failed reads; the completed parent run stayed complete throughout. The deployment image is built for the production host's Linux amd64 architecture.
+
+The final Worker suite passes 33 tests, the coordinator suite passes six tests, and the crawler Python suite passes 13 tests. [Sanitized current execution logs](verification/async/artifact-manifest.json) retain their checksums. Intentional callback-failure cases in the Worker logs are asserted negative tests.
