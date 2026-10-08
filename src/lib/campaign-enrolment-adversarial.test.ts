@@ -6,17 +6,20 @@ vi.mock("@/db/campaign-client", () => ({ rows: mock.rows, withCampaignDb: (_acto
 vi.mock("@/lib/gmail-connection", () => ({ connectionCanMonitorReplies: () => true }));
 vi.mock("@/lib/campaign-mailbox", () => ({ campaignTestSendAnytime: () => true, campaignMailboxForConnection: () => ({ hasConversation: mock.conversation }) }));
 vi.mock("@/lib/campaign-n8n", () => ({ n8nCampaignEnabled: () => true }));
-import { enrolContacts } from "./campaign-service";
+import { enrolContacts, createMandateContact } from "./campaign-service";
 const actor = { organizationId: "org", userId: "owner" }; const contactId = randomUUID(); const sequenceId = randomUUID();
+let recipientDetails: Record<string, unknown>;
 let failure: string | null, kind: "email" | "whatsapp" | "linkedin", existing: boolean, contacts: number;
 beforeEach(() => {
-  vi.resetAllMocks(); vi.stubEnv("CAMPAIGN_REPLY_MONITOR_MODE", "off"); failure = null; kind = "email"; existing = false; contacts = 0;
+  vi.resetAllMocks(); vi.stubEnv("CAMPAIGN_REPLY_MONITOR_MODE", "off"); failure = null; kind = "email"; existing = false; contacts = 0; recipientDetails = {};
   mock.query.mockResolvedValue({ rows: [], rowCount: 1 }); mock.conversation.mockImplementation(async () => existing);
   mock.rows.mockImplementation(async (_client, sql: string, values: unknown[]) => {
+    if (sql.startsWith("SELECT id FROM mandates")) return [{ id: "mandate" }];
+    if (sql.startsWith("INSERT INTO contacts")) return [{ id: contactId }];
     if (sql.startsWith("SELECT * FROM campaign_sequences")) return failure === "missing-sequence" ? [] : [{ id: sequenceId, mandate_id: "mandate", published_version: failure === "unpublished" ? 0 : 1 }];
     if (sql.includes("FROM campaign_sequence_versions")) return failure === "missing-version" ? [] : [{ id: "version", version: 1, n8n_workflow_id: failure === "unsynced" ? null : "workflow", definition: { schemaVersion: 1, steps: [{ id: randomUUID(), kind, title: "Intro", body: "Hi", ...(kind === "email" ? { subject: "Hello" } : {}) }] } }];
     if (sql.includes("FROM mailbox_connections")) return failure === "mailbox" ? [] : [{ id: "mailbox" }];
-    if (sql.includes("FROM contacts")) { contacts++; return failure === "foreign-contact" ? [] : [{ id: values[0], display_name: "Alex", fictionalised: failure === "fictionalised", personal_data: { email: failure === "bad-email" ? "not-an-email" : failure === "same-email" ? "SAME@example.test" : `${values[0]}@example.test`, doNotContact: failure === "do-not-contact" } }]; }
+    if (sql.includes("FROM contacts")) { contacts++; return failure === "foreign-contact" ? [] : [{ id: values[0], display_name: "Alex", fictionalised: failure === "fictionalised", personal_data: { email: failure === "bad-email" ? "not-an-email" : failure === "same-email" ? "SAME@example.test" : `${values[0]}@example.test`, doNotContact: failure === "do-not-contact", ...recipientDetails } }]; }
     if (sql.includes("FROM suppressions")) return failure === "suppression" ? [{ reason: "suppressed" }] : [];
     if (sql.includes("FROM campaign_contact_holds")) return failure === "hold" ? [{ reason: "reply_received" }] : [];
     if (sql.includes("FROM campaign_enrolments") && sql.startsWith("SELECT id")) return failure === "running" ? [{ id: "already-enrolled" }] : [];
@@ -37,3 +40,23 @@ it("rejects different contacts sharing one normalized email", async () => { fail
 it("does not steal an assignment from another sender", async () => { failure = "other-sender"; await expect(enrolContacts(actor, sequenceId, [contactId])).rejects.toThrow("another sender"); expect(mock.rows.mock.calls.some(([,sql]) => sql.startsWith("INSERT INTO campaign_enrolments"))).toBe(false); });
 it("holds prior conversations instead of scheduling the first send", async () => { existing = true; const result = await enrolContacts(actor, sequenceId, [contactId]); expect(result[0]).toMatchObject({ state: "needs_review", nextStepAt: null }); const params = mock.rows.mock.calls.find(([,sql]) => sql.startsWith("INSERT INTO campaign_enrolments"))![2]; expect(params[9]).toBe("existing_conversation"); });
 it("provider preflight failure cannot create a partially checked batch", async () => { mock.conversation.mockRejectedValue(new Error("history unavailable")); await expect(enrolContacts(actor, sequenceId, [contactId, randomUUID()])).rejects.toThrow("history unavailable"); expect(mock.query).not.toHaveBeenCalled(); });
+
+it("subscribes a LinkedIn-only contact without email, name, company or Gmail", async () => {
+  kind = "linkedin"; failure = "mailbox"; recipientDetails = { email: null, linkedinUrl: "https://au.linkedin.com/in/alex/?tracking=1" };
+  expect(await enrolContacts(actor, sequenceId, [contactId])).toHaveLength(1);
+  expect(mock.conversation).not.toHaveBeenCalled();
+  expect(mock.rows.mock.calls.some(([,sql]) => sql.includes("FROM mailbox_connections"))).toBe(false);
+  const values = mock.rows.mock.calls.find(([,sql]) => sql.startsWith("INSERT INTO campaign_enrolments"))![2];
+  expect(values[6]).toBeNull(); expect(values[7]).toBeNull(); expect(values[15]).toBe("https://www.linkedin.com/in/alex");
+});
+it("rejects duplicate LinkedIn profiles across host, query and trailing-slash variants", async () => {
+  kind = "linkedin"; recipientDetails = { email: null, linkedinUrl: "https://www.linkedin.com/in/alex/" };
+  await expect(enrolContacts(actor, sequenceId, [contactId, randomUUID()])).rejects.toThrow("same LinkedIn profile");
+  expect(mock.rows.mock.calls.some(([,sql]) => sql.startsWith("INSERT INTO campaign_enrolments"))).toBe(false);
+});
+it("creates a person with no personal fields and a direct mandate link", async () => {
+  expect(await createMandateContact(actor, "mandate", {})).toEqual({ id: contactId });
+  const values = mock.rows.mock.calls.find(([,sql]) => sql.startsWith("INSERT INTO contacts"))![2];
+  expect(values.slice(0,4)).toEqual(["org", "mandate", "", null]);
+  expect(JSON.parse(values[4])).toMatchObject({ email: null, linkedinUrl: null, phone: null, companyName: null });
+});

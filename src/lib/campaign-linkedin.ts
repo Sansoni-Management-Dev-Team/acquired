@@ -1,4 +1,5 @@
 import "server-only";
+import { contactLinkedin } from "@/domain/contact-record";
 import { z } from "zod";
 import type { CampaignActor } from "@/db/campaign-client";
 
@@ -16,11 +17,9 @@ export async function campaignLinkedinAccountStatus(actor: CampaignActor) {
   return result.status;
 }
 export function linkedinProfileFor(data: Record<string, unknown>) {
-  const value = data.linkedinUrl || data.linkedin || data.linkedin_url;
-  if (typeof value !== "string") throw new Error("Contact needs a LinkedIn profile before enrolment");
-  const url = new URL(value);
-  if (url.protocol !== "https:" || !/(^|\.)linkedin\.com$/.test(url.hostname) || !/^\/in\/[^/]+\/?$/.test(url.pathname)) throw new Error("Contact needs a valid LinkedIn profile URL");
-  return url.toString();
+  const profile = contactLinkedin(data.linkedinUrl || data.linkedin || data.linkedin_url);
+  if (!profile) throw new Error("Contact needs a valid LinkedIn profile URL before enrolment");
+  return profile;
 }
 const resultSchema = z.object({
   recipient: z.string().nullable().optional(),

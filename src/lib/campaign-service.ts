@@ -3,7 +3,8 @@ import { gmailConnectionStatus } from "@/domain/gmail-connection";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { rows, withCampaignDb, withCampaignWorker, type CampaignActor } from "@/db/campaign-client";
-import { hasOutreachDetails } from "@/domain/outreach-contact";
+import { outreachEmail } from "@/domain/outreach-contact";
+import { campaignChannels, contactLinkedin, contactPhone, missingCampaignDetails, type CreateContactRequest } from "@/domain/contact-record";
 import { campaignDefinition, campaignFirstStepIndex, campaignStepEntries, campaignSendWindowOpen, nextAllowedCampaignSend, nextCampaignStepAfter, acceptancePath, campaignStepLabel, normalizeEmail, renderCampaignTemplate, type CampaignDefinition } from "@/domain/campaign";
 import { connectionCanMonitorReplies } from "@/lib/gmail-connection";
 import { campaignMailboxForConnection, campaignTestSendAnytime } from "@/lib/campaign-mailbox";
@@ -17,8 +18,8 @@ import { monitorFresh, type ReplyChannel } from "@/domain/campaign-replies";
 
 type SequenceRow = { id: string; organization_id: string; owner_user_id: string; mandate_id: string; name: string; draft: unknown; published_definition?: unknown; n8n_workflow_id?: string | null; published_version: number; updated_at: Date };
 type VersionRow = { id: string; sequence_id: string; version: number; definition: unknown; n8n_workflow_id: string | null };
-type EnrolmentRow = { id: string; organization_id: string; owner_user_id: string; sequence_id: string; version_id: string; mandate_id: string; contact_id: string; mailbox_connection_id: string; recipient_email: string; state: string; stop_reason: string | null; initial_conversation_reviewed: boolean; step_index: number; next_step_at: Date | null; started_at: Date; last_reply_checked_at: Date | null; runtime: "legacy" | "n8n"; n8n_started_at: Date | null };
-type ContactRow = { id: string; target_id: string; display_name: string; company_name: string; personal_data: unknown; fictionalised: boolean };
+type EnrolmentRow = { id: string; organization_id: string; owner_user_id: string; sequence_id: string; version_id: string; mandate_id: string; contact_id: string; mailbox_connection_id: string | null; recipient_email: string | null; recipient_phone?: string | null; recipient_linkedin?: string | null; state: string; stop_reason: string | null; initial_conversation_reviewed: boolean; step_index: number; next_step_at: Date | null; started_at: Date; last_reply_checked_at: Date | null; runtime: "legacy" | "n8n"; n8n_started_at: Date | null };
+type ContactRow = { id: string; target_id: string | null; display_name: string; role?: string | null; company_name: string; personal_data: unknown; fictionalised: boolean };
 type MailboxRow = { id: string; organization_id: string; user_id: string; address: string | null; encrypted_refresh_token: string | null; reconnect_required: boolean; scopes: string[] | null; daily_cap: number };
 
 export class CampaignError extends Error {
@@ -28,14 +29,28 @@ export class CampaignError extends Error {
 function parseDefinition(value: unknown): CampaignDefinition { return campaignDefinition.parse(value); }
 function personalData(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function requiredReplyChannels(definition: CampaignDefinition): ReplyChannel[] {
-  return [...new Set<ReplyChannel>(["email", ...campaignStepEntries(definition).flatMap(({ step }) => step.kind === "whatsapp" || step.kind === "linkedin" ? [step.kind] : [])])];
+  return campaignChannels(definition);
 }
-function emailForContact(contact: ContactRow) {
-  const value = personalData(contact.personal_data).email;
-  const parsed = z.email().safeParse(value);
-  if (!parsed.success) throw new CampaignError(`${contact.display_name} needs an email address before enrolment`);
-  return normalizeEmail(parsed.data);
+function emailForContact(contact: ContactRow) { return outreachEmail(personalData(contact.personal_data).email); }
+function contactLabel(contact: ContactRow) { return contact.display_name || "Unnamed person"; }
+function contactRecipients(contact: ContactRow, definition: CampaignDefinition) {
+  const data = personalData(contact.personal_data);
+  const missing = missingCampaignDetails(definition, { ...data, linkedinUrl: data.linkedinUrl || data.linkedin || data.linkedin_url });
+  if (missing.length) throw new CampaignError(`${contactLabel(contact)} needs ${missing.join(" and ")} before enrolment`);
+  const channels = campaignChannels(definition);
+  return { email: emailForContact(contact), phone: channels.includes("whatsapp") ? contactPhone(data.phone) : null, linkedin: channels.includes("linkedin") ? contactLinkedin(data.linkedinUrl || data.linkedin || data.linkedin_url) : null };
 }
+function assertContactUnchanged(contact: ContactRow | undefined, enrolment: EnrolmentRow, definition: CampaignDefinition) {
+  if (!contact || contact.fictionalised || personalData(contact.personal_data).doNotContact === true) throw new CampaignError("Contact changed; send held for review");
+  const recipients = contactRecipients(contact, definition);
+  if (recipients.email !== enrolment.recipient_email || (enrolment.recipient_phone != null && recipients.phone !== enrolment.recipient_phone) || (enrolment.recipient_linkedin != null && recipients.linkedin !== enrolment.recipient_linkedin)) throw new CampaignError("Contact changed; send held for review");
+}
+
+// Company-linked contacts remain shared across mandates. Manually added people
+// can belong directly to a mandate without inventing a company record.
+const contactColumns = "c.id, c.target_id, c.display_name, c.role, c.personal_data, c.fictionalised, COALESCE(t.company_name, c.personal_data->>'companyName', '') AS company_name";
+const contactJoin = "FROM contacts c LEFT JOIN targets t ON t.id = c.target_id AND t.organization_id = c.organization_id";
+const contactMandate = "(c.mandate_id = $3 OR EXISTS (SELECT 1 FROM mandate_targets mt WHERE mt.target_id = c.target_id AND mt.organization_id = c.organization_id AND mt.mandate_id = $3))";
 
 function nextSendAt(input: Date) { return campaignTestSendAnytime() ? input : nextAllowedCampaignSend(input); }
 function sendWindowOpen(input: Date) { return campaignTestSendAnytime() || campaignSendWindowOpen(input); }
@@ -54,13 +69,14 @@ async function ownMailbox(client: PoolClient, actor: CampaignActor) {
 }
 
 async function contactInMandate(client: PoolClient, actor: CampaignActor, mandateId: string, contactId: string) {
-  const [contact] = await rows<ContactRow>(client, `SELECT c.id, c.display_name, c.personal_data, c.fictionalised, t.company_name FROM contacts c JOIN targets t ON t.id = c.target_id JOIN mandate_targets mt ON mt.target_id = t.id AND mt.organization_id = c.organization_id WHERE c.id = $1 AND c.organization_id = $2 AND mt.mandate_id = $3`, [contactId, actor.organizationId, mandateId]);
+  const [contact] = await rows<ContactRow>(client, `SELECT ${contactColumns} ${contactJoin} WHERE c.id = $1 AND c.organization_id = $2 AND ${contactMandate}`, [contactId, actor.organizationId, mandateId]);
   if (!contact || contact.fictionalised) throw new CampaignError("Contact is not a real person in this mandate");
   if (personalData(contact.personal_data).doNotContact === true) throw new CampaignError(`${contact.display_name} is marked do not contact`);
   return contact;
 }
 
-async function assertContactAllowed(client: PoolClient, actor: CampaignActor, email: string) {
+async function assertContactAllowed(client: PoolClient, actor: CampaignActor, email: string | null) {
+  if (!email) return;
   const [hold] = await rows<{ reason: string }>(client, "SELECT reason FROM campaign_contact_holds WHERE organization_id = $1 AND email = $2 LIMIT 1", [actor.organizationId, email]);
   if (hold) throw new CampaignError(`Contact is held: ${hold.reason}`);
   const domain = email.split("@")[1];
@@ -73,7 +89,7 @@ export async function listCampaignStudio(actor: CampaignActor, mandateId: string
     const [sequences, enrolments, contactRows, mailbox] = await Promise.all([
       rows<SequenceRow>(client, "SELECT s.*, (SELECT v.definition FROM campaign_sequence_versions v WHERE v.sequence_id = s.id AND v.version = s.published_version) AS published_definition, (SELECT v.n8n_workflow_id FROM campaign_sequence_versions v WHERE v.sequence_id = s.id AND v.version = s.published_version) AS n8n_workflow_id FROM campaign_sequences s WHERE s.organization_id = $1 AND s.owner_user_id = $2 AND s.mandate_id = $3 ORDER BY s.updated_at DESC", [actor.organizationId, actor.userId, mandateId]),
       rows<EnrolmentRow & { sequence_name: string; version: number; version_definition: unknown; last_sent_at: Date | null }>(client, "SELECT e.*, s.name AS sequence_name, v.version, v.definition AS version_definition, (SELECT max(a.sent_at) FROM campaign_send_attempts a WHERE a.enrolment_id = e.id AND a.state = 'sent') AS last_sent_at FROM campaign_enrolments e JOIN campaign_sequences s ON s.id = e.sequence_id JOIN campaign_sequence_versions v ON v.id = e.version_id WHERE e.organization_id = $1 AND e.owner_user_id = $2 AND e.mandate_id = $3 ORDER BY e.started_at DESC", [actor.organizationId, actor.userId, mandateId]),
-      rows<ContactRow>(client, "SELECT c.id, c.target_id, c.display_name, c.personal_data, c.fictionalised, t.company_name FROM contacts c JOIN targets t ON t.id = c.target_id JOIN mandate_targets mt ON mt.target_id = t.id AND mt.organization_id = c.organization_id WHERE c.organization_id = $1 AND mt.mandate_id = $2 ORDER BY t.company_name, c.display_name", [actor.organizationId, mandateId]),
+      rows<ContactRow>(client, `SELECT ${contactColumns} ${contactJoin} WHERE c.organization_id = $1 AND (c.mandate_id = $2 OR EXISTS (SELECT 1 FROM mandate_targets mt WHERE mt.target_id = c.target_id AND mt.organization_id = c.organization_id AND mt.mandate_id = $2)) ORDER BY company_name, c.display_name`, [actor.organizationId, mandateId]),
       rows<MailboxRow>(client, "SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE organization_id = $1 AND user_id = $2 AND provider = 'gmail'", [actor.organizationId, actor.userId]),
     ]);
     const [activity, attempts] = await Promise.all([
@@ -96,7 +112,7 @@ export async function listCampaignStudio(actor: CampaignActor, mandateId: string
           startedAt: row.started_at.toISOString(), lastSentAt: row.last_sent_at?.toISOString() || null,
           activity: events.map(event => ({ action: event.action, at: event.created_at.toISOString() })),
           run: {
-            id: row.id, label: contactRows.find(contact => contact.id === row.contact_id)?.display_name || row.recipient_email,
+            id: row.id, label: contactRows.find(contact => contact.id === row.contact_id)?.display_name || row.recipient_email || "Unnamed person",
             version: row.version, definition, state: row.state, stopReason: row.stop_reason, stepIndex: row.step_index, nextStepAt,
             branchDecisions: Object.fromEntries(events.filter(event => event.action === "campaign.branch_decided" && event.metadata?.splitId && event.metadata?.path).map(event => [event.metadata!.splitId!, event.metadata!.path!])),
             retryStepIndex: events.find(event => event.action === "campaign.retry_scheduled")?.metadata?.stepIndex ?? null,
@@ -104,13 +120,24 @@ export async function listCampaignStudio(actor: CampaignActor, mandateId: string
           },
         };
       }),
-      contacts: contactRows.map(row => ({ id: row.id, targetId: row.target_id, name: row.display_name, company: row.company_name, email: z.email().safeParse(personalData(row.personal_data).email).success ? normalizeEmail(String(personalData(row.personal_data).email)) : null, phone: typeof personalData(row.personal_data).phone === "string" ? String(personalData(row.personal_data).phone).trim() || null : null, fictionalised: row.fictionalised, doNotContact: personalData(row.personal_data).doNotContact === true })),
+      contacts: contactRows.map(row => ({ id: row.id, targetId: row.target_id, name: row.display_name, role: row.role || undefined, linkedinUrl: contactLinkedin(personalData(row.personal_data).linkedinUrl || personalData(row.personal_data).linkedin || personalData(row.personal_data).linkedin_url), company: row.company_name, email: z.email().safeParse(personalData(row.personal_data).email).success ? normalizeEmail(String(personalData(row.personal_data).email)) : null, phone: typeof personalData(row.personal_data).phone === "string" ? String(personalData(row.personal_data).phone).trim() || null : null, fictionalised: row.fictionalised, doNotContact: personalData(row.personal_data).doNotContact === true })),
       mailbox: mailbox[0] ? { status: gmailConnectionStatus({ hasRefreshToken: Boolean(mailbox[0].encrypted_refresh_token), reconnectRequired: mailbox[0].reconnect_required, scopes: mailbox[0].scopes }), address: mailbox[0].address, ready: connectionCanMonitorReplies({ encryptedRefreshToken: mailbox[0].encrypted_refresh_token, reconnectRequired: mailbox[0].reconnect_required, scopes: mailbox[0].scopes }), dailyCap: mailbox[0].daily_cap } : null,
     };
   });
   const mode = replyMonitorMode();
   const monitors = mode === "off" ? [] : await withCampaignDb(actor, client => rows<{ channel: ReplyChannel; last_success_at: Date | null; last_error: string | null }>(client, "SELECT channel,last_success_at,last_error FROM campaign_reply_monitors WHERE organization_id = $1 AND owner_user_id = $2 ORDER BY channel", [actor.organizationId, actor.userId]));
-  return { ...studio, replyMonitoring: { mode, monitors: monitors.map(item => ({ channel: item.channel, lastSuccessAt: item.last_success_at?.toISOString() || null, error: item.last_error, healthy: monitorFresh({ lastSuccessAt: item.last_success_at, lastError: item.last_error }) })) }, n8nUrl: process.env.CAMPAIGN_N8N_URL?.replace(/\/$/, "") || null, contacts: studio.contacts.filter(hasOutreachDetails) };
+  return { ...studio, replyMonitoring: { mode, monitors: monitors.map(item => ({ channel: item.channel, lastSuccessAt: item.last_success_at?.toISOString() || null, error: item.last_error, healthy: monitorFresh({ lastSuccessAt: item.last_success_at, lastError: item.last_error }) })) }, n8nUrl: process.env.CAMPAIGN_N8N_URL?.replace(/\/$/, "") || null };
+}
+
+export async function createMandateContact(actor: CampaignActor, mandateId: string, input: CreateContactRequest) {
+  return withCampaignDb(actor, async client => {
+    const [mandate] = await rows(client, "SELECT id FROM mandates WHERE id = $1 AND organization_id = $2", [mandateId, actor.organizationId]);
+    if (!mandate) throw new CampaignError("Mandate not found", 404);
+    const data = { email: outreachEmail(input.email), linkedinUrl: contactLinkedin(input.linkedinUrl), phone: input.phone || null, companyName: input.company || null, jobTitle: input.jobTitle || null, doNotContact: false };
+    const [contact] = await rows<{ id: string }>(client, `INSERT INTO contacts (organization_id, mandate_id, display_name, role, personal_data, provenance, fictionalised) VALUES ($1,$2,$3,$4,$5,$6,false) RETURNING id`, [actor.organizationId, mandateId, input.fullName || "", input.jobTitle || null, JSON.stringify(data), JSON.stringify({ source: "Manual entry", capturedAt: new Date().toISOString(), createdBy: actor.userId })]);
+    await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,'contact.created','contact',$3,$4)", [actor.organizationId, actor.userId, contact.id, JSON.stringify({ mandateId, source: "Manual entry" })]);
+    return contact;
+  });
 }
 
 export async function createCampaign(actor: CampaignActor, mandateId: string, name: string, definition: CampaignDefinition) {
@@ -161,47 +188,49 @@ export async function enrolContacts(actor: CampaignActor, sequenceId: string, co
     if (!version) throw new CampaignError("Published version is missing");
     if (n8nCampaignEnabled() && !version.n8n_workflow_id) throw new CampaignError("This published version must be synced to n8n before new contacts can be added");
     const definition = parseDefinition(version.definition);
-    const mailbox = await ownMailbox(client, actor);
-    const contacts = [] as { contact: ContactRow; email: string }[];
-    const seenEmails = new Set<string>();
+    const mailbox = campaignChannels(definition).includes("email") ? await ownMailbox(client, actor) : null;
+    const contacts = [] as { contact: ContactRow; email: string | null; phone: string | null; linkedin: string | null }[];
+    const seen = new Set<string>();
     for (const id of uniqueIds) {
       const contact = await contactInMandate(client, actor, sequence.mandate_id, id);
-      const email = emailForContact(contact);
+      const recipients = contactRecipients(contact, definition);
       await assertNoReplyHold(client, actor, contact.id);
-      if (campaignStepEntries(definition).some(({ step }) => step.kind === "whatsapp")) whatsappRecipientFor(personalData(contact.personal_data));
-      if (campaignStepEntries(definition).some(({ step }) => step.kind === "linkedin")) linkedinProfileFor(personalData(contact.personal_data));
-      if (seenEmails.has(email)) throw new CampaignError("Selected contacts contain the same email address more than once");
-      seenEmails.add(email);
-      await assertContactAllowed(client, actor, email);
-      const [running] = await rows<{ id: string }>(client, "SELECT id FROM campaign_enrolments WHERE organization_id = $1 AND recipient_email = $2 AND state IN ('active', 'paused', 'needs_review') LIMIT 1", [actor.organizationId, email]);
-      if (running) throw new CampaignError(`${contact.display_name} already has active outreach`);
-      contacts.push({ contact, email });
+      for (const [channel, value] of Object.entries(recipients)) {
+        if (!value) continue;
+        const key = `${channel}:${value}`;
+        if (seen.has(key)) throw new CampaignError(`Selected contacts contain the same ${channel === "linkedin" ? "LinkedIn profile" : channel} more than once`);
+        seen.add(key);
+      }
+      await assertContactAllowed(client, actor, recipients.email);
+      const [running] = await rows<{ id: string }>(client, "SELECT id FROM campaign_enrolments WHERE organization_id = $1 AND (contact_id = $2 OR recipient_email = $3 OR recipient_phone = $4 OR recipient_linkedin = $5) AND state IN ('active', 'paused', 'needs_review') LIMIT 1", [actor.organizationId, contact.id, recipients.email, recipients.phone, recipients.linkedin]);
+      if (running) throw new CampaignError(`${contactLabel(contact)} already has active outreach`);
+      contacts.push({ contact, ...recipients });
     }
     return { sequence, version, definition, mailbox, contacts };
   });
   if (campaignStepEntries(prepared.definition).some(({ step }) => step.kind === "whatsapp")) await assertCampaignWhatsappConnected(actor);
   // A prior conversation is checked before enrolment, then checked again at send.
-  const gmail = campaignMailboxForConnection({ encryptedRefreshToken: prepared.mailbox.encrypted_refresh_token, reconnectRequired: prepared.mailbox.reconnect_required, scopes: prepared.mailbox.scopes }, prepared.mailbox.id);
-  const conversationChecks: { email: string; existing: boolean }[] = [];
+  const gmail = prepared.mailbox ? campaignMailboxForConnection({ encryptedRefreshToken: prepared.mailbox.encrypted_refresh_token, reconnectRequired: prepared.mailbox.reconnect_required, scopes: prepared.mailbox.scopes }, prepared.mailbox.id) : null;
+  const conversationChecks: { email: string | null; existing: boolean }[] = [];
   for (let offset = 0; offset < prepared.contacts.length; offset += 3) {
-    conversationChecks.push(...await Promise.all(prepared.contacts.slice(offset, offset + 3).map(async ({ email }) => ({ email, existing: await gmail.hasConversation(email) }))));
+    conversationChecks.push(...await Promise.all(prepared.contacts.slice(offset, offset + 3).map(async ({ email }) => ({ email, existing: gmail && email ? await gmail.hasConversation(email) : false }))));
   }
   const enrolled = await withCampaignDb(actor, async client => {
     const results = [] as { id: string; contactId: string; state: string; nextStepAt: Date | null; firstAction: string }[];
-    for (const { contact, email } of prepared.contacts) {
+    for (const { contact, email, phone, linkedin } of prepared.contacts) {
       await assertNoReplyHold(client, actor, contact.id);
       await assertContactAllowed(client, actor, email);
-      const [running] = await rows<{ id: string }>(client, "SELECT id FROM campaign_enrolments WHERE organization_id = $1 AND recipient_email = $2 AND state IN ('active', 'paused', 'needs_review') LIMIT 1", [actor.organizationId, email]);
+      const [running] = await rows<{ id: string }>(client, "SELECT id FROM campaign_enrolments WHERE organization_id = $1 AND (contact_id = $2 OR recipient_email = $3 OR recipient_phone = $4 OR recipient_linkedin = $5) AND state IN ('active', 'paused', 'needs_review') LIMIT 1", [actor.organizationId, contact.id, email, phone, linkedin]);
       if (running) throw new CampaignError(`${contact.display_name} already has active outreach`);
       await client.query("INSERT INTO campaign_contact_assignments (organization_id, contact_id, email, owner_user_id) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING", [actor.organizationId, contact.id, email, actor.userId]);
-      const [assignment] = await rows<{ id: string }>(client, "SELECT id FROM campaign_contact_assignments WHERE organization_id = $1 AND contact_id = $2 AND email = $3 AND owner_user_id = $4", [actor.organizationId, contact.id, email, actor.userId]);
+      const [assignment] = await rows<{ id: string }>(client, "SELECT id FROM campaign_contact_assignments WHERE organization_id = $1 AND contact_id = $2 AND email IS NOT DISTINCT FROM $3 AND owner_user_id = $4", [actor.organizationId, contact.id, email, actor.userId]);
       if (!assignment) throw new CampaignError(`${contact.display_name} is assigned to another sender`);
       const existing = conversationChecks.find(check => check.email === email)?.existing || false;
       const enrolmentId = randomUUID();
       const firstIndex = campaignFirstStepIndex(prepared.definition, enrolmentId);
       const firstStep = campaignStepEntries(prepared.definition)[firstIndex].step;
       const nextAt = existing ? null : nextSendAt(new Date());
-      const [enrolment] = await rows<EnrolmentRow>(client, `INSERT INTO campaign_enrolments (organization_id, owner_user_id, sequence_id, version_id, mandate_id, contact_id, mailbox_connection_id, recipient_email, state, stop_reason, next_step_at, runtime, id, step_index) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`, [actor.organizationId, actor.userId, sequenceId, prepared.version.id, prepared.sequence.mandate_id, contact.id, prepared.mailbox.id, email, existing ? "needs_review" : "active", existing ? "existing_conversation" : null, nextAt, n8nCampaignEnabled() ? "n8n" : "legacy", enrolmentId, firstIndex]);
+      const [enrolment] = await rows<EnrolmentRow>(client, `INSERT INTO campaign_enrolments (organization_id, owner_user_id, sequence_id, version_id, mandate_id, contact_id, mailbox_connection_id, recipient_email, state, stop_reason, next_step_at, runtime, id, step_index, recipient_phone, recipient_linkedin) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`, [actor.organizationId, actor.userId, sequenceId, prepared.version.id, prepared.sequence.mandate_id, contact.id, prepared.mailbox?.id || null, email, existing ? "needs_review" : "active", existing ? "existing_conversation" : null, nextAt, n8nCampaignEnabled() ? "n8n" : "legacy", enrolmentId, firstIndex, phone, linkedin]);
       await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,'campaign.subscribed','campaign_enrolment',$3,$4)", [actor.organizationId, actor.userId, enrolment.id, JSON.stringify({ sequenceId, version: prepared.version.version, contactId: contact.id, firstAction: firstStep.title, existingConversation: existing })]);
       results.push({ id: enrolment.id, contactId: contact.id, state: enrolment.state, nextStepAt: enrolment.next_step_at, firstAction: existing ? "Existing Gmail conversation found — review before sending" : `${campaignStepLabel(firstStep)}: ${firstStep.title}` });
     }
@@ -243,7 +272,7 @@ export async function changeEnrolment(actor: CampaignActor, enrolmentId: string,
 }
 
 async function stopForReply(actor: CampaignActor, enrolment: EnrolmentRow, providerEventId: string, receivedAt: Date, accountIdentity: string) {
-  if (replyMonitorMode() === "enforce") return ingestCampaignReply(actor, "email", accountIdentity, { id: providerEventId, fromIdentity: enrolment.recipient_email, receivedAt: receivedAt.toISOString() });
+  if (replyMonitorMode() === "enforce") return ingestCampaignReply(actor, "email", accountIdentity, { id: providerEventId, fromIdentity: enrolment.recipient_email!, receivedAt: receivedAt.toISOString() });
   return withCampaignWorker(async client => {
     const inserted = (await client.query(`INSERT INTO campaign_inbound_events (organization_id, owner_user_id, contact_id, channel, provider_event_id, from_identity, received_at) VALUES ($1,$2,$3,'email',$4,$5,$6) ON CONFLICT DO NOTHING`, [actor.organizationId, actor.userId, enrolment.contact_id, providerEventId, enrolment.recipient_email, receivedAt])).rowCount === 1;
     if (inserted) {
@@ -255,6 +284,7 @@ async function stopForReply(actor: CampaignActor, enrolment: EnrolmentRow, provi
 }
 
 async function checkReplies(actor: CampaignActor, enrolment: EnrolmentRow, mailbox: MailboxRow) {
+  if (!enrolment.recipient_email) throw new CampaignError("Email recipient is unavailable");
   const gmail = campaignMailboxForConnection({ encryptedRefreshToken: mailbox.encrypted_refresh_token, reconnectRequired: mailbox.reconnect_required, scopes: mailbox.scopes }, mailbox.id);
   const incoming = await gmail.inboundFrom(enrolment.recipient_email, enrolment.started_at);
   if (incoming.length) {
@@ -275,23 +305,29 @@ async function claimSend(actor: CampaignActor, enrolmentId: string, expectedInde
     }
     await assertContactAllowed(client, actor, enrolment.recipient_email);
     await assertNoReplyHold(client, actor, enrolment.contact_id);
-    const [mailbox] = await rows<MailboxRow>(client, "SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE id = $1 AND organization_id = $2 AND user_id = $3 AND provider = 'gmail'", [enrolment.mailbox_connection_id, actor.organizationId, actor.userId]);
-    if (!mailbox || !connectionCanMonitorReplies({ encryptedRefreshToken: mailbox.encrypted_refresh_token, reconnectRequired: mailbox.reconnect_required, scopes: mailbox.scopes })) throw new CampaignError("Sending mailbox needs reconnection");
-    const [contact] = await rows<ContactRow>(client, "SELECT c.id, c.display_name, c.personal_data, c.fictionalised, t.company_name FROM contacts c JOIN targets t ON t.id = c.target_id WHERE c.id = $1 AND c.organization_id = $2", [enrolment.contact_id, actor.organizationId]);
-    if (!contact || contact.fictionalised || personalData(contact.personal_data).doNotContact === true || emailForContact(contact) !== enrolment.recipient_email) throw new CampaignError("Contact changed; send held for review");
-    const [assignment] = await rows<{ id: string }>(client, "SELECT id FROM campaign_contact_assignments WHERE organization_id = $1 AND contact_id = $2 AND email = $3 AND owner_user_id = $4", [actor.organizationId, enrolment.contact_id, enrolment.recipient_email, actor.userId]);
+    const [version] = await rows<VersionRow>(client, "SELECT * FROM campaign_sequence_versions WHERE id = $1", [enrolment.version_id]);
+    if (!version) throw new CampaignError("Sequence version is unavailable");
+    const definition = parseDefinition(version.definition);
+    const step = campaignStepEntries(definition)[expectedIndex]?.step;
+    const [mailbox] = step?.kind === "email" ? await rows<MailboxRow>(client, "SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE id = $1 AND organization_id = $2 AND user_id = $3 AND provider = 'gmail'", [enrolment.mailbox_connection_id, actor.organizationId, actor.userId]) : [];
+    if (step?.kind === "email" && (!mailbox || !connectionCanMonitorReplies({ encryptedRefreshToken: mailbox.encrypted_refresh_token, reconnectRequired: mailbox.reconnect_required, scopes: mailbox.scopes }))) throw new CampaignError("Sending mailbox needs reconnection");
+    const [contact] = await rows<ContactRow>(client, `SELECT ${contactColumns} ${contactJoin} WHERE c.id = $1 AND c.organization_id = $2`, [enrolment.contact_id, actor.organizationId]);
+    assertContactUnchanged(contact, enrolment, definition);
+    const [assignment] = await rows<{ id: string }>(client, "SELECT id FROM campaign_contact_assignments WHERE organization_id = $1 AND contact_id = $2 AND email IS NOT DISTINCT FROM $3 AND owner_user_id = $4", [actor.organizationId, enrolment.contact_id, enrolment.recipient_email, actor.userId]);
     if (!assignment) throw new CampaignError("Contact is not assigned to this sender");
-    // Per-account lock makes the count and spacing safe across parallel workers.
-    await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [mailbox.id]);
-    const [count] = await rows<{ used: string }>(client, "SELECT count(*)::text AS used FROM campaign_send_attempts a JOIN campaign_enrolments e ON e.id = a.enrolment_id WHERE e.mailbox_connection_id = $1 AND a.state IN ('claimed','sent','unknown') AND a.claimed_at >= now() - interval '24 hours'", [mailbox.id]);
-    if (Number(count.used) >= mailbox.daily_cap) {
-      await client.query("UPDATE campaign_enrolments SET next_step_at = $2, updated_at = now() WHERE id = $1", [enrolment.id, nextSendAt(new Date(Date.now() + 60 * 60_000))]);
-      return null;
-    }
-    const [last] = await rows<{ claimed_at: Date }>(client, "SELECT a.claimed_at FROM campaign_send_attempts a JOIN campaign_enrolments e ON e.id = a.enrolment_id WHERE e.mailbox_connection_id = $1 AND a.state IN ('claimed','sent','unknown') ORDER BY a.claimed_at DESC LIMIT 1", [mailbox.id]);
-    if (last && Date.now() - last.claimed_at.getTime() < 60_000) {
-      await client.query("UPDATE campaign_enrolments SET next_step_at = $2, updated_at = now() WHERE id = $1", [enrolment.id, nextSendAt(new Date(last.claimed_at.getTime() + 60_000))]);
-      return null;
+    if (mailbox) {
+      // Per-account lock makes the count and spacing safe across parallel workers.
+      await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [mailbox.id]);
+      const [count] = await rows<{ used: string }>(client, "SELECT count(*)::text AS used FROM campaign_send_attempts a JOIN campaign_enrolments e ON e.id = a.enrolment_id WHERE e.mailbox_connection_id = $1 AND a.state IN ('claimed','sent','unknown') AND a.claimed_at >= now() - interval '24 hours'", [mailbox.id]);
+      if (Number(count.used) >= mailbox.daily_cap) {
+        await client.query("UPDATE campaign_enrolments SET next_step_at = $2, updated_at = now() WHERE id = $1", [enrolment.id, nextSendAt(new Date(Date.now() + 60 * 60_000))]);
+        return null;
+      }
+      const [last] = await rows<{ claimed_at: Date }>(client, "SELECT a.claimed_at FROM campaign_send_attempts a JOIN campaign_enrolments e ON e.id = a.enrolment_id WHERE e.mailbox_connection_id = $1 AND a.state IN ('claimed','sent','unknown') ORDER BY a.claimed_at DESC LIMIT 1", [mailbox.id]);
+      if (last && Date.now() - last.claimed_at.getTime() < 60_000) {
+        await client.query("UPDATE campaign_enrolments SET next_step_at = $2, updated_at = now() WHERE id = $1", [enrolment.id, nextSendAt(new Date(last.claimed_at.getTime() + 60_000))]);
+        return null;
+      }
     }
     const [existing] = await rows<{ id: string; state: string }>(client, "SELECT id, state FROM campaign_send_attempts WHERE enrolment_id = $1 AND step_index = $2", [enrolment.id, expectedIndex]);
     const messageId = `<${randomUUID()}@acquire.mlai.au>`;
@@ -303,8 +339,8 @@ async function claimSend(actor: CampaignActor, enrolmentId: string, expectedInde
   });
 }
 
-async function claimStillEligible(actor: CampaignActor, enrolment: EnrolmentRow, attemptId: string) {
-  try { await assertContactReplyFresh(actor, enrolment.contact_id); }
+async function claimStillEligible(actor: CampaignActor, enrolment: EnrolmentRow, attemptId: string, definition: CampaignDefinition) {
+  try { await assertContactReplyFresh(actor, enrolment.contact_id, campaignChannels(definition)); }
   catch (error) {
     await withCampaignDb(actor, client => client.query("UPDATE campaign_send_attempts SET state = 'cancelled', error = 'Reply monitoring changed before send' WHERE id = $1 AND state = 'claimed'", [attemptId]).then(() => undefined));
     throw error;
@@ -370,7 +406,7 @@ async function processLinkedinStep(actor: CampaignActor, enrolment: EnrolmentRow
   const text = renderCampaignTemplate(step.body, { displayName: contact.display_name, companyName: contact.company_name });
   if (text.length > (step.action === "connect" ? 200 : 4000)) throw new CampaignError("Personalised LinkedIn text exceeds the action's character limit");
   const claim = await claimSend(actor, enrolment.id, enrolment.step_index);
-  if (!claim || !await claimStillEligible(actor, enrolment, claim.attemptId)) return { outcome: "not_due" as const };
+  if (!claim || !await claimStillEligible(actor, enrolment, claim.attemptId, definition)) return { outcome: "not_due" as const };
   let sameProfile = false;
   try { sameProfile = linkedinProfileFor(personalData(claim.contact.personal_data)) === profile; } catch { /* Cancel invalid changed profiles as well. */ }
   if (!sameProfile) {
@@ -416,7 +452,7 @@ async function processWhatsappStep(actor: CampaignActor, enrolment: EnrolmentRow
   if (!text.trim() || text.length > 4000) throw new CampaignError("Personalised WhatsApp text must contain 1–4000 characters");
   await assertCampaignWhatsappConnected(actor);
   const claim = await claimSend(actor, enrolment.id, enrolment.step_index);
-  if (!claim || !await claimStillEligible(actor, enrolment, claim.attemptId)) return { outcome: "not_due" as const };
+  if (!claim || !await claimStillEligible(actor, enrolment, claim.attemptId, definition)) return { outcome: "not_due" as const };
   let sameRecipient = false;
   try { sameRecipient = whatsappRecipientFor(personalData(claim.contact.personal_data)) === recipient; } catch { /* Invalid changed phones must also cancel the unsent claim. */ }
   if (!sameRecipient) {
@@ -447,10 +483,12 @@ export async function processCampaignEnrolment(actor: CampaignActor, enrolmentId
     const [enrolment] = await rows<EnrolmentRow>(client, "SELECT * FROM campaign_enrolments WHERE id = $3 AND organization_id = $1 AND owner_user_id = $2", [actor.organizationId, actor.userId, enrolmentId]);
     if (!enrolment || enrolment.state !== "active" || !enrolment.next_step_at || enrolment.next_step_at > new Date()) return null;
     const [version] = await rows<VersionRow>(client, "SELECT * FROM campaign_sequence_versions WHERE id = $1", [enrolment.version_id]);
-    const [mailbox] = await rows<MailboxRow>(client, "SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE id = $1 AND organization_id = $2 AND user_id = $3 AND provider = 'gmail'", [enrolment.mailbox_connection_id, actor.organizationId, actor.userId]);
-    if (!version || !mailbox) throw new CampaignError("Sequence version or owner's mailbox is unavailable");
-    const [contact] = await rows<ContactRow>(client, "SELECT c.id, c.display_name, c.personal_data, c.fictionalised, t.company_name FROM contacts c JOIN targets t ON t.id = c.target_id WHERE c.id = $1 AND c.organization_id = $2", [enrolment.contact_id, actor.organizationId]);
-    if (!contact || contact.fictionalised || personalData(contact.personal_data).doNotContact === true || emailForContact(contact) !== enrolment.recipient_email) throw new CampaignError("Contact changed; send held for review");
+    if (!version) throw new CampaignError("Sequence version is unavailable");
+    const definition = parseDefinition(version.definition);
+    const [mailbox] = campaignChannels(definition).includes("email") ? await rows<MailboxRow>(client, "SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE id = $1 AND organization_id = $2 AND user_id = $3 AND provider = 'gmail'", [enrolment.mailbox_connection_id, actor.organizationId, actor.userId]) : [];
+    if (campaignChannels(definition).includes("email") && !mailbox) throw new CampaignError("Owner's mailbox is unavailable");
+    const [contact] = await rows<ContactRow>(client, `SELECT ${contactColumns} ${contactJoin} WHERE c.id = $1 AND c.organization_id = $2`, [enrolment.contact_id, actor.organizationId]);
+    assertContactUnchanged(contact, enrolment, definition);
     await assertContactAllowed(client, actor, enrolment.recipient_email);
     await assertNoReplyHold(client, actor, enrolment.contact_id);
     return { enrolment, version, mailbox, contact };
@@ -462,13 +500,13 @@ export async function processCampaignEnrolment(actor: CampaignActor, enrolmentId
     const [current] = await withCampaignDb(actor, client => rows<EnrolmentRow>(client, "SELECT * FROM campaign_enrolments WHERE id = $1", [enrolment.id]));
     if (current?.state === "stopped") return { outcome: "reply_received" as const };
     if (current?.state !== "active") return { outcome: "not_due" as const };
-    const checked = await checkReplies(actor, enrolment, mailbox);
-    if (checked.stopped) return { outcome: "reply_received" as const };
-    if (enrolment.step_index === campaignFirstStepIndex(parseDefinition(loaded.version.definition), enrolment.id) && !enrolment.initial_conversation_reviewed && await checked.gmail.hasConversation(enrolment.recipient_email)) {
+    const checked = mailbox && enrolment.recipient_email ? await checkReplies(actor, enrolment, mailbox) : null;
+    if (checked?.stopped) return { outcome: "reply_received" as const };
+    if (checked && enrolment.recipient_email && enrolment.step_index === campaignFirstStepIndex(parseDefinition(loaded.version.definition), enrolment.id) && !enrolment.initial_conversation_reviewed && await checked.gmail.hasConversation(enrolment.recipient_email)) {
       await withCampaignDb(actor, client => client.query("UPDATE campaign_enrolments SET state = 'needs_review', stop_reason = 'existing_conversation', next_step_at = NULL, updated_at = now() WHERE id = $1 AND state = 'active'", [enrolment.id]).then(() => undefined));
       return { outcome: "existing_conversation" as const };
     }
-    {
+    if (checked && enrolment.recipient_email) {
       const outbound = await checked.gmail.outboundToSince(enrolment.recipient_email, enrolment.started_at);
       const known = await withCampaignDb(actor, client => rows<{ provider_message_id: string }>(client, "SELECT provider_message_id FROM campaign_send_attempts WHERE enrolment_id = $1 AND state = 'sent' AND provider_message_id IS NOT NULL", [enrolment.id]));
       const knownIds = new Set(known.map(item => item.provider_message_id));
@@ -487,9 +525,10 @@ export async function processCampaignEnrolment(actor: CampaignActor, enrolmentId
     if (step?.kind === "whatsapp") return await processWhatsappStep(actor, enrolment, definition, contact);
     if (step?.kind === "linkedin") return await processLinkedinStep(actor, enrolment, definition, contact);
     if (!step || step.kind !== "email") throw new CampaignError("Published sequence step is invalid");
+    if (!checked || !enrolment.recipient_email) throw new CampaignError("Email recipient or mailbox is unavailable");
     const claim = await claimSend(actor, enrolment.id, enrolment.step_index);
     if (!claim) return { outcome: "not_due" as const };
-    if (!await claimStillEligible(actor, enrolment, claim.attemptId)) return { outcome: "not_due" as const };
+    if (!await claimStillEligible(actor, enrolment, claim.attemptId, definition)) return { outcome: "not_due" as const };
     try {
       const templateContact = { displayName: contact.display_name, companyName: contact.company_name };
       const delivery = await checked.gmail.send(actor.userId, { to: enrolment.recipient_email, subject: renderCampaignTemplate(step.subject, templateContact), text: renderCampaignTemplate(step.body, templateContact), messageId: claim.messageId });
@@ -603,21 +642,17 @@ export async function runCampaignTick(limit = 3) {
   for (const enrolment of scans) {
     try {
       const actor = { organizationId: enrolment.organization_id, userId: enrolment.owner_user_id };
-      const mailbox = await withCampaignDb(actor, async client => {
-        const [mailbox] = await rows<MailboxRow>(client, "SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE id = $1 AND organization_id = $2 AND user_id = $3", [enrolment.mailbox_connection_id, enrolment.organization_id, enrolment.owner_user_id]);
-        if (!mailbox) throw new Error("Mailbox unavailable");
-        return mailbox;
+      const loaded = await withCampaignDb(actor, async client => {
+        const [contact] = await rows<ContactRow>(client, "SELECT * FROM contacts WHERE id = $1 AND organization_id = $2", [enrolment.contact_id, actor.organizationId]);
+        const [version] = await rows<VersionRow>(client, "SELECT * FROM campaign_sequence_versions WHERE id = $1", [enrolment.version_id]);
+        if (!contact || !version) throw new Error("Reply monitoring contact unavailable");
+        const channels = campaignChannels(parseDefinition(version.definition));
+        const [mailbox] = channels.includes("email") ? await rows<MailboxRow>(client, "SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE id = $1 AND organization_id = $2 AND user_id = $3", [enrolment.mailbox_connection_id, enrolment.organization_id, enrolment.owner_user_id]) : [];
+        if (channels.includes("email") && (!mailbox || !enrolment.recipient_email)) throw new Error("Mailbox or email unavailable");
+        return { mailbox, input: { id: contact.id, email: enrolment.recipient_email, data: personalData(contact.personal_data), since: enrolment.started_at, requiredChannels: channels } };
       });
-      if (replyMonitorMode() !== "off") {
-        const input = await withCampaignDb(actor, async client => {
-          const [contact] = await rows<ContactRow>(client, "SELECT * FROM contacts WHERE id = $1 AND organization_id = $2", [enrolment.contact_id, actor.organizationId]);
-          const [version] = await rows<VersionRow>(client, "SELECT * FROM campaign_sequence_versions WHERE id = $1", [enrolment.version_id]);
-          if (!contact || !version) throw new Error("Reply monitoring contact unavailable");
-          return { id: contact.id, email: enrolment.recipient_email, data: personalData(contact.personal_data), since: enrolment.started_at, requiredChannels: requiredReplyChannels(parseDefinition(version.definition)) };
-        });
-        await checkContactReplyMonitors(actor, input);
-      }
-      await checkReplies(actor, enrolment, mailbox);
+      if (replyMonitorMode() !== "off") await checkContactReplyMonitors(actor, loaded.input);
+      if (loaded.mailbox && enrolment.recipient_email) await checkReplies(actor, enrolment, loaded.mailbox);
       if (replyMonitorMode() !== "off") await withCampaignWorker(client => client.query("UPDATE campaign_enrolments SET last_reply_checked_at = now() WHERE id = $1", [enrolment.id]).then(() => undefined));
     } catch {
       if (replyMonitorMode() !== "off") await withCampaignWorker(client => client.query("UPDATE campaign_enrolments SET last_reply_checked_at = now() WHERE id = $1", [enrolment.id]).then(() => undefined));

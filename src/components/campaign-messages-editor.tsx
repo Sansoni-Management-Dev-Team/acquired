@@ -5,6 +5,7 @@ import { campaignStepLabel, campaignStepEntries, renderCampaignTemplate, type Ca
 
 type Draft = CampaignDraft;
 type Contact = { id: string; name: string; company: string };
+const contactLabel = (contact: Contact) => [contact.name.trim() || "Unnamed person", contact.company].filter(Boolean).join(" · ");
 const card = "rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5";
 const field = "mt-2 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm";
 const button = "min-h-10 rounded-lg border border-[var(--border)] px-3 text-xs font-semibold hover:bg-[var(--panel-raised)]";
@@ -61,14 +62,14 @@ export function CampaignMessagesEditor({ draft, selectedStepId, onChange, onSele
   return <div className="grid items-start gap-4 p-5 lg:grid-cols-[minmax(0,1fr)_280px]">
     <div className="min-w-0 space-y-4">
       <section className={card} aria-label="Selected recipients">
-        <div className="flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold">Selected recipients</h3><p className="mt-1 text-xs text-[var(--muted)]">One contact per company. Select contacts for preview.</p></div><span className="rounded-md bg-[var(--success-surface)] px-2 py-1 text-xs font-semibold">{recipients.length} contact{recipients.length === 1 ? "" : "s"}</span></div>
-        <div className="mt-3 flex flex-wrap gap-2">{recipients.map(recipient => <button key={recipient.id} type="button" title={`Remove ${recipient.name}`} onClick={() => { setRecipientIds(ids => ids.filter(id => id !== recipient.id)); setCopyStatus(""); }} className="rounded-md bg-[var(--panel-raised)] px-2 py-1 text-xs">{recipient.name} · {recipient.company} ×</button>)}</div>
+        <div className="flex items-center justify-between gap-3"><div><h3 className="text-sm font-semibold">Selected recipients</h3><p className="mt-1 text-xs text-[var(--muted)]">Select contacts for preview.</p></div><span className="rounded-md bg-[var(--success-surface)] px-2 py-1 text-xs font-semibold">{recipients.length} contact{recipients.length === 1 ? "" : "s"}</span></div>
+        <div className="mt-3 flex flex-wrap gap-2">{recipients.map(recipient => <button key={recipient.id} type="button" title={`Remove ${contactLabel(recipient)}`} onClick={() => { setRecipientIds(ids => ids.filter(id => id !== recipient.id)); setCopyStatus(""); }} className="rounded-md bg-[var(--panel-raised)] px-2 py-1 text-xs">{contactLabel(recipient)} ×</button>)}</div>
         {contacts.length > 0 ? <label className="mt-3 block text-xs font-medium">Add recipient<select value="" className={field} onChange={event => {
           const next = contacts.find(item => item.id === event.target.value);
           if (!next) return;
-          setRecipientIds(ids => [...ids.filter(id => contacts.find(item => item.id === id)?.company !== next.company), next.id]);
+          setRecipientIds(ids => [...ids.filter(id => !next.company || contacts.find(item => item.id === id)?.company !== next.company), next.id]);
           setPreviewId(next.id); setCopyStatus("");
-        }}><option value="">Select a contact</option>{contacts.filter(item => !recipientIds.includes(item.id)).map(item => <option key={item.id} value={item.id}>{item.name} · {item.company}</option>)}</select></label> : <p className="mt-3 text-xs text-[var(--muted)]">Add people to this mandate to preview personalised messages.</p>}
+        }}><option value="">Select a contact</option>{contacts.filter(item => !recipientIds.includes(item.id)).map(item => <option key={item.id} value={item.id}>{contactLabel(item)}</option>)}</select></label> : <p className="mt-3 text-xs text-[var(--muted)]">Add people to this mandate to preview personalised messages.</p>}
       </section>
       <section className={card}>
         <div className="flex flex-wrap gap-2" aria-label="Message channels">{([ ["email", "Email sequence"], ["linkedin", allSteps.some(step => step.kind === "linkedin") ? "LinkedIn sequence" : "LinkedIn sample"], ["whatsapp", allSteps.some(step => step.kind === "whatsapp") ? "WhatsApp sequence" : "WhatsApp sample"] ] as const).map(([key, label]) => <button key={key} type="button" aria-pressed={channel === key} className={`${button} ${channel === key ? "bg-[var(--accent-soft)] text-[var(--accent)]" : "text-[var(--muted)]"}`} onClick={() => { setChannel(key); setCopyStatus(""); }}>{label}</button>)}</div>
@@ -94,7 +95,7 @@ export function CampaignMessagesEditor({ draft, selectedStepId, onChange, onSele
     </div>
     <aside className={card}>
       <h3 className="text-sm font-semibold">Preview for</h3>
-      <label className="mt-3 block text-xs font-medium">Contact<select value={contact?.id || ""} disabled={!recipients.length} className={field} onChange={event => { setPreviewId(event.target.value); setCopyStatus(""); }}>{!recipients.length && <option value="">Select a recipient</option>}{recipients.map(item => <option key={item.id} value={item.id}>{item.name} · {item.company}</option>)}</select></label>
+      <label className="mt-3 block text-xs font-medium">Contact<select value={contact?.id || ""} disabled={!recipients.length} className={field} onChange={event => { setPreviewId(event.target.value); setCopyStatus(""); }}>{!recipients.length && <option value="">Select a recipient</option>}{recipients.map(item => <option key={item.id} value={item.id}>{contactLabel(item)}</option>)}</select></label>
       {channel === "email" && selectedEmail && <p className="mt-4 text-xs font-semibold">{contact ? renderCampaignTemplate(selectedEmail.subject, { displayName: contact.name, companyName: contact.company }) : selectedEmail.subject}</p>}
       <div className="my-3 whitespace-pre-wrap break-words rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 text-xs leading-relaxed">{preview || "Add an email in Sequence flow to preview it here."}</div>
       <button type="button" disabled={!preview} className={button} onClick={async () => { try { await navigator.clipboard.writeText(preview); setCopyStatus("Preview copied."); } catch { setCopyStatus("Could not copy. Select the preview text to copy it manually."); } }}>Copy preview</button>

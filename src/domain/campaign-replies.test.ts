@@ -26,3 +26,10 @@ it("only permits a fresh successful check, not a recent error or a future timest
   expect(monitorFresh({ lastSuccessAt: now, lastError: "disconnected" }, now)).toBe(false);
   expect(monitorFresh({ lastSuccessAt: new Date(now.getTime() + 1000), lastError: null }, now)).toBe(false);
 });
+
+it("does not merge unrelated contacts through an absent email", () => {
+  const identity = "urn:li:fsd_profile:shared";
+  const identities = ["one", "two"].map(contactId => ({ contactId, email: "", identity, since: new Date(0) }));
+  expect(replyDecision({ fromIdentity: identity, receivedAt: new Date() }, identities)).toMatchObject({ action: "review", emails: [] });
+  expect(replyDecision({ fromIdentity: identity, receivedAt: new Date() }, identities.slice(0,1))).toMatchObject({ action: "stop", emails: [] });
+});

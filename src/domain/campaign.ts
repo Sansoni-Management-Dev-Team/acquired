@@ -106,11 +106,11 @@ export const enrolmentActionRequest = z.object({ action: z.enum(["pause", "resum
 export function normalizeEmail(value: string) { return value.trim().toLowerCase(); }
 
 export function renderCampaignTemplate(template: string, contact: { displayName: string; companyName: string }) {
-  const firstName = contact.displayName.trim().split(/\s+/)[0] || contact.displayName;
+  const firstName = contact.displayName.trim().split(/\s+/)[0] || "there";
   return template.replace(/{{\s*(first_name|full_name|company_name)\s*}}/g, (_whole, key: string) => {
     if (key === "first_name") return firstName;
-    if (key === "full_name") return contact.displayName;
-    return contact.companyName;
+    if (key === "full_name") return contact.displayName.trim() || "there";
+    return contact.companyName.trim() || "your company";
   });
 }
 

@@ -28,17 +28,17 @@ describe("People enrichment filter", () => {
   });
   it("keeps an empty enrichment filtered instead of showing older people", () => {
     const html = render([]);
-    expect(html).toContain("No contacts with usable email addresses were returned by this enrichment");
+    expect(html).toContain("No people were returned by this enrichment");
     expect(html).not.toContain("Earlier Company Contact");
   });
-  it("shows contacts with email addresses when the page has no enrichment filter", () => {
+  it("shows partial contacts when the page has no enrichment filter", () => {
     const html = render();
     expect(html).toContain("Newly Researched Person");
     expect(html).toContain("Earlier Company Contact");
     expect(html).not.toContain("Earlier Web Lead");
     expect(html).not.toContain("Showing only people");
-    expect(html).not.toContain("Name Only Lead");
-    expect(html).not.toContain("Invalid Email Lead");
+    expect(html).toContain("Name Only Lead");
+    expect(html).toContain("Invalid Email Lead");
     expect(html).not.toContain("Fictional Person");
     expect(html).toContain('aria-label="Select Newly Researched Person"');
     expect(html).toMatch(/aria-label="Select Do Not Contact Person" disabled/);

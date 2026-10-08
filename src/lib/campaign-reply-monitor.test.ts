@@ -6,7 +6,7 @@ vi.mock("@/lib/campaign-mailbox", () => ({ campaignMailboxForConnection: () => (
 vi.mock("@/lib/campaign-reply-providers", () => ({ readChannelReplies: mock.read }));
 vi.mock("@/lib/campaign-whatsapp", async original => ({ ...await original<typeof import("./campaign-whatsapp")>(), whatsappCampaignEnabled: () => true, assertCampaignWhatsappConnected: mock.connected }));
 vi.mock("@/lib/campaign-linkedin", () => ({ linkedinCampaignEnabled: () => true, campaignLinkedinAccountStatus: async () => "connected", linkedinProfileFor: (data: Record<string, unknown>) => { if (!data.linkedinUrl) throw new Error("missing"); return data.linkedinUrl; }, campaignLinkedin: mock.linkedin }));
-import { checkContactReplyMonitors, scanReplyChannel, assertContactReplyFresh } from "./campaign-reply-monitor";
+import { checkContactReplyMonitors, scanReplyChannel, assertContactReplyFresh, prepareReplyContact } from "./campaign-reply-monitor";
 const actor = { organizationId: "org", userId: "owner" };
 const contact = { id: "contact", email: "alex@example.test", data: {}, since: new Date(0), requiredChannels: ["email" as const] };
 let lease: boolean, account: string | null, success: Date | null, error: string | null, cursor: string | null;
@@ -67,4 +67,21 @@ it("resumes Gmail from a durable watermark with overlap rather than rereading th
   await scanReplyChannel(actor,"email");
   expect(mock.inbound.mock.calls[1][1].getTime()).toBeGreaterThan(Date.now()-125000);
   expect(cursor).not.toBeNull();
+});
+
+it("registers LinkedIn-only reply monitoring without an email identity", async () => {
+  await prepareReplyContact(actor, { ...contact, email: null, data: { linkedinUrl: "https://www.linkedin.com/in/alex" }, requiredChannels: ["linkedin"] });
+  const inserts = mock.query.mock.calls.filter(([sql]) => sql.startsWith("INSERT INTO campaign_reply_identities"));
+  expect(inserts).toHaveLength(1);
+  expect(inserts[0][1][3]).toBe("linkedin");
+  expect(inserts[0][1][6]).toBe("");
+  expect(mock.inbound).not.toHaveBeenCalled();
+});
+it("does not require an email monitor for a fresh LinkedIn-only contact", async () => {
+  mock.rows.mockImplementation(async (_client, sql: string) => {
+    if (sql.includes("FROM campaign_reply_identities") && !sql.includes("JOIN")) return [{ channel: "linkedin", identity: "urn:li:fsd_profile:alex" }];
+    if (sql.includes("FROM campaign_reply_monitors")) return [{ channel: "linkedin", last_success_at: new Date(), last_error: null }];
+    return [];
+  });
+  await expect(assertContactReplyFresh(actor, "contact", ["linkedin"])).resolves.toBeUndefined();
 });

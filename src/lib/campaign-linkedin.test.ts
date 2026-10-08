@@ -15,7 +15,7 @@ it("does not contact the provider with the campaign feature disabled", async () 
   expect(fetch).not.toHaveBeenCalled();
 });
 it("accepts enriched profile URLs and rejects lookalike hosts or company pages", () => {
-  expect(linkedinProfileFor({ linkedinUrl: "https://au.linkedin.com/in/alex" })).toBe("https://au.linkedin.com/in/alex");
+  expect(linkedinProfileFor({ linkedinUrl: "https://au.linkedin.com/in/alex" })).toBe("https://www.linkedin.com/in/alex");
   expect(() => linkedinProfileFor({ linkedinUrl: "https://linkedin.com.evil.test/in/alex" })).toThrow();
   expect(() => linkedinProfileFor({ linkedinUrl: "https://linkedin.com/company/alex" })).toThrow();
 });

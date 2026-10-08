@@ -75,10 +75,11 @@ export const targets = pgTable("targets", {
 }, (table) => [index("targets_org_band_idx").on(table.organizationId, table.band), index("targets_firmable_company_idx").on(table.firmableCompanyId)]);
 
 export const contacts = pgTable("contacts", {
-  id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id), targetId: uuid("target_id").notNull().references(() => targets.id, { onDelete: "cascade" }),
-  firmablePersonId: text("firmable_person_id").references(() => firmablePeople.id), displayName: text("display_name").notNull(), role: text("role"), personalData: jsonb("personal_data").notNull().default({}), provenance: jsonb("provenance").notNull(),
+  id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id), targetId: uuid("target_id").references(() => targets.id, { onDelete: "cascade" }),
+  mandateId: uuid("mandate_id").references(() => mandates.id, { onDelete: "cascade" }),
+  firmablePersonId: text("firmable_person_id").references(() => firmablePeople.id), displayName: text("display_name").notNull().default(""), role: text("role"), personalData: jsonb("personal_data").notNull().default({}), provenance: jsonb("provenance").notNull(),
   fictionalised: boolean("fictionalised").notNull().default(true), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("contacts_org_target_idx").on(table.organizationId, table.targetId), index("contacts_firmable_person_idx").on(table.firmablePersonId), uniqueIndex("contacts_target_firmable_person_unique_idx").on(table.organizationId, table.targetId, table.firmablePersonId).where(sql`${table.firmablePersonId} IS NOT NULL`)]);
+}, (table) => [index("contacts_org_mandate_idx").on(table.organizationId, table.mandateId), check("contacts_location_check", sql`${table.targetId} IS NOT NULL OR ${table.mandateId} IS NOT NULL`), index("contacts_org_target_idx").on(table.organizationId, table.targetId), index("contacts_firmable_person_idx").on(table.firmablePersonId), uniqueIndex("contacts_target_firmable_person_unique_idx").on(table.organizationId, table.targetId, table.firmablePersonId).where(sql`${table.firmablePersonId} IS NOT NULL`)]);
 
 export const firmableSyncRuns = pgTable("firmable_sync_runs", {
   id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id), actorId: text("actor_id").notNull().references(() => user.id),
@@ -193,14 +194,16 @@ export const campaignEnrolments = pgTable("campaign_enrolments", {
   id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id),
   ownerUserId: text("owner_user_id").notNull().references(() => user.id), sequenceId: uuid("sequence_id").notNull().references(() => campaignSequences.id),
   versionId: uuid("version_id").notNull().references(() => campaignSequenceVersions.id), mandateId: uuid("mandate_id").notNull().references(() => mandates.id),
-  contactId: uuid("contact_id").notNull().references(() => contacts.id), mailboxConnectionId: uuid("mailbox_connection_id").notNull().references(() => mailboxConnections.id),
-  recipientEmail: text("recipient_email").notNull(), state: text("state").notNull().default("active"), stopReason: text("stop_reason"),
+  contactId: uuid("contact_id").notNull().references(() => contacts.id), mailboxConnectionId: uuid("mailbox_connection_id").references(() => mailboxConnections.id),
+  recipientEmail: text("recipient_email"), recipientPhone: text("recipient_phone"), recipientLinkedin: text("recipient_linkedin"), state: text("state").notNull().default("active"), stopReason: text("stop_reason"),
   initialConversationReviewed: boolean("initial_conversation_reviewed").notNull().default(false),
   runtime: text("runtime").notNull().default("legacy"), n8nStartedAt: timestamp("n8n_started_at", { withTimezone: true }),
   lastReplyCheckedAt: timestamp("last_reply_checked_at", { withTimezone: true }),
   stepIndex: integer("step_index").notNull().default(0), nextStepAt: timestamp("next_step_at", { withTimezone: true }),
   startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, table => [
+  uniqueIndex("campaign_one_active_phone_idx").on(table.organizationId, table.recipientPhone).where(sql`${table.state} IN ('active', 'paused', 'needs_review')`),
+  uniqueIndex("campaign_one_active_linkedin_idx").on(table.organizationId, table.recipientLinkedin).where(sql`${table.state} IN ('active', 'paused', 'needs_review')`),
   uniqueIndex("campaign_enrolment_active_idx").on(table.organizationId, table.contactId, table.sequenceId).where(sql`${table.state} IN ('active', 'paused', 'needs_review')`),
   index("campaign_enrolment_due_idx").on(table.state, table.nextStepAt),
   index("campaign_enrolment_contact_idx").on(table.organizationId, table.contactId),
@@ -251,7 +254,7 @@ export const campaignReplyMonitors = pgTable("campaign_reply_monitors", {
 
 export const campaignContactAssignments = pgTable("campaign_contact_assignments", {
   id: uuid("id").primaryKey().defaultRandom(), organizationId: text("organization_id").notNull().references(() => organization.id),
-  contactId: uuid("contact_id").notNull().references(() => contacts.id), email: text("email").notNull(), ownerUserId: text("owner_user_id").notNull().references(() => user.id),
+  contactId: uuid("contact_id").notNull().references(() => contacts.id), email: text("email"), ownerUserId: text("owner_user_id").notNull().references(() => user.id),
   assignedAt: timestamp("assigned_at", { withTimezone: true }).notNull().defaultNow(),
 }, table => [uniqueIndex("campaign_contact_assignment_unique_idx").on(table.organizationId, table.contactId), uniqueIndex("campaign_contact_assignment_email_idx").on(table.organizationId, table.email)]);
 

@@ -12,12 +12,15 @@ import { campaignMailboxForConnection } from "@/lib/campaign-mailbox";
 
 type MonitorRow = { channel: ReplyChannel; cursor: string | null; account_identity: string | null; last_success_at: Date | null; last_error: string | null };
 type IdentityRow = { channel: ReplyChannel; identity: string; source_identity: string; email: string; contact_id: string; since: Date };
-export type ReplyContact = { id: string; email: string; data: Record<string, unknown>; since: Date; requiredChannels: ReplyChannel[] };
+export type ReplyContact = { id: string; email: string | null; data: Record<string, unknown>; since: Date; requiredChannels: ReplyChannel[] };
 
 export async function prepareReplyContact(actor: CampaignActor, contact: ReplyContact) {
   if (replyMonitorMode() === "off") return;
   const existing = await withCampaignDb(actor, client => rows<IdentityRow>(client, "SELECT * FROM campaign_reply_identities WHERE organization_id = $1 AND owner_user_id = $2 AND contact_id = $3", [actor.organizationId, actor.userId, contact.id]));
-  await saveReplyIdentity(actor, { contactId: contact.id, email: contact.email, channel: "email", identity: contact.email, sourceIdentity: contact.email, since: contact.since });
+  if (contact.requiredChannels.includes("email")) {
+    if (!contact.email) throw new Error("Email reply identity is unavailable");
+    await saveReplyIdentity(actor, { contactId: contact.id, email: contact.email, channel: "email", identity: contact.email, sourceIdentity: contact.email, since: contact.since });
+  }
   const phone = typeof contact.data.phone === "string" ? replyIdentity("whatsapp", contact.data.phone) : null;
   if (phone && whatsappCampaignEnabled()) {
     // A configured service does not mean every sender has connected an account.
@@ -124,7 +127,7 @@ export async function assertContactReplyFresh(actor: CampaignActor, contactId: s
     await assertNoReplyHold(client, actor, contactId);
     const identities = await rows<IdentityRow>(client, "SELECT * FROM campaign_reply_identities WHERE organization_id = $1 AND owner_user_id = $2 AND contact_id = $3", [actor.organizationId, actor.userId, contactId]);
     const monitors = await rows<MonitorRow>(client, "SELECT * FROM campaign_reply_monitors WHERE organization_id = $1 AND owner_user_id = $2", [actor.organizationId, actor.userId]);
-    for (const channel of new Set<ReplyChannel>(["email", ...(required || []), ...identities.map(item => item.channel)])) {
+    for (const channel of new Set<ReplyChannel>([...(required || []), ...identities.map(item => item.channel)])) {
       const monitor = monitors.find(item => item.channel === channel);
       if (!identities.some(item => item.channel === channel) || !monitorFresh(monitor ? { lastSuccessAt: monitor.last_success_at, lastError: monitor.last_error } : undefined)) throw new Error(`${channel} reply monitoring is stale or disconnected; outreach held for review`);
     }

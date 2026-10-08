@@ -25,7 +25,7 @@ function run(command, arguments_, env = process.env) {
     child.once("exit", code => code === 0 ? resolve() : reject(new Error(`${command} exited ${code}`)));
   });
 }
-await run("pnpm", ["exec", "vitest", "run", "scripts/campaign-integration-support.test.mjs", "src/lib/campaign-provider-http.integration.test.ts", "src/db/campaign-local.integration.test.ts", "src/db/campaign-replies-local.integration.test.ts", "src/db/campaign-monitor-local.integration.test.ts"], { ...process.env, CAMPAIGN_AUDIT_LOCAL_DB: "1" });
+await run("pnpm", ["exec", "vitest", "run", "scripts/campaign-integration-support.test.mjs", "src/lib/campaign-provider-http.integration.test.ts", "src/db/campaign-local.integration.test.ts", "src/db/campaign-replies-local.integration.test.ts", "src/db/campaign-monitor-local.integration.test.ts", "src/db/campaign-optional-people.integration.test.ts"], { ...process.env, CAMPAIGN_AUDIT_LOCAL_DB: "1" });
 for (const script of ["test-campaign-n8n-workflow-local.mjs", "test-campaign-n8n-adversarial-local.mjs"]) await run(process.execPath, ["--experimental-strip-types", `scripts/${script}`], { ...process.env, CAMPAIGN_N8N_API_KEY: key, CAMPAIGN_N8N_PERSIST_WAIT: args.includes("--persist-wait") && script === "test-campaign-n8n-workflow-local.mjs" ? "1" : "0" });
 
 if (args.includes("--e2e") || args.includes("--browser")) {

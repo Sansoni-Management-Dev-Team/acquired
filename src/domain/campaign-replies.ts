@@ -21,12 +21,12 @@ export function replyIdentity(channel: ReplyChannel, raw: string): string | null
 export function replyDecision(event: { fromIdentity: string; receivedAt: Date }, identities: ReplyIdentity[]) {
   const matches = identities.filter(item => item.identity === event.fromIdentity && event.receivedAt >= item.since);
   const contactIds = [...new Set(matches.map(item => item.contactId))];
-  const emails = [...new Set(matches.map(item => item.email.toLowerCase()))];
+  const emails = [...new Set(matches.flatMap(item => item.email ? [item.email.toLowerCase()] : []))];
   // A contact may have several email snapshots; duplicates sharing an email
   // belong to that same identity group. Separate groups are ambiguous.
   const parent = new Map<string, string>();
   const root = (key: string): string => { const value = parent.get(key); return value && value !== key ? root(value) : key; };
-  for (const match of matches) parent.set(root(`contact:${match.contactId}`), root(`email:${match.email.toLowerCase()}`));
+  for (const match of matches) if (match.email) parent.set(root(`contact:${match.contactId}`), root(`email:${match.email.toLowerCase()}`));
   const groups = new Set(contactIds.map(id => root(`contact:${id}`)));
   return { action: !matches.length ? "ignore" as const : groups.size > 1 ? "review" as const : "stop" as const, contactIds, emails };
 }

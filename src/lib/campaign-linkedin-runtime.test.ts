@@ -23,7 +23,7 @@ beforeEach(() => {
     if (sql.startsWith("SELECT * FROM campaign_enrolments")) return [{ id, state, organization_id: "org", owner_user_id: "owner", step_index: 0, next_step_at: new Date(0), recipient_email: "alex@example.test", started_at: sentAt, initial_conversation_reviewed: true }];
     if (sql.includes("FROM campaign_sequence_versions")) return [{ definition }];
     if (sql.includes("FROM mailbox_connections")) return [{ id: "mailbox" }];
-    if (sql.includes("FROM contacts")) return [{ id: "contact", display_name: "Alex", personal_data: { email: "alex@example.test" }, fictionalised: false }];
+    if (sql.includes("FROM contacts")) return [{ id: "contact", display_name: "Alex", personal_data: { email: "alex@example.test", linkedinUrl: "https://www.linkedin.com/in/alex" }, fictionalised: false }];
     if (sql.startsWith("SELECT state, sent_at")) return [{ state: "sent", sent_at: sentAt }];
     return [];
   });

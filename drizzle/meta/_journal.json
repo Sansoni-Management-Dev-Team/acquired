@@ -120,6 +120,13 @@
       "when": 1791224931153,
       "tag": "0016_campaign_reply_monitor",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1791454607871,
+      "tag": "0017_channel_optional_people",
+      "breakpoints": true
     }
   ]
 }

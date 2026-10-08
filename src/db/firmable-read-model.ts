@@ -37,6 +37,7 @@ export async function loadWorkspaceContacts(database: Database, organizationId: 
   const existing = await database.select().from(contacts).where(and(eq(contacts.organizationId, organizationId), inArray(contacts.targetId, targetIds)));
   const resultByKey = new Map<string, WorkspaceContactSummary>();
   for (const contact of existing) {
+    if (!contact.targetId) continue;
     const personal = contact.personalData as Record<string, unknown>;
     const legacy = personal.firmablePersonId;
     const personId = contact.firmablePersonId || (typeof legacy === "string" ? legacy : undefined);

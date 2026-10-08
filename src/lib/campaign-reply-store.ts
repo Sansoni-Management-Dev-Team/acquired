@@ -15,16 +15,16 @@ export async function assertNoReplyHold(client: PoolClient, actor: CampaignActor
   if (hold) throw new Error(`Contact is held: ${hold.reason}`);
 }
 
-export async function saveReplyIdentity(actor: CampaignActor, input: { contactId: string; email: string; channel: ReplyChannel; identity: string; sourceIdentity: string; since: Date }) {
+export async function saveReplyIdentity(actor: CampaignActor, input: { contactId: string; email: string | null; channel: ReplyChannel; identity: string; sourceIdentity: string; since: Date }) {
   if (replyMonitorMode() === "off") return;
   const normalized = replyIdentity(input.channel, input.identity);
   if (!normalized) throw new Error("Invalid reply identity");
   await withCampaignDb(actor, async client => {
     const inserted = await client.query(`INSERT INTO campaign_reply_identities (organization_id, owner_user_id, contact_id, channel, identity, source_identity, email, since)
       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (organization_id,owner_user_id,contact_id,channel,identity,email) DO NOTHING`,
-    [actor.organizationId, actor.userId, input.contactId, input.channel, normalized, input.sourceIdentity, input.email, input.since]);
+    [actor.organizationId, actor.userId, input.contactId, input.channel, normalized, input.sourceIdentity, input.email || "", input.since]);
     const earlier = await client.query(`UPDATE campaign_reply_identities SET since = $7 WHERE organization_id = $1 AND owner_user_id = $2 AND contact_id = $3 AND channel = $4 AND identity = $5 AND email = $6 AND since > $7`,
-    [actor.organizationId, actor.userId, input.contactId, input.channel, normalized, input.email, input.since]);
+    [actor.organizationId, actor.userId, input.contactId, input.channel, normalized, input.email || "", input.since]);
     if (inserted.rowCount || earlier.rowCount) await client.query(`UPDATE campaign_reply_monitors SET last_success_at = NULL, lease_token = NULL, lease_until = NULL, cursor = CASE WHEN channel = 'email' THEN NULL ELSE cursor END WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3`, [actor.organizationId, actor.userId, input.channel]);
   });
 }

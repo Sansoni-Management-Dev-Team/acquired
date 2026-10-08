@@ -51,6 +51,54 @@ export async function checkCampaignBrowser({ app, mandateId, cookie, sequenceNam
     await cli("goto", `${app}/mandates/${mandateId}/people`);
     await cli("snapshot");
     await cli("run-code", `async page => {
+      await page.getByRole('button', { name: 'Add person', exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'Add person', exact: true });
+      await dialog.waitFor();
+      if (await dialog.locator('input[required]').count()) throw new Error('Person fields must all be optional');
+      await dialog.getByLabel('Full name', { exact: true }).fill('LinkedIn Only Person');
+      await dialog.getByLabel('LinkedIn profile URL', { exact: true }).fill('https://www.linkedin.com/in/synthetic-optional-browser');
+      const added = page.waitForResponse(r => r.url().endsWith('/contacts') && r.request().method() === 'POST' && r.ok());
+      await dialog.getByRole('button', { name: 'Add person', exact: true }).click(); await added;
+      await page.getByRole('button', { name: 'LinkedIn Only Person', exact: true }).waitFor();
+    }`);
+    await cli("snapshot");
+    await cli("run-code", `async page => {
+      await page.getByRole('button', { name: 'Add person', exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'Add person', exact: true });
+      const added = page.waitForResponse(r => r.url().endsWith('/contacts') && r.request().method() === 'POST' && r.ok());
+      await dialog.getByRole('button', { name: 'Add person', exact: true }).click(); await added;
+      await page.getByRole('button', { name: 'Unnamed person', exact: true }).waitFor();
+      await page.getByRole('button', { name: 'Add person', exact: true }).click();
+      await dialog.getByLabel('Full name', { exact: true }).fill('Phone Only Person');
+      await dialog.getByLabel('Phone', { exact: true }).fill('+61412345678');
+      const phoneAdded = page.waitForResponse(r => r.url().endsWith('/contacts') && r.request().method() === 'POST' && r.ok());
+      await dialog.getByRole('button', { name: 'Add person', exact: true }).click(); await phoneAdded;
+      await page.getByRole('button', { name: 'Phone Only Person', exact: true }).waitFor();
+    }`);
+    await cli("snapshot");
+    await cli("run-code", `async page => {
+      const filter = page.getByRole('combobox', { name: 'Filter people by contact details' });
+      await filter.selectOption('linkedin');
+      await page.getByRole('button', { name: 'LinkedIn Only Person', exact: true }).waitFor();
+      if (await page.getByRole('button', { name: 'Browser Person', exact: true }).count()) throw new Error('Email-only person appears in LinkedIn filter');
+      await page.getByRole('button', { name: 'Select all shown', exact: true }).click();
+      await page.getByRole('button', { name: 'Subscribe 1', exact: true }).click();
+      const confirm = page.getByRole('dialog', { name: 'Confirm automation', exact: true });
+      await confirm.waitFor();
+      if (!(await confirm.innerText()).includes('LinkedIn Only Person: needs email')) throw new Error('Email sequence must explain missing email');
+      if (!(await confirm.getByRole('button', { name: 'Confirm and start', exact: true }).isDisabled())) throw new Error('Email sequence accepted a LinkedIn-only recipient');
+      await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+      await filter.selectOption('email');
+      if (await page.getByRole('button', { name: 'LinkedIn Only Person', exact: true }).count()) throw new Error('LinkedIn-only person appears in email filter');
+      await filter.selectOption('phone');
+      await page.getByRole('button', { name: 'Phone Only Person', exact: true }).waitFor();
+      if (await page.getByRole('button', { name: 'LinkedIn Only Person', exact: true }).count()) throw new Error('LinkedIn-only person appears in phone filter');
+      if (await page.getByRole('checkbox', { checked: true }).count()) throw new Error('Changing filters retained hidden selections');
+      await filter.selectOption('all');
+      await page.screenshot({ path: 'output/playwright/optional-people-filters.png', fullPage: true });
+    }`);
+    await cli("snapshot");
+    await cli("run-code", `async page => {
       await page.getByRole('checkbox', { name: 'Select Browser Person', exact: true }).check();
       await page.getByRole('button', { name: 'Subscribe 1', exact: true }).click();
       const confirm = page.getByRole('dialog', { name: 'Confirm automation', exact: true });
@@ -71,6 +119,6 @@ export async function checkCampaignBrowser({ app, mandateId, cookie, sequenceNam
       await page.getByRole('dialog', { name: 'Browser Person automation' }).getByText(/Status:.*Stopped/).waitFor();
       await page.screenshot({ path: 'output/playwright/campaign-integration.png', fullPage: true });
     }`);
-    console.log("Browser save/reload, flow rendering, publish, cancel/confirm subscription, pause and stop passed");
+    console.log("Browser optional fields, channel filters, save/reload, flow rendering, publish, cancel/confirm subscription, pause and stop passed");
   } finally { await cli("close").catch(() => undefined); }
 }

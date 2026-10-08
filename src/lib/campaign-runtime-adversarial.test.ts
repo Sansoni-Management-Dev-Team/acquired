@@ -11,14 +11,15 @@ vi.mock("@/lib/campaign-linkedin", async original => ({ ...await original<typeof
 vi.mock("@/lib/campaign-whatsapp", async original => ({ ...await original<typeof import("./campaign-whatsapp")>(), campaignWhatsapp: mock.whatsapp, assertCampaignWhatsappConnected: mock.connected }));
 import { processCampaignEnrolment, processN8nCampaignStep, changeEnrolment } from "./campaign-service";
 const actor = { organizationId: "org", userId: "owner" }; const id = randomUUID(); const stepId = randomUUID();
+let noEmail: boolean;
 let definition: CampaignDefinition, state: string, stopReason: string | null, attempt: string | undefined, stepIndex: number, nextAt: Date | null, reviewed: boolean;
 let contactReads: number, changed: string | null, used: number, lastClaim: Date | null, hold: boolean, failCommit: boolean, activeReads: number, race: string | null, suppressed: boolean;
 const contact = () => ({ id: "contact", display_name: "Alex Smith", company_name: "Example", fictionalised: changed === "fictionalised" && contactReads > 1,
-  personal_data: { email: changed === "email" && contactReads > 1 ? "someone@example.test" : "alex@example.test", doNotContact: changed === "suppression" && contactReads > 1,
+  personal_data: { email: noEmail ? null : changed === "email" && contactReads > 1 ? "someone@example.test" : "alex@example.test", doNotContact: changed === "suppression" && contactReads > 1,
     phone: changed === "phone" && contactReads > 1 ? "+61499999999" : "+61412345678", linkedinUrl: changed === "profile" && contactReads > 1 ? "https://linkedin.com/in/someone-else" : changed === "invalid-profile" && contactReads > 1 ? "invalid" : "https://linkedin.com/in/alex" } });
 beforeEach(() => {
   vi.resetAllMocks(); vi.stubEnv("CAMPAIGN_REPLY_MONITOR_MODE", "off"); vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-06T01:00:00Z"));
-  state = "active"; stopReason = null; attempt = undefined; stepIndex = 0; nextAt = new Date(0); reviewed = true; contactReads = 0; changed = null; used = 0; lastClaim = null; hold = false; failCommit = false; activeReads = 0; race = null; suppressed = false;
+  noEmail = false; state = "active"; stopReason = null; attempt = undefined; stepIndex = 0; nextAt = new Date(0); reviewed = true; contactReads = 0; changed = null; used = 0; lastClaim = null; hold = false; failCommit = false; activeReads = 0; race = null; suppressed = false;
   definition = { schemaVersion: 1, steps: [{ id: stepId, kind: "email", title: "Send", subject: "Hello", body: "Hi {{first_name}}" }] };
   mock.fresh.mockResolvedValue(undefined); mock.monitor.mockResolvedValue(undefined); mock.connected.mockResolvedValue(undefined);
   mock.gmail.inboundFrom.mockResolvedValue([]); mock.gmail.hasConversation.mockResolvedValue(false); mock.gmail.outboundToSince.mockResolvedValue([]);
@@ -37,7 +38,7 @@ beforeEach(() => {
     if (sql.startsWith("SELECT * FROM campaign_enrolments")) {
       activeReads++;
       if (race && activeReads === 4) { if (race === "hold") hold = true; else state = race; }
-      return [{ id, contact_id: "contact", state, stop_reason: stopReason, organization_id: "org", owner_user_id: "owner", step_index: stepIndex, next_step_at: nextAt, recipient_email: "alex@example.test", started_at: new Date(0), initial_conversation_reviewed: reviewed, runtime: "n8n" }];
+      return [{ id, contact_id: "contact", state, stop_reason: stopReason, organization_id: "org", owner_user_id: "owner", step_index: stepIndex, next_step_at: nextAt, recipient_email: noEmail ? null : "alex@example.test", started_at: new Date(0), initial_conversation_reviewed: reviewed, runtime: "n8n" }];
     }
     if (sql.includes("FROM campaign_sequence_versions")) return [{ definition }];
     if (sql.includes("FROM mailbox_connections")) return [{ id: "mailbox", daily_cap: 10 }];
@@ -82,8 +83,8 @@ for (const kind of ["email", "linkedin", "whatsapp"] as const) {
 it.each(["email", "suppression", "fictionalised"])("rejects contact %s changing between load and claim", async change => {
   changed = change; expect(await processCampaignEnrolment(actor, id)).toMatchObject({ outcome: "needs_review" }); expect(mock.send).not.toHaveBeenCalled(); expect(attempt).toBeUndefined();
 });
-it.each(["profile", "invalid-profile"])("LinkedIn cancels a claim when %s changes", async change => {
-  channel("linkedin"); changed = change; expect(await processCampaignEnrolment(actor, id)).toMatchObject({ outcome: "needs_review" }); expect(attempt).toBe("cancelled"); expect(mock.linkedin).not.toHaveBeenCalled();
+it.each(["profile", "invalid-profile"])("LinkedIn holds outreach when %s changes", async change => {
+  channel("linkedin"); changed = change; expect(await processCampaignEnrolment(actor, id)).toMatchObject({ outcome: "needs_review" }); expect(attempt).toBe(change === "invalid-profile" ? undefined : "cancelled"); expect(mock.linkedin).not.toHaveBeenCalled();
 });
 it("WhatsApp cancels changed phone before sending", async () => { channel("whatsapp"); changed = "phone"; await processCampaignEnrolment(actor, id); expect(attempt).toBe("cancelled"); expect(mock.whatsapp).not.toHaveBeenCalled(); });
 it.each(["claimed", "unknown", "sent"])("email never resends an existing %s attempt", async previous => { attempt = previous; await processCampaignEnrolment(actor, id); expect(mock.send).not.toHaveBeenCalled(); });
@@ -103,4 +104,12 @@ for (const kind of ["email", "linkedin", "whatsapp"] as const) it(`${kind}: supp
   channel(kind); mock.fresh.mockImplementation(async () => { suppressed = true; });
   expect(await processCampaignEnrolment(actor, id)).toMatchObject({ outcome: "needs_review", reason: expect.stringContaining("suppressed") });
   expect(attempt).toBe("cancelled"); providers().forEach(fn => expect(fn).not.toHaveBeenCalled());
+});
+
+it.each(["linkedin", "whatsapp"] as const)("delivers a %s-only sequence without an email or Gmail mailbox", async kind => {
+  noEmail = true; channel(kind);
+  expect(await processCampaignEnrolment(actor, id)).toMatchObject({ outcome: "sent" });
+  expect(mock.rows.mock.calls.some(([,sql]) => sql.includes("FROM mailbox_connections"))).toBe(false);
+  expect(mock.gmail.inboundFrom).not.toHaveBeenCalled(); expect(mock.gmail.hasConversation).not.toHaveBeenCalled(); expect(mock.gmail.outboundToSince).not.toHaveBeenCalled(); expect(mock.send).not.toHaveBeenCalled();
+  expect(kind === "linkedin" ? mock.linkedin : mock.whatsapp).toHaveBeenCalledOnce();
 });
