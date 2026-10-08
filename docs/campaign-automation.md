@@ -1,5 +1,11 @@
 # Campaign automation
 
+## LinkedIn publishing
+
+On 8 October 2026, LinkedIn sequence publishing was enabled on the active DigitalOcean app at `https://acquire.mlai.au` by changing `CAMPAIGN_LINKEDIN_ENABLED` from `false` to `true`. The existing service URL and secret were already configured. The same app image was retained; the restricted runtime environment was backed up before the container was recreated. Container health and authenticated database readiness passed. The user's `linkedin CR Test 2` sequence published as version 2 and created its n8n workflow. There were no campaign enrolments, and no outbound messages were sent.
+
+This enables publishing only. The hosted LinkedIn service still has `LINKEDIN_ALLOW_LIVE_SENDS=false` and does not enable `LINKEDIN_ALLOW_CAMPAIGNS`. Live campaign delivery requires explicit authorisation to enable both service gates. Reply monitoring was in observation mode at this publishing rollout; enforcement was enabled on 9 October as described above. No database migration was needed or applied. Future app deployments must preserve the enabled publishing flag from the active runtime environment.
+
 ## WhatsApp campaign delivery
 
 WhatsApp steps now compile to the same authenticated `/api/internal/campaigns/step` callback as email and LinkedIn. Acquire renders each message and sends through the sequence owner's existing WhatsApp service connection. Publishing requires `WHATSAPP_SERVICE_URL` and `WHATSAPP_SERVICE_SECRET`; enrolment requires a connected WhatsApp account and a contact phone number with an explicit international country code. Personalized messages are limited to 4000 characters.
