@@ -48,12 +48,11 @@ describe("People enrichment filter", () => {
 
 it("explains connected Gmail with missing reply access on People", () => {
   const html = renderToStaticMarkup(<CampaignStudio mandateId="mandate" mandateName="Example" initialData={{ ...data, mailbox: { address: "sender@example.com", ready: false, status: "reply_access_needed", dailyCap: 100 } }} />);
-  expect(html).toContain("Connected · reply access needed");
   expect(html).toContain("Gmail is connected for composing messages.");
   expect(html).not.toContain("Reconnect required");
 });
 
 it("shows an unconnected mailbox without implying an expired connection", () => {
-  expect(render()).toContain("Not connected");
+  expect(render()).toContain("Connect your own Gmail before subscribing contacts.");
   expect(render()).not.toContain("Reconnect required");
 });

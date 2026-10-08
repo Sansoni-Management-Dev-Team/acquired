@@ -1,18 +1,20 @@
 "use client";
 
 import "@xyflow/react/dist/style.css";
-import { useEffect, useRef, useState, type DragEvent } from "react";
+import { useEffect, useId, useRef, useState, type DragEvent } from "react";
 import { Background, Controls, MiniMap, ReactFlow, type Edge, type Node, type ReactFlowInstance } from "@xyflow/react";
 import { Clock3, Mail, MessageCircle, BriefcaseBusiness, Plus, Trash2, GitFork, Copy, ClipboardPaste, Undo2, Redo2, ChevronDown, ChevronUp, RotateCcw, Maximize2, Minimize2 } from "lucide-react";
 import { campaignDefinition, campaignStepLabel, campaignStepEntries, type CampaignDraft, type CampaignStep, type CampaignSplit } from "@/domain/campaign";
 
-import { copyCampaignNode, parseCampaignClipboard, insertCampaignMessage, pasteCampaignNode, reconnectCampaign, type CampaignClipboard } from "@/domain/campaign-editor";
+import { copyCampaignNode, parseCampaignClipboard, insertCampaignMessage, pasteCampaignNode, reconnectCampaign, campaignConnectionGroup, disconnectCampaign, restoreCampaignConnection, pruneCampaignConnections, type CampaignClipboard } from "@/domain/campaign-editor";
 import { campaignRunStatuses, type CampaignRun } from "@/domain/campaign-run";
 import type { CampaignHistoryControls } from "@/hooks/use-campaign-history";
 import { campaignEdgeTypes } from "@/components/campaign-insert-edge";
 
 type StepKind = CampaignStep["kind"];
 const button = "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--panel)] px-4 text-sm font-medium hover:bg-[var(--panel-raised)] disabled:cursor-not-allowed disabled:opacity-40";
+const toolbarIcon = "inline-flex size-9 shrink-0 items-center justify-center rounded-md text-[var(--muted)] hover:bg-[var(--panel-raised)] hover:text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-30";
+const editAction = "flex min-h-10 w-full items-center gap-3 rounded-md px-3 text-left text-sm hover:bg-[var(--panel-raised)] disabled:cursor-not-allowed disabled:opacity-40";
 const field = "mt-1 min-h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] px-3 text-sm";
 const stepLabels: Record<StepKind, string> = { email: "Email", wait: "Wait", whatsapp: "WhatsApp", linkedin: "LinkedIn" };
 const stepIcons = { email: Mail, wait: Clock3, whatsapp: MessageCircle, linkedin: BriefcaseBusiness };
@@ -34,17 +36,29 @@ function removalReason(draft: CampaignDraft, id: string) {
   if (!entry) return undefined;
   if (entry.split && entry.path) return entry.split[entry.path].length <= (entry.split.afterStepId === "start" ? 1 : 2) ? entry.split.afterStepId === "start" ? "Each path needs an introduction message" : "Each path needs a wait and a message" : undefined;
   if (draft.splits?.some(split => split.afterStepId === "start") && draft.steps[0]?.id === id) return "Keep a wait before the shared sequence";
-  if (draft.steps.length <= 1) return "Keep at least one message in the sequence";
   if (draft.splits?.some(split => split.afterStepId === id)) return "Remove this message's split before deleting the message";
   return undefined;
 }
 
-export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, onChange, onSelect, history, runs = [] }: {
+export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, onChange: onDraftChange, onSelect, history, runs = [] }: {
   history?: CampaignHistoryControls; runs?: CampaignRun[];
   draft: CampaignDraft; selectedStepId: string | null;
   onChange: (draft: CampaignDraft) => void; onSelect: (id: string | null) => void;
 }) {
+  const onChange = (next: CampaignDraft) => onDraftChange(pruneCampaignConnections(next));
+  const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [linkedinMenu, setLinkedinMenu] = useState(false);
+  const [editMenuOpen, setEditMenuOpen] = useState(false);
+  const editMenuId = useId();
+  const editMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!editMenuOpen) return;
+    const dismissOutside = (event: PointerEvent) => {
+      if (event.target instanceof window.Node && !editMenuRef.current?.contains(event.target)) setEditMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", dismissOutside, true);
+    return () => document.removeEventListener("pointerdown", dismissOutside, true);
+  }, [editMenuOpen]);
   const [fullscreen, setFullscreen] = useState(false);
   useEffect(() => {
     if (!fullscreen) return;
@@ -123,10 +137,12 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
       nodes.push({ id: step.id, position: moving?.id === step.id ? { x: moving.x ?? x, y: moving.y } : step.position || { x, y }, data: { label: <span className="flex items-center gap-2 text-left"><span className="rounded-md bg-[var(--accent-soft)] p-1"><Icon size={15} /></span><span className="min-w-0 flex-1"><span className="block text-[10px] font-semibold uppercase tracking-wide text-[var(--muted)]">{campaignStepLabel(step)}</span><span className="block truncate font-medium">{step.title}</span>{statuses.has(step.id) && <span className="mt-1 block text-[10px] text-[var(--muted)]">{statuses.get(step.id)}</span>}</span>{!readOnly && deleteButton(step.id, step.title)}</span> }, draggable: !readOnly, style: style(step.id) });
     };
     const link = (source: string, target: string, label?: string) => {
+      const group = campaignConnectionGroup(draft, source, target);
+      if (group.length && group.every(connection => draft.disconnectedConnections?.some(edge => edge.source === connection.source && edge.target === connection.target))) return;
       const sourceStep = entries.find(entry => entry.step.id === source)?.step;
       const targetStep = entries.find(entry => entry.step.id === target)?.step;
-      edges.push({ id: `${source}-${target}`, source, target, type: "campaign", reconnectable: !readOnly && sourceStep && sourceStep.kind !== "wait" && (targetStep?.kind === "wait" || draft.splits?.some(split => split.id === target)) ? "target" : false,
-        data: { label, canInsert: entries.length <= 23, ...(!readOnly ? { onInsert: (kind: Exclude<StepKind, "wait">, action?: "connect" | "message") => {
+      edges.push({ id: `${source}-${target}`, source, target, type: "campaign", selected: selectedEdgeId === `${source}-${target}`, reconnectable: !readOnly && sourceStep && sourceStep.kind !== "wait" && (targetStep?.kind === "wait" || draft.splits?.some(split => split.id === target)) ? "target" : false,
+        data: { label, canInsert: entries.length <= 23, ...(!readOnly ? { onDelete: () => removeEdge(source, target), onInsert: (kind: Exclude<StepKind, "wait">, action?: "connect" | "message") => {
           try { const next = insertCampaignMessage(draft, source, target, newStep(kind, action)); onChange(next.draft); onSelect(next.selectedId); setFeedback(""); }
           catch (error) { setFeedback(error instanceof Error ? error.message : "Could not insert message"); }
         }, ...((source === "start" || sourceStep && sourceStep.kind !== "wait") && !entries.find(entry => entry.step.id === source)?.split && !draft.splits?.some(split => split.afterStepId === source) && canAddSplit ? { onSplit: () => addSplit(source) } : {}) } : {}) },
@@ -194,7 +210,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
     const index = entry ? chain.findIndex(step => step.id === entry.step.id) + 1 : chain.length;
     const step = newStep(kind, action);
     if (kind !== "wait") {
-      try { const next = insertCampaignMessage(draft, entry?.step.id || chain.at(-1)!.id, "", step); onChange(next.draft); onSelect(next.selectedId); setDropTarget(null); }
+      try { const next = insertCampaignMessage(draft, entry?.step.id || chain.at(-1)?.id || "start", "", step); onChange(next.draft); onSelect(next.selectedId); setDropTarget(null); }
       catch (error) { setFeedback(error instanceof Error ? error.message : "Could not insert step"); }
       return;
     }
@@ -291,16 +307,29 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
     } catch { /* Fall back to the editor clipboard. */ }
     if (copied) applyPaste(copied); else setFeedback("Copy a message or split before pasting");
   }
+  function removeEdge(source: string, target: string) {
+    if (readOnly) return;
+    onChange(disconnectCampaign(draft, source, target));
+    setSelectedEdgeId(null);
+    setFeedback("Connection deleted. Drag between the node handles to reconnect, or use Undo.");
+  }
   function connect(source: string | null, target: string | null) {
     if (readOnly || !source || !target) return;
-    const next = reconnectCampaign(draft, source, target);
+    const next = restoreCampaignConnection(draft, source, target) || reconnectCampaign(draft, source, target);
     if (next) { onChange(next); setFeedback("Connection updated"); }
     else setFeedback("Connect a message to a wait to move its message pair, or to a split to move its branches. Paths must remain valid.");
   }
 
   return <div className={`grid bg-[var(--panel)] lg:grid-cols-[minmax(0,1fr)_320px] ${fullscreen ? "fixed inset-0 z-[100] h-dvh w-full overflow-auto lg:overflow-hidden" : ""}`} tabIndex={0} aria-label="Sequence flow editor" onKeyDown={event => {
     const target = event.target as HTMLElement;
-    if (target.closest("input, textarea, select, [contenteditable='true']") || !(event.metaKey || event.ctrlKey)) return;
+    if (target.closest("input, textarea, select, [contenteditable='true']")) return;
+    if ((event.key === "Delete" || event.key === "Backspace") && !readOnly && !target.closest("button")) {
+      const edge = graph.edges.find(edge => edge.id === selectedEdgeId);
+      if (edge) { event.preventDefault(); removeEdge(edge.source, edge.target); }
+      else if (selectedStepId && !removalReason(draft, selectedStepId)) { event.preventDefault(); removeNode(selectedStepId); }
+      return;
+    }
+    if (!(event.metaKey || event.ctrlKey)) return;
     const key = event.key.toLowerCase();
     if (key === "z" && !readOnly) { event.preventDefault(); if (event.shiftKey) history?.redo(); else history?.undo(); }
     else if (key === "y" && !readOnly) { event.preventDefault(); history?.redo(); }
@@ -309,15 +338,31 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
     else if (key === "d" && !readOnly) { event.preventDefault(); duplicateNode(); }
   }}>
     <div className={`min-w-0 border-b border-[var(--border)] lg:border-b-0 ${fullscreen ? "flex min-h-0 flex-col" : ""}`}>
-      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] bg-[var(--panel)] p-3" aria-label="Flow actions">
-        <button type="button" className={button} disabled={readOnly || !history?.canUndo} onClick={() => history?.undo()} title="Undo (Ctrl/Cmd+Z)"><Undo2 size={15} /> Undo</button>
-        <button type="button" className={button} disabled={readOnly || !history?.canRedo} onClick={() => history?.redo()} title="Redo (Ctrl/Cmd+Shift+Z)"><Redo2 size={15} /> Redo</button>
-        <button type="button" className={button} disabled={readOnly || !selectedStepId} onClick={() => duplicateNode()} title="Duplicate (Ctrl/Cmd+D)"><Copy size={15} /> Duplicate</button>
-        <button type="button" className={button} disabled={!selectedStepId} onClick={() => { void copyNode(); }} title="Copy (Ctrl/Cmd+C)"><Copy size={15} /> Copy</button>
-        <button type="button" className={button} disabled={readOnly} onClick={() => { void pasteNode(); }} title="Paste (Ctrl/Cmd+V)"><ClipboardPaste size={15} /> Paste</button>
-        <button type="button" className={button} disabled={readOnly} onClick={resetLayout} title="Restore the automatic sequence layout"><RotateCcw size={15} /> Reset layout</button>
-        <label className="ml-auto flex items-center gap-2 text-xs">Live status<select className="max-w-52 rounded-lg border border-[var(--border)] bg-[var(--background)] p-2" value={activeRun?.id || ""} onChange={event => { setRunId(event.target.value); onSelect(null); }}><option value="">Edit draft</option>{runs.map(run => <option key={run.id} value={run.id}>{run.label} · v{run.version} · {run.state}</option>)}</select></label>
-        <button type="button" className={button} aria-pressed={fullscreen} onClick={() => setFullscreen(value => !value)} title={fullscreen ? "Exit fullscreen (Esc)" : "Open editor fullscreen"}>{fullscreen ? <Minimize2 size={15} /> : <Maximize2 size={15} />}{fullscreen ? "Exit fullscreen" : "Fullscreen"}</button>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] bg-[var(--panel)] px-3 py-2" aria-label="Flow actions">
+        <div className="flex items-center gap-1">
+          <button type="button" className={toolbarIcon} disabled={readOnly || !history?.canUndo} onClick={() => history?.undo()} aria-label="Undo" title="Undo (Ctrl/Cmd+Z)"><Undo2 size={17} /></button>
+          <button type="button" className={toolbarIcon} disabled={readOnly || !history?.canRedo} onClick={() => history?.redo()} aria-label="Redo" title="Redo (Ctrl/Cmd+Shift+Z)"><Redo2 size={17} /></button>
+          <span aria-hidden="true" className="mx-1 h-5 w-px bg-[var(--border)]" />
+          <div ref={editMenuRef} className="relative" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setEditMenuOpen(false); }} onKeyDown={event => {
+            if (event.key === "Escape" && editMenuOpen) {
+              event.preventDefault(); event.stopPropagation(); setEditMenuOpen(false);
+              editMenuRef.current?.querySelector("button")?.focus();
+            }
+          }}>
+            <button type="button" className="inline-flex min-h-9 items-center gap-2 rounded-md px-3 text-sm font-medium hover:bg-[var(--panel-raised)]" aria-expanded={editMenuOpen} aria-controls={editMenuId} onClick={() => setEditMenuOpen(open => !open)}>Edit <ChevronDown size={14} /></button>
+            <div id={editMenuId} hidden={!editMenuOpen} role="group" aria-label="Edit actions" className="absolute left-0 top-full z-50 mt-1 w-56 rounded-lg border border-[var(--border)] bg-[var(--panel)] p-1 shadow-lg">
+              <button type="button" className={editAction} disabled={readOnly || !selectedStepId} onClick={() => { duplicateNode(); setEditMenuOpen(false); }} title="Duplicate (Ctrl/Cmd+D)"><Copy size={15} /> Duplicate</button>
+              <button type="button" className={editAction} disabled={!selectedStepId} onClick={() => { void copyNode(); setEditMenuOpen(false); }} title="Copy (Ctrl/Cmd+C)"><Copy size={15} /> Copy</button>
+              <button type="button" className={editAction} disabled={readOnly} onClick={() => { void pasteNode(); setEditMenuOpen(false); }} title="Paste (Ctrl/Cmd+V)"><ClipboardPaste size={15} /> Paste</button>
+              <div className="my-1 border-t border-[var(--border)]" />
+              <button type="button" className={editAction} disabled={readOnly} onClick={() => { resetLayout(); setEditMenuOpen(false); }} title="Restore the automatic sequence layout"><RotateCcw size={15} /> Reset layout</button>
+            </div>
+          </div>
+        </div>
+        <div className="ml-auto flex min-w-0 items-center gap-2">
+          <label className="flex min-w-0 items-center gap-2 text-xs text-[var(--muted)]"><span className="hidden sm:inline">Live status</span><select aria-label="Live status" className="min-h-9 max-w-40 rounded-md border border-[var(--border)] bg-[var(--background)] px-2 text-xs text-[var(--foreground)]" value={activeRun?.id || ""} onChange={event => { setRunId(event.target.value); onSelect(null); }}><option value="">Edit draft</option>{runs.map(run => <option key={run.id} value={run.id}>{run.label} · v{run.version} · {run.state}</option>)}</select></label>
+          <button type="button" className={toolbarIcon} aria-label={fullscreen ? "Exit fullscreen" : "Fullscreen"} aria-pressed={fullscreen} onClick={() => setFullscreen(value => !value)} title={fullscreen ? "Exit fullscreen (Esc)" : "Open editor fullscreen"}>{fullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}</button>
+        </div>
       </div>
       {activeRun && <p role="status" className="border-b border-[var(--border)] bg-[var(--accent-soft)] px-3 py-2 text-xs">Live published version {activeRun.version} · {activeRun.label}. Refreshes every 15 seconds. Select Edit draft to make changes.{activeRun.stopReason && ` Reason: ${activeRun.stopReason.replaceAll("_", " ")}.`}</p>}
       <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border)] bg-[var(--panel)] p-3">
@@ -338,7 +383,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
         <span className="text-xs text-[var(--muted)]">Drag into the flow, or add after the selected node. Split paths attach after subscription or a main message.</span>
       </div>
       <div className={`relative bg-[var(--background)] ${fullscreen ? "min-h-[400px] flex-1 lg:min-h-0" : "h-[650px]"}`} onDragOver={event => { if (readOnly || !event.dataTransfer.types.includes("application/x-acquire-campaign-step")) return; event.preventDefault(); event.dataTransfer.dropEffect = "copy"; setDropTarget(event.dataTransfer.types.includes("application/x-acquire-campaign-split") ? splitDropTarget(event.clientX, event.clientY) : targetAt(event.clientX, event.clientY)); }} onDragLeave={() => setDropTarget(null)} onDrop={onCanvasDrop}>
-        <ReactFlow nodes={graph.nodes} edges={graph.edges} edgeTypes={campaignEdgeTypes} deleteKeyCode={null} nodesConnectable={!readOnly} nodesDraggable={!readOnly} edgesReconnectable={!readOnly} isValidConnection={connection => !readOnly && Boolean(reconnectCampaign(draft, connection.source, connection.target))} onConnect={connection => connect(connection.source, connection.target)} onReconnect={(_edge, connection) => connect(connection.source, connection.target)} onNodeContextMenu={(event, node) => { event.preventDefault(); onSelect(node.id); setFeedback("Use Duplicate, Copy or Paste above, or Ctrl/Cmd+D, C and V."); }} onInit={flow => { instance.current = flow; }} onNodesChange={changes => {
+        <ReactFlow nodes={graph.nodes} edges={graph.edges} edgeTypes={campaignEdgeTypes} deleteKeyCode={null} nodesConnectable={!readOnly} nodesDraggable={!readOnly} edgesReconnectable={!readOnly} isValidConnection={connection => !readOnly && Boolean(restoreCampaignConnection(draft, connection.source, connection.target) || reconnectCampaign(draft, connection.source, connection.target))} onEdgeClick={(_event, edge) => { setSelectedEdgeId(edge.id); onSelect(null); }} onEdgesChange={changes => { for (const change of changes) if (change.type === "select") setSelectedEdgeId(current => change.selected ? change.id : current === change.id ? null : current); }} onPaneClick={() => { setSelectedEdgeId(null); onSelect(null); }} onConnect={connection => connect(connection.source, connection.target)} onReconnect={(_edge, connection) => connect(connection.source, connection.target)} onNodeContextMenu={(event, node) => { event.preventDefault(); setSelectedEdgeId(null); onSelect(node.id); setFeedback("Use Duplicate, Copy or Paste above, or Ctrl/Cmd+D, C and V."); }} onInit={flow => { instance.current = flow; }} onNodesChange={changes => {
           const measured = changes.filter(change => change.type === "dimensions" && change.dimensions);
           if (measured.length) setDimensions(previous => {
             const next = { ...previous };
@@ -352,6 +397,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
           for (const change of changes) if (change.type === "position" && change.position && (entries.some(entry => entry.step.id === change.id) || draft.splits?.some(split => split.id === change.id))) setMoving({ id: change.id, x: change.position.x, y: change.position.y }); }} onNodeDragStop={(_event, node) => {
           if (readOnly) return;
           setMoving(null);
+          setSelectedEdgeId(null);
           const split = draft.splits?.find(split => split.id === node.id);
           if (split) updateSplit({ ...split, position: node.position });
           else {
@@ -361,11 +407,12 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
             updateChain(chain.map(step => step.id === node.id ? { ...step, position: node.position } : step), entry.split, entry.path);
           }
           onSelect(node.id);
-        }} onNodeClick={(_event, node) => { if (entries.some(entry => entry.step.id === node.id) || draft.splits?.some(split => split.id === node.id)) onSelect(node.id); }} minZoom={0.15} fitView fitViewOptions={{ padding: 0.2, nodes: graph.nodes.slice(0, 5), maxZoom: 1 }} elementsSelectable><Background color="var(--border)" /><Controls showInteractive={false} /><MiniMap pannable zoomable nodeColor={node => statuses.get(node.id) === "Sent" ? "#16a34a" : statuses.get(node.id) === "Stopped" || statuses.get(node.id) === "Needs review" ? "#dc2626" : "#94a3b8"} style={{ background: "var(--panel)", width: 140, height: 100 }} /></ReactFlow>
+        }} onNodeClick={(_event, node) => { setSelectedEdgeId(null); if (entries.some(entry => entry.step.id === node.id) || draft.splits?.some(split => split.id === node.id)) onSelect(node.id); }} minZoom={0.15} fitView fitViewOptions={{ padding: 0.2, nodes: graph.nodes.slice(0, 5), maxZoom: 1 }} elementsSelectable><Background color="var(--border)" /><Controls showInteractive={false} /><MiniMap pannable zoomable nodeColor={node => statuses.get(node.id) === "Sent" ? "#16a34a" : statuses.get(node.id) === "Stopped" || statuses.get(node.id) === "Needs review" ? "#dc2626" : "#94a3b8"} style={{ background: "var(--panel)", width: 140, height: 100 }} /></ReactFlow>
         {dropTarget && <div className="pointer-events-none absolute bottom-4 left-4 rounded-lg border border-[var(--accent)] bg-[var(--panel)] px-3 py-2 text-xs font-medium shadow-lg">Add after {dropTarget === "start" ? "Contact subscribes" : entries.find(entry => entry.step.id === dropTarget)?.step.title}</div>}
       </div>
     </div>
     <div className={`space-y-4 p-5 lg:border-l lg:border-[var(--border)] ${fullscreen ? "min-h-0 overflow-y-auto" : ""}`}>
+      {selectedEdgeId && graph.edges.some(edge => edge.id === selectedEdgeId) && <button type="button" className={button} disabled={readOnly} onClick={() => { const edge = graph.edges.find(edge => edge.id === selectedEdgeId); if (edge) removeEdge(edge.source, edge.target); }}><Trash2 size={15} /> Delete connection</button>}
       <h3 className="text-sm font-semibold">{selectedSplit ? "Split path settings" : selectedStep ? `${stepLabels[selectedStep.kind]} settings` : "Step settings"}</h3>
       <fieldset disabled={readOnly} className="space-y-4">
       {selectedSplit ? <>
@@ -397,10 +444,8 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
       </> : <p className="text-xs text-[var(--muted)]">Select a node to edit it.</p>}
       </fieldset>
       {feedback && <p role="status" className="rounded-lg border border-[var(--border)] p-3 text-xs">{feedback}</p>}
-      {!readOnly && <p className="text-xs text-[var(--muted)]">Use + on a connection to insert a message with its wait. Reconnect a message to a wait to move that pair, or to a split to relocate both branches.</p>}
-      {issue && <p role="status" className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] p-3 text-xs">To save or publish: {issue}. Use a wait between messages; subscription split paths start with a message; other split paths start with a wait.</p>}
+      {issue && <p role="status" className="rounded-lg border border-[var(--border)] bg-[var(--accent-soft)] p-3 text-xs">To publish: {issue}. Use a wait between messages; subscription split paths start with a message; other split paths start with a wait.</p>}
       {entries.some(({ step }) => step.kind === "linkedin" || step.kind === "whatsapp") && <p className="text-xs text-[var(--muted)]">LinkedIn automation requires a connected account and enabled campaign delivery. WhatsApp steps remain available for manual use.</p>}
-      <p className="text-xs text-[var(--muted)]">Drag message, wait and split nodes in any direction to arrange the canvas. Connections determine execution order. Save draft to keep your layout.</p>
     </div>
   </div>;
 }

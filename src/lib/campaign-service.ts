@@ -5,7 +5,7 @@ import { z } from "zod";
 import { rows, withCampaignDb, withCampaignWorker, type CampaignActor } from "@/db/campaign-client";
 import { outreachEmail } from "@/domain/outreach-contact";
 import { campaignChannels, contactLinkedin, contactPhone, missingCampaignDetails, type CreateContactRequest } from "@/domain/contact-record";
-import { campaignDefinition, campaignFirstStepIndex, campaignStepEntries, campaignSendWindowOpen, nextAllowedCampaignSend, nextCampaignStepAfter, acceptancePath, campaignStepLabel, normalizeEmail, renderCampaignTemplate, type CampaignDefinition } from "@/domain/campaign";
+import { campaignDraftDefinition, campaignDefinition, campaignFirstStepIndex, campaignStepEntries, campaignSendWindowOpen, nextAllowedCampaignSend, nextCampaignStepAfter, acceptancePath, campaignStepLabel, normalizeEmail, renderCampaignTemplate, type CampaignDefinition } from "@/domain/campaign";
 import { connectionCanMonitorReplies } from "@/lib/gmail-connection";
 import { campaignMailboxForConnection, campaignTestSendAnytime } from "@/lib/campaign-mailbox";
 import { n8nCampaignEnabled, provisionSequenceWorkflow, removeSequenceWorkflow, startSequenceContact } from "@/lib/campaign-n8n";
@@ -97,7 +97,7 @@ export async function listCampaignStudio(actor: CampaignActor, mandateId: string
       enrolments.length ? rows<{ enrolment_id: string; step_index: number; state: string; sent_at: Date | null }>(client, "SELECT enrolment_id, step_index, state, sent_at FROM campaign_send_attempts WHERE organization_id = $1 AND owner_user_id = $2 AND enrolment_id = ANY($3::uuid[])", [actor.organizationId, actor.userId, enrolments.map(row => row.id)]) : [],
     ]);
     return {
-      sequences: sequences.map(row => ({ id: row.id, name: row.name, draft: parseDefinition(row.draft), publishedDefinition: row.published_definition ? parseDefinition(row.published_definition) : null, publishedVersion: row.published_version, n8nWorkflowId: row.n8n_workflow_id || null, updatedAt: row.updated_at.toISOString() })),
+      sequences: sequences.map(row => ({ id: row.id, name: row.name, draft: campaignDraftDefinition.parse(row.draft), publishedDefinition: row.published_definition ? parseDefinition(row.published_definition) : null, publishedVersion: row.published_version, n8nWorkflowId: row.n8n_workflow_id || null, updatedAt: row.updated_at.toISOString() })),
       enrolments: enrolments.map(row => {
         const definition = parseDefinition(row.version_definition);
         const steps = campaignStepEntries(definition);

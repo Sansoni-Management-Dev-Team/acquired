@@ -20,6 +20,14 @@ const cases = [
 // Every handler consumes the same asynchronous id parameter shape.
 const invoke = (entry: typeof cases[number], body = payloads[entry.name], targetId: string = id) => entry.fn(new Request("https://app.test/api/test", { method: entry.method, ...(entry.method === "GET" ? {} : { body: JSON.stringify(body) }) }), { params: Promise.resolve({ id: targetId }) } as never);
 beforeEach(() => { vi.resetAllMocks(); mock.session.mockResolvedValue({ session: { activeOrganizationId: actor.organizationId }, user: { id: actor.userId } }); cases.forEach(entry => entry.service.mockResolvedValue({ ok: true })); });
+it.each([
+  { schemaVersion: 1, steps: [] },
+  { ...definition, disconnectedConnections: [{ source: "start", target: definition.steps[0].id }] },
+])("saves incomplete drafts without losing deletion state", async draft => {
+  const response = await invoke(cases[0], { name: "Sequence", definition: draft } as never);
+  expect(response.status).toBe(200);
+  expect(mock.save).toHaveBeenCalledWith(actor, id, "Sequence", draft);
+});
 for (const entry of cases) {
   it.each([null, { session: {}, user: { id: "user" } }])(`${entry.name}: blocks missing session or organisation %#`, async session => { mock.session.mockResolvedValue(session); expect((await invoke(entry)).status).toBe(401); expect(entry.service).not.toHaveBeenCalled(); });
   it(`${entry.name}: passes authenticated scope to the service`, async () => { expect((await invoke(entry)).status).toBe(entry.status); expect(entry.service.mock.calls[0][0]).toEqual(actor); expect(entry.service.mock.calls[0][1]).toBe(id); });

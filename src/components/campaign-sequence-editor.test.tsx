@@ -25,7 +25,7 @@ it.each(["whatsapp", "linkedin"] as const)("offers and edits a saved %s node", k
   expect(html).toContain("Hi {{first_name}}");
   expect(html).not.toContain("Days to wait");
   expect(html).not.toContain(">Subject<");
-  expect(html).not.toContain("To save or publish:");
+  expect(html).not.toContain("To publish:");
 });
 
 it("renders branch nodes, allocation controls and separate path editing", () => {
@@ -37,7 +37,7 @@ it("renders branch nodes, allocation controls and separate path editing", () => 
   const draft = { steps: [first], splits: [split] };
   const html = renderToStaticMarkup(<CampaignSequenceEditor draft={draft} selectedStepId={split.id} onChange={() => {}} onSelect={() => {}} />);
   for (const text of ["Split path settings", "Path A allocation (%)", "Path A: 30%", "Path B: 70%", "Variant A", "Variant B", "Edit path A", "Edit path B"]) expect(html).toContain(text);
-  expect(html).not.toContain("To save or publish:");
+  expect(html).not.toContain("To publish:");
   const branch = renderToStaticMarkup(<CampaignSequenceEditor draft={draft} selectedStepId={split.pathB[1].id} onChange={() => {}} onSelect={() => {}} />);
   expect(branch).toContain("Variants · Path B"); expect(branch).toContain("Email settings");
 });
@@ -57,6 +57,43 @@ function deletionDraft(): CampaignDraft {
   };
   return { steps: [first, wait, { ...first, id: "last", title: "Last" }], splits: [split] };
 }
+
+it("deletes the last message and allows a new message on the empty flow", () => {
+  const step: CampaignStep = { id: crypto.randomUUID(), kind: "email", title: "Thoughtful follow-up", subject: "Hi", body: "Hello" };
+  const onChange = vi.fn(), onSelect = vi.fn();
+  renderToStaticMarkup(<CampaignSequenceEditor draft={{ steps: [step] }} selectedStepId={step.id} onChange={onChange} onSelect={onSelect} />);
+  const button = deleteButton(step.id);
+  expect(button.props.disabled).toBe(false);
+  button.props.onClick!({ stopPropagation: vi.fn() } as unknown as React.MouseEvent<HTMLButtonElement>);
+  expect(onChange).toHaveBeenCalledWith({ steps: [] });
+  expect(onSelect).toHaveBeenCalledWith(null);
+  renderToStaticMarkup(<CampaignSequenceEditor draft={onChange.mock.lastCall![0]} selectedStepId={null} onChange={onChange} onSelect={onSelect} />);
+  expect(capture.flow!.nodes!.map(node => node.id)).toEqual(["start", "end"]);
+  const edge = capture.flow!.edges![0];
+  expect(edge).toMatchObject({ source: "start", target: "end" });
+  (edge.data!.onInsert as (kind: string) => void)("email");
+  expect(onChange.mock.lastCall![0].steps).toHaveLength(1);
+  expect(campaignDefinition.safeParse({ ...onChange.mock.lastCall![0], schemaVersion: 1 }).success).toBe(true);
+});
+
+it("deletes a connection without deleting its nodes and restores it using their handles", () => {
+  const step: CampaignStep = { id: crypto.randomUUID(), kind: "email", title: "Follow-up", subject: "Hi", body: "Hello" };
+  const draft = { steps: [step] };
+  const onChange = vi.fn(), onSelect = vi.fn();
+  renderToStaticMarkup(<CampaignSequenceEditor draft={draft} selectedStepId={step.id} onChange={onChange} onSelect={onSelect} />);
+  const edge = capture.flow!.edges!.find(edge => edge.source === "start")!;
+  (edge.data!.onDelete as () => void)();
+  const disconnected = onChange.mock.lastCall![0] as CampaignDraft;
+  expect(disconnected.steps).toEqual(draft.steps);
+  expect(disconnected.disconnectedConnections).toEqual([{ source: "start", target: step.id }]);
+  const html = renderToStaticMarkup(<CampaignSequenceEditor draft={disconnected} selectedStepId={null} onChange={onChange} onSelect={onSelect} />);
+  expect(html).toContain("Reconnect deleted connections before publishing");
+  expect(capture.flow!.edges!.some(edge => edge.source === "start")).toBe(false);
+  const connection = { source: "start", target: step.id, sourceHandle: null, targetHandle: null };
+  expect(capture.flow!.isValidConnection!(connection)).toBe(true);
+  capture.flow!.onConnect!(connection);
+  expect(onChange.mock.lastCall![0]).toEqual(draft);
+});
 
 it("deletes a split from its node icon and selects its anchor when a branch was selected", () => {
   const draft = deletionDraft();
@@ -126,7 +163,7 @@ it("edits an optional connection note without showing a message-body validation 
   const html = renderToStaticMarkup(<CampaignSequenceEditor draft={{ steps: [step] }} selectedStepId={step.id} onChange={() => {}} onSelect={() => {}} />);
   expect(html).toContain("Connection note (optional");
   expect(html).toContain("Send connection request");
-  expect(html).not.toContain("To save or publish:");
+  expect(html).not.toContain("To publish:");
 });
 
 it("offers a split at subscription, renders both introductions and removes it cleanly", () => {

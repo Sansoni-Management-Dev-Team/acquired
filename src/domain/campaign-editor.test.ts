@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { campaignDefinition, campaignStepEntries, type CampaignDraft, type CampaignStep } from "./campaign";
-import { campaignHistoryReducer, copyCampaignNode, insertCampaignMessage, parseCampaignClipboard, pasteCampaignNode, reconnectCampaign } from "./campaign-editor";
+import { campaignDraftDefinition, campaignDefinition, campaignStepEntries, type CampaignDraft, type CampaignStep } from "./campaign";
+import { campaignConnections, campaignHistoryReducer, copyCampaignNode, disconnectCampaign, restoreCampaignConnection, pruneCampaignConnections, insertCampaignMessage, parseCampaignClipboard, pasteCampaignNode, reconnectCampaign } from "./campaign-editor";
 const email = (title: string): CampaignStep => ({ id: randomUUID(), kind: "email", title, subject: "Hello", body: "Hi" });
 const wait = (): CampaignStep => ({ id: randomUUID(), kind: "wait", title: "Wait", days: 3 });
 function fixture(): CampaignDraft {
@@ -11,6 +11,42 @@ function fixture(): CampaignDraft {
 const valid = (draft: CampaignDraft) => expect(campaignDefinition.safeParse({ ...draft, schemaVersion: 1 }).success).toBe(true);
 
 describe("sequence editor operations", () => {
+  it("can save disconnected edges throughout a split, reconnect them, and undo deletion", () => {
+    const draft = fixture();
+    for (const { source, target } of campaignConnections(draft)) {
+      const disconnected = disconnectCampaign(draft, source, target);
+      expect(disconnected.steps).toEqual(draft.steps);
+      expect(disconnected.splits).toEqual(draft.splits);
+      expect(campaignDraftDefinition.parse(JSON.parse(JSON.stringify(disconnected)))).toEqual(disconnected);
+      expect(campaignDefinition.safeParse(disconnected).success).toBe(false);
+      expect(restoreCampaignConnection(disconnected, source, target)).toEqual(draft);
+      expect(disconnectCampaign(disconnected, source, target)).toBe(disconnected);
+      const history = campaignHistoryReducer({ present: draft, past: [], future: [] }, { type: "edit", draft: disconnected });
+      expect(campaignHistoryReducer(history, { type: "undo" }).present).toEqual(draft);
+      expect(campaignHistoryReducer(campaignHistoryReducer(history, { type: "undo" }), { type: "redo" }).present).toEqual(disconnected);
+    }
+  });
+  it("prunes deleted connections after removing their nodes and can insert or paste into an empty draft", () => {
+    const first = email("First");
+    const draft = disconnectCampaign({ steps: [first] }, "start", first.id);
+    const empty = pruneCampaignConnections({ ...draft, steps: [] });
+    expect(empty).toEqual({ steps: [] });
+    expect(campaignDraftDefinition.safeParse({ ...empty, schemaVersion: 1 }).success).toBe(true);
+    expect(campaignDefinition.safeParse({ ...empty, schemaVersion: 1 }).success).toBe(false);
+    valid(insertCampaignMessage(empty, "start", "end", first).draft);
+    valid(pasteCampaignNode(empty, { kind: "message", message: first as Exclude<CampaignStep, { kind: "wait" }>, days: 3 }, null).draft);
+  });
+  it("deletes and restores both rejoining connections represented by a collapsed split", () => {
+    const draft = fixture(), split = draft.splits![0], target = draft.steps[1].id;
+    const next = disconnectCampaign(draft, split.id, target);
+    expect(next.disconnectedConnections).toEqual([
+      { source: split.pathA.at(-1)!.id, target },
+      { source: split.pathB.at(-1)!.id, target },
+    ]);
+    expect(restoreCampaignConnection(next, split.id, target)).toEqual(draft);
+    expect(disconnectCampaign(draft, "missing", target)).toBe(draft);
+    expect(restoreCampaignConnection(next, "missing", target)).toBeNull();
+  });
   it("inserts at the start, middle, end and within either branch while preserving alternation", () => {
     const draft = fixture(), split = draft.splits![0];
     for (const [source, target] of [["start", draft.steps[0].id], [draft.steps[2].id, draft.steps[3].id], [draft.steps[3].id, draft.steps[4].id], [draft.steps[4].id, "end"], [split.id, split.pathA[0].id], [split.pathB[1].id, draft.steps[1].id], [split.id, draft.steps[1].id]]) {

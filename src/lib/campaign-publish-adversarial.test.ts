@@ -4,7 +4,7 @@ const mock = vi.hoisted(() => ({ rows: vi.fn(), query: vi.fn(), provision: vi.fn
 vi.mock("server-only", () => ({}));
 vi.mock("@/db/campaign-client", () => ({ rows: mock.rows, withCampaignDb: (_actor: unknown, callback: (client: unknown) => unknown) => callback({ query: mock.query }), withCampaignWorker: vi.fn() }));
 vi.mock("@/lib/campaign-n8n", () => ({ n8nCampaignEnabled: () => true, provisionSequenceWorkflow: mock.provision, removeSequenceWorkflow: mock.remove }));
-import { publishCampaign, saveCampaign, createCampaign } from "./campaign-service";
+import { publishCampaign, saveCampaign, createCampaign, listCampaignStudio } from "./campaign-service";
 const actor = { organizationId: "org", userId: "owner" }; const id = randomUUID();
 const definition = { schemaVersion: 1, steps: [{ id: randomUUID(), kind: "email", title: "First", subject: "Hi", body: "Hello" }] };
 const version = { id, name: "Sequence", draft: definition, published_version: 1, updated_at: new Date("2026-10-06T01:00:00Z") };
@@ -21,5 +21,20 @@ it("persists exactly the prepared immutable version and owner scope", async () =
 });
 it("preserves a transaction failure when cleanup also fails", async () => { mock.rows.mockResolvedValueOnce([version]).mockRejectedValueOnce(new Error("database failed")); mock.remove.mockRejectedValue(new Error("cleanup failed")); await expect(publishCampaign(actor, id)).rejects.toThrow("database failed"); expect(mock.remove).toHaveBeenCalledOnce(); });
 it("invalid stored definition cannot create a workflow", async () => { mock.rows.mockResolvedValueOnce([{ ...version, draft: { schemaVersion: 1, steps: [] } }]); await expect(publishCampaign(actor, id)).rejects.toThrow(); expect(mock.provision).not.toHaveBeenCalled(); });
+it("a disconnected saved draft cannot create a workflow", async () => {
+  mock.rows.mockResolvedValueOnce([{ ...version, draft: { ...definition, disconnectedConnections: [{ source: "start", target: definition.steps[0].id }] } }]);
+  await expect(publishCampaign(actor, id)).rejects.toThrow("Reconnect deleted connections before publishing");
+  expect(mock.provision).not.toHaveBeenCalled();
+  expect(mock.query).not.toHaveBeenCalled();
+});
+it.each([
+  { schemaVersion: 1 as const, steps: [] },
+  { ...definition, schemaVersion: 1 as const, disconnectedConnections: [{ source: "start", target: definition.steps[0].id }] },
+])("loads saved incomplete drafts into the studio", async draft => {
+  vi.stubEnv("CAMPAIGN_REPLY_MONITOR_MODE", "off");
+  mock.rows.mockResolvedValueOnce([{ ...version, draft }]).mockResolvedValue([]);
+  const studio = await listCampaignStudio(actor, "mandate");
+  expect(studio.sequences[0].draft).toEqual(draft);
+});
 it("missing sequence cannot be published or saved by another owner", async () => { mock.rows.mockResolvedValue([]); await expect(publishCampaign(actor, id)).rejects.toMatchObject({ status: 404 }); await expect(saveCampaign(actor, id, "Changed", definition as never)).rejects.toMatchObject({ status: 404 }); expect(mock.rows.mock.calls.every(([, sql, params]) => sql.includes("owner_user_id") && params.includes(actor.userId))).toBe(true); expect(mock.provision).not.toHaveBeenCalled(); });
 it("a mandate outside the organisation cannot receive a sequence", async () => { mock.rows.mockResolvedValue([]); await expect(createCampaign(actor, id, "Test", definition as never)).rejects.toMatchObject({ status: 404 }); expect(mock.rows).toHaveBeenCalledOnce(); expect(mock.rows.mock.calls[0][2]).toEqual([id, actor.organizationId]); });
