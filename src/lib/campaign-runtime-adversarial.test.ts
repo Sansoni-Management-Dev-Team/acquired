@@ -10,6 +10,7 @@ vi.mock("@/lib/campaign-reply-monitor", () => ({ checkContactReplyMonitors: mock
 vi.mock("@/lib/campaign-linkedin", async original => ({ ...await original<typeof import("./campaign-linkedin")>(), campaignLinkedin: mock.linkedin }));
 vi.mock("@/lib/campaign-whatsapp", async original => ({ ...await original<typeof import("./campaign-whatsapp")>(), campaignWhatsapp: mock.whatsapp, assertCampaignWhatsappConnected: mock.connected }));
 import { processCampaignEnrolment, processN8nCampaignStep, changeEnrolment } from "./campaign-service";
+import { withCampaignWorkBudget, CampaignWorkDeferred, assertCampaignWorkRemaining } from "./campaign-work-budget";
 const actor = { organizationId: "org", userId: "owner" }; const id = randomUUID(); const stepId = randomUUID();
 let noEmail: boolean;
 let definition: CampaignDefinition, state: string, stopReason: string | null, attempt: string | undefined, stepIndex: number, nextAt: Date | null, reviewed: boolean;
@@ -113,3 +114,20 @@ it.each(["linkedin", "whatsapp"] as const)("delivers a %s-only sequence without 
   expect(mock.gmail.inboundFrom).not.toHaveBeenCalled(); expect(mock.gmail.hasConversation).not.toHaveBeenCalled(); expect(mock.gmail.outboundToSince).not.toHaveBeenCalled(); expect(mock.send).not.toHaveBeenCalled();
   expect(kind === "linkedin" ? mock.linkedin : mock.whatsapp).toHaveBeenCalledOnce();
 });
+
+for (const kind of ["email", "linkedin", "whatsapp"] as const) {
+  it(`${kind}: scheduler deadline before claim leaves the enrolment due without a hold`, async () => {
+    channel(kind);
+    mock.monitor.mockImplementationOnce(async () => { vi.setSystemTime(Date.now() + 21_000); assertCampaignWorkRemaining(); });
+    await expect(withCampaignWorkBudget(20_000, () => processCampaignEnrolment(actor, id))).rejects.toBeInstanceOf(CampaignWorkDeferred);
+    expect(attempt).toBeUndefined(); expect(state).toBe("active"); expect(nextAt).toEqual(new Date(0));
+    providers().forEach(fn => expect(fn).not.toHaveBeenCalled());
+  });
+  it(`${kind}: an admitted send finishes its durable outcome after the scheduler deadline`, async () => {
+    channel(kind);
+    mock.fresh.mockImplementationOnce(async () => { vi.setSystemTime(Date.now() + 21_000); assertCampaignWorkRemaining(); });
+    expect(await withCampaignWorkBudget(20_000, () => processCampaignEnrolment(actor, id))).toMatchObject({ outcome: "sent" });
+    expect(attempt).toBe("sent"); expect(state).toBe("completed");
+    expect(providers().reduce((n, fn) => n + fn.mock.calls.length, 0)).toBe(1);
+  });
+}

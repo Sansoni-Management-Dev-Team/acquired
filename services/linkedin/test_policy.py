@@ -83,6 +83,27 @@ def test_fixture_budgets_do_not_spend_live_allowance():
     assert policy.usage(data,True,10000)['messagesDaily']['used']==1
     assert policy.usage(data,False,10000)['messagesDaily']['used']==0
 
+def test_reply_pages_have_short_spacing_but_still_spend_shared_account_budgets(monkeypatch):
+    monkeypatch.setattr(policy.random,'uniform',lambda low,high:low)
+    data=config(minSpacingSeconds=120,maxSpacingSeconds=600,requestsHourly=2)
+    assert policy.reserve(data,'reply',now=10000)==(10000,None)
+    assert policy.eligible(data,'reply',now=10001)[0]==10020
+    assert policy.eligible(data,'message',now=10001)[0]==10120
+    assert policy.reserve(data,'reply',now=10020)==(10020,None)
+    assert policy.usage(data,now=10020)['requestsHourly']['used']==2
+    assert policy.eligible(data,'reply',now=10040)==(13600,'requestsHourly limit reached')
+
+def test_reply_pages_cannot_bypass_cooldowns_or_spacing_after_other_account_activity(monkeypatch):
+    monkeypatch.setattr(policy.random,'uniform',lambda low,high:low)
+    data=config(minSpacingSeconds=120,maxSpacingSeconds=600)
+    policy.reserve(data,'profile',now=10000)
+    assert policy.eligible(data,'reply',now=10001)[0]==10120
+    policy.reserve(data,'reply',now=10120)
+    policy.provider_result(data,{'status':429,'retryAfter':1800},now=10121)
+    assert policy.eligible(data,'reply',now=10122)[0]==11921
+    policy.control(data)['requiresVerification']=True
+    assert policy.eligible(data,'reply',now=12000)[0] is None
+
 
 @pytest.mark.parametrize('day',[10,11])
 def test_weekend_keep_alive_is_independent_of_outreach_days(day):

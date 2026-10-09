@@ -85,7 +85,10 @@ describe.skipIf(process.env.CAMPAIGN_AUDIT_LOCAL_DB !== "1")("optional people an
     const sequence = await published();
     const [enrolment] = await enrolContacts(actor, sequence, [first.id]);
     await expect(enrolContacts(actor, sequence, [duplicate.id])).rejects.toThrow("already has active outreach");
-    await ingestCampaignReply(actor, "linkedin", "synthetic-linkedin-account", { id: randomUUID(), fromIdentity: recipient(linkedinUrl), receivedAt: new Date().toISOString() });
+    // The fixture must be later than DB registration, including submillisecond
+    // precision and host/container clock differences.
+    const [identity] = (await db.query("SELECT max(since) + interval '1 second' AS received_at FROM campaign_reply_identities WHERE contact_id=$1", [first.id])).rows;
+    await ingestCampaignReply(actor, "linkedin", "synthetic-linkedin-account", { id: randomUUID(), fromIdentity: recipient(linkedinUrl), receivedAt: identity.received_at.toISOString() });
     expect((await db.query("SELECT state,stop_reason FROM campaign_enrolments WHERE id=$1", [enrolment.id])).rows[0]).toEqual({ state: "stopped", stop_reason: "reply_received" });
     expect(await processCampaignEnrolment(actor, enrolment.id)).toMatchObject({ outcome: "not_due" });
     expect((await db.query("SELECT count(*)::int n FROM campaign_contact_holds WHERE organization_id=$1", [org])).rows[0].n).toBe(0);

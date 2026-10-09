@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import type { CampaignActor } from "@/db/campaign-client";
+import { campaignReadSignal } from "@/lib/campaign-work-budget";
 
 export function whatsappCampaignEnabled() {
   return Boolean(process.env.WHATSAPP_SERVICE_URL && process.env.WHATSAPP_SERVICE_SECRET);
@@ -19,7 +20,7 @@ async function request(actor: CampaignActor, path: string, body?: { recipient: s
   url.searchParams.set("organizationId", actor.organizationId);
   url.searchParams.set("userId", actor.userId);
   // Never retry a send here: a lost response may follow an accepted message.
-  const response = await fetch(url, { method: body ? "POST" : "GET", headers: { Authorization: `Bearer ${process.env.WHATSAPP_SERVICE_SECRET}`, ...(body ? { "Content-Type": "application/json" } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}), cache: "no-store", redirect: "error", signal: AbortSignal.timeout(50_000) });
+  const response = await fetch(url, { method: body ? "POST" : "GET", headers: { Authorization: `Bearer ${process.env.WHATSAPP_SERVICE_SECRET}`, ...(body ? { "Content-Type": "application/json" } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}), cache: "no-store", redirect: "error", signal: body ? AbortSignal.timeout(50_000) : campaignReadSignal() });
   const data = await response.json();
   if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "WhatsApp service unavailable");
   return data;

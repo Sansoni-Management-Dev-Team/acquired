@@ -94,7 +94,6 @@ export function MandateBriefForm({ mandateId, brief, onSaved }: { mandateId: str
   </form>
     <p className="text-sm text-[var(--muted)]">Criteria extracted from your brief inform provisional fit. Review them to confirm requirements and preferences. Unspecified conditions remain unknown.</p>
     <label className="block text-sm font-semibold">Financial scope<select aria-label="Financial scope" value={currentBrief.financialScope || "company"} onChange={event => setCurrentBrief({ ...currentBrief, financialScope: event.target.value as "company" | "AU" })} className="mt-2 min-h-12 w-full rounded-lg border border-[var(--border)] bg-[var(--panel)] p-3"><option value="company">Company/group revenue</option><option value="AU">Australian operations only</option></select></label>
-    <p className="text-xs text-[var(--muted)]">Company revenue is the default financial screen. Australian operations require a separate AU-scoped figure; company totals remain available as context.</p>
     <BriefCriteria criteria={criteria} onChange={setCriteria} />
     <div className="flex items-center justify-end gap-3">{criteriaMessage && <p role="status" className="text-sm">{criteriaMessage}</p>}<button type="button" disabled={savingCriteria || (JSON.stringify(criteria) === JSON.stringify(savedCriteria) && (currentBrief.financialScope || "company") === savedFinancialScope)} onClick={() => void saveCriteria()} className="min-h-12 rounded-lg border border-[var(--border)] px-5 text-sm disabled:opacity-50">{savingCriteria ? "Saving…" : "Save criteria"}</button></div>
   </div>;

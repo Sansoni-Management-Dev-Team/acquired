@@ -145,9 +145,15 @@ def journal_page(data, cursor):
     pending = [item for item in journal['events'] if item['sequence']>after]
     page = pending[:500]
     checkpoint = {'account':journal['accountIdentity'],'after':page[-1]['sequence'] if page else after,'revision':journal['revision']}
+    requested_since=data.get('replyRequest',{}).get('since',journal['scan'].get('requestedSince',journal['scan'].get('since',0)))
+    covered=journal.get('coverageAt') is not None and journal.get('coverageSince',float('inf'))<=requested_since
+    # Keep the last complete sweep's conservative watermark while collecting
+    # the next. Acquire separately enforces the five-minute freshness limit.
+    complete=(journal['scan']['complete'] or covered) and len(pending)<=500
+    checked_at=journal['coverageAt'] if covered else journal['checkedAt']
     return {'accountIdentity':journal['accountIdentity'],'events':[item['event'] for item in page],
             'nextCursor':base64.urlsafe_b64encode(json.dumps(checkpoint).encode()).decode().rstrip('='),
-            'complete':journal['scan']['complete'] and len(pending)<=500,'checkedAt':iso(journal['checkedAt'])}
+            'complete':complete,'checkedAt':iso(checked_at)}
 
 FOLDERS = ('PRIMARY_INBOX','SECONDARY_INBOX','ARCHIVE','SPAM')
 
@@ -252,6 +258,22 @@ def append_events(journal,events,since):
         if len(journal['events'])>=10000: raise ValueError('LinkedIn reply journal requires archival review')
         journal['events'].append({'sequence':journal['nextId'],'event':event});journal['nextId']+=1;known.add(event['id'])
 
+def descending_boundary(cursor, elements):
+    """Recognize the observed DESCENDING activity-time cursor, never guess.
+
+    An opaque/unrecognized cursor still requires exhaustive pagination. The
+    timestamp must agree with the ordered page before it can bound later pages.
+    """
+    if not cursor or not elements: return None
+    try:
+        parts=base64.b64decode(cursor,validate=True).decode('utf-8').split('&')
+        if len(parts)!=3 or parts[0]!='DESCENDING' or not re.fullmatch(r'\d{13}',parts[1]) or not parts[2]: return None
+        boundary=int(parts[1]);dates=[item.get('lastActivityAt') for item in elements]
+        if any(type(date) is not int or date<=0 for date in dates): return None
+        if dates!=sorted(dates,reverse=True) or boundary!=dates[-1]: return None
+        return boundary
+    except (ValueError,UnicodeError): return None
+
 async def advance_modern_scan(worker,data,provider,now,since):
     queries=worker.reply_queries
     if not modern_queries_ready(queries): raise ValueError('Capture all LinkedIn inbox folders and history queries')
@@ -262,11 +284,11 @@ async def advance_modern_scan(worker,data,provider,now,since):
     journal=data.setdefault('replyJournal',{'accountIdentity':account,'events':[],'revision':0,'nextId':1})
     if journal['accountIdentity']!=account: raise ValueError('LinkedIn reply monitor account changed')
     scan=journal.get('scan')
-    if not scan or scan.get('protocol')!='cursor-v1' or scan['complete'] or since<scan.get('requestedSince',scan['since']):
+    if not scan or scan.get('protocol')!='cursor-v2' or scan['complete'] or since!=scan.get('requestedSince',scan.get('since')):
         effective_since=since
         if journal.get('coverageSince',float('inf'))<=since:
             effective_since=max(since,journal['coverageAt']-120)
-        scan={'protocol':'cursor-v1','stage':'conversations','folder':0,'cursor':None,'seenCursors':[], 'threads':[],'index':0,'before':None,'startedAt':now,'since':effective_since,'requestedSince':since,'complete':False}
+        scan={'protocol':'cursor-v2','stage':'conversations','folder':0,'cursor':None,'seenCursors':[], 'threads':[],'index':0,'before':None,'startedAt':now,'since':effective_since,'requestedSince':since,'complete':False,'pages':0,'boundedFolders':0}
         journal['scan']=scan
     since=scan['since']
     if scan['stage']=='conversations':
@@ -291,15 +313,23 @@ async def advance_modern_scan(worker,data,provider,now,since):
         if cursor is not None:
             if cursor in scan['seenCursors']: raise ValueError('LinkedIn conversation cursor did not advance')
             scan['seenCursors'].append(cursor)
-        # Category pages can include recently updated/read older threads. Only
-        # the explicit cursor end certifies folder coverage, never an old date.
-        if cursor is None:
+        boundary=descending_boundary(cursor,elements)
+        previous_boundary=scan.get('boundary')
+        if previous_boundary is not None and any(date>previous_boundary for date in dates):
+            raise ValueError('LinkedIn conversation activity order changed')
+        # A validated descending cursor bounds subsequent pages. An old
+        # conversation alone, a short page, or an opaque cursor cannot do this.
+        bounded=boundary is not None and boundary<since*1000
+        if cursor is None or bounded:
+            if bounded: scan['boundedFolders']+=1
             scan['folder']+=1;scan['cursor']=None;scan['seenCursors']=[]
+            scan.pop('boundary',None)
             if scan['folder']==len(FOLDERS):
                 scan['stage']='messages'
                 if not scan['threads']: scan['complete']=True
         else:
             scan['cursor']=cursor
+            if boundary is not None: scan['boundary']=boundary
     else:
         thread=scan['threads'][scan['index']]
         changes={'conversationUrn':thread['urn']}
@@ -328,6 +358,7 @@ async def advance_modern_scan(worker,data,provider,now,since):
             scan['index']+=1;scan['before']=None
             if scan['index']==len(scan['threads']): scan['complete']=True
         else: scan['before']=oldest
+    scan['pages']+=1
     journal['revision']+=1
     journal['checkedAt']=scan['startedAt'] if scan['complete'] else now
     if scan['complete']:

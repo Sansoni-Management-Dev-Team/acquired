@@ -1,6 +1,7 @@
 import "server-only";
 import type { CampaignActor } from "@/db/campaign-client";
 import { replyPageSchema, type ReplyChannel } from "@/domain/campaign-replies";
+import { campaignReadSignal } from "@/lib/campaign-work-budget";
 
 export async function readChannelReplies(actor: CampaignActor, channel: Exclude<ReplyChannel, "email">, cursor: string | null, since?: Date) {
   const prefix = channel === "whatsapp" ? "WHATSAPP" : "LINKEDIN";
@@ -14,7 +15,7 @@ export async function readChannelReplies(actor: CampaignActor, channel: Exclude<
   if (channel === "linkedin") url.searchParams.set("background", "true");
   if (channel === "linkedin" && since) url.searchParams.set("since", since.toISOString());
   if (cursor !== null) url.searchParams.set("cursor", cursor);
-  const response = await fetch(url, { method: "GET", headers: { Authorization: `Bearer ${secret}` }, cache: "no-store", redirect: "error", signal: AbortSignal.timeout(50_000) });
+  const response = await fetch(url, { method: "GET", headers: { Authorization: `Bearer ${secret}` }, cache: "no-store", redirect: "error", signal: campaignReadSignal() });
   if (!response.ok) throw new Error(`${label} reply monitor unavailable; reconnect or review channel status`);
   return replyPageSchema.parse(await response.json());
 }

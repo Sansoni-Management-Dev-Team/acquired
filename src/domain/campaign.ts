@@ -20,8 +20,17 @@ export const campaignSplit = z.object({
   position: campaignPosition.optional(),
   pathA: z.array(campaignStep).min(1).max(24), pathB: z.array(campaignStep).min(1).max(24),
 }).strict();
-export const campaignDefinition = z.object({ schemaVersion: z.literal(1), steps: z.array(campaignStep).min(1).max(25), splits: z.array(campaignSplit).max(6).optional() }).strict().superRefine((definition, context) => {
+const campaignConnection = z.object({ source: z.union([z.string().uuid(), z.literal("start")]), target: z.union([z.string().uuid(), z.literal("end")]) }).strict();
+export const campaignDraftDefinition = z.object({ schemaVersion: z.literal(1), steps: z.array(campaignStep).max(25), splits: z.array(campaignSplit).max(6).optional(), disconnectedConnections: z.array(campaignConnection).max(64).optional() }).strict().superRefine((definition, context) => {
+  const steps = campaignStepEntries(definition).map(entry => entry.step);
+  if (steps.length > 25) context.addIssue({ code: "custom", message: "Sequences can contain at most 25 message and wait nodes across all paths" });
+  const ids = [...steps.map(step => step.id), ...(definition.splits || []).map(split => split.id)];
+  if (new Set(ids).size !== ids.length) context.addIssue({ code: "custom", message: "Step and split IDs must be unique" });
+});
+export const campaignDefinition = campaignDraftDefinition.superRefine((definition, context) => {
   const issue = (message: string) => context.addIssue({ code: "custom", message });
+  if (!definition.steps.length) issue("Add at least one message before publishing");
+  if (definition.disconnectedConnections?.length) issue("Reconnect deleted connections before publishing");
   const validateChain = (steps: CampaignStep[], branch = false) => {
     if ((steps[0]?.kind === "wait") !== branch) issue(branch ? "Each split path must start with a wait" : "The first step must be a message");
     if (steps.at(-1)?.kind === "wait") issue("The last step must be a message");
@@ -41,15 +50,11 @@ export const campaignDefinition = z.object({ schemaVersion: z.literal(1), steps:
     validateChain(split.pathA, split.afterStepId !== "start");
     validateChain(split.pathB, split.afterStepId !== "start");
   }
-  const steps = campaignStepEntries(definition).map(entry => entry.step);
-  if (steps.length > 25) issue("Sequences can contain at most 25 message and wait nodes across all paths");
-  const ids = [...steps.map(step => step.id), ...(definition.splits || []).map(split => split.id)];
-  if (new Set(ids).size !== ids.length) issue("Step and split IDs must be unique");
 });
 export type CampaignDefinition = z.infer<typeof campaignDefinition>;
 export type CampaignStep = z.infer<typeof campaignStep>;
 export type CampaignSplit = z.infer<typeof campaignSplit>;
-export type CampaignDraft = { steps: CampaignStep[]; schemaVersion?: 1; splits?: CampaignSplit[] };
+export type CampaignDraft = Omit<CampaignDefinition, "schemaVersion"> & { schemaVersion?: 1 };
 export type CampaignStepEntry = { step: CampaignStep; split?: CampaignSplit; path?: "pathA" | "pathB" };
 
 // Keep runtime indices monotonic on either path, and unchanged for old versions.
@@ -99,7 +104,7 @@ export function campaignNextOptions(definition: CampaignDraft, sentIndex: number
 }
 
 export const createCampaignRequest = z.object({ mandateId: z.string().uuid(), name: z.string().trim().min(1).max(120), definition: campaignDefinition }).strict();
-export const saveCampaignRequest = z.object({ name: z.string().trim().min(1).max(120), definition: campaignDefinition }).strict();
+export const saveCampaignRequest = z.object({ name: z.string().trim().min(1).max(120), definition: campaignDraftDefinition }).strict();
 export const enrolCampaignRequest = z.object({ contactIds: z.array(z.string().uuid()).min(1).max(50), confirmation: z.literal(true) }).strict();
 export const enrolmentActionRequest = z.object({ action: z.enum(["pause", "resume", "stop", "review_existing_conversation", "retry_preflight"]) }).strict();
 

@@ -14,10 +14,10 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "https://project-acquire.vercel.app/api/internal/campaigns/tick",
+        "url": "https://acquire.mlai.au/api/internal/campaigns/tick",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpHeaderAuth",
-        "options": { "timeout": 30000 }
+        "options": { "timeout": 120000 }
       },
       "id": "a6254dbe-0542-44b6-bf53-12ea0e7607c7",
       "name": "Ask Acquire to process due sends",

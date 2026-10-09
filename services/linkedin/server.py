@@ -249,6 +249,8 @@ def dashboard(owner):
             'replyReader': {'requested':reply_reader_requested(state),
                             'stage':state.get('replyJournal',{}).get('scan',{}).get('stage'),
                             'folder':state.get('replyJournal',{}).get('scan',{}).get('folder'),
+                            'pages':state.get('replyJournal',{}).get('scan',{}).get('pages'),
+                            'boundedFolders':state.get('replyJournal',{}).get('scan',{}).get('boundedFolders'),
                             'lastAttemptAt':state.get('lastReplyReadAttemptAt'),
                             'lastCompleteAt':state.get('replyJournal',{}).get('coverageAt'),
                             'error':state.get('replyReadError')},
@@ -763,8 +765,9 @@ async def reply_inbox(request: Request):
             # Validate before changing either the request or its durable scope.
             try: result=replies.journal_page(state,cursor)
             except (ValueError,KeyError,TypeError,json.JSONDecodeError): raise HTTPException(409,'Reply account or checkpoint changed; review the connection')
-            previous=state.get('replyRequest',{})
-            requested_since=min(since,previous['since']) if previous.get('until',0)>now else since
+            # Acquire sends the earliest date of the owner's entire current
+            # subscription scope. Retired broader scopes must not be renewed.
+            requested_since=since
             scan=journal.get('scan',{})
             if requested_since<scan.get('requestedSince',scan.get('since',requested_since)):
                 journal['scan']={'complete':False};journal['checkedAt']=0;journal['revision']+=1
@@ -774,7 +777,7 @@ async def reply_inbox(request: Request):
             result=replies.journal_page(state,cursor)
             if state.get('replyReadError'): result['complete']=False
             if not result['complete']:
-                due,_=policy.eligible(data,'read',worker.fixture,now)
+                due,_=policy.eligible(data,'reply',worker.fixture,now)
                 result['nextReadAt']=replies.iso(max(now+10,due or now+300))
             return result
         # Validate an existing checkpoint before spending the provider read budget.
@@ -825,9 +828,11 @@ async def background_reply_read(owner,worker):
             replies.change_path(worker.reply_queries[name],{})
     except ValueError:
         state['replyReadError']='LinkedIn read templates require recapture';VAULT.save(owner,data);return
-    due,_=policy.eligible(data,'read',worker.fixture,now)
+    scan=state.get('replyJournal',{}).get('scan',{})
+    if scan.get('complete') and now-scan.get('startedAt',0)<180: return
+    due,_=policy.eligible(data,'reply',worker.fixture,now)
     if due is None or due>now: return
-    due,_=policy.reserve(data,'read',worker.fixture,now)
+    due,_=policy.reserve(data,'reply',worker.fixture,now)
     if due is None or due>now: return
     previous=copy.deepcopy(state.get('replyJournal'))
     state['lastReplyReadAttemptAt']=now

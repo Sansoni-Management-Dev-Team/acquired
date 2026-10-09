@@ -141,6 +141,64 @@ def test_encoded_replay_cannot_replace_observed_read_templates():
 def category_page(items,cursor=None):
     return {'status':200,'data':{'data':{'messengerConversationsByCategoryQuery':{'elements':items,'metadata':{'nextCursor':cursor}}}}}
 
+def descending_cursor(timestamp):
+    import base64
+    return base64.b64encode(f'DESCENDING&{timestamp}&synthetic-thread'.encode()).decode()
+
+def test_verified_descending_time_bound_finishes_recent_scope_without_reading_years_of_history():
+    from replies import advance_modern_scan
+    worker=modern_worker();data={}
+    old={'entityUrn':THREAD,'conversationParticipants':[ME,OTHER],'lastActivityAt':1699999999000}
+    provider=AsyncMock(return_value=category_page([old],descending_cursor(old['lastActivityAt'])))
+    for step in range(4): asyncio.run(advance_modern_scan(worker,data,provider,1700000100+step,1700000000))
+    scan=data['replyJournal']['scan']
+    assert scan['complete'] and scan['pages']==4 and scan['boundedFolders']==4
+    assert journal_page(data,None)['complete'] and not journal_page(data,None)['events']
+    assert provider.await_count==4
+
+def test_unverified_mismatched_or_unsorted_bound_does_not_skip_later_pages():
+    from replies import descending_boundary
+    dates=[{'lastActivityAt':1700000001000},{'lastActivityAt':1700000000000}]
+    assert descending_boundary(descending_cursor(1700000000000),dates)==1700000000000
+    assert descending_boundary(descending_cursor(1699999999999),dates) is None
+    assert descending_boundary(descending_cursor(1700000000000),list(reversed(dates))) is None
+    assert descending_boundary('not-a-verified-cursor',dates) is None
+    assert descending_boundary(descending_cursor(1700000000000),[]) is None
+
+def test_legacy_partial_scan_restarts_with_the_current_subscription_scope():
+    from replies import advance_modern_scan
+    data={'replyJournal':{'accountIdentity':ME,'events':[],'revision':99,'nextId':1,
+        'scan':{'protocol':'cursor-v1','stage':'conversations','folder':0,'cursor':'old','since':0,'complete':False}}}
+    provider=AsyncMock(return_value=category_page([]))
+    asyncio.run(advance_modern_scan(modern_worker(),data,provider,1700000100,1700000000))
+    scan=data['replyJournal']['scan']
+    assert scan['protocol']=='cursor-v2' and scan['since']==1700000000 and scan['startedAt']==1700000100
+    assert scan['folder']==1
+    assert 'nextCursor:' not in provider.call_args.args[1]
+
+def test_partial_next_sweep_retains_the_conservative_completed_watermark():
+    from replies import advance_modern_scan
+    worker=modern_worker();data={};provider=AsyncMock(return_value=category_page([]))
+    for step in range(4): asyncio.run(advance_modern_scan(worker,data,provider,1700000100+step,1700000000))
+    checked=journal_page(data,None)['checkedAt']
+    asyncio.run(advance_modern_scan(worker,data,provider,1700000300,1700000000))
+    assert not data['replyJournal']['scan']['complete']
+    assert journal_page(data,None)['complete']
+    assert journal_page(data,None)['checkedAt']==checked
+    data['replyRequest']={'since':1699999900}
+    assert not journal_page(data,None)['complete']
+
+def test_recent_threads_are_collected_before_the_time_bound_finishes_the_folder():
+    from replies import advance_modern_scan
+    worker=modern_worker();data={}
+    recent={'entityUrn':THREAD,'conversationParticipants':[ME,OTHER],'lastActivityAt':1700000001000}
+    old={**recent,'entityUrn':'urn:li:msg_conversation:old','lastActivityAt':1699999999000}
+    provider=AsyncMock(return_value=category_page([recent,old],descending_cursor(old['lastActivityAt'])))
+    asyncio.run(advance_modern_scan(worker,data,provider,1700000100,1700000000))
+    assert data['replyJournal']['scan']['folder']==1
+    assert [t['urn'] for t in data['replyJournal']['scan']['threads']]==[THREAD]
+    assert not journal_page(data,None)['complete']
+
 def test_modern_scan_covers_every_folder_and_history_before_certifying_completion():
     from replies import advance_modern_scan
     worker=modern_worker(); data={}

@@ -9,15 +9,22 @@ import { assertReplyMonitorMember, applyCampaignReply, assertNoReplyHold, assert
 import { collectReplyPages } from "@/lib/campaign-reply-collector";
 import { readChannelReplies } from "@/lib/campaign-reply-providers";
 import { campaignMailboxForConnection } from "@/lib/campaign-mailbox";
+import { connectionCanMonitorReplies } from "@/lib/gmail-connection";
+import { assertCampaignWorkRemaining, campaignWorkDeferred, withCampaignWorkCleanup, CampaignWorkDeferred } from "@/lib/campaign-work-budget";
 
-type MonitorRow = { channel: ReplyChannel; cursor: string | null; account_identity: string | null; last_success_at: Date | null; last_error: string | null };
+type MonitorRow = { channel: ReplyChannel; cursor: string | null; account_identity: string | null; last_success_at: Date | null; last_error: string | null; lease_until?: Date | null };
 type IdentityRow = { channel: ReplyChannel; identity: string; source_identity: string; email: string; contact_id: string; since: Date };
 export type ReplyContact = { id: string; email: string | null; data: Record<string, unknown>; since: Date; requiredChannels: ReplyChannel[] };
 
 export async function prepareReplyContact(actor: CampaignActor, contact: ReplyContact) {
   if (replyMonitorMode() === "off") return;
   const existing = await withCampaignDb(actor, client => rows<IdentityRow>(client, "SELECT * FROM campaign_reply_identities WHERE organization_id = $1 AND owner_user_id = $2 AND contact_id = $3", [actor.organizationId, actor.userId, contact.id]));
-  if (contact.requiredChannels.includes("email")) {
+  const emailRequired = contact.requiredChannels.includes("email");
+  const emailMonitored = existing.some(item => item.channel === "email");
+  const [mailbox] = contact.email && !emailRequired && !emailMonitored ? await withCampaignDb(actor, client => rows<{ encrypted_refresh_token: string | null; reconnect_required: boolean; scopes: string[] | null }>(client,
+    "SELECT encrypted_refresh_token,reconnect_required,scopes FROM mailbox_connections WHERE organization_id = $1 AND user_id = $2 AND provider = 'gmail'", [actor.organizationId, actor.userId])) : [];
+  // Replies stop the person even when their sequence only sends on another channel.
+  if (emailRequired || (contact.email && (emailMonitored || (mailbox && connectionCanMonitorReplies({ encryptedRefreshToken: mailbox.encrypted_refresh_token, reconnectRequired: mailbox.reconnect_required, scopes: mailbox.scopes }))))) {
     if (!contact.email) throw new Error("Email reply identity is unavailable");
     await saveReplyIdentity(actor, { contactId: contact.id, email: contact.email, channel: "email", identity: contact.email, sourceIdentity: contact.email, since: contact.since });
   }
@@ -70,22 +77,23 @@ async function readEmailReplies(actor: CampaignActor, cursor: string | null): Pr
   return { accountIdentity: `${loaded.mailbox.id}:${loaded.mailbox.address}`, events, nextCursor: JSON.stringify({ signature, offset: complete ? 0 : offset, watermark: complete ? checkedAt : checkpoint.watermark, scanStartedAt: complete ? null : checkedAt }), complete, checkedAt };
 }
 
-export async function scanReplyChannel(actor: CampaignActor, channel: ReplyChannel) {
+export async function scanReplyChannel(actor: CampaignActor, channel: ReplyChannel, options: { maxPages?: number } = {}) {
   if (replyMonitorMode() === "off") return { complete: false };
+  assertCampaignWorkRemaining();
   const token = randomUUID();
   const [monitor] = await withCampaignDb(actor, async client => {
     await client.query("INSERT INTO campaign_reply_monitors (organization_id,owner_user_id,channel) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING", [actor.organizationId, actor.userId, channel]);
     return rows<MonitorRow>(client, `UPDATE campaign_reply_monitors SET lease_token = $4, lease_until = now() + interval '5 minutes', last_success_at = NULL, last_attempt_at = now()
       WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3 AND (lease_until IS NULL OR lease_until < now()) RETURNING *`, [actor.organizationId, actor.userId, channel, token]);
   });
-  if (!monitor) return { complete: false };
+  if (!monitor) return { complete: false, skipped: true };
   try {
     const [scope] = channel === "linkedin" ? await withCampaignDb(actor, client => rows<{ since: Date | null }>(client,
       `SELECT min(i.since) AS since FROM campaign_reply_identities i WHERE i.organization_id = $1 AND i.owner_user_id = $2 AND i.channel = 'linkedin'
        AND EXISTS (SELECT 1 FROM campaign_enrolments e WHERE e.organization_id = i.organization_id AND e.owner_user_id = i.owner_user_id AND e.contact_id = i.contact_id AND e.state IN ('active','paused','needs_review'))`, [actor.organizationId, actor.userId])) : [];
-    return await collectReplyPages({ cursor: monitor.cursor, accountIdentity: monitor.account_identity,
+    return await collectReplyPages({ cursor: monitor.cursor, accountIdentity: monitor.account_identity, maxPages: options.maxPages,
       read: cursor => channel === "email" ? readEmailReplies(actor, cursor) : readChannelReplies(actor, channel, cursor, scope?.since ?? undefined),
-      commit: page => withCampaignWorker(async client => {
+      commit: page => withCampaignWorkCleanup(() => withCampaignWorker(async client => {
         const [lease] = await rows(client, `SELECT channel FROM campaign_reply_monitors WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3 AND lease_token = $4 AND lease_until > now() FOR UPDATE`, [actor.organizationId, actor.userId, channel, token]);
         if (!lease) return false;
         await assertReplyMonitorMember(client, actor);
@@ -94,14 +102,14 @@ export async function scanReplyChannel(actor: CampaignActor, channel: ReplyChann
           last_success_at = CASE WHEN $7 THEN $8::timestamptz ELSE NULL END, last_error = CASE WHEN $7 THEN NULL ELSE $9 END
           WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3 AND lease_token = $4`, [actor.organizationId, actor.userId, channel, token, page.accountIdentity, page.nextCursor, page.complete, new Date(page.checkedAt), page.nextReadAt ? `Inbox scan incomplete; next reader check after ${page.nextReadAt}` : "Inbox scan incomplete"]);
         return true;
-      }),
+      })),
     });
   } catch (error) {
-    const reason = error instanceof Error ? error.message.slice(0, 250) : "Reply scan failed";
-    await withCampaignDb(actor, client => client.query("UPDATE campaign_reply_monitors SET last_error = $5 WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3 AND lease_token = $4", [actor.organizationId, actor.userId, channel, token, reason]).then(() => undefined));
+    const reason = campaignWorkDeferred(error) ? "Inbox scan deferred to the next scheduler tick" : error instanceof Error ? error.message.slice(0, 250) : "Reply scan failed";
+    await withCampaignWorkCleanup(() => withCampaignDb(actor, client => client.query("UPDATE campaign_reply_monitors SET last_error = $5 WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3 AND lease_token = $4", [actor.organizationId, actor.userId, channel, token, reason]).then(() => undefined)));
     throw error;
   } finally {
-    await withCampaignDb(actor, client => client.query("UPDATE campaign_reply_monitors SET lease_token = NULL, lease_until = NULL WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3 AND lease_token = $4", [actor.organizationId, actor.userId, channel, token]).then(() => undefined));
+    await withCampaignWorkCleanup(() => withCampaignDb(actor, client => client.query("UPDATE campaign_reply_monitors SET lease_token = NULL, lease_until = NULL WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3 AND lease_token = $4", [actor.organizationId, actor.userId, channel, token]).then(() => undefined)));
   }
 }
 
@@ -109,6 +117,9 @@ export async function checkContactReplyMonitors(actor: CampaignActor, contact: R
   if (replyMonitorMode() === "off") return;
   try { await prepareReplyContact(actor, contact); }
   catch (error) { if (replyMonitorMode() === "enforce") throw error; return; }
+  // Previously observed replies must stop outreach even if today's provider
+  // scan is incomplete or unavailable during activation of enforcement.
+  await replayContactReplies(actor, contact.id);
   const identities = await withCampaignDb(actor, client => rows<IdentityRow>(client, "SELECT * FROM campaign_reply_identities WHERE organization_id = $1 AND owner_user_id = $2 AND contact_id = $3", [actor.organizationId, actor.userId, contact.id]));
   const channels = [...new Set<ReplyChannel>([...contact.requiredChannels, ...identities.map(item => item.channel)])];
   for (const channel of channels) {
@@ -121,7 +132,7 @@ export async function checkContactReplyMonitors(actor: CampaignActor, contact: R
   if (replyMonitorMode() === "enforce") await assertContactReplyFresh(actor, contact.id, channels);
 }
 
-export async function assertContactReplyFresh(actor: CampaignActor, contactId: string, required?: ReplyChannel[]) {
+export async function assertContactReplyFresh(actor: CampaignActor, contactId: string, required?: ReplyChannel[], options: { deferLeased?: boolean } = {}) {
   if (replyMonitorMode() !== "enforce") return;
   await withCampaignDb(actor, async client => {
     await assertNoReplyHold(client, actor, contactId);
@@ -129,6 +140,9 @@ export async function assertContactReplyFresh(actor: CampaignActor, contactId: s
     const monitors = await rows<MonitorRow>(client, "SELECT * FROM campaign_reply_monitors WHERE organization_id = $1 AND owner_user_id = $2", [actor.organizationId, actor.userId]);
     for (const channel of new Set<ReplyChannel>([...(required || []), ...identities.map(item => item.channel)])) {
       const monitor = monitors.find(item => item.channel === channel);
+      // A scheduled evaluator must not convert an in-flight delivery's inbox
+      // scan into a durable failure. Actual delivery preflights stay strict.
+      if (options.deferLeased && monitor?.lease_until && monitor.lease_until > new Date()) throw new CampaignWorkDeferred();
       if (!identities.some(item => item.channel === channel) || !monitorFresh(monitor ? { lastSuccessAt: monitor.last_success_at, lastError: monitor.last_error } : undefined)) throw new Error(`${channel} reply monitoring is stale or disconnected; outreach held for review`);
     }
   });
@@ -136,14 +150,40 @@ export async function assertContactReplyFresh(actor: CampaignActor, contactId: s
 }
 
 export async function runReplyMonitorTick(limit = 3) {
-  if (replyMonitorMode() === "off") return { scanned: 0, failed: 0 };
+  const result = { scanned: 0, complete: 0, incomplete: 0, failed: 0, skipped: 0, deferred: 0 };
+  if (replyMonitorMode() === "off") return result;
   const jobs = await withCampaignWorker(client => rows<{ organization_id: string; owner_user_id: string; channel: ReplyChannel }>(client,
     `SELECT DISTINCT i.organization_id,i.owner_user_id,i.channel,m.last_attempt_at FROM campaign_reply_identities i
      JOIN campaign_enrolments e ON e.organization_id = i.organization_id AND e.owner_user_id = i.owner_user_id AND e.contact_id = i.contact_id
      LEFT JOIN campaign_reply_monitors m ON m.organization_id = i.organization_id AND m.owner_user_id = i.owner_user_id AND m.channel = i.channel
-     WHERE e.state IN ('active','paused','needs_review') AND (m.last_attempt_at IS NULL OR m.last_attempt_at < now() - interval '1 minute')
+     WHERE e.state IN ('active','paused','needs_review') AND (m.last_attempt_at IS NULL OR m.last_attempt_at <= now() - interval '55 seconds')
      ORDER BY m.last_attempt_at NULLS FIRST,i.organization_id,i.owner_user_id,i.channel LIMIT $1`, [limit]));
-  let failed = 0;
-  for (const job of jobs) { try { await scanReplyChannel({ organizationId: job.organization_id, userId: job.owner_user_id }, job.channel); } catch { failed++; } }
-  return { scanned: jobs.length, failed };
+  for (const [index, job] of jobs.entries()) {
+    try {
+      assertCampaignWorkRemaining();
+      const scan = await scanReplyChannel({ organizationId: job.organization_id, userId: job.owner_user_id }, job.channel, { maxPages: 1 });
+      if ("skipped" in scan && scan.skipped) { result.skipped++; continue; }
+      result.scanned++;
+      if ("deferred" in scan && scan.deferred) result.deferred++;
+      else if (scan.complete) result.complete++;
+      else result.incomplete++;
+    } catch (error) {
+      if (campaignWorkDeferred(error)) { result.deferred += jobs.length - index; break; }
+      result.scanned++; result.failed++;
+    }
+  }
+  return result;
+}
+
+// Scheduler maintenance shares account scans; delivery preflight above always
+// performs its own fresh read. Replay is required even if identity discovery or
+// today's inbox scan fails, including after observation-to-enforcement changes.
+export async function prepareScheduledReplyContact(actor: CampaignActor, contact: ReplyContact) {
+  await replayContactReplies(actor, contact.id);
+  await prepareReplyContact(actor, contact);
+}
+
+export async function checkScheduledReplyContact(actor: CampaignActor, contact: ReplyContact) {
+  await replayContactReplies(actor, contact.id);
+  await assertContactReplyFresh(actor, contact.id, contact.requiredChannels, { deferLeased: true });
 }

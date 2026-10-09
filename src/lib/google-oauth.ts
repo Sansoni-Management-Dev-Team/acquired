@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
+import { campaignReadSignal } from "@/lib/campaign-work-budget";
 
 export const GOOGLE_MAIL_SCOPES = ["openid", "email", "https://www.googleapis.com/auth/gmail.compose", "https://www.googleapis.com/auth/gmail.readonly"];
 type OAuthState = { userId: string; organizationId: string; nonce: string; verifier: string; expiresAt: number };
@@ -53,6 +54,7 @@ export async function refreshGoogleAccessToken(refreshToken: string, fetcher: ty
       client_secret: process.env.GOOGLE_GMAIL_CLIENT_SECRET || "",
       grant_type: "refresh_token",
     }),
+    signal: campaignReadSignal(),
   });
   if (!response.ok) throw new Error(`Google token refresh failed (${response.status})`);
   return refreshedTokenSchema.parse(await response.json()).access_token;

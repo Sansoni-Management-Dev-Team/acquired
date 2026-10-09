@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 vi.mock("server-only", () => ({}));
 vi.mock("@vercel/functions", () => ({ attachDatabasePool: vi.fn() }));
 import { assertReplyMonitorMember, applyCampaignReply } from "@/lib/campaign-reply-store";
+import { readCampaignReplyAlerts } from "@/lib/campaign-reply-alerts";
 
 // Dedicated loopback database only. All synthetic fixtures and events roll back.
 describe.skipIf(process.env.CAMPAIGN_AUDIT_LOCAL_DB !== "1")("local reply monitor transactions", () => {
@@ -54,6 +55,19 @@ describe.skipIf(process.env.CAMPAIGN_AUDIT_LOCAL_DB !== "1")("local reply monito
     await client.query("RESET ROLE");
     for (const table of ["campaign_reply_receipts", "campaign_reply_holds", "campaign_inbound_events"]) expect((await client.query(`SELECT count(*)::int n FROM ${table} WHERE organization_id=$1 AND channel=$2`, [org, channel])).rows[0].n).toBe(1);
     expect((await client.query("SELECT count(*)::int n FROM audit_events WHERE organization_id=$1 AND action='campaign.reply_received' AND metadata->>'channel'=$2", [org, channel])).rows[0].n).toBe(1);
+    await client.query("SET LOCAL ROLE acquire_campaign_worker");
+  });
+  it("shows durable alerts for all reply channels only to the subscribed owner", async () => {
+    await client.query("SET LOCAL ROLE acquire_campaign_user");
+    await client.query("SELECT set_config('app.acquire_org',$1,true),set_config('app.acquire_user',$2,true)", [org, user]);
+    const alerts = await readCampaignReplyAlerts(sqlClient, actor);
+    expect(alerts).toHaveLength(3);
+    expect(alerts.map(alert => alert.channel).sort()).toEqual([...channels].sort());
+    for (const alert of alerts) expect(alert).toMatchObject({ contactName: "Synthetic", mandateId: mandate, needsReview: false, receivedAt: "2026-10-06T00:00:00.000Z" });
+    await client.query("SELECT set_config('app.acquire_user',$1,true)", [other]);
+    expect(await readCampaignReplyAlerts(sqlClient, { ...actor, userId: other })).toEqual([]);
+    await client.query("SELECT set_config('app.acquire_org','unrelated-org',true)");
+    expect(await readCampaignReplyAlerts(sqlClient, { organizationId: "unrelated-org", userId: other })).toEqual([]);
     await client.query("SET LOCAL ROLE acquire_campaign_worker");
   });
   it("rolls receipt, stop and checkpoint back together when a page transaction fails", async () => {

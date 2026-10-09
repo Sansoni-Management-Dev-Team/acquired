@@ -109,8 +109,9 @@ def eligible(data, kind, fixture=False, now=None):
         scheduled = schedule_next(config, now, kind)
         if scheduled > due:
             due, reason = scheduled, 'Outside active hours'
+    spacing_at=state.get('nextReplyReadAt',0) if kind=='reply' and state.get('lastRequestKind')=='reply' else state.get('nextRequestAt',0)
     for timestamp, label in [(state.get('cooldownUntil', 0), state.get('reason', 'Account is cooling down')),
-                             (state.get('nextRequestAt', 0), 'Waiting between requests')]:
+                             (spacing_at, 'Waiting between requests')]:
         if timestamp > due:
             due, reason = timestamp, label
     stats = usage(data, fixture, now)
@@ -143,6 +144,8 @@ def reserve(data, kind, fixture=False, now=None):
     state, config = control(data, fixture), settings(data, fixture)
     state['events'] = events(data, fixture, now) + [{'at': now, 'kind': kind}]
     state['nextRequestAt'] = now + random.uniform(config['minSpacingSeconds'], config['maxSpacingSeconds'])
+    state['lastRequestKind']=kind
+    if kind=='reply': state['nextReplyReadAt']=now+random.uniform(20,40)
     return now, None
 
 

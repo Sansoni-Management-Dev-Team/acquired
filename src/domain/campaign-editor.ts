@@ -31,6 +31,63 @@ export function replaceCampaignChain(draft: CampaignDraft, context: ReturnType<t
 }
 const cloneStep = (step: CampaignStep) => ({ ...step, id: crypto.randomUUID(), ...(step.position ? { position: { x: step.position.x + 40, y: step.position.y + 40 } } : {}) });
 const wait = (days = 3): CampaignStep => ({ id: crypto.randomUUID(), kind: "wait", title: `Wait ${days} days`, days });
+
+export function campaignConnections(draft: CampaignDraft) {
+  const connections: { source: string; target: string }[] = [];
+  let previous = ["start"];
+  const startSplit = draft.splits?.find(split => split.afterStepId === "start");
+  for (const id of [...(startSplit ? ["start"] : []), ...draft.steps.map(step => step.id)]) {
+    if (id !== "start") {
+      previous.forEach(source => connections.push({ source, target: id }));
+      previous = [id];
+    }
+    const split = draft.splits?.find(item => item.afterStepId === id);
+    if (!split) continue;
+    connections.push({ source: id, target: split.id });
+    previous = (["pathA", "pathB"] as const).map(path => {
+      let source = split.id;
+      for (const step of split[path]) {
+        connections.push({ source, target: step.id });
+        source = step.id;
+      }
+      return source;
+    });
+  }
+  previous.forEach(source => connections.push({ source, target: "end" }));
+  return connections;
+}
+
+export function pruneCampaignConnections(draft: CampaignDraft): CampaignDraft {
+  if (!draft.disconnectedConnections) return draft;
+  const connections = campaignConnections(draft);
+  const disconnectedConnections = draft.disconnectedConnections.filter(edge => connections.some(connection => connection.source === edge.source && connection.target === edge.target));
+  const next: CampaignDraft = { ...draft, disconnectedConnections };
+  if (!disconnectedConnections.length) delete next.disconnectedConnections;
+  return next;
+}
+
+// A collapsed split shows one connection for the two paths that rejoin.
+export function campaignConnectionGroup(draft: CampaignDraft, source: string, target: string) {
+  const connections = campaignConnections(draft);
+  const direct = connections.filter(edge => edge.source === source && edge.target === target);
+  if (direct.length) return direct;
+  const split = draft.splits?.find(split => split.id === source);
+  return split ? connections.filter(edge => edge.target === target && [split.pathA.at(-1)?.id, split.pathB.at(-1)?.id].includes(edge.source)) : [];
+}
+
+export function disconnectCampaign(draft: CampaignDraft, source: string, target: string): CampaignDraft {
+  const additions = campaignConnectionGroup(draft, source, target).filter(edge => !draft.disconnectedConnections?.some(connection => connection.source === edge.source && connection.target === edge.target));
+  return additions.length ? { ...draft, disconnectedConnections: [...(draft.disconnectedConnections || []), ...additions] } : draft;
+}
+
+export function restoreCampaignConnection(draft: CampaignDraft, source: string, target: string): CampaignDraft | null {
+  const group = campaignConnectionGroup(draft, source, target);
+  const matches = (edge: { source: string; target: string }) => group.some(connection => connection.source === edge.source && connection.target === edge.target);
+  if (!draft.disconnectedConnections?.some(matches)) return null;
+  const next: CampaignDraft = { ...draft, disconnectedConnections: draft.disconnectedConnections.filter(edge => !matches(edge)) };
+  if (!next.disconnectedConnections?.length) delete next.disconnectedConnections;
+  return next;
+}
 export function copyCampaignNode(draft: CampaignDraft, id: string): CampaignClipboard | null {
   const split = draft.splits?.find(split => split.id === id);
   if (split) {
@@ -46,6 +103,7 @@ export function copyCampaignNode(draft: CampaignDraft, id: string): CampaignClip
 }
 export function insertCampaignMessage(draft: CampaignDraft, source: string, target: string, message: CampaignStep, days = 3) {
   if (message.kind === "wait") throw new Error("Choose a message; its wait is added automatically");
+  if (!draft.steps.length && !draft.splits?.length) return { draft: pruneCampaignConnections({ ...draft, steps: [message] }), selectedId: message.id };
   const sourceSplit = draft.splits?.find(split => split.id === source);
   const targetContext = campaignChain(draft, target);
   const startsPath = sourceSplit && targetContext?.split?.id === sourceSplit.id;
@@ -83,6 +141,7 @@ export function pasteCampaignNode(draft: CampaignDraft, clipboard: CampaignClipb
   if (clipboard.kind === "message") {
     const split = draft.splits?.find(split => split.id === afterId);
     const source = split?.pathA.at(-1)?.id || afterId || draft.steps.at(-1)?.id;
+    if (!source && !draft.steps.length && !draft.splits?.length) return insertCampaignMessage(draft, "start", "end", cloneStep(clipboard.message), clipboard.days);
     if (!source) throw new Error("Select a node to paste after");
     return insertCampaignMessage(draft, source, "", cloneStep(clipboard.message), clipboard.days);
   }
@@ -127,7 +186,7 @@ export function reconnectCampaign(draft: CampaignDraft, source: string, target: 
     next = replaceCampaignChain(next, destination, steps);
   }
   if (JSON.stringify(next) === JSON.stringify(draft)) return null;
-  return campaignDefinition.safeParse({ ...next, schemaVersion: 1 }).success ? next : null;
+  return campaignDefinition.safeParse({ ...next, disconnectedConnections: [], schemaVersion: 1 }).success ? pruneCampaignConnections(next) : null;
 }
 
 export type CampaignHistory = { present: CampaignDraft | null; past: (CampaignDraft | null)[]; future: (CampaignDraft | null)[] };
