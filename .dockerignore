@@ -18,6 +18,10 @@ ops/app/**
 !ops/app/Dockerfile
 !ops/app/build.mjs
 !ops/app/runtime.mjs
+!ops/app/campaign-readiness.mjs
+!scripts
+scripts/**
+!scripts/campaign-rollout-readiness.mjs
 !.local-data
 .local-data/**
 !.local-data/manufacturing-search-index.json

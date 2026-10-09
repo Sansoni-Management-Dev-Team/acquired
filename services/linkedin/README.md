@@ -16,10 +16,20 @@ For no-send testing, choose **Test with fictional account**, sign in as Test Use
 ```sh
 pnpm test:linkedin
 pnpm test:linkedin:smoke
+pnpm test:campaign:linkedin-stack
 pnpm exec vitest run src/app/api/channels/linkedin/route.test.ts
 ```
 
 The smoke test uses a real Chromium browser with fictional provider routes. It checks VNC streaming, API reads, approved fictional writes, replay protection, encrypted cookie/localStorage restore, viewer revocation, two isolated workers and bounded capacity. When a local model key exists it also runs Browser Use inspection on fictional content. It cleans up only the three dedicated smoke-test owners.
+
+The campaign stack test requires healthy local n8n, PostgreSQL, the sink and an
+updated LinkedIn container, with fixtures and reply monitoring enabled and both
+live-delivery gates disabled. It uses an isolated Next app on port 3013, creates a
+temporary owner and a sequence containing one connection request, subscribes the
+fictional profile, waits for actual scoped inbox coverage and verifies n8n-driven
+submission, completion and duplicate protection. It removes its own fixtures and
+workflow and restores the local scheduler after the run. It applies no migrations
+and sends no real invitations. The normal local app remains at port 3010.
 
 ## Design and limits
 
@@ -28,8 +38,8 @@ The smoke test uses a real Chromium browser with fictional provider routes. It c
 - Keys and Fernet-encrypted state live in ignored `.local-data/linkedin/`; credentials are never returned to the app. Plaintext Chromium profiles exist temporarily inside the container and are removed on close or the next startup. Protect the service environment key: losing it prevents state recovery.
 - Browser Use has only `done` and `read_current_page` tools. Inspection sends visible page content to the configured model provider and suspends the human viewer. A local OpenAI key, or OpenRouter key as fallback, is copied into the private service environment on first setup. No key is required for manual login/API reads.
 - The frontend API adapter derives CSRF from Chromium cookies and captures Messaging's exact GET request (query ID, mailbox URN, variables and sync token when present). Payloads were informed by the user's Lattice extension. LinkedIn's private endpoints can change; live inbox payload compatibility and live writes still require account testing. Successful HTTP dispatch is called `submitted`, not delivery confirmation.
-- Live sends are disabled by default and have no enabled UI send button. Invitation/DM execution is verified against fixtures only. No real outreach is performed by tests. An uncertain operation is recorded before dispatch and cannot be automatically retried, including after restart. Action records are bound to real/fixture mode.
-- No residential proxy, background campaign scheduling, contact search, incremental database inbox sync, session lease across multiple service instances, or production deployment is included yet. Local testing uses the host's normal network connection.
+- Live sends are disabled by default and require explicit activation. Automated tests use fictional provider routes and perform no real outreach. The campaign connection-request path also has a separately authorized local live test covering a provider receipt, successful n8n completion and duplicate protection. An uncertain operation is recorded before dispatch and cannot be automatically retried, including after restart. Action records are bound to real/fixture mode.
+- No residential proxy, contact search or session lease across multiple service instances is included. Campaign scheduling runs through the local app and n8n. Local testing uses the host's normal network connection.
 - Sessions use encrypted local files. No Supabase/Postgres schema changes or migrations are applied. Database integration needs a separately reviewed, specifically approved migration.
 
 Do not expose this local service to the internet. Production needs authenticated TLS viewer routing, persistent key management, durable account jobs and leases, provider rate-limit handling, monitoring, and per-account proxy configuration if chosen.
@@ -38,9 +48,11 @@ Session saving reads cookies and local storage from the existing LinkedIn page. 
 
 ### Activity settings and queue
 
-The LinkedIn card now exposes limits, working hours/timezone, usage, an approved-action queue, cancellation, recovery, and recent activity. `GET/POST /settings` and `GET /queue` are authenticated by the same owner-scoped proxy as the connection. Defaults: 10 invitations/24h, 50/7d, 20 messages/24h, 100 profile reads/24h, 20 total logical requests/hour and 200/24h. Spacing defaults to a randomly selected 120–600 seconds. These are application settings, not verified LinkedIn allowances. Profile-read limits are ready for a future profile adapter; the current adapter supports inbox, invitations, and messages.
+The LinkedIn card now exposes limits, working hours/timezone, usage, an approved-action queue, cancellation, recovery, and recent activity. `GET/POST /settings` and `GET /queue` are authenticated by the same owner-scoped proxy as the connection. Defaults: 10 invitations/24h, 50/7d, 20 messages/24h, 100 profile reads/24h, 20 total logical requests/hour and 200/24h. Spacing defaults to a randomly selected 120–600 seconds. These are application settings, not verified LinkedIn allowances. The adapter supports target-bound profile/relationship reads, inbox history, invitations and messages.
 
-Reply-reader pages use 20–40-second spacing between consecutive reader requests, while still counting every page against those shared hourly/daily limits and respecting verification, provider cooldowns and spacing after other account activity. Other actions retain their configured spacing. A completed sweep waits until at least three minutes from its start before another begins. The previous sweep's conservative coverage timestamp remains available during that next sweep; Acquire still rejects coverage older than five minutes. Reaching account limits can therefore hold outreach even after a scan has completed.
+Reply-reader pages use 20–40-second spacing between consecutive reader requests, while still counting every page against those shared hourly/daily limits and respecting verification, provider cooldowns and spacing after other account activity. Other actions retain their configured spacing. Maintenance requests use a 15-minute cadence; upcoming sends can request an earlier sweep after two minutes. The previous sweep's conservative coverage timestamp remains available during that next sweep; Acquire still rejects coverage older than five minutes. Reaching account limits can therefore hold outreach even after a scan has completed.
+
+Reply pages preserve the existing outreach timer instead of postponing it on each page. A queued campaign action waits for its original eligible time before refreshing an expired relationship check. Successful revalidation does not restart that completed wait; the fresh profile read and the outbound operation each consume a request slot, and dispatch checks the remaining limits again. Failed reads retain normal backoff, and a changed recipient identity requires review.
 
 The reader verifies the observed base64 `DESCENDING&<activity timestamp>&<tie breaker>` continuation against the page's descending `lastActivityAt` values. It stops a folder once that verified boundary precedes the subscription scope, while still collecting recent threads on that page and scanning all four folders. Old dates, short pages, unknown cursor formats and mismatched timestamps do not establish completion. Protocol-v1 partial scans restart under protocol v2 with the current owner subscription scope. Removing an old subscription can narrow the requested date instead of preserving a retired broad history request forever. Durable inbound events and account-bound app checkpoints are retained.
 
@@ -56,8 +68,8 @@ Persistence and locking are for this single-process test deployment. Do not hori
 
 ### Sequence actions and acceptance branches
 
-The sequence editor distinguishes **Send connection request** (an optional note,
-limited to 200 characters after personalisation), **Send message** (confirmed
+The sequence editor distinguishes **Send connection request** (empty note;
+notes remain blocked until their browser contract is verified), **Send message** (confirmed
 connections only), and **Wait for acceptance**. The last action adds a condition
 branch after a main-sequence connection request: path A when connected, path B
 when still unconnected at the configured 1–30 day timeout. Each path's wait starts
@@ -68,7 +80,9 @@ is separate and retains its stable routing.
 The app worker now calls the private owner-scoped `/campaign` endpoint with a
 stable enrolment/step key. The encrypted service journal prevents replay after a
 submitted or uncertain request and rejects changed content under the same key.
-Already-connected invitation recipients are skipped. Campaign queues run only
+Already-connected recipients and verified outgoing pending invitations are
+skipped without a provider write. Incoming, unresolved, or conflicting invitation
+data remains held for review. Campaign queues run only
 when the app calls for an eligible enrolment; background maintenance never sends
 them, so stopping/pausing an enrolment cannot leave an independently running queue.
 As with email, an operation already dispatched can finish after a concurrent pause.
@@ -86,11 +100,14 @@ configured. Real accounts additionally require `LINKEDIN_ALLOW_CAMPAIGNS=true`
 and the existing `LINKEDIN_ALLOW_LIVE_SENDS=true` on the service. These gates are
 not enabled by this change. The live profile response and private write endpoints
 still need account-specific verification; tests use synthetic provider responses.
-A 2xx write means **submitted**, not delivery confirmed. Gmail and an email address
-remain required by the existing enrolment system. LinkedIn DM reply monitoring is
-not implemented: only email replies stop a sequence automatically. Do not enable
-unattended real campaigns until that operational limitation is acceptable and live
-compatibility has been verified. WhatsApp publication remains blocked.
+A 2xx write means **submitted**, not delivery confirmed. A LinkedIn-only sequence
+requires a profile and a connected LinkedIn account; Gmail and an email address
+are optional. Enforced reply monitoring scans the required owner/scope and holds
+sending until coverage is complete and less than five minutes old. Verified
+incoming replies stop the contact across channels. Account verification requires
+the explicit recovery action after login; it is a review condition, not an
+indefinite rate-limit retry. Real account endpoint compatibility still requires
+account-specific verification.
 
 Additional no-send tests: `pytest -q test_campaign.py`. These cover target-bound
 relationship parsing, invitation skips, unknown/nonconnected recipients, note

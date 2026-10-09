@@ -8,7 +8,7 @@ vi.mock("@vercel/functions", () => ({ attachDatabasePool: vi.fn() }));
 const providers = vi.hoisted(() => ({ gmail: vi.fn(), linkedin: vi.fn() }));
 vi.mock("@/lib/campaign-mailbox", () => ({ campaignTestSendAnytime: () => true, campaignMailboxForConnection: providers.gmail }));
 vi.mock("@/lib/campaign-n8n", () => ({ n8nCampaignEnabled: () => false }));
-vi.mock("@/lib/campaign-linkedin", async original => ({ ...await original<typeof import("@/lib/campaign-linkedin")>(), linkedinCampaignEnabled: () => true, campaignLinkedinAccountStatus: async () => "connected", campaignLinkedin: providers.linkedin }));
+vi.mock("@/lib/campaign-linkedin", async original => ({ ...await original<typeof import("@/lib/campaign-linkedin")>(), linkedinCampaignEnabled: () => true, campaignLinkedinAccountStatus: async () => "connected", campaignLinkedin: providers.linkedin, assertLinkedinDeliveryReady: async () => undefined }));
 vi.mock("@/lib/campaign-reply-providers", () => ({ readChannelReplies: async () => ({ accountIdentity: "synthetic-linkedin-account", events: [], nextCursor: "complete", complete: true, checkedAt: new Date().toISOString() }) }));
 import { createMandateContact, createCampaign, publishCampaign, enrolContacts, listCampaignStudio, processCampaignEnrolment } from "@/lib/campaign-service";
 import { ingestCampaignReply } from "@/lib/campaign-reply-store";

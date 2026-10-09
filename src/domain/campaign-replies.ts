@@ -3,11 +3,25 @@ import { z } from "zod";
 export const replyChannels = ["email", "whatsapp", "linkedin"] as const;
 export type ReplyChannel = typeof replyChannels[number];
 export type ReplyIdentity = { contactId: string; email: string; identity: string; since: Date };
+export const replyRetryCodes = ["incomplete", "stale", "busy", "timeout", "rate_limited", "unavailable", "identity_pending"] as const;
 export const replyEventSchema = z.object({ id: z.string().min(1).max(500), fromIdentity: z.string().min(1).max(500), receivedAt: z.iso.datetime() }).strict();
-export const replyPageSchema = z.object({ accountIdentity: z.string().min(1).max(500), events: z.array(replyEventSchema).max(500), nextCursor: z.string().max(4000).nullable(), complete: z.boolean(), checkedAt: z.iso.datetime(), nextReadAt: z.iso.datetime().optional() }).strict();
+export const replyPageSchema = z.object({ accountIdentity: z.string().min(1).max(500), events: z.array(replyEventSchema).max(500), nextCursor: z.string().max(4000).nullable(), complete: z.boolean(), checkedAt: z.iso.datetime(), nextReadAt: z.iso.datetime().optional(), waitReason: z.enum(replyRetryCodes).optional(), coverageInvalidated: z.boolean().optional() }).strict();
 export type ReplyEvent = z.infer<typeof replyEventSchema>;
 export type ReplyPage = z.infer<typeof replyPageSchema>;
 export const replyChannelLabel = (channel: ReplyChannel) => channel === "email" ? "Email" : channel === "whatsapp" ? "WhatsApp" : "LinkedIn";
+
+
+export const replyReviewCodes = ["reconnect", "account_changed", "protocol", "unexpected", "delivery_disabled", "unresolved_send"] as const;
+const diagnosticFields = { channel: z.enum(replyChannels).optional(), coverageAt: z.iso.datetime().nullable().optional(), coverageAgeMs: z.number().nonnegative().nullable().optional() };
+export const replyCheckDiagnosticSchema = z.discriminatedUnion("category", [
+  z.object({ ...diagnosticFields, category: z.literal("retry"), code: z.enum(replyRetryCodes), retryAt: z.iso.datetime().optional() }),
+  z.object({ ...diagnosticFields, category: z.literal("review"), code: z.enum(replyReviewCodes) }),
+]);
+export function replyMonitorIssue(value: string | null | undefined) {
+  if (!value) return undefined;
+  try { const result = replyCheckDiagnosticSchema.safeParse(JSON.parse(value)); return result.success ? result.data : undefined; }
+  catch { return undefined; }
+}
 
 export function replyIdentity(channel: ReplyChannel, raw: string): string | null {
   const value = raw.trim();
@@ -32,7 +46,7 @@ export function replyDecision(event: { fromIdentity: string; receivedAt: Date },
 }
 
 export function monitorFresh(monitor: { lastSuccessAt: Date | null; lastError: string | null } | undefined, now = new Date()) {
-  if (!monitor?.lastSuccessAt || monitor.lastError) return false;
+  if (!monitor?.lastSuccessAt || (monitor.lastError && replyMonitorIssue(monitor.lastError)?.category !== "retry")) return false;
   const age = now.getTime() - monitor.lastSuccessAt.getTime();
   return age >= 0 && age <= 300_000;
 }

@@ -182,7 +182,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
         y += Math.max(split.pathA.length, split.pathB.length) * nodeGap;
       }
     }
-    nodes.push({ id: "end", position: { x: mainX, y }, data: { label: <span>Complete · or stop on email reply{readOnly && <span className="block text-[10px] text-[var(--muted)]">{statuses.get("end")}</span>}</span> }, draggable: false, selectable: false, style: style("end") });
+    nodes.push({ id: "end", position: { x: mainX, y }, data: { label: <span>Complete · or stop on reply{readOnly && <span className="block text-[10px] text-[var(--muted)]">{statuses.get("end")}</span>}</span> }, draggable: false, selectable: false, style: style("end") });
     previous.forEach(id => link(id, "end"));
     return { nodes: nodes.map(node => ({ ...node, measured: dimensions[node.id] })), edges };
   })();
@@ -435,7 +435,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
           {selectedStep.kind === "linkedin" && <>
             <label className="block text-xs font-medium">LinkedIn action<select className={field} value={selectedStep.action || "message"} onChange={event => updateStep({ ...selectedStep, action: event.target.value as "connect" | "message" })}><option value="connect">Send connection request</option><option value="message">Send message</option></select></label>
             {selectedStep.action === "connect" && !selectedEntry?.split && !draft.splits?.some(split => split.afterStepId === selectedStep.id) && <button type="button" className={`${button} w-full`} disabled={!canAddSplit} onClick={() => addSplit(selectedStep.id, true)}><GitFork size={15} /> Add acceptance branch</button>}
-            <p className="text-xs text-[var(--muted)]">{selectedStep.action === "connect" ? "Skips people already connected. Add a Wait for acceptance branch to follow up after they accept." : "Sends only to confirmed connections. An unconnected recipient is held for review."}</p>
+            <p className="text-xs text-[var(--muted)]">{selectedStep.action === "connect" ? "Skips existing connections and outgoing pending invitations. Add a Wait for acceptance branch to follow up after they accept." : "Sends only to confirmed connections. An unconnected recipient is held for review."}</p>
           </>}
           <label className="block text-xs font-medium">{selectedStep.kind === "linkedin" && selectedStep.action === "connect" ? "Connection note (optional · 200 characters after personalisation)" : "Body"}<textarea value={selectedStep.body} onChange={event => updateStep({ ...selectedStep, body: event.target.value })} rows={10} className="mt-1 w-full rounded-lg border border-[var(--border)] bg-[var(--background)] p-3 text-sm" /></label>
           <p className="text-xs text-[var(--muted)]">Use {"{{first_name}}"}, {"{{full_name}}"}, or {"{{company_name}}"}.</p>

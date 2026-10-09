@@ -4,6 +4,17 @@ import secrets
 import uuid
 from urllib.parse import urlparse
 import diagnostics as diag
+from playwright.async_api import Error as BrowserError, TimeoutError as BrowserTimeoutError
+
+def read_failure_code(error):
+    """Classify transport failures only; malformed/ambiguous reads need review."""
+    if isinstance(error,(TimeoutError,BrowserTimeoutError)): return 'timeout'
+    if isinstance(error,(ConnectionError,OSError)): return 'unavailable'
+    if isinstance(error,BrowserError):
+        if re.search(r'TimeoutError|AbortError|signal timed out',str(error),re.I): return 'timeout'
+        if re.search(r'Failed to fetch|NetworkError|net::ERR_(?:CONNECTION|TIMED_OUT|NAME_NOT_RESOLVED|NETWORK)',str(error),re.I): return 'unavailable'
+    return None
+
 
 PATHS = {
     'invite': '/voyager/api/voyagerRelationshipsDashMemberRelationships?action=verifyQuotaAndCreateV2&decorationId=com.linkedin.voyager.dash.deco.relationships.InvitationCreationResultWithInvitee-2',
@@ -167,7 +178,7 @@ def parse_relationship(data, identity):
     def collect(value):
         if isinstance(value, dict):
             for key, entry in value.items():
-                if key in ('*memberRelationship', 'memberRelationshipUrn') and isinstance(entry, str) and entry.startswith('urn:li:fsd_memberRelationship:'):
+                if key in ('*memberRelationship', 'memberRelationshipUrn', '*connectionOrInvitation', 'connectionOrInvitation') and isinstance(entry, str) and entry.startswith('urn:li:fsd_memberRelationship:'):
                     relationship_refs.add(entry)
                 elif isinstance(entry, (dict, list)):
                     collect(entry)
@@ -175,11 +186,15 @@ def parse_relationship(data, identity):
             for entry in value:
                 collect(entry)
     collect(profile.get('profileStatefulProfileActions'))
+    pending = False
+    ambiguous = len(relationship_refs) > 1
     if len(relationship_refs) == 1:
         relations = [item for item in included if isinstance(item, dict) and item.get('entityUrn') in relationship_refs]
+        ambiguous = len(relations) != 1
         if len(relations) == 1:
             relation = relations[0]
             connections = set()
+            invitations = set()
             no_connection_degrees = set()
             for field in ('memberRelationshipUnion', 'memberRelationshipData'):
                 union = relation.get(field)
@@ -191,13 +206,30 @@ def parse_relationship(data, identity):
                 no_connection = union.get('noConnection')
                 if isinstance(no_connection, dict) and no_connection.get('memberDistance') in ('DISTANCE_2', 'SECOND', 'DISTANCE_3', 'THIRD', 'OUT_OF_NETWORK'):
                     no_connection_degrees.add(False)
+                invitation_union = no_connection.get('invitationUnion', {}) if isinstance(no_connection, dict) else {}
+                for source in (union, invitation_union):
+                    invitation = source.get('*invitation') or source.get('invitation') if isinstance(source, dict) else None
+                    if isinstance(invitation, str): invitations.add(invitation)
+            if invitations:
+                resolved = [item for item in included if isinstance(item, dict) and item.get('entityUrn') in invitations]
+                # Only the target's verified outgoing pending invitation may
+                # suppress a duplicate. Missing/stale/incoming receipts require review.
+                pending = len(invitations) == 1 and len(resolved) == 1 and (
+                    resolved[0].get('inviteeMember') == profile['entityUrn']
+                    and resolved[0].get('invitationState') == 'PENDING'
+                    and resolved[0].get('invitationType') == 'SENT')
+                ambiguous = not pending or bool(connections)
             if len(connections) == 1 and not no_connection_degrees:
                 resolved = [item for item in included if isinstance(item, dict) and item.get('entityUrn') in connections]
                 if len(resolved) == 1 and resolved[0].get('connectedMember') == profile['entityUrn']:
                     degrees.add(True)
+                else: ambiguous = True
             elif not connections:
                 degrees.update(no_connection_degrees)
-    return {'connected': next(iter(degrees)) if len(degrees) == 1 else None, 'recipient': profile['entityUrn']}
+            else: ambiguous = True
+    observed = {'connected': next(iter(degrees)) if len(degrees) == 1 and not ambiguous else None, 'recipient': profile['entityUrn']}
+    if pending and observed['connected'] is False: observed['invitationPending'] = True
+    return observed
 
 
 async def relationship(worker, identity):

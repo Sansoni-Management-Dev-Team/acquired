@@ -6,9 +6,10 @@ vi.mock("@/db/campaign-client", () => ({ rows: mock.rows, withCampaignDb: (_acto
 vi.mock("@/lib/campaign-reply-monitor", () => ({ checkContactReplyMonitors: mock.check, assertContactReplyFresh: mock.fresh, prepareReplyContact: vi.fn(), runReplyMonitorTick: vi.fn() }));
 vi.mock("@/lib/campaign-mailbox", () => ({ campaignTestSendAnytime: () => true, campaignMailboxForConnection: () => ({ ...mock.gmail, send: mock.email }) }));
 vi.mock("@/lib/campaign-whatsapp", async original => ({ ...await original<typeof import("./campaign-whatsapp")>(), campaignWhatsapp: mock.whatsapp, assertCampaignWhatsappConnected: vi.fn() }));
-vi.mock("@/lib/campaign-linkedin", async original => ({ ...await original<typeof import("./campaign-linkedin")>(), campaignLinkedin: mock.linkedin }));
+vi.mock("@/lib/campaign-linkedin", async original => ({ ...await original<typeof import("./campaign-linkedin")>(), campaignLinkedin: mock.linkedin, assertLinkedinDeliveryReady: vi.fn() }));
 import { ingestCampaignReply } from "./campaign-reply-store";
 import { processCampaignEnrolment } from "./campaign-service";
+import { ReplyCheckPending } from "./campaign-reply-status";
 const actor = { organizationId: "org", userId: "owner" };
 const contactId = randomUUID(), id = randomUUID();
 let state: string, hold: boolean, kind: "email" | "whatsapp" | "linkedin", incoming: "email" | "whatsapp" | "linkedin";
@@ -43,4 +44,13 @@ it("does not send when a required reply monitor failed", async () => {
   expect(await processCampaignEnrolment(actor, id)).toMatchObject({ outcome: "needs_review" });
   expect(mock.email).not.toHaveBeenCalled();
   expect(mock.query.mock.calls.some(([sql, values]) => sql.includes("state = 'needs_review'") && values.includes("linkedin reply monitoring is stale"))).toBe(true);
+});
+
+it("retries pending coverage without claiming a send or removing its scheduled step", async () => {
+  mock.check.mockRejectedValue(new ReplyCheckPending("incomplete", "linkedin"));
+  expect(await processCampaignEnrolment(actor, id)).toMatchObject({ outcome: "retry", nextStepAt: expect.any(Date) });
+  expect(state).toBe("active");
+  expect(mock.query.mock.calls.some(([sql]) => sql.includes("state = 'needs_review'") || sql.includes("next_step_at = NULL"))).toBe(false);
+  expect(mock.query.mock.calls.some(([sql]) => sql.includes("campaign.reply_check_waiting"))).toBe(true);
+  expect(mock.email).not.toHaveBeenCalled(); expect(mock.whatsapp).not.toHaveBeenCalled(); expect(mock.linkedin).not.toHaveBeenCalled();
 });

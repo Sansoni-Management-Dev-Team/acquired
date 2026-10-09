@@ -41,6 +41,7 @@ async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 function dateLabel(value: string | null) { return value ? new Date(value).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" }) : "—"; }
 function statusLabel(enrolment: EnrolmentView) {
+  if (enrolment.state === "active" && enrolment.stopReason === "reply_monitor_wait") return "Waiting for reply checks";
   if (enrolment.state === "needs_review") return enrolment.stopReason === "existing_conversation" ? "Existing conversation" : "Needs review";
   if (enrolment.state === "stopped" && enrolment.stopReason === "reply_received") return `${enrolment.lastReply ? replyChannelLabel(enrolment.lastReply.channel) : "Email"} reply — stopped`;
   return enrolment.state.charAt(0).toUpperCase() + enrolment.state.slice(1);

@@ -48,8 +48,10 @@ printf '%s\n' 'APP_IMAGE=${image}' > .env
 chmod 600 .env
 if docker compose up -d --wait --wait-timeout 120; then
   if docker compose exec -T app node -e "fetch('http://127.0.0.1:3000/api/health/ready',{headers:{Authorization:'Bearer '+process.env.APP_READINESS_SECRET}}).then(r=>{if(!r.ok)process.exit(1);console.log('Database readiness passed')}).catch(()=>process.exit(1))"; then
-    rm -f /opt/acquire-app/app-image.tar
-    exit 0
+    if docker compose exec -T app node /app/campaign-readiness.mjs; then
+      rm -f /opt/acquire-app/app-image.tar
+      exit 0
+    fi
   fi
 fi
 echo 'Deployment verification failed; attempting previous-image rollback'

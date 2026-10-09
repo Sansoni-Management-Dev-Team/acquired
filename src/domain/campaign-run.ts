@@ -16,7 +16,7 @@ export function campaignRunStatuses(run: CampaignRun, now = Date.now()) {
     else if (attempt?.state === "unknown") statuses.set(entry.step.id, "Needs review");
     else if (entry.split && pathFor(entry.split) && entry.path !== pathFor(entry.split)) statuses.set(entry.step.id, "Skipped");
     else if (index === run.stepIndex || entry.step.kind === "wait" && index === run.stepIndex - 1) {
-      const status = run.state === "stopped" ? "Stopped" : run.state === "paused" ? "Paused" : run.state === "needs_review" ? "Needs review" : attempt?.state === "claimed" ? "Sending" : run.retryStepIndex === run.stepIndex ? "Retry scheduled" : run.nextStepAt && new Date(run.nextStepAt).getTime() > now ? entry.step.kind === "wait" ? "Waiting" : "Scheduled" : "Ready";
+      const status = run.state === "stopped" ? "Stopped" : run.state === "paused" ? "Paused" : run.state === "needs_review" ? "Needs review" : attempt?.state === "claimed" ? "Sending" : run.stopReason === "reply_monitor_wait" ? "Waiting for reply checks" : run.retryStepIndex === run.stepIndex ? "Retry scheduled" : run.nextStepAt && new Date(run.nextStepAt).getTime() > now ? entry.step.kind === "wait" ? "Waiting" : "Scheduled" : "Ready";
       statuses.set(entry.step.id, status);
     } else if (entry.step.kind === "wait" && run.attempts.some(attempt => attempt.stepId === entries[index + 1]?.step.id && attempt.state === "sent")) statuses.set(entry.step.id, "Elapsed");
     else statuses.set(entry.step.id, "Pending");

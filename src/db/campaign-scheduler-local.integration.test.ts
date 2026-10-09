@@ -5,7 +5,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@vercel/functions", () => ({ attachDatabasePool: vi.fn() }));
 vi.mock("@/lib/campaign-reply-providers", () => ({ readChannelReplies: vi.fn() }));
 import { readChannelReplies } from "@/lib/campaign-reply-providers";
-import { runCampaignTick } from "@/lib/campaign-service";
+import { runCampaignTick, changeEnrolment } from "@/lib/campaign-service";
 import { runReplyMonitorTick, scanReplyChannel } from "@/lib/campaign-reply-monitor";
 import { withCampaignTickLock, withCampaignWorker } from "./campaign-client";
 import { campaignReadSignal, withCampaignWorkBudget, CampaignWorkDeferred } from "@/lib/campaign-work-budget";
@@ -40,7 +40,7 @@ describe.skipIf(process.env.CAMPAIGN_AUDIT_LOCAL_DB !== "1")("local campaign sch
       await db.query("INSERT INTO campaign_sequence_versions (id,organization_id,owner_user_id,sequence_id,version,definition) VALUES ($1,$2,$3,$4,1,$5)", [version, org, user, sequence, JSON.stringify(definition)]);
       for (const [i, contact] of contacts.entries()) {
         const profile = `https://www.linkedin.com/in/scheduler-synthetic-${i}`;
-        await db.query("INSERT INTO contacts (id,organization_id,mandate_id,display_name,personal_data,provenance) VALUES ($1,$2,$3,'Synthetic',$4,'{}')", [contact, org, mandate, JSON.stringify({ linkedinUrl: profile })]);
+        await db.query("INSERT INTO contacts (id,organization_id,mandate_id,display_name,personal_data,provenance,fictionalised) VALUES ($1,$2,$3,'Synthetic',$4,'{}',false)", [contact, org, mandate, JSON.stringify({ linkedinUrl: profile })]);
         await db.query("INSERT INTO campaign_contact_assignments (organization_id,contact_id,owner_user_id,email) VALUES ($1,$2,$3,NULL)", [org, contact, user]);
         await db.query("INSERT INTO campaign_enrolments (organization_id,owner_user_id,sequence_id,version_id,mandate_id,contact_id,recipient_linkedin,state,stop_reason,runtime,n8n_started_at) VALUES ($1,$2,$3,$4,$5,$6,$7,'needs_review','reply_check_failed','n8n',now())", [org, user, sequence, version, mandate, contact, profile]);
         await db.query("INSERT INTO campaign_reply_identities (organization_id,owner_user_id,contact_id,channel,identity,source_identity,email,since) VALUES ($1,$2,$3,'linkedin',$4,$5,'',now())", [org, user, contact, `urn:li:fsd_profile:scheduler${i}`, profile]);
@@ -50,14 +50,14 @@ describe.skipIf(process.env.CAMPAIGN_AUDIT_LOCAL_DB !== "1")("local campaign sch
   });
   beforeEach(async () => {
     reader.mockReset();
-    await db.query("UPDATE campaign_enrolments SET last_reply_checked_at=NULL WHERE organization_id=$1", [org]);
+    await db.query("UPDATE campaign_enrolments SET last_reply_checked_at=NULL,state='needs_review',stop_reason='reply_check_failed',next_step_at=NULL WHERE organization_id=$1", [org]);
     await db.query("DELETE FROM campaign_reply_monitors WHERE organization_id=$1", [org]);
   });
   afterAll(async () => {
     try {
       if (fixtures) {
         await db.query("BEGIN");
-        for (const table of ["campaign_reply_receipts", "campaign_reply_holds", "campaign_reply_monitors", "campaign_reply_identities", "campaign_enrolments", "campaign_contact_assignments", "campaign_sequence_versions", "campaign_sequences", "contacts", "mandates", "audit_events", "member"]) await db.query(`DELETE FROM ${table} WHERE organization_id=$1`, [org]);
+        for (const table of ["campaign_reply_receipts", "campaign_reply_holds", "campaign_send_attempts", "campaign_reply_monitors", "campaign_reply_identities", "campaign_enrolments", "campaign_contact_assignments", "campaign_sequence_versions", "campaign_sequences", "contacts", "mandates", "audit_events", "member"]) await db.query(`DELETE FROM ${table} WHERE organization_id=$1`, [org]);
         await db.query("DELETE FROM organization WHERE id=$1", [org]); await db.query('DELETE FROM "user" WHERE id=$1', [user]);
         await db.query("COMMIT");
       }
@@ -109,11 +109,37 @@ describe.skipIf(process.env.CAMPAIGN_AUDIT_LOCAL_DB !== "1")("local campaign sch
     });
     await expect(withCampaignWorkBudget(100, () => scanReplyChannel(actor, "linkedin", { maxPages: 1 }))).rejects.toThrow();
     expect(await monitor()).toMatchObject({ cursor: null, lease_token: null, lease_until: null, last_success_at: null });
-    expect((await monitor()).last_error).toContain("deferred");
+    expect((await monitor()).last_error).toContain("timeout");
   });
   it("finishes an admitted page commit and lease cleanup after the work budget expires", async () => {
     reader.mockImplementationOnce(async () => { await new Promise(resolve => setTimeout(resolve, 100)); return page("saved-after-deadline"); });
     expect(await withCampaignWorkBudget(50, () => scanReplyChannel(actor, "linkedin", { maxPages: 1 }))).toMatchObject({ complete: false, cursor: "saved-after-deadline" });
     expect(await monitor()).toMatchObject({ cursor: "saved-after-deadline", last_success_at: null, lease_token: null, lease_until: null });
   });
+  it("keeps an active scheduled step during incomplete coverage and audits the retry", async () => {
+    const scheduled = new Date(Date.now() + 3_600_000);
+    await db.query("UPDATE campaign_enrolments SET state='active',stop_reason=NULL,next_step_at=$2 WHERE organization_id=$1", [org, scheduled]);
+    reader.mockResolvedValue({ ...page("pending"), nextReadAt: new Date(Date.now() + 120_000).toISOString() });
+    await runCampaignTick();
+    const waiting = (await db.query("SELECT * FROM campaign_enrolments WHERE organization_id=$1 AND last_reply_checked_at IS NOT NULL", [org])).rows;
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0]).toMatchObject({ state: "active", stop_reason: "reply_monitor_wait", next_step_at: scheduled, step_index: 0 });
+    const audit = (await db.query("SELECT metadata FROM audit_events WHERE organization_id=$1 AND action='campaign.reply_check_waiting' ORDER BY created_at DESC LIMIT 1", [org])).rows[0].metadata;
+    expect(audit).toMatchObject({ category: "retry", channel: "linkedin", phase: "maintenance", retryAt: expect.any(String), transition: { from: "active", to: "active" } });
+    expect((await db.query("SELECT * FROM campaign_send_attempts WHERE organization_id=$1", [org])).rowCount).toBe(0);
+  });
+  it("does not restore any of the five holds until fresh scoped coverage and delivery gates pass", async () => {
+    reader.mockResolvedValue({ ...page("verified", true), checkedAt: new Date().toISOString() });
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Response.json({ fixture: false, protection: { liveSendsEnabled: false, campaignsEnabled: false } })));
+    const jobs = (await db.query("SELECT id FROM campaign_enrolments WHERE organization_id=$1 ORDER BY id", [org])).rows;
+    try {
+      for (const job of jobs) await expect(changeEnrolment(actor, job.id, "retry_preflight")).rejects.toMatchObject({ code: "delivery_disabled" });
+      expect((await db.query("SELECT count(*)::int n FROM campaign_enrolments WHERE organization_id=$1 AND state='needs_review' AND next_step_at IS NULL", [org])).rows[0].n).toBe(5);
+      vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Response.json({ fixture: false, protection: { liveSendsEnabled: true, campaignsEnabled: true } })));
+      for (const job of jobs) expect(await changeEnrolment(actor, job.id, "retry_preflight")).toMatchObject({ state: "active", nextStepAt: expect.any(Date) });
+      expect((await db.query("SELECT count(*)::int n FROM campaign_enrolments WHERE organization_id=$1 AND state='active' AND next_step_at IS NOT NULL", [org])).rows[0].n).toBe(5);
+      expect((await db.query("SELECT * FROM campaign_send_attempts WHERE organization_id=$1", [org])).rowCount).toBe(0);
+    } finally { vi.unstubAllGlobals(); }
+  });
+
 });

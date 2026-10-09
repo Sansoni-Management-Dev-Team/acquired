@@ -7,7 +7,9 @@ vi.mock("@/lib/campaign-reply-providers", () => ({ readChannelReplies: mock.read
 vi.mock("@/lib/campaign-whatsapp", async original => ({ ...await original<typeof import("./campaign-whatsapp")>(), whatsappCampaignEnabled: () => true, assertCampaignWhatsappConnected: mock.connected }));
 vi.mock("@/lib/campaign-linkedin", () => ({ linkedinCampaignEnabled: () => true, campaignLinkedinAccountStatus: async () => "connected", linkedinProfileFor: (data: Record<string, unknown>) => { if (!data.linkedinUrl) throw new Error("missing"); return data.linkedinUrl; }, campaignLinkedin: mock.linkedin }));
 import { checkContactReplyMonitors, scanReplyChannel, assertContactReplyFresh, prepareReplyContact, checkScheduledReplyContact, runReplyMonitorTick } from "./campaign-reply-monitor";
-import { withCampaignWorkBudget, CampaignWorkDeferred } from "./campaign-work-budget";
+import { withCampaignWorkBudget } from "./campaign-work-budget";
+import { ReplyCheckPending, ReplyCheckReview } from "./campaign-reply-status";
+import { monitorFresh } from "@/domain/campaign-replies";
 const actor = { organizationId: "org", userId: "owner" };
 const contact = { id: "contact", email: "alex@example.test", data: {}, since: new Date(0), requiredChannels: ["email" as const] };
 let lease: boolean, account: string | null, success: Date | null, error: string | null, cursor: string | null;
@@ -16,15 +18,15 @@ beforeEach(() => {
   mock.inbound.mockResolvedValue([]); mock.connected.mockResolvedValue(undefined); mock.linkedin.mockResolvedValue({ recipient: "urn:li:fsd_profile:alex" });
   mock.read.mockResolvedValue({ accountIdentity: "wa-account", events: [], nextCursor: "1", complete: true, checkedAt: new Date().toISOString() });
   mock.query.mockImplementation(async (sql: string, values: unknown[]) => {
-    if (sql.includes("SET account_identity")) { account = values[4] as string; cursor = values[5] as string | null; success = values[6] ? values[7] as Date : null; error = values[6] ? null : "incomplete"; }
-    if (sql.includes("SET last_error")) error = values[4] as string;
+    if (sql.includes("SET account_identity")) { account = values[4] as string; cursor = values[5] as string | null; success = values[6] ? values[7] as Date : values[10] ? null : sql.includes("ELSE last_success_at") ? success : null; error = values[6] && !values[9] ? null : values[8] as string; }
+    if (sql.includes("SET last_error")) { error = values[4] as string; if (values[5]) success = null; }
     return { rowCount: 1, rows: [] };
   });
   mock.rows.mockImplementation(async (_client, sql: string) => {
     if (sql.includes("FROM member")) return [{ id: "member" }];
     if (sql.includes("FROM campaign_reply_identities") && !sql.includes("JOIN")) return [{ channel: "email", identity: contact.email, email: contact.email, contact_id: contact.id, since: contact.since }];
     if (sql.includes("FROM mailbox_connections")) return [{ id: "mailbox", address: "me@example.test" }];
-    if (sql.startsWith("UPDATE campaign_reply_monitors")) return [{ channel: "email", account_identity: account, cursor, last_success_at: success, last_error: error }];
+    if (sql.startsWith("UPDATE campaign_reply_monitors")) { if (sql.includes("last_success_at = NULL")) success = null; return [{ channel: "email", account_identity: account, cursor, last_success_at: success, last_error: error }]; }
     if (sql.startsWith("SELECT channel FROM campaign_reply_monitors")) return lease ? [{ channel: "email" }] : [];
     if (sql.includes("FROM campaign_reply_monitors")) return [{ channel: "email", account_identity: account, last_success_at: success, last_error: error }];
     return [];
@@ -43,24 +45,25 @@ it("does not commit events or checkpoints from a worker whose lease was taken ov
 });
 it("pins the account identity and records failures without advancing the cursor", async () => {
   account = "old-account";
-  await expect(scanReplyChannel(actor, "whatsapp")).rejects.toThrow("account changed");
+  await expect(scanReplyChannel(actor, "whatsapp")).rejects.toMatchObject({ code: "account_changed" });
   expect(mock.query.mock.calls.some(([sql]) => sql.includes("SET account_identity"))).toBe(false);
-  expect(error).toContain("account changed");
+  expect(JSON.parse(error!)).toMatchObject({ category: "review", code: "account_changed" });
+  expect(success).toBeNull();
 });
 it("holds a failed or missing monitor but leaves existing sends alone in observation mode", async () => {
   success = null; error = "disconnected";
-  await expect(assertContactReplyFresh(actor, contact.id)).rejects.toThrow("stale or disconnected");
+  await expect(assertContactReplyFresh(actor, contact.id)).rejects.toBeInstanceOf(ReplyCheckReview);
   vi.stubEnv("CAMPAIGN_REPLY_MONITOR_MODE", "observe");
   await assertContactReplyFresh(actor, contact.id);
 });
 it("does not authorize an unresolved LinkedIn identity", async () => {
   mock.linkedin.mockResolvedValue({ status: "retry" });
-  await expect(checkContactReplyMonitors(actor, { ...contact, data: { linkedinUrl: "https://linkedin.com/in/alex" }, requiredChannels: ["email", "linkedin"] })).rejects.toThrow("could not be verified");
+  await expect(checkContactReplyMonitors(actor, { ...contact, data: { linkedinUrl: "https://linkedin.com/in/alex" }, requiredChannels: ["email", "linkedin"] })).rejects.toMatchObject({ code: "identity_pending" });
   expect(mock.read).not.toHaveBeenCalled();
 });
 it("does not treat a failed optional account lookup as proof that there are no WhatsApp replies", async () => {
   mock.connected.mockRejectedValue(new Error("service offline"));
-  await expect(checkContactReplyMonitors(actor, { ...contact, data: { phone: "+61412345678" } })).rejects.toThrow("service offline");
+  await expect(checkContactReplyMonitors(actor, { ...contact, data: { phone: "+61412345678" } })).rejects.toMatchObject({ code: "unexpected" });
 });
 it("resumes Gmail from a durable watermark with overlap rather than rereading the contact's entire history", async () => {
   await scanReplyChannel(actor,"email");
@@ -112,7 +115,7 @@ it("scheduled contact evaluation checks durable health without another provider 
 
 it("scheduled evaluation still rejects incomplete monitoring and shared contact holds", async () => {
   success = null; error = "incomplete";
-  await expect(checkScheduledReplyContact(actor, contact)).rejects.toThrow("stale or disconnected");
+  await expect(checkScheduledReplyContact(actor, contact)).rejects.toBeInstanceOf(ReplyCheckPending);
   expect(mock.inbound).not.toHaveBeenCalled();
   success = new Date(); error = null;
   const original = mock.rows.getMockImplementation()!;
@@ -122,16 +125,16 @@ it("scheduled evaluation still rejects incomplete monitoring and shared contact 
 
 it("reports a partial scheduled scan and commits just one resumable page", async () => {
   const original = mock.rows.getMockImplementation()!;
-  mock.rows.mockImplementation(async (client, sql: string) => sql.startsWith("SELECT DISTINCT i.organization_id") ? [{ organization_id: "org", owner_user_id: "owner", channel: "linkedin" }] : original(client, sql));
+  mock.rows.mockImplementation(async (client, sql: string) => sql.startsWith("SELECT i.organization_id") ? [{ organization_id: "org", owner_user_id: "owner", channel: "linkedin" }] : original(client, sql));
   mock.read.mockResolvedValue({ accountIdentity: "account", events: [], nextCursor: "partial", complete: false, checkedAt: new Date().toISOString() });
   expect(await runReplyMonitorTick()).toEqual({ scanned: 1, complete: 0, incomplete: 1, failed: 0, skipped: 0, deferred: 0 });
-  expect(mock.read).toHaveBeenCalledOnce(); expect(cursor).toBe("partial"); expect(success).toBeNull();
+  expect(mock.read).toHaveBeenCalledOnce(); expect(cursor).toBe("partial"); expect(success).toBeInstanceOf(Date);
 });
 
 it("reports lease contention as skipped rather than a completed scan", async () => {
   const original = mock.rows.getMockImplementation()!;
   mock.rows.mockImplementation(async (client, sql: string) => {
-    if (sql.startsWith("SELECT DISTINCT i.organization_id")) return [{ organization_id: "org", owner_user_id: "owner", channel: "linkedin" }];
+    if (sql.startsWith("SELECT i.organization_id")) return [{ organization_id: "org", owner_user_id: "owner", channel: "linkedin" }];
     if (sql.startsWith("UPDATE campaign_reply_monitors")) return [];
     return original(client, sql);
   });
@@ -141,7 +144,7 @@ it("reports lease contention as skipped rather than a completed scan", async () 
 
 it("reports provider failures separately and defers accounts it has not started", async () => {
   const original = mock.rows.getMockImplementation()!;
-  mock.rows.mockImplementation(async (client, sql: string) => sql.startsWith("SELECT DISTINCT i.organization_id") ? [{ organization_id: "org", owner_user_id: "owner", channel: "linkedin" }] : original(client, sql));
+  mock.rows.mockImplementation(async (client, sql: string) => sql.startsWith("SELECT i.organization_id") ? [{ organization_id: "org", owner_user_id: "owner", channel: "linkedin" }] : original(client, sql));
   mock.read.mockRejectedValue(new Error("provider offline"));
   expect(await runReplyMonitorTick()).toMatchObject({ scanned: 1, failed: 1, incomplete: 0 });
   mock.read.mockClear();
@@ -149,13 +152,55 @@ it("reports provider failures separately and defers accounts it has not started"
   expect(mock.read).not.toHaveBeenCalled();
 });
 
-it("scheduled checks defer an in-flight inbox lease while delivery preflight remains strict", async () => {
+it("scheduled and delivery checks retry an in-flight inbox lease without permitting a send", async () => {
   success = null;
   const original = mock.rows.getMockImplementation()!;
   mock.rows.mockImplementation(async (client, sql: string) => {
     if (sql === "SELECT * FROM campaign_reply_monitors WHERE organization_id = $1 AND owner_user_id = $2") return [{ channel: "email", last_success_at: null, last_error: null, lease_until: new Date(Date.now() + 60_000) }];
     return original(client, sql);
   });
-  await expect(checkScheduledReplyContact(actor, contact)).rejects.toBeInstanceOf(CampaignWorkDeferred);
-  await expect(assertContactReplyFresh(actor, contact.id, ["email"])).rejects.toThrow("stale or disconnected");
+  await expect(checkScheduledReplyContact(actor, contact)).rejects.toBeInstanceOf(ReplyCheckPending);
+  await expect(assertContactReplyFresh(actor, contact.id, ["email"])).rejects.toBeInstanceOf(ReplyCheckPending);
+});
+
+it("keeps completed coverage while committing partial progress and still enforces expiry", async () => {
+  const completed = success;
+  mock.read.mockResolvedValue({ accountIdentity: "wa-account", events: [], nextCursor: "partial", complete: false, checkedAt: new Date().toISOString(), nextReadAt: new Date(Date.now() + 60_000).toISOString() });
+  expect(await scanReplyChannel(actor, "whatsapp")).toMatchObject({ complete: false });
+  expect(success).toBe(completed);
+  expect(monitorFresh({ lastSuccessAt: success, lastError: error })).toBe(true);
+  expect(mock.rows.mock.calls.find(([,sql]) => sql.startsWith("UPDATE campaign_reply_monitors"))![1]).not.toContain("last_success_at = NULL");
+});
+
+it("preserves coverage and cursor after a retryable transport failure", async () => {
+  const completed = success; cursor = "saved";
+  mock.read.mockRejectedValue(new DOMException("private details", "TimeoutError"));
+  await expect(scanReplyChannel(actor, "linkedin")).rejects.toBeInstanceOf(ReplyCheckPending);
+  expect(success).toBe(completed); expect(cursor).toBe("saved");
+  expect(error).not.toContain("private details");
+});
+
+it("uses the provider's rate-limit wait even when its completed coverage has expired", async () => {
+  success = new Date(Date.now() - 600_000);
+  const retryAt = new Date(Date.now() + 3_600_000).toISOString();
+  mock.read.mockResolvedValue({ accountIdentity: "account", events: [], nextCursor: "rate-wait", complete: true, checkedAt: success.toISOString(), nextReadAt: retryAt, waitReason: "rate_limited" });
+  await scanReplyChannel(actor, "whatsapp");
+  await expect(assertContactReplyFresh(actor, contact.id)).rejects.toMatchObject({ code: "rate_limited", retryAt: new Date(retryAt) });
+});
+
+it("explicitly invalidates the old completed watermark when provider scope changes", async () => {
+  mock.read.mockResolvedValue({ accountIdentity: "account", events: [], nextCursor: "scope-change", complete: false, checkedAt: new Date().toISOString(), nextReadAt: new Date(Date.now() + 60_000).toISOString(), coverageInvalidated: true });
+  await scanReplyChannel(actor, "whatsapp");
+  expect(success).toBeNull();
+});
+
+it("extends an existing verified LinkedIn identity to cover an earlier enrolment scope", async () => {
+  const original = mock.rows.getMockImplementation()!;
+  mock.rows.mockImplementation(async (client, sql: string) => {
+    if (sql.includes("FROM campaign_reply_identities") && !sql.includes("JOIN")) return [{ channel: "linkedin", identity: "urn:li:fsd_profile:alex", source_identity: "https://linkedin.com/in/alex", since: new Date(contact.since.getTime() + 60_000) }];
+    return original(client, sql);
+  });
+  await prepareReplyContact(actor, { ...contact, data: { linkedinUrl: "https://linkedin.com/in/alex" }, requiredChannels: ["linkedin"] });
+  expect(mock.linkedin).not.toHaveBeenCalled();
+  expect(mock.query.mock.calls.some(([sql]) => sql.includes("UPDATE campaign_reply_identities SET since"))).toBe(true);
 });

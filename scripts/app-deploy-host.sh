@@ -43,6 +43,7 @@ cp "$release/compose.hosted.yml" compose.hosted.yml
 printf 'APP_IMAGE=%s\n' "$image" > .env
 docker compose up -d --wait --wait-timeout 120
 docker compose exec -T app node -e "fetch('http://127.0.0.1:3000/api/health/ready',{headers:{Authorization:'Bearer '+process.env.APP_READINESS_SECRET}}).then(r=>{if(!r.ok)process.exit(1);console.log('Database readiness passed')}).catch(()=>process.exit(1))"
+docker compose exec -T app node /app/campaign-readiness.mjs
 docker compose cp "$release/app-public-smoke.mjs" app:/tmp/acquire-public-smoke.mjs
 docker compose exec -T app node /tmp/acquire-public-smoke.mjs
 printf '%s\n' "$revision" > releases/current-commit

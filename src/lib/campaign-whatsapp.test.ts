@@ -39,3 +39,10 @@ it("never retries an ambiguous network response or accepts missing provider IDs"
   await expect(campaignWhatsapp(actor, { recipient: "61412345678@s.whatsapp.net", text: "Hi" })).rejects.toThrow("timeout");
   expect(fetch).toHaveBeenCalledTimes(2);
 });
+
+it("keeps temporary WhatsApp account lookup failures retryable", async () => {
+  vi.stubEnv("WHATSAPP_SERVICE_URL", "http://localhost:18095"); vi.stubEnv("WHATSAPP_SERVICE_SECRET", "fixture-secret");
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 503 })));
+  const { assertCampaignWhatsappConnected } = await import("./campaign-whatsapp");
+  await expect(assertCampaignWhatsappConnected({ organizationId: "org", userId: "owner" })).rejects.toMatchObject({ code: "unavailable" });
+});

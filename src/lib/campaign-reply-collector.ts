@@ -1,4 +1,5 @@
 import { replyPageSchema, type ReplyPage } from "@/domain/campaign-replies";
+import { ReplyCheckReview } from "@/lib/campaign-reply-status";
 import { campaignRemainingMs } from "@/lib/campaign-work-budget";
 
 // Each page is committed with its events in one transaction. Only a complete
@@ -15,7 +16,7 @@ export async function collectReplyPages(input: {
     if (campaignRemainingMs() === 0) return { complete: false, cursor, deferred: true };
     const page = replyPageSchema.parse(await input.read(cursor));
     const waiting = !page.complete && page.nextReadAt !== undefined && new Date(page.nextReadAt).getTime() > Date.now();
-    if (accountIdentity && accountIdentity !== page.accountIdentity) throw new Error("Reply monitor account changed; review before reconnecting");
+    if (accountIdentity && accountIdentity !== page.accountIdentity) throw new ReplyCheckReview("account_changed");
     if (!page.complete && (page.nextCursor === null || (seen.has(page.nextCursor) && !(waiting && page.nextCursor === cursor)))) throw new Error("Reply monitor checkpoint did not advance");
     if (new Date(page.checkedAt).getTime() > Date.now() + 5000 || page.events.some(event => new Date(event.receivedAt).getTime() > Date.now() + 5000)) throw new Error("Invalid reply monitor timestamps");
     if (!await input.commit(page)) return { complete: false, cursor };

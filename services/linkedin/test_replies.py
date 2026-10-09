@@ -271,6 +271,20 @@ def test_modern_endpoint_rejects_invalid_or_unscoped_since_dates(setup,monkeypat
     for value in ('garbage','2026-10-05','2999-01-01T00:00:00Z'):
         assert call(client,'get','/replies',params={'organizationId':'test-org','userId':'alice','since':value}).status_code==400
 
+def test_verification_hold_cannot_certify_reply_coverage(setup, monkeypatch):
+    client, vault = setup
+    monkeypatch.setenv('LINKEDIN_REPLY_MONITOR_ENABLED', 'true')
+    worker = modern_worker()
+    worker.status = AsyncMock(return_value='connected')
+    owner = vault.owner('test-org', 'alice')
+    server.workers[owner] = worker
+    data = vault.load(owner)
+    server.policy.control(data, worker.fixture)['requiresVerification'] = True
+    vault.save(owner, data)
+    response = call(client, 'get', '/replies', params={'organizationId': 'test-org', 'userId': 'alice', 'background': 'true'})
+    assert response.status_code == 409
+    assert response.json()['detail']['code'] == 'reconnect'
+
 
 def test_old_activity_does_not_hide_later_replies_behind_a_conversation_cursor():
     from replies import advance_modern_scan
@@ -365,3 +379,86 @@ def test_background_scope_expiry_or_disabled_monitor_spends_no_budget(setup,monk
     data['controls']['linkedin']['replyRequest']['until']=server.time.time()+600;vault.save(owner,data)
     monkeypatch.setenv('LINKEDIN_REPLY_MONITOR_ENABLED','false')
     asyncio.run(server.background_reply_read(owner,worker));provider.assert_not_awaited()
+
+def test_background_maintenance_does_not_continuously_restart_completed_scans(setup,monkeypatch):
+    client,vault=setup;owner=vault.owner('test-org','alice')
+    worker=modern_worker();worker.status=AsyncMock(return_value='connected');server.workers[owner]=worker
+    monkeypatch.setenv('LINKEDIN_REPLY_MONITOR_ENABLED','true')
+    monkeypatch.setattr(server.policy,'eligible',lambda data,kind,fixture,now:(now,None))
+    monkeypatch.setattr(server.policy,'reserve',lambda data,kind,fixture,now:(now,None))
+    provider=AsyncMock(return_value=category_page([]));monkeypatch.setattr(server,'provider_request',provider)
+    clock=[1700000000];monkeypatch.setattr(server.time,'time',lambda:clock[0])
+    params={'organizationId':'test-org','userId':'alice','background':'true','refresh':'false','since':'1970-01-01T00:00:00Z'}
+    for seconds in range(0,3600,30):
+        clock[0]=1700000000+seconds
+        if seconds%60==0: assert call(client,'get','/replies',params=params).status_code==200
+        asyncio.run(server.background_reply_read(owner,worker))
+    # Four validated folder reads per maintenance sweep, four sweeps per hour.
+    assert provider.await_count==16
+    assert server.policy.control(vault.load(owner),worker.fixture)['replyJournal']['scan']['complete']
+    # An upcoming send can request an earlier sweep, without changing quotas.
+    clock[0]+=60;params['refresh']='true'
+    assert call(client,'get','/replies',params=params).status_code==200
+    asyncio.run(server.background_reply_read(owner,worker))
+    assert provider.await_count==17
+
+
+def test_background_reader_reports_structured_review_without_erasing_completed_coverage(setup,monkeypatch):
+    client,vault=setup;owner=vault.owner('test-org','alice')
+    worker=modern_worker();worker.status=AsyncMock(return_value='connected');server.workers[owner]=worker
+    monkeypatch.setenv('LINKEDIN_REPLY_MONITOR_ENABLED','true')
+    monkeypatch.setattr(server.policy,'eligible',lambda data,kind,fixture,now:(now,None))
+    monkeypatch.setattr(server.policy,'reserve',lambda data,kind,fixture,now:(now,None))
+    params={'organizationId':'test-org','userId':'alice','background':'true','since':'1970-01-01T00:00:00Z'}
+    call(client,'get','/replies',params=params)
+    monkeypatch.setattr(server,'provider_request',AsyncMock(return_value={'status':200,'data':{'unverified':'secret'}}))
+    asyncio.run(server.background_reply_read(owner,worker))
+    response=call(client,'get','/replies',params=params)
+    assert response.status_code==503
+    assert response.json()['detail']['code']=='reply_unverified'
+    assert 'secret' not in response.text
+    asyncio.run(server.background_reply_read(owner,worker))
+    assert server.provider_request.await_count==1
+    server.provider_request.return_value=category_page([])
+    assert call(client,'post','/settings',json={'operation':'recover'}).status_code==200
+    for _ in range(4): asyncio.run(server.background_reply_read(owner,worker))
+    recovered=call(client,'get','/replies',params=params)
+    assert recovered.status_code==200 and recovered.json()['complete']
+
+
+def test_scope_change_invalidates_coverage_and_rate_wait_preserves_completed_timestamp(setup,monkeypatch):
+    client,vault=setup;owner=vault.owner('test-org','alice');worker=modern_worker()
+    worker.status=AsyncMock(return_value='connected');server.workers[owner]=worker
+    monkeypatch.setenv('LINKEDIN_REPLY_MONITOR_ENABLED','true')
+    clock=[1700001000];monkeypatch.setattr(server.time,'time',lambda:clock[0])
+    monkeypatch.setattr(server.policy,'eligible',lambda data,kind,fixture,now:(now,None))
+    monkeypatch.setattr(server.policy,'reserve',lambda data,kind,fixture,now:(now,None))
+    monkeypatch.setattr(server,'provider_request',AsyncMock(return_value=category_page([])))
+    params={'organizationId':'test-org','userId':'alice','background':'true','since':'1970-01-01T00:00:00Z'}
+    call(client,'get','/replies',params=params)
+    for _ in range(4):
+        asyncio.run(server.background_reply_read(owner,worker));clock[0]+=30
+    clock[0]+=600
+    monkeypatch.setattr(server.policy,'eligible',lambda data,kind,fixture,now:(now+3600,'requestsHourly limit reached'))
+    result=call(client,'get','/replies',params=params).json()
+    assert result['complete'] and result['checkedAt']=='2023-11-14T22:30:00.000Z'
+    assert result['waitReason']=='rate_limited' and not result['coverageInvalidated']
+    narrowed=call(client,'get','/replies',params={**params,'since':'2023-11-14T22:00:00Z'}).json()
+    assert not narrowed['complete'] and narrowed['coverageInvalidated']
+
+
+def test_browser_transport_timeout_remains_retryable_and_resumes_its_checkpoint(setup,monkeypatch):
+    from playwright.async_api import Error as BrowserError
+    client,vault=setup;owner=vault.owner('test-org','alice');worker=modern_worker()
+    worker.status=AsyncMock(return_value='connected');server.workers[owner]=worker
+    monkeypatch.setenv('LINKEDIN_REPLY_MONITOR_ENABLED','true')
+    monkeypatch.setattr(server.policy,'eligible',lambda data,kind,fixture,now:(now,None))
+    monkeypatch.setattr(server.policy,'reserve',lambda data,kind,fixture,now:(now,None))
+    call(client,'get','/replies',params={'organizationId':'test-org','userId':'alice','background':'true','since':'1970-01-01T00:00:00Z'})
+    monkeypatch.setattr(server,'provider_request',AsyncMock(side_effect=BrowserError('Page.evaluate: TimeoutError: signal timed out')))
+    asyncio.run(server.background_reply_read(owner,worker))
+    state=server.policy.control(vault.load(owner),worker.fixture)
+    assert state['replyReadIssue']['category']=='retry'
+    assert state['replyReadIssue']['code']=='timeout'
+    assert state['replyReadIssue']['retryAt']>server.time.time()
+    assert not state['replyJournal']['scan']['complete']

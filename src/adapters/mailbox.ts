@@ -1,3 +1,4 @@
+import { replyHttpFailure, replyRead } from "@/lib/campaign-reply-status";
 import { campaignReadSignal } from "@/lib/campaign-work-budget";
 
 export type OutboundMessage = { to: string; subject: string; text: string; replyTo?: string; threadId?: string; messageId?: string };
@@ -68,8 +69,8 @@ export class GmailMailbox implements MailboxAdapter {
   private async searchPage(query: string, maxResults = 10, pageToken?: string): Promise<{ messages: { id: string; threadId: string }[]; nextPageToken?: string }> {
     const token = await this.accessToken();
     const params = new URLSearchParams({ q: query, maxResults: String(maxResults), ...(pageToken ? { pageToken } : {}) });
-    const response = await this.fetcher(`https://gmail.googleapis.com/gmail/v1/users/me/messages?${params}`, { headers: { Authorization: `Bearer ${token}` }, signal: campaignReadSignal() });
-    if (!response.ok) throw new Error(`Gmail conversation check failed (${response.status})`);
+    const response = await replyRead("email", () => this.fetcher(`https://gmail.googleapis.com/gmail/v1/users/me/messages?${params}`, { headers: { Authorization: `Bearer ${token}` }, signal: campaignReadSignal() }));
+    if (!response.ok) throw await replyHttpFailure(response, "email");
     const result = await response.json() as { messages?: { id: string; threadId: string }[]; nextPageToken?: string };
     return { messages: result.messages || [], nextPageToken: result.nextPageToken };
   }
@@ -105,8 +106,8 @@ export class GmailMailbox implements MailboxAdapter {
     for (let offset = 0; offset < candidates.length; offset += 10) {
       messages.push(...await Promise.all(candidates.slice(offset, offset + 10).map(async candidate => {
         const params = new URLSearchParams({ format: "metadata", metadataHeaders: "From" });
-        const response = await this.fetcher(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(candidate.id)}?${params}`, { headers: { Authorization: `Bearer ${token}` }, signal: campaignReadSignal() });
-        if (!response.ok) throw new Error(`Gmail reply check failed (${response.status})`);
+        const response = await replyRead("email", () => this.fetcher(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(candidate.id)}?${params}`, { headers: { Authorization: `Bearer ${token}` }, signal: campaignReadSignal() }));
+        if (!response.ok) throw await replyHttpFailure(response, "email");
         return response.json() as Promise<{ id: string; internalDate: string; payload?: { headers?: { name: string; value: string }[] } }>;
       })));
     }

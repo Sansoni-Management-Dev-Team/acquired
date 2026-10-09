@@ -32,7 +32,9 @@ def test_message_never_dispatches_without_confirmed_connection(setup, monkeypatc
 def test_failed_relationship_read_never_sends_an_invitation(setup, monkeypatch, status):
     client, _, _, lookup, provider = prepare(setup, monkeypatch)
     lookup.return_value = ({'status': status}, {'connected': False, 'recipient': 'urn:li:fsd_profile:alex'})
-    assert call(client, 'post', '/campaign', json=request()).status_code == 409
+    response=call(client,'post','/campaign',json=request())
+    assert response.status_code==(200 if status in (429,500) else 409)
+    if status in (429,500): assert response.json()['status']=='retry'
     assert provider.call_count == 0
 
 @pytest.mark.parametrize('changed', ['recipient', 'operation', 'text'])
@@ -48,6 +50,10 @@ def test_same_key_cannot_be_rebound_to_other_content_or_recipient(setup, monkeyp
 
 @pytest.mark.parametrize('failure', ['timeout', 'server-error', 'redirect'])
 def test_ambiguous_write_cannot_be_automatically_repeated(setup, monkeypatch, failure):
+    # Keep the first write queued even when a busy local VM spends more than
+    # one second persisting the profile read and action journal.
+    now = time.time()
+    monkeypatch.setattr(server.time, 'time', lambda: now)
     client, vault, owner, _, provider = prepare(setup, monkeypatch)
     queued = call(client, 'post', '/campaign', json=request()).json()['action']
     data = vault.load(owner); server.policy.control(data, True)['nextRequestAt'] = 0; vault.save(owner, data)
