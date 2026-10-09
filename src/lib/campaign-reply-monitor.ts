@@ -9,6 +9,7 @@ import { assertReplyMonitorMember, applyCampaignReply, assertNoReplyHold, assert
 import { collectReplyPages } from "@/lib/campaign-reply-collector";
 import { readChannelReplies } from "@/lib/campaign-reply-providers";
 import { campaignMailboxForConnection } from "@/lib/campaign-mailbox";
+import { connectionCanMonitorReplies } from "@/lib/gmail-connection";
 import { assertCampaignWorkRemaining, campaignWorkDeferred, withCampaignWorkCleanup, CampaignWorkDeferred } from "@/lib/campaign-work-budget";
 
 type MonitorRow = { channel: ReplyChannel; cursor: string | null; account_identity: string | null; last_success_at: Date | null; last_error: string | null; lease_until?: Date | null };
@@ -18,7 +19,12 @@ export type ReplyContact = { id: string; email: string | null; data: Record<stri
 export async function prepareReplyContact(actor: CampaignActor, contact: ReplyContact) {
   if (replyMonitorMode() === "off") return;
   const existing = await withCampaignDb(actor, client => rows<IdentityRow>(client, "SELECT * FROM campaign_reply_identities WHERE organization_id = $1 AND owner_user_id = $2 AND contact_id = $3", [actor.organizationId, actor.userId, contact.id]));
-  if (contact.requiredChannels.includes("email")) {
+  const emailRequired = contact.requiredChannels.includes("email");
+  const emailMonitored = existing.some(item => item.channel === "email");
+  const [mailbox] = contact.email && !emailRequired && !emailMonitored ? await withCampaignDb(actor, client => rows<{ encrypted_refresh_token: string | null; reconnect_required: boolean; scopes: string[] | null }>(client,
+    "SELECT encrypted_refresh_token,reconnect_required,scopes FROM mailbox_connections WHERE organization_id = $1 AND user_id = $2 AND provider = 'gmail'", [actor.organizationId, actor.userId])) : [];
+  // Replies stop the person even when their sequence only sends on another channel.
+  if (emailRequired || (contact.email && (emailMonitored || (mailbox && connectionCanMonitorReplies({ encryptedRefreshToken: mailbox.encrypted_refresh_token, reconnectRequired: mailbox.reconnect_required, scopes: mailbox.scopes }))))) {
     if (!contact.email) throw new Error("Email reply identity is unavailable");
     await saveReplyIdentity(actor, { contactId: contact.id, email: contact.email, channel: "email", identity: contact.email, sourceIdentity: contact.email, since: contact.since });
   }
@@ -111,6 +117,9 @@ export async function checkContactReplyMonitors(actor: CampaignActor, contact: R
   if (replyMonitorMode() === "off") return;
   try { await prepareReplyContact(actor, contact); }
   catch (error) { if (replyMonitorMode() === "enforce") throw error; return; }
+  // Previously observed replies must stop outreach even if today's provider
+  // scan is incomplete or unavailable during activation of enforcement.
+  await replayContactReplies(actor, contact.id);
   const identities = await withCampaignDb(actor, client => rows<IdentityRow>(client, "SELECT * FROM campaign_reply_identities WHERE organization_id = $1 AND owner_user_id = $2 AND contact_id = $3", [actor.organizationId, actor.userId, contact.id]));
   const channels = [...new Set<ReplyChannel>([...contact.requiredChannels, ...identities.map(item => item.channel)])];
   for (const channel of channels) {

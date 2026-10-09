@@ -8,6 +8,7 @@ import { Building2, House, Settings, Plus, PanelLeftClose, PanelLeftOpen, Menu, 
 import { ThemeToggle } from "./theme-toggle";
 import { AcquisitionProgress } from "./acquisition-progress";
 import { LegalLinks } from "./legal-page";
+import { CampaignReplyAlerts } from "./campaign-reply-alerts";
 
 import { mandateTabHref } from "@/domain/mandate-navigation";
 type SidebarState = { mandates: { id: string; name: string }[]; selected?: string; tab: string };
@@ -67,7 +68,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
       </aside>
-      <main className="min-w-0"><Suspense fallback={null}><AcquisitionProgress /></Suspense>{children}</main>
+      <main className="min-w-0"><Suspense fallback={null}><AcquisitionProgress /></Suspense><CampaignReplyAlerts />{children}</main>
     </div></SidebarContext.Provider>
   );
 }

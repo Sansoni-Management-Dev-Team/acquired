@@ -78,6 +78,23 @@ it("registers LinkedIn-only reply monitoring without an email identity", async (
   expect(inserts[0][1][6]).toBe("");
   expect(mock.inbound).not.toHaveBeenCalled();
 });
+it("monitors replies on connected Gmail even when the sequence only sends LinkedIn", async () => {
+  const original = mock.rows.getMockImplementation()!;
+  mock.rows.mockImplementation(async (client, sql: string) => {
+    if (sql.includes("FROM campaign_reply_identities")) return [];
+    if (sql.includes("FROM mailbox_connections")) return [{ encrypted_refresh_token: "encrypted", reconnect_required: false, scopes: ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.compose"] }];
+    return original(client, sql);
+  });
+  await prepareReplyContact(actor, { ...contact, data: { linkedinUrl: "https://www.linkedin.com/in/alex" }, requiredChannels: ["linkedin"] });
+  const channels = mock.query.mock.calls.filter(([sql]) => sql.startsWith("INSERT INTO campaign_reply_identities")).map(([, values]) => values[3]);
+  expect(channels).toEqual(["email", "linkedin"]);
+});
+it("keeps social-only campaigns usable without an optional Gmail connection", async () => {
+  mock.rows.mockResolvedValue([]);
+  await prepareReplyContact(actor, { ...contact, data: { linkedinUrl: "https://www.linkedin.com/in/alex" }, requiredChannels: ["linkedin"] });
+  const channels = mock.query.mock.calls.filter(([sql]) => sql.startsWith("INSERT INTO campaign_reply_identities")).map(([, values]) => values[3]);
+  expect(channels).toEqual(["linkedin"]);
+});
 it("does not require an email monitor for a fresh LinkedIn-only contact", async () => {
   mock.rows.mockImplementation(async (_client, sql: string) => {
     if (sql.includes("FROM campaign_reply_identities") && !sql.includes("JOIN")) return [{ channel: "linkedin", identity: "urn:li:fsd_profile:alex" }];
