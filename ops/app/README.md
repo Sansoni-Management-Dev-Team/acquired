@@ -30,7 +30,8 @@ authenticated database-readiness check. It stops the app on a failed first
 deployment or restores the previous image and environment after a failed update.
 Manual deployments remain available through these commands. GitHub also runs
 `.github/workflows/digitalocean.yml` after pushes/PR merges into `main`, or through
-its **Run workflow** button on `main`. PR branches are not deployed.
+its **Run workflow** button on `main`. PRs run build checks on GitHub-hosted
+runners, but PR branches are not deployed and do not use the production runner.
 
 GitHub's Ubuntu runner runs the deployment regression tests and builds the
 Linux image. It uploads an image artifact retained for three days. The dedicated
