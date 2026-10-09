@@ -28,8 +28,34 @@ The deploy command targets only the pinned host recorded in
 the image and restricted environment, and waits for container health and an
 authenticated database-readiness check. It stops the app on a failed first
 deployment or restores the previous image and environment after a failed update.
-Run one deployment at a time. This is a manual process; Git pushes do not deploy
-to DigitalOcean.
+Manual deployments remain available through these commands. GitHub also runs
+`.github/workflows/digitalocean.yml` after pushes/PR merges into `main`, or through
+its **Run workflow** button on `main`. PR branches are not deployed.
+
+GitHub's Ubuntu runner runs the deployment regression tests and builds the
+Linux image. It uploads an image artifact retained for three days. The dedicated
+`acquire-app-01-deploy` runner on the Droplet downloads that run's artifact and
+executes `scripts/app-deploy-host.sh`. Images use the exact commit SHA; the
+downloaded image ID and release revision are checked before rollout. No app
+secret, DigitalOcean token or SSH private key is stored in GitHub for this flow.
+
+The `digitalocean-production` environment permits only `main`. Releases are
+serialized and use an on-host lock shared with manual deployment. Runtime secrets
+stay in the existing server `.env.hosted`; readiness and public OAuth/sign-in
+redirect checks trigger image/compose rollback on failure. There are no automatic
+database migrations or Cloudflare Worker/service deployments. Deploy changes to
+those components separately when needed. Older CI images are removed after a
+successful release, retaining the current and previous images. Provider data and
+channel sessions are preserved.
+
+The runner is a systemd service named
+`actions.runner.callumholt-project-acquire.acquire-app-01-deploy.service` under
+`/opt/acquire-actions-runner`. It connects outbound to GitHub; the SSH firewall
+does not need GitHub runner IPs. Keep this repository private and limit workflow
+writes to trusted maintainers: its deploy runner has Docker administration.
+For troubleshooting, inspect the GitHub Actions run and `systemctl status` for
+that service. To pause automatic deployment, disable the workflow in GitHub;
+manual deployment remains available. A build failure leaves the live app alone.
 
 Browser-origin checks and app-owned redirects must use the configured public
 `APP_URL`. Self-hosted Next.js request URLs can contain the container's internal

@@ -27,11 +27,13 @@ if (needsImage) {
   run("docker", ["save", "-o", archive, image]);
   run("scp", [...sshOptions, archive, `${host}:/opt/acquire-app/app-image.tar`]);
 }
-run("scp", [...sshOptions, "ops/app/compose.hosted.yml", `${host}:/opt/acquire-app/ops/app/compose.hosted.yml`]);
+run("scp", [...sshOptions, "ops/app/compose.hosted.yml", `${host}:/opt/acquire-app/ops/app/compose.hosted.yml.next`]);
 run("scp", [...sshOptions, resolve(environmentFile), `${host}:/opt/acquire-app/ops/app/.env.hosted.next`]);
 const command = `set -eu
 cd /opt/acquire-app/ops/app
 export COMPOSE_FILE=compose.hosted.yml
+exec 9>/opt/acquire-app/deploy.lock
+flock -w 120 9
 chmod 600 .env.hosted.next
 ${needsImage ? "docker load -i /opt/acquire-app/app-image.tar >/dev/null" : "# Verified image already present"}
 docker image inspect '${image}' --format '{{.Id}}'
@@ -39,6 +41,8 @@ mkdir -p releases
 chmod 700 releases
 if [ -f .env ]; then cp .env releases/previous-image.env; fi
 if [ -f .env.hosted ]; then cp .env.hosted releases/previous-runtime.env; fi
+if [ -f compose.hosted.yml ]; then cp compose.hosted.yml releases/previous-compose.yml; fi
+mv compose.hosted.yml.next compose.hosted.yml
 mv .env.hosted.next .env.hosted
 printf '%s\n' 'APP_IMAGE=${image}' > .env
 chmod 600 .env
@@ -52,6 +56,7 @@ echo 'Deployment verification failed; attempting previous-image rollback'
 if [ -f releases/previous-image.env ] && [ -f releases/previous-runtime.env ]; then
   cp releases/previous-image.env .env
   cp releases/previous-runtime.env .env.hosted
+  if [ -f releases/previous-compose.yml ]; then cp releases/previous-compose.yml compose.hosted.yml; fi
   docker compose up -d --wait --wait-timeout 120
   docker compose exec -T app node -e "fetch('http://127.0.0.1:3000/api/health/ready',{headers:{Authorization:'Bearer '+process.env.APP_READINESS_SECRET}}).then(r=>{if(!r.ok)process.exit(1);console.log('Previous release database readiness passed')}).catch(()=>process.exit(1))"
 else
