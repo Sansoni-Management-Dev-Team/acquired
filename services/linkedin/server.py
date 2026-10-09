@@ -1019,13 +1019,16 @@ async def fixture():
 async def fixture_inbox():
     if os.getenv('LINKEDIN_ENABLE_FIXTURES') != 'true':
         raise HTTPException(404)
-    paths = ['/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.fixture&variables=(mailboxUrn:urn:li:fsd_profile:fixture,syncToken:fixture-token-123456)']
+    paths = []
     for folder in replies.FOLDERS:
         paths.append('/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.fixture&variables=(query:'+replies.category_query(folder)+',count:20,mailboxUrn:urn:li:fsd_profile:fixture)')
     paths.extend([
         '/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.fixture&variables=(query:'+replies.category_query('PRIMARY_INBOX')+',count:20,mailboxUrn:urn:li:fsd_profile:fixture,nextCursor:fixture-cursor)',
         '/voyagerMessagingGraphQL/graphql?queryId=messengerMessages.fixture&variables=(conversationUrn:urn:li:msg_conversation:fixture-alex)',
         '/voyagerMessagingGraphQL/graphql?queryId=messengerMessages.fixture&variables=(conversationUrn:urn:li:msg_conversation:fixture-alex,deliveredAt:1,countBefore:20,countAfter:0)',
+        # Finish on the visible inbox after capturing hidden scan queries, so
+        # manual message validation reads its verified one-to-one conversation.
+        '/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.fixture&variables=(mailboxUrn:urn:li:fsd_profile:fixture,syncToken:fixture-token-123456)',
     ])
     return '<h1>Test User inbox</h1><p>Alex Example: Hello from the fictional test account.</p><script>'+''.join("fetch('"+path+"');" for path in paths)+'</script>'
 
