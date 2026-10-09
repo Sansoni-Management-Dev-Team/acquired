@@ -38,7 +38,7 @@ jobs:
           node scripts/app-image-build.mjs https://acquire.mlai.au "acquire-app:github-${GITHUB_SHA}"
           mkdir release
           docker save "acquire-app:github-${GITHUB_SHA}" | gzip > release/image.tar.gz
-          docker image inspect "acquire-app:github-${GITHUB_SHA}" --format '{{.Id}}' > release/image-id
+          sha256sum release/image.tar.gz | cut -d' ' -f1 > release/archive-sha256
           printf '%s\n' "$GITHUB_SHA" > release/commit
           cp ops/app/compose.hosted.yml scripts/app-deploy-host.sh scripts/app-public-smoke.mjs release/
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

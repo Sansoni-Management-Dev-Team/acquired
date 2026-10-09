@@ -37,7 +37,8 @@ GitHub's Ubuntu runner runs the deployment regression tests and builds the
 Linux image. It uploads an image artifact retained for three days. The dedicated
 `acquire-app-01-deploy` runner on the Droplet downloads that run's artifact and
 executes `scripts/app-deploy-host.sh`. Images use the exact commit SHA; the
-downloaded image ID and release revision are checked before rollout. No app
+downloaded archive SHA-256 and image revision label are checked before rollout.
+This avoids comparing Docker engine-specific image IDs. No app
 secret, DigitalOcean token or SSH private key is stored in GitHub for this flow.
 
 The `digitalocean-production` environment permits only `main`. Releases are
