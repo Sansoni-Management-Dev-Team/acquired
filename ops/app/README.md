@@ -136,3 +136,58 @@ availability, deploy a compatible release deliberately, restore callback routing
 and ensure only one scheduler dispatches. Reconnect Git and remove/change the
 override only when automatic Vercel deployment is intended. A powered-off
 Droplet still incurs charges; deletion is a separate decision.
+
+## Campaign reply enforcement rollout
+
+Both deployment paths run the packaged `campaign-readiness.mjs` after database
+health and roll back when enforcement readiness fails. The owner-scoped
+`GET /api/internal/campaigns/readiness?organizationId=...&userId=...` requires the
+existing `OUTREACH_WORKER_SECRET` bearer credential and returns uncached results.
+`enforceReady` requires every active enrolment to have scoped fresh coverage or
+an explicit `reply_monitor_wait` state. `recoveryReady` additionally requires
+fresh coverage, both hosted LinkedIn delivery switches and no unresolved or
+already-sent current attempt. Process/DB health alone does not authorize sending.
+
+Deploy the LinkedIn reader before the app: its `/settings` response now exposes
+`campaignsEnabled`, and `/replies` distinguishes scan progress, completed coverage,
+rate waits and scope invalidation. Preserve the encrypted volume and key. Keep
+both live-delivery switches disabled during rollout. No migration is required.
+Align the hosted n8n tick request timeout with the checked-in 120-second setting;
+the incident workflow still used 30 seconds. This bounds the caller's wait and
+does not increase reader capacity or replace the app's work budget.
+
+The reader performs one requested sweep at a time. Maintenance requests use
+`refresh=false` and a 15-minute cadence; accounts with actions due within five
+minutes are prioritized and request an earlier sweep. Send preflights can request
+refresh after two minutes. Four-folder empty-inbox maintenance uses 16 requests
+per hour. Larger inboxes can need more pages. The existing hourly/daily quotas,
+20–40-second page spacing and five-minute coverage expiry are unchanged; backlog
+or exhausted capacity leaves sends waiting. This does not guarantee that every
+due action fits the current account budget.
+
+Reply pages preserve the outreach timer. An eligible queued action refreshes an
+expired relationship check without restarting its completed spacing wait. The
+read and send each consume capacity, and dispatch rechecks quotas and cooldowns.
+Changed recipient identities require review. Existing connections and verified
+outgoing pending invitations resolve connection-request steps as skipped.
+
+Recover old `reply_check_failed` enrolments using the existing authenticated
+`retry_preflight` action, never a bulk unconditional SQL update. It replays replies,
+checks current contacts and canonical/shared holds, scans the required scope,
+checks delivery switches, rejects unresolved/sent attempts, and rechecks coverage
+under the recovery transaction lock. It preserves the pinned version and current
+step. Unknown results, ambiguous identities and human review holds remain held.
+
+Incident and local validation evidence lives in the ignored
+`.local-data/campaign-reply-fix/` directory. Subsequent live profile checks found
+outgoing pending invitations for all five original incident profiles; those
+existing invitations are not evidence that this local test sent them. Recovery
+must revalidate their current relationships and resolve verified pending requests
+as skipped, rather than create replacement requests. One separately authorized
+new-profile test confirmed actual n8n submission, a provider invitation receipt,
+completion and duplicate protection. Temporary local limits and sending hours
+were restored afterward; production was not changed.
+
+Do not increase production limits or extend coverage expiry as part of this fix.
+No migration is required. The separate prepared RLS parity SQL remains unapplied
+and still needs approval for that specific migration.

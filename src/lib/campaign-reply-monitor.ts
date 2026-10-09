@@ -1,8 +1,9 @@
 import "server-only";
 import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
+import type { PoolClient } from "pg";
 import { rows, withCampaignDb, withCampaignWorker, type CampaignActor } from "@/db/campaign-client";
-import { monitorFresh, replyIdentity, type ReplyChannel, type ReplyPage } from "@/domain/campaign-replies";
+import { monitorFresh, replyIdentity, replyMonitorIssue, type ReplyChannel, type ReplyPage } from "@/domain/campaign-replies";
 import { campaignLinkedin, campaignLinkedinAccountStatus, linkedinCampaignEnabled, linkedinProfileFor } from "@/lib/campaign-linkedin";
 import { whatsappCampaignEnabled, assertCampaignWhatsappConnected, CampaignWhatsappDisconnected } from "@/lib/campaign-whatsapp";
 import { assertReplyMonitorMember, applyCampaignReply, assertNoReplyHold, assertNoSharedReplyHold, replayContactReplies, replyMonitorMode, saveReplyIdentity } from "@/lib/campaign-reply-store";
@@ -10,7 +11,8 @@ import { collectReplyPages } from "@/lib/campaign-reply-collector";
 import { readChannelReplies } from "@/lib/campaign-reply-providers";
 import { campaignMailboxForConnection } from "@/lib/campaign-mailbox";
 import { connectionCanMonitorReplies } from "@/lib/gmail-connection";
-import { assertCampaignWorkRemaining, campaignWorkDeferred, withCampaignWorkCleanup, CampaignWorkDeferred } from "@/lib/campaign-work-budget";
+import { assertCampaignWorkRemaining, campaignWorkDeferred, withCampaignWorkCleanup } from "@/lib/campaign-work-budget";
+import { ReplyCheckPending, ReplyCheckReview, replyCheckFailure, replyCheckDiagnostic } from "@/lib/campaign-reply-status";
 
 type MonitorRow = { channel: ReplyChannel; cursor: string | null; account_identity: string | null; last_success_at: Date | null; last_error: string | null; lease_until?: Date | null };
 type IdentityRow = { channel: ReplyChannel; identity: string; source_identity: string; email: string; contact_id: string; since: Date };
@@ -42,10 +44,15 @@ export async function prepareReplyContact(actor: CampaignActor, contact: ReplyCo
     try { profile = linkedinProfileFor(contact.data); }
     catch { if (contact.requiredChannels.includes("linkedin")) throw new Error("LinkedIn reply identity is unavailable"); return; }
     if (!linkedinCampaignEnabled()) { if (contact.requiredChannels.includes("linkedin")) throw new Error("LinkedIn reply monitor is not configured"); return; }
-    if (existing.some(item => item.channel === "linkedin" && item.source_identity === profile)) return;
+    const verified = existing.find(item => item.channel === "linkedin" && item.source_identity === profile);
+    if (verified) {
+      if (verified.since > contact.since) await saveReplyIdentity(actor, { contactId: contact.id, email: contact.email, channel: "linkedin", identity: verified.identity, sourceIdentity: profile, since: contact.since });
+      return;
+    }
     if (!contact.requiredChannels.includes("linkedin") && !existing.some(item => item.channel === "linkedin") && await campaignLinkedinAccountStatus(actor) === "disconnected") return;
     const observed = await campaignLinkedin(actor, { operation: "status", profile });
-    if (!observed.recipient || !replyIdentity("linkedin", observed.recipient)) throw new Error("LinkedIn reply identity could not be verified; retry after account reads become available");
+    if (observed.status === "retry") throw new ReplyCheckPending("identity_pending", "linkedin", new Date(Math.max(Date.now() + 60_000, (observed.nextEligibleAt || 0) * 1000)));
+    if (!observed.recipient || !replyIdentity("linkedin", observed.recipient)) throw new ReplyCheckReview("protocol", "linkedin");
     await saveReplyIdentity(actor, { contactId: contact.id, email: contact.email, channel: "linkedin", identity: observed.recipient, sourceIdentity: profile, since: contact.since });
   }
 }
@@ -77,13 +84,13 @@ async function readEmailReplies(actor: CampaignActor, cursor: string | null): Pr
   return { accountIdentity: `${loaded.mailbox.id}:${loaded.mailbox.address}`, events, nextCursor: JSON.stringify({ signature, offset: complete ? 0 : offset, watermark: complete ? checkedAt : checkpoint.watermark, scanStartedAt: complete ? null : checkedAt }), complete, checkedAt };
 }
 
-export async function scanReplyChannel(actor: CampaignActor, channel: ReplyChannel, options: { maxPages?: number } = {}) {
+export async function scanReplyChannel(actor: CampaignActor, channel: ReplyChannel, options: { maxPages?: number; refresh?: boolean } = {}) {
   if (replyMonitorMode() === "off") return { complete: false };
   assertCampaignWorkRemaining();
   const token = randomUUID();
   const [monitor] = await withCampaignDb(actor, async client => {
     await client.query("INSERT INTO campaign_reply_monitors (organization_id,owner_user_id,channel) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING", [actor.organizationId, actor.userId, channel]);
-    return rows<MonitorRow>(client, `UPDATE campaign_reply_monitors SET lease_token = $4, lease_until = now() + interval '5 minutes', last_success_at = NULL, last_attempt_at = now()
+    return rows<MonitorRow>(client, `UPDATE campaign_reply_monitors SET lease_token = $4, lease_until = now() + interval '5 minutes', last_attempt_at = now()
       WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3 AND (lease_until IS NULL OR lease_until < now()) RETURNING *`, [actor.organizationId, actor.userId, channel, token]);
   });
   if (!monitor) return { complete: false, skipped: true };
@@ -92,22 +99,26 @@ export async function scanReplyChannel(actor: CampaignActor, channel: ReplyChann
       `SELECT min(i.since) AS since FROM campaign_reply_identities i WHERE i.organization_id = $1 AND i.owner_user_id = $2 AND i.channel = 'linkedin'
        AND EXISTS (SELECT 1 FROM campaign_enrolments e WHERE e.organization_id = i.organization_id AND e.owner_user_id = i.owner_user_id AND e.contact_id = i.contact_id AND e.state IN ('active','paused','needs_review'))`, [actor.organizationId, actor.userId])) : [];
     return await collectReplyPages({ cursor: monitor.cursor, accountIdentity: monitor.account_identity, maxPages: options.maxPages,
-      read: cursor => channel === "email" ? readEmailReplies(actor, cursor) : readChannelReplies(actor, channel, cursor, scope?.since ?? undefined),
+      read: cursor => channel === "email" ? readEmailReplies(actor, cursor) : readChannelReplies(actor, channel, cursor, scope?.since ?? undefined, options),
       commit: page => withCampaignWorkCleanup(() => withCampaignWorker(async client => {
         const [lease] = await rows(client, `SELECT channel FROM campaign_reply_monitors WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3 AND lease_token = $4 AND lease_until > now() FOR UPDATE`, [actor.organizationId, actor.userId, channel, token]);
         if (!lease) return false;
         await assertReplyMonitorMember(client, actor);
         for (const event of page.events) await applyCampaignReply(client, actor, channel, page.accountIdentity, event);
         await client.query(`UPDATE campaign_reply_monitors SET account_identity = $5, cursor = $6,
-          last_success_at = CASE WHEN $7 THEN $8::timestamptz ELSE NULL END, last_error = CASE WHEN $7 THEN NULL ELSE $9 END
-          WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3 AND lease_token = $4`, [actor.organizationId, actor.userId, channel, token, page.accountIdentity, page.nextCursor, page.complete, new Date(page.checkedAt), page.nextReadAt ? `Inbox scan incomplete; next reader check after ${page.nextReadAt}` : "Inbox scan incomplete"]);
+          last_success_at = CASE WHEN $7 THEN $8::timestamptz WHEN $11::boolean THEN NULL ELSE last_success_at END, last_error = CASE WHEN $7 AND NOT $10::boolean THEN NULL ELSE $9 END
+          WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3 AND lease_token = $4`, [actor.organizationId, actor.userId, channel, token, page.accountIdentity, page.nextCursor, page.complete, new Date(page.checkedAt), JSON.stringify(replyCheckDiagnostic(new ReplyCheckPending(page.waitReason || "incomplete", channel, page.nextReadAt ? new Date(page.nextReadAt) : undefined, monitor.last_success_at))), Boolean(page.waitReason), page.coverageInvalidated ?? false]);
         return true;
       })),
     });
   } catch (error) {
-    const reason = campaignWorkDeferred(error) ? "Inbox scan deferred to the next scheduler tick" : error instanceof Error ? error.message.slice(0, 250) : "Reply scan failed";
-    await withCampaignWorkCleanup(() => withCampaignDb(actor, client => client.query("UPDATE campaign_reply_monitors SET last_error = $5 WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3 AND lease_token = $4", [actor.organizationId, actor.userId, channel, token, reason]).then(() => undefined)));
-    throw error;
+    const classified = replyCheckFailure(error, channel);
+    const failure = classified instanceof ReplyCheckPending
+      ? new ReplyCheckPending(classified.code, channel, classified.retryAt, monitor.last_success_at)
+      : new ReplyCheckReview(classified.code, channel, monitor.last_success_at);
+    const reason = JSON.stringify(replyCheckDiagnostic(campaignWorkDeferred(error) ? new ReplyCheckPending("timeout", channel, undefined, monitor.last_success_at) : failure));
+    await withCampaignWorkCleanup(() => withCampaignDb(actor, client => client.query("UPDATE campaign_reply_monitors SET last_error = $5, last_success_at = CASE WHEN $6::boolean THEN NULL ELSE last_success_at END WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3 AND lease_token = $4", [actor.organizationId, actor.userId, channel, token, reason, failure instanceof ReplyCheckReview && failure.code === "account_changed"]).then(() => undefined)));
+    throw campaignWorkDeferred(error) ? error : failure;
   } finally {
     await withCampaignWorkCleanup(() => withCampaignDb(actor, client => client.query("UPDATE campaign_reply_monitors SET lease_token = NULL, lease_until = NULL WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3 AND lease_token = $4", [actor.organizationId, actor.userId, channel, token]).then(() => undefined)));
   }
@@ -116,7 +127,7 @@ export async function scanReplyChannel(actor: CampaignActor, channel: ReplyChann
 export async function checkContactReplyMonitors(actor: CampaignActor, contact: ReplyContact) {
   if (replyMonitorMode() === "off") return;
   try { await prepareReplyContact(actor, contact); }
-  catch (error) { if (replyMonitorMode() === "enforce") throw error; return; }
+  catch (error) { if (replyMonitorMode() === "enforce") { if (campaignWorkDeferred(error)) throw error; throw replyCheckFailure(error); } return; }
   // Previously observed replies must stop outreach even if today's provider
   // scan is incomplete or unavailable during activation of enforcement.
   await replayContactReplies(actor, contact.id);
@@ -129,39 +140,49 @@ export async function checkContactReplyMonitors(actor: CampaignActor, contact: R
     catch (error) { if (replyMonitorMode() === "enforce") throw error; }
   }
   await replayContactReplies(actor, contact.id);
-  if (replyMonitorMode() === "enforce") await assertContactReplyFresh(actor, contact.id, channels);
+  if (replyMonitorMode() === "enforce") await assertContactReplyFresh(actor, contact.id, channels, contact.since);
 }
 
-export async function assertContactReplyFresh(actor: CampaignActor, contactId: string, required?: ReplyChannel[], options: { deferLeased?: boolean } = {}) {
+export async function assertContactReplyFresh(actor: CampaignActor, contactId: string, required?: ReplyChannel[], since?: Date) {
   if (replyMonitorMode() !== "enforce") return;
-  await withCampaignDb(actor, async client => {
-    await assertNoReplyHold(client, actor, contactId);
-    const identities = await rows<IdentityRow>(client, "SELECT * FROM campaign_reply_identities WHERE organization_id = $1 AND owner_user_id = $2 AND contact_id = $3", [actor.organizationId, actor.userId, contactId]);
-    const monitors = await rows<MonitorRow>(client, "SELECT * FROM campaign_reply_monitors WHERE organization_id = $1 AND owner_user_id = $2", [actor.organizationId, actor.userId]);
-    for (const channel of new Set<ReplyChannel>([...(required || []), ...identities.map(item => item.channel)])) {
-      const monitor = monitors.find(item => item.channel === channel);
-      // A scheduled evaluator must not convert an in-flight delivery's inbox
-      // scan into a durable failure. Actual delivery preflights stay strict.
-      if (options.deferLeased && monitor?.lease_until && monitor.lease_until > new Date()) throw new CampaignWorkDeferred();
-      if (!identities.some(item => item.channel === channel) || !monitorFresh(monitor ? { lastSuccessAt: monitor.last_success_at, lastError: monitor.last_error } : undefined)) throw new Error(`${channel} reply monitoring is stale or disconnected; outreach held for review`);
-    }
-  });
+  await withCampaignDb(actor, client => assertReplyCoverage(client, actor, contactId, required, since));
   await assertNoSharedReplyHold(actor, contactId);
+}
+
+// Recovery uses this inside its transaction after locking the enrolment. Share
+// locks fence identity invalidation and scanner commits until recovery commits.
+export async function assertReplyCoverage(client: PoolClient, actor: CampaignActor, contactId: string, required?: ReplyChannel[], since?: Date) {
+
+  await assertNoReplyHold(client, actor, contactId);
+  const identities = await rows<IdentityRow>(client, "SELECT * FROM campaign_reply_identities WHERE organization_id = $1 AND owner_user_id = $2 AND contact_id = $3 FOR SHARE", [actor.organizationId, actor.userId, contactId]);
+  const monitors = await rows<MonitorRow>(client, "SELECT * FROM campaign_reply_monitors WHERE organization_id = $1 AND owner_user_id = $2 FOR SHARE", [actor.organizationId, actor.userId]);
+  for (const channel of new Set<ReplyChannel>([...(required || []), ...identities.map(item => item.channel)])) {
+    const monitor = monitors.find(item => item.channel === channel);
+    const issue = replyMonitorIssue(monitor?.last_error);
+    if (monitor?.last_error && !issue && !/incomplete|deferred/i.test(monitor.last_error)) throw new ReplyCheckReview("reconnect", channel, monitor.last_success_at);
+    if (issue?.category === "review") throw new ReplyCheckReview(issue.code, channel, monitor?.last_success_at);
+    if (monitor?.lease_until && monitor.lease_until > new Date()) throw new ReplyCheckPending("busy", channel, new Date(Math.min(monitor.lease_until.getTime(), Date.now() + 60_000)), monitor.last_success_at);
+    if (!identities.some(item => item.channel === channel && (!since || item.since <= since)) || !monitorFresh(monitor ? { lastSuccessAt: monitor.last_success_at, lastError: monitor.last_error } : undefined)) {
+      const retryAt = issue?.category === "retry" && issue.retryAt && new Date(issue.retryAt).getTime() > Date.now() ? new Date(issue.retryAt) : undefined;
+      throw new ReplyCheckPending(issue?.category === "retry" ? issue.code : "stale", channel, retryAt, monitor?.last_success_at);
+    }
+  }
 }
 
 export async function runReplyMonitorTick(limit = 3) {
   const result = { scanned: 0, complete: 0, incomplete: 0, failed: 0, skipped: 0, deferred: 0 };
   if (replyMonitorMode() === "off") return result;
-  const jobs = await withCampaignWorker(client => rows<{ organization_id: string; owner_user_id: string; channel: ReplyChannel }>(client,
-    `SELECT DISTINCT i.organization_id,i.owner_user_id,i.channel,m.last_attempt_at FROM campaign_reply_identities i
+  const jobs = await withCampaignWorker(client => rows<{ organization_id: string; owner_user_id: string; channel: ReplyChannel; due_soon: boolean }>(client,
+    `SELECT i.organization_id,i.owner_user_id,i.channel,m.last_attempt_at,bool_or(e.state = 'active' AND e.next_step_at <= now() + interval '5 minutes') AS due_soon FROM campaign_reply_identities i
      JOIN campaign_enrolments e ON e.organization_id = i.organization_id AND e.owner_user_id = i.owner_user_id AND e.contact_id = i.contact_id
      LEFT JOIN campaign_reply_monitors m ON m.organization_id = i.organization_id AND m.owner_user_id = i.owner_user_id AND m.channel = i.channel
      WHERE e.state IN ('active','paused','needs_review') AND (m.last_attempt_at IS NULL OR m.last_attempt_at <= now() - interval '55 seconds')
-     ORDER BY m.last_attempt_at NULLS FIRST,i.organization_id,i.owner_user_id,i.channel LIMIT $1`, [limit]));
+     GROUP BY i.organization_id,i.owner_user_id,i.channel,m.last_attempt_at
+     ORDER BY due_soon DESC,m.last_attempt_at NULLS FIRST,i.organization_id,i.owner_user_id,i.channel LIMIT $1`, [limit]));
   for (const [index, job] of jobs.entries()) {
     try {
       assertCampaignWorkRemaining();
-      const scan = await scanReplyChannel({ organizationId: job.organization_id, userId: job.owner_user_id }, job.channel, { maxPages: 1 });
+      const scan = await scanReplyChannel({ organizationId: job.organization_id, userId: job.owner_user_id }, job.channel, { maxPages: 1, refresh: job.due_soon ?? false });
       if ("skipped" in scan && scan.skipped) { result.skipped++; continue; }
       result.scanned++;
       if ("deferred" in scan && scan.deferred) result.deferred++;
@@ -185,5 +206,5 @@ export async function prepareScheduledReplyContact(actor: CampaignActor, contact
 
 export async function checkScheduledReplyContact(actor: CampaignActor, contact: ReplyContact) {
   await replayContactReplies(actor, contact.id);
-  await assertContactReplyFresh(actor, contact.id, contact.requiredChannels, { deferLeased: true });
+  await assertContactReplyFresh(actor, contact.id, contact.requiredChannels, contact.since);
 }

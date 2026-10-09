@@ -30,6 +30,7 @@ case "$*" in
   load) cat >/dev/null;;
   'image inspect '*) echo "$FIXTURE_IMAGE_REVISION";;
   'compose exec '*)
+    case "$*" in *campaign-readiness*) if [ "$FAIL_CAMPAIGN_CHECK" = 1 ]; then exit 1; fi;; esac
     if [ "$FAIL_FIRST_CHECK" = 1 ] && [ ! -f "$FIXTURE_FAILURE" ]; then touch "$FIXTURE_FAILURE"; exit 1; fi;;
 esac
 `, { mode: 0o755 });
@@ -59,6 +60,15 @@ test("image revision mismatch fails before changing the running app", () => {
   assert.equal(state.image, "APP_IMAGE=acquire-app:previous\n");
   assert.ok(!state.log.includes("compose up"));
 });
+test("failed campaign enforcement readiness restores the previous release", () => {
+  const state = fixture({ FAIL_CAMPAIGN_CHECK: "1" });
+  assert.notEqual(state.result.status, 0);
+  assert.equal(state.image, "APP_IMAGE=acquire-app:previous\n");
+  assert.equal(state.compose, "previous-compose\n");
+  assert.equal(state.runtime, "PRESERVED_RUNTIME=fixture\n");
+  assert.equal(state.log.match(/compose up/g)?.length, 2);
+});
+
 test("archive corruption fails before loading or replacing any image", () => {
   const state = fixture({ TAMPER_ARCHIVE: "1" });
   assert.notEqual(state.result.status, 0);

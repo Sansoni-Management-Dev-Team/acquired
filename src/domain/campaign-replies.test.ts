@@ -1,6 +1,14 @@
 import { expect, it } from "vitest";
 import { replyIdentity, replyDecision, monitorFresh, type ReplyIdentity } from "./campaign-replies";
 
+it("retains fresh completed coverage during a retryable scan but blocks review failures and expiry", () => {
+  const now = new Date();
+  const pending = JSON.stringify({ category: "retry", code: "incomplete", retryAt: new Date(now.getTime() + 60_000).toISOString() });
+  expect(monitorFresh({ lastSuccessAt: now, lastError: pending }, now)).toBe(true);
+  expect(monitorFresh({ lastSuccessAt: new Date(now.getTime() - 301_000), lastError: pending }, now)).toBe(false);
+  expect(monitorFresh({ lastSuccessAt: now, lastError: JSON.stringify({ category: "review", code: "account_changed" }) }, now)).toBe(false);
+});
+
 const now = new Date("2026-10-05T10:00:00Z");
 const identity = (contactId = "contact", email = "alex@example.test"): ReplyIdentity => ({ contactId, email, identity: "61412345678@s.whatsapp.net", since: new Date("2026-10-01T00:00:00Z") });
 it("normalizes exact channel identities without matching display names", () => {

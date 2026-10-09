@@ -5,7 +5,7 @@ import os
 import re
 import time
 from fastapi import HTTPException
-from adapter import profile_identity, relationship
+from adapter import profile_identity, relationship, read_failure_code
 import policy
 import diagnostics as diag
 
@@ -54,35 +54,65 @@ async def _operate(service, owner, body):
     # Short cache prevents a budgeted profile read from starving the following
     # send on every retry. Mode and target are part of the cache key.
     state = policy.control(data, worker.fixture)
+    if state.get('requiresVerification'):
+        raise HTTPException(409, {'code': 'reconnect'})
     cached = state.get('relationships', {}).get(identity)
     if cached and now - cached['checkedAt'] < 300:
         diag.emit('relationship.cache', stage='hit', recipient_id=diag.identifier(identity))
         observed = cached
     else:
         diag.emit('relationship.cache', stage='miss', recipient_id=diag.identifier(identity))
+        completed_wait = False
+        previous_request_at = state.get('nextRequestAt')
+        if record:
+            due, reason = policy.eligible(data, record['kind'], worker.fixture, now)
+            if due is None or due > now:
+                record.update(nextEligibleAt=due or now + 300, reason=reason)
+                data['actions'][action_id] = record
+                service.VAULT.save(owner, data)
+                return {'action': record}
+            completed_wait = True
         with diag.span('relationship.reserve_read'):
             due, reason = policy.reserve(data, 'profile', worker.fixture, now)
         service.VAULT.save(owner, data)
         if due is None or due > now:
             diag.emit('relationship.deferred', reason_code='read_budget', next_eligible_at=due)
             return {'status': 'retry', 'nextEligibleAt': due or now + 300, 'reason': reason}
+        transport_failed=False
         try:
             with diag.span('campaign.relationship_read'):
                 result, observed = await relationship(worker, identity)
         except Exception as error:
             diag.emit('campaign.relationship_error', error_type=type(error).__name__)
+            transport_failed=read_failure_code(error) is not None
             result, observed = {'status': 0}, {'connected': None, 'recipient': None}
         data = service.VAULT.load(owner)
         policy.provider_result(data, result, worker.fixture)
         if result.get('status') != 200: observed = {'connected': None, 'recipient': None}
         observed['checkedAt'] = now
         if observed['connected'] is not None:
-            policy.control(data, worker.fixture).setdefault('relationships', {})[identity] = observed
+            refreshed_state = policy.control(data, worker.fixture)
+            refreshed_state.setdefault('relationships', {})[identity] = observed
+            # Fresh validation belongs to this already eligible queued action.
+            # Both requests still consume budget; dispatch rechecks all caps,
+            # cooldowns and operating hours before reserving the write.
+            if completed_wait and observed.get('recipient'):
+                if previous_request_at is None:
+                    refreshed_state.pop('nextRequestAt', None)
+                else:
+                    refreshed_state['nextRequestAt'] = previous_request_at
         service.VAULT.save(owner, data)
+        # This is still a read-only preflight: no action exists or submission has
+        # occurred. Preserve temporary failures as waits instead of unknown IDs.
+        if transport_failed or result.get('status') in (429,500,502,503,504):
+            due,reason=policy.eligible(data,'profile',worker.fixture,now)
+            return {'status':'retry','nextEligibleAt':max(now+60,due or now+300),'reason':reason or 'Profile read is temporarily unavailable'}
     if operation == 'status': return observed
     if observed['connected'] is None or not observed['recipient']:
         diag.emit('campaign.preflight_rejected', reason_code='unknown_relationship')
         raise HTTPException(409, 'LinkedIn connection status is unknown; review the profile')
+    if record and record['recipient'] != observed['recipient']:
+        raise HTTPException(409, 'LinkedIn recipient identity changed; review before continuing')
     if operation == 'message' and not observed['connected']:
         raise HTTPException(409, 'Recipient has not accepted the LinkedIn connection request')
     if not record:
@@ -96,9 +126,10 @@ async def _operate(service, owner, body):
         service.VAULT.save(owner, data)
     # Recheck queued retries too: the recipient may have connected while the
     # invitation was waiting for its dispatch budget.
-    if operation == 'connect' and observed['connected']:
-        diag.emit('invitation.skipped', action_id=action_id, reason_code='already_connected')
-        record.update(status='skipped', reason='Already connected', attemptedAt=now)
+    if operation == 'connect' and (observed['connected'] or observed.get('invitationPending')):
+        pending = observed.get('invitationPending', False)
+        diag.emit('invitation.skipped', action_id=action_id, reason_code='invitation_pending' if pending else 'already_connected')
+        record.update(status='skipped', reason='Invitation already pending' if pending else 'Already connected', attemptedAt=now)
         data['actions'][action_id] = record
         service.VAULT.save(owner, data)
     if record['status'] == 'queued':

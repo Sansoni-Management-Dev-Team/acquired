@@ -67,7 +67,7 @@ describe("mailboxes", () => {
 
   it("fails closed when Gmail cannot check prior conversations", async () => {
     const mailbox = new GmailMailbox(async () => "access", vi.fn(async () => new Response(null, { status: 403 })));
-    await expect(mailbox.hasConversation("a@example.com")).rejects.toThrow("conversation check failed");
+    await expect(mailbox.hasConversation("a@example.com")).rejects.toMatchObject({ code: "reconnect" });
   });
 
   it("places a stable Message-ID on outbound Gmail mail", async () => {
@@ -100,4 +100,10 @@ describe("mailboxes", () => {
     const fetcher = vi.fn(async () => new Response(JSON.stringify({ messages: [], nextPageToken: "more" }), { status: 200 }));
     await expect(new GmailMailbox(async () => "access", fetcher).outboundToSince("a@example.com", new Date())).rejects.toThrow("safety-check limit");
   });
+});
+
+it.each([429, 503, 504])("keeps Gmail reply read HTTP %s retryable", async status => {
+  const { ReplyCheckPending } = await import("@/lib/campaign-reply-status");
+  const mailbox = new GmailMailbox(async () => "synthetic-access", vi.fn().mockResolvedValue(new Response("{}", { status, headers: { "Retry-After": "120" } })));
+  await expect(mailbox.inboundFrom("alex@example.test", new Date(0))).rejects.toBeInstanceOf(ReplyCheckPending);
 });

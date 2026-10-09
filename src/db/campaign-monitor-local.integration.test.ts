@@ -99,7 +99,7 @@ describe.skipIf(process.env.CAMPAIGN_AUDIT_LOCAL_DB !== "1")("local reply monito
   it.each(["provider outage", "changed account", "future event"])("keeps the checkpoint on %s and releases the failed scan lease", async failure => {
     if (failure === "provider outage") reader.mockRejectedValue(new Error("Inbox offline"));
     if (failure === "changed account") {
-      await db.query("UPDATE campaign_reply_monitors SET account_identity='original-account' WHERE organization_id=$1", [org]);
+      await db.query("UPDATE campaign_reply_monitors SET account_identity='original-account',last_success_at=now()-interval '1 minute' WHERE organization_id=$1", [org]);
       reader.mockResolvedValue(page());
     }
     if (failure === "future event") reader.mockResolvedValue(page({ events: [{ id: "future", fromIdentity: "urn:li:fsd_profile:synthetic", receivedAt: new Date(Date.now() + 60_000).toISOString() }] }));
@@ -108,4 +108,18 @@ describe.skipIf(process.env.CAMPAIGN_AUDIT_LOCAL_DB !== "1")("local reply monito
     expect((await monitor()).last_error).toBeTruthy();
     expect((await db.query("SELECT 1 FROM campaign_reply_receipts WHERE organization_id=$1", [org])).rowCount).toBe(0);
   });
+  it("retains completed coverage through partial scans and transport timeouts", async () => {
+    const coverage = new Date(Date.now() - 60_000);
+    await db.query("UPDATE campaign_reply_monitors SET last_success_at=$2,account_identity='synthetic-account' WHERE organization_id=$1", [org, coverage]);
+    reader.mockResolvedValueOnce(page({ complete: false, nextReadAt: new Date(Date.now() + 60_000).toISOString() }));
+    await scanReplyChannel(actor, "linkedin");
+    expect(await monitor()).toMatchObject({ last_success_at: coverage, cursor: "after", lease_until: null });
+    reader.mockRejectedValueOnce(new DOMException("secret transport details", "TimeoutError"));
+    await expect(scanReplyChannel(actor, "linkedin")).rejects.toMatchObject({ code: "timeout" });
+    const current = await monitor();
+    expect(current).toMatchObject({ last_success_at: coverage, cursor: "after", lease_until: null });
+    expect(JSON.parse(current.last_error)).toMatchObject({ category: "retry", code: "timeout", channel: "linkedin", coverageAgeMs: expect.any(Number) });
+    expect(current.last_error).not.toContain("secret");
+  });
+
 });

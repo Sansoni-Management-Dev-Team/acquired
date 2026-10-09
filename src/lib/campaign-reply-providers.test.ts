@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 import { readChannelReplies } from "./campaign-reply-providers";
+import { ReplyCheckPending, ReplyCheckReview } from "./campaign-reply-status";
 const fetcher = vi.fn();
 const actor = { organizationId: "org", userId: "owner" };
 beforeEach(() => { vi.stubGlobal("fetch", fetcher); fetcher.mockReset(); vi.stubEnv("WHATSAPP_SERVICE_URL", "https://wa.test"); vi.stubEnv("WHATSAPP_SERVICE_SECRET", "private"); vi.stubEnv("LINKEDIN_SERVICE_URL", "https://li.test"); vi.stubEnv("LINKEDIN_SERVICE_SECRET", "private-li"); });
@@ -18,11 +19,22 @@ it("rejects raw inbox caches, failed and incomplete contracts rather than claimi
   fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ status: "ok", cache: { stale: false }, response: {} })));
   await expect(readChannelReplies(actor, "linkedin", null)).rejects.toThrow();
   fetcher.mockResolvedValueOnce(new Response("{}", { status: 503 }));
-  await expect(readChannelReplies(actor, "whatsapp", null)).rejects.toThrow("WhatsApp reply monitor unavailable");
+  await expect(readChannelReplies(actor, "whatsapp", null)).rejects.toBeInstanceOf(ReplyCheckPending);
 });
 it("bounds LinkedIn history by the oldest monitored enrolment", async () => {
   vi.stubEnv("LINKEDIN_SERVICE_URL", "https://linkedin.example.test"); vi.stubEnv("LINKEDIN_SERVICE_SECRET", "secret");
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ accountIdentity: "account", events: [], nextCursor: null, complete: true, checkedAt: new Date().toISOString() }))));
   await readChannelReplies(actor, "linkedin", null, new Date("2026-10-06T00:00:00Z"));
   expect(new URL(String(vi.mocked(fetch).mock.calls[0][0])).searchParams.get("since")).toBe("2026-10-06T00:00:00.000Z");
+});
+
+it.each([429, 502, 503, 504])("retries temporary provider HTTP %s responses with sanitized diagnostics", async status => {
+  fetcher.mockResolvedValue(new Response('{"detail":"private provider data"}', { status, headers: { "Retry-After": "120" } }));
+  await expect(readChannelReplies(actor, "linkedin", null)).rejects.toMatchObject({ code: status === 429 ? "rate_limited" : "unavailable", retryAt: expect.any(Date) });
+  await expect(readChannelReplies(actor, "linkedin", null)).rejects.toBeInstanceOf(ReplyCheckPending);
+});
+
+it("requires review for an unverified provider contract even when the status is 503", async () => {
+  fetcher.mockResolvedValue(new Response('{"detail":{"code":"reply_unverified"}}', { status: 503 }));
+  await expect(readChannelReplies(actor, "linkedin", null)).rejects.toBeInstanceOf(ReplyCheckReview);
 });

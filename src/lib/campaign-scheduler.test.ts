@@ -6,6 +6,7 @@ vi.mock("@/db/campaign-client", () => ({ rows: mock.rows, withCampaignTickLock: 
 vi.mock("@/lib/campaign-reply-monitor", () => ({ prepareScheduledReplyContact: mock.prepare, checkScheduledReplyContact: mock.check, runReplyMonitorTick: mock.monitor, checkContactReplyMonitors: mock.preflight }));
 import { runCampaignTick } from "./campaign-service";
 import { CampaignWorkDeferred } from "./campaign-work-budget";
+import { ReplyCheckPending } from "./campaign-reply-status";
 
 const definition = { schemaVersion: 1, steps: [{ id: randomUUID(), kind: "linkedin", action: "message", title: "Hello", body: "Hello" }] };
 let enrolments: { id: string; contact_id: string; version_id: string; organization_id: string; owner_user_id: string; state: string; recipient_email: null; started_at: Date; last_reply_checked_at: Date | null }[];
@@ -74,6 +75,15 @@ it("preserves a completed scan count and contact timestamps if later work is def
 it("records a genuine maintenance failure without resuming existing holds", async () => {
   mock.check.mockRejectedValueOnce(new Error("LinkedIn inbox incomplete"));
   expect((await runCampaignTick()).replyScans).toBe(1);
-  expect(mock.query).toHaveBeenCalledWith(expect.stringContaining("state = 'active'"), ["enrolment-0"]);
+  expect(mock.query).toHaveBeenCalledWith(expect.stringContaining("state = 'active'"), expect.arrayContaining(["enrolment-0"]));
   expect(mock.query.mock.calls.some(([sql]) => sql.includes("state = 'active',"))).toBe(false);
+});
+
+it.each([new ReplyCheckPending("incomplete", "linkedin"), new DOMException("private", "TimeoutError")])("preserves an active contact's schedule during retryable monitoring delays", async failure => {
+  enrolments[0].state = "active";
+  mock.check.mockRejectedValueOnce(failure);
+  const output = await runCampaignTick();
+  expect(output.replyScans).toBe(1);
+  expect(mock.query.mock.calls.some(([sql]) => sql.includes("state = 'needs_review'") || sql.includes("next_step_at = NULL"))).toBe(false);
+  expect(mock.query.mock.calls.some(([sql]) => sql.includes("campaign.reply_check_waiting"))).toBe(true);
 });

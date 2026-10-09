@@ -143,7 +143,12 @@ def reserve(data, kind, fixture=False, now=None):
         return due, reason
     state, config = control(data, fixture), settings(data, fixture)
     state['events'] = events(data, fixture, now) + [{'at': now, 'kind': kind}]
-    state['nextRequestAt'] = now + random.uniform(config['minSpacingSeconds'], config['maxSpacingSeconds'])
+    # A bounded reply sweep has its own page pacing. Advancing the outreach
+    # timer on each page can keep a due send perpetually behind that sweep.
+    # Preserve spacing after other account activity and keep all reads charged
+    # to the shared hourly/daily budgets.
+    if kind != 'reply' or 'nextRequestAt' not in state:
+        state['nextRequestAt'] = now + random.uniform(config['minSpacingSeconds'], config['maxSpacingSeconds'])
     state['lastRequestKind']=kind
     if kind=='reply': state['nextReplyReadAt']=now+random.uniform(20,40)
     return now, None

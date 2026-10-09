@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from playwright.async_api import async_playwright
 from storage import Vault
-from adapter import request as provider_request, conversations, payload, PATHS, message_target, message_receipt, invitation_receipt
+from adapter import request as provider_request, conversations, payload, PATHS, message_target, message_receipt, invitation_receipt, read_failure_code
 import policy
 import replies
 import diagnostics as diag
@@ -239,6 +239,7 @@ def dashboard(owner):
     actions = [a for a in data.get('actions', {}).values() if a.get('fixture', False) == fixture]
     protection = policy.status_summary(data, fixture)
     protection['liveSendsEnabled'] = os.getenv('LINKEDIN_ALLOW_LIVE_SENDS') == 'true'
+    protection['campaignsEnabled'] = os.getenv('LINKEDIN_ALLOW_CAMPAIGNS') == 'true'
     return {'settings': policy.settings(data, fixture), 'usage': policy.usage(data, fixture),
             'protection': protection, 'queue': sorted(actions, key=lambda a:a.get('createdAt',0), reverse=True)[:100],
             'activity': list(reversed(state.get('activity', []))),
@@ -714,6 +715,7 @@ async def account_settings(request: Request):
                 if not worker or await worker.status() != 'connected':
                     raise HTTPException(409,'Complete login or verification in the live browser first')
                 state.update(requiresVerification=False,failures=0)
+                invalidate_reply_coverage(state)
                 policy.activity(data,'recovery','complete','User confirmed verification; existing cooldowns and usage retained',fixture)
             else:
                 try: state['settings'] = policy.validate_settings(policy.settings(data,fixture),body)
@@ -756,6 +758,8 @@ async def reply_inbox(request: Request):
         if cursor and len(cursor)>4000: raise HTTPException(400,'Invalid reply checkpoint')
         data = VAULT.load(owner)
         state = policy.control(data,worker.fixture)
+        if state.get('requiresVerification'):
+            raise HTTPException(409, {'code': 'reconnect'})
         if request.query_params.get('background')=='true':
             if not modern: raise HTTPException(409,'Capture all LinkedIn inbox folders and history queries')
             now=time.time()
@@ -769,16 +773,31 @@ async def reply_inbox(request: Request):
             # subscription scope. Retired broader scopes must not be renewed.
             requested_since=since
             scan=journal.get('scan',{})
-            if requested_since<scan.get('requestedSince',scan.get('since',requested_since)):
-                journal['scan']={'complete':False};journal['checkedAt']=0;journal['revision']+=1
-            state['replyRequest']={'since':requested_since,'until':now+1800}
+            prior_scope=state.get('replyRequest',{}).get('since',scan.get('requestedSince',requested_since))
+            if requested_since!=prior_scope:
+                invalidate_reply_coverage(state)
+            # Each request asks for one sweep. Maintenance polls do not renew
+            # continuous provider work; imminent sends may ask for an earlier one.
+            if state.get('replyReadIssue',{}).get('category')=='review' and data.get('replyReadQueries')!=worker.reply_queries:
+                invalidate_reply_coverage(state)
+            interval=120 if request.query_params.get('refresh','true')=='true' else 900
+            covered_at=journal.get('coverageAt')
+            previous=state.get('replyRequest',{})
+            target=previous.get('targetAt',0)
+            if covered_at is None or now-covered_at>=interval:
+                if not target or covered_at is not None and target<=covered_at: target=now
+            state['replyRequest']={'since':requested_since,'until':now+1800,'targetAt':target}
             data['replyReadQueries']=worker.reply_queries
             VAULT.save(owner,data)
             result=replies.journal_page(state,cursor)
-            if state.get('replyReadError'): result['complete']=False
-            if not result['complete']:
-                due,_=policy.eligible(data,'reply',worker.fixture,now)
-                result['nextReadAt']=replies.iso(max(now+10,due or now+300))
+            issue=state.get('replyReadIssue',{})
+            if issue.get('category')=='review': raise HTTPException(503,{'code':issue['code']})
+            if state.get('replyReadError') and not issue: raise HTTPException(503,{'code':'reply_unverified'})
+            result['coverageInvalidated']=journal.get('coverageAt') is None
+            if not result['complete'] or journal.get('coverageAt',0)<target or issue.get('category')=='retry':
+                due,reason=policy.eligible(data,'reply',worker.fixture,now)
+                result['nextReadAt']=replies.iso(max(now+10,due or now+300,issue.get('retryAt',0)))
+                result['waitReason']=issue.get('code','rate_limited' if reason and 'limit' in reason.lower() else 'incomplete')
             return result
         # Validate an existing checkpoint before spending the provider read budget.
         if cursor and state.get('replyJournal'):
@@ -813,6 +832,14 @@ async def reply_inbox(request: Request):
             raise HTTPException(503,'LinkedIn reply history could not be verified: '+reason)
 
 
+def invalidate_reply_coverage(state):
+    journal=state.get('replyJournal')
+    if journal:
+        journal['scan']={'complete':False};journal['checkedAt']=0;journal['revision']+=1
+        journal.pop('coverageAt',None);journal.pop('coverageSince',None)
+    state.pop('replyReadIssue',None);state.pop('replyReadError',None)
+
+
 def reply_reader_requested(state,now=None):
     return os.getenv('LINKEDIN_REPLY_MONITOR_ENABLED')=='true' and state.get('replyRequest',{}).get('until',0)>(time.time() if now is None else now)
 
@@ -821,15 +848,19 @@ async def background_reply_read(owner,worker):
     """Caller holds the owner lock. Poll at most one page per reserved read."""
     data=VAULT.load(owner);state=policy.control(data,worker.fixture);now=time.time()
     if not reply_reader_requested(state,now): return
+    if state.get('replyReadIssue',{}).get('category')=='review': return
     # Reject missing/broken templates before consuming a provider reservation.
     if not replies.modern_queries_ready(getattr(worker,'reply_queries',{})): return
     try:
         for name in ('categoryInitial','categoryCursor','messageInitial','messageBefore'):
             replies.change_path(worker.reply_queries[name],{})
     except ValueError:
-        state['replyReadError']='LinkedIn read templates require recapture';VAULT.save(owner,data);return
+        state['replyReadError']='LinkedIn read templates require recapture';state['replyReadIssue']={'category':'review','code':'reply_unverified'};VAULT.save(owner,data);return
     scan=state.get('replyJournal',{}).get('scan',{})
-    if scan.get('complete') and now-scan.get('startedAt',0)<180: return
+    journal=state.get('replyJournal',{})
+    target=state['replyRequest'].get('targetAt',0)
+    if scan.get('complete') and journal.get('coverageAt',scan.get('startedAt',0))>=target: return
+    if state.get('replyReadIssue',{}).get('retryAt',0)>now: return
     due,_=policy.eligible(data,'reply',worker.fixture,now)
     if due is None or due>now: return
     due,_=policy.reserve(data,'reply',worker.fixture,now)
@@ -840,15 +871,25 @@ async def background_reply_read(owner,worker):
     async def read(worker,path):
         result=await provider_request(worker,path)
         policy.provider_result(data,result,worker.fixture)
+        status=result.get('status',0)
+        if status!=200:
+            raise HTTPException(status if status else 503)
         return result
     try:
         await replies.advance_modern_scan(worker,state,read,now,state['replyRequest']['since'])
-        state.pop('replyReadError',None)
+        state.pop('replyReadError',None);state.pop('replyReadIssue',None)
         worker.touched=now
-    except Exception:
+    except Exception as error:
         if previous is None: state.pop('replyJournal',None)
         else: state['replyJournal']=previous
-        state['replyReadError']='LinkedIn reply history could not be verified; review reader status'
+        status=getattr(error,'status_code',None)
+        retry=read_failure_code(error) is not None or status==429 or status is not None and status>=500
+        code='rate_limited' if status==429 else read_failure_code(error) or 'unavailable' if retry else 'reconnect' if status in (401,403) else 'reply_unverified'
+        state['replyReadIssue']={'category':'retry' if retry else 'review','code':code}
+        if retry:
+            due,_=policy.eligible(data,'reply',worker.fixture,now)
+            state['replyReadIssue']['retryAt']=max(now+60,due or now+300)
+        state['replyReadError']='LinkedIn reply reader is waiting' if retry else 'LinkedIn reply history could not be verified; review reader status'
     data['replyReadQueries']=worker.reply_queries
     VAULT.save(owner,data)
 
@@ -978,13 +1019,36 @@ async def fixture():
 async def fixture_inbox():
     if os.getenv('LINKEDIN_ENABLE_FIXTURES') != 'true':
         raise HTTPException(404)
-    return '''<h1>Test User inbox</h1><p>Alex Example: Hello from the fictional test account.</p><script>fetch('/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.fixture&variables=(mailboxUrn:urn:li:fsd_profile:fixture,syncToken:fixture-token-123456)')</script>'''
+    paths = ['/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.fixture&variables=(mailboxUrn:urn:li:fsd_profile:fixture,syncToken:fixture-token-123456)']
+    for folder in replies.FOLDERS:
+        paths.append('/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.fixture&variables=(query:'+replies.category_query(folder)+',count:20,mailboxUrn:urn:li:fsd_profile:fixture)')
+    paths.extend([
+        '/voyagerMessagingGraphQL/graphql?queryId=messengerConversations.fixture&variables=(query:'+replies.category_query('PRIMARY_INBOX')+',count:20,mailboxUrn:urn:li:fsd_profile:fixture,nextCursor:fixture-cursor)',
+        '/voyagerMessagingGraphQL/graphql?queryId=messengerMessages.fixture&variables=(conversationUrn:urn:li:msg_conversation:fixture-alex)',
+        '/voyagerMessagingGraphQL/graphql?queryId=messengerMessages.fixture&variables=(conversationUrn:urn:li:msg_conversation:fixture-alex,deliveredAt:1,countBefore:20,countAfter:0)',
+    ])
+    return '<h1>Test User inbox</h1><p>Alex Example: Hello from the fictional test account.</p><script>'+''.join("fetch('"+path+"');" for path in paths)+'</script>'
+
+@app.get('/voyager/api/identity/dash/profiles')
+async def fixture_profile(request: Request):
+    if os.getenv('LINKEDIN_ENABLE_FIXTURES') != 'true' or request.query_params.get('memberIdentity') != 'fictional-alex':
+        raise HTTPException(404)
+    return {'included': [{'entityUrn': 'urn:li:fsd_profile:fictional-alex', 'publicIdentifier': 'fictional-alex', 'connectionDegree': 'SECOND'}]}
 
 @app.api_route('/voyagerMessagingGraphQL/graphql', methods=['GET'])
-async def fixture_reads():
+async def fixture_reads(request: Request):
     if os.getenv('LINKEDIN_ENABLE_FIXTURES') != 'true':
         raise HTTPException(404)
-    return {'conversations': [{'id': 'fixture-conversation', 'name': 'Alex Example', 'text': 'Hello from the fictional test account.'}], 'data': {'messengerConversationsBySyncToken': {'elements': [{'entityUrn': 'urn:li:msg_conversation:fixture-alex', 'groupChat': False, 'conversationParticipants': [{'hostIdentityUrn': 'urn:li:fsd_profile:fixture'}, {'hostIdentityUrn': 'urn:li:fsd_profile:fictional-alex'}]}]}}}
+    kind = request.query_params.get('queryId', '')
+    variables = request.query_params.get('variables', '')
+    conversations = [{'id': 'fixture-conversation', 'name': 'Alex Example', 'text': 'Hello from the fictional test account.'}]
+    if kind.startswith('messengerConversations.') and 'query:' in variables:
+        return {'conversations': conversations, 'data': {'messengerConversationsByCategoryQuery': {'elements': [], 'metadata': {'nextCursor': None}}}}
+    if kind.startswith('messengerMessages.'):
+        if 'deliveredAt:' in variables:
+            return {'data': {'messengerMessagesByAnchorTimestamp': {'elements': [], 'metadata': {'prevCursor': None}}}}
+        return {'data': {'messengerMessagesBySyncToken': {'elements': [], 'metadata': {'newSyncToken': 'fixture-token', 'shouldClearCache': False}}}}
+    return {'conversations': conversations, 'data': {'messengerConversationsBySyncToken': {'elements': [{'entityUrn': 'urn:li:msg_conversation:fixture-alex', 'groupChat': False, 'conversationParticipants': [{'hostIdentityUrn': 'urn:li:fsd_profile:fixture'}, {'hostIdentityUrn': 'urn:li:fsd_profile:fictional-alex'}]}]}}}
 
 @app.post('/voyager/api/{path:path}')
 async def fixture_writes(path: str, request: Request):

@@ -105,6 +105,34 @@ def test_reply_pages_cannot_bypass_cooldowns_or_spacing_after_other_account_acti
     assert policy.eligible(data,'reply',now=12000)[0] is None
 
 
+def test_reply_sweep_preserves_the_existing_outreach_timer(monkeypatch):
+    monkeypatch.setattr(policy.random, 'uniform', lambda minimum, maximum: minimum)
+    data = {'actions': {}}
+    assert policy.reserve(data, 'profile', now=10000) == (10000, None)
+    state = policy.control(data)
+    assert state['nextRequestAt'] == 10120
+    for now in (10120, 10140, 10160, 10180):
+        assert policy.reserve(data, 'reply', now=now) == (now, None)
+        assert state['nextRequestAt'] == 10120
+    assert policy.eligible(data, 'profile', now=10180) == (10180, None)
+    assert policy.usage(data, now=10180)['requestsHourly']['used'] == 5
+
+
+def test_repeated_reply_sweeps_cannot_starve_an_eligible_outreach_action(monkeypatch):
+    monkeypatch.setattr(policy.random, 'uniform', lambda minimum, maximum: maximum)
+    data = {'actions': {}}
+    state = policy.control(data)
+    state['settings'] = {'timezone': 'UTC', 'activeDays': list(range(7)), 'startHour': 0, 'endHour': 24}
+    assert policy.reserve(data, 'invite', now=10000) == (10000, None)
+    assert state['nextRequestAt'] == 10600
+    for now in (10600, 10640, 10680, 10720, 10760):
+        assert policy.reserve(data, 'reply', now=now) == (now, None)
+        assert state['nextRequestAt'] == 10600
+    assert policy.reserve(data, 'invite', now=10760) == (10760, None)
+    assert state['nextRequestAt'] == 11360
+    assert policy.usage(data, now=10760)['invitationsDaily']['used'] == 2
+
+
 @pytest.mark.parametrize('day',[10,11])
 def test_weekend_keep_alive_is_independent_of_outreach_days(day):
     now=datetime(2026,10,day,10,tzinfo=ZoneInfo('Australia/Melbourne')).timestamp()

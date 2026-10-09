@@ -5,7 +5,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/db/campaign-client", () => ({ rows: mock.rows, withCampaignDb: (_actor: unknown, fn: (client: unknown) => unknown) => fn({ query: mock.query }), withCampaignWorker: (fn: (client: unknown) => unknown) => fn({ query: mock.query }) }));
 vi.mock("@/lib/gmail-connection", () => ({ connectionCanMonitorReplies: () => true }));
 vi.mock("@/lib/campaign-mailbox", () => ({ campaignTestSendAnytime: () => true, campaignMailboxForConnection: () => mock.gmail }));
-vi.mock("@/lib/campaign-linkedin", () => ({ campaignLinkedin: mock.linkedin, linkedinCampaignEnabled: () => true, linkedinProfileFor: () => "https://www.linkedin.com/in/alex" }));
+vi.mock("@/lib/campaign-linkedin", () => ({ campaignLinkedin: mock.linkedin, assertLinkedinDeliveryReady: vi.fn(), linkedinCampaignEnabled: () => true, linkedinProfileFor: () => "https://www.linkedin.com/in/alex" }));
 import { processCampaignEnrolment } from "./campaign-service";
 const actor = { organizationId: "org", userId: "owner" };
 const id = randomUUID();

@@ -25,7 +25,7 @@ it("one failed legacy job does not prevent later jobs and uses their recorded ow
   const result = await runCampaignTick(); expect(result.processed).toBe(2); expect(result.results).toEqual([{ id: "bad", outcome: "owner removed" }, { id: "good", outcome: "not_due" }]); expect(mock.actor.mock.calls.map(([actor]) => actor)).toEqual([{ organizationId: "org", userId: "owner-a" }, { organizationId: "org", userId: "owner-b" }]);
 });
 it("mailbox scan failure holds the enrolment without attempting any send", async () => {
-  mock.rows.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: "enrolment", organization_id: "org", owner_user_id: "owner" }]); await runCampaignTick(); expect(mock.query).toHaveBeenCalledWith(expect.stringContaining("reply_check_failed"), ["enrolment"]); expect(mock.find).not.toHaveBeenCalled();
+  mock.rows.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: "enrolment", organization_id: "org", owner_user_id: "owner" }]); await runCampaignTick(); expect(mock.query).toHaveBeenCalledWith(expect.stringContaining("reply_check_failed"), expect.arrayContaining(["enrolment"])); expect(mock.find).not.toHaveBeenCalled();
 });
 it("ambiguous-send reconciliation failures are isolated and do not become sends", async () => {
   mock.rows.mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([]).mockResolvedValueOnce([{ id: "attempt", organization_id: "org", owner_user_id: "owner" }]).mockRejectedValueOnce(new Error("mailbox unavailable")); expect((await runCampaignTick()).unknownChecks).toBe(1); expect(mock.start).not.toHaveBeenCalled(); expect(mock.query).not.toHaveBeenCalled();

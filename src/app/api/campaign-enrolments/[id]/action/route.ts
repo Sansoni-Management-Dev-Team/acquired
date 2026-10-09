@@ -1,3 +1,4 @@
+import { ReplyCheckPending, ReplyCheckReview } from "@/lib/campaign-reply-status";
 import { auth } from "@/lib/auth";
 import { CampaignError, changeEnrolment } from "@/lib/campaign-service";
 import { enrolmentActionRequest } from "@/domain/campaign";
@@ -10,5 +11,5 @@ export async function POST(request: Request, context: RouteContext<"/api/campaig
   const parsed = enrolmentActionRequest.safeParse(await request.json().catch(() => null));
   if (!z.uuid().safeParse(id).success || !parsed.success) return Response.json({ error: "Invalid action" }, { status: 400 });
   try { return Response.json(await changeEnrolment({ organizationId: session.session.activeOrganizationId, userId: session.user.id }, id, parsed.data.action)); }
-  catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Action failed" }, { status: error instanceof CampaignError ? error.status : 500 }); }
+  catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Action failed" }, { status: error instanceof CampaignError || error instanceof ReplyCheckPending || error instanceof ReplyCheckReview ? error.status : 500 }); }
 }

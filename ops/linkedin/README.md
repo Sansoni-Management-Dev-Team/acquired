@@ -1,5 +1,34 @@
 # DigitalOcean private LinkedIn test deployment
 
+## Prepared campaign retry release (9 October 2026)
+
+This release is prepared locally; production has not been updated. Build the
+reader as `acquire-linkedin:reply-retry-20261009-amd64` for the verified x86_64
+host. The matching app release is `acquire-app:reply-retry-20261009-amd64`.
+
+Deploy the reader before the app, retaining both existing Compose files, the
+encrypted state volume, service secret and encryption key. Record the current
+image and retain it for rollback before retagging the candidate as
+`acquire-linkedin:testing`. Keep both live-delivery switches disabled throughout
+rollout. Verify service health and the owner-scoped settings/reply contracts,
+then align the hosted n8n tick timeout to 120 seconds and deploy the app using
+its existing readiness and rollback checks. See
+[the app rollout instructions](../app/README.md#campaign-reply-enforcement-rollout).
+
+The changes make incomplete coverage and transport/rate waits retryable, preserve
+completed coverage and checkpoints, and prevent reply pages or queued relationship
+revalidation from continually postponing an eligible send. Changed identities and
+unknown send results remain held for review. Verified outgoing pending invitations
+and existing connections resolve connection-request steps as skipped.
+
+Local validation passed 179 reader tests and 560 app regressions. One separately
+authorized real connection request completed through local n8n with a LinkedIn
+invitation receipt; duplicate callback and service replays produced no extra
+invitation. Remaining live tests were stopped at the user's request, and temporary
+local limits and sending hours were restored. Detailed evidence and release image
+identities remain in ignored `.local-data/campaign-reply-fix/`; no session or
+runtime secret belongs in this commit. This release requires no database migration.
+
 ## Production app access
 
 The existing pilot is now exposed at `https://linkedin.170.64.233.147.sslip.io` through host Caddy (`Caddyfile`). The container remains bound to loopback; Chromium/VNC ports stay private. Apply `compose.hosted.yml` alongside `compose.testing.yml` when restarting this deployment. The overlay disables fixtures and live sends and changes the advertised viewer URL to HTTPS. Preserve the encrypted volume and service encryption key.

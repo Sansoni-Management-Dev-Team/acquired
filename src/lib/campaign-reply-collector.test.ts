@@ -20,7 +20,7 @@ it("does not advance a checkpoint after a failed transaction", async () => {
 });
 it("rejects changed accounts, invalid events and pagination loops", async () => {
   const commit = vi.fn();
-  await expect(collectReplyPages({ cursor: null, accountIdentity: "old@example.test", read: async () => page, commit })).rejects.toThrow("account changed");
+  await expect(collectReplyPages({ cursor: null, accountIdentity: "old@example.test", read: async () => page, commit })).rejects.toMatchObject({ code: "account_changed" });
   await expect(collectReplyPages({ cursor: null, accountIdentity: null, read: async () => ({ ...page, events: [{ ...event, receivedAt: "invalid" }] }), commit })).rejects.toThrow();
   await expect(collectReplyPages({ cursor: "1", accountIdentity: null, read: async () => ({ ...page, complete: false }), commit })).rejects.toThrow("checkpoint");
   expect(commit).not.toHaveBeenCalled();
@@ -42,7 +42,7 @@ it("detects multi-page cursor cycles and retains only committed progress", async
 });
 it("binds all pages to the first observed account even with no saved account", async () => {
   const read = vi.fn().mockResolvedValueOnce({ ...page, complete: false }).mockResolvedValueOnce({ ...page, nextCursor: "2", accountIdentity: "someone-else" }); const commit = vi.fn().mockResolvedValue(true);
-  await expect(collectReplyPages({ cursor: null, accountIdentity: null, read, commit })).rejects.toThrow("account changed"); expect(commit).toHaveBeenCalledOnce();
+  await expect(collectReplyPages({ cursor: null, accountIdentity: null, read, commit })).rejects.toMatchObject({ code: "account_changed" }); expect(commit).toHaveBeenCalledOnce();
 });
 it("rejects oversized pages and unexpected fields before commit", async () => {
   for (const bad of [{ ...page, events: Array.from({ length: 501 }, () => event) }, { ...page, complete: "true" }, { ...page, nextCursor: "x".repeat(4001) }, { ...page, ownerUserId: "attacker" }]) {

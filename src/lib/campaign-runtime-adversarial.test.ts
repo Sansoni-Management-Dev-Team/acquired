@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import type { CampaignDefinition } from "@/domain/campaign";
-const mock = vi.hoisted(() => ({ rows: vi.fn(), query: vi.fn(), fresh: vi.fn(), monitor: vi.fn(), send: vi.fn(), linkedin: vi.fn(), whatsapp: vi.fn(), connected: vi.fn(), gmail: { inboundFrom: vi.fn(), hasConversation: vi.fn(), outboundToSince: vi.fn() } }));
+const mock = vi.hoisted(() => ({ rows: vi.fn(), query: vi.fn(), fresh: vi.fn(), monitor: vi.fn(), delivery: vi.fn(), send: vi.fn(), linkedin: vi.fn(), whatsapp: vi.fn(), connected: vi.fn(), gmail: { inboundFrom: vi.fn(), hasConversation: vi.fn(), outboundToSince: vi.fn() } }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/db/campaign-client", () => ({ rows: mock.rows, withCampaignDb: (_actor: unknown, callback: (client: unknown) => unknown) => callback({ query: mock.query }), withCampaignWorker: (callback: (client: unknown) => unknown) => callback({ query: mock.query }) }));
 vi.mock("@/lib/gmail-connection", () => ({ connectionCanMonitorReplies: () => true }));
 vi.mock("@/lib/campaign-mailbox", () => ({ campaignTestSendAnytime: () => true, campaignMailboxForConnection: () => ({ ...mock.gmail, send: mock.send }) }));
 vi.mock("@/lib/campaign-reply-monitor", () => ({ checkContactReplyMonitors: mock.monitor, assertContactReplyFresh: mock.fresh, prepareReplyContact: vi.fn(), runReplyMonitorTick: vi.fn() }));
-vi.mock("@/lib/campaign-linkedin", async original => ({ ...await original<typeof import("./campaign-linkedin")>(), campaignLinkedin: mock.linkedin }));
+vi.mock("@/lib/campaign-linkedin", async original => ({ ...await original<typeof import("./campaign-linkedin")>(), campaignLinkedin: mock.linkedin, assertLinkedinDeliveryReady: mock.delivery }));
 vi.mock("@/lib/campaign-whatsapp", async original => ({ ...await original<typeof import("./campaign-whatsapp")>(), campaignWhatsapp: mock.whatsapp, assertCampaignWhatsappConnected: mock.connected }));
 import { processCampaignEnrolment, processN8nCampaignStep, changeEnrolment } from "./campaign-service";
 import { withCampaignWorkBudget, CampaignWorkDeferred, assertCampaignWorkRemaining } from "./campaign-work-budget";
@@ -131,3 +131,17 @@ for (const kind of ["email", "linkedin", "whatsapp"] as const) {
     expect(providers().reduce((n, fn) => n + fn.mock.calls.length, 0)).toBe(1);
   });
 }
+
+it("checks disabled LinkedIn delivery before claiming, without inventing an unknown send", async () => {
+  const { ReplyCheckReview } = await import("./campaign-reply-status");
+  channel("linkedin"); mock.delivery.mockRejectedValue(new ReplyCheckReview("delivery_disabled", "linkedin"));
+  expect(await processCampaignEnrolment(actor, id)).toMatchObject({ outcome: "needs_review" });
+  expect(attempt).toBeUndefined(); expect(mock.linkedin).not.toHaveBeenCalled();
+});
+
+it("records a lasting review when a contact changed before the initial n8n preflight", async () => {
+  changed = "fictionalised"; contactReads = 1;
+  expect(await processCampaignEnrolment(actor, id)).toMatchObject({ outcome: "needs_review" });
+  expect(mock.query.mock.calls.some(([sql]) => sql.includes("state = 'needs_review'"))).toBe(true);
+  expect(attempt).toBeUndefined(); providers().forEach(fn => expect(fn).not.toHaveBeenCalled());
+});

@@ -103,7 +103,7 @@ def test_relationship_timeout_logs_read_phase_and_does_not_send(setup, monkeypat
     client, _, _, lookup, provider = prepare(setup, monkeypatch)
     lookup.side_effect = TimeoutError('private-session-details')
     response = call(client, 'post', '/campaign', json=request())
-    assert response.status_code == 409
+    assert response.status_code == 200 and response.json()['status']=='retry'
     rows = records(events)
     assert any(r['event'] == 'campaign.relationship_read.error' and r['error_type'] == 'TimeoutError' for r in rows)
     assert 'private-session-details' not in str(rows)
