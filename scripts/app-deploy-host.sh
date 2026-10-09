@@ -8,8 +8,10 @@ revision=${2:?Commit required}
 [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || { echo 'Invalid revision'; exit 1; }
 [[ "$(cat "$release/commit")" == "$revision" ]] || { echo 'Release revision mismatch'; exit 1; }
 image="acquire-app:github-$revision"
-expected=$(cat "$release/image-id")
-[[ "$expected" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo 'Invalid image identity'; exit 1; }
+expected=$(cat "$release/archive-sha256")
+[[ "$expected" =~ ^[0-9a-f]{64}$ ]] || { echo 'Invalid archive checksum'; exit 1; }
+actual=$(sha256sum "$release/image.tar.gz" | cut -d' ' -f1)
+[[ "$actual" == "$expected" ]] || { echo 'Image archive checksum mismatch'; exit 1; }
 cd /opt/acquire-app/ops/app
 export COMPOSE_FILE=compose.hosted.yml
 # The manual deployment helper takes this same lock.
@@ -20,7 +22,7 @@ test -s .env
 mkdir -p releases
 chmod 700 releases
 gzip -dc "$release/image.tar.gz" | docker load
-[[ "$(docker image inspect "$image" --format '{{.Id}}')" == "$expected" ]] || { echo 'Loaded image mismatch'; exit 1; }
+[[ "$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" == "$revision" ]] || { echo 'Loaded image revision mismatch'; exit 1; }
 cp .env releases/previous-image.env
 cp .env.hosted releases/previous-runtime.env
 cp compose.hosted.yml releases/previous-compose.yml
