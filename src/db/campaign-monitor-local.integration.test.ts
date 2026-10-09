@@ -70,7 +70,7 @@ describe.skipIf(process.env.CAMPAIGN_AUDIT_LOCAL_DB !== "1")("local reply monito
     const first = scanReplyChannel(actor, "linkedin");
     await started;
     try {
-      expect(await scanReplyChannel(actor, "linkedin")).toEqual({ complete: false });
+      expect(await scanReplyChannel(actor, "linkedin")).toEqual({ complete: false, skipped: true });
       expect(reader).toHaveBeenCalledTimes(1);
     } finally { finish(page()); await first; }
   });

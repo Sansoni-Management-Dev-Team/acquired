@@ -2,7 +2,7 @@ import "server-only";
 import { gmailConnectionStatus } from "@/domain/gmail-connection";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { rows, withCampaignDb, withCampaignWorker, type CampaignActor } from "@/db/campaign-client";
+import { rows, withCampaignDb, withCampaignWorker, withCampaignTickLock, type CampaignActor } from "@/db/campaign-client";
 import { outreachEmail } from "@/domain/outreach-contact";
 import { campaignChannels, contactLinkedin, contactPhone, missingCampaignDetails, type CreateContactRequest } from "@/domain/contact-record";
 import { campaignDraftDefinition, campaignDefinition, campaignFirstStepIndex, campaignStepEntries, campaignSendWindowOpen, nextAllowedCampaignSend, nextCampaignStepAfter, acceptancePath, campaignStepLabel, normalizeEmail, renderCampaignTemplate, type CampaignDefinition } from "@/domain/campaign";
@@ -12,9 +12,10 @@ import { n8nCampaignEnabled, provisionSequenceWorkflow, removeSequenceWorkflow, 
 import { campaignWhatsapp, whatsappCampaignEnabled, whatsappRecipientFor, assertCampaignWhatsappConnected } from "@/lib/campaign-whatsapp";
 import { campaignLinkedin, linkedinCampaignEnabled, linkedinProfileFor } from "@/lib/campaign-linkedin";
 import type { PoolClient } from "pg";
-import { checkContactReplyMonitors, assertContactReplyFresh, prepareReplyContact, runReplyMonitorTick } from "@/lib/campaign-reply-monitor";
+import { checkContactReplyMonitors, assertContactReplyFresh, prepareReplyContact, prepareScheduledReplyContact, checkScheduledReplyContact, runReplyMonitorTick, type ReplyContact } from "@/lib/campaign-reply-monitor";
 import { assertNoReplyHold, replyMonitorMode, ingestCampaignReply } from "@/lib/campaign-reply-store";
 import { monitorFresh, type ReplyChannel } from "@/domain/campaign-replies";
+import { assertCampaignWorkRemaining, campaignWorkDeferred, withCampaignWorkBudget, withCampaignWorkCleanup, withoutCampaignWorkBudget } from "@/lib/campaign-work-budget";
 
 type SequenceRow = { id: string; organization_id: string; owner_user_id: string; mandate_id: string; name: string; draft: unknown; published_definition?: unknown; n8n_workflow_id?: string | null; published_version: number; updated_at: Date };
 type VersionRow = { id: string; sequence_id: string; version: number; definition: unknown; n8n_workflow_id: string | null };
@@ -450,7 +451,6 @@ async function processWhatsappStep(actor: CampaignActor, enrolment: EnrolmentRow
   const recipient = whatsappRecipientFor(personalData(contact.personal_data));
   const text = renderCampaignTemplate(step.body, { displayName: contact.display_name, companyName: contact.company_name });
   if (!text.trim() || text.length > 4000) throw new CampaignError("Personalised WhatsApp text must contain 1–4000 characters");
-  await assertCampaignWhatsappConnected(actor);
   const claim = await claimSend(actor, enrolment.id, enrolment.step_index);
   if (!claim || !await claimStillEligible(actor, enrolment, claim.attemptId, definition)) return { outcome: "not_due" as const };
   let sameRecipient = false;
@@ -522,34 +522,48 @@ export async function processCampaignEnrolment(actor: CampaignActor, enrolmentId
       if (previous?.state === "sent") return await advanceCampaign(actor, enrolment, definition, contact, previous.sent_at);
       if (previous && ["claimed", "unknown"].includes(previous.state)) throw new CampaignError("Sequence has an unresolved send attempt; review before continuing");
     }
-    if (step?.kind === "whatsapp") return await processWhatsappStep(actor, enrolment, definition, contact);
-    if (step?.kind === "linkedin") return await processLinkedinStep(actor, enrolment, definition, contact);
+    if (step?.kind === "whatsapp") {
+      await assertCampaignWhatsappConnected(actor);
+      assertCampaignWorkRemaining();
+      return await withoutCampaignWorkBudget(() => processWhatsappStep(actor, enrolment, definition, contact));
+    }
+    if (step?.kind === "linkedin") {
+      assertCampaignWorkRemaining();
+      return await withoutCampaignWorkBudget(() => processLinkedinStep(actor, enrolment, definition, contact));
+    }
     if (!step || step.kind !== "email") throw new CampaignError("Published sequence step is invalid");
     if (!checked || !enrolment.recipient_email) throw new CampaignError("Email recipient or mailbox is unavailable");
-    const claim = await claimSend(actor, enrolment.id, enrolment.step_index);
-    if (!claim) return { outcome: "not_due" as const };
-    if (!await claimStillEligible(actor, enrolment, claim.attemptId, definition)) return { outcome: "not_due" as const };
-    try {
-      const templateContact = { displayName: contact.display_name, companyName: contact.company_name };
-      const delivery = await checked.gmail.send(actor.userId, { to: enrolment.recipient_email, subject: renderCampaignTemplate(step.subject, templateContact), text: renderCampaignTemplate(step.body, templateContact), messageId: claim.messageId });
-      const next = nextCampaignAction(definition, enrolment.step_index, delivery.sentAt, enrolment.id);
-      await withCampaignDb(actor, async client => {
-        await client.query("UPDATE campaign_send_attempts SET state = 'sent', provider_message_id = $2, provider_thread_id = $3, sent_at = $4 WHERE id = $1 AND state = 'claimed'", [claim.attemptId, delivery.providerMessageId, delivery.providerThreadId, delivery.sentAt]);
-        await client.query("UPDATE campaign_enrolments SET state = $2, step_index = $3, next_step_at = $4, updated_at = now() WHERE id = $1 AND state = 'active' AND step_index = $5", [enrolment.id, next ? "active" : "completed", next?.index ?? enrolment.step_index + 1, next ? nextSendAt(next.at) : null, enrolment.step_index]);
-        await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,'campaign.email_sent','campaign_enrolment',$3,$4)", [actor.organizationId, actor.userId, enrolment.id, JSON.stringify({ stepIndex: enrolment.step_index, providerMessageId: delivery.providerMessageId })]);
-      });
-      return { outcome: "sent" as const, providerMessageId: delivery.providerMessageId };
-    } catch (error) {
-      // No automatic retry after a potentially accepted network request.
-      const message = error instanceof Error ? error.message : "Unknown Gmail send result";
-      await withCampaignDb(actor, async client => {
-        await client.query("UPDATE campaign_send_attempts SET state = 'unknown', error = $2 WHERE id = $1 AND state = 'claimed'", [claim.attemptId, message]);
-        await client.query("UPDATE campaign_enrolments SET state = 'needs_review', stop_reason = 'send_result_unknown', next_step_at = NULL, updated_at = now() WHERE id = $1 AND state = 'active'", [enrolment.id]);
-        await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,'campaign.send_result_unknown','campaign_enrolment',$3,$4)", [actor.organizationId, actor.userId, enrolment.id, JSON.stringify({ stepIndex: enrolment.step_index })]);
-      });
-      return { outcome: "send_result_unknown" as const };
-    }
+    const recipientEmail = enrolment.recipient_email;
+    assertCampaignWorkRemaining();
+    // Once a send is admitted, finish its journal even if the scheduler's
+    // admission deadline expires. Provider submission has its own timeout.
+    return await withoutCampaignWorkBudget(async () => {
+      const claim = await claimSend(actor, enrolment.id, enrolment.step_index);
+      if (!claim) return { outcome: "not_due" as const };
+      if (!await claimStillEligible(actor, enrolment, claim.attemptId, definition)) return { outcome: "not_due" as const };
+      try {
+        const templateContact = { displayName: contact.display_name, companyName: contact.company_name };
+        const delivery = await checked.gmail.send(actor.userId, { to: recipientEmail, subject: renderCampaignTemplate(step.subject, templateContact), text: renderCampaignTemplate(step.body, templateContact), messageId: claim.messageId });
+        const next = nextCampaignAction(definition, enrolment.step_index, delivery.sentAt, enrolment.id);
+        await withCampaignDb(actor, async client => {
+          await client.query("UPDATE campaign_send_attempts SET state = 'sent', provider_message_id = $2, provider_thread_id = $3, sent_at = $4 WHERE id = $1 AND state = 'claimed'", [claim.attemptId, delivery.providerMessageId, delivery.providerThreadId, delivery.sentAt]);
+          await client.query("UPDATE campaign_enrolments SET state = $2, step_index = $3, next_step_at = $4, updated_at = now() WHERE id = $1 AND state = 'active' AND step_index = $5", [enrolment.id, next ? "active" : "completed", next?.index ?? enrolment.step_index + 1, next ? nextSendAt(next.at) : null, enrolment.step_index]);
+          await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,'campaign.email_sent','campaign_enrolment',$3,$4)", [actor.organizationId, actor.userId, enrolment.id, JSON.stringify({ stepIndex: enrolment.step_index, providerMessageId: delivery.providerMessageId })]);
+        });
+        return { outcome: "sent" as const, providerMessageId: delivery.providerMessageId };
+      } catch (error) {
+        // No automatic retry after a potentially accepted network request.
+        const message = error instanceof Error ? error.message : "Unknown Gmail send result";
+        await withCampaignDb(actor, async client => {
+          await client.query("UPDATE campaign_send_attempts SET state = 'unknown', error = $2 WHERE id = $1 AND state = 'claimed'", [claim.attemptId, message]);
+          await client.query("UPDATE campaign_enrolments SET state = 'needs_review', stop_reason = 'send_result_unknown', next_step_at = NULL, updated_at = now() WHERE id = $1 AND state = 'active'", [enrolment.id]);
+          await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,'campaign.send_result_unknown','campaign_enrolment',$3,$4)", [actor.organizationId, actor.userId, enrolment.id, JSON.stringify({ stepIndex: enrolment.step_index })]);
+        });
+        return { outcome: "send_result_unknown" as const };
+      }
+    });
   } catch (error) {
+    if (campaignWorkDeferred(error)) throw error;
     const message = error instanceof Error ? error.message : "Pre-send check failed";
     await withCampaignDb(actor, client => client.query("UPDATE campaign_enrolments SET state = 'needs_review', stop_reason = $2, next_step_at = NULL, updated_at = now() WHERE id = $1 AND state = 'active'", [enrolment.id, message]).then(() => undefined));
     return { outcome: "needs_review" as const, reason: message };
@@ -617,54 +631,105 @@ async function reconcileUnknownAttempt(actor: CampaignActor, attemptId: string) 
   return true;
 }
 
-export async function runCampaignTick(limit = 3) {
-  const replyMonitoring = await runReplyMonitorTick(limit);
-  const dispatch = await withCampaignWorker(client => rows<{ id: string; version_id: string }>(client, "SELECT id, version_id FROM campaign_enrolments WHERE runtime = 'n8n' AND n8n_started_at IS NULL AND state IN ('active','paused','needs_review') ORDER BY started_at LIMIT $1", [limit]));
-  for (const job of dispatch) {
+export async function runCampaignTick(limit = 3, options: { budgetMs?: number } = {}) {
+  const started = Date.now();
+  const output = {
+    processed: 0, results: [] as { id: string; outcome: string }[], n8nDispatches: 0, replyScans: 0, unknownChecks: 0,
+    replyMonitoring: { scanned: 0, complete: 0, incomplete: 0, failed: 0, skipped: 0, deferred: 0 },
+    scheduler: { skipped: false, deferred: false, durationMs: 0 },
+  };
+  const locked = await withCampaignTickLock(() => withCampaignWorkBudget(options.budgetMs ?? 20_000, async () => {
     try {
-      await startSequenceContact(job.version_id, job.id);
-      await withCampaignWorker(client => client.query("UPDATE campaign_enrolments SET n8n_started_at = now() WHERE id = $1 AND n8n_started_at IS NULL", [job.id]).then(() => undefined));
-    } catch { /* Keep unstarted for the next scheduler pass. */ }
-  }
-  const jobs = await withCampaignWorker(client => rows<{ id: string; organization_id: string; owner_user_id: string }>(client, "SELECT id, organization_id, owner_user_id FROM campaign_enrolments WHERE runtime = 'legacy' AND state = 'active' AND next_step_at <= now() ORDER BY next_step_at LIMIT $1", [limit]));
-  const results = [] as { id: string; outcome: string }[];
-  for (const job of jobs) {
-    try {
-      const result = await processCampaignEnrolment({ organizationId: job.organization_id, userId: job.owner_user_id }, job.id);
-      results.push({ id: job.id, outcome: result.outcome });
+      const dispatch = await withCampaignWorker(client => rows<{ id: string; version_id: string }>(client, "SELECT id, version_id FROM campaign_enrolments WHERE runtime = 'n8n' AND n8n_started_at IS NULL AND state IN ('active','paused','needs_review') ORDER BY started_at LIMIT $1", [limit]));
+      const jobs = await withCampaignWorker(client => rows<{ id: string; organization_id: string; owner_user_id: string }>(client, "SELECT id, organization_id, owner_user_id FROM campaign_enrolments WHERE runtime = 'legacy' AND state = 'active' AND next_step_at <= now() ORDER BY next_step_at LIMIT $1", [limit]));
+      // Register/replay a small contact batch before selecting account scans.
+      // One contact per tick keeps the existing multi-transaction RLS checks
+      // affordable; account scans still cover all registered contacts.
+      const scans = await withCampaignWorker(client => rows<EnrolmentRow>(client, "SELECT * FROM campaign_enrolments WHERE (state = 'active' OR ($2 AND state IN ('paused','needs_review'))) AND (last_reply_checked_at IS NULL OR last_reply_checked_at < now() - interval '5 minutes') ORDER BY last_reply_checked_at NULLS FIRST, started_at, id LIMIT $1", [replyMonitorMode() === "off" ? limit * 2 : 1, replyMonitorMode() !== "off"]));
+      const prepared: { enrolment: EnrolmentRow; actor: CampaignActor; contact: ReplyContact; mailbox?: MailboxRow }[] = [];
+      const finishScan = async (enrolment: EnrolmentRow, failed: boolean) => {
+        await withCampaignWorkCleanup(() => withCampaignWorker(async client => {
+          if (replyMonitorMode() !== "off") await client.query("UPDATE campaign_enrolments SET last_reply_checked_at = now() WHERE id = $1", [enrolment.id]);
+          if (failed) await client.query("UPDATE campaign_enrolments SET state = 'needs_review', stop_reason = 'reply_check_failed', next_step_at = NULL, updated_at = now() WHERE id = $1 AND state = 'active'", [enrolment.id]);
+        }));
+        output.replyScans++;
+      };
+      for (const enrolment of scans) {
+        assertCampaignWorkRemaining();
+        try {
+          const actor = { organizationId: enrolment.organization_id, userId: enrolment.owner_user_id };
+          const loaded = await withCampaignDb(actor, async client => {
+            const [contact] = await rows<ContactRow>(client, "SELECT * FROM contacts WHERE id = $1 AND organization_id = $2", [enrolment.contact_id, actor.organizationId]);
+            const [version] = await rows<VersionRow>(client, "SELECT * FROM campaign_sequence_versions WHERE id = $1", [enrolment.version_id]);
+            if (!contact || !version) throw new Error("Reply monitoring contact unavailable");
+            const channels = campaignChannels(parseDefinition(version.definition));
+            const [mailbox] = channels.includes("email") && replyMonitorMode() === "off" ? await rows<MailboxRow>(client, "SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE id = $1 AND organization_id = $2 AND user_id = $3", [enrolment.mailbox_connection_id, enrolment.organization_id, enrolment.owner_user_id]) : [];
+            if (replyMonitorMode() === "off" && channels.includes("email") && (!mailbox || !enrolment.recipient_email)) throw new Error("Mailbox or email unavailable");
+            return { mailbox, contact: { id: contact.id, email: enrolment.recipient_email, data: personalData(contact.personal_data), since: enrolment.started_at, requiredChannels: channels } };
+          });
+          if (replyMonitorMode() !== "off") await prepareScheduledReplyContact(actor, loaded.contact);
+          prepared.push({ enrolment, actor, ...loaded });
+        } catch (error) {
+          if (campaignWorkDeferred(error)) throw error;
+          await finishScan(enrolment, true);
+        }
+      }
+      assertCampaignWorkRemaining();
+      output.replyMonitoring = await runReplyMonitorTick(limit);
+      if (output.replyMonitoring.deferred) output.scheduler.deferred = true;
+      for (const { enrolment, actor, contact, mailbox } of prepared) {
+        assertCampaignWorkRemaining();
+        try {
+          if (replyMonitorMode() !== "off") await checkScheduledReplyContact(actor, contact);
+          else if (mailbox && enrolment.recipient_email) await checkReplies(actor, enrolment, mailbox);
+          await finishScan(enrolment, false);
+        } catch (error) {
+          if (campaignWorkDeferred(error)) throw error;
+          await finishScan(enrolment, true);
+        }
+      }
+      // Dispatch only after maintenance has finished; a new webhook must not
+      // race a scheduled freshness check for the same contact/account.
+      for (const job of jobs) {
+        assertCampaignWorkRemaining();
+        try {
+          const result = await processCampaignEnrolment({ organizationId: job.organization_id, userId: job.owner_user_id }, job.id);
+          output.results.push({ id: job.id, outcome: result.outcome });
+        } catch (error) {
+          if (campaignWorkDeferred(error)) throw error;
+          const reason = error instanceof Error ? error.message : "Worker failed";
+          output.results.push({ id: job.id, outcome: reason });
+          await withCampaignWorkCleanup(() => withCampaignWorker(client => client.query("UPDATE campaign_enrolments SET state = 'needs_review', stop_reason = $2, next_step_at = NULL, updated_at = now() WHERE id = $1 AND state = 'active'", [job.id, reason.slice(0, 250)]).then(() => undefined)));
+        }
+        output.processed = output.results.length;
+      }
+      for (const job of dispatch) {
+        assertCampaignWorkRemaining();
+        output.n8nDispatches++;
+        try {
+          await startSequenceContact(job.version_id, job.id);
+          // Persist acceptance even if it used the final milliseconds of work.
+          await withCampaignWorkCleanup(() => withCampaignWorker(client => client.query("UPDATE campaign_enrolments SET n8n_started_at = now() WHERE id = $1 AND n8n_started_at IS NULL", [job.id]).then(() => undefined)));
+        } catch (error) {
+          if (campaignWorkDeferred(error)) throw error;
+          // Keep unstarted for the next scheduler pass.
+        }
+      }
+      const unknown = await withCampaignWorker(client => rows<{ id: string; organization_id: string; owner_user_id: string }>(client, "SELECT id, organization_id, owner_user_id FROM campaign_send_attempts WHERE state = 'unknown' ORDER BY claimed_at DESC LIMIT $1", [limit]));
+      for (const attempt of unknown) {
+        assertCampaignWorkRemaining();
+        output.unknownChecks++;
+        try { await reconcileUnknownAttempt({ organizationId: attempt.organization_id, userId: attempt.owner_user_id }, attempt.id); }
+        catch (error) { if (campaignWorkDeferred(error)) throw error; /* Never retry an unknown send. */ }
+      }
     } catch (error) {
-      const reason = error instanceof Error ? error.message : "Worker failed";
-      results.push({ id: job.id, outcome: reason });
-      await withCampaignWorker(client => client.query("UPDATE campaign_enrolments SET state = 'needs_review', stop_reason = $2, next_step_at = NULL, updated_at = now() WHERE id = $1 AND state = 'active'", [job.id, reason.slice(0, 250)]).then(() => undefined));
+      if (!campaignWorkDeferred(error)) throw error;
+      output.scheduler.deferred = true;
     }
-  }
-  const scans = await withCampaignWorker(client => rows<EnrolmentRow>(client, "SELECT * FROM campaign_enrolments WHERE (state = 'active' OR ($2 AND state IN ('paused','needs_review'))) AND (last_reply_checked_at IS NULL OR last_reply_checked_at < now() - interval '5 minutes') ORDER BY last_reply_checked_at NULLS FIRST LIMIT $1", [limit * 2, replyMonitorMode() !== "off"]));
-  for (const enrolment of scans) {
-    try {
-      const actor = { organizationId: enrolment.organization_id, userId: enrolment.owner_user_id };
-      const loaded = await withCampaignDb(actor, async client => {
-        const [contact] = await rows<ContactRow>(client, "SELECT * FROM contacts WHERE id = $1 AND organization_id = $2", [enrolment.contact_id, actor.organizationId]);
-        const [version] = await rows<VersionRow>(client, "SELECT * FROM campaign_sequence_versions WHERE id = $1", [enrolment.version_id]);
-        if (!contact || !version) throw new Error("Reply monitoring contact unavailable");
-        const channels = campaignChannels(parseDefinition(version.definition));
-        const [mailbox] = channels.includes("email") ? await rows<MailboxRow>(client, "SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE id = $1 AND organization_id = $2 AND user_id = $3", [enrolment.mailbox_connection_id, enrolment.organization_id, enrolment.owner_user_id]) : [];
-        if (channels.includes("email") && (!mailbox || !enrolment.recipient_email)) throw new Error("Mailbox or email unavailable");
-        return { mailbox, input: { id: contact.id, email: enrolment.recipient_email, data: personalData(contact.personal_data), since: enrolment.started_at, requiredChannels: channels } };
-      });
-      if (replyMonitorMode() !== "off") await checkContactReplyMonitors(actor, loaded.input);
-      if (loaded.mailbox && enrolment.recipient_email) await checkReplies(actor, enrolment, loaded.mailbox);
-      if (replyMonitorMode() !== "off") await withCampaignWorker(client => client.query("UPDATE campaign_enrolments SET last_reply_checked_at = now() WHERE id = $1", [enrolment.id]).then(() => undefined));
-    } catch {
-      if (replyMonitorMode() !== "off") await withCampaignWorker(client => client.query("UPDATE campaign_enrolments SET last_reply_checked_at = now() WHERE id = $1", [enrolment.id]).then(() => undefined));
-      await withCampaignWorker(client => client.query("UPDATE campaign_enrolments SET state = 'needs_review', stop_reason = 'reply_check_failed', next_step_at = NULL, updated_at = now() WHERE id = $1 AND state = 'active'", [enrolment.id]).then(() => undefined));
-    }
-  }
-  const unknown = await withCampaignWorker(client => rows<{ id: string; organization_id: string; owner_user_id: string }>(client, "SELECT id, organization_id, owner_user_id FROM campaign_send_attempts WHERE state = 'unknown' ORDER BY claimed_at DESC LIMIT $1", [limit]));
-  for (const attempt of unknown) {
-    try { await reconcileUnknownAttempt({ organizationId: attempt.organization_id, userId: attempt.owner_user_id }, attempt.id); }
-    catch { /* Unknown remains held; it is never retried as a send. */ }
-  }
-  return { processed: results.length, results, n8nDispatches: dispatch.length, replyScans: scans.length, unknownChecks: unknown.length, replyMonitoring };
+  }));
+  output.scheduler.skipped = !locked.acquired;
+  output.scheduler.durationMs = Date.now() - started;
+  return output;
 }
 
 // Called once at cutover for versions published before n8n owned the runtime.

@@ -1,6 +1,7 @@
 import "server-only";
 import type { Delivery, OutboundMessage } from "@/adapters/mailbox";
 import { connectionCanMonitorReplies, mailboxForConnection, type GmailConnectionGrant } from "@/lib/gmail-connection";
+import { campaignReadSignal } from "@/lib/campaign-work-budget";
 
 export type CampaignMailbox = {
   send(userId: string, message: OutboundMessage): Promise<Delivery>;
@@ -31,7 +32,7 @@ class LocalCampaignMailbox implements CampaignMailbox {
   constructor(private readonly base: URL, private readonly mailboxId: string) {}
 
   private async request<T>(path: string, options?: RequestInit): Promise<T> {
-    const response = await fetch(new URL(path, this.base), { ...options, headers: { "Content-Type": "application/json", ...options?.headers }, signal: AbortSignal.timeout(5_000) });
+    const response = await fetch(new URL(path, this.base), { ...options, headers: { "Content-Type": "application/json", ...options?.headers }, signal: options?.method === "POST" ? AbortSignal.timeout(5_000) : campaignReadSignal(5_000) });
     if (!response.ok) throw new Error(`Local campaign sink failed (${response.status})`);
     return response.json() as Promise<T>;
   }

@@ -1,4 +1,5 @@
 import { replyPageSchema, type ReplyPage } from "@/domain/campaign-replies";
+import { campaignRemainingMs } from "@/lib/campaign-work-budget";
 
 // Each page is committed with its events in one transaction. Only a complete
 // scan may advance freshness; a partial scan still has a resumable checkpoint.
@@ -11,6 +12,7 @@ export async function collectReplyPages(input: {
   let accountIdentity = input.accountIdentity;
   const seen = new Set([cursor]);
   for (let count = 0; count < (input.maxPages ?? 5); count++) {
+    if (campaignRemainingMs() === 0) return { complete: false, cursor, deferred: true };
     const page = replyPageSchema.parse(await input.read(cursor));
     const waiting = !page.complete && page.nextReadAt !== undefined && new Date(page.nextReadAt).getTime() > Date.now();
     if (accountIdentity && accountIdentity !== page.accountIdentity) throw new Error("Reply monitor account changed; review before reconnecting");

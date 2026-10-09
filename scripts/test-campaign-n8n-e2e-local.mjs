@@ -70,7 +70,11 @@ try {
   const enrolment = (await api(`/api/campaigns/${sequence.id}/enrolments`, "POST", { contactIds: [contactId], confirmation: true })).payload.enrolments[0];
   assert.equal((await db.query("SELECT runtime FROM campaign_enrolments WHERE id=$1", [enrolment.id])).rows[0].runtime, "n8n");
   await tick();
-  await until(async () => (await deliveries()).length === 1, "first n8n-driven sink delivery");
+  await until(async () => {
+    const state = (await db.query("SELECT state,stop_reason FROM campaign_enrolments WHERE id=$1", [enrolment.id])).rows[0];
+    if (state.state === "needs_review" || state.state === "stopped") throw new Error(`First n8n-driven delivery held: ${state.stop_reason}`);
+    return (await deliveries()).length === 1;
+  }, "first n8n-driven sink delivery");
   assert.equal((await db.query("SELECT step_index FROM campaign_enrolments WHERE id=$1", [enrolment.id])).rows[0].step_index, 2);
   // Compress the mailbox spacing as well as the sequence Wait in this isolated test.
   await db.query("UPDATE campaign_send_attempts SET claimed_at=now()-interval '2 minutes' WHERE enrolment_id=$1", [enrolment.id]);

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { collectReplyPages } from "./campaign-reply-collector";
+import { withCampaignWorkBudget } from "./campaign-work-budget";
 
 const event = { id: "m1", fromIdentity: "alex@example.test", receivedAt: "2026-10-05T10:00:00Z" };
 const page = { accountIdentity: "me@example.test", events: [event], nextCursor: "1", complete: true, checkedAt: "2026-10-05T10:00:01Z" };
@@ -60,4 +61,19 @@ it("does not accept a repeated checkpoint with an expired backoff", async () => 
   const commit = vi.fn();
   await expect(collectReplyPages({ cursor: "1", accountIdentity: null, read: async () => ({ ...page, complete: false, nextReadAt: "2026-10-05T10:00:01Z" }), commit })).rejects.toThrow("checkpoint");
   expect(commit).not.toHaveBeenCalled();
+});
+
+it("defers an untouched page and preserves its durable checkpoint", async () => {
+  const read = vi.fn(), commit = vi.fn();
+  const result = await withCampaignWorkBudget(0, () => collectReplyPages({ cursor: "saved", accountIdentity: page.accountIdentity, read, commit }));
+  expect(result).toEqual({ complete: false, cursor: "saved", deferred: true });
+  expect(read).not.toHaveBeenCalled(); expect(commit).not.toHaveBeenCalled();
+});
+
+it("returns committed progress when its budget expires between pages", async () => {
+  const read = vi.fn().mockResolvedValue({ ...page, complete: false, nextCursor: "saved-next" });
+  const commit = vi.fn().mockImplementation(async () => { vi.setSystemTime(Date.now() + 20); return true; });
+  const result = await withCampaignWorkBudget(10, () => collectReplyPages({ cursor: "before", accountIdentity: page.accountIdentity, read, commit }));
+  expect(result).toEqual({ complete: false, cursor: "saved-next", deferred: true });
+  expect(read).toHaveBeenCalledOnce(); expect(commit).toHaveBeenCalledOnce();
 });

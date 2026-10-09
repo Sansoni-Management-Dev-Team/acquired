@@ -1,3 +1,5 @@
+import { campaignReadSignal } from "@/lib/campaign-work-budget";
+
 export type OutboundMessage = { to: string; subject: string; text: string; replyTo?: string; threadId?: string; messageId?: string };
 export type Delivery = { providerMessageId: string; providerThreadId: string; sentAt: Date };
 export type SavedDraft = { providerDraftId: string; providerMessageId: string; providerThreadId: string };
@@ -57,7 +59,7 @@ export class GmailMailbox implements MailboxAdapter {
 
   async send(_userId: string, message: OutboundMessage) {
     const token = await this.accessToken();
-    const response = await this.fetcher("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ raw: this.encode(message), threadId: message.threadId }) });
+    const response = await this.fetcher("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, signal: AbortSignal.timeout(50_000), body: JSON.stringify({ raw: this.encode(message), threadId: message.threadId }) });
     if (!response.ok) throw new Error(`Gmail send failed (${response.status})`);
     const result = await response.json() as { id: string; threadId: string };
     return { providerMessageId: result.id, providerThreadId: result.threadId, sentAt: new Date() };
@@ -66,7 +68,7 @@ export class GmailMailbox implements MailboxAdapter {
   private async searchPage(query: string, maxResults = 10, pageToken?: string): Promise<{ messages: { id: string; threadId: string }[]; nextPageToken?: string }> {
     const token = await this.accessToken();
     const params = new URLSearchParams({ q: query, maxResults: String(maxResults), ...(pageToken ? { pageToken } : {}) });
-    const response = await this.fetcher(`https://gmail.googleapis.com/gmail/v1/users/me/messages?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+    const response = await this.fetcher(`https://gmail.googleapis.com/gmail/v1/users/me/messages?${params}`, { headers: { Authorization: `Bearer ${token}` }, signal: campaignReadSignal() });
     if (!response.ok) throw new Error(`Gmail conversation check failed (${response.status})`);
     const result = await response.json() as { messages?: { id: string; threadId: string }[]; nextPageToken?: string };
     return { messages: result.messages || [], nextPageToken: result.nextPageToken };
@@ -103,7 +105,7 @@ export class GmailMailbox implements MailboxAdapter {
     for (let offset = 0; offset < candidates.length; offset += 10) {
       messages.push(...await Promise.all(candidates.slice(offset, offset + 10).map(async candidate => {
         const params = new URLSearchParams({ format: "metadata", metadataHeaders: "From" });
-        const response = await this.fetcher(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(candidate.id)}?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+        const response = await this.fetcher(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(candidate.id)}?${params}`, { headers: { Authorization: `Bearer ${token}` }, signal: campaignReadSignal() });
         if (!response.ok) throw new Error(`Gmail reply check failed (${response.status})`);
         return response.json() as Promise<{ id: string; internalDate: string; payload?: { headers?: { name: string; value: string }[] } }>;
       })));

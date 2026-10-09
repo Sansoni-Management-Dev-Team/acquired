@@ -25,7 +25,7 @@
         "url": "http://host.docker.internal:3010/api/internal/campaigns/tick",
         "sendHeaders": true,
         "headerParameters": { "parameters": [{ "name": "Authorization", "value": "={{ 'Bearer ' + $env.OUTREACH_WORKER_SECRET }}" }] },
-        "options": { "timeout": 30000 }
+        "options": { "timeout": 120000 }
       },
       "id": "1f40df4c-6fa1-4bcc-8e72-29bbf18cc0d0",
       "name": "Run local Acquire worker",

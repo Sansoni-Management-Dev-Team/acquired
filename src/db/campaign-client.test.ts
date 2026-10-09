@@ -3,7 +3,8 @@ const mock = vi.hoisted(() => ({ query: vi.fn(), release: vi.fn(), connect: vi.f
 vi.mock("server-only", () => ({}));
 vi.mock("@vercel/functions", () => ({ attachDatabasePool: vi.fn() }));
 vi.mock("pg", () => ({ Pool: class { connect = mock.connect; } }));
-import { withCampaignDb, withCampaignWorker } from "./campaign-client";
+import { withCampaignDb, withCampaignWorker, withCampaignTickLock } from "./campaign-client";
+import { withCampaignWorkBudget, CampaignWorkDeferred } from "@/lib/campaign-work-budget";
 let role: string, bypass: boolean, superuser: boolean, member: boolean;
 beforeEach(() => {
   vi.resetAllMocks(); vi.stubEnv("DATABASE_URL", "postgresql://test.invalid/test");
@@ -30,3 +31,35 @@ it.each([false, true])("rolls back callback failure for worker=%s and releases t
   await expect(worker ? withCampaignWorker(callback) : withCampaignDb({ organizationId: "org", userId: "owner" }, callback)).rejects.toThrow("failed transaction"); expect(mock.query).toHaveBeenLastCalledWith("ROLLBACK"); expect(mock.release).toHaveBeenCalledOnce();
 });
 it("worker enters its restricted role, commits and releases", async () => { role = "acquire_campaign_worker"; expect(await withCampaignWorker(async () => 42)).toBe(42); expect(mock.query).toHaveBeenCalledWith("SET LOCAL ROLE acquire_campaign_worker"); expect(mock.query).toHaveBeenLastCalledWith("COMMIT"); expect(mock.release).toHaveBeenCalledOnce(); });
+
+it("does not acquire a database connection after admission has expired", async () => {
+  await expect(withCampaignWorkBudget(0, () => withCampaignWorker(async () => 1))).rejects.toBeInstanceOf(CampaignWorkDeferred);
+  expect(mock.connect).not.toHaveBeenCalled();
+});
+
+it.each([false, true])("scheduler lock acquired=%s always rolls back and releases", async acquired => {
+  mock.query.mockResolvedValue({ rows: [{ acquired }] });
+  const callback = vi.fn().mockResolvedValue("done");
+  expect(await withCampaignTickLock(callback)).toEqual(acquired ? { acquired: true, result: "done" } : { acquired: false });
+  expect(callback).toHaveBeenCalledTimes(acquired ? 1 : 0);
+  expect(mock.query).toHaveBeenLastCalledWith("ROLLBACK"); expect(mock.release).toHaveBeenCalledOnce();
+});
+
+it("releases a scheduler lock when the worker throws", async () => {
+  mock.query.mockResolvedValue({ rows: [{ acquired: true }] });
+  await expect(withCampaignTickLock(async () => { throw new Error("worker failed"); })).rejects.toThrow("worker failed");
+  expect(mock.query).toHaveBeenLastCalledWith("ROLLBACK"); expect(mock.release).toHaveBeenCalledOnce();
+});
+
+it("bounds scheduled statements and rolls back database cancellation as deferred work", async () => {
+  mock.query.mockImplementation(async (input: string | { text: string }) => {
+    const sql = typeof input === "string" ? input : input.text;
+    if (sql.startsWith("SELECT current_user")) return { rows: [{ active_role: "acquire_campaign_worker", rolsuper: false, rolbypassrls: false }] };
+    if (sql === "SELECT pg_sleep(10)") throw Object.assign(new Error("statement timeout"), { code: "57014" });
+    return { rows: [] };
+  });
+  await expect(withCampaignWorkBudget(2000, () => withCampaignWorker(client => client.query("SELECT pg_sleep(10)")))).rejects.toBeInstanceOf(CampaignWorkDeferred);
+  expect(mock.query).toHaveBeenCalledWith("SELECT set_config('statement_timeout', $1, true)", [expect.any(String)]);
+  expect(mock.query).toHaveBeenCalledWith(expect.objectContaining({ text: "SELECT pg_sleep(10)", query_timeout: expect.any(Number) }));
+  expect(mock.query).toHaveBeenLastCalledWith("ROLLBACK"); expect(mock.release).toHaveBeenCalledOnce();
+});

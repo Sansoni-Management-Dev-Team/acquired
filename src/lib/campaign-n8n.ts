@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { campaignReadSignal } from "@/lib/campaign-work-budget";
 import { campaignNextOptions, campaignPathFor, campaignStepEntries, type CampaignDefinition } from "@/domain/campaign";
 
 type Node = { id: string; name: string; type: string; typeVersion: number; position: [number, number]; parameters: Record<string, unknown>; credentials?: Record<string, unknown>; webhookId?: string };
@@ -142,6 +143,6 @@ export async function removeSequenceWorkflow(workflowId: string) {
 
 export async function startSequenceContact(versionId: string, enrolmentId: string) {
   const url = n8nUrl();
-  const response = await fetch(`${url}/webhook/acquire/campaign/${versionId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enrolmentId }), cache: "no-store" });
+  const response = await fetch(`${url}/webhook/acquire/campaign/${versionId}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enrolmentId }), cache: "no-store", signal: campaignReadSignal(15_000) });
   if (!response.ok) throw new Error(`n8n contact start failed (${response.status})`);
 }
