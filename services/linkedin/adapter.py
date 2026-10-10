@@ -21,8 +21,8 @@ PATHS = {
     'message': '/voyager/api/voyagerMessagingDashMessengerMessages?action=createMessage',
 }
 
-def message_target(raw, mailbox, recipient):
-    """Resolve exactly one complete one-to-one thread; never use the open chat."""
+def message_target(raw, mailbox, recipient, allow_new=False):
+    """Resolve a verified thread or an explicit single-recipient campaign target."""
     from replies import observed_collection, profile
     own, target = profile(mailbox), profile(recipient)
     if own == target:
@@ -39,6 +39,8 @@ def message_target(raw, mailbox, recipient):
                 and set(participants) == {own, target}
                 and isinstance(urn, str) and re.fullmatch(r'urn:li:msg_conversation:[A-Za-z0-9_(),:=%-]+', urn)):
             matches.add(urn)
+    if not matches and allow_new:
+        return {'mailboxUrn': own, 'hostRecipientUrns': [target]}
     if len(matches) != 1:
         raise ValueError('Refresh LinkedIn Messaging: exactly one verified one-to-one conversation is required')
     return {'mailboxUrn': own, 'conversationUrn': matches.pop()}
@@ -50,20 +52,34 @@ def payload(kind, recipient, text, token, target=None):
             raise ValueError('Invitation notes require a verified browser capture; send without a note')
         return {'invitee': {'inviteeUnion': {'memberProfile': recipient}}}
     if not target:
-        raise ValueError('A verified existing conversation is required')
-    return {'message': {'body': {'attributes': [], 'text': text}, 'renderContentUnions': [],
-                        'conversationUrn': target['conversationUrn'], 'originToken': str(uuid.UUID(token))},
-            'mailboxUrn': target['mailboxUrn'], 'trackingId': secrets.token_urlsafe(12),
-            'dedupeByClientGeneratedToken': False}
+        raise ValueError('A verified message target is required')
+    # Campaign journal IDs are SHA-256; Voyager expects a stable UUID token.
+    origin = str(uuid.UUID(token[:32] if re.fullmatch(r'[a-f0-9]{64}', token) else token))
+    message = {'body': {'attributes': [], 'text': text}, 'renderContentUnions': [], 'originToken': origin}
+    body = {'message': message, 'mailboxUrn': target['mailboxUrn'],
+            'trackingId': secrets.token_urlsafe(12), 'dedupeByClientGeneratedToken': False}
+    if 'conversationUrn' in target:
+        message['conversationUrn'] = target['conversationUrn']
+    else:
+        from replies import profile
+        own, other = profile(target['mailboxUrn']), profile(recipient)
+        if own == other or target.get('hostRecipientUrns') != [other]:
+            raise ValueError('A verified single recipient is required')
+        body['hostRecipientUrns'] = [other]
+    return body
 
 
 def message_receipt(data, body):
     value = data.get('value') if isinstance(data, dict) else None
     message = body['message']
+    conversation = value.get('conversationUrn') if isinstance(value, dict) else None
+    target_matches = (conversation == message['conversationUrn'] if 'conversationUrn' in message else
+                      isinstance(conversation, str) and re.fullmatch(r'urn:li:msg_conversation:[A-Za-z0-9_(),:=%-]+', conversation)
+                      and value.get('hostRecipientUrns', body['hostRecipientUrns']) == body['hostRecipientUrns'])
     if (isinstance(value, dict) and isinstance(value.get('entityUrn'), str)
             and value['entityUrn'].startswith('urn:li:msg_message:')
             and value.get('originToken') == message['originToken']
-            and value.get('conversationUrn') == message['conversationUrn']
+            and target_matches
             and value.get('body') == message['body']):
         return value['entityUrn']
     return None
