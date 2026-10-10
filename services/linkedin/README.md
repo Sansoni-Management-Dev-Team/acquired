@@ -113,7 +113,7 @@ Additional no-send tests: `pytest -q test_campaign.py`. These cover target-bound
 relationship parsing, invitation skips, unknown/nonconnected recipients, note
 limits, queue isolation, idempotent submission, and live feature gating.
 
-### Existing-conversation message contract (local update)
+### Message contract (local update)
 
 The message adapter now uses `voyagerMessagingDashMessengerMessages?action=createMessage`,
 matching the successful manual browser capture reviewed on 2026-10-07. It sends a
@@ -121,16 +121,25 @@ UUID origin token, separate 16-character tracking ID, mailbox URN, conversation
 URN, and the observed JSON/text headers using the current browser session's CSRF
 cookie. No HAR credentials are copied into code or fixtures.
 
-Before sending, the service requires exactly one complete non-group conversation
-whose participants are the current mailbox and intended recipient. It uses the
+For an existing thread, the service requires exactly one complete non-group
+conversation whose participants are the current mailbox and intended recipient. It uses the
 account's recent inbox response, refreshing through the captured read request
 when stale and respecting request spacing before the write. Cache freshness
-covers the configured spacing window. This lookup does not paginate or create a
-new conversation: a recipient absent from the captured inbox requires a Messaging
-refresh and a fresh draft. The service never guesses the target from the open chat.
+covers the configured spacing window. Folder scans retain their own queries and
+do not overwrite the visible-inbox query used to resolve DM conversations. The
+service never guesses the target from the open chat.
+
+Campaign DMs also support a first message to a verified connected recipient. If
+the verified inbox has no matching thread, the request uses exactly one
+`hostRecipientUrns` entry instead of a guessed conversation URN. The campaign
+preflight still verifies the recipient and fresh reply coverage. Manual action
+drafts retain the existing-thread requirement. SHA-256 campaign action IDs map
+deterministically to UUID origin tokens; replay uses the same journal entry.
 
 A successful message response must contain a matching `value.entityUrn`, origin
-token, conversation and body. Missing confirmation or a timeout remains uncertain
+token, conversation and body. For a first DM, the returned conversation URN must
+be valid and any returned recipient list must match the submitted target. Missing
+confirmation or a timeout remains uncertain
 and cannot be automatically retried. The encrypted action journal records the
 endpoint, HTTP status, redirect flag, numeric provider error codes, target thread,
 origin token and confirmed message ID; raw error bodies and authentication headers
@@ -138,7 +147,23 @@ are excluded. Fixture coverage checks the modern wire contract and session resto
 A user-approved existing-conversation message sent through the local OrbStack
 service on 2026-10-07 returned HTTP 200 with a matching receipt and appeared once
 in the live browser. Live sends were disabled again afterward. Other accounts,
-new conversations and unattended campaign sending remain unverified.
+new conversations and unattended campaign sending require their own live evidence.
+
+The 10 October first-DM update has regression and fictional full-stack tests.
+Its live request format was captured while testing the user-approved greeting to
+Blake Barrett. Browser interception failed and that greeting was submitted from
+the browser, so it is not evidence of a live Acquire → n8n → service DM. Do not
+click Send on a live account solely to collect a supposedly blocked contract;
+capture an approved submission or use fictional provider routes.
+
+A separately authorized first DM on 10 October subsequently passed the live
+Acquire → n8n → LinkedIn service path in an isolated OrbStack stack. n8n execution
+5725 completed with one send attempt and a matching provider receipt. A read-only
+query confirmed the stored message had the exact submitted text and origin token,
+and the greeting appeared in the intended recipient’s conversation. A repeated
+completed-step callback performed no further send. Live gates were disabled, the
+workflow deactivated and the browser paused after verification. This verifies
+that tested account and first-DM contract; other accounts still need verification.
 
 ### Request tracing
 

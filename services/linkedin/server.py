@@ -116,9 +116,13 @@ class Worker:
         token = re.search(r'syncToken:([^,)]+)', variables)
         mailbox = re.search(r'mailboxUrn:(urn:li:[^,)]+)', variables)
         if request.method == 'GET' and query_id.startswith('messengerConversations.') and mailbox:
-            self.sync_token, self.mailbox, self.query_id = token[1] if token else None, mailbox[1], query_id
-            self.conversation_variables = query.get('variables', [''])[0]
-            self.conversation_request = parsed.path + '?' + parsed.query
+            self.mailbox = mailbox[1]
+            # Folder scans return a different collection from the visible inbox.
+            # Capturing their reads must not replace the DM conversation query.
+            if 'query:' not in variables:
+                self.sync_token, self.query_id = token[1] if token else None, query_id
+                self.conversation_variables = query.get('variables', [''])[0]
+                self.conversation_request = parsed.path + '?' + parsed.query
         if request.method == 'GET' and query_id.startswith('messengerMessages.') and 'conversationUrn:' in variables:
             self.message_request = parsed.path + '?' + parsed.query
         if request.method == 'GET' and self.mailbox and query_id.startswith(('messengerConversations.','messengerMessages.')):
@@ -319,8 +323,8 @@ async def _dispatch_action(owner, worker, record):
                 return record
             try:
                 with diag.span('action.resolve_conversation'):
-                    target = message_target(cached['result']['response']['data'], worker.mailbox, record['recipient'])
-                diag.emit('action.target_verified', conversation_id=diag.identifier(target['conversationUrn']), mailbox_id=diag.identifier(target['mailboxUrn']), recipient_id=diag.identifier(record['recipient']))
+                    target = message_target(cached['result']['response']['data'], worker.mailbox, record['recipient'], allow_new=bool(record.get('campaignKey')))
+                diag.emit('action.target_verified', conversation_id=diag.identifier(target.get('conversationUrn')), mailbox_id=diag.identifier(target['mailboxUrn']), recipient_id=diag.identifier(record['recipient']))
             except (ValueError, KeyError, AttributeError):
                 record.update(status='blocked', reason='Refresh LinkedIn Messaging: a verified one-to-one conversation is required')
                 data['actions'][record['id']] = record
@@ -333,7 +337,11 @@ async def _dispatch_action(owner, worker, record):
             with diag.span('action.build_payload'):
                 body = payload(record['kind'], record['recipient'], record['text'], record['id'], target)
             if target:
-                record.update(conversationUrn=target['conversationUrn'], mailboxUrn=target['mailboxUrn'], originToken=body['message']['originToken'])
+                record.update(mailboxUrn=target['mailboxUrn'], originToken=body['message']['originToken'])
+                if 'conversationUrn' in target:
+                    record['conversationUrn'] = target['conversationUrn']
+                else:
+                    record['hostRecipientUrns'] = target['hostRecipientUrns']
             record.update(status='uncertain', attemptedAt=now, traceId=diag.CONTEXT.get().get('trace_id'))
             data['actions'][record['id']] = record
             with diag.span('action.persist_attempt'):
@@ -359,6 +367,8 @@ async def _dispatch_action(owner, worker, record):
                 record['providerId'] = receipt
                 if receipt:
                     record['status'] = 'submitted'
+                    if record['kind'] == 'message':
+                        record['conversationUrn'] = response['value']['conversationUrn']
                 else:
                     record['reason'] = 'Response did not confirm this action; verify in LinkedIn before creating another action'
             elif result['status'] in (401,403,422,429,999) or result.get('redirect'):
@@ -1034,9 +1044,11 @@ async def fixture_inbox():
 
 @app.get('/voyager/api/identity/dash/profiles')
 async def fixture_profile(request: Request):
-    if os.getenv('LINKEDIN_ENABLE_FIXTURES') != 'true' or request.query_params.get('memberIdentity') != 'fictional-alex':
+    identity = request.query_params.get('memberIdentity')
+    if os.getenv('LINKEDIN_ENABLE_FIXTURES') != 'true' or identity not in ('fictional-alex', 'fictional-dm-alex'):
         raise HTTPException(404)
-    return {'included': [{'entityUrn': 'urn:li:fsd_profile:fictional-alex', 'publicIdentifier': 'fictional-alex', 'connectionDegree': 'SECOND'}]}
+    return {'included': [{'entityUrn': 'urn:li:fsd_profile:' + identity, 'publicIdentifier': identity,
+                         'connectionDegree': 'FIRST' if identity == 'fictional-dm-alex' else 'SECOND'}]}
 
 @app.api_route('/voyagerMessagingGraphQL/graphql', methods=['GET'])
 async def fixture_reads(request: Request):
@@ -1062,15 +1074,18 @@ async def fixture_writes(path: str, request: Request):
         raise HTTPException(401)
     if path == 'voyagerMessagingDashMessengerMessages' and request.query_params.get('action') == 'createMessage':
         message = body.get('message', {})
+        new_target = body.get('hostRecipientUrns') == ['urn:li:fsd_profile:fictional-dm-alex'] and 'conversationUrn' not in message
+        existing_target = message.get('conversationUrn') == 'urn:li:msg_conversation:fixture-alex' and 'hostRecipientUrns' not in body
         if (body.get('mailboxUrn') != 'urn:li:fsd_profile:fixture'
-                or message.get('conversationUrn') != 'urn:li:msg_conversation:fixture-alex'
+                or not (new_target or existing_target)
                 or body.get('dedupeByClientGeneratedToken') is not False
                 or len(body.get('trackingId', '')) != 16
                 or request.headers.get('content-type') != 'text/plain;charset=UTF-8'
                 or request.headers.get('accept') != 'application/json'
                 or request.headers.get('x-restli-protocol-version') != '2.0.0'):
             raise HTTPException(400, 'Invalid modern message request')
-        return {'value': {**message, 'entityUrn': 'urn:li:msg_message:fixture-result'}}
+        return {'value': {**message, 'conversationUrn': 'urn:li:msg_conversation:fixture-first-dm' if new_target else message['conversationUrn'],
+                          'entityUrn': 'urn:li:msg_message:fixture-result'}}
     if path == 'voyagerRelationshipsDashMemberRelationships':
         if (request.query_params.get('action') != 'verifyQuotaAndCreateV2'
                 or request.query_params.get('decorationId') != 'com.linkedin.voyager.dash.deco.relationships.InvitationCreationResultWithInvitee-2'
