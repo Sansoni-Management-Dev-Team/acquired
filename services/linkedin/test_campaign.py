@@ -256,3 +256,22 @@ def test_temporary_relationship_provider_failure_does_not_become_unknown_identit
     lookup.return_value=({'status':status},{'connected':None,'recipient':None})
     assert call(client,'post','/campaign',json=request('status')).json()['status']=='retry'
     provider.assert_not_awaited()
+
+
+def test_receipt_lookup_is_read_only_and_owner_scoped(setup, monkeypatch):
+    client, vault, owner, lookup, provider = prepare(setup, monkeypatch, True)
+    submitted = call(client, 'post', '/campaign', json=request()).json()['action']
+    server.workers.clear()  # Receipts survive browser restarts.
+    data = vault.load(owner)
+    data['fixture'] = True
+    vault.save(owner, data)
+    def receipt(user='alice'):
+        return client.get('/campaign?key=campaign:enrolment:step&organizationId=test-org&userId='+user, headers={'authorization':'Bearer '+server.SECRET})
+    for _ in range(2):
+        response = receipt()
+        assert response.status_code == 200
+        assert response.json()['action']['id'] == submitted['id']
+        assert 'text' not in response.json()['action']
+    assert receipt('bob').json() == {'status': 'missing'}
+    assert lookup.call_count == 1
+    assert provider.call_count == 0

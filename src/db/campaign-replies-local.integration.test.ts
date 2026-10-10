@@ -1,3 +1,4 @@
+import { localCampaignDatabase } from "../../scripts/campaign-integration-support.mjs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import pg, { type PoolClient } from "pg";
 import { randomUUID } from "node:crypto";
@@ -8,7 +9,7 @@ import { readCampaignReplyAlerts } from "@/lib/campaign-reply-alerts";
 
 // Dedicated loopback database only. All synthetic fixtures and events roll back.
 describe.skipIf(process.env.CAMPAIGN_AUDIT_LOCAL_DB !== "1")("local reply monitor transactions", () => {
-  const client = new pg.Client({ connectionString: "postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire", connectionTimeoutMillis: 5000 });
+  const client = new pg.Client({ connectionString: localCampaignDatabase, connectionTimeoutMillis: 5000 });
   const sqlClient = client as unknown as PoolClient;
   const org = `reply-test-${randomUUID()}`, user = `reply-test-${randomUUID()}`;
   const other = `reply-test-${randomUUID()}`;

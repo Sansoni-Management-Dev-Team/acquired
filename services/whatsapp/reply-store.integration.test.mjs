@@ -8,7 +8,7 @@ import { createStore } from './store.mjs';
 test('local reply journal: durable replay, bounded pages, account isolation and transactional rollback', { skip: process.env.WHATSAPP_DB_TEST !== 'true' }, async () => {
   const connectionString = process.env.DATABASE_URL;
   const target = new URL(connectionString);
-  assert.equal(target.hostname, '127.0.0.1'); assert.equal(target.port, '5434'); assert.equal(target.pathname, '/project_acquire');
+  assert.equal(target.hostname, '127.0.0.1'); const isolated=process.env.CAMPAIGN_ISOLATED_CHANNEL_STACK==='1'; assert.equal(target.port, isolated?'5445':'5434'); assert.equal(target.pathname, isolated?'/acquire_channels':'/project_acquire');
   const admin = new pg.Client({ connectionString }); await admin.connect();
   const id = `reply-journal-${randomUUID()}`, actor = { organizationId: id, userId: id };
   const store = createStore({ DATABASE_URL: connectionString, WHATSAPP_ENCRYPTION_KEY: randomBytes(32).toString('base64'), CAMPAIGN_REPLY_MONITOR_ENABLED: 'true' });

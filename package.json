@@ -35,7 +35,8 @@
     "linkedin:local": "node scripts/linkedin-local.mjs",
     "test:linkedin": "docker compose -f services/linkedin/compose.local.yml exec -T linkedin pytest -q -p no:cacheprovider",
     "test:linkedin:smoke": "docker compose -f services/linkedin/compose.local.yml exec -T linkedin python smoke.py",
-    "linkedin:cloud:tunnel": "node scripts/linkedin-cloud-tunnel.mjs"
+    "linkedin:cloud:tunnel": "node scripts/linkedin-cloud-tunnel.mjs",
+    "test:channels:local": "CAMPAIGN_ISOLATED_CHANNEL_STACK=1 node scripts/test-channel-stack-local.mjs"
   },
   "packageManager": "pnpm@11.8.0+sha512.c1f5e7c4cb241c8f174b743851d82f42b802324afc8b0f116b96adb15aa06664948dde36960a3ba1079ba5b4b29dd0140135b94b5b5f5263592249d68e555f26",
   "dependencies": {

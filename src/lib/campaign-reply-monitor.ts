@@ -1,12 +1,12 @@
 import "server-only";
-import { createHash, randomUUID } from "node:crypto";
-import { z } from "zod";
+import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
 import { rows, withCampaignDb, withCampaignWorker, type CampaignActor } from "@/db/campaign-client";
 import { monitorFresh, replyIdentity, replyMonitorIssue, type ReplyChannel, type ReplyPage } from "@/domain/campaign-replies";
 import { campaignLinkedin, campaignLinkedinAccountStatus, linkedinCampaignEnabled, linkedinProfileFor } from "@/lib/campaign-linkedin";
 import { whatsappCampaignEnabled, assertCampaignWhatsappConnected, CampaignWhatsappDisconnected } from "@/lib/campaign-whatsapp";
 import { assertReplyMonitorMember, applyCampaignReply, assertNoReplyHold, assertNoSharedReplyHold, replayContactReplies, replyMonitorMode, saveReplyIdentity } from "@/lib/campaign-reply-store";
+import { readEmailReplyPage } from "@/lib/channels/email-reply-reader";
 import { collectReplyPages } from "@/lib/campaign-reply-collector";
 import { readChannelReplies } from "@/lib/campaign-reply-providers";
 import { campaignMailboxForConnection } from "@/lib/campaign-mailbox";
@@ -57,31 +57,14 @@ export async function prepareReplyContact(actor: CampaignActor, contact: ReplyCo
   }
 }
 
-const emailCursor = z.object({ signature: z.string(), offset: z.number().int().min(0).max(100), watermark: z.iso.datetime().nullable(), scanStartedAt: z.iso.datetime().nullable() }).strict();
 async function readEmailReplies(actor: CampaignActor, cursor: string | null): Promise<ReplyPage> {
-  const loaded = await withCampaignDb(actor, async client => {
-    const [mailbox] = await rows<{ id: string; address: string; encrypted_refresh_token: string; reconnect_required: boolean; scopes: string[] }>(client, "SELECT * FROM mailbox_connections WHERE organization_id = $1 AND user_id = $2 AND provider = 'gmail'", [actor.organizationId, actor.userId]);
-    if (!mailbox) throw new Error("Email reply monitor needs a connected Gmail account");
-    const identities = await rows<{ identity: string; since: Date }>(client, "SELECT identity,min(since) AS since FROM campaign_reply_identities WHERE organization_id = $1 AND owner_user_id = $2 AND channel = 'email' GROUP BY identity ORDER BY identity LIMIT 101", [actor.organizationId, actor.userId]);
-    if (identities.length > 100) throw new Error("Email reply scan exceeds account scan limit; review before sending");
-    return { mailbox, identities };
+  const [mailbox] = await withCampaignDb(actor, client => rows<{id:string;address:string;encrypted_refresh_token:string;reconnect_required:boolean;scopes:string[]}>(client,"SELECT * FROM mailbox_connections WHERE organization_id=$1 AND user_id=$2 AND provider='gmail'",[actor.organizationId,actor.userId]));
+  if(!mailbox)throw new ReplyCheckReview("reconnect","email");
+  return readEmailReplyPage({accountIdentity:`${mailbox.id}:${mailbox.address}`,cursor,
+    mailbox:campaignMailboxForConnection({encryptedRefreshToken:mailbox.encrypted_refresh_token,reconnectRequired:mailbox.reconnect_required,scopes:mailbox.scopes},mailbox.id),
+    list:after=>withCampaignDb(actor,client=>rows<{identity:string;since:Date}>(client,"SELECT identity,min(since) AS since FROM campaign_reply_identities WHERE organization_id=$1 AND owner_user_id=$2 AND channel='email' AND ($3::text IS NULL OR identity>$3) GROUP BY identity ORDER BY identity LIMIT 2",[actor.organizationId,actor.userId,after])),
+    find:addresses=>withCampaignDb(actor,client=>rows<{identity:string;since:Date}>(client,"SELECT identity,min(since) AS since FROM campaign_reply_identities WHERE organization_id=$1 AND owner_user_id=$2 AND channel='email' AND identity=ANY($3::text[]) GROUP BY identity",[actor.organizationId,actor.userId,addresses])),
   });
-  const gmail = campaignMailboxForConnection({ encryptedRefreshToken: loaded.mailbox.encrypted_refresh_token, reconnectRequired: loaded.mailbox.reconnect_required, scopes: loaded.mailbox.scopes }, loaded.mailbox.id);
-  const signature = createHash("sha256").update(JSON.stringify(loaded.identities.map(item => [item.identity, item.since.toISOString()]))).digest("hex");
-  const previous = cursor ? emailCursor.parse(JSON.parse(cursor)) : null;
-  const checkpoint = previous?.signature === signature ? previous : { signature, offset: 0, watermark: null, scanStartedAt: null };
-  const checkedAt = checkpoint.scanStartedAt || new Date().toISOString();
-  const events = [] as ReplyPage["events"];
-  const batch = loaded.identities.slice(checkpoint.offset, checkpoint.offset + 10);
-  for (const identity of batch) {
-    const since = checkpoint.watermark ? new Date(Math.max(identity.since.getTime(), new Date(checkpoint.watermark).getTime() - 120_000)) : identity.since;
-    const incoming = await gmail.inboundFrom(identity.identity, since);
-    events.push(...incoming.map(item => ({ id: item.id, fromIdentity: identity.identity, receivedAt: item.receivedAt.toISOString() })));
-    if (events.length > 500) throw new Error("Email reply history requires review");
-  }
-  const offset = checkpoint.offset + batch.length;
-  const complete = offset >= loaded.identities.length;
-  return { accountIdentity: `${loaded.mailbox.id}:${loaded.mailbox.address}`, events, nextCursor: JSON.stringify({ signature, offset: complete ? 0 : offset, watermark: complete ? checkedAt : checkpoint.watermark, scanStartedAt: complete ? null : checkedAt }), complete, checkedAt };
 }
 
 export async function scanReplyChannel(actor: CampaignActor, channel: ReplyChannel, options: { maxPages?: number; refresh?: boolean } = {}) {

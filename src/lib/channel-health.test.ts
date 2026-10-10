@@ -87,3 +87,7 @@ it("reports a slow session separately from an unreachable service", async () => 
   await vi.advanceTimersByTimeAsync(20000);
   expect(await pending).toMatchObject({ status: "attention", message: expect.stringContaining("service is reachable") });
 });
+it('reports a temporary Gmail user quota as unavailable rather than asking for reconnection',async()=>{
+ const fetcher=vi.fn().mockResolvedValueOnce(Response.json({access_token:'fixture-token'})).mockResolvedValueOnce(Response.json({error:{errors:[{reason:'userRateLimitExceeded'}]}},{status:403}));
+ expect(await checkGmailHealth('fixture-refresh','owner@example.invalid',fetcher)).toMatchObject({status:'unavailable'});
+});

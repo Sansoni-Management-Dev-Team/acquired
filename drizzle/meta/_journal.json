@@ -127,6 +127,13 @@
       "when": 1791454607871,
       "tag": "0017_channel_optional_people",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1791588831433,
+      "tag": "0018_whatsapp_delivery_journal",
+      "breakpoints": true
     }
   ]
 }

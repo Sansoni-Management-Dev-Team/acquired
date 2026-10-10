@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
-import { assertOwnedTestApp, assertLocalIntegrationSchema, assertIdleCampaignDatabase, localN8nKey, removeCampaignFixtures } from "./campaign-integration-support.mjs";
+import { assertOwnedTestApp, assertLocalIntegrationSchema, assertIdleCampaignDatabase, localN8nKey, removeCampaignFixtures, localCampaignDatabase, localCampaignAppPort, localCampaignSink, localCampaignN8n } from "./campaign-integration-support.mjs";
 
 assertOwnedTestApp();
 const apiKey = await localN8nKey();
 
 if (process.env.CAMPAIGN_E2E_LOCAL !== "1") throw new Error("Set CAMPAIGN_E2E_LOCAL=1");
-const db = new pg.Client({ connectionString: "postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire" });
-const app = "http://localhost:3013";
-const sink = "http://127.0.0.1:18094";
+const db = new pg.Client({ connectionString: localCampaignDatabase });
+const app = `http://localhost:${localCampaignAppPort}`;
+const sink = localCampaignSink;
 const secret = process.env.OUTREACH_WORKER_SECRET || "local-campaign-test-only";
 const run = randomUUID().slice(0, 8);
 const org = `campaign-n8n-e2e-${run}`;
@@ -137,7 +137,7 @@ try {
   for (const id of new Set(workflowIds.filter(Boolean))) {
     try {
       for (const [suffix, method] of [["/deactivate", "POST"], ["", "DELETE"]]) {
-        const response = await fetch(`http://127.0.0.1:5679/api/v1/workflows/${id}${suffix}`, { method, headers, ...(method === "POST" ? { body: "{}" } : {}) });
+        const response = await fetch(`${localCampaignN8n}/api/v1/workflows/${id}${suffix}`, { method, headers, ...(method === "POST" ? { body: "{}" } : {}) });
         if (!response.ok && response.status !== 404) throw new Error(`Workflow cleanup ${id}: ${response.status}`);
       }
     } catch (error) { cleanupErrors.push(error); }

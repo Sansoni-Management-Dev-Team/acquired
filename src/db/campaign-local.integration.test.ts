@@ -1,3 +1,4 @@
+import { localCampaignDatabase } from "../../scripts/campaign-integration-support.mjs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { randomUUID } from "node:crypto";
@@ -6,7 +7,7 @@ import { randomUUID } from "node:crypto";
 // these tests never create schema objects or invoke providers.
 const enabled = process.env.CAMPAIGN_AUDIT_LOCAL_DB === "1";
 describe.skipIf(!enabled)("local campaign database constraints", () => {
-  const client = new pg.Client({ connectionString: "postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire", connectionTimeoutMillis: 5000 });
+  const client = new pg.Client({ connectionString: localCampaignDatabase, connectionTimeoutMillis: 5000 });
   const actor = `campaign-audit-${randomUUID()}`; const other = `campaign-audit-${randomUUID()}`; const org = `campaign-audit-${randomUUID()}`;
   const mandateId = randomUUID(), sequenceId = randomUUID(), versionId = randomUUID();
   beforeAll(async () => {
@@ -45,8 +46,8 @@ describe.skipIf(!enabled)("local campaign database constraints", () => {
 
 describe.skipIf(!enabled)("local mailbox lock contention", () => {
   it("serializes the same mailbox and releases locks after rollback without blocking another mailbox", async () => {
-    const first = new pg.Client({ connectionString: "postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire" });
-    const second = new pg.Client({ connectionString: "postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire" });
+    const first = new pg.Client({ connectionString: localCampaignDatabase });
+    const second = new pg.Client({ connectionString: localCampaignDatabase });
     const key = `synthetic-mailbox-${randomUUID()}`;
     try {
       await Promise.all([first.connect(), second.connect()]); await first.query("BEGIN"); await second.query("BEGIN");

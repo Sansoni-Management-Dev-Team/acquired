@@ -984,6 +984,20 @@ async def actions(request: Request):
         VAULT.save(owner,data)
         return {'action':record}
 
+@app.get('/campaign')
+async def campaign_receipt(request: Request):
+    # Lookup is deliberately read-only: never dispatch or perform provider reads.
+    owner = owner_for(request)
+    key = request.query_params.get('key')
+    if not isinstance(key, str) or not re.fullmatch(r'campaign:[a-zA-Z0-9_-]+:[a-zA-Z0-9_-]+', key):
+        raise HTTPException(400, 'A campaign step idempotency key is required')
+    async with traced_lock(locks.setdefault(owner, asyncio.Lock()), 'campaign.receipt', owner):
+        action_id = hashlib.sha256(json.dumps([mode_for(owner), key]).encode()).hexdigest()
+        record = VAULT.load(owner).get('actions', {}).get(action_id)
+        if not record:
+            return {'status': 'missing'}
+        return {'action': {name: record[name] for name in ('id', 'status', 'attemptedAt', 'nextEligibleAt') if name in record}}
+
 @app.post('/campaign')
 async def campaign(request: Request):
     import sys

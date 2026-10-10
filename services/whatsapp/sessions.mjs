@@ -1,4 +1,6 @@
 import makeWASocket, { DisconnectReason, Browsers, proto, jidNormalizedUser } from '@whiskeysockets/baileys';
+import { submitDelivery } from './delivery.mjs';
+import { waiting, review } from './failures.mjs';
 import { randomUUID } from 'node:crypto';
 import { RecentHistory } from './history.mjs';
 import { serviceConfig } from './routing.mjs';
@@ -136,7 +138,7 @@ export class Sessions {
   }
   replyAccount(session) {
     const id = session.socket.user?.id || session.auth.state.creds.me?.id;
-    if (!id) throw new Error('WhatsApp reply account is not identified');
+    if (!id) throw review('reply_unverified');
     return `${session.auth.connectionId}:${jidNormalizedUser(id)}`;
   }
   async persistReplies(session, messages) {
@@ -150,15 +152,23 @@ export class Sessions {
   }
   async readReplies(actor, cursor) {
     await this.store.authorize(actor);
-    if (!this.store.replyMonitoringEnabled) throw Object.assign(new Error('Reply monitoring disabled'), { status: 503 });
+    if (!this.store.replyMonitoringEnabled) throw review('delivery_disabled');
     const session = this.sessions.get(this.key(actor));
-    if (!session || session.stopped || session.status !== 'connected' || !session.replyReady) throw Object.assign(new Error('Reply inbox not synchronized'), { status: 409 });
+    if (!session || session.stopped) {
+      const saved = await this.store.status(actor);
+      if (['connecting','reconnecting','connected'].includes(saved.status)) throw waiting();
+      throw review('reconnect');
+    }
+    if (['connecting','reconnecting'].includes(session.status) || (session.status === 'connected' && !session.replyReady)) throw waiting();
+    if (session.status !== 'connected') throw review('reconnect');
     // Drain persisted socket events before declaring the inbox checked.
     let drained = false;
     for (let attempt = 0; attempt < 5; attempt++) { const pending = session.events; await pending; if (pending === session.events) { drained = true; break; } }
-    if (!drained || session.stopped || session.status !== 'connected') throw new Error('Reply inbox is busy or disconnected');
+    if (!drained || session.stopped || session.status !== 'connected') throw waiting('busy');
     const accountIdentity = this.replyAccount(session);
-    const after = parseReplyCursor(cursor, accountIdentity);
+    let after;
+    try { after = parseReplyCursor(cursor, accountIdentity); }
+    catch (error) { throw review(error.message.includes('account changed') ? 'account_changed' : 'reply_unverified'); }
     const checkedAt = new Date().toISOString();
     const records = await session.auth.readReplyEvents(accountIdentity, after);
     const page = records.slice(0, 500);
@@ -167,10 +177,10 @@ export class Sessions {
       let identity = record.from_identity;
       if (!identity && record.remote_identity.endsWith('@lid')) {
         identity = await session.socket.signalRepository?.lidMapping?.getPNForLID(record.remote_identity);
-        if (!/^[1-9]\d{6,14}@s\.whatsapp\.net$/.test(identity || '')) throw new Error('WhatsApp sender identity requires review');
+        if (!/^[1-9]\d{6,14}@s\.whatsapp\.net$/.test(identity || '')) throw review('reply_unverified');
         await session.auth.resolveReplyIdentity(record.id, identity);
       }
-      if (!identity) throw new Error('WhatsApp sender identity requires review');
+      if (!identity) throw review('reply_unverified');
       events.push({ id: record.provider_event_id, fromIdentity: identity, receivedAt: new Date(record.received_at).toISOString() });
     }
     return { accountIdentity, events, nextCursor: replyCursor(accountIdentity, String(page.at(-1)?.id || after)), complete: records.length <= 500, checkedAt };
@@ -203,6 +213,14 @@ export class Sessions {
       return { id: participant.id, lid: lid || null, phoneNumber: phoneNumber || null, name: contact?.name || contact?.notify || null, admin: participant.admin || null };
     }));
     return { id: metadata.id, subject: metadata.subject, participants };
+  }
+  async sendCampaign(actor, input) {
+    await this.store.authorize(actor);
+    if (!this.store.campaignsEnabled) return {status:'review',code:'delivery_disabled'};
+    const session=this.sessions.get(this.key(actor));
+    if (!session || session.stopped || session.status!=='connected') throw waiting();
+    await session.auth.assertLease();
+    return submitDelivery(session.auth,session.socket,this.replyAccount(session),input);
   }
   async sendText(actor, recipient, text) {
     await this.store.authorize(actor);

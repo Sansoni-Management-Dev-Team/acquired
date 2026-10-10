@@ -25,7 +25,7 @@ beforeEach(() => {
   mock.fresh.mockResolvedValue(undefined); mock.monitor.mockResolvedValue(undefined); mock.connected.mockResolvedValue(undefined);
   mock.gmail.inboundFrom.mockResolvedValue([]); mock.gmail.hasConversation.mockResolvedValue(false); mock.gmail.outboundToSince.mockResolvedValue([]);
   mock.send.mockResolvedValue({ providerMessageId: "email-id", providerThreadId: "thread", sentAt: new Date() });
-  mock.linkedin.mockResolvedValue({ action: { id: "linkedin-id", status: "submitted" } }); mock.whatsapp.mockResolvedValue({ id: "whatsapp-id", status: "submitted" });
+  mock.linkedin.mockResolvedValue({ action: { id: "linkedin-id", status: "submitted",sentAt:new Date().toISOString() } }); mock.whatsapp.mockResolvedValue({ id: "whatsapp-id", status: "submitted",sentAt:new Date().toISOString() });
   mock.query.mockImplementation(async (sql: string, values: unknown[] = []) => {
     if (sql.includes("state = 'sent'") && sql.startsWith("UPDATE campaign_send_attempts")) { if (failCommit) { failCommit = false; throw new Error("commit lost after provider acceptance"); } attempt = "sent"; }
     if (sql.startsWith("UPDATE campaign_send_attempts") && sql.includes("state = 'unknown'")) attempt = "unknown";
@@ -33,6 +33,7 @@ beforeEach(() => {
     if (sql.startsWith("UPDATE campaign_enrolments SET state = 'needs_review'")) { state = "needs_review"; stopReason = sql.includes("send_result_unknown") ? "send_result_unknown" : sql.includes("whatsapp_result_unknown") ? "whatsapp_result_unknown" : sql.includes("linkedin_result_requires_review") ? "linkedin_result_requires_review" : String(values[1]); }
     if (sql.startsWith("UPDATE campaign_enrolments SET state = $2")) { state = String(values[1]); if (sql.includes("step_index = $3")) { stepIndex = Number(values[2]); nextAt = values[3] as Date | null; } }
     if (sql.startsWith("UPDATE campaign_enrolments SET next_step_at")) nextAt = values[1] as Date;
+    if (sql.includes("campaign.reply_check_waiting")) {nextAt=values[3] as Date;stopReason="reply_monitor_wait";}
     return { rows: [], rowCount: 1 };
   });
   mock.rows.mockImplementation(async (_client, sql: string) => {
@@ -63,6 +64,17 @@ function channel(kind: "email" | "linkedin" | "whatsapp") {
   definition = { schemaVersion: 1, steps: [kind === "email" ? { ...base, kind, subject: "Hello" } : kind === "linkedin" ? { ...base, kind, action: "message" } : { ...base, kind }] };
 }
 for (const kind of ["email", "linkedin", "whatsapp"] as const) {
+  it(`${kind}: isolated full-stack fast waits apply after a submitted receipt`, async () => {
+    channel(kind);
+    const first = definition.steps[0];
+    definition.steps.push({ id: randomUUID(), kind: "wait", title: "Wait", days: 3 }, { ...first, id: randomUUID() });
+    vi.stubEnv("CAMPAIGN_TEST_FAST_WAITS", "true");
+    const before = Date.now();
+    await processCampaignEnrolment(actor, id);
+    expect(stepIndex).toBe(2);
+    expect(nextAt!.getTime()).toBeGreaterThanOrEqual(before + 3000);
+    expect(nextAt!.getTime()).toBeLessThan(before + 5000);
+  });
   it(`${kind}: replay never sends twice after successful completion`, async () => {
     channel(kind); expect(await processCampaignEnrolment(actor, id)).toMatchObject({ outcome: "sent" });
     expect(state).toBe("completed"); expect(await processCampaignEnrolment(actor, id)).toEqual({ outcome: "not_due" });
@@ -144,4 +156,14 @@ it("records a lasting review when a contact changed before the initial n8n prefl
   expect(await processCampaignEnrolment(actor, id)).toMatchObject({ outcome: "needs_review" });
   expect(mock.query.mock.calls.some(([sql]) => sql.includes("state = 'needs_review'"))).toBe(true);
   expect(attempt).toBeUndefined(); providers().forEach(fn => expect(fn).not.toHaveBeenCalled());
+});
+
+for(const kind of ['email','whatsapp','linkedin'] as const) it(`${kind}: a confirmed quota rejection preserves the scheduled step without an unknown claim`,async()=>{
+ channel(kind);const {ReplyCheckPending}=await import('./campaign-reply-status');const {GmailSendRejected}=await import('@/adapters/gmail-errors');
+ const pending=new ReplyCheckPending('rate_limited',kind,new Date(Date.now()+120000));
+ if(kind==='email')mock.send.mockRejectedValue(new GmailSendRejected(pending));
+ else if(kind==='whatsapp')mock.whatsapp.mockResolvedValue({status:'waiting',code:'rate_limited',retryAt:pending.retryAt.toISOString()});
+ else mock.linkedin.mockResolvedValue({status:'retry',nextEligibleAt:pending.retryAt.getTime()/1000});
+ await processCampaignEnrolment(actor,id);expect(attempt).toBe('cancelled');expect(state).toBe('active');expect(stepIndex).toBe(0);expect(nextAt!.getTime()).toBeGreaterThan(Date.now());
+ expect(mock.query.mock.calls.some(([sql])=>sql.includes("state = 'unknown'"))).toBe(false);
 });

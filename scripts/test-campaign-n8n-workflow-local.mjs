@@ -3,13 +3,14 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import "./campaign-test-loader.mjs";
 const { buildSequenceWorkflow } = await import("../src/lib/campaign-n8n.ts");
 
-const apiKey = process.env.CAMPAIGN_N8N_API_KEY || JSON.parse(await readFile(".local-data/n8n-test-api-key.json", "utf8")).key;
-const base = "http://127.0.0.1:5679";
+const {localN8nKey,localCampaignN8n,isolatedChannelStack}=await import("./campaign-integration-support.mjs");
+const apiKey=await localN8nKey();
+const callbackPort=isolatedChannelStack?3026:3011;
+const base=localCampaignN8n;
 const versionId = randomUUID();
 const enrolmentId = randomUUID();
 const calls = [];
@@ -24,7 +25,7 @@ const server = createServer(async (request, response) => {
   response.writeHead(200, { "Content-Type": "application/json" });
   response.end(JSON.stringify({ outcome: firstRetry ? "retry" : "sent", nextStepAt: new Date(Date.now() + (firstRetry && persistWait ? 75_000 : 2500)).toISOString() }));
 });
-await new Promise(resolve => server.listen(3011, "0.0.0.0", resolve));
+await new Promise(resolve => server.listen(callbackPort, "0.0.0.0", resolve));
 const api = async (path, method = "GET", body) => {
   const result = await fetch(`${base}/api/v1${path}`, { method, headers: { "X-N8N-API-KEY": apiKey, "Content-Type": "application/json" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   if (!result.ok) throw new Error(`${method} ${path}: ${result.status} ${(await result.text()).slice(0, 200)}`);
@@ -32,13 +33,11 @@ const api = async (path, method = "GET", body) => {
 };
 let workflowId;
 async function assertRestartIsolated() {
-  const workflows = await api("/workflows?limit=100");
-  assert.ok(!workflows.nextCursor, "Restart check cannot prove isolation with additional workflow pages");
-  const foreign = workflows.data.filter(item => item.active && item.id !== workflowId && item.id !== "acquireCampaignLocal");
-  assert.equal(foreign.length, 0, `Cannot restart shared local n8n: ${foreign.length} other active workflows. Use a reserved test instance or an idle test window.`);
-  const executions = await api("/executions?limit=100");
-  assert.ok(!executions.nextCursor, "Restart check cannot prove isolation with additional execution pages");
-  assert.equal(executions.data.filter(item => ["running", "waiting", "new"].includes(item.status) && item.workflowId !== workflowId).length, 0, "Cannot restart while another n8n execution is running or waiting");
+  assert.ok(isolatedChannelStack,"Restart tests require the separately owned channel stack; shared n8n is never restarted");
+  // n8n 2.1.5 omits waiting runs from its public execution list. Container
+  // ownership proves isolation; an empty execution list cannot prove it.
+  const owned=JSON.parse(execFileSync("docker",["--context","orbstack","compose","-f","ops/channel-services.compose.yml","ps","--format","json","n8n"],{encoding:"utf8"}));
+  assert.equal(owned.Project,"acquire-channel-services");assert.equal(owned.Service,"n8n");
 }
 try {
   const definition = { schemaVersion: 1, steps: [
@@ -46,7 +45,7 @@ try {
     { id: randomUUID(), kind: "wait", title: "Follow up delay", days: 3 },
     { id: randomUUID(), kind: "email", title: "Follow up", subject: "Hello again", body: "Hi again" },
   ] };
-  const workflow = buildSequenceWorkflow({ versionId, sequenceName: "No-send runtime test", version: 1, definition, appUrl: "http://host.docker.internal:3011" });
+  const workflow = buildSequenceWorkflow({ versionId, sequenceName: "No-send runtime test", version: 1, definition, appUrl: `http://host.docker.internal:${callbackPort}` });
   workflowId = (await api("/workflows", "POST", workflow)).id;
   if (persistWait) await assertRestartIsolated();
   await api(`/workflows/${workflowId}/activate`, "POST", {});
@@ -56,7 +55,7 @@ try {
     await new Promise(resolve => setTimeout(resolve, 5000));
     assert.deepEqual(calls, [0], "restart must happen while the first Wait is pending");
     await assertRestartIsolated();
-    execFileSync("docker", ["--context", "orbstack", "restart", "project-acquire-n8n"], { stdio: "ignore", timeout: 30_000 });
+    execFileSync("docker", ["--context","orbstack","compose","-f","ops/channel-services.compose.yml","restart","n8n"], { stdio: "ignore", timeout: 30_000 });
   }
   let status = "running";
   for (let attempt = 0; attempt < (persistWait ? 180 : 30); attempt++) {

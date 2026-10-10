@@ -9,8 +9,10 @@ import { campaignDraftDefinition, campaignDefinition, campaignFirstStepIndex, ca
 import { connectionCanMonitorReplies } from "@/lib/gmail-connection";
 import { campaignMailboxForConnection, campaignTestSendAnytime } from "@/lib/campaign-mailbox";
 import { n8nCampaignEnabled, provisionSequenceWorkflow, removeSequenceWorkflow, startSequenceContact } from "@/lib/campaign-n8n";
-import { campaignWhatsapp, whatsappCampaignEnabled, whatsappRecipientFor, assertCampaignWhatsappConnected } from "@/lib/campaign-whatsapp";
+import { whatsappCampaignEnabled, whatsappRecipientFor, assertCampaignWhatsappConnected } from "@/lib/campaign-whatsapp";
 import { campaignLinkedin, assertLinkedinDeliveryReady, linkedinCampaignEnabled, linkedinProfileFor } from "@/lib/campaign-linkedin";
+import { deliveryProvider } from "@/lib/channels/delivery-registry";
+import type { CampaignMailbox } from "@/lib/campaign-mailbox";
 import type { PoolClient } from "pg";
 import { checkContactReplyMonitors, assertContactReplyFresh, assertReplyCoverage, prepareReplyContact, prepareScheduledReplyContact, checkScheduledReplyContact, runReplyMonitorTick, type ReplyContact } from "@/lib/campaign-reply-monitor";
 import { assertNoReplyHold, replyMonitorMode, ingestCampaignReply } from "@/lib/campaign-reply-store";
@@ -53,8 +55,8 @@ const contactMandate = "(c.mandate_id = $3 OR EXISTS (SELECT 1 FROM mandate_targ
 
 function nextSendAt(input: Date) { return campaignTestSendAnytime() ? input : nextAllowedCampaignSend(input); }
 function sendWindowOpen(input: Date) { return campaignTestSendAnytime() || campaignSendWindowOpen(input); }
-function nextCampaignAction(definition: CampaignDefinition, sentIndex: number, sentAt: Date, enrolmentId: string) {
-  const next = nextCampaignStepAfter(definition, sentIndex, sentAt, enrolmentId);
+function nextCampaignAction(definition: CampaignDefinition, sentIndex: number, sentAt: Date, enrolmentId: string, path?: BranchDecision["path"]) {
+  const next = nextCampaignStepAfter(definition, sentIndex, sentAt, enrolmentId, path);
   if (next && campaignTestSendAnytime() && process.env.CAMPAIGN_TEST_FAST_WAITS === "true") next.at = new Date(sentAt.getTime() + 3000);
   return next;
 }
@@ -458,87 +460,63 @@ async function advanceCampaign(actor: CampaignActor, enrolment: EnrolmentRow, de
       return metadata;
     });
   }
-  const next = nextCampaignStepAfter(definition, enrolment.step_index, decision ? new Date(decision.decidedAt) : sentAt, enrolment.id, decision?.path);
+  const next = nextCampaignAction(definition, enrolment.step_index, decision ? new Date(decision.decidedAt) : sentAt, enrolment.id, decision?.path);
   await withCampaignDb(actor, client => client.query("UPDATE campaign_enrolments SET state = $2, step_index = $3, next_step_at = $4, updated_at = now() WHERE id = $1 AND state = 'active' AND step_index = $5", [enrolment.id, next ? "active" : "completed", next?.index ?? campaignStepEntries(definition).length, next ? nextSendAt(next.at) : null, enrolment.step_index]).then(() => undefined));
   return { outcome: "sent" as const };
 }
 
-async function processLinkedinStep(actor: CampaignActor, enrolment: EnrolmentRow, definition: CampaignDefinition, contact: ContactRow) {
+async function processDeliveryStep(actor: CampaignActor, enrolment: EnrolmentRow, definition: CampaignDefinition, contact: ContactRow, mailbox?:CampaignMailbox) {
   const step = campaignStepEntries(definition)[enrolment.step_index].step;
-  if (step.kind !== "linkedin") throw new CampaignError("Invalid LinkedIn step");
-  const profile = linkedinProfileFor(personalData(contact.personal_data));
-  const text = renderCampaignTemplate(step.body, { displayName: contact.display_name, companyName: contact.company_name });
-  if (text.length > (step.action === "connect" ? 200 : 4000)) throw new CampaignError("Personalised LinkedIn text exceeds the action's character limit");
-  const claim = await claimSend(actor, enrolment.id, enrolment.step_index);
-  if (!claim || !await claimStillEligible(actor, enrolment, claim.attemptId, definition)) return { outcome: "not_due" as const };
-  let sameProfile = false;
-  try { sameProfile = linkedinProfileFor(personalData(claim.contact.personal_data)) === profile; } catch { /* Cancel invalid changed profiles as well. */ }
-  if (!sameProfile) {
-    await withCampaignDb(actor, client => client.query("UPDATE campaign_send_attempts SET state = 'cancelled', error = 'Contact LinkedIn profile changed before send' WHERE id = $1 AND state = 'claimed'", [claim.attemptId]));
-    throw new CampaignError("Contact LinkedIn profile changed; send held for review");
-  }
-  // Stable per-enrolment/step key is shared with the encrypted service journal.
-  // Even a lost response or a crash between service and DB commits cannot resend.
-  let sentAt: Date;
-  try {
-    const result = await campaignLinkedin(actor, { operation: step.action === "connect" ? "connect" : "message", profile, key: `campaign:${enrolment.id}:${step.id}`, text });
-    if (result.status === "retry" || result.action?.status === "queued") {
-      const retryAt = new Date(Math.max(Date.now() + 60_000, (result.nextEligibleAt || result.action?.nextEligibleAt || 0) * 1000));
-      await withCampaignDb(actor, async client => {
-        await client.query("UPDATE campaign_send_attempts SET state = 'cancelled' WHERE id = $1 AND state = 'claimed'", [claim.attemptId]);
-        await client.query("UPDATE campaign_enrolments SET next_step_at = $2 WHERE id = $1 AND state = 'active' AND step_index = $3", [enrolment.id, retryAt, enrolment.step_index]);
-      });
-      return { outcome: "not_due" as const };
-    }
-    if (result.action?.status !== "submitted" && result.action?.status !== "skipped") throw new Error(result.action?.reason || "LinkedIn send result is unknown");
-    sentAt = new Date((result.action.attemptedAt || Date.now() / 1000) * 1000);
-    await withCampaignDb(actor, async client => {
-      await client.query("UPDATE campaign_send_attempts SET state = 'sent', provider_message_id = $2, sent_at = $3 WHERE id = $1 AND state = 'claimed'", [claim.attemptId, `linkedin:${result.action!.id}`, sentAt]);
-      await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,$3,'campaign_enrolment',$4,$5)", [actor.organizationId, actor.userId, result.action!.status === "skipped" ? "campaign.linkedin_skipped" : "campaign.linkedin_submitted", enrolment.id, JSON.stringify({ stepIndex: enrolment.step_index })]);
-    });
-  } catch (error) {
-    // Preserve uncertainty and require review. The service also retains its
-    // journal and will never automatically retry an uncertain provider request.
-    await withCampaignDb(actor, async client => {
-      await client.query("UPDATE campaign_send_attempts SET state = 'unknown', error = $2 WHERE id = $1 AND state = 'claimed'", [claim.attemptId, error instanceof Error ? error.message : "Unknown LinkedIn result"]);
-      await client.query("UPDATE campaign_enrolments SET state = 'needs_review', stop_reason = 'linkedin_result_requires_review', next_step_at = NULL WHERE id = $1 AND state = 'active'", [enrolment.id]);
-    });
-    return { outcome: "needs_review" as const };
-  }
-  return advanceCampaign(actor, enrolment, definition, contact, sentAt);
-}
-
-async function processWhatsappStep(actor: CampaignActor, enrolment: EnrolmentRow, definition: CampaignDefinition, contact: ContactRow) {
-  const step = campaignStepEntries(definition)[enrolment.step_index].step;
-  if (step.kind !== "whatsapp") throw new CampaignError("Invalid WhatsApp step");
-  const recipient = whatsappRecipientFor(personalData(contact.personal_data));
-  const text = renderCampaignTemplate(step.body, { displayName: contact.display_name, companyName: contact.company_name });
-  if (!text.trim() || text.length > 4000) throw new CampaignError("Personalised WhatsApp text must contain 1–4000 characters");
-  const claim = await claimSend(actor, enrolment.id, enrolment.step_index);
-  if (!claim || !await claimStillEligible(actor, enrolment, claim.attemptId, definition)) return { outcome: "not_due" as const };
+  if (step.kind === "wait") throw new CampaignError("Invalid delivery step");
+  const channel = step.kind;
+  const recipientFor = (contact:ContactRow) => channel === "whatsapp" ? whatsappRecipientFor(personalData(contact.personal_data)) : channel === "linkedin" ? linkedinProfileFor(personalData(contact.personal_data)) : emailForContact(contact);
+  const recipient = recipientFor(contact);
+  if (!recipient) throw new CampaignError("Delivery recipient is unavailable");
+  const templateContact = {displayName:contact.display_name,companyName:contact.company_name};
+  const text = renderCampaignTemplate(step.body,templateContact);
+  if (channel === "linkedin" && text.length > (step.action === "connect" ? 200 : 4000)) throw new CampaignError("Personalised LinkedIn text exceeds the action's character limit");
+  if (channel === "whatsapp" && (!text.trim() || text.length > 4000)) throw new CampaignError("Personalised WhatsApp text must contain 1–4000 characters");
+  const provider = deliveryProvider(channel,mailbox);
+  const claim = await claimSend(actor,enrolment.id,enrolment.step_index);
+  if (!claim || !await claimStillEligible(actor,enrolment,claim.attemptId,definition)) return {outcome:"not_due" as const};
   let sameRecipient = false;
-  try { sameRecipient = whatsappRecipientFor(personalData(claim.contact.personal_data)) === recipient; } catch { /* Invalid changed phones must also cancel the unsent claim. */ }
+  try { sameRecipient = recipientFor(claim.contact) === recipient; } catch { /* Cancel invalid changed identities too. */ }
   if (!sameRecipient) {
-    await withCampaignDb(actor, client => client.query("UPDATE campaign_send_attempts SET state = 'cancelled', error = 'Contact phone changed before send' WHERE id = $1 AND state = 'claimed'", [claim.attemptId]));
-    throw new CampaignError("Contact phone changed; send held for review");
+    const label = channel === "whatsapp" ? "phone" : channel === "linkedin" ? "LinkedIn profile" : "email";
+    await withCampaignDb(actor,client=>client.query("UPDATE campaign_send_attempts SET state = 'cancelled', error = $2 WHERE id = $1 AND state = 'claimed'",[claim.attemptId,`Contact ${label} changed before send`]));
+    throw new CampaignError(`Contact ${label} changed; send held for review`);
   }
-  let sentAt: Date;
+  let sentAt:Date;
+  let providerMessageId:string;
   try {
-    const result = await campaignWhatsapp(actor, { recipient, text });
-    sentAt = new Date();
-    await withCampaignDb(actor, async client => {
-      await client.query("UPDATE campaign_send_attempts SET state = 'sent', provider_message_id = $2, sent_at = $3 WHERE id = $1 AND state = 'claimed'", [claim.attemptId, `whatsapp:${result.id}`, sentAt]);
-      await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,'campaign.whatsapp_submitted','campaign_enrolment',$3,$4)", [actor.organizationId, actor.userId, enrolment.id, JSON.stringify({ stepIndex: enrolment.step_index, providerMessageId: result.id })]);
+    const result = await provider.submit({actor,key:`campaign:${enrolment.id}:${step.id}`,recipient,text,messageId:claim.messageId,
+      ...(step.kind === "email" ? {subject:renderCampaignTemplate(step.subject,templateContact)} : {}),
+      operation:step.kind === "linkedin" ? step.action : "message"});
+    if (result.status === "waiting" || result.status === "review") {
+      // These results explicitly establish that no submission occurred.
+      await withCampaignDb(actor,client=>client.query("UPDATE campaign_send_attempts SET state = 'cancelled' WHERE id = $1 AND state = 'claimed'",[claim.attemptId]));
+      return recordReplyCheckFailure(enrolment,result.status === "waiting" ? new ReplyCheckPending(result.code,channel,new Date(result.retryAt)) : new ReplyCheckReview(result.code,channel),"preflight");
+    }
+    if (result.status === "unknown") throw new Error(`Unknown ${channel} submission result`);
+    sentAt = new Date(result.sentAt);
+    providerMessageId = channel === "email" ? result.id : `${channel}:${result.id}`;
+    await withCampaignDb(actor,async client=>{
+      await client.query("UPDATE campaign_send_attempts SET state = 'sent', provider_message_id = $2, provider_thread_id = $3, sent_at = $4 WHERE id = $1 AND state = 'claimed'",[claim.attemptId,providerMessageId,result.threadId||null,sentAt]);
+      const action = channel === "email" ? "campaign.email_sent" : `campaign.${channel}_${result.status}`;
+      await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,$3,'campaign_enrolment',$4,$5)",[actor.organizationId,actor.userId,action,enrolment.id,JSON.stringify({channel,stepIndex:enrolment.step_index,providerMessageId:result.id})]);
     });
   } catch (error) {
-    // A timeout or a failed DB commit after submission must never resend.
-    await withCampaignDb(actor, async client => {
-      await client.query("UPDATE campaign_send_attempts SET state = 'unknown', error = $2 WHERE id = $1 AND state = 'claimed'", [claim.attemptId, error instanceof Error ? error.message : "Unknown WhatsApp result"]);
-      await client.query("UPDATE campaign_enrolments SET state = 'needs_review', stop_reason = 'whatsapp_result_unknown', next_step_at = NULL, updated_at = now() WHERE id = $1 AND state = 'active'", [enrolment.id]);
+    // Once a provider might have accepted a submission, only receipt lookup may recover it.
+    const reason = channel === "email" ? "send_result_unknown" : channel === "whatsapp" ? "whatsapp_result_unknown" : "linkedin_result_requires_review";
+    await withCampaignDb(actor,async client=>{
+      await client.query("UPDATE campaign_send_attempts SET state = 'unknown', error = $2 WHERE id = $1 AND state = 'claimed'",[claim.attemptId,error instanceof Error ? error.message : `Unknown ${channel} result`]);
+      await client.query(`UPDATE campaign_enrolments SET state = 'needs_review', stop_reason = '${reason}', next_step_at = NULL, updated_at = now() WHERE id = $1 AND state = 'active'`,[enrolment.id]);
+      await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,'campaign.send_result_unknown','campaign_enrolment',$3,$4)",[actor.organizationId,actor.userId,enrolment.id,JSON.stringify({channel,category:"review",code:"unresolved_send",stepIndex:enrolment.step_index,transition:{from:enrolment.state,to:"needs_review"}})]);
     });
-    return { outcome: "needs_review" as const };
+    return {outcome:channel === "email" ? "send_result_unknown" as const : "needs_review" as const};
   }
-  return advanceCampaign(actor, enrolment, definition, contact, sentAt);
+  const advanced = await advanceCampaign(actor,enrolment,definition,contact,sentAt);
+  return channel === "email" && advanced.outcome === "sent" ? {...advanced,providerMessageId} : advanced;
 }
 
 export async function processCampaignEnrolment(actor: CampaignActor, enrolmentId: string) {
@@ -585,52 +563,17 @@ export async function processCampaignEnrolment(actor: CampaignActor, enrolmentId
     }
     const definition = parseDefinition(loaded.version.definition);
     const step = campaignStepEntries(definition)[enrolment.step_index]?.step;
-    if (campaignStepEntries(definition).some(({ step }) => step.kind === "linkedin" || step.kind === "whatsapp")) {
+    if (step && step.kind !== "wait") {
       const [previous] = await withCampaignDb(actor, client => rows<{ state: string; sent_at: Date }>(client, "SELECT state, sent_at FROM campaign_send_attempts WHERE enrolment_id = $1 AND step_index = $2", [enrolment.id, enrolment.step_index]));
       if (previous?.state === "sent") return await advanceCampaign(actor, enrolment, definition, contact, previous.sent_at);
       if (previous && ["claimed", "unknown"].includes(previous.state)) throw new CampaignError("Sequence has an unresolved send attempt; review before continuing");
     }
-    if (step?.kind === "whatsapp") {
-      await assertCampaignWhatsappConnected(actor);
-      assertCampaignWorkRemaining();
-      return await withoutCampaignWorkBudget(() => processWhatsappStep(actor, enrolment, definition, contact));
-    }
-    if (step?.kind === "linkedin") {
-      await assertLinkedinDeliveryReady(actor);
-      assertCampaignWorkRemaining();
-      return await withoutCampaignWorkBudget(() => processLinkedinStep(actor, enrolment, definition, contact));
-    }
-    if (!step || step.kind !== "email") throw new CampaignError("Published sequence step is invalid");
-    if (!checked || !enrolment.recipient_email) throw new CampaignError("Email recipient or mailbox is unavailable");
-    const recipientEmail = enrolment.recipient_email;
+    if (!step || step.kind === "wait") throw new CampaignError("Published sequence step is invalid");
+    if (step.kind === "email" && (!checked || !enrolment.recipient_email)) throw new CampaignError("Email recipient or mailbox is unavailable");
+    await deliveryProvider(step.kind,checked?.gmail).ready(actor);
     assertCampaignWorkRemaining();
-    // Once a send is admitted, finish its journal even if the scheduler's
-    // admission deadline expires. Provider submission has its own timeout.
-    return await withoutCampaignWorkBudget(async () => {
-      const claim = await claimSend(actor, enrolment.id, enrolment.step_index);
-      if (!claim) return { outcome: "not_due" as const };
-      if (!await claimStillEligible(actor, enrolment, claim.attemptId, definition)) return { outcome: "not_due" as const };
-      try {
-        const templateContact = { displayName: contact.display_name, companyName: contact.company_name };
-        const delivery = await checked.gmail.send(actor.userId, { to: recipientEmail, subject: renderCampaignTemplate(step.subject, templateContact), text: renderCampaignTemplate(step.body, templateContact), messageId: claim.messageId });
-        const next = nextCampaignAction(definition, enrolment.step_index, delivery.sentAt, enrolment.id);
-        await withCampaignDb(actor, async client => {
-          await client.query("UPDATE campaign_send_attempts SET state = 'sent', provider_message_id = $2, provider_thread_id = $3, sent_at = $4 WHERE id = $1 AND state = 'claimed'", [claim.attemptId, delivery.providerMessageId, delivery.providerThreadId, delivery.sentAt]);
-          await client.query("UPDATE campaign_enrolments SET state = $2, step_index = $3, next_step_at = $4, updated_at = now() WHERE id = $1 AND state = 'active' AND step_index = $5", [enrolment.id, next ? "active" : "completed", next?.index ?? enrolment.step_index + 1, next ? nextSendAt(next.at) : null, enrolment.step_index]);
-          await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,'campaign.email_sent','campaign_enrolment',$3,$4)", [actor.organizationId, actor.userId, enrolment.id, JSON.stringify({ stepIndex: enrolment.step_index, providerMessageId: delivery.providerMessageId })]);
-        });
-        return { outcome: "sent" as const, providerMessageId: delivery.providerMessageId };
-      } catch (error) {
-        // No automatic retry after a potentially accepted network request.
-        const message = error instanceof Error ? error.message : "Unknown Gmail send result";
-        await withCampaignDb(actor, async client => {
-          await client.query("UPDATE campaign_send_attempts SET state = 'unknown', error = $2 WHERE id = $1 AND state = 'claimed'", [claim.attemptId, message]);
-          await client.query("UPDATE campaign_enrolments SET state = 'needs_review', stop_reason = 'send_result_unknown', next_step_at = NULL, updated_at = now() WHERE id = $1 AND state = 'active'", [enrolment.id]);
-          await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,'campaign.send_result_unknown','campaign_enrolment',$3,$4)", [actor.organizationId, actor.userId, enrolment.id, JSON.stringify({ stepIndex: enrolment.step_index })]);
-        });
-        return { outcome: "send_result_unknown" as const };
-      }
-    });
+    // Admitted submissions finish their journal outside the scheduler admission budget.
+    return await withoutCampaignWorkBudget(()=>processDeliveryStep(actor,enrolment,definition,contact,checked?.gmail));
   } catch (error) {
     if (campaignWorkDeferred(error)) throw error;
     if (error instanceof ReplyCheckPending || error instanceof ReplyCheckReview) return recordReplyCheckFailure(enrolment, error, "preflight");
@@ -662,7 +605,7 @@ export async function processN8nCampaignStep(enrolmentId: string, versionId: str
     const split = definition.splits?.find(split => split.afterStepId === campaignStepEntries(definition)[stepIndex].step.id && split.condition);
     const decision = split ? await savedBranch({ organizationId: job.organization_id, userId: job.owner_user_id }, enrolmentId, split.id) : undefined;
     if (split && !decision) return retryResponse(current.next_step_at || retryAt());
-    const next = decision ? nextCampaignStepAfter(definition, stepIndex, new Date(decision.decidedAt), enrolmentId, decision.path) : nextCampaignAction(definition, stepIndex, loaded.attempt.sent_at, enrolmentId);
+    const next = nextCampaignAction(definition, stepIndex, decision ? new Date(decision.decidedAt) : loaded.attempt.sent_at, enrolmentId, decision?.path);
     return { outcome: "sent" as const, nextStepIndex: next?.index ?? null, nextStepAt: next ? (current.step_index === next.index && current.next_step_at ? current.next_step_at : nextSendAt(next.at)) : null };
   };
   if (job.step_index > stepIndex) return sentResponse(job);
@@ -676,28 +619,50 @@ export async function processN8nCampaignStep(enrolmentId: string, versionId: str
 }
 
 async function reconcileUnknownAttempt(actor: CampaignActor, attemptId: string) {
-  const loaded = await withCampaignDb(actor, async client => {
-    const [attempt] = await rows<{ id: string; enrolment_id: string; step_index: number; rfc_message_id: string; state: string }>(client, "SELECT * FROM campaign_send_attempts WHERE id = $1 AND state = 'unknown'", [attemptId]);
+  const loaded = await withCampaignDb(actor,async client=>{
+    const [attempt] = await rows<{id:string;enrolment_id:string;step_index:number;rfc_message_id:string;state:string;error?:string|null}>(client,"SELECT * FROM campaign_send_attempts WHERE id = $1 AND (state = 'unknown' OR (state = 'claimed' AND claimed_at < now() - interval '10 minutes'))",[attemptId]);
     if (!attempt) return null;
-    const [enrolment] = await rows<EnrolmentRow>(client, "SELECT * FROM campaign_enrolments WHERE id = $1", [attempt.enrolment_id]);
+    const [enrolment] = await rows<EnrolmentRow>(client,"SELECT * FROM campaign_enrolments WHERE id = $1",[attempt.enrolment_id]);
     if (!enrolment) return null;
-    const [mailbox] = await rows<MailboxRow>(client, "SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE id = $1 AND organization_id = $2 AND user_id = $3", [enrolment.mailbox_connection_id, actor.organizationId, actor.userId]);
-    const [version] = await rows<VersionRow>(client, "SELECT * FROM campaign_sequence_versions WHERE id = $1", [enrolment.version_id]);
-    if (!mailbox || !version) return null;
-    return { attempt, enrolment, mailbox, version };
+    const [version] = await rows<VersionRow>(client,"SELECT * FROM campaign_sequence_versions WHERE id = $1",[enrolment.version_id]);
+    if (!version) return null;
+    const definition = parseDefinition(version.definition);
+    const step = campaignStepEntries(definition)[attempt.step_index]?.step;
+    if (!step || step.kind === "wait") return null;
+    const [mailbox] = step.kind === "email" ? await rows<MailboxRow>(client,"SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE id = $1 AND organization_id = $2 AND user_id = $3",[enrolment.mailbox_connection_id,actor.organizationId,actor.userId]) : [];
+    if (step.kind === "email" && !mailbox) return null;
+    return {attempt,enrolment,definition,step,mailbox};
   });
   if (!loaded) return false;
-  if (campaignStepEntries(parseDefinition(loaded.version.definition))[loaded.attempt.step_index]?.step.kind !== "email") return false;
-  const gmail = campaignMailboxForConnection({ encryptedRefreshToken: loaded.mailbox.encrypted_refresh_token, reconnectRequired: loaded.mailbox.reconnect_required, scopes: loaded.mailbox.scopes }, loaded.mailbox.id);
-  const found = await gmail.findByRfcMessageId(loaded.attempt.rfc_message_id);
-  if (!found) return false;
-  const next = nextCampaignAction(parseDefinition(loaded.version.definition), loaded.attempt.step_index, new Date(), loaded.enrolment.id);
-  await withCampaignDb(actor, async client => {
-    await client.query("UPDATE campaign_send_attempts SET state = 'sent', provider_message_id = $2, provider_thread_id = $3, sent_at = now(), error = NULL WHERE id = $1 AND state = 'unknown'", [attemptId, found.id, found.threadId]);
-    const [hold] = await rows<{ id: string }>(client, "SELECT id FROM campaign_contact_holds WHERE organization_id = $1 AND email = $2", [actor.organizationId, loaded.enrolment.recipient_email]);
-    const [replyHold] = replyMonitorMode() === "enforce" ? await rows(client, "SELECT contact_id FROM campaign_reply_holds WHERE organization_id = $1 AND contact_id = $2", [actor.organizationId, loaded.enrolment.contact_id]) : [];
-    if (!hold && !replyHold) await client.query("UPDATE campaign_enrolments SET state = $2, stop_reason = NULL, step_index = $3, next_step_at = $4, updated_at = now() WHERE id = $1 AND state = 'needs_review' AND stop_reason = 'send_result_unknown' AND step_index = $5", [loaded.enrolment.id, next ? "active" : "completed", next?.index ?? loaded.attempt.step_index + 1, next ? nextSendAt(next.at) : null, loaded.attempt.step_index]);
+  const {attempt,enrolment,definition,step,mailbox}=loaded;
+  const waiting=replyMonitorIssue(attempt.error);
+  if (waiting?.category === "retry" && waiting.retryAt && Date.parse(waiting.retryAt) > Date.now()) return false;
+  const adapter=mailbox ? campaignMailboxForConnection({encryptedRefreshToken:mailbox.encrypted_refresh_token,reconnectRequired:mailbox.reconnect_required,scopes:mailbox.scopes},mailbox.id) : undefined;
+  const provider=deliveryProvider(step.kind,adapter);
+  const found=await provider.lookup({actor,key:`campaign:${enrolment.id}:${step.id}`,messageId:attempt.rfc_message_id});
+  if (found?.status === "waiting") throw new ReplyCheckPending(found.code, step.kind, new Date(found.retryAt));
+  if (found?.status === "review") throw new ReplyCheckReview(found.code, step.kind);
+  if (!found || (found.status !== "submitted" && found.status !== "skipped")) return false;
+  const sentAt=new Date(found.sentAt);
+  // Keep this attempt eligible for later receipt checks while coverage waits.
+  // Recovery reads never dispatch; a temporary preflight failure cannot lose the recovery job.
+  await assertContactReplyFresh(actor,enrolment.contact_id,campaignChannels(definition),enrolment.started_at);
+  const recorded=await withCampaignDb(actor,async client=>{
+    const updated=await client.query("UPDATE campaign_send_attempts SET state = 'sent', provider_message_id = $2, provider_thread_id = $3, sent_at = $4, error = NULL WHERE id = $1 AND state IN ('unknown','claimed')",[attemptId,step.kind === "email" ? found.id : `${step.kind}:${found.id}`,found.threadId||null,sentAt]);
+    if (!updated.rowCount) return false;
+    await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,'campaign.receipt_recovered','campaign_enrolment',$3,$4)",[actor.organizationId,actor.userId,enrolment.id,JSON.stringify({channel:step.kind,stepIndex:attempt.step_index,status:found.status,providerMessageId:found.id})]);
+    return true;
   });
+  if (!recorded) return false;
+  const contact=await withCampaignDb(actor,async client=>{
+    const [contact]=await rows<ContactRow>(client,`SELECT ${contactColumns} ${contactJoin} WHERE c.id = $1 AND c.organization_id = $2`,[enrolment.contact_id,actor.organizationId]);
+    assertContactUnchanged(contact,enrolment,definition);
+    await assertContactAllowed(client,actor,enrolment.recipient_email);
+    await assertNoReplyHold(client,actor,enrolment.contact_id);
+    const resumed=await client.query("UPDATE campaign_enrolments SET state = 'active', stop_reason = NULL, next_step_at = now(), updated_at = now() WHERE id = $1 AND step_index = $2 AND (state = 'active' OR (state = 'needs_review' AND stop_reason IN ('send_result_unknown','whatsapp_result_unknown','linkedin_result_requires_review')))",[enrolment.id,attempt.step_index]);
+    return resumed.rowCount ? contact : null;
+  });
+  if (contact) await advanceCampaign(actor,enrolment,definition,contact,sentAt);
   return true;
 }
 
@@ -718,10 +683,8 @@ export async function runCampaignTick(limit = 3, options: { budgetMs?: number } 
       const scans = await withCampaignWorker(client => rows<EnrolmentRow>(client, "SELECT * FROM campaign_enrolments WHERE (state = 'active' OR ($2 AND state IN ('paused','needs_review'))) AND (last_reply_checked_at IS NULL OR last_reply_checked_at < now() - interval '5 minutes') ORDER BY (state = 'active' AND next_step_at <= now() + interval '5 minutes') DESC, last_reply_checked_at NULLS FIRST, started_at, id LIMIT $1", [replyMonitorMode() === "off" ? limit * 2 : 1, replyMonitorMode() !== "off"]));
       const prepared: { enrolment: EnrolmentRow; actor: CampaignActor; contact: ReplyContact; mailbox?: MailboxRow }[] = [];
       const finishScan = async (enrolment: EnrolmentRow, failure?: unknown) => {
-        await withCampaignWorkCleanup(() => withCampaignWorker(async client => {
-          if (replyMonitorMode() !== "off") await client.query("UPDATE campaign_enrolments SET last_reply_checked_at = now() WHERE id = $1", [enrolment.id]);
-
-        }));
+        if (replyMonitorMode() !== "off") await withCampaignWorkCleanup(() => withCampaignWorker(client =>
+          client.query("UPDATE campaign_enrolments SET last_reply_checked_at = now() WHERE id = $1",[enrolment.id]).then(()=>undefined)));
         if (failure) await recordReplyCheckFailure(enrolment, failure, "maintenance");
         else await clearReplyWait(enrolment);
         output.replyScans++;
@@ -787,12 +750,21 @@ export async function runCampaignTick(limit = 3, options: { budgetMs?: number } 
           // Keep unstarted for the next scheduler pass.
         }
       }
-      const unknown = await withCampaignWorker(client => rows<{ id: string; organization_id: string; owner_user_id: string }>(client, "SELECT id, organization_id, owner_user_id FROM campaign_send_attempts WHERE state = 'unknown' ORDER BY claimed_at DESC LIMIT $1", [limit]));
+      const unknown = await withCampaignWorker(client => rows<{ id: string; organization_id: string; owner_user_id: string }>(client, "SELECT id, organization_id, owner_user_id FROM campaign_send_attempts WHERE state = 'unknown' OR (state = 'claimed' AND claimed_at < now() - interval '10 minutes') ORDER BY claimed_at DESC LIMIT $1", [limit]));
       for (const attempt of unknown) {
         assertCampaignWorkRemaining();
         output.unknownChecks++;
         try { await reconcileUnknownAttempt({ organizationId: attempt.organization_id, userId: attempt.owner_user_id }, attempt.id); }
-        catch (error) { if (campaignWorkDeferred(error)) throw error; /* Never retry an unknown send. */ }
+        catch (error) {
+          if (campaignWorkDeferred(error)) throw error;
+          const diagnostic=replyCheckDiagnostic(error);
+          const metadata=JSON.stringify({...diagnostic,attemptId:attempt.id,phase:"receipt_recovery"});
+          await withCampaignWorkCleanup(()=>withCampaignDb({organizationId:attempt.organization_id,userId:attempt.owner_user_id},client=>client.query(`WITH changed AS (
+            UPDATE campaign_send_attempts SET error=$2 WHERE id=$1 AND state IN ('unknown','claimed') AND error IS DISTINCT FROM $2 RETURNING enrolment_id
+          ) INSERT INTO audit_events (organization_id,actor_id,action,entity_type,entity_id,metadata)
+            SELECT $3,$4,$5,'campaign_enrolment',enrolment_id,$2::jsonb FROM changed`,[attempt.id,metadata,attempt.organization_id,attempt.owner_user_id,diagnostic.category === "retry" ? "campaign.receipt_recovery_waiting" : "campaign.receipt_recovery_failed"]).then(()=>undefined))).catch(()=>undefined);
+          // Reconciliation reads receipts only; neither an outage nor a missing receipt submits again.
+        }
       }
     } catch (error) {
       if (!campaignWorkDeferred(error)) throw error;
