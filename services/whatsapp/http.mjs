@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { timingSafeEqual } from 'node:crypto';
+import { failureBody } from './failures.mjs';
 import { shardFor } from './routing.mjs';
 async function readBody(request) {
   const chunks = []; let length = 0;
@@ -21,7 +22,7 @@ export function serviceServer(store, sessions, secret) {
       const url = new URL(request.url, 'http://localhost');
       if (url.pathname === '/health' && request.method === 'GET') { await store.health(); return reply(200, { ok: true }); }
       if (url.pathname === '/metrics' && request.method === 'GET') return reply(200, sessions.metrics());
-      if (!['/connection', '/history', '/group', '/message', '/replies'].includes(url.pathname) || !['GET','POST','DELETE'].includes(request.method)) return reply(404, { error: 'Not found' });
+      if (!['/connection', '/history', '/group', '/message', '/replies', '/campaign', '/capabilities'].includes(url.pathname) || !['GET','POST','DELETE'].includes(request.method)) return reply(404, { error: 'Not found' });
       const actor = { organizationId: url.searchParams.get('organizationId'), userId: url.searchParams.get('userId') };
       if (!actor.organizationId || !actor.userId || actor.organizationId.length > 200 || actor.userId.length > 200) return reply(400, { error: 'Invalid owner' });
       if (store.config) {
@@ -38,6 +39,25 @@ export function serviceServer(store, sessions, secret) {
             redirect: 'error', signal: AbortSignal.timeout(45000) });
           return reply(result.status, await result.json());
         }
+      }
+      if (url.pathname === '/capabilities') {
+        if (request.method !== 'GET') return reply(405,{error:'Method not allowed'});
+        await store.authorize(actor);
+        if (store.campaignsEnabled) await store.health();
+        return reply(200,{contractVersion:1,campaignsEnabled:!!store.campaignsEnabled,capabilities:['reply_pages','idempotent_submission','receipt_lookup']});
+      }
+      if (url.pathname === '/campaign') {
+        await store.authorize(actor);
+        if (!store.campaignsEnabled) return reply(409,{detail:{code:'delivery_disabled'}});
+        if (request.method === 'GET') {
+          const key=url.searchParams.get('key');
+          if (!key || key.length>200) return reply(400,{error:'Invalid action key'});
+          return reply(200,{contractVersion:1,...await store.readDelivery(actor,key)});
+        }
+        if (request.method !== 'POST') return reply(405,{error:'Method not allowed'});
+        let data;try {data=JSON.parse((await readBody(request)).toString('utf8'));}catch(error){if(error.status)throw error;return reply(400,{error:'Invalid message'});}
+        if (!data || typeof data.key!=='string' || !data.key.length || data.key.length>200 || typeof data.recipient!=='string' || !/^[1-9]\d{6,14}@s\.whatsapp\.net$/.test(data.recipient) || typeof data.text!=='string' || !data.text.trim() || data.text.length>4000) return reply(400,{error:'Invalid message'});
+        return reply(200,{contractVersion:1,...await sessions.sendCampaign(actor,data)});
       }
       if (url.pathname === '/replies') {
         if (request.method !== 'GET') return reply(405, { error: 'Method not allowed' });
@@ -68,6 +88,6 @@ export function serviceServer(store, sessions, secret) {
       if (request.method === 'POST') return reply(200, await sessions.connect(actor));
       if (request.method === 'DELETE') { await sessions.disconnect(actor); return reply(200, { status: 'disconnected', qr: null, address: null }); }
       return reply(200, await sessions.status(actor));
-    } catch (error) { reply(error.status || 503, { error: error.status === 403 ? 'Membership required' : error.status === 409 ? 'Session already running' : 'WhatsApp service unavailable; check service configuration and schema' }); }
+    } catch (error) { reply(error.status || 503, failureBody(error)); }
   });
 }

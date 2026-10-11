@@ -1,4 +1,5 @@
-import { replyHttpFailure, replyRead } from "@/lib/campaign-reply-status";
+import { replyRead, replyCheckFailure } from "@/lib/campaign-reply-status";
+import { gmailReadHttpFailure, GmailSendRejected } from "@/adapters/gmail-errors";
 import { campaignReadSignal } from "@/lib/campaign-work-budget";
 
 export type OutboundMessage = { to: string; subject: string; text: string; replyTo?: string; threadId?: string; messageId?: string };
@@ -59,10 +60,15 @@ export class GmailMailbox implements MailboxAdapter {
   }
 
   async send(_userId: string, message: OutboundMessage) {
-    const token = await this.accessToken();
+    let token: string;
+    try { token = await this.accessToken(); } catch(error) { throw new GmailSendRejected(replyCheckFailure(error,"email")); }
     const response = await this.fetcher("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, signal: AbortSignal.timeout(50_000), body: JSON.stringify({ raw: this.encode(message), threadId: message.threadId }) });
-    if (!response.ok) throw new Error(`Gmail send failed (${response.status})`);
+    if (!response.ok) {
+      if ([400,401,403,429].includes(response.status)) throw new GmailSendRejected(await gmailReadHttpFailure(response));
+      throw new Error(`Gmail send result is unknown (${response.status})`);
+    }
     const result = await response.json() as { id: string; threadId: string };
+    if (!result.id || !result.threadId) throw new Error("Gmail send receipt is incomplete");
     return { providerMessageId: result.id, providerThreadId: result.threadId, sentAt: new Date() };
   }
 
@@ -70,7 +76,7 @@ export class GmailMailbox implements MailboxAdapter {
     const token = await this.accessToken();
     const params = new URLSearchParams({ q: query, maxResults: String(maxResults), ...(pageToken ? { pageToken } : {}) });
     const response = await replyRead("email", () => this.fetcher(`https://gmail.googleapis.com/gmail/v1/users/me/messages?${params}`, { headers: { Authorization: `Bearer ${token}` }, signal: campaignReadSignal() }));
-    if (!response.ok) throw await replyHttpFailure(response, "email");
+    if (!response.ok) throw await gmailReadHttpFailure(response);
     const result = await response.json() as { messages?: { id: string; threadId: string }[]; nextPageToken?: string };
     return { messages: result.messages || [], nextPageToken: result.nextPageToken };
   }
@@ -101,20 +107,51 @@ export class GmailMailbox implements MailboxAdapter {
   async inboundFrom(address: string, since: Date): Promise<{ id: string; receivedAt: Date }[]> {
     const normalized = address.trim().toLowerCase();
     const candidates = await this.searchAll(`from:${normalized} after:${Math.floor(since.getTime() / 1000)}`);
-    const token = await this.accessToken();
-    const messages: { id: string; internalDate: string; payload?: { headers?: { name: string; value: string }[] } }[] = [];
-    for (let offset = 0; offset < candidates.length; offset += 10) {
-      messages.push(...await Promise.all(candidates.slice(offset, offset + 10).map(async candidate => {
-        const params = new URLSearchParams({ format: "metadata", metadataHeaders: "From" });
-        const response = await replyRead("email", () => this.fetcher(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(candidate.id)}?${params}`, { headers: { Authorization: `Bearer ${token}` }, signal: campaignReadSignal() }));
-        if (!response.ok) throw await replyHttpFailure(response, "email");
-        return response.json() as Promise<{ id: string; internalDate: string; payload?: { headers?: { name: string; value: string }[] } }>;
+    const messages=await this.metadata(candidates.map(candidate=>candidate.id));
+    return messages.filter(message=>this.sender(message)===normalized).map(message=>({id:message.id,receivedAt:new Date(Number(message.internalDate))}));
+  }
+
+  private async metadata(ids: string[]) {
+    const token=await this.accessToken();
+    const messages: {id:string;threadId?:string;internalDate:string;payload?:{headers?:{name:string;value:string}[]}}[]=[];
+    for(let offset=0;offset<ids.length;offset+=10){
+      messages.push(...await Promise.all(ids.slice(offset,offset+10).map(async id=>{
+        const params=new URLSearchParams({format:"metadata",metadataHeaders:"From"});
+        const response=await replyRead("email",()=>this.fetcher(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${encodeURIComponent(id)}?${params}`,{headers:{Authorization:`Bearer ${token}`},signal:campaignReadSignal()}));
+        if(!response.ok)throw await gmailReadHttpFailure(response);
+        return response.json();
       })));
     }
-    return messages.filter(message => {
-      const from = message.payload?.headers?.find(header => header.name.toLowerCase() === "from")?.value.toLowerCase() || "";
-      return from === normalized || from.endsWith(`<${normalized}>`);
-    }).map(message => ({ id: message.id, receivedAt: new Date(Number(message.internalDate)) }));
+    return messages;
+  }
+  private sender(message:{payload?:{headers?:{name:string;value:string}[]}}){
+    const raw=message.payload?.headers?.find(h=>h.name.toLowerCase()==='from')?.value.trim().toLowerCase()||'';
+    return raw.match(/<([^<>]+)>$/)?.[1]||raw;
+  }
+  async inboundPage(address:string,since:Date,pageToken:string|null){
+    const normalized=address.trim().toLowerCase();
+    const page=await this.searchPage(`from:${normalized} after:${Math.floor(since.getTime()/1000)}`,100,pageToken||undefined);
+    const messages=await this.metadata(page.messages.map(m=>m.id));
+    return {events:messages.filter(m=>this.sender(m)===normalized).map(m=>({id:m.id,receivedAt:new Date(Number(m.internalDate))})),nextPageToken:page.nextPageToken||null};
+  }
+  async historyHead(){
+    const token=await this.accessToken();
+    const r=await replyRead("email",()=>this.fetcher('https://gmail.googleapis.com/gmail/v1/users/me/profile',{headers:{Authorization:`Bearer ${token}`},signal:campaignReadSignal()}));
+    if(!r.ok)throw await gmailReadHttpFailure(r);
+    const data=await r.json();if(!/^\d+$/.test(data.historyId||''))throw Error('Invalid Gmail history checkpoint');return String(data.historyId);
+  }
+  async historyPage(historyId:string,pageToken:string|null){
+    const token=await this.accessToken();
+    const params=new URLSearchParams({startHistoryId:historyId,historyTypes:'messageAdded',maxResults:'50',...(pageToken?{pageToken}:{})});
+    const r=await replyRead("email",()=>this.fetcher(`https://gmail.googleapis.com/gmail/v1/users/me/history?${params}`,{headers:{Authorization:`Bearer ${token}`},signal:campaignReadSignal()}));
+    if(r.status===404)throw Object.assign(Error('Gmail history checkpoint expired'),{historyExpired:true});
+    if(!r.ok)throw await gmailReadHttpFailure(r);
+    const data=await r.json() as {historyId:string;nextPageToken?:string;history?:{messagesAdded?:{message:{id:string}}[]}[]};
+    if(!/^\d+$/.test(data.historyId||''))throw Error('Invalid Gmail history checkpoint');
+    const ids=[...new Set((data.history||[]).flatMap(h=>(h.messagesAdded||[]).map(m=>m.message.id)))];
+    if(ids.length>500)throw Error('Gmail history page exceeds metadata capacity');
+    const messages=await this.metadata(ids);
+    return {events:messages.map(m=>({id:m.id,fromIdentity:this.sender(m),receivedAt:new Date(Number(m.internalDate)).toISOString()})),nextPageToken:data.nextPageToken||null,historyId:String(data.historyId)};
   }
 
   async outboundToSince(address: string, since: Date): Promise<string[]> {
@@ -124,6 +161,6 @@ export class GmailMailbox implements MailboxAdapter {
   }
 
   async findByRfcMessageId(messageId: string): Promise<{ id: string; threadId: string } | null> {
-    return (await this.search(`rfc822msgid:${messageId}`, 1))[0] || null;
+    return (await this.search(`in:sent rfc822msgid:${messageId}`, 1))[0] || null;
   }
 }

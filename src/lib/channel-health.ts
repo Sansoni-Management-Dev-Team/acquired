@@ -1,3 +1,5 @@
+import { gmailReadHttpFailure } from "@/adapters/gmail-errors";
+import { ReplyCheckPending, ReplyCheckReview } from "@/lib/campaign-reply-status";
 import { refreshGoogleAccessToken } from "@/lib/google-oauth";
 
 type HealthStatus = "healthy" | "attention" | "unavailable";
@@ -10,13 +12,16 @@ export async function checkGmailHealth(refreshToken: string, address: string | n
     const token = await refreshGoogleAccessToken(refreshToken, fetcher);
     // Read-only account metadata; never read or send message content.
     const response = await fetcher("https://gmail.googleapis.com/gmail/v1/users/me/profile", { headers: { Authorization: `Bearer ${token}` } });
-    if ([401, 403].includes(response.status)) return result("attention", "Gmail access needs attention. Reconnect Gmail and try again.");
+    if ([401,403].includes(response.status)) {
+      const failure=await gmailReadHttpFailure(response);
+      return failure instanceof ReplyCheckPending ? result("unavailable","Gmail is temporarily rate limited. Try again shortly.") : result("attention","Gmail access needs attention. Reconnect Gmail and try again.");
+    }
     if (!response.ok) return result("unavailable", "Gmail could not be reached. Try again shortly.");
     const profile = await response.json();
     if (!address || typeof profile.emailAddress !== "string" || profile.emailAddress.toLowerCase() !== address.toLowerCase()) return result("attention", "The Gmail account does not match the saved connection. Reconnect Gmail.");
     return result("healthy", "Gmail access verified. No email was sent.");
   } catch (error) {
-    if (error instanceof Error && /Google token refresh failed \((400|401)\)/.test(error.message)) return result("attention", "Gmail authorization has expired or been revoked. Reconnect Gmail.");
+    if (error instanceof ReplyCheckReview && ["reconnect","protocol"].includes(error.code)) return result("attention", "Gmail authorization has expired or been revoked. Reconnect Gmail.");
     return result("unavailable", "Gmail could not be checked. Try again shortly.");
   }
 }

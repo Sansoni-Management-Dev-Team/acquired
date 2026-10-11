@@ -21,3 +21,10 @@ it("sink delivery never accesses the live mailbox and preserves provider timesta
   expect(String(fetch.mock.calls[0][0])).toBe("http://127.0.0.1:18094/send"); expect(JSON.parse(fetch.mock.calls[0][1].body)).toEqual({ mailboxId: "mailbox", userId: "owner", message }); expect(mock.live).not.toHaveBeenCalled();
 });
 it("sink outages fail without live fallback or automatic retry", async () => { const fetch = vi.fn().mockRejectedValue(new Error("sink offline")); vi.stubGlobal("fetch", fetch); await expect(campaignMailboxForConnection(grant, "mailbox").send("owner", { to: "test@example.invalid", subject: "Hi", text: "Test", messageId: "id" })).rejects.toThrow("sink offline"); expect(fetch).toHaveBeenCalledOnce(); expect(mock.live).not.toHaveBeenCalled(); });
+it('accepts only the complete separately owned channel-stack sink profile',()=>{
+ vi.stubEnv('CAMPAIGN_ISOLATED_CHANNEL_STACK','1');
+ vi.stubEnv('DATABASE_URL','postgresql://acquire_channels:isolated-channel-tests-only@127.0.0.1:5445/acquire_channels');
+ vi.stubEnv('CAMPAIGN_TEST_SINK_URL','http://127.0.0.1:18124/');
+ expect(()=>campaignMailboxForConnection(grant,'mailbox')).not.toThrow();
+ vi.stubEnv('CAMPAIGN_TEST_SINK_URL','http://127.0.0.1:18094/');expect(()=>campaignMailboxForConnection(grant,'mailbox')).toThrow();
+});

@@ -6,11 +6,13 @@ import { readFileSync, openSync, closeSync, writeFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { createServer } from "node:net";
 import pg from "pg";
-import { assertIdleCampaignDatabase, assertLocalIntegrationSchema, localCampaignDatabase, localCampaignN8n, localCampaignSink, removeCampaignFixtures } from "./campaign-integration-support.mjs";
+import { assertIdleCampaignDatabase, assertLocalIntegrationSchema, localCampaignDatabase, localCampaignN8n, localCampaignSink, removeCampaignFixtures, isolatedChannelStack, localCampaignAppPort, localN8nKey, generatedNextFileOnly } from "./campaign-integration-support.mjs";
 
-const source = parseEnv(readFileSync(".env.local", "utf8"));
-const linkedin = parseEnv(readFileSync(".local-data/linkedin/service.env", "utf8"));
-const container = JSON.parse(execFileSync("docker", ["inspect", "project-acquire-linkedin"], { encoding: "utf8" }))[0];
+const source = isolatedChannelStack ? {CAMPAIGN_N8N_API_KEY:await localN8nKey(),OUTREACH_WORKER_SECRET:"isolated-channel-worker-secret-32chars"} : parseEnv(readFileSync(".env.local", "utf8"));
+const linkedin = isolatedChannelStack ? {LINKEDIN_SERVICE_SECRET:"isolated-channel-fixture-secret-32chars"} : parseEnv(readFileSync(".local-data/linkedin/service.env", "utf8"));
+const containerId=isolatedChannelStack ? execFileSync("docker",["--context","orbstack","compose","-f","ops/channel-services.compose.yml","ps","-q","linkedin-fixture"],{encoding:"utf8"}).trim() : "project-acquire-linkedin";
+const container = JSON.parse(execFileSync("docker", ["--context","orbstack","inspect",containerId], { encoding: "utf8" }))[0];
+if(isolatedChannelStack) assert.equal(container.Config.Labels["com.docker.compose.project"],"acquire-channel-services");
 const switches = Object.fromEntries(container.Config.Env.map(item => item.split(/=(.*)/s).slice(0, 2)));
 assert.equal(switches.LINKEDIN_ALLOW_LIVE_SENDS, "false");
 assert.equal(switches.LINKEDIN_ALLOW_CAMPAIGNS, "false");
@@ -18,8 +20,8 @@ assert.equal(switches.LINKEDIN_ENABLE_FIXTURES, "true");
 assert.equal(switches.LINKEDIN_REPLY_MONITOR_ENABLED, "true");
 assert.ok(switches.LINKEDIN_SERVICE_SECRET === linkedin.LINKEDIN_SERVICE_SECRET, "Local LinkedIn service credentials differ from app configuration");
 const db = new pg.Client({ connectionString: localCampaignDatabase });
-const app = "http://localhost:3013";
-const reader = "http://127.0.0.1:18096";
+const app = `http://localhost:${localCampaignAppPort}`;
+const reader = isolatedChannelStack ? "http://127.0.0.1:18126" : "http://127.0.0.1:18096";
 const secret = source.OUTREACH_WORKER_SECRET || "local-campaign-test-only";
 const n8nHeaders = { "X-N8N-API-KEY": source.CAMPAIGN_N8N_API_KEY, "Content-Type": "application/json" };
 const suffix = randomUUID().slice(0, 8), org = `campaign-e2e-${suffix}`;
@@ -53,16 +55,18 @@ async function worker(path, body) {
 
 try {
   await db.connect(); await assertLocalIntegrationSchema(db); await assertIdleCampaignDatabase(db);
-  await new Promise((resolve, reject) => { const probe = createServer(); probe.once("error", reject); probe.listen(3013, "0.0.0.0", () => probe.close(resolve)); });
+  await new Promise((resolve, reject) => { const probe = createServer(); probe.once("error", reject); probe.listen(localCampaignAppPort, "0.0.0.0", () => probe.close(resolve)); });
   // Pause only the known local scheduler: its normal-hours app would move the
   // test's due time. Restore it even when an assertion fails.
+  if(!isolatedChannelStack){
   const tick = await n8n("/workflows/acquireCampaignLocal");
   for (const node of tick.nodes.filter(node => node.type === "n8n-nodes-base.httpRequest"))
     assert.equal(node.parameters.url, "http://host.docker.internal:3010/api/internal/campaigns/tick");
   if (tick.active) { await n8n("/workflows/acquireCampaignLocal/deactivate", "POST"); pausedTick = true; }
-  log = openSync(".local-data/campaign-reply-fix/linkedin-stack-app.log", "w", 0o600);
-  const env = { ...process.env, NODE_ENV: "development", CAMPAIGN_INTEGRATION_APP: "1", LOCAL_DEVELOPMENT: "true", DATABASE_DRIVER: "postgres", DATABASE_URL: localCampaignDatabase, DATABASE_SSL_CA: "", APP_URL: app, BETTER_AUTH_SECRET: "campaign-integration-local-only-secret-32chars", CAMPAIGN_TEST_SINK_URL: localCampaignSink, CAMPAIGN_TEST_SEND_ANYTIME: "true", CAMPAIGN_REPLY_MONITOR_MODE: "enforce", CAMPAIGN_N8N_ENABLED: "true", CAMPAIGN_N8N_URL: localCampaignN8n, CAMPAIGN_N8N_API_KEY: source.CAMPAIGN_N8N_API_KEY, CAMPAIGN_APP_URL: "http://host.docker.internal:3013", OUTREACH_WORKER_SECRET: secret, CAMPAIGN_N8N_WORKER_CREDENTIAL_ID: "", CAMPAIGN_LINKEDIN_ENABLED: "true", LINKEDIN_SERVICE_URL: reader, LINKEDIN_SERVICE_SECRET: linkedin.LINKEDIN_SERVICE_SECRET, WHATSAPP_SERVICE_URL: "", WHATSAPP_SERVICE_SECRET: "", RESEARCH_ENABLED: "false", GOOGLE_GMAIL_CLIENT_ID: "", GOOGLE_GMAIL_CLIENT_SECRET: "" };
-  server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--port", "3013"], { env, stdio: ["ignore", log, log], detached: true });
+  }
+  log = openSync(isolatedChannelStack ? ".local-data/channel-services/linkedin-stack-app.log" : ".local-data/campaign-reply-fix/linkedin-stack-app.log", "w", 0o600);
+  const env = { ...process.env, NODE_ENV: "development", CAMPAIGN_INTEGRATION_APP: "1", LOCAL_DEVELOPMENT: "true", DATABASE_DRIVER: "postgres", DATABASE_URL: localCampaignDatabase, DATABASE_SSL_CA: "", APP_URL: app, BETTER_AUTH_SECRET: "campaign-integration-local-only-secret-32chars", CAMPAIGN_TEST_SINK_URL: localCampaignSink, CAMPAIGN_TEST_SEND_ANYTIME: "true", CAMPAIGN_REPLY_MONITOR_MODE: "enforce", CAMPAIGN_N8N_ENABLED: "true", CAMPAIGN_N8N_URL: localCampaignN8n, CAMPAIGN_N8N_API_KEY: source.CAMPAIGN_N8N_API_KEY, CAMPAIGN_APP_URL: `http://host.docker.internal:${localCampaignAppPort}`, OUTREACH_WORKER_SECRET: secret, CAMPAIGN_N8N_WORKER_CREDENTIAL_ID: "", CAMPAIGN_LINKEDIN_ENABLED: "true", LINKEDIN_SERVICE_URL: reader, LINKEDIN_SERVICE_SECRET: linkedin.LINKEDIN_SERVICE_SECRET, WHATSAPP_SERVICE_URL: "", WHATSAPP_SERVICE_SECRET: "", RESEARCH_ENABLED: "false", GOOGLE_GMAIL_CLIENT_ID: "", GOOGLE_GMAIL_CLIENT_SECRET: "" };
+  server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--port",String(localCampaignAppPort)], { env, stdio: ["ignore", log, log], detached: true });
   await until(async () => { if (server.exitCode !== null) throw new Error("Owned test app exited; inspect linkedin-stack-app.log"); try { return (await fetch(app + "/api/auth/get-session", { signal: AbortSignal.timeout(2000) })).ok; } catch { return false; } }, "test app startup", 60);
   const signup = await api("/api/auth/sign-up/email", "POST", { name: "LinkedIn stack fixture", email: `stack-${suffix}@example.invalid`, password: `Test-${randomUUID()}!` }, null);
   userId = signup.value.user.id;
@@ -78,7 +82,7 @@ try {
   assert.equal(connection.fixture, true); assert.equal(connection.status, "login_required");
   // Use the service's existing Chromium/Playwright harness. Select only the new
   // fictional login page; never interact with a real LinkedIn origin/account.
-  execFileSync("docker", ["exec", "project-acquire-linkedin", "python", "-c", `
+  execFileSync("docker", ["--context","orbstack","exec",containerId,"python","-c", `
 import asyncio
 from playwright.async_api import async_playwright
 async def login():
@@ -147,11 +151,10 @@ asyncio.run(login())
   if (log !== undefined) closeSync(log);
   for (const [path, before] of generated) {
     const current = readFileSync(path, "utf8");
-    let onlyGenerated = current.replaceAll(".next-campaign-integration/", ".next/") === before;
-    if (path === "tsconfig.json") { const parsed = JSON.parse(current); parsed.include = parsed.include.filter(item => !item.startsWith(".next-campaign-integration/")); onlyGenerated = JSON.stringify(parsed) === JSON.stringify(JSON.parse(before)); }
+    const onlyGenerated = generatedNextFileOnly(path, before, current);
     if (onlyGenerated) writeFileSync(path, before);
   }
   if (pausedTick) try { await n8n("/workflows/acquireCampaignLocal/activate", "POST"); } catch (error) { errors.push(error); }
   if (errors.length) throw new AggregateError(errors, "Local stack fixture cleanup failed");
 }
-writeFileSync(".local-data/campaign-reply-fix/local-stack-validation.json", JSON.stringify({ ...report, fixtureCleaned: true, schedulerRestored: true }, null, 2) + "\n", { mode: 0o600 });
+writeFileSync(isolatedChannelStack ? ".local-data/channel-services/linkedin-stack-validation.json" : ".local-data/campaign-reply-fix/local-stack-validation.json", JSON.stringify({ ...report, fixtureCleaned: true, schedulerRestored: true }, null, 2) + "\n", { mode: 0o600 });

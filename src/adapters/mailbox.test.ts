@@ -107,3 +107,19 @@ it.each([429, 503, 504])("keeps Gmail reply read HTTP %s retryable", async statu
   const mailbox = new GmailMailbox(async () => "synthetic-access", vi.fn().mockResolvedValue(new Response("{}", { status, headers: { "Retry-After": "120" } })));
   await expect(mailbox.inboundFrom("alex@example.test", new Date(0))).rejects.toBeInstanceOf(ReplyCheckPending);
 });
+
+it('reads a Gmail history delta with opaque pagination and exact sender metadata',async()=>{
+ const fetcher=vi.fn(async(input:string|URL|Request)=>{
+  const url=new URL(String(input));
+  if(url.pathname.endsWith('/history')){expect(url.searchParams.get('startHistoryId')).toBe('10');expect(url.searchParams.get('pageToken')).toBe('opaque/+');return Response.json({historyId:'12',nextPageToken:'next-token',history:[{messagesAdded:[{message:{id:'new-message'}},{message:{id:'new-message'}}]}]});}
+  expect(url.searchParams.get('format')).toBe('metadata');expect(url.searchParams.get('metadataHeaders')).toBe('From');
+  return Response.json({id:'new-message',internalDate:String(Date.parse('2026-10-10T00:00:00Z')),payload:{headers:[{name:'From',value:'Person <A@EXAMPLE.INVALID>'}]}});
+ });
+ expect(await new GmailMailbox(async()=> 'token',fetcher).historyPage('10','opaque/+')).toEqual({events:[{id:'new-message',fromIdentity:'a@example.invalid',receivedAt:'2026-10-10T00:00:00.000Z'}],nextPageToken:'next-token',historyId:'12'});expect(fetcher).toHaveBeenCalledTimes(2);
+});
+it('treats expired Gmail history as a full-scan request and never accepts drafts as a send receipt',async()=>{
+ const expired=new GmailMailbox(async()=> 'token',async()=>new Response('{}',{status:404}));
+ await expect(expired.historyPage('1',null)).rejects.toMatchObject({historyExpired:true});
+ const fetcher=vi.fn(async(input:string|URL|Request)=>{expect(new URL(String(input)).searchParams.get('q')).toBe('in:sent rfc822msgid:<receipt@example.invalid>');return Response.json({messages:[]});});
+ expect(await new GmailMailbox(async()=> 'token',fetcher).findByRfcMessageId('<receipt@example.invalid>')).toBeNull();
+});

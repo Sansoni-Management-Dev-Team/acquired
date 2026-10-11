@@ -3,12 +3,13 @@
 import './campaign-test-loader.mjs';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 const { buildSequenceWorkflow } = await import('../src/lib/campaign-n8n.ts');
 const { campaignDefinition, campaignFirstStepIndex, campaignStepEntries, campaignNextOptions } = await import('../src/domain/campaign.ts');
-const apiKey = process.env.CAMPAIGN_N8N_API_KEY || JSON.parse(await readFile('.local-data/n8n-test-api-key.json', 'utf8')).key;
-const base = 'http://127.0.0.1:5679';
+const {localCampaignN8n,isolatedChannelStack,localN8nKey}=await import('./campaign-integration-support.mjs');
+const apiKey=await localN8nKey();
+const base=localCampaignN8n;
+const callbackPort=isolatedChannelStack?3027:3012;
 const plans = new Map();
 const server = createServer(async (request, response) => {
   if (request.method !== 'POST' || request.url !== '/api/internal/campaigns/step') return response.writeHead(404).end();
@@ -30,7 +31,7 @@ const server = createServer(async (request, response) => {
     response.writeHead(200, { 'Content-Type': 'application/json' }); response.end(JSON.stringify(result));
   } catch (error) { response.writeHead(500, { 'Content-Type': 'application/json' }); response.end(JSON.stringify({ error: error.message })); }
 });
-await new Promise(resolve => server.listen(3012, '0.0.0.0', resolve));
+await new Promise(resolve => server.listen(callbackPort, '0.0.0.0', resolve));
 async function api(path, method = 'GET', body) {
   const response = await fetch(`${base}/api/v1${path}`, { method, headers: { 'X-N8N-API-KEY': apiKey, 'Content-Type': 'application/json' }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   assert.ok(response.ok, `n8n ${method} ${path}: ${response.status}`); return response.json();
@@ -58,7 +59,7 @@ try {
     const plan = { versionId, indices, position: 0, retries: scenario.retries ?? 0, finish: scenario.finish, calls: [] }; plans.set(enrolmentId, plan);
     let workflowId;
     try {
-      const workflow = buildSequenceWorkflow({ versionId, sequenceName: `No-send audit: ${scenario.name}`, version: 1, definition, appUrl: 'http://host.docker.internal:3012' });
+      const workflow = buildSequenceWorkflow({ versionId, sequenceName: `No-send audit: ${scenario.name}`, version: 1, definition, appUrl: `http://host.docker.internal:${callbackPort}` });
       workflowId = (await api('/workflows', 'POST', workflow)).id; await api(`/workflows/${workflowId}/activate`, 'POST', {});
       assert.equal((await fetch(`${base}/webhook/acquire/campaign/${versionId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enrolmentId }) })).status, 200);
       let status;

@@ -13,10 +13,10 @@ it("normalizes an international phone and rejects ambiguous or masked numbers", 
   for (const phone of ["0412345678", "+61 4xx xxx xxx", "+123", "+61412345678 ext 9", "61412345678@s.whatsapp.net", ""]) expect(() => whatsappRecipientFor({ phone })).toThrow("country code");
 });
 it("sends through the authenticated owner's service scope", async () => {
-  const fetch = setup({ id: "provider-id", recipient: "61412345678@s.whatsapp.net", status: "submitted" });
-  const message = { recipient: "61412345678@s.whatsapp.net", text: "Hi Alex" };
+  const fetch = setup({ contractVersion:1, sentAt:new Date().toISOString(), id: "provider-id", recipient: "61412345678@s.whatsapp.net", status: "submitted" });
+  const message = { key:"campaign:enrol:step", recipient: "61412345678@s.whatsapp.net", text: "Hi Alex" };
   expect(await campaignWhatsapp(actor, message)).toMatchObject({ id: "provider-id" });
-  expect(String(fetch.mock.calls[0][0])).toBe("http://127.0.0.1:18095/message?organizationId=org&userId=owner");
+  expect(String(fetch.mock.calls[0][0])).toBe("http://127.0.0.1:18095/campaign?organizationId=org&userId=owner");
   expect(fetch.mock.calls[0][1]).toMatchObject({ method: "POST", cache: "no-store", headers: { Authorization: "Bearer fixture-secret" }, body: JSON.stringify(message) });
 });
 it("requires a connected account and checks it without sending", async () => {
@@ -28,15 +28,15 @@ it("requires a connected account and checks it without sending", async () => {
 });
 it("does not call the service when unconfigured or when personalized text exceeds its limit", async () => {
   const fetch = setup({}); vi.stubEnv("WHATSAPP_SERVICE_URL", "");
-  await expect(campaignWhatsapp(actor, { recipient: "61412345678@s.whatsapp.net", text: "Hi" })).rejects.toThrow("not configured");
-  await expect(campaignWhatsapp(actor, { recipient: "61412345678@s.whatsapp.net", text: "x".repeat(4001) })).rejects.toThrow("Invalid");
+  await expect(campaignWhatsapp(actor, { key:"campaign:enrol:step", recipient: "61412345678@s.whatsapp.net", text: "Hi" })).rejects.toThrow("not configured");
+  await expect(campaignWhatsapp(actor, { key:"campaign:enrol:step", recipient: "61412345678@s.whatsapp.net", text: "x".repeat(4001) })).rejects.toThrow("Invalid");
   expect(fetch).not.toHaveBeenCalled();
 });
 it("never retries an ambiguous network response or accepts missing provider IDs", async () => {
   const fetch = setup({ status: "submitted" });
-  await expect(campaignWhatsapp(actor, { recipient: "61412345678@s.whatsapp.net", text: "Hi" })).rejects.toThrow();
+  await expect(campaignWhatsapp(actor, { key:"campaign:enrol:step", recipient: "61412345678@s.whatsapp.net", text: "Hi" })).rejects.toThrow();
   fetch.mockRejectedValue(new Error("timeout"));
-  await expect(campaignWhatsapp(actor, { recipient: "61412345678@s.whatsapp.net", text: "Hi" })).rejects.toThrow("timeout");
+  await expect(campaignWhatsapp(actor, { key:"campaign:enrol:step", recipient: "61412345678@s.whatsapp.net", text: "Hi" })).rejects.toThrow("timeout");
   expect(fetch).toHaveBeenCalledTimes(2);
 });
 
@@ -45,4 +45,15 @@ it("keeps temporary WhatsApp account lookup failures retryable", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("{}", { status: 503 })));
   const { assertCampaignWhatsappConnected } = await import("./campaign-whatsapp");
   await expect(assertCampaignWhatsappConnected({ organizationId: "org", userId: "owner" })).rejects.toMatchObject({ code: "unavailable" });
+});
+
+it('blocks campaign claims against a service without a durable delivery journal', async()=>{
+ const fetch=setup({status:'connected'});fetch.mockResolvedValueOnce(Response.json({status:'connected'})).mockResolvedValueOnce(Response.json({contractVersion:1,campaignsEnabled:false,capabilities:[]}));
+ await expect(assertCampaignWhatsappConnected(actor)).rejects.toMatchObject({code:'delivery_disabled'});
+});
+it('looks up a receipt without posting another message',async()=>{
+ const fetch=setup({contractVersion:1,status:'unknown'});
+ const {lookupCampaignWhatsapp}=await import('./campaign-whatsapp');
+ expect(await lookupCampaignWhatsapp(actor,'campaign:enrol:step')).toMatchObject({status:'unknown'});
+ expect(fetch.mock.calls[0][1].method).toBe('GET');expect(String(fetch.mock.calls[0][0])).toContain('key=campaign%3Aenrol%3Astep');
 });

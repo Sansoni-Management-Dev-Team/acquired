@@ -6,6 +6,9 @@ import { campaignReadSignal } from "@/lib/campaign-work-budget";
 export type CampaignMailbox = {
   send(userId: string, message: OutboundMessage): Promise<Delivery>;
   hasConversation(address: string): Promise<boolean>;
+  inboundPage?(address: string, since: Date, pageToken: string | null): Promise<{ events: {id:string;receivedAt:Date}[]; nextPageToken:string|null }>;
+  historyHead?(): Promise<string|null>;
+  historyPage?(historyId:string,pageToken:string|null):Promise<{events:{id:string;fromIdentity:string;receivedAt:string}[];nextPageToken:string|null;historyId:string}>;
   inboundFrom(address: string, since: Date): Promise<{ id: string; receivedAt: Date }[]>;
   outboundToSince(address: string, since: Date): Promise<string[]>;
   findByRfcMessageId(messageId: string): Promise<{ id: string; threadId: string } | null>;
@@ -16,9 +19,11 @@ function localSinkUrl() {
   if (!configured) return null;
   const database = new URL(process.env.DATABASE_URL || "postgresql://invalid.invalid/invalid");
   const sink = new URL(configured);
-  if (process.env.NODE_ENV === "production" || process.env.LOCAL_DEVELOPMENT !== "true"
-    || database.hostname !== "127.0.0.1" || database.port !== "5434" || database.pathname !== "/project_acquire"
-    || sink.origin !== "http://127.0.0.1:18094" || sink.pathname !== "/") {
+  const isolated=process.env.CAMPAIGN_ISOLATED_CHANNEL_STACK === "1";
+  const localProfile = database.hostname === "127.0.0.1" && database.port === (isolated ? "5445" : "5434")
+    && database.pathname === (isolated ? "/acquire_channels" : "/project_acquire")
+    && sink.origin === (isolated ? "http://127.0.0.1:18124" : "http://127.0.0.1:18094") && sink.pathname === "/";
+  if (process.env.NODE_ENV === "production" || process.env.LOCAL_DEVELOPMENT !== "true" || !localProfile) {
     throw new Error("Campaign test delivery is allowed only with the dedicated local OrbStack database and sink");
   }
   return sink;

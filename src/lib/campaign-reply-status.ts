@@ -43,8 +43,13 @@ export function replyCheckDiagnostic(error: unknown): Diagnostic {
 
 export async function replyHttpFailure(response: Response, channel: ReplyChannel) {
   const data = await response.json().catch(() => null);
+  if (data?.detail?.code && ['incomplete', 'busy', 'timeout', 'rate_limited', 'unavailable', 'identity_pending'].includes(data.detail.code)) {
+    const at = Date.parse(data.detail.retryAt || '');
+    return new ReplyCheckPending(data.detail.code, channel, new Date(Number.isFinite(at) ? Math.max(Date.now() + 1000, Math.min(Date.now() + 86400_000, at)) : Date.now() + 60_000));
+  }
   if (data?.detail?.code === "reply_unverified") return new ReplyCheckReview("protocol", channel);
   if (data?.detail?.code === "reconnect") return new ReplyCheckReview("reconnect", channel);
+  if (data?.detail?.code === "delivery_disabled") return new ReplyCheckReview("delivery_disabled", channel);
   if (data?.detail?.code === "account_changed") return new ReplyCheckReview("account_changed", channel);
   if (response.status === 429 || response.status >= 500) {
     const header = response.headers.get("Retry-After");

@@ -327,3 +327,18 @@ export const whatsappReplyEvents = pgTable("whatsapp_reply_events", {
   id: bigserial("id", { mode: "bigint" }).primaryKey(), connectionId: uuid("connection_id").notNull().references(() => whatsappConnections.id, { onDelete: "cascade" }),
   accountIdentity: text("account_identity").notNull(), providerEventId: text("provider_event_id").notNull(), remoteIdentity: text("remote_identity").notNull(), fromIdentity: text("from_identity"), receivedAt: timestamp("received_at", { withTimezone: true }).notNull(),
 }, table => [uniqueIndex("whatsapp_reply_event_provider_idx").on(table.connectionId, table.accountIdentity, table.providerEventId), index("whatsapp_reply_event_cursor_idx").on(table.connectionId, table.accountIdentity, table.id)]).enableRLS();
+
+// Stable action keys survive worker/service restarts. Only the trusted WhatsApp service reads receipts.
+export const whatsappDeliveryActions = pgTable("whatsapp_delivery_actions", {
+  connectionId: uuid("connection_id").notNull().references(() => whatsappConnections.id, {onDelete:"cascade"}),
+  actionKey: text("action_key").notNull(), accountIdentity: text("account_identity").notNull(),
+  payloadHash: text("payload_hash").notNull(), state: text("state").notNull(), encryptedReceipt:text("encrypted_receipt"),
+  claimedAt: timestamp("claimed_at",{withTimezone:true}).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at",{withTimezone:true}).notNull().defaultNow(),
+},table=>[primaryKey({columns:[table.connectionId,table.actionKey]}),
+  index("whatsapp_delivery_actions_capacity_idx").on(table.connectionId,table.claimedAt),
+  check("whatsapp_delivery_key_check",sql`length(${table.actionKey}) BETWEEN 1 AND 200`),
+  check("whatsapp_delivery_hash_check",sql`length(${table.payloadHash}) = 64`),
+  check("whatsapp_delivery_state_check",sql`${table.state} IN ('submitting','submitted','unknown')`),
+  check("whatsapp_delivery_receipt_check",sql`(${table.state} = 'submitted') = (${table.encryptedReceipt} IS NOT NULL)`),
+]).enableRLS();

@@ -34,7 +34,7 @@ export async function campaignLinkedin(actor: CampaignActor, input: { operation:
   url.searchParams.set("organizationId", actor.organizationId);
   url.searchParams.set("userId", actor.userId);
   const response = await fetch(url, { method: "POST", headers: { Authorization: `Bearer ${process.env.LINKEDIN_SERVICE_SECRET}`, "Content-Type": "application/json" }, body: JSON.stringify(input), cache: "no-store", redirect: "error", signal: input.operation === "status" ? campaignReadSignal() : AbortSignal.timeout(50_000) });
-  if (!response.ok && input.operation === "status") throw await replyHttpFailure(response, "linkedin");
+  if (!response.ok && (input.operation === "status" || [400,401,403,409,429].includes(response.status))) throw await replyHttpFailure(response, "linkedin");
   const data = await response.json();
   if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : "LinkedIn service unavailable; review account status");
   return resultSchema.parse(data);
@@ -54,4 +54,14 @@ export async function assertLinkedinDeliveryReady(actor: CampaignActor) {
     if (!result.fixture && (!result.protection.liveSendsEnabled || !result.protection.campaignsEnabled)) throw new ReplyCheckReview("delivery_disabled", "linkedin");
     return result.protection;
   } catch (error) { throw replyCheckFailure(error, "linkedin"); }
+}
+
+// Receipt recovery cannot invoke the submit endpoint, even for the same key.
+export async function lookupCampaignLinkedin(actor:CampaignActor,key:string) {
+  if (!linkedinCampaignEnabled()) throw new ReplyCheckReview("delivery_disabled","linkedin");
+  const url=new URL("/campaign",process.env.LINKEDIN_SERVICE_URL!);
+  url.searchParams.set("organizationId",actor.organizationId);url.searchParams.set("userId",actor.userId);url.searchParams.set("key",key);
+  const response=await fetch(url,{headers:{Authorization:`Bearer ${process.env.LINKEDIN_SERVICE_SECRET}`},cache:"no-store",redirect:"error",signal:campaignReadSignal()});
+  if(!response.ok)throw await replyHttpFailure(response,"linkedin");
+  const result=resultSchema.parse(await response.json());return result.status==="missing"?null:result;
 }

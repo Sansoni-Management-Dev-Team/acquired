@@ -35,10 +35,10 @@ describe("campaign provider HTTP integration", () => {
   beforeEach(() => { calls.length = 0; });
   afterAll(async () => { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); vi.unstubAllEnvs(); });
   it("scopes actual account requests and authenticates both adapters", async () => {
-    answer = (_, response) => json(response, { status: "connected" });
+    answer = (request, response) => json(response, request.url?.startsWith("/capabilities") ? {contractVersion:1,campaignsEnabled:true,capabilities:["idempotent_submission","receipt_lookup"]} : { status: "connected" });
     expect(await campaignLinkedinAccountStatus(actor)).toBe("connected");
     await assertCampaignWhatsappConnected(actor);
-    expect(calls).toHaveLength(2);
+    expect(calls).toHaveLength(3);
     for (const call of calls) {
       expect(call.url.searchParams.get("organizationId")).toBe(actor.organizationId);
       expect(call.url.searchParams.get("userId")).toBe(actor.userId);
@@ -52,20 +52,20 @@ describe("campaign provider HTTP integration", () => {
     expect(calls.map(call => call.body.key)).toEqual(["synthetic-connect", "synthetic-message"]);
   });
   it("round-trips a WhatsApp write without altering Unicode text", async () => {
-    answer = (_, response) => json(response, { id: "synthetic-message", recipient, status: "submitted" });
+    answer = (_, response) => json(response, { contractVersion:1,sentAt:new Date().toISOString(),id: "synthetic-message", recipient, status: "submitted" });
     const text = "Hello 👩🏽‍💻\nمرحبا {{literal}}";
-    expect((await campaignWhatsapp(actor, { recipient, text })).id).toBe("synthetic-message");
-    expect(calls[0].body).toEqual({ recipient, text });
+    expect(await campaignWhatsapp(actor, { key:"campaign:enrol:step",recipient, text })).toMatchObject({status:"submitted",id:"synthetic-message"});
+    expect(calls[0].body).toEqual({key:"campaign:enrol:step",recipient,text});
   });
   it.each(["linkedin", "whatsapp"] as const)("rejects a %s redirect without forwarding the write", async channel => {
     answer = (_, response) => { response.writeHead(307, { Location: "/unexpected-write" }); response.end(); };
-    await expect(channel === "linkedin" ? campaignLinkedin(actor, { operation: "message", profile, key: "redirect", text: "fixture" }) : campaignWhatsapp(actor, { recipient, text: "fixture" })).rejects.toThrow();
+    await expect(channel === "linkedin" ? campaignLinkedin(actor, { operation: "message", profile, key: "redirect", text: "fixture" }) : campaignWhatsapp(actor, { key:"campaign:enrol:step",recipient, text: "fixture" })).rejects.toThrow();
     expect(calls).toHaveLength(1);
     expect(calls[0].url.pathname).not.toBe("/unexpected-write");
   });
   it.each(["linkedin", "whatsapp"] as const)("does not retry %s when the socket closes after reading a write", async channel => {
     answer = request => request.socket.destroy();
-    await expect(channel === "linkedin" ? campaignLinkedin(actor, { operation: "message", profile, key: "lost-response", text: "fixture" }) : campaignWhatsapp(actor, { recipient, text: "fixture" })).rejects.toThrow();
+    await expect(channel === "linkedin" ? campaignLinkedin(actor, { operation: "message", profile, key: "lost-response", text: "fixture" }) : campaignWhatsapp(actor, { key:"campaign:enrol:step",recipient, text: "fixture" })).rejects.toThrow();
     expect(calls).toHaveLength(1);
   });
   it.each(["linkedin", "whatsapp"] as const)("preserves a %s reply cursor over HTTP", async channel => {

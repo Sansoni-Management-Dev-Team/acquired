@@ -1,3 +1,4 @@
+import { localCampaignDatabase } from "../../scripts/campaign-integration-support.mjs";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
@@ -16,7 +17,7 @@ import { ingestCampaignReply } from "@/lib/campaign-reply-store";
 // Real local schema, pooled transactions and RLS. All provider calls are replaced.
 // This suite never runs migrations or sends to a real account.
 describe.skipIf(process.env.CAMPAIGN_AUDIT_LOCAL_DB !== "1")("optional people and LinkedIn-only local integration", () => {
-  const url = "postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire";
+  const url = localCampaignDatabase;
   const db = new pg.Client({ connectionString: url });
   const org = `optional-people-${randomUUID()}`, user = `optional-people-${randomUUID()}`, mandate = randomUUID();
   const actor = { organizationId: org, userId: user };

@@ -12,17 +12,19 @@ export function createStore(env, options = {}) {
     connectionTimeoutMillis: 5000, statement_timeout: 10000, idle_in_transaction_session_timeout: 10000,
     ...(env.DATABASE_SSL_CA ? { ssl: { ca: env.DATABASE_SSL_CA, rejectUnauthorized: true } } : {}) });
   const handles = new Set();
+  const campaignsEnabled = env.WHATSAPP_CAMPAIGNS_ENABLED === 'true';
   async function authorize(actor) {
     const result = await pool.query('SELECT 1 FROM member WHERE organization_id=$1 AND user_id=$2', [actor.organizationId, actor.userId]);
     if (!result.rowCount) throw Object.assign(new Error('Membership required'), { status: 403 });
   }
   function owns(actor) { return shardFor(actor, config.shardIds) === config.shardId; }
   return {
-    config, authorize, owns, replyMonitoringEnabled: env.CAMPAIGN_REPLY_MONITOR_ENABLED === 'true',
+    config, authorize, owns, campaignsEnabled, replyMonitoringEnabled: env.CAMPAIGN_REPLY_MONITOR_ENABLED === 'true',
     async health() {
       await pool.query('SELECT id FROM whatsapp_connections LIMIT 0');
       await pool.query('SELECT connection_id FROM whatsapp_auth_keys LIMIT 0');
       await pool.query('SELECT connection_id, owner_token, expires_at FROM whatsapp_session_leases LIMIT 0');
+      if (campaignsEnabled) await pool.query('SELECT connection_id FROM whatsapp_delivery_actions LIMIT 0');
     },
     async list() {
       const result = await pool.query("SELECT organization_id,user_id FROM whatsapp_connections WHERE encrypted_creds IS NOT NULL AND status IN ('connected','reconnecting','connecting') ORDER BY id");
@@ -32,6 +34,14 @@ export function createStore(env, options = {}) {
       await authorize(actor);
       const result = await pool.query('SELECT status,address,updated_at FROM whatsapp_connections WHERE organization_id=$1 AND user_id=$2', [actor.organizationId, actor.userId]);
       return result.rows[0] || { status: 'disconnected', address: null };
+    },
+    async readDelivery(actor, key) {
+      await authorize(actor);
+      const { rows } = await pool.query(`SELECT a.*,c.address FROM whatsapp_delivery_actions a JOIN whatsapp_connections c ON c.id=a.connection_id WHERE c.organization_id=$1 AND c.user_id=$2 AND a.action_key=$3`,[actor.organizationId,actor.userId,key]);
+      const action = rows[0];
+      if (!action) return {status:'missing'};
+      if (!action.address || !action.account_identity.endsWith(':'+action.address+'@s.whatsapp.net')) return {status:'review',code:'account_changed'};
+      return action.state === 'submitted' ? codec.decrypt(action.encrypted_receipt) : {status:'unknown'};
     },
     async open(actor) {
       await authorize(actor);
@@ -98,6 +108,30 @@ export function createStore(env, options = {}) {
       }
       const handle = {
         connectionId: row.id,
+        deliveryFingerprint: input => codec.fingerprint([input.recipient,input.text]),
+        claimDelivery: (account, key, fingerprint) => run(async connection => {
+          if (!campaignsEnabled) return {status:'review',code:'delivery_disabled'};
+          const existing = (await connection.query('SELECT * FROM whatsapp_delivery_actions WHERE connection_id=$1 AND action_key=$2 FOR UPDATE',[row.id,key])).rows[0];
+          if (existing) {
+            if (existing.account_identity !== account || existing.payload_hash !== fingerprint) return {status:'review',code:'account_changed'};
+            return existing.state === 'submitted' ? codec.decrypt(existing.encrypted_receipt) : {status:'unknown'};
+          }
+          const actions = (await connection.query(`SELECT claimed_at FROM whatsapp_delivery_actions WHERE connection_id=$1 AND claimed_at>clock_timestamp()-interval '24 hours' ORDER BY claimed_at`,[row.id])).rows;
+          const now=Date.now();
+          const hourly=actions.filter(a=>new Date(a.claimed_at).getTime()>now-3600000);
+          const last=actions.at(-1);
+          const allowed=Math.max(now, last ? new Date(last.claimed_at).getTime()+config.deliverySpacingMs : 0,
+            hourly.length>=config.deliveryHourly ? new Date(hourly[hourly.length-config.deliveryHourly].claimed_at).getTime()+3600000 : 0,
+            actions.length>=config.deliveryDaily ? new Date(actions[actions.length-config.deliveryDaily].claimed_at).getTime()+86400000 : 0);
+          if (allowed>now) return {status:'waiting',code:'rate_limited',retryAt:new Date(allowed).toISOString()};
+          await connection.query(`INSERT INTO whatsapp_delivery_actions(connection_id,action_key,account_identity,payload_hash,state) VALUES($1,$2,$3,$4,'submitting')`,[row.id,key,account,fingerprint]);
+          return {status:'claimed'};
+        }),
+        completeDelivery: (key, receipt) => run(async connection => {
+          const r=await connection.query(`UPDATE whatsapp_delivery_actions SET state='submitted',encrypted_receipt=$3,updated_at=now() WHERE connection_id=$1 AND action_key=$2 AND state='submitting'`,[row.id,key,codec.encrypt(receipt)]);
+          if (r.rowCount!==1) throw Error('Delivery claim changed');
+        }),
+        markDeliveryUnknown: key => run(connection=>connection.query(`UPDATE whatsapp_delivery_actions SET state='unknown',updated_at=now() WHERE connection_id=$1 AND action_key=$2 AND state='submitting'`,[row.id,key])),
         saveReplyEvents: (accountIdentity, events) => run(async connection => {
           // Deduplicate a sync batch before ON CONFLICT, which cannot update the
           // same provider row twice in one statement. Persist metadata in bulk.

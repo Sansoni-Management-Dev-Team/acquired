@@ -1,0 +1,12 @@
+import type { Client } from 'pg';
+export const isolatedChannelStack:boolean;
+export const localCampaignAppPort:number;
+export const localCampaignDatabase:string;
+export const localCampaignSink:string;
+export const localCampaignN8n:string;
+export function localN8nKey():Promise<string>;
+export function generatedNextFileOnly(path:string,before:string,current:string):boolean;
+export function assertOwnedTestApp(env?:Record<string,string|undefined>):void;
+export function assertLocalIntegrationSchema(db:Pick<Client,'query'>):Promise<void>;
+export function assertIdleCampaignDatabase(db:Pick<Client,'query'>):Promise<void>;
+export function removeCampaignFixtures(db:Pick<Client,'query'>,org:string,userIds:string[]):Promise<void>;

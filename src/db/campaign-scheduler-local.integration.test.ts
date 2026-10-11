@@ -1,3 +1,4 @@
+import { localCampaignDatabase } from "../../scripts/campaign-integration-support.mjs";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -14,7 +15,7 @@ import type { ReplyPage } from "@/domain/campaign-replies";
 // The external inbox reader is replaced. Real pooled transactions, advisory
 // locks, RLS, durable checkpoints and the full tick run on loopback OrbStack.
 describe.skipIf(process.env.CAMPAIGN_AUDIT_LOCAL_DB !== "1")("local campaign scheduler integration", () => {
-  const db = new pg.Client({ connectionString: "postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire" });
+  const db = new pg.Client({ connectionString: localCampaignDatabase });
   const org = `scheduler-test-${randomUUID()}`, user = `scheduler-test-${randomUUID()}`;
   const actor = { organizationId: org, userId: user };
   const mandate = randomUUID(), sequence = randomUUID(), version = randomUUID();
@@ -24,7 +25,7 @@ describe.skipIf(process.env.CAMPAIGN_AUDIT_LOCAL_DB !== "1")("local campaign sch
   const monitor = async () => (await db.query("SELECT * FROM campaign_reply_monitors WHERE organization_id=$1", [org])).rows[0];
   let fixtures = false;
   beforeAll(async () => {
-    vi.stubEnv("DATABASE_URL", "postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire");
+    vi.stubEnv("DATABASE_URL", localCampaignDatabase);
     vi.stubEnv("DATABASE_SSL_CA", ""); vi.stubEnv("CAMPAIGN_REPLY_MONITOR_MODE", "enforce");
     vi.stubEnv("CAMPAIGN_LINKEDIN_ENABLED", "true"); vi.stubEnv("LINKEDIN_SERVICE_URL", "http://127.0.0.1:18096"); vi.stubEnv("LINKEDIN_SERVICE_SECRET", "synthetic-unused");
     await db.connect();

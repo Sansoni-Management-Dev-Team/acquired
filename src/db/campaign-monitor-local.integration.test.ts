@@ -1,3 +1,4 @@
+import { localCampaignDatabase } from "../../scripts/campaign-integration-support.mjs";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import pg from "pg";
 import { randomUUID } from "node:crypto";
@@ -11,7 +12,7 @@ import type { ReplyPage } from "@/domain/campaign-replies";
 
 // Real pooled transactions and RLS; only the external inbox reader is replaced.
 describe.skipIf(process.env.CAMPAIGN_AUDIT_LOCAL_DB !== "1")("local reply monitor lease and page integration", () => {
-  const url = "postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire";
+  const url = localCampaignDatabase;
   const db = new pg.Client({ connectionString: url });
   const org = `monitor-test-${randomUUID()}`, user = `monitor-test-${randomUUID()}`;
   const actor = { organizationId: org, userId: user };

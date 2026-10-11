@@ -15,7 +15,7 @@ let state: string, previous: string | undefined, phoneChanged: boolean, held: bo
 beforeEach(() => {
   vi.clearAllMocks(); state = "active"; previous = undefined; phoneChanged = false; held = false;
   mock.gmail.inboundFrom.mockResolvedValue([]); mock.gmail.hasConversation.mockResolvedValue(false); mock.gmail.outboundToSince.mockResolvedValue([]);
-  mock.query.mockResolvedValue({ rows: [], rowCount: 1 }); mock.connected.mockResolvedValue(undefined); mock.send.mockResolvedValue({ id: "provider-id", recipient: "61412345678@s.whatsapp.net", status: "submitted" });
+  mock.query.mockResolvedValue({ rows: [], rowCount: 1 }); mock.connected.mockResolvedValue(undefined); mock.send.mockResolvedValue({ id: "provider-id", recipient: "61412345678@s.whatsapp.net", status: "submitted",sentAt:new Date().toISOString() });
   let contactReads = 0;
   mock.rows.mockImplementation(async (_client, sql: string) => {
     if (sql.startsWith("SELECT * FROM campaign_enrolments")) return [{ id, state, organization_id: "org", owner_user_id: "owner", step_index: 0, next_step_at: new Date(0), recipient_email: "alex@example.test", started_at: new Date(0), initial_conversation_reviewed: true }];
@@ -32,9 +32,9 @@ beforeEach(() => {
 });
 it("sends the personalized message once and records the provider result before advancing", async () => {
   expect(await processCampaignEnrolment(actor, id)).toEqual({ outcome: "sent" });
-  expect(mock.send).toHaveBeenCalledExactlyOnceWith(actor, { recipient: "61412345678@s.whatsapp.net", text: "Hi Alex at Example" });
+  expect(mock.send).toHaveBeenCalledExactlyOnceWith(actor, { key:`campaign:${id}:${message.id}`,recipient: "61412345678@s.whatsapp.net", text: "Hi Alex at Example" });
   expect(mock.query.mock.calls.find(([sql]) => sql.includes("provider_message_id = $2"))![1][1]).toBe("whatsapp:provider-id");
-  expect(mock.query.mock.calls.some(([sql]) => sql.includes("'campaign.whatsapp_submitted'"))).toBe(true);
+  expect(mock.query.mock.calls.some(([sql]) => sql.includes("INSERT INTO audit_events") && mock.query.mock.calls.some(([,values])=>values.includes("campaign.whatsapp_submitted")))).toBe(true);
   expect(mock.query.mock.calls.find(([sql]) => sql.includes("step_index = $3"))![1][2]).toBe(2);
 });
 it("advances a recorded send after a crash without submitting again", async () => {
@@ -64,7 +64,7 @@ it("cancels a claim if the phone changed during preflight", async () => {
   phoneChanged = true;
   expect(await processCampaignEnrolment(actor, id)).toMatchObject({ outcome: "needs_review" });
   expect(mock.send).not.toHaveBeenCalled();
-  expect(mock.query.mock.calls.some(([sql]) => sql.includes("Contact phone changed before send"))).toBe(true);
+  expect(mock.query.mock.calls.some(([sql]) => sql.includes("state = 'cancelled'"))).toBe(true);
 });
 it.each(["paused", "held"])("does no provider work for a %s contact", async mode => {
   if (mode === "paused") state = "paused"; else held = true;

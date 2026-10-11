@@ -32,6 +32,9 @@ export function serviceConfig(env = {}) {
     if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash || url.pathname !== '/') throw new Error('Shard URLs must be HTTP(S) origins');
   }
   return { shardId, shards, shardIds: Object.keys(shards).sort(),
+    deliveryHourly: integer('WHATSAPP_CAMPAIGN_HOURLY_CAP', 5, 1, 100),
+    deliveryDaily: integer('WHATSAPP_CAMPAIGN_DAILY_CAP', 20, 1, 1000),
+    deliverySpacingMs: integer('WHATSAPP_CAMPAIGN_SPACING_MS', 60000, 1000, 3600000),
     maxSessions: integer('WHATSAPP_MAX_SESSIONS', 32, 1, 1000),
     poolSize: integer('WHATSAPP_DB_POOL_SIZE', 12, 2, 100),
     leaseMs: integer('WHATSAPP_LEASE_MS', 60000, 15000, 300000),

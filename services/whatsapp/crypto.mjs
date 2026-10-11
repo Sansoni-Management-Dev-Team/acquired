@@ -1,10 +1,11 @@
-import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, randomBytes, createHmac } from 'node:crypto';
 import { BufferJSON } from '@whiskeysockets/baileys';
 
 export function authCodec(encodedKey) {
   const key = Buffer.from(encodedKey || '', 'base64');
   if (key.length !== 32) throw new Error('WHATSAPP_ENCRYPTION_KEY must be 32 bytes encoded as base64');
   return {
+    fingerprint: value => createHmac('sha256', key).update(JSON.stringify(value)).digest('hex'),
     encrypt(value) {
       const iv = randomBytes(12);
       const cipher = createCipheriv('aes-256-gcm', key, iv);

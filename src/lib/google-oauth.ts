@@ -1,5 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { z } from "zod";
+import { gmailReadHttpFailure } from "@/adapters/gmail-errors";
 import { campaignReadSignal } from "@/lib/campaign-work-budget";
 
 export const GOOGLE_MAIL_SCOPES = ["openid", "email", "https://www.googleapis.com/auth/gmail.compose", "https://www.googleapis.com/auth/gmail.readonly"];
@@ -56,7 +57,7 @@ export async function refreshGoogleAccessToken(refreshToken: string, fetcher: ty
     }),
     signal: campaignReadSignal(),
   });
-  if (!response.ok) throw new Error(`Google token refresh failed (${response.status})`);
+  if (!response.ok) throw await gmailReadHttpFailure(response);
   return refreshedTokenSchema.parse(await response.json()).access_token;
 }
 
