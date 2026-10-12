@@ -34,8 +34,8 @@ No RCA change has been deployed. The recorded revision identifies an uncommitted
 
 The read-only A9 audit and the original 67-company mandate show shared defects in scope, admission, deadlines, counters and identity evidence. See [sanitized intake audit](intake-audit.json). A9 has 92 companies and 4876 cells; the other mandate has 67 companies and 3551 cells. Each report has 53 cells per company, including contact/run coverage, source/provenance and missing reasons. Projection corrects retained evidence for review; it does not rewrite production records.
 
-- [A9 company and datapoint report](../../../output/research-correctness/mandate-a9fb0c38-completeness.html)
-- [B8 company and datapoint report](../../../output/research-correctness/mandate-b8e35133-completeness.html)
+- [A9 company and datapoint report](../investigations/mandate-a9fb0c38-completeness.html)
+- [B8 company and datapoint report](../investigations/mandate-b8e35133-completeness.html)
 - [Reusable offline report renderer](../../../scripts/render-research-completeness-report.mjs)
 
 The initial screenshot shows discovery at 20% but no attributable run ID or error response. Its specific Firmable error remains unknown. Historical downstream callback 502 is observed, but its underlying application failure is unproven because response/log detail is absent. Intake closure records completion of this bounded investigation, not resolution of that uncertainty.

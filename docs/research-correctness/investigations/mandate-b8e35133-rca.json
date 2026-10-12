@@ -1,0 +1,246 @@
+{
+  "mandate": "b8e35133-faf2-4505-a359-44533ba6df9a",
+  "snapshot": "2026-10-07T06:46:03.730Z",
+  "cases": [
+    {
+      "title": "20 mapped location gaps",
+      "classification": "Confirmed mapping defect",
+      "cause": "Normalization reads only top-level states and HQ text, ignoring retained AU address and operating locations. Mapping falls back to Unknown and screening misses available geography evidence.",
+      "evidence": "All 20 have AU addresses: 14 VIC, 3 QLD, 2 NSW, 1 WA. Firewize has AU VIC but mapped Unknown. Action Alliance has NSW primary address and a VIC branch. Primary address and operating geography are distinct.",
+      "fix": "Normalize scoped primary address and branch locations; compare the intended mandate geography consistently.",
+      "validation": "Replay all 20 payloads. A NSW HQ plus VIC branch must preserve HQ while satisfying operations-in-VIC only under that definition.",
+      "refs": [
+        "cloudflare/research/firmable/company.ts:20",
+        "src/domain/firmable-company-pipeline.ts:22",
+        "src/adapters/firmable-company-mapper.ts:7",
+        "src/adapters/firmable-mapper.ts:145",
+        "src/lib/firmable-company-research.ts:78"
+      ]
+    },
+    {
+      "title": "50 headcount differences; 14 criterion changes",
+      "classification": "Confirmed scope-selection inconsistency",
+      "cause": "Mapped headcount uses top-level/profile count. AU count is retained separately but not selected for screening. Both values are valid provider observations with different scopes; they are not arithmetic corruption.",
+      "evidence": "Alexon 29 mapped / 5 AU; BSE 114 / 85; EQUANS 343 / 209. Replaying 18\u201390 with AU counts changes 14 headcount statuses: 10 supported to excluded, 4 excluded to supported. This is conditional on an AU workforce criterion, not an overall qualification result.",
+      "fix": "Preserve both counts with scope and source path; make screening scope explicit. Require review when the intended scoped count is unavailable.",
+      "validation": "Replay all 50 differences and 14 criterion changes. Global 114 / AU 85 must produce policy-specific outcomes without losing either value.",
+      "refs": [
+        "cloudflare/research/firmable/company.ts:17",
+        "cloudflare/research/firmable/company.test.ts:3",
+        "src/domain/firmable-company-pipeline.ts:22",
+        "src/adapters/firmable-company-mapper.ts:9",
+        "src/lib/firmable-company-research.ts:78"
+      ]
+    },
+    {
+      "title": "61 profile revenue bands; zero AU revenue",
+      "classification": "Provider limitation plus inconsistent comparison",
+      "cause": "All matched AU profiles explicitly report no revenue data. Profile bands lack confirmed currency, period and entity scope. Retrieval screens bands numerically, while displayed fit applies stricter currency-aware rules.",
+      "evidence": "All 61 region.AU.revenue values are No data available; no retained revenue_currency. Stored screening and displayed fit may disagree. No AU revenue value was dropped.",
+      "fix": "Keep bands scope-unverified; leave AU revenue unknown. Share one evidence-aware comparison across retrieval and fit; obtain AU financial evidence separately.",
+      "validation": "Compare AUD, USD, missing currency, profile-only and AU-specific cases across both screens.",
+      "refs": [
+        "cloudflare/research/firmable/company.ts:25",
+        "src/lib/firmable-company-research.ts:78",
+        "src/domain/target-financial-evidence.ts:6",
+        "src/domain/mandate-fit.ts:48"
+      ]
+    },
+    {
+      "title": "Zero saved EBITDA observations",
+      "classification": "Expected source gap; estimate provenance weakness",
+      "cause": "The mapper deliberately leaves observed EBITDA missing. A separate model can estimate earnings from headcount. Industry benchmark selection consumes research industry findings rather than retained provider descriptions.",
+      "evidence": "All 67 observed values are null. There are 59 mapped headcounts; estimates using them fall back to all-industries because the run saved only 40 ABN identifier findings. UI-selected headcount can have a different scope.",
+      "fix": "Separate observed and modelled EBITDA. Carry sourced industry and scoped headcount into estimates; obtain financial statements for financial qualification.",
+      "validation": "Test unavailable headcount, labelled estimates, sector-specific versus fallback benchmarks and prohibition on treating estimates as audited earnings.",
+      "refs": [
+        "src/adapters/firmable-mapper.ts:164",
+        "src/domain/mandate-fit.ts:55",
+        "src/domain/estimated-ebitda.ts:94",
+        "src/domain/estimated-ebitda.ts:49"
+      ]
+    },
+    {
+      "title": "All 19 persisted worksheet criteria empty",
+      "classification": "Intentional persistence policy; reporting correction",
+      "cause": "Company retrieval writes an empty reviewed-evidence array. The worksheet and fit matrix independently derive provisional facts and comparisons. Zero persisted evidence is not zero displayed values.",
+      "evidence": "All 67 evidence arrays are empty. Provisional revenue and headcount can derive from 61 and 59 records. Sector placeholders may derive even from Unclassified. Geography derives in fit but not worksheet. The redundant $12m revenue ceiling is intentionally suppressed in fit.",
+      "fix": "Report reviewed evidence, provisional observations and unavailable diligence separately. Align report and UI resolution.",
+      "validation": "Compare report against worksheet() and fit for provider facts, placeholders, modelled earnings and manually saved evidence.",
+      "refs": [
+        "src/lib/firmable-company-research.ts:90",
+        "src/domain/acquisition.ts:126",
+        "src/components/target-worksheet.tsx:11",
+        "src/domain/mandate-fit.ts:38",
+        "src/domain/mandate-fit.ts:75"
+      ]
+    },
+    {
+      "title": "Six bankability inputs missing",
+      "classification": "Expected unperformed diligence",
+      "cause": "No financeReview is saved. DSCR, concentration, recurring revenue, add-backs, GM and goodwill require sourced diligence and a reviewed financing structure, not profile ingestion.",
+      "evidence": "None of 67 assessments has financeReview. Bankability is unscored without structureReviewed. The six specified brief criteria are unconfirmed testing assumptions. Most other brief criteria are unspecified.",
+      "fix": "Gather accounts, owner disclosures, customer contracts and actual financing terms; preserve unknowns until reviewed.",
+      "validation": "Public descriptions/headcount must not establish bankability. Reviewed sourced inputs can support an assessment.",
+      "refs": [
+        "src/domain/acquisition.ts:106",
+        "src/components/target-worksheet.tsx:19",
+        "src/domain/mandate-assessment.ts:40"
+      ]
+    },
+    {
+      "title": "Six unmatched records remain thin",
+      "classification": "Confirmed absent fallback research",
+      "cause": "On Firmable 404/409 the fallback creates only discovery name and website, then completes company retrieval without website fact extraction. SEO titles can become company names.",
+      "evidence": "Unmatched domains: onpointfire.com.au, fwsrgroup.com.au, firemastergroup.com.au, gemfire.com.au, vfp.com.au, fireprotectionservices.com.au. Two independently resolve ABNs.",
+      "fix": "Queue website identity and fact extraction, or retain explicit unresearched/pending status.",
+      "validation": "A 404 must produce source-backed fallback facts or clearly pending research rather than a misleading complete profile.",
+      "refs": [
+        "src/lib/firmable-company-research.ts:60",
+        "src/lib/firmable-company-research.ts:89",
+        "src/lib/firmable-company-research.ts:92"
+      ]
+    },
+    {
+      "title": "49 supported sector flags are too permissive",
+      "classification": "Confirmed classification weakness",
+      "cause": "Any one keyword from fire/protection/maintenance appearing in provider industries or description satisfies the stored sector rule. A fire mention is insufficient evidence of recurring maintenance operations.",
+      "evidence": "BOSS Fire is a product wholesaler; Checkpoint Building Surveyors and Affinity Fire Engineering are consultancies. All are sector-supported despite unproven maintenance eligibility.",
+      "fix": "Require explicit installed-system inspection/testing/maintenance capability and distinguish suppliers, consultants and contractors.",
+      "validation": "Use these three counterexamples plus genuine maintenance businesses. A generic fire mention alone must not pass.",
+      "refs": [
+        "src/lib/firmable-company-research.ts:79"
+      ]
+    },
+    {
+      "title": "Contacts on 5/67 companies; 174/179 on excluded companies",
+      "classification": "Confirmed allocation defect",
+      "cause": "Every matched company queues automatic people work even after exclusion. FIFO serial scheduling has no decision-maker filter or per-company profile cap.",
+      "evidence": "All 61 matches queued. EQUANS, already excluded on headcount, consumed 06:40:17\u201306:45:21 UTC and 162 contacts. AEFS 7, Pinnacle 4 and BOSS 1 are also excluded; Alexon has 5. Three completed workflows found zero people.",
+      "fix": "Gate and prioritize automatic contact work using reviewed company relevance; cap decision-maker profiles and allocate fair company budgets.",
+      "validation": "Excluded companies do not queue automatically; a large employee list cannot starve other companies; distinguish zero people from unattempted work.",
+      "refs": [
+        "src/lib/firmable-company-research.ts:89",
+        "src/lib/firmable-company-research.ts:94",
+        "src/lib/company-people-research.ts:28",
+        "src/lib/company-people-research.ts:48"
+      ]
+    },
+    {
+      "title": "54 time-limit failures and a late 53-workflow burst",
+      "classification": "Confirmed shared-deadline and scheduler conflict",
+      "cause": "Root scheduling permits one people workflow, but recovery dispatches every queued workflow. The common 10-minute deadline bulk-fails queued/running work.",
+      "evidence": "At 06:44:34 one was active and 53 queued. All 53 started 06:44:52.441\u201306:44:57.953; deadline was 06:45:09.583. All 54 remaining runs failed together at 06:45:21.383. Seven retained profile responses were 429 after the burst. The initiating recovery request and sole cause of rate limiting are unproven.",
+      "fix": "Route all recovery through the same admission/deadline policy; give contacts explicit budgets. Separate deadline cancellation, partial results and provider request timeout.",
+      "validation": "Every recovery endpoint respects configured concurrency; no starts after deadline; inject provider 429 independently. These were not 54 independently measured provider timeouts.",
+      "refs": [
+        "src/lib/company-people-research.ts:24",
+        "src/lib/company-list-recovery.ts:29",
+        "src/lib/firmable-run-recovery.ts:7",
+        "src/app/api/mandates/[id]/route.ts:55"
+      ]
+    },
+    {
+      "title": "179 actual contacts versus 176 counter; hidden profile failures",
+      "classification": "Confirmed terminal-state race",
+      "cause": "Five profile requests run concurrently. Progress updates occur after the batch settles; termination can happen earlier. Individual contact writes continue while progress updates refuse terminal runs.",
+      "evidence": "EQUANS has 160 counted versus 162 contacts; BOSS 0 counted versus 1 contact saved at 06:45:32.835, after failure at 06:45:21.383. Seven persisted 429 failures coexist with profilesFailed=0. Counters also measure successful response attempts rather than always unique materialized contacts.",
+      "fix": "Coordinate cancellation and in-flight writes; reconcile response, contact and failure counts at closure; preserve incomplete batch results.",
+      "validation": "A five-request batch crossing the deadline with successes and 429s must close with accurate counts and no terminal reopening.",
+      "refs": [
+        "src/lib/firmable-refresh.ts:177",
+        "src/db/firmable-history-repository.ts:128",
+        "src/db/firmable-history-repository.ts:172"
+      ]
+    },
+    {
+      "title": "Jetfire callback HTTP 502",
+      "classification": "Boundary confirmed; underlying cause unknown",
+      "cause": "The worker throws on a non-2xx POST to the application callback endpoint. This is not proof of a Firmable-provider HTTP 502.",
+      "evidence": "Jetfire run af91724c-82c2-4d39-b7eb-45f83a6e0d1d started 06:37:55.333 and failed 06:40:12.665 UTC; zero people-search observations. Historical Vercel query found no associated logs. Database, proxy, route and provider-induced causes remain hypotheses.",
+      "fix": "Persist callback action, request ID, status, duration and sanitized body; retain upstream provider status separately.",
+      "validation": "Inject application 502 and provider 429 separately and verify distinct categories and correlated traces.",
+      "refs": [
+        "cloudflare/research/index.ts:121",
+        "cloudflare/research/index.ts:467",
+        "cloudflare/research/index.ts:511"
+      ]
+    },
+    {
+      "title": "Zero saved phones but 96 availability flags",
+      "classification": "Intentional policy plus ambiguous semantics",
+      "cause": "Automatic discovery uses includePhones:false. Saved availability ORs provider search-candidate flags with enriched flags, so potential availability remains true without a saved number.",
+      "evidence": "96/179 advertise potential phone availability; none has a fetched number. Phone lookup is a separate manual operation.",
+      "fix": "Separate potentially available, lookup requested/completed and actual saved phone states.",
+      "validation": "Automatic work does not unlock phones; potential availability is never displayed as a saved number.",
+      "refs": [
+        "src/lib/firmable-refresh.ts:184",
+        "src/lib/firmable-refresh.ts:244",
+        "src/adapters/firmable-client.ts:256",
+        "src/db/firmable-contacts.ts:20"
+      ]
+    },
+    {
+      "title": "147/179 contact emails",
+      "classification": "Confirmed provider coverage gap",
+      "cause": "All 32 missing emails are absent in both retained work and personal email arrays. The mapper correctly tries work then personal.",
+      "evidence": "Missing: EQUANS 28, Alexon 2, AEFS 1, Pinnacle 1. All 179 successful profile responses were inspected.",
+      "fix": "Record provider-unavailable separately from unattempted or failed lookup; use other appropriate sourced evidence if needed.",
+      "validation": "Empty arrays remain unavailable; work-first/personal-fallback fixtures preserve provided addresses.",
+      "refs": [
+        "src/adapters/firmable-client.ts:58"
+      ]
+    },
+    {
+      "title": "27 unverified registry ABNs",
+      "classification": "Mixed identity, normalization and operational causes",
+      "cause": "Verified persistence requires accepted active legal identity, not just a reported ABN. Twenty-two unresolved companies had provider ABNs: 21 active but name-mismatched, plus Kilargo with an inactive unrelated trust candidate. Five had no provider candidate.",
+      "evidence": "26 results were candidates_only with zero evaluated website identity candidates; one was ambiguous. Broader existing search aliases yield active exact-name matches for five: AESG, Eptec Group, LINKfire, Mattioli, WRAP Consulting Engineering. Group/subsidiary candidates such as EQUANS Data Centre Services and HIROTEC Maintenance (QLD) need legal linkage.",
+      "fix": "Share canonical identity normalization between searches and acceptance, with exact alias provenance. Preserve reported versus verified IDs; do not accept arbitrary fuzzy or group/subsidiary matches.",
+      "validation": "The five alias cases should use demonstrable canonical matches; unrelated/inactive candidates and unsupported subsidiary links remain unverified.",
+      "refs": [
+        "src/domain/abn-resolution.mjs:4",
+        "src/domain/abn-resolution.mjs:6",
+        "src/adapters/abn-identity-resolver.ts:32",
+        "src/adapters/abn-identity-resolver.ts:34",
+        "src/lib/firmable-company-research.ts:72"
+      ]
+    },
+    {
+      "title": "Nine ABN resolutions encountered read errors",
+      "classification": "Confirmed operational contributors",
+      "cause": "Reader protections and upstream failures prevented some corroborating evidence. These overlap identity gaps and are not the sole explanation for every unresolved ABN.",
+      "evidence": "1.5MB limit: AESG, Square1. Cross-domain redirects: BOSS, Bradford. Timeouts: On Point Fire, LINKfire. HTTP403: EQUANS. HTTP503: Karlayura. Missing ABN result table: Melfire.",
+      "fix": "Use bounded streaming extraction and carefully verified redirect handling; bounded retries; expose operational versus identity-not-confirmed reasons.",
+      "validation": "Oversized/redirect/403/503/timeout fixtures retain clear cause and never fabricate an identity match.",
+      "refs": [
+        "src/adapters/abn-identity-resolver.ts:12",
+        "src/adapters/abn-identity-resolver.ts:18"
+      ]
+    },
+    {
+      "title": "Fire System Maintenance false ambiguity",
+      "classification": "Confirmed resolver defect",
+      "cause": "Ambiguity counts legal names matched by substring. PROTECTION SERVICES PTY LTD is found inside FIRE PROTECTION SERVICES PTY LTD and counted as a second entity.",
+      "evidence": "One scored candidate (90), supported by four website pages, is suppressed. A read-only audit shows both names matching the same spans.",
+      "fix": "Suppress contained shorter names when the longer full legal name explains the same text span; require independent evidence for ambiguity.",
+      "validation": "The contained-name fixture resolves the longer entity; a site genuinely naming two distinct entities remains ambiguous.",
+      "refs": [
+        "src/domain/abn-resolution.mjs:12",
+        "src/domain/abn-resolution.mjs:32",
+        "src/domain/abn-resolution.mjs:33"
+      ]
+    },
+    {
+      "title": "One monitoring gap",
+      "classification": "Monitoring timeout; backend cause unproven",
+      "cause": "My read-only monitor used a 20-second client query timeout and initially fetched full job configs. A timeout exited the monitor; it reconnected with reduced fields.",
+      "evidence": "Last successful check 06:40:02, resumed 06:41:38 UTC. Query read timeout alone does not prove research stopped or explain Jetfire 502.",
+      "fix": "Use compact status queries, reconnect/retry and explicit monitoring-gap events; collect detailed snapshots at milestones.",
+      "validation": "A delayed read records the gap and resumes without modifying run state.",
+      "refs": [
+        ".local-data/monitor-b8e35133.mjs:2"
+      ]
+    }
+  ]
+}

@@ -3,7 +3,7 @@
   "incident": {
     "mandate": "b8e35133-faf2-4505-a359-44533ba6df9a",
     "snapshot": "2026-10-07T06:46:03.730Z",
-    "source_report": "output/mandate-b8e35133/rca.json"
+    "source_report": "docs/research-correctness/investigations/mandate-b8e35133-rca.json"
   },
   "findings": [
     {

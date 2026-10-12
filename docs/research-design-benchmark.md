@@ -1,5 +1,41 @@
 # Research architecture A/B benchmark
 
+## Scripted three-mandate A–F comparison
+
+`pnpm benchmark:matrix` runs all six designs on three contrasting briefs from the
+actual Run demo catalogue: food packaging manufacturers, veterinary diagnostics
+laboratories, and aged care software support. It submits the same `fromBrief`
+request as the demo UI. Each sample has a fresh synthetic organization, disposable
+OrbStack database, local app, worker state and reader container. Runs are serial
+and share one starting database dump; original local and production data are not
+modified. No migrations run.
+
+The runner applies a 20-company candidate limit and ten-minute root deadline to
+the frozen source copies only. Normal bounded background jobs can drain afterward.
+These are workload-controlled experimental copies, not measurements of the
+unmodified production presets. Provider limits and evidence validation remain
+unchanged. Candidate retrieval is distinct from mandate qualification.
+The directory import is capped too, and scheduling remembers previously admitted
+domains across refills. The observer excludes samples that exceed the company
+limit. Persisted-company coverage uses `mandate_targets` membership.
+
+```sh
+pnpm benchmark:matrix --dry-run --out .local-data/research-design/my-matrix
+pnpm benchmark:matrix --out .local-data/research-design/my-matrix
+pnpm benchmark:matrix --resume --out .local-data/research-design/my-matrix
+```
+
+`report.txt` and `report.json` update automatically. Each sample retains observed
+field completion, accepted ABNs, exact headcounts versus bands, revenue bands,
+real contacts, evidence-validator coverage, provider failures, stage timings,
+and restricted raw results. Coverage uses both saved companies and the requested
+20 as denominators. F's separate Firmable people runs count toward settlement;
+D/E correctly record people as not requested. The first snapshot at the root
+deadline is retained separately from final child-job completion. Resume skips
+successful samples and retries failed samples in fresh instances. One sample
+per case/design is exploratory and does not establish statistical superiority
+or automatically authorize deprecation.
+
 The environment selects the default pipeline; production now uses F, with A available via `legacy`. B (`balanced-v1`) is selected only by a local application's `RESEARCH_PIPELINE_DESIGN` environment value; request bodies cannot enable it in production. No database migration is required or performed.
 
 ## B v1 scope

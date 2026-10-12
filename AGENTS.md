@@ -11,3 +11,9 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 # Project safety rule
 
 - Never run or apply a database migration without explicit user approval for that specific migration.
+
+# Firmable credential renewal
+
+- Obtain Firmable browser credentials from Chrome DevTools → Application → Storage → Cookies, not Local Storage.
+- The `__client` cookie is under `https://clerk.firmable.com`; session cookies and `clerk_active_context` are under `https://app.firmable.com`.
+- Validate renewal before updating local/benchmark credentials or reconnecting production. Keep raw credentials in ignored private files; never put them in these instructions or source control.
