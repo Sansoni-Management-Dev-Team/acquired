@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { mkdirSync, openSync, closeSync, readFileSync, writeFileSync } from "node:fs";
 import { parseEnv } from "node:util";
+import { disabledCommunicationsEnvironment } from "./communications-fixture-env.mjs";
 import pg from "pg";
 import { assertLocalIntegrationSchema, localCampaignDatabase, localCampaignN8n, localCampaignSink, localN8nKey, localCampaignAppPort, generatedNextFileOnly } from "./campaign-integration-support.mjs";
 
@@ -42,6 +43,7 @@ if (args.includes("--e2e") || args.includes("--browser")) {
   mkdirSync(".local-data", { recursive: true });
   const log = openSync(".local-data/campaign-integration-app.log", "w", 0o600);
   const generatedBefore = new Map(["next-env.d.ts", "tsconfig.json"].map(path => [path, readFileSync(path, "utf8")]));
+  Object.assign(env, disabledCommunicationsEnvironment([process.env, fileEnv]));
   const app = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--port", String(localCampaignAppPort)], { env, stdio: ["ignore", log, log], detached: true });
   try {
     let ready = false;

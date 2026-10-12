@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { spawn, execFileSync } from "node:child_process";
 import { openSync, closeSync, writeFileSync, readFileSync } from "node:fs";
+import { disabledCommunicationsEnvironment } from "./communications-fixture-env.mjs";
 import pg from "pg";
 import {
   isolatedChannelStack,
@@ -232,6 +233,7 @@ try {
     GOOGLE_GMAIL_CLIENT_ID: "",
     GOOGLE_GMAIL_CLIENT_SECRET: "",
   };
+  Object.assign(env, disabledCommunicationsEnvironment([process.env]));
   server = spawn(
     process.execPath,
     ["node_modules/next/dist/bin/next", "dev", "--port", "3025"],

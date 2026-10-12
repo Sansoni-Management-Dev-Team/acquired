@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { spawn, execFileSync } from "node:child_process";
 import { readFileSync, openSync, closeSync, writeFileSync } from "node:fs";
 import { parseEnv } from "node:util";
+import { disabledCommunicationsEnvironment } from "./communications-fixture-env.mjs";
 import { createServer } from "node:net";
 import pg from "pg";
 import { assertIdleCampaignDatabase, assertLocalIntegrationSchema, localCampaignDatabase, localCampaignN8n, localCampaignSink, removeCampaignFixtures, isolatedChannelStack, localCampaignAppPort, localN8nKey, generatedNextFileOnly } from "./campaign-integration-support.mjs";
@@ -66,6 +67,7 @@ try {
   }
   log = openSync(isolatedChannelStack ? ".local-data/channel-services/linkedin-stack-app.log" : ".local-data/campaign-reply-fix/linkedin-stack-app.log", "w", 0o600);
   const env = { ...process.env, NODE_ENV: "development", CAMPAIGN_INTEGRATION_APP: "1", LOCAL_DEVELOPMENT: "true", DATABASE_DRIVER: "postgres", DATABASE_URL: localCampaignDatabase, DATABASE_SSL_CA: "", APP_URL: app, BETTER_AUTH_SECRET: "campaign-integration-local-only-secret-32chars", CAMPAIGN_TEST_SINK_URL: localCampaignSink, CAMPAIGN_TEST_SEND_ANYTIME: "true", CAMPAIGN_REPLY_MONITOR_MODE: "enforce", CAMPAIGN_N8N_ENABLED: "true", CAMPAIGN_N8N_URL: localCampaignN8n, CAMPAIGN_N8N_API_KEY: source.CAMPAIGN_N8N_API_KEY, CAMPAIGN_APP_URL: `http://host.docker.internal:${localCampaignAppPort}`, OUTREACH_WORKER_SECRET: secret, CAMPAIGN_N8N_WORKER_CREDENTIAL_ID: "", CAMPAIGN_LINKEDIN_ENABLED: "true", LINKEDIN_SERVICE_URL: reader, LINKEDIN_SERVICE_SECRET: linkedin.LINKEDIN_SERVICE_SECRET, WHATSAPP_SERVICE_URL: "", WHATSAPP_SERVICE_SECRET: "", RESEARCH_ENABLED: "false", GOOGLE_GMAIL_CLIENT_ID: "", GOOGLE_GMAIL_CLIENT_SECRET: "" };
+  Object.assign(env, disabledCommunicationsEnvironment([process.env, source]));
   server = spawn(process.execPath, ["node_modules/next/dist/bin/next", "dev", "--port",String(localCampaignAppPort)], { env, stdio: ["ignore", log, log], detached: true });
   await until(async () => { if (server.exitCode !== null) throw new Error("Owned test app exited; inspect linkedin-stack-app.log"); try { return (await fetch(app + "/api/auth/get-session", { signal: AbortSignal.timeout(2000) })).ok; } catch { return false; } }, "test app startup", 60);
   const signup = await api("/api/auth/sign-up/email", "POST", { name: "LinkedIn stack fixture", email: `stack-${suffix}@example.invalid`, password: `Test-${randomUUID()}!` }, null);
