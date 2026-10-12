@@ -13,7 +13,7 @@ export function createCommunicationReplyDeliveryWorker(options: CommunicationRep
         async apply(delivery, signal) {
             if (signal.aborted)
                 throw Error('Reply delivery deadline reached');
-            const result = await consumer.apply({ binding: delivery.binding, bindingId, subscriberId: delivery.subscriberId, serviceEventId: delivery.eventId, sourceKey: delivery.sourceEventKey, payload: delivery.payload });
+            const result = await consumer.apply({ binding: delivery.binding, bindingId, subscriberId: delivery.subscriberId, serviceEventId: delivery.eventId, sourceKey: delivery.sourceEventKey, payload: delivery.payload }, signal);
             if (signal.aborted || !result || !['applied', 'duplicate', 'review'].includes(result.status) || !['stop', 'ignore', 'review'].includes(result.decision) || result.status === 'review' && result.decision !== 'review')
                 throw Error('Reply transaction unavailable');
             return { binding: delivery.binding, subscriberId: delivery.subscriberId, eventId: delivery.eventId, fingerprint: delivery.payload.fingerprint, status: result.status === 'duplicate' ? 'duplicate' : 'committed' };

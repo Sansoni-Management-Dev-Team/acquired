@@ -1,4 +1,6 @@
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ConnectionBinding, CommunicationEvent } from '../../communications/packages/contracts/src';
 import type { SqlClient, SqlResult } from '../../communications/packages/storage-postgres/src/webhook-repository';
@@ -78,12 +80,178 @@ function fixture(channel: 'linkedin' | 'email' | 'whatsapp' = 'linkedin') {
 }
 beforeEach(() => { vi.clearAllMocks(); helper.mode.mockReturnValue('enforce'); helper.apply.mockResolvedValue('stop'); });
 describe('Acquire reply consumer SQL protocol, scripted driver only', () => {
+    it.each([{ authenticationTimeoutMs: 0 }, { authenticationTimeoutMs: 5001 }, { transactionTimeoutMs: 0 }, { transactionTimeoutMs: 25001 }, { authenticationTimeoutMs: 5000, transactionTimeoutMs: 25000 }])('rejects unbounded consumer deadline configuration %#', change => {
+        const f = fixture();
+        expect(() => createCommunicationReplyConsumer({ ...f.options, ...change })).toThrow('Invalid communication reply consumer configuration');
+        expect(f.connect).not.toHaveBeenCalled();
+    });
+    it.each(['authentication', 'identity'] as const)('bounds a stalled %s callback and closes any owned transaction', async (stage) => {
+        const f = fixture(), proof = await f.resolveIdentity();
+        f.resolveIdentity.mockClear();
+        let unblock!: () => void;
+        const stalled = new Promise<void>(resolve => { unblock = resolve; });
+        if (stage === 'authentication')
+            f.authenticateDelivery.mockImplementationOnce(async () => { await stalled; return true; });
+        else
+            f.resolveIdentity.mockImplementationOnce(async () => { await stalled; return proof; });
+        const config = Object.assign(f.options, { authenticationTimeoutMs: 5, transactionTimeoutMs: 10 });
+        const settled = createCommunicationReplyConsumer(config).apply(f.input).then(() => 'completed', () => 'unavailable');
+        try {
+            expect(await Promise.race([settled, new Promise<string>(resolve => setTimeout(() => resolve('still_pending'), 60))])).toBe('unavailable');
+            if (stage === 'authentication')
+                expect(f.connect).not.toHaveBeenCalled();
+            else {
+                expect(f.calls.some(c => c.sql === 'COMMIT')).toBe(false);
+                expect(f.release).toHaveBeenCalledOnce();
+                expect(f.release).toHaveBeenCalledWith(expect.any(Error));
+            }
+        }
+        finally {
+            unblock();
+            await settled;
+        }
+    });
+    it('retires a connection that arrives after the consumer deadline without starting a transaction', async () => {
+        const f = fixture();
+        let unblock!: () => void;
+        const stalled = new Promise<void>(resolve => { unblock = resolve; });
+        f.connect.mockImplementationOnce(async () => { await stalled; return f.client; });
+        const config = Object.assign(f.options, { authenticationTimeoutMs: 5, transactionTimeoutMs: 10 });
+        const settled = createCommunicationReplyConsumer(config).apply(f.input).then(() => 'completed', () => 'unavailable');
+        try {
+            expect(await Promise.race([settled, new Promise<string>(resolve => setTimeout(() => resolve('still_pending'), 60))])).toBe('unavailable');
+        }
+        finally {
+            unblock();
+            await settled;
+            await Promise.resolve();
+        }
+        expect(f.calls.some(c => c.sql.startsWith('BEGIN'))).toBe(false);
+        expect(f.release).toHaveBeenCalledOnce();
+        expect(f.release).toHaveBeenCalledWith(expect.any(Error));
+    });
+    it.each(['authentication', 'connect', 'query', 'identity'] as const)('rejects synchronous %s work that blocks the deadline timer', async (stage) => {
+        const f = fixture(), proof = await f.resolveIdentity();
+        const block = () => { const end = performance.now() + 20; while (performance.now() < end) { /* Synthetic callback starves timers. */ } };
+        if (stage === 'authentication')
+            f.authenticateDelivery.mockImplementationOnce(async () => { block(); return true; });
+        if (stage === 'connect')
+            f.connect.mockImplementationOnce(async () => { block(); return f.client; });
+        if (stage === 'identity')
+            f.resolveIdentity.mockImplementationOnce(async () => { block(); return proof; });
+        if (stage === 'query') {
+            const query = f.client.query.bind(f.client);
+            f.client.query = async <Row>(sql: string, values?: unknown[]) => { if (sql.startsWith('BEGIN'))
+                block(); return query<Row>(sql, values); };
+        }
+        await expect(createCommunicationReplyConsumer({ ...f.options, authenticationTimeoutMs: 5, transactionTimeoutMs: 10 }).apply(f.input)).rejects.toThrow('Communication reply consumption unavailable');
+        expect(f.calls.some(c => c.sql === 'COMMIT' || c.sql === 'ROLLBACK')).toBe(false);
+        if (stage === 'authentication')
+            expect(f.release).not.toHaveBeenCalled();
+        else {
+            expect(f.release).toHaveBeenCalledOnce();
+            expect(f.release).toHaveBeenCalledWith(expect.any(Error));
+        }
+    });
+    it('honors a delivery abort inside identity resolution and prevents later SQL', async () => {
+        const f = fixture(), proof = await f.resolveIdentity(), controller = new AbortController();
+        let unblock!: () => void;
+        const stalled = new Promise<void>(resolve => { unblock = resolve; });
+        f.resolveIdentity.mockClear();
+        f.resolveIdentity.mockImplementationOnce(async () => { await stalled; return proof; });
+        const settled = f.api.apply(f.input, controller.signal).then(() => 'completed', () => 'unavailable');
+        try {
+            await vi.waitFor(() => expect(f.resolveIdentity).toHaveBeenCalledOnce());
+            controller.abort();
+            expect(await settled).toBe('unavailable');
+            expect(f.release).toHaveBeenCalledOnce();
+            expect(f.release).toHaveBeenCalledWith(expect.any(Error));
+        }
+        finally {
+            unblock();
+            await settled;
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        expect(f.calls.some(c => c.sql === 'COMMIT' || c.sql === 'ROLLBACK')).toBe(false);
+    });
+    it('retires the locked transaction before notifying external identity abort listeners', async () => {
+        const f = fixture(), proof = await f.resolveIdentity();
+        let unblock!: () => void, retiredAtNotification = false;
+        const stalled = new Promise<void>(resolve => { unblock = resolve; });
+        f.resolveIdentity.mockImplementationOnce(async (_client?: SqlClient, _input?: unknown, signal?: AbortSignal) => {
+            signal?.addEventListener('abort', () => { retiredAtNotification = f.release.mock.calls.length === 1; }, { once: true });
+            await stalled;
+            return proof;
+        });
+        const settled = createCommunicationReplyConsumer({ ...f.options, transactionTimeoutMs: 10 }).apply(f.input).then(() => 'completed', () => 'unavailable');
+        try {
+            expect(await settled).toBe('unavailable');
+            expect(retiredAtNotification).toBe(true);
+        }
+        finally {
+            unblock();
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        expect(f.release).toHaveBeenCalledOnce();
+    });
+    it('discards an expired in-flight COMMIT without competing rollback or later success', async () => {
+        const f = fixture();
+        let unblock!: () => void;
+        const stalled = new Promise<void>(resolve => { unblock = resolve; }), query = f.client.query.bind(f.client);
+        f.client.query = async <Row>(sql: string, values?: unknown[]) => { const result = await query<Row>(sql, values); if (sql === 'COMMIT')
+            await stalled; return result; };
+        const settled = createCommunicationReplyConsumer({ ...f.options, transactionTimeoutMs: 10 }).apply(f.input).then(() => 'completed', () => 'unavailable');
+        try {
+            expect(await settled).toBe('unavailable');
+            expect(f.calls.some(c => c.sql === 'ROLLBACK')).toBe(false);
+        }
+        finally {
+            unblock();
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        expect(f.calls.some(c => c.sql === 'COMMIT')).toBe(true);
+        expect(f.release).toHaveBeenCalledOnce();
+        expect(f.release).toHaveBeenCalledWith(expect.any(Error));
+    });
+    it('closes the identity callback SQL capability on settlement and retires its session', async () => {
+        const f = fixture(), proof = await f.resolveIdentity();
+        let resolverClient!: SqlClient;
+        f.resolveIdentity.mockImplementationOnce(async (client?: SqlClient) => { if (!client)
+            throw Error('Expected callback client'); resolverClient = client; return proof; });
+        expect((await f.api.apply(f.input)).status).toBe('applied');
+        const count = f.calls.length;
+        await expect(resolverClient.query('SELECT late_identity_write')).rejects.toThrow('Communication reply consumption unavailable');
+        expect(f.calls).toHaveLength(count);
+        expect(f.release).toHaveBeenCalledWith(expect.any(Error));
+    });
+    it.each(['throw', 'stall'])('observes unawaited identity SQL rejection in strict native Node (%s)', mode => {
+        const script = String.raw `
+            const fs=require('node:fs'),ts=require('typescript'),Module=require('node:module'),load=Module._load;
+            Module._load=function(id,parent,isMain){if(id==='server-only')return {};if(id==='@/domain/campaign-replies')return {replyIdentity:(channel,value)=>channel==='linkedin'?value:null};if(id==='./campaign-reply-store')return {replyMonitorMode:()=> 'enforce',applyCampaignReply:async()=> 'stop'};return load.call(this,id,parent,isMain);};
+            require.extensions['.ts']=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,file);
+            const {createCommunicationReplyConsumer}=require(process.argv[2]),{createHash}=require('node:crypto'),hash=v=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
+            const b={applicationId:'acquire',tenantId:'tenant',ownerId:'owner',connectionId:'connection',accountId:'account',generation:1,channel:'linkedin',platform:'linkedin',backend:'unipile'},bindingId='00000000-0000-4000-8000-000000000001',sender={kind:'linkedin_profile',value:'https://www.linkedin.com/in/person/'};
+            const event={type:'message',reference:{binding:b,id:'m1'},conversation:{binding:b,id:'chat'},direction:'inbound',sender,occurredAt:'2026-10-12T10:00:00.000Z'},key=hash(['communications.reply.event.v1',Object.values(b),'chat','m1']),fp=hash(['communications.reply.content.v1',Object.values(b),'m1','chat','inbound',sender.kind,sender.value,event.occurredAt]);
+            let role='acquire_campaign_user',rejectPending,rollback=false,commit=false,discards=0;
+            const query=async text=>{if(text==='ROLLBACK')rollback=true;if(text==='COMMIT')commit=true;if(text.startsWith('SET LOCAL ROLE'))role=text.split(' ').at(-1);if(text==='SELECT pending_identity_query')return new Promise((_r,reject)=>rejectPending=reject);return {rows:text.includes('FROM pg_roles')?[{active_role:role,rolsuper:false,rolbypassrls:false,rolcanlogin:false}]:text.includes('communications_lock_reply_member')?[{allowed:true}]:text.includes('FROM public.communication_bindings')?[{id:bindingId,application_id:'acquire',organization_id:'tenant',owner_user_id:'owner',service_connection_id:'connection',service_account_id:'account',generation:1,channel:'linkedin',platform:'linkedin',backend:'unipile',authority:'service'}]:[]};};
+            const consumer=createCommunicationReplyConsumer({binding:b,bindingId,subscriberId:'subscriber',actor:{organizationId:'tenant',userId:'owner'},authenticationTimeoutMs:10,transactionTimeoutMs:30,pool:{async connect(){return {query,release(error){if(error){discards++;rejectPending?.(Error('Synthetic retired identity query'));}}};}},authenticateDelivery:async()=>true,async resolveIdentity(client){void client.query('SELECT pending_identity_query');if(process.argv[1]==='throw')throw Error('Synthetic identity failure');return new Promise(()=>{});}});
+            consumer.apply({binding:b,bindingId,subscriberId:'subscriber',serviceEventId:'100',sourceKey:key,payload:{outcome:{kind:'event',event,eventKey:key,fingerprint:fp},fingerprint:fp,receivedAt:'2026-10-12T10:00:01.000Z'}}).then(()=>process.exitCode=2,()=>setTimeout(()=>process.stdout.write(JSON.stringify({rollback,commit,discards})),40));
+        `;
+        const result = spawnSync(process.execPath, ['--unhandled-rejections=strict', '-e', script, mode, fileURLToPath(new URL('./communications-reply-consumer.ts', import.meta.url))], { cwd: process.cwd(), encoding: 'utf8', timeout: 3000 });
+        expect(result.status).toBe(0);
+        expect(JSON.parse(result.stdout)).toEqual({ rollback: false, commit: false, discards: 1 });
+    });
     it.each(['email', 'whatsapp', 'linkedin'] as const)('applies a verified %s reply through existing policy in the same serializable transaction', async (channel) => {
         const f = fixture(channel);
+        helper.apply.mockImplementationOnce(async (client: SqlClient) => { await client.query('SELECT policy_transaction_marker'); return 'stop'; });
         expect(await f.api.apply(f.input)).toEqual({ status: 'applied', decision: 'stop' });
         expect(f.calls[0].sql).toBe('BEGIN ISOLATION LEVEL SERIALIZABLE');
         expect(f.calls.some(c => c.sql.includes('communications_lock_reply_member'))).toBe(true);
-        expect(helper.apply).toHaveBeenCalledWith(f.client, actor, channel, expect.any(String), expect.objectContaining({ id: f.input.sourceKey, fromIdentity: channel === 'linkedin' ? 'urn:li:fsd_profile:verifiedPerson' : channel === 'email' ? 'person@example.com' : '61412345678@s.whatsapp.net', receivedAt: '2026-10-12T10:00:00.000Z' }));
+        expect(helper.apply).toHaveBeenCalledWith(expect.objectContaining({ query: expect.any(Function), release: expect.any(Function) }), actor, channel, expect.any(String), expect.objectContaining({ id: f.input.sourceKey, fromIdentity: channel === 'linkedin' ? 'urn:li:fsd_profile:verifiedPerson' : channel === 'email' ? 'person@example.com' : '61412345678@s.whatsapp.net', receivedAt: '2026-10-12T10:00:00.000Z' }));
+        expect(f.connect).toHaveBeenCalledOnce();
+        expect(f.calls.filter(c => c.sql.startsWith('BEGIN'))).toHaveLength(1);
+        expect(f.calls.findIndex(c => c.sql === 'SELECT policy_transaction_marker')).toBeGreaterThan(f.calls.findIndex(c => c.sql.startsWith('BEGIN')));
+        expect(f.calls.findIndex(c => c.sql === 'SELECT policy_transaction_marker')).toBeLessThan(f.calls.findIndex(c => c.sql.startsWith('INSERT INTO public.communication_event_receipts')));
         expect(f.calls.at(-1)?.sql).toBe('COMMIT');
         expect(f.state.receipt?.payload_fingerprint).toMatch(/^[a-f0-9]{64}$/);
     });

@@ -16,3 +16,5 @@ export * from "../packages/storage-postgres/src/webhook-repository";
 export * from "../packages/storage-postgres/src/outbox-repository";
 export { createReplyWebhookServer, type ReplyWebhookServerDependencies } from "../services/api/src/reply-webhook-server";
 export * from "../packages/storage-postgres/src/auth-state-repository";
+export * from "../packages/core/src/connection-setup";
+export * from "../packages/storage-postgres/src/reply-barrier";

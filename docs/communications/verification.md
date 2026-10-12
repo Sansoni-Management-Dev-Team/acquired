@@ -5,6 +5,14 @@
 
 Foundation verified locally on 12 October 2026 against base `fa544da5578375efd57af4ba680a403a1568769e`. The separate reply branch starts from current remote main `f66781e`, retains foundation snapshot `d8d0654` and adds the reply source changes. [Progress](progress.md) records outstanding work. Historical foundation/parity/channel logs remain in the original checkout's ignored `.local-data/communications/verification/`; new reply results are in that directory under the new worktree. Committed documents contain only sanitized summaries and reproducible commands.
 
+## Current tenant-fence and setup continuation
+
+Frozen-tree checks: **3,499 full-suite passes/207 opt-in skips** (352 files passed/33 skipped), **98 actual approved-schema OrbStack PostgreSQL cases** across eight files, and **1,156 fresh standalone-package cases/44 files** plus independent build/exports. Root typecheck, scoped lint and native network-none all-channel proof passed. Logs: `fence-setup-final-full.log`, `fence-setup-final-postgres.log`, `fence-setup-final-copy-green.log`, `fence-setup-final-root-types.log`, `fence-setup-final-lint.log`, `fence-setup-final-native.log`; sanitized summary `fence-setup-final-summary.json`.
+
+All native/package source and fixture-script hashes match the final production tree. The first copy run exposed two old scripted test fixtures missing new catalog/time-budget reads; the fixture correction additionally proves negative cases reach encrypted receipt checks. It is not a production TDD defect. [Fence/setup TDD](fence-setup-tdd.md) distinguishes actual REDs from passing extraction/native/DB characterizations.
+
+Nine real barrier,16 consumer and nine service→Acquire→ACK tests remain prepared and **UNEXECUTED** pending specifically approved003. Current database98cases exclude those34 tests. Provider fetch/header/owner proofs in setup tests are synthetic ports, and native app/storage authority remains memory. No complete fresh history, tenant-wide legacy send admission, UI activation, live ownership/capability or complete runtime extraction is claimed. No migration or real provider write occurred in this continuation. The prior durable continuation below records its earlier tree.
+
 ## Current durable continuation verification
 
 - Full application suite: **3,357 passed/179 opt-in skips**, 347 files passed/30 skipped; eight deployment/smoke checks passed. Logs: `durable-replies-final-full-tests.log`, `durable-replies-final-node-tests.log`. Skips are not passes.

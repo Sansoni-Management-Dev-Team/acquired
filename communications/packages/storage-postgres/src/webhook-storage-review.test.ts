@@ -20,6 +20,8 @@ function fixture(patch: Record<string, unknown> = {}, codec = new WebhookCodec({
     queries.push(sql);
     let rows: unknown[] = [];
     if (sql.includes('FROM pg_roles')) rows = [{ role_name: 'communications_control', rolsuper: false, rolbypassrls: false, rolcanlogin: false }];
+    else if (sql.includes('set_config')) rows = [];
+    else if (sql.includes('to_regclass')) rows = [{ barrier: null }];
     else if (sql.includes('FROM communications.connections')) rows = [scopeRow];
     else if (sql.includes('FROM communications.webhook_inbox')) rows = [row];
     else if (!['BEGIN', 'COMMIT', 'ROLLBACK', 'SET LOCAL ROLE communications_control'].includes(sql) && !sql.startsWith('INSERT INTO communications.webhook_inbox')) throw new Error('Unexpected scripted SQL');
@@ -41,11 +43,13 @@ describe('independent webhook repository review with actual codec and scripted S
     const f = fixture({}, new WebhookCodec({ activeVersion: 'new', keys: [newKey] }));
     await expect(f.repo.capture(capture)).rejects.toThrow('Webhook repository unavailable');
     expect(f.queries.at(-1)).toBe('ROLLBACK');
+    expect(f.queries.some(sql => sql.includes('FROM communications.webhook_inbox'))).toBe(true);
   });
   it.each([{ state: 'pending', alive: false }, { state: 'processing', alive: false }, { state: 'dead_letter', alive: true }])('does not acknowledge an unprocessable duplicate ($state, alive=$alive)', async patch => {
     const f = fixture(patch);
     await expect(f.repo.capture(capture)).rejects.toThrow('Webhook repository unavailable');
     expect(f.queries).not.toContain('COMMIT');
+    expect(f.queries.some(sql => sql.includes('FROM communications.webhook_inbox'))).toBe(true);
     expect(f.queries.some(sql => sql.startsWith('UPDATE '))).toBe(false);
   });
   it('can acknowledge a terminal processed duplicate without renewing expired retention', async () => {
@@ -58,5 +62,6 @@ describe('independent webhook repository review with actual codec and scripted S
     const f = fixture({ encrypted_payload: JSON.stringify(originalCodec.encode(foreign)) });
     await expect(f.repo.capture(capture)).rejects.toThrow('Webhook repository unavailable');
     expect(f.queries).not.toContain('COMMIT');
+    expect(f.queries.some(sql => sql.includes('FROM communications.webhook_inbox'))).toBe(true);
   });
 });

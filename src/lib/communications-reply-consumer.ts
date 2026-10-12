@@ -1,6 +1,7 @@
 import 'server-only';
 import { createHash } from 'node:crypto';
 import { types } from 'node:util';
+import { performance } from 'node:perf_hooks';
 import type { PoolClient } from 'pg';
 import type { CampaignActor } from '@/db/campaign-client';
 import { replyIdentity } from '@/domain/campaign-replies';
@@ -23,21 +24,27 @@ export interface VerifiedCampaignReplyIdentity {
     identity: string;
 }
 export interface CommunicationReplyConsumerOptions {
+    /** release(error) must physically terminate/retire the checked-out session, as pg does. */
     pool: SqlPool;
     actor: CampaignActor;
     binding: ConnectionBinding;
     bindingId: string;
     subscriberId: string;
+    authenticationTimeoutMs?: number;
+    transactionTimeoutMs?: number;
     /** REQUIRED authenticated service delivery/subject/subscriber verification. No boolean field in
      * a webhook body constitutes authority. Actor/binding options come from trusted server routing. */
-    authenticateDelivery(input: CommunicationReplyDelivery): Promise<boolean>;
+    authenticateDelivery(input: CommunicationReplyDelivery, signal?: AbortSignal): Promise<boolean>;
     /** REQUIRED current verified identity mapping inside the same owner transaction. LinkedIn URL
-     * to legacy URN needs recorded evidence; phone/email mappings must match the canonical sender. */
+     * to legacy URN needs recorded evidence; phone/email mappings must match the canonical sender.
+     * Await SQL sequentially. The callback client closes when resolution settles and rejects direct
+     * transaction/role commands. SELECT/WITH can have side effects; this trusted port is not an SQL
+     * sandbox. Its session is retired after invocation, including a successful commit. */
     resolveIdentity(client: SqlClient, input: {
         actor: CampaignActor;
         binding: ConnectionBinding;
         sender: CanonicalIdentity;
-    }): Promise<VerifiedCampaignReplyIdentity | null>;
+    }, signal?: AbortSignal): Promise<VerifiedCampaignReplyIdentity | null>;
 }
 export type CommunicationReplyConsumption = {
     status: 'applied' | 'duplicate' | 'review';
@@ -51,15 +58,17 @@ const id = (v: unknown, max = 200): v is string => typeof v === 'string' && v.le
 const hex = (v: unknown): v is string => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
 const uuid = (v: unknown): v is string => typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v);
 const exact = (v: unknown, required: readonly string[], optional: readonly string[] = []): v is Record<string, unknown> => object(v) && required.every(k => Object.hasOwn(v, k)) && Object.keys(v).every(k => required.includes(k) || optional.includes(k));
-const same = (a: ConnectionBinding, b: unknown) => { try {
-    if (!exact(b, bindingFields))
+const same = (a: ConnectionBinding, b: unknown) => {
+    try {
+        if (!exact(b, bindingFields))
+            return false;
+        assertSameBinding(a, b as unknown as ConnectionBinding);
+        return true;
+    }
+    catch {
         return false;
-    assertSameBinding(a, b as unknown as ConnectionBinding);
-    return true;
-}
-catch {
-    return false;
-} };
+    }
+};
 const vector = (b: ConnectionBinding) => [b.applicationId, b.tenantId, b.ownerId, b.connectionId, b.accountId, b.generation, b.channel, b.platform, b.backend];
 const hash = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 function snapshot(v: unknown, depth = 0): unknown {
@@ -147,15 +156,18 @@ function validateDelivery(b: ConnectionBinding, bindingId: string, subscriberId:
  * Service normalization and Acquire holds are separate durable transactions. No readiness advance,
  * backend/default selection, provider action or database provisioning happens here. */
 export function createCommunicationReplyConsumer(options: CommunicationReplyConsumerOptions): {
-    apply(input: CommunicationReplyDelivery): Promise<CommunicationReplyConsumption>;
+    apply(input: CommunicationReplyDelivery, signal?: AbortSignal): Promise<CommunicationReplyConsumption>;
 } {
     let binding: ConnectionBinding, actor: CampaignActor;
+    const authenticationTimeoutMs = options.authenticationTimeoutMs ?? 3000, transactionTimeoutMs = options.transactionTimeoutMs ?? 20000;
     try {
         binding = snapshot(options.binding) as ConnectionBinding;
         actor = snapshot(options.actor) as CampaignActor;
         assertSameBinding(binding, binding);
         if (!same(binding, binding) || binding.applicationId !== 'acquire' || !exact(actor, ['organizationId', 'userId']) || !id(actor.organizationId) || !id(actor.userId) || binding.tenantId !== actor.organizationId || binding.ownerId !== actor.userId ||
-            !uuid(options.bindingId) || !id(options.subscriberId) || typeof options.pool?.connect !== 'function' || typeof options.authenticateDelivery !== 'function' || typeof options.resolveIdentity !== 'function')
+            !uuid(options.bindingId) || !id(options.subscriberId) || typeof options.pool?.connect !== 'function' || typeof options.authenticateDelivery !== 'function' || typeof options.resolveIdentity !== 'function' ||
+            !Number.isSafeInteger(authenticationTimeoutMs) || authenticationTimeoutMs < 1 || authenticationTimeoutMs > 5000 ||
+            !Number.isSafeInteger(transactionTimeoutMs) || transactionTimeoutMs < 1 || transactionTimeoutMs > 25000 || authenticationTimeoutMs + transactionTimeoutMs >= 30000)
             fail();
     }
     catch {
@@ -163,6 +175,127 @@ export function createCommunicationReplyConsumer(options: CommunicationReplyCons
     }
     const bindingId = options.bindingId, subscriberId = options.subscriberId, connect = options.pool.connect.bind(options.pool), authenticate = options.authenticateDelivery.bind(options), resolve = options.resolveIdentity.bind(options), mode = replyMonitorMode;
     const accountIdentity = hash(['communications.account.binding.v1', vector(binding)]);
+    async function authenticated(delivery: CommunicationReplyDelivery, signal?: AbortSignal): Promise<boolean> {
+        const controller = new AbortController(), deadline = performance.now() + authenticationTimeoutMs;
+        let timer: ReturnType<typeof setTimeout> | undefined, abort: (() => void) | undefined;
+        const live = () => { if (signal?.aborted || controller.signal.aborted || performance.now() >= deadline) {
+            controller.abort();
+            fail();
+        } };
+        try {
+            live();
+            const stopped = new Promise<never>((_resolve, reject) => {
+                abort = () => { controller.abort(); reject(new Error('Communication reply consumption unavailable')); };
+                signal?.addEventListener('abort', abort, { once: true });
+                timer = setTimeout(abort, authenticationTimeoutMs);
+            });
+            const checked = Promise.resolve().then(async () => {
+                live();
+                const result = await authenticate(structuredClone(delivery), controller.signal);
+                live();
+                return result === true;
+            });
+            return await Promise.race([checked, stopped]);
+        }
+        finally {
+            clearTimeout(timer);
+            if (abort)
+                signal?.removeEventListener('abort', abort);
+        }
+    }
+    async function transaction<T>(signal: AbortSignal | undefined, work: (client: SqlClient, retireResolverSession: () => void, callbackSignal: AbortSignal) => Promise<T>): Promise<T> {
+        let client: SqlClient | undefined, released = false, timedOut = false, resolverUsed = false, commitAttempted = false, inFlight = 0, discard = false;
+        const controller = new AbortController(), deadline = performance.now() + transactionTimeoutMs;
+        const dispose = () => {
+            if (!client || released)
+                return;
+            released = true;
+            try {
+                if (discard || timedOut || resolverUsed)
+                    client.release(new Error('Reply consumer session unavailable'));
+                else
+                    client.release();
+            }
+            catch { /* The injected driver owns physical retirement; never leak session diagnostics. */ }
+        };
+        // Retire the locked database session before invoking externally registered abort handlers.
+        const expire = () => { timedOut = true; discard = true; dispose(); controller.abort(); };
+        const live = () => { if (signal?.aborted || timedOut || performance.now() >= deadline) {
+            expire();
+            fail();
+        } if (released)
+            fail(); };
+        async function run() {
+            try {
+                live();
+                client = await connect();
+                live();
+                const query = client.query.bind(client);
+                const tx: SqlClient = {
+                    async query<Row>(text: string, values?: unknown[]) {
+                        live();
+                        if (inFlight !== 0)
+                            fail();
+                        if (text === 'COMMIT')
+                            commitAttempted = true;
+                        inFlight++;
+                        try {
+                            const result = await query<Row>(text, values);
+                            live();
+                            return result;
+                        }
+                        finally {
+                            inFlight--;
+                        }
+                    }, release() { fail(); }
+                };
+                await tx.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+                await tx.query(`SET LOCAL statement_timeout='${Math.min(10000, transactionTimeoutMs)}ms'`);
+                await tx.query(`SET LOCAL lock_timeout='${Math.min(5000, transactionTimeoutMs)}ms'`);
+                const result = await work(tx, () => { live(); resolverUsed = true; }, controller.signal);
+                live();
+                return result;
+            }
+            catch (error) {
+                if (performance.now() >= deadline || signal?.aborted)
+                    expire();
+                const descriptor = object(error) && !types.isProxy(error) ? Object.getOwnPropertyDescriptor(error, 'code') : undefined;
+                const code = descriptor && 'value' in descriptor ? descriptor.value : undefined;
+                discard = discard || commitAttempted || typeof code === 'string' && (/^(?:08|57P)/.test(code) || ['ECONNRESET', 'EPIPE', 'ETIMEDOUT'].includes(code));
+                if (inFlight !== 0) {
+                    discard = true;
+                    dispose();
+                }
+                // Termination owns timeout/active-query rollback. Never issue competing SQL.
+                if (client && !released && !timedOut) {
+                    try {
+                        await client.query('ROLLBACK');
+                    }
+                    catch {
+                        discard = true;
+                    }
+                }
+                return fail();
+            }
+            finally {
+                dispose();
+            }
+        }
+        let timer: ReturnType<typeof setTimeout> | undefined, abort: (() => void) | undefined;
+        try {
+            const stopped = new Promise<never>((_resolve, reject) => {
+                abort = () => { expire(); reject(new Error('Communication reply consumption unavailable')); };
+                signal?.addEventListener('abort', abort, { once: true });
+                timer = setTimeout(abort, transactionTimeoutMs);
+            });
+            return await Promise.race([Promise.resolve().then(run), stopped]);
+        }
+        finally {
+            clearTimeout(timer);
+            if (abort)
+                signal?.removeEventListener('abort', abort);
+        }
+    }
     async function enter(client: SqlClient, role: 'acquire_campaign_user' | 'acquire_campaign_worker') {
         await client.query(`SET LOCAL ROLE ${role}`);
         const result = await client.query('SELECT current_user AS active_role, rolsuper, rolbypassrls, rolcanlogin FROM pg_roles WHERE rolname=current_user');
@@ -190,24 +323,19 @@ export function createCommunicationReplyConsumer(options: CommunicationReplyCons
  WHERE organization_id=$1 AND owner_user_id=$2`, [actor.organizationId, actor.userId, code]);
         return false;
     }
-    return { async apply(input) {
+    return { async apply(input, signal) {
             let delivery: CommunicationReplyDelivery;
             try {
                 if (mode() === 'off')
                     fail();
                 delivery = validateDelivery(binding, bindingId, subscriberId, snapshot(input));
-                if (await authenticate(structuredClone(delivery)) !== true)
+                if (!await authenticated(delivery, signal))
                     fail();
             }
             catch {
                 return fail();
             }
-            let client: SqlClient | undefined, commitAttempted = false, discard = false;
-            try {
-                client = await connect();
-                await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
-                await client.query("SET LOCAL statement_timeout='10s'");
-                await client.query("SET LOCAL lock_timeout='5s'");
+            return transaction(signal, async (client, retireResolverSession, callbackSignal) => {
                 await enter(client, 'acquire_campaign_user');
                 await client.query("SELECT set_config('app.acquire_org',$1,true),set_config('app.acquire_user',$2,true)", [actor.organizationId, actor.userId]);
                 const member = await client.query('SELECT public.communications_lock_reply_member($1,$2) AS allowed', [actor.organizationId, actor.userId]);
@@ -247,7 +375,42 @@ export function createCommunicationReplyConsumer(options: CommunicationReplyCons
                 else if (!event || event.direction !== 'inbound')
                     decision = 'ignore';
                 else {
-                    const proof = snapshot(await resolve(client, { actor: structuredClone(actor), binding: structuredClone(binding), sender: structuredClone(event.sender) })) as VerifiedCampaignReplyIdentity | null;
+                    let resolutionOpen = true;
+                    const requests: Promise<unknown>[] = [];
+                    const resolverClient: SqlClient = Object.freeze({
+                        query<Row>(text: string, values?: unknown[]) {
+                            let request: ReturnType<SqlClient['query']>;
+                            try {
+                                if (!resolutionOpen || typeof text !== 'string' || text.length > 100000)
+                                    fail();
+                                const statement = text.trim().replace(/;$/, '').trim();
+                                if (statement.includes(';') || !/^(?:SELECT|INSERT|UPDATE|WITH)\b/i.test(statement))
+                                    fail();
+                                request = client.query(statement, values);
+                            }
+                            catch {
+                                request = Promise.reject(new Error('Communication reply consumption unavailable'));
+                            }
+                            // Observe exactly the returned promise if a trusted callback forgets to await SQL.
+                            void request.catch(() => undefined);
+                            if (resolutionOpen)
+                                requests.push(request);
+                            return request as Promise<{
+                                rows: Row[];
+                                rowCount?: number | null;
+                            }>;
+                        }, release() { fail(); }
+                    });
+                    retireResolverSession();
+                    let resolved: unknown;
+                    try {
+                        resolved = await resolve(resolverClient, { actor: structuredClone(actor), binding: structuredClone(binding), sender: structuredClone(event.sender) }, callbackSignal);
+                    }
+                    finally {
+                        resolutionOpen = false;
+                    }
+                    await Promise.all(requests);
+                    const proof = snapshot(resolved) as VerifiedCampaignReplyIdentity | null;
                     const mapped = proof && typeof proof.identity === 'string' ? replyIdentity(binding.channel, proof.identity) : null;
                     if (!proof || !exact(proof, ['actor', 'binding', 'sender', 'identity']) || !exact(proof.actor, ['organizationId', 'userId']) || proof.actor.organizationId !== actor.organizationId || proof.actor.userId !== actor.userId || !same(binding, proof.binding) ||
                         !canonicalSender(binding, proof.sender) || proof.sender.kind !== event.sender.kind || proof.sender.value !== event.sender.value || !mapped || mapped !== proof.identity ||
@@ -279,34 +442,8 @@ export function createCommunicationReplyConsumer(options: CommunicationReplyCons
                 const resolvedReplay = reviewCode ? await review(client, delivery, reviewCode, !!original && !replayConflict && original.result === 'review' && outcome.kind === 'review') : false;
                 if (mode() === 'off')
                     fail();
-                commitAttempted = true;
                 await client.query('COMMIT');
                 return { status: resolvedReplay ? 'duplicate' : decision === 'review' ? 'review' : original ? 'duplicate' : 'applied', decision };
-            }
-            catch (error) {
-                const descriptor = object(error) && !types.isProxy(error) ? Object.getOwnPropertyDescriptor(error, 'code') : undefined;
-                const code = descriptor && 'value' in descriptor ? descriptor.value : undefined;
-                discard = commitAttempted || typeof code === 'string' && (/^(?:08|57P)/.test(code) || ['ECONNRESET', 'EPIPE', 'ETIMEDOUT'].includes(code));
-                if (client) {
-                    try {
-                        await client.query('ROLLBACK');
-                    }
-                    catch {
-                        discard = true;
-                    }
-                }
-                return fail();
-            }
-            finally {
-                if (client) {
-                    try {
-                        if (discard)
-                            client.release(new Error('Reply consumer session unavailable'));
-                        else
-                            client.release();
-                    }
-                    catch { /* Commit status, not release diagnostics, controls acknowledgement. */ }
-                }
-            }
+            });
         } };
 }

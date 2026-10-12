@@ -220,10 +220,65 @@ describe.skipIf(!enabled)('isolated PostgreSQL Acquire reply consumption, author
         await revocation;
         expect((await state(f)).holds).toHaveLength(1);
     });
+    it('a stalled identity deadline terminates the member lock and forbids later policy writes', async () => {
+        const f = await fixture(), entered = deferred(), resume = deferred();
+        const consumer = f.consumer({ transactionTimeoutMs: 120, resolveIdentity: async (client, input) => { entered.resolve(); await resume.promise; return f.resolveIdentity(client, input); } });
+        const settled = consumer.apply(f.message()).then(() => 'committed', () => 'unavailable');
+        try {
+            await Promise.race([entered.promise, settled.then(() => { throw Error('Expected resolver to enter before deadline'); })]);
+            expect(await settled).toBe('unavailable');
+            const revoker = await pool.connect();
+            try {
+                await revoker.query('BEGIN');
+                await revoker.query("SET LOCAL lock_timeout='500ms'");
+                expect((await revoker.query('DELETE FROM public.member WHERE organization_id=$1 AND user_id=$2 RETURNING id', [f.org, f.owner])).rows).toHaveLength(1);
+                await revoker.query('COMMIT');
+            }
+            catch (error) {
+                await revoker.query('ROLLBACK');
+                throw error;
+            }
+            finally {
+                revoker.release();
+            }
+        }
+        finally {
+            resume.resolve();
+            await settled;
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        expect((await state(f)).receipts).toHaveLength(0);
+        expect((await state(f)).holds).toHaveLength(0);
+        expect((await state(f)).enrolments.every(e => e.state === 'active')).toBe(true);
+    });
+    it('never reuses a resolver-contaminated session after its policy transaction commits', async () => {
+        const f = await fixture(), isolated = new pg.Pool({ connectionString: localCampaignDatabase, max: 1, application_name: 'reply-consumer-clean' });
+        const isolatedDriver: SqlPool = { async connect() { const client = await isolated.connect(); return { async query<Row>(text: string, values?: unknown[]) { const result = await client.query(text, values); return { rows: result.rows as Row[], rowCount: result.rowCount }; }, release(error?: Error) { client.release(error); } }; } };
+        try {
+            const consumer = f.consumer({ pool: isolatedDriver, resolveIdentity: async (client, input) => { await client.query("SELECT set_config('application_name',$1,false)", ['reply-consumer-poisoned']); return f.resolveIdentity(client, input); } });
+            expect((await consumer.apply(f.message())).decision).toBe('stop');
+            const client = await isolated.connect();
+            try {
+                expect((await client.query("SELECT current_setting('application_name') AS name,current_user AS role")).rows[0]).toEqual({ name: 'reply-consumer-clean', role: 'acquire_channels' });
+            }
+            finally {
+                client.release();
+            }
+        }
+        finally {
+            await isolated.end();
+        }
+    });
     it('a failed receipt write rolls back real policy holds, stops, audit and reply receipt together', async () => {
         const f = await fixture();
-        const failing: SqlPool = { async connect() { const client = await driver.connect(); return { async query<Row>(text: string, values?: unknown[]) { if (text.startsWith('INSERT INTO public.communication_event_receipts'))
-                    await client.query('SELECT 1/0'); return client.query<Row>(text, values); }, release(error?: Error) { client.release(error); } }; } };
+        const failing: SqlPool = { async connect() {
+                const client = await driver.connect();
+                return { async query<Row>(text: string, values?: unknown[]) {
+                        if (text.startsWith('INSERT INTO public.communication_event_receipts'))
+                            await client.query('SELECT 1/0');
+                        return client.query<Row>(text, values);
+                    }, release(error?: Error) { client.release(error); } };
+            } };
         await expect(f.consumer({ pool: failing }).apply(f.message())).rejects.toThrow('Communication reply consumption unavailable');
         const s = await state(f);
         expect(s.receipts).toHaveLength(0);
@@ -234,10 +289,17 @@ describe.skipIf(!enabled)('isolated PostgreSQL Acquire reply consumption, author
     it('lost COMMIT response recovers by exact receipt replay without sending or clearing a hold', async () => {
         const f = await fixture(), d = f.message();
         let lose = true;
-        const uncertain: SqlPool = { async connect() { const client = await driver.connect(); return { async query<Row>(text: string, values?: unknown[]) { const r = await client.query<Row>(text, values); if (text === 'COMMIT' && lose) {
-                    lose = false;
-                    throw Error('synthetic lost commit response');
-                } return r; }, release(error?: Error) { client.release(error); } }; } };
+        const uncertain: SqlPool = { async connect() {
+                const client = await driver.connect();
+                return { async query<Row>(text: string, values?: unknown[]) {
+                        const r = await client.query<Row>(text, values);
+                        if (text === 'COMMIT' && lose) {
+                            lose = false;
+                            throw Error('synthetic lost commit response');
+                        }
+                        return r;
+                    }, release(error?: Error) { client.release(error); } };
+            } };
         await expect(f.consumer({ pool: uncertain }).apply(d)).rejects.toThrow('Communication reply consumption unavailable');
         expect((await state(f)).holds).toHaveLength(1);
         expect((await f.consumer().apply(d)).status).toBe('duplicate');

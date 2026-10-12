@@ -20,6 +20,12 @@ export interface WebhookEventRepositoryCodec {
   encode(scope: EventScope, payload: EventPayload): EventEnvelope;
   decode(scope: EventScope, envelope: unknown): EventPayload;
 }
+export interface WebhookReplyBarrierPort {
+  /** Runs before connection/grant/work locks inside the repository's transaction. */
+  lock(client: SqlClient, applicationId: string, tenantId: string): Promise<void>;
+  route(client: SqlClient, capture: WebhookCapture): Promise<{ revision: string }>;
+  review(client: SqlClient, input: { eventId: string; code: 'protocol' | 'account_changed' | 'identity_pending' }): Promise<void>;
+}
 export interface PostgresWebhookRepositoryOptions {
   pool: SqlPool;
   binding: ConnectionBinding;
@@ -32,6 +38,11 @@ export interface PostgresWebhookRepositoryOptions {
   eventCodec?: WebhookEventRepositoryCodec;
   leaseSeconds?: number;
   retentionSeconds?: number;
+  /** Required when schema 003 is installed. No route/review/mutex fallback is safe. */
+  replyBarrier?: WebhookReplyBarrierPort;
+  transactionTimeoutMs?: number;
+  statementTimeoutMs?: number;
+  lockTimeoutMs?: number;
 }
 
 const bindingFields = ['applicationId','tenantId','ownerId','connectionId','accountId','generation','channel','platform','backend'];
@@ -87,18 +98,26 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
     binding = structuredClone(options.binding);
   } catch { throw new Error('Invalid webhook repository configuration'); }
   const integrationId = options.integrationId, configurationReference = options.providerConfigurationReference, subscriberId = options.subscriberId;
+  const transactionTimeoutMs = options.transactionTimeoutMs ?? 20000, statementTimeoutMs = options.statementTimeoutMs ?? 5000, lockTimeoutMs = options.lockTimeoutMs ?? 1000;
   const leaseSeconds = options.leaseSeconds ?? 60, retentionSeconds = options.retentionSeconds ?? 2_592_000;
-  if (binding.backend !== 'unipile' || !id(integrationId) || !id(configurationReference, 2000) || !id(options.subscriberId) ||
+  if (!Number.isSafeInteger(transactionTimeoutMs) || transactionTimeoutMs < 1 || transactionTimeoutMs > 25000 ||
+      !Number.isSafeInteger(statementTimeoutMs) || statementTimeoutMs < 1 || statementTimeoutMs > transactionTimeoutMs ||
+      !Number.isSafeInteger(lockTimeoutMs) || lockTimeoutMs < 1 || lockTimeoutMs > statementTimeoutMs ||
+      binding.backend !== 'unipile' || !id(integrationId) || !id(configurationReference, 2000) || !id(options.subscriberId) ||
       !Number.isSafeInteger(leaseSeconds) || leaseSeconds < 1 || leaseSeconds > 3600 ||
       !Number.isSafeInteger(retentionSeconds) || retentionSeconds < 1 || retentionSeconds > 31_536_000 ||
       typeof options.pool?.connect !== 'function' || typeof options.codec?.encode !== 'function' ||
       typeof options.codec?.decode !== 'function' || typeof options.codec?.digest !== 'function' ||
+      options.replyBarrier !== undefined && (typeof options.replyBarrier.lock !== 'function' || typeof options.replyBarrier.route !== 'function' || typeof options.replyBarrier.review !== 'function') ||
       options.eventCodec !== undefined && (typeof options.eventCodec.encode !== 'function' || typeof options.eventCodec.decode !== 'function')) {
     throw new Error('Invalid webhook repository configuration');
   }
   const connect = options.pool.connect.bind(options.pool);
   const encode = options.codec.encode.bind(options.codec), decode = options.codec.decode.bind(options.codec), digest = options.codec.digest.bind(options.codec);
   const encodeEvent = options.eventCodec?.encode.bind(options.eventCodec), decodeEvent = options.eventCodec?.decode.bind(options.eventCodec);
+  const lockReply = options.replyBarrier?.lock.bind(options.replyBarrier);
+  const routeReply = options.replyBarrier?.route.bind(options.replyBarrier);
+  const latchReview = options.replyBarrier?.review.bind(options.replyBarrier);
   const scopeValues = [binding.applicationId,binding.tenantId,binding.ownerId,binding.connectionId,binding.accountId,
     binding.generation,binding.channel,binding.platform,binding.backend,integrationId,configurationReference];
   async function currentScope(client: SqlClient): Promise<boolean> {
@@ -208,41 +227,84 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
     if (existing.rows.length !== 1 || eventId(existing.rows[0].event_id) !== id || existing.rows[0].subscriber_id !== subscriberId ||
         existing.rows[0].application_id !== binding.applicationId || existing.rows[0].tenant_id !== binding.tenantId || existing.rows[0].owner_id !== binding.ownerId) fail();
   }
-  async function transaction<T>(operation: (client: SqlClient) => Promise<T>): Promise<T> {
-    let client: SqlClient | undefined, commitAttempted = false, discard: Error | undefined;
-    try {
-      client = await connect();
-      const query: SqlClient['query'] = client.query.bind(client);
-      const transactional: SqlClient = {
-        async query<Row = Record<string, unknown>>(text: string, values?: unknown[]) {
-          if (text === 'COMMIT') commitAttempted = true;
-          return query<Row>(text, values);
-        },
-        release() { /* Only the outer owner releases the checked-out client. */ },
-      };
-      await transactional.query('BEGIN');
-      await transactional.query('SET LOCAL ROLE communications_control');
-      const role = await transactional.query(`SELECT current_user AS role_name, r.rolsuper, r.rolbypassrls, r.rolcanlogin
+  async function transaction<T>(operation: (client: SqlClient, fenced: boolean, fenceClient: SqlClient) => Promise<T>): Promise<T> {
+    let client: SqlClient | undefined, commitAttempted = false, timedOut = false, released = false, inFlight = 0, delegated = false, portPoisoned = false, fenceClosed = false, discard: Error | undefined;
+    const deadline = performance.now() + transactionTimeoutMs;
+    const dispose = () => {
+      if (!client || released) return;
+      released = true; fenceClosed = true;
+      try { client.release(discard ?? (delegated ? new Error('Webhook fenced session retired') : undefined)); }
+      catch { /* The driver must terminate sessions receiving release(error). */ }
+    };
+    const expire = () => { timedOut = true; discard = new Error('Webhook database session unavailable'); dispose(); };
+    const live = () => { if (timedOut || performance.now() >= deadline) { expire(); fail(); } if (released || portPoisoned) fail(); };
+    const run = async () => {
+      try {
+        live(); client = await connect(); live();
+        const query: SqlClient['query'] = client.query.bind(client);
+        const transactional: SqlClient = {
+          query<Row = Record<string, unknown>>(text: string, values?: unknown[]) {
+            let request: Promise<SqlResult<Row>>;
+            try {
+              live(); if (inFlight !== 0) fail();
+              if (text === 'COMMIT') commitAttempted = true;
+              inFlight++;
+              request = Promise.resolve().then(() => { live(); return query<Row>(text, values); })
+                .then(result => { live(); return result; }).finally(() => { inFlight--; });
+            } catch { request = Promise.reject(new Error('Webhook repository unavailable')); }
+            // Observe the exact returned promise even if a trusted callback forgets to await it.
+            void request.catch(() => undefined);
+            return request;
+          },
+          release() { fail(); },
+        };
+        // Callback SQL is a trusted data-write capability, never transaction ownership.
+        // Forbidden SQL poisons the outer operation even when a callback catches its rejection.
+        const fenceClient: SqlClient = Object.freeze({
+          query<Row = Record<string, unknown>>(text: string, values?: unknown[]) {
+            let request: Promise<SqlResult<Row>>;
+            try {
+              live();
+              if (fenceClosed || typeof text !== 'string' || text.length > 100000) fail();
+              const statement = text.trim().replace(/;$/, '').trim();
+              if (statement.includes(';') || !/^(?:SELECT|INSERT|UPDATE|WITH)\b/i.test(statement)) fail();
+              request = transactional.query<Row>(statement, values);
+            } catch { portPoisoned = true; request = Promise.reject(new Error('Webhook repository unavailable')); }
+            void request.catch(() => { portPoisoned = true; });
+            return request;
+          },
+          release() { portPoisoned = true; fail(); },
+        });
+        await transactional.query('BEGIN');
+        await transactional.query('SET LOCAL ROLE communications_control');
+        const role = await transactional.query(`SELECT current_user AS role_name, r.rolsuper, r.rolbypassrls, r.rolcanlogin
  FROM pg_roles r WHERE r.rolname=current_user`);
-      if (role.rows.length !== 1 || role.rows[0].role_name !== 'communications_control' ||
-          role.rows[0].rolsuper !== false || role.rows[0].rolbypassrls !== false || role.rows[0].rolcanlogin !== false) fail();
-      return await operation(transactional);
-    } catch (error) {
-      const connectionCodes = ['08000','08003','08006','08001','08004','08007','08P01','57P01','57P02','57P03','ECONNRESET','ETIMEDOUT','EPIPE'];
-      if (commitAttempted || error && typeof error === 'object' && 'code' in error && connectionCodes.includes(String(error.code))) {
-        discard = new Error('Webhook database session unavailable');
-      }
-      if (client) {
-        try { await client.query('ROLLBACK'); }
-        catch { discard = new Error('Webhook database session unavailable'); }
-      }
-      return fail();
-    } finally {
-      if (client) {
-        try { if (discard) client.release(discard); else client.release(); }
-        catch { /* Never expose driver/session errors. */ }
-      }
-    }
+        if (role.rows.length !== 1 || role.rows[0].role_name !== 'communications_control' || role.rows[0].rolsuper !== false || role.rows[0].rolbypassrls !== false || role.rows[0].rolcanlogin !== false) fail();
+        await transactional.query("SELECT set_config('lock_timeout',$1,true),set_config('statement_timeout',$2,true)", [`${lockTimeoutMs}ms`, `${statementTimeoutMs}ms`]);
+        const schema = await transactional.query("SELECT to_regclass('communications.tenant_reply_barriers')::text AS barrier");
+        if (schema.rows.length !== 1 || schema.rows[0].barrier !== null && schema.rows[0].barrier !== 'communications.tenant_reply_barriers') fail();
+        const fenced = schema.rows[0].barrier !== null;
+        if (fenced && (!lockReply || !routeReply || !latchReview) || !fenced && lockReply) fail();
+        // Fencing callbacks are trusted SQL composition, not a sandbox; retire delegated sessions
+        // to avoid returning session-level configuration changes to the pool after a commit.
+        if (fenced) { delegated = true; await lockReply!(fenceClient, binding.applicationId, binding.tenantId); live(); }
+        const result = await operation(transactional, fenced, fenceClient); live(); return result;
+      } catch (error) {
+        if (performance.now() >= deadline) expire();
+        if (inFlight !== 0) { discard = new Error('Webhook database session unavailable'); dispose(); }
+        const connectionCodes = ['08000','08003','08006','08001','08004','08007','08P01','57P01','57P02','57P03','ECONNRESET','ETIMEDOUT','EPIPE'];
+        if (commitAttempted || error && typeof error === 'object' && 'code' in error && connectionCodes.includes(String(error.code))) discard = new Error('Webhook database session unavailable');
+        if (client && !timedOut && !released) {
+          try { await client.query('ROLLBACK'); } catch { discard = new Error('Webhook database session unavailable'); }
+        }
+        return fail();
+      } finally { dispose(); }
+    };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timeout = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { expire(); reject(new Error('Webhook repository unavailable')); }, transactionTimeoutMs); });
+      return await Promise.race([Promise.resolve().then(run), timeout]);
+    } finally { clearTimeout(timer); }
   }
   return {
     async capture(input) {
@@ -264,7 +326,7 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
         payloadDigest = digest({ binding: structuredClone(binding), key: captured.key }, Uint8Array.from(captured.rawBody), keyVersion);
         if (!hex(payloadDigest) || encryptedPayload.length > 2_200_000) fail();
       } catch { return fail(); }
-      return transaction(async client => {
+      return transaction(async (client, fenced, fenceClient) => {
         if (!await currentScope(client)) fail();
         const inserted = await client.query(`INSERT INTO communications.webhook_inbox
  (id,backend,integration_id,dedupe_key,payload_digest,encrypted_payload,key_version,authenticated_at,received_at,expires_at)
@@ -272,6 +334,7 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
  ON CONFLICT (backend,integration_id,dedupe_key) DO NOTHING RETURNING id`,
           [captured.key,binding.backend,integrationId,captured.key,payloadDigest,encryptedPayload,keyVersion,retentionSeconds]);
         let status: 'accepted' | 'duplicate';
+        let originalCapture = captured;
         if (inserted.rows.length === 1 && inserted.rows[0].id === captured.key) status = 'accepted';
         else if (inserted.rows.length === 0) {
           const existing = await client.query(`SELECT ${INBOX_COLUMNS} FROM communications.webhook_inbox
@@ -279,6 +342,7 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
             [captured.key,binding.backend,integrationId,captured.key]);
           if (existing.rows.length !== 1) fail();
           const original = openRow(captured.key, existing.rows[0]);
+          originalCapture = original;
           // Never acknowledge an unprocessed receipt that can no longer be claimed. A terminal
           // processed receipt retains its durable downstream history and remains deduplicated.
           const existingState = existing.rows[0].state;
@@ -289,6 +353,7 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
               !Buffer.from(original.rawBody).equals(Buffer.from(captured.rawBody))) fail();
           status = 'duplicate';
         } else return fail();
+        if (fenced) await routeReply!(fenceClient, structuredClone(originalCapture));
         if (!await currentScope(client)) fail();
         await client.query('COMMIT');
         return { binding: structuredClone(binding), key: captured.key, status };
@@ -311,7 +376,7 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
         } else return fail();
       } catch { return fail(); }
       const rejected = () => ({ binding: structuredClone(binding), key: record.key, committed: false });
-      return transaction(async client => {
+      return transaction(async (client, fenced, fenceClient) => {
         if (!await currentScope(client)) { await client.query('ROLLBACK'); return rejected(); }
         const selected = await client.query(`SELECT ${INBOX_COLUMNS},
  (state='processing' AND lease_token=$5 AND lease_until>clock_timestamp()) AS claim_valid
@@ -322,6 +387,7 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
         }
         const original = openRow(record.key,selected.rows[0]);
         if (original.receivedAt !== record.receivedAt || !Buffer.from(original.rawBody).equals(Buffer.from(record.rawBody))) fail();
+        if (fenced) await routeReply!(fenceClient, structuredClone(original));
         let eventResult: { id: string; conflict: boolean } | undefined;
         let reviewCode: 'protocol' | 'account_changed' | 'identity_pending' | undefined;
         if (outcome.kind === 'event') {
@@ -336,6 +402,7 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
             outcome:review,fingerprint:reviewFingerprint(record.key,reviewCode),receivedAt:record.receivedAt,
           });
           if (eventResult.conflict) fail();
+          if (fenced) await latchReview!(fenceClient, { eventId: eventResult.id, code: reviewCode });
           // Invalidating cursor leases prevents an old crawler from clearing this review barrier.
           await client.query(`UPDATE communications.event_cursors SET invalidated=true, complete=false, lease_token=NULL, lease_until=NULL
  WHERE connection_id=$1 AND generation=$2 AND application_id=$3 AND tenant_id=$4 AND owner_id=$5 AND account_id=$6`,
@@ -357,7 +424,7 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
       let key: string;
       try { const copied = structuredClone(input); exactBinding(binding, copied.binding); if (!hex(copied.key)) fail(); key = copied.key; }
       catch { return fail(); }
-      return transaction(async client => {
+      return transaction(async (client, fenced, fenceClient) => {
         if (!await currentScope(client)) { await client.query('ROLLBACK'); return { kind: 'forbidden' }; }
         const selected = await client.query(`SELECT ${INBOX_COLUMNS} FROM communications.webhook_inbox
  WHERE id=$1 AND backend=$2 AND integration_id=$3 AND dedupe_key=$4 FOR UPDATE SKIP LOCKED`,
@@ -365,6 +432,7 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
         if (selected.rows.length === 0) { await client.query('COMMIT'); return { kind: 'busy' }; }
         if (selected.rows.length !== 1) fail();
         const row = selected.rows[0], record = openRow(key, row);
+        if (fenced) await routeReply!(fenceClient, structuredClone(record));
         if (row.state === 'processed') { await client.query('COMMIT'); return { kind: 'completed' }; }
         if (row.alive !== true || row.retry_due !== true ||
             !(row.state === 'pending' || row.state === 'processing' && row.lease_expired === true)) {

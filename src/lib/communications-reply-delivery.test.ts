@@ -28,7 +28,7 @@ describe('service outbox to Acquire transaction composition', () => {
         const f = fixture();
         const worker = createCommunicationReplyDeliveryWorker(f.options);
         await expect(worker.run()).resolves.toEqual({ status: 'delivered' });
-        expect(consumer.apply).toHaveBeenCalledWith({ binding, bindingId: f.options.bindingId, subscriberId: f.delivery.subscriberId, serviceEventId: f.delivery.eventId, sourceKey: f.delivery.sourceEventKey, payload: f.delivery.payload });
+        expect(consumer.apply).toHaveBeenCalledWith({ binding, bindingId: f.options.bindingId, subscriberId: f.delivery.subscriberId, serviceEventId: f.delivery.eventId, sourceKey: f.delivery.sourceEventKey, payload: f.delivery.payload }, expect.any(AbortSignal));
         expect(f.acknowledge).toHaveBeenCalledWith({ delivery: f.delivery, receipt: { binding, subscriberId: f.delivery.subscriberId, eventId: '101', fingerprint: f.delivery.payload.fingerprint, status: 'committed' } });
         expect(consumer.factory).toHaveBeenCalledWith(expect.objectContaining({ authenticateDelivery: f.options.authenticateDelivery, resolveIdentity: f.options.resolveIdentity, pool: f.options.pool, actor: f.options.actor }));
     });
@@ -73,4 +73,13 @@ describe('service outbox to Acquire transaction composition', () => {
             expect(f.acknowledge).not.toHaveBeenCalled();
         });
     }
+});
+
+it('propagates the worker deadline signal into application transaction cancellation', async () => {
+    const f = fixture(); f.options.timeoutMs = 10;
+    let received: AbortSignal | undefined;
+    consumer.apply.mockImplementation((_delivery, signal: AbortSignal) => { received = signal; return new Promise(() => {}); });
+    await expect(createCommunicationReplyDeliveryWorker(f.options).run()).resolves.toEqual({ status: 'retry' });
+    expect(received).toBeInstanceOf(AbortSignal); expect(received?.aborted).toBe(true);
+    expect(f.acknowledge).not.toHaveBeenCalled();
 });
