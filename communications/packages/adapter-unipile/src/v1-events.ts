@@ -127,7 +127,12 @@ function emailEvent(raw: Record<string, unknown>, context: Extract<V1ReplyEventC
   if (!sameScope(context, context.email) || context.email.id !== raw.email_id) return review('account_changed');
   const mail = context.email.mail;
   if (mail.account_id !== context.providerAccountId || mail.id !== raw.email_id) return review('account_changed');
-  if (mail.object !== 'Email' || (mail.kind !== undefined && mail.kind !== '2_full') || mail.is_complete !== true || !bounded(mail.date, context) || Date.parse(mail.date) !== Date.parse(raw.date as string)) return review();
+  // Full GET's documented 2_full variant has no required is_complete field. Completeness
+  // remains service-owned fetch evidence; an explicit false/invalid vendor flag contradicts it.
+  const completeVariant = mail.kind === '2_full'
+    ? mail.is_complete === undefined || mail.is_complete === true
+    : mail.kind === undefined && mail.is_complete === true;
+  if (mail.object !== 'Email' || !completeVariant || !bounded(mail.date, context) || Date.parse(mail.date) !== Date.parse(raw.date as string)) return review();
   const sender = attendeeEmail(mail.from_attendee);
   if (!sender || (raw.from_attendee !== undefined && attendeeEmail(raw.from_attendee) !== sender)) return review();
   if (!Array.isArray(context.ownerAddresses) || context.ownerAddresses.length === 0) return review('identity_pending');

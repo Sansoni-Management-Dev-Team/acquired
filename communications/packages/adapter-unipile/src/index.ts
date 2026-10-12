@@ -5,3 +5,4 @@ export * from "./v1-normalization";
 export * from "./v1-webhook";
 export * from "./v1-adapter";
 export * from './v1-events';
+export * from './v1-reply-enrichment';

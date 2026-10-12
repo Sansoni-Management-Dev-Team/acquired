@@ -1,4 +1,4 @@
-import { BoundedUnipileHttp, boundedInteger, type UnipileRequestOptions } from './http-core';
+import { BoundedUnipileHttp, boundedInteger, type UnipileRequestOptions, type UnipileHttpResult } from './http-core';
 export interface UnipileV1TransportConfig {
     apiVersion: 'v1';
     /** Explicit HTTPS DSN URL ending in /api/v1. Never inferred from a key. */
@@ -9,6 +9,8 @@ export interface UnipileV1TransportConfig {
     maxResponseBytes?: number;
     allowLoopbackHttp?: boolean;
 }
+/** Bounded subset of the documented v1 list queries; v2 offsets and sync triggers are unavailable. */
+export interface UnipileV1ReadPagination { cursor?: string; limit?: number; }
 export interface UnipileV1EmailPayload {
     to: {
         identifier: string;
@@ -84,6 +86,26 @@ function emailForm(accountId: string, payload: UnipileV1EmailPayload): FormData 
         form.set('custom_headers', JSON.stringify(payload.custom_headers));
     return form;
 }
+function singleAccount(value: string) {
+    segment(value);
+    // GET /chats treats commas as multiple accounts; one recorded scope must remain one account.
+    if (value.includes(',')) invalid();
+}
+function applyReadPagination(url: URL, pagination: UnipileV1ReadPagination) {
+    if (!pagination || typeof pagination !== 'object' || Array.isArray(pagination)) invalid();
+    const prototype = Object.getPrototypeOf(pagination);
+    if (prototype !== null && prototype !== Object.prototype) invalid();
+    const descriptors = Object.getOwnPropertyDescriptors(pagination);
+    if (Reflect.ownKeys(descriptors).some(key => typeof key !== 'string' ||
+        !['cursor', 'limit'].includes(key) || !('value' in descriptors[key]!))) invalid();
+    // Read once from data descriptors; accessors cannot change validated values between checks and I/O.
+    pagination = { cursor: descriptors.cursor?.value, limit: descriptors.limit?.value };
+    if (pagination.cursor !== undefined) { segment(pagination.cursor); url.searchParams.set('cursor', pagination.cursor); }
+    if (pagination.limit !== undefined) {
+        if (!boundedInteger(pagination.limit, 1, 250)) invalid();
+        url.searchParams.set('limit', String(pagination.limit));
+    }
+}
 /** V1 transport only: successful HTTP does not establish recipient, delivery or durable idempotency. */
 export class UnipileV1Transport {
     #http: BoundedUnipileHttp;
@@ -107,6 +129,46 @@ export class UnipileV1Transport {
         if (pagination.limit !== undefined)
             url.searchParams.set('limit', String(pagination.limit));
         return this.#http.request('GET', url, undefined, options);
+    }
+    /** Single recorded account only. Raw pages do not prove fresh or complete reply coverage. */
+    async listChats(accountId: string, pagination: UnipileV1ReadPagination = {}, options: UnipileRequestOptions = {}) {
+        singleAccount(accountId);
+        const url = this.#http.url('chats');
+        url.searchParams.set('account_id', accountId);
+        applyReadPagination(url, pagination);
+        return this.#http.request('GET', url, undefined, options);
+    }
+    /** V1 list messages has no account_id query; verify the exact chat first on every read. */
+    async listChatMessages(accountId: string, chatId: string, pagination: UnipileV1ReadPagination = {}, options: UnipileRequestOptions = {}): Promise<UnipileHttpResult> {
+        singleAccount(accountId);
+        const url = this.#http.url(`chats/${segment(chatId)}/messages`);
+        applyReadPagination(url, pagination);
+        const requestOptions = { signal: options.signal };
+        const preflight = await this.#verifyChatReadScope(accountId, chatId, requestOptions);
+        if (preflight) return preflight;
+        return this.#http.request('GET', url, undefined, requestOptions);
+    }
+    /** V1 attendee list documents neither pagination nor account query. Validate every returned attendee upstream. */
+    async getChatAttendees(accountId: string, chatId: string, options: UnipileRequestOptions = {}): Promise<UnipileHttpResult> {
+        singleAccount(accountId);
+        const url = this.#http.url(`chats/${segment(chatId)}/attendees`);
+        const requestOptions = { signal: options.signal };
+        const preflight = await this.#verifyChatReadScope(accountId, chatId, requestOptions);
+        if (preflight) return preflight;
+        return this.#http.request('GET', url, undefined, requestOptions);
+    }
+    async #verifyChatReadScope(accountId: string, chatId: string, options: UnipileRequestOptions): Promise<UnipileHttpResult | undefined> {
+        const url = this.#http.url(`chats/${segment(chatId)}`);
+        url.searchParams.set('account_id', accountId);
+        const result = await this.#http.request('GET', url, undefined, options);
+        if (result.kind !== 'success') return result;
+        const chat = result.data;
+        if (result.status !== 200 || !chat || typeof chat !== 'object' || Array.isArray(chat) ||
+            !('object' in chat) || chat.object !== 'Chat' || !('id' in chat) || chat.id !== chatId ||
+            !('account_id' in chat) || chat.account_id !== accountId) {
+            throw new Error('Invalid Unipile read scope');
+        }
+        return undefined;
     }
     async getAccount(id: string, options: UnipileRequestOptions = {}) { return this.#http.request('GET', this.#http.url(`accounts/${segment(id)}`), undefined, options); }
     async getChat(accountId: string, id: string, options: UnipileRequestOptions = {}) {
