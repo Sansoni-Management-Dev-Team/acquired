@@ -10,7 +10,8 @@ import {createRequire} from 'node:module';
 import pg from 'pg';
 import {localDevConfig,localWorkerConfig,LOCAL_DATABASE_URL} from './dev-config.mjs';
 import {checkLocalResearchSchema} from './local-research-schema.mjs';
-import {benchmarkHash,localBenchmarkDatabase,designSnapshot,compareDesigns,observedDesignMetrics} from './research-design-metrics.mjs';
+import {benchmarkHash,localBenchmarkDatabase,designSnapshot,compareDesigns,observedDesignMetrics,persistedDataCompletion} from './research-design-metrics.mjs';
+import {applyBenchmarkWorkload} from './research-design-workload.mjs';
 const root=process.cwd(),args=process.argv.slice(2),command=args.shift();
 function option(name,fallback){const i=args.indexOf(`--${name}`);return i<0?fallback:args[i+1];}
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
@@ -22,17 +23,25 @@ async function prepare(){
  const reuse=option('reuse-baseline');
  let testCase;
  if(reuse){const original=resolve(reuse),manifest=JSON.parse(readFileSync(resolve(original,'manifest.json')));testCase=JSON.parse(readFileSync(resolve(original,'case.json')));if(benchmarkHash(testCase)!==manifest.caseHash||createHash('sha256').update(readFileSync(resolve(original,'baseline.dump'))).digest('hex')!==manifest.baselineHash)throw Error('Original benchmark inputs changed');cpSync(resolve(original,'baseline.dump'),resolve(dir,'baseline.dump'));save(resolve(dir,'case.json'),testCase);}
- else {
+ else if(option('case')) {
+ testCase=JSON.parse(readFileSync(option('case')));save(resolve(dir,'case.json'),testCase);
+ await dockerStream(['pg_dump','-U','project_acquire','-d','project_acquire','-Fc','--no-owner','--no-privileges'],null,resolve(dir,'baseline.dump'));
+ } else {
  const request=JSON.parse(readFileSync(option('request','.local-data/local-replay-2026-10-03/request.json')));
  const c=new pg.Client({connectionString:LOCAL_DATABASE_URL});await c.connect();await c.query('SET default_transaction_read_only=on');await checkLocalResearchSchema(c);
  const mandate=(await c.query('SELECT natural_language,filters,confirmation,provenance FROM mandates WHERE id=$1',[request.localMandateId])).rows[0];if(!mandate)throw Error('Source mandate missing');await c.end();
  testCase={version:1,name:'specialty-food-packaging-cleaning',productionMandateId:request.productionMandateId,mandate,input:{...request.input,requestId:undefined}};save(resolve(dir,'case.json'),testCase);
  await dockerStream(['pg_dump','-U','project_acquire','-d','project_acquire','-Fc','--no-owner','--no-privileges'],null,resolve(dir,'baseline.dump'));
  }
+ if(reuse&&option('case')){testCase=JSON.parse(readFileSync(option('case')));save(resolve(dir,'case.json'),testCase);}
  const source=resolve(dir,'source');mkdirSync(source);for(const path of ['src','cloudflare'])cpSync(resolve(root,path),resolve(source,path),{recursive:true});
  for(const file of ['package.json','tsconfig.json','postcss.config.mjs'])cpSync(resolve(root,file),resolve(source,file));
  if(existsSync('.local-data/manufacturing-search-index.json')){mkdirSync(resolve(source,'.local-data'));cpSync('.local-data/manufacturing-search-index.json',resolve(source,'.local-data/manufacturing-search-index.json'));}
  save(resolve(dir,'manifest.json'),{version:1,supportedDesigns:existsSync(resolve(source,'src/domain/hybrid-company-pipeline.ts'))?['A','B','C','D','E','F']:existsSync(resolve(source,'src/domain/web-firmable-pipeline.ts'))?['A','B','C','D','E']:existsSync(resolve(source,'src/domain/firmable-company-pipeline.ts'))?['A','B','C','D']:existsSync(resolve(source,'src/domain/company-corpus.ts'))?['A','B','C']:['A','B'],createdAt:new Date().toISOString(),caseHash:benchmarkHash(testCase),baselineHash:createHash('sha256').update(readFileSync(resolve(dir,'baseline.dump'))).digest('hex'),sourceHash:treeHash(source),revision:execFileSync('git',['rev-parse','HEAD'],{encoding:'utf8'}).trim(),dirtyPatchHash:benchmarkHash(execFileSync('git',['diff'],{encoding:'utf8'})),observerHash:benchmarkHash(['research-design-benchmark.mjs','research-design-metrics.mjs'].map(f=>readFileSync(resolve('scripts',f),'utf8'))),readerImage:execFileSync('docker',['--context','orbstack','image','inspect','project-acquire-crawl4ai:latest','--format','{{.Id}}'],{encoding:'utf8'}).trim(),cachePolicy:'fresh worker state per sample; fresh synthetic organization; baseline database copy with inherited research jobs removed'});
+ if(option('company-limit')||option('duration-minutes')){
+ const workload=applyBenchmarkWorkload(source,{companies:Number(option('company-limit','20')),minutes:Number(option('duration-minutes','10'))});
+ const manifest=JSON.parse(readFileSync(resolve(dir,'manifest.json')));manifest.workload=workload;manifest.sourceHash=treeHash(source);save(resolve(dir,'manifest.json'),manifest);
+ }
  console.log(JSON.stringify({event:'baseline_prepared',directory:dir}));
 }
 async function port(){return new Promise((yes,no)=>{const s=createServer();s.once('error',no);s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>yes(p));});});}
@@ -72,12 +81,13 @@ async function run(){
  writeFileSync(resolve(source,'next.config.mjs'),`export default {poweredByHeader:false,turbopack:{root:${JSON.stringify(source)}}};\n`);
  const require=createRequire(import.meta.url),esbuild=createRequire(require.resolve('vitest/package.json'))('esbuild');esbuild.buildSync({entryPoints:[resolve(source,'src/domain/research-objectives.ts')],bundle:true,platform:'node',format:'esm',outfile:resolve(directory,'objectives.mjs')});
  const {fieldSatisfied}=await import(resolve(directory,'objectives.mjs'));
- const manifest={...baseManifest,...(option('company-cohort')?{workload:'fixed-company-cohort',caseHash:benchmarkHash({testCase,cohort:JSON.parse(readFileSync(option('company-cohort')))})}:{}),design,policy,databaseName,directory,appOrigin:`http://127.0.0.1:${appPort}`,workerPort,readerPort,node:process.version,capabilities:['D','E','F'].includes(design)?['company','abn','headcount_band','revenue_band']:['company','abn','size','revenue','people','email'],providerHash:benchmarkHash({...(['D','E','F'].includes(design)?{companyProvider:'Firmable session service'}:{}),readerImage:baseManifest.readerImage,concurrency:5,reader:'Crawl4AI',search:policy==='production'?'DuckDuckGo HTML page 1':'OpenSERP',ai:'current fixed free routes then Mercury',cache:baseManifest.cachePolicy}),startedAt:new Date().toISOString(),startingResearchJobs:0};save(resolve(directory,'manifest.json'),manifest);
+ const manifest={...baseManifest,...(option('company-cohort')?{workload:'fixed-company-cohort',caseHash:benchmarkHash({testCase,cohort:JSON.parse(readFileSync(option('company-cohort')))})}:{}),design,policy,databaseName,directory,appOrigin:`http://127.0.0.1:${appPort}`,workerPort,readerPort,node:process.version,capabilities:['D','E'].includes(design)?['company','abn','headcount_band','revenue_band']:['company','abn','size','revenue','people','email'],providerHash:benchmarkHash({...(['D','E','F'].includes(design)?{companyProvider:'Firmable session service'}:{}),readerImage:baseManifest.readerImage,concurrency:5,reader:'Crawl4AI',search:policy==='production'?'DuckDuckGo HTML page 1':'OpenSERP',ai:'current fixed free routes then Mercury',cache:baseManifest.cachePolicy}),startedAt:new Date().toISOString(),startingResearchJobs:0};save(resolve(directory,'manifest.json'),manifest);
  const runtime=resolve(directory,'worker-runtime');mkdirSync(runtime);
  const children=[],container=`acquire-design-${id}`;let submitted=false,interrupted=false;
  const interrupt=()=>{interrupted=true;};process.on('SIGINT',interrupt);process.on('SIGTERM',interrupt);
- function start(label,cmd,argv,env){const log=createWriteStream(resolve(directory,`${label}.log`),{mode:0o600});const p=spawn(cmd,argv,{cwd:source,env,detached:true,stdio:['ignore','pipe','pipe']});p.stdout.pipe(log);p.stderr.pipe(log);children.push(p);return p;}
- async function ready(url,accept){for(let end=Date.now()+120000;Date.now()<end;){if(children.some(p=>p.exitCode!==null))throw Error('Benchmark process exited; inspect logs');try{if(accept(await fetch(url,{signal:AbortSignal.timeout(2000)})))return;}catch{}await pause(300);}throw Error('Service readiness timeout');}
+ function start(label,cmd,argv,env){const log=createWriteStream(resolve(directory,`${label}.log`),{mode:0o600});const p=spawn(cmd,argv,{cwd:source,env,detached:true,stdio:['ignore','pipe','pipe']});p.benchmarkLabel=label;p.stdout.pipe(log);p.stderr.pipe(log);children.push(p);return p;}
+ function checkServices(){const stopped=children.find(p=>p.exitCode!==null||p.signalCode!==null);if(stopped)throw Error(`Benchmark ${stopped.benchmarkLabel} exited (${stopped.signalCode||stopped.exitCode}); sample excluded`);}
+ async function ready(url,accept){for(let end=Date.now()+120000;Date.now()<end;){checkServices();try{if(accept(await fetch(url,{signal:AbortSignal.timeout(2000)})))return;}catch{}await pause(300);}throw Error('Service readiness timeout');}
  try{
  execFileSync('docker',['--context','orbstack','run','-d','--rm','--name',container,'--shm-size','1g','-p',`127.0.0.1:${readerPort}:8080`,'-e','CRAWL4AI_CONCURRENCY=5',baseManifest.readerImage],{stdio:'pipe'});await ready(config.worker.LOCAL_CRAWL4AI_URL+'/health',r=>r.ok);
  const wc=localWorkerConfig(JSON.parse(readFileSync(resolve(source,'cloudflare/research/wrangler.jsonc'))),config.origin,resolve(source,'cloudflare/research/index.ts'),policy);wc.tsconfig=resolve(source,'tsconfig.json');wc.vars={...wc.vars,RESEARCH_PIPELINE_DESIGN:config.worker.RESEARCH_PIPELINE_DESIGN,LOCAL_RESEARCH_BENCHMARK:'true'};writeFileSync(resolve(runtime,'.dev.vars'),Object.entries(config.worker).filter(([k])=>!Object.hasOwn(wc.vars,k)).map(([k,v])=>`${k}=${JSON.stringify(v)}`).join('\n'),{mode:0o600});
@@ -94,15 +104,21 @@ async function run(){
  const mandateId=randomUUID(),runId=randomUUID(),m=testCase.mandate;await db.query('INSERT INTO mandates(id,organization_id,natural_language,filters,confirmation,provenance,created_by) VALUES($1,$2,$3,$4,$5,$6,$7)',[mandateId,org,m.natural_language,JSON.stringify(m.filters),m.confirmation,JSON.stringify(m.provenance),userId]);
  manifest.mandateId=mandateId;manifest.runId=runId;save(resolve(directory,'manifest.json'),manifest);
  await api(`/api/mandates/${mandateId}/research`,{...testCase.input,requestId:runId},cookie);submitted=true;console.log(JSON.stringify({event:'benchmark_started',design,directory,url:`${manifest.appOrigin}/mandates/${mandateId}?tab=targets`,runId}));
- const end=Date.now()+80*60000;let finishedSamples=0;
+ const sampleStartedAt=Date.now();const end=sampleStartedAt+(baseManifest.workload?baseManifest.workload.minutes+10:80)*60000;let finishedSamples=0;let finalTargets=[],finalContacts=[],finalPeopleRuns=[];
  for(;Date.now()<end;){
  if(interrupted)throw Error('Benchmark interrupted; sample excluded');
- if(children.some(p=>p.exitCode!==null))throw Error('Benchmark service exited; sample excluded');
+ checkServices();
  if(/Reloading local server|Local server updated/.test(readFileSync(resolve(directory,'worker.log'),'utf8')))throw Error('Worker reloaded during measurement; sample excluded');
- const jobs=(await db.query("SELECT id,status,created_at,updated_at,pages,model_calls,message,config - 'runtime' - 'pipelineTiming' - 'discoveryAttempts' - 'websitePages' - 'inheritedFindings' AS config FROM research_jobs WHERE organization_id=$1 AND (id=$2 OR config->>'researchRunId'=$2::text) ORDER BY created_at",[org,runId])).rows;
+ const poll=await fetch(manifest.appOrigin+`/api/mandates/${mandateId}/research`,{headers:{cookie},signal:AbortSignal.timeout(60000)});if(!poll.ok)throw Error(`Research recovery poll failed (${poll.status})`);await poll.arrayBuffer();
+ const jobs=(await db.query("SELECT id,status,created_at,updated_at,pages,model_calls,message,config - 'runtime' - 'pipelineTiming' - 'discoveryAttempts' - 'websitePages' - 'inheritedFindings' AS config FROM research_jobs WHERE organization_id=$1 ORDER BY created_at",[org])).rows;
+ finalPeopleRuns=(await db.query('SELECT id,status,profiles_found,profiles_saved,profiles_failed,created_at,updated_at,error FROM firmable_sync_runs WHERE organization_id=$1',[org])).rows;
+ finalTargets=(await db.query('SELECT t.id,t.company_name,t.domain,t.identifiers,t.firmographics,t.qualification,t.created_at FROM targets t WHERE t.organization_id=$1 AND EXISTS (SELECT 1 FROM mandate_targets mt WHERE mt.organization_id=$1 AND mt.mandate_id=$2 AND mt.target_id=t.id) ORDER BY t.created_at',[org,mandateId])).rows;
+ finalContacts=(await db.query('SELECT id,target_id,display_name,role,personal_data,fictionalised,provenance FROM contacts WHERE organization_id=$1',[org])).rows;
  const findings=(await db.query('SELECT job_id,target_id,source_url,evidence FROM research_findings WHERE organization_id=$1',[org])).rows;
- const summary=designSnapshot({jobs,findings,fieldSatisfied});save(resolve(directory,'latest.json'),summary);writeFileSync(resolve(directory,'snapshots.jsonl'),JSON.stringify(summary)+'\n',{flag:'a',mode:0o600});console.log(JSON.stringify({event:'sample',design,seconds:Math.round(summary.elapsedMs/1000),jobs:summary.jobs,active:summary.active,fields:Object.keys(summary.groups)}));
- if(summary.finished){if(++finishedSamples>=2){const logs=['app.log','worker.log'].map(f=>readFileSync(resolve(directory,f),'utf8')).join('\n');summary.observations=observedDesignMetrics(logs,jobs.map(j=>j.id));save(resolve(directory,'final.json'),{manifest,summary});save(resolve(directory,'jobs.json'),jobs);save(resolve(directory,'findings.json'),findings);console.log(JSON.stringify({event:'benchmark_finished',design,directory}));break;}}else finishedSamples=0;await pause(15000);
+ const summary=designSnapshot({jobs,findings,peopleRuns:finalPeopleRuns,fieldSatisfied});summary.dataCompletion=persistedDataCompletion(finalTargets,finalContacts,baseManifest.workload?.companies||20);summary.wallElapsedMs=Date.now()-sampleStartedAt;
+ if(baseManifest.workload&&(summary.researchedCompanies>baseManifest.workload.companies||finalTargets.length>baseManifest.workload.companies))throw Error('Benchmark company limit exceeded; sample excluded');
+ if(baseManifest.workload&&summary.wallElapsedMs>=baseManifest.workload.minutes*60000&&!existsSync(resolve(directory,'deadline-snapshot.json')))save(resolve(directory,'deadline-snapshot.json'),summary);save(resolve(directory,'latest.json'),summary);writeFileSync(resolve(directory,'snapshots.jsonl'),JSON.stringify(summary)+'\n',{flag:'a',mode:0o600});console.log(JSON.stringify({event:'sample',design,seconds:Math.round(summary.elapsedMs/1000),jobs:summary.jobs,active:summary.active,fields:Object.keys(summary.groups)}));
+ if(summary.finished){if(++finishedSamples>=2){const logs=['app.log','worker.log'].map(f=>readFileSync(resolve(directory,f),'utf8')).join('\n');summary.observations=observedDesignMetrics(logs,jobs.map(j=>j.id));save(resolve(directory,'final.json'),{manifest,summary});save(resolve(directory,'jobs.json'),jobs);save(resolve(directory,'findings.json'),findings);save(resolve(directory,'targets.json'),finalTargets);save(resolve(directory,'contacts.json'),finalContacts);save(resolve(directory,'people-runs.json'),finalPeopleRuns);console.log(JSON.stringify({event:'benchmark_finished',design,directory}));break;}}else finishedSamples=0;await pause(15000);
  }
  if(!existsSync(resolve(directory,'final.json')))throw Error('Benchmark did not finish within 80 minutes');
  }catch(error){save(resolve(directory,'failure.json'),{at:new Date().toISOString(),message:error.message,submitted});throw error;}

@@ -4,7 +4,7 @@ export function localBenchmarkDatabase(name){
  if(!/^project_acquire_bench_[a-z0-9_]{1,48}$/.test(name))throw Error('Only disposable benchmark database names are allowed');
  return `postgresql://project_acquire:project_acquire@127.0.0.1:5434/${name}`;
 }
-export function designSnapshot({jobs,findings,fieldSatisfied,fields=['abn','size','revenue','people','email'],now=Date.now()}){
+export function designSnapshot({jobs,findings,peopleRuns=[],fieldSatisfied,fields=['abn','size','revenue','people','email'],now=Date.now()}){
  const root=jobs.find(j=>j.config.researchRunId===j.id&&!j.config.researchTask)||jobs[0];
  if(!root)throw Error('Benchmark root missing');
  const groups={},domains=new Map(),ids=new Set(jobs.map(j=>j.id));
@@ -12,18 +12,44 @@ export function designSnapshot({jobs,findings,fieldSatisfied,fields=['abn','size
  // Company corpus jobs acquire target links when their findings are saved.
  const jobDomains=new Map(jobs.filter(j=>j.config.companyDomain).map(j=>[j.id,j.config.companyDomain]));
  for(const f of findings){const domain=jobDomains.get(f.job_id);if(domain&&f.target_id&&ids.has(f.job_id))domains.get(domain)?.add(f.target_id);}
- const active=jobs.filter(j=>!terminal.has(j.status)).length;
+ const peopleActive=peopleRuns.filter(run=>['queued','running'].includes(run.status)).length;
+ const active=jobs.filter(j=>!terminal.has(j.status)).length+peopleActive;
  const settled=root.config.parallelResearchSettled===true;
  const deadlineReached=now>=root.config.automaticDeadline;
  const finished=active===0&&(settled||deadlineReached);
- const latest=Math.max(...jobs.map(j=>new Date(j.updated_at).getTime()));
+ const latest=Math.max(...jobs.map(j=>new Date(j.updated_at).getTime()),...peopleRuns.map(run=>new Date(run.updated_at).getTime()));
  const relevant=new Set(jobs.flatMap(j=>j.config.newBusinessIds||[]));
  const firmable=['firmable-v1','web-firmable-v1','hybrid-firmable-v1'].includes(root.config.pipelineDesign);
  const profiles=jobs.filter(j=>j.config.firmableProfile).map(j=>j.config.firmableProfile);
  const bandCoverage=firmable?Object.fromEntries([['headcountBand','headcountBand'],['revenueBand','revenueBand']].map(([name,key])=>{const found=profiles.filter(p=>p[key]).length;return[name,{found,total:domains.size,percent:domains.size?Math.round(found/domains.size*1000)/10:0}]})):undefined;
 
  const screening=firmable?{excluded:jobs.filter(j=>Object.values(j.config.screening||{}).includes('excluded')).length,review:jobs.filter(j=>j.config.screening&&!Object.values(j.config.screening).includes('excluded')).length}:undefined;
- return {screening,bandCoverage,capabilities:firmable?{people:'not_requested',email:'not_requested',headcountExact:profiles.filter(p=>p.headcountExact!==null).length}:undefined,observedAt:new Date(now).toISOString(),rootId:root.id,status:root.status,settled,deadlineReached,finished,completion:finished?(settled?'settled':'deadline'):null,elapsedMs:(finished?latest:now)-new Date(root.created_at),jobs:jobs.length,active,researchedCompanies:domains.size,qualifiedCompanies:relevant.size,pages:jobs.reduce((n,j)=>n+j.pages,0),modelCalls:jobs.reduce((n,j)=>n+j.model_calls,0),groups,coverage:Object.fromEntries(fields.map(field=>{const found=[...domains.entries()].filter(([domain,targets])=>fieldSatisfied(field,findings.filter(f=>ids.has(f.job_id)&&(jobDomains.get(f.job_id)===domain||targets.has(f.target_id))).map(f=>f.evidence))).length;return[field,{found,total:domains.size,percent:domains.size?Math.round(found/domains.size*1000)/10:0}];}))};
+ const peopleSync={runs:peopleRuns.length,active:peopleActive,saved:peopleRuns.reduce((n,r)=>n+r.profiles_saved,0),failed:peopleRuns.filter(r=>['failed','partial'].includes(r.status)).length};
+ return {screening,bandCoverage,peopleSync,capabilities:firmable?{people:root.config.includeCompanyPeople?'requested':'not_requested',email:root.config.includeCompanyPeople?'requested':'not_requested',headcountExact:profiles.filter(p=>p.headcountExact!=null).length}:undefined,observedAt:new Date(now).toISOString(),rootId:root.id,status:root.status,settled,deadlineReached,finished,completion:finished?(settled?'settled':'deadline'):null,elapsedMs:(finished?latest:now)-new Date(root.created_at),jobs:jobs.length,active,researchedCompanies:domains.size,qualifiedCompanies:relevant.size,pages:jobs.reduce((n,j)=>n+j.pages,0),modelCalls:jobs.reduce((n,j)=>n+j.model_calls,0),groups,coverage:Object.fromEntries(fields.map(field=>{const found=[...domains.entries()].filter(([domain,targets])=>fieldSatisfied(field,findings.filter(f=>ids.has(f.job_id)&&(jobDomains.get(f.job_id)===domain||targets.has(f.target_id))).map(f=>f.evidence))).length;return[field,{found,total:domains.size,percent:domains.size?Math.round(found/domains.size*1000)/10:0}];}))};
+}
+
+/** Count persisted data separately from evidence validators and mandate fit. */
+export function persistedDataCompletion(targets, contacts, requested=20) {
+ const known=v=>v!=null&&v!==''&&(!Array.isArray(v)||v.length>0)&&!(typeof v==='string'&&/^(unknown|n\/a)$/i.test(v));
+ const value=v=>v&&typeof v==='object'&&'value' in v?v.value:v;
+ const people=contacts.filter(c=>!c.fictionalised&&known(c.display_name));
+ const email=c=>known(value(c.personal_data?.email));
+ const counters={
+  name:t=>known(t.company_name),website:t=>known(t.domain),abn:t=>known(t.identifiers?.abn),
+  headcount:t=>known(value(t.firmographics?.headcount))||known(value(t.firmographics?.headcountBand)),
+  revenue:t=>known(value(t.firmographics?.revenue)),
+  location:t=>known(t.firmographics?.state)||known(t.firmographics?.suburb),
+  founded:t=>known(value(t.firmographics?.establishedYear)),
+  description:t=>known(t.firmographics?.firmable?.description)||known(t.firmographics?.firmable?.rawResponse?.description)||known(t.firmographics?.websiteProfile?.description)||known(t.firmographics?.backgroundResearch?.fields?.description?.observations),
+  accreditations:t=>known(t.firmographics?.accreditations)||known(t.firmographics?.backgroundResearch?.fields?.accreditations?.observations),
+  people:t=>people.some(c=>c.target_id===t.id),personEmail:t=>people.some(c=>c.target_id===t.id&&email(c)),
+ };
+ const fields=Object.fromEntries(Object.entries(counters).map(([key,test])=>{const found=targets.filter(test).length;return[key,{found,total:targets.length,requested,percentOfSaved:targets.length?Math.round(found/targets.length*1000)/10:0,percentOfRequested:Math.round(found/requested*1000)/10}];}));
+ const headcountExact=targets.filter(t=>known(value(t.firmographics?.headcount))).length;
+ const headcountBand=targets.filter(t=>known(value(t.firmographics?.headcountBand))).length;
+ const revenueBands=targets.filter(t=>value(t.firmographics?.revenue)?.kind==='band').length;
+ const reportedRevenue=targets.filter(t=>known(value(t.firmographics?.revenue))&&t.firmographics?.revenue?.researchState==='observed').length;
+ return{savedCompanies:targets.length,requested,fields,headcountExact,headcountBand,revenueBands,reportedRevenue,contacts:people.length,contactsWithEmail:people.filter(email).length};
 }
 export function compareDesigns(a,b){
  const reasons=[];

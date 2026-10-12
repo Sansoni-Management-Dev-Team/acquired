@@ -30,6 +30,7 @@
     "test:research:canary": "node scripts/research-production-canary.mjs --production",
     "research:db:diagnostics": "node scripts/capture-research-db-diagnostics.mjs",
     "benchmark:research": "node scripts/research-design-suite.mjs",
+    "benchmark:matrix": "node scripts/research-design-matrix.mjs",
     "benchmark:free-models": "node scripts/research-design-suite.mjs probe",
     "dev:d": "node scripts/dev.mjs --design D",
     "linkedin:local": "node scripts/linkedin-local.mjs",

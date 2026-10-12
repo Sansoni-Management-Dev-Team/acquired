@@ -15,5 +15,13 @@ coverage/
 /.playwright-cli/
 /output/playwright/
 
+# Local generated artifacts; durable research evidence lives in docs/research-correctness/.
+/output/branding/
+/output/dead-code-audit/
+/output/linkedin-publishing/
+/output/mandate-b8e35133/
+/output/progress-verification/
+/output/research-correctness/
+
 # Python reader/benchmark bytecode
 __pycache__/
