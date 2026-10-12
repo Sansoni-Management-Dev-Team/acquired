@@ -23,6 +23,10 @@ Messaging endpoints accept `message` and `invitation` operation snapshots only; 
 
 This service has **no persistent operation journal**. The injected adapter remains the authoritative journal/session/quota boundary. It must enforce concurrency, durable idempotency, account access, and readiness; server checks do not establish distributed safety. The synthetic entry uses memory-only fixtures, advertises `durableIdempotency: false`, and never contacts a provider. It is not a production service.
 
+`createReplyWebhookServer` is a separate listener with dedicated `POST /v1/webhook`. Inject a `ReplyIngress` from the required capture coordinator. It authenticates raw headers before reading bounded JSON bytes and awaits an authoritative accepted/duplicate capture result before HTTP 200. Default body/capture timeouts are 5/20 seconds; their configured sum must stay below 30 seconds. Timeout returns 503 without claiming storage failed: a late commit may still occur and must deduplicate a provider retry. No webhook is registered or installed in Acquire routes by constructing this module.
+
+The reply processor requires atomic normalized-event/hold/outbox/terminal-receipt storage, exact generation/grant/lease fencing and authoritative person matching. Review outcomes must block affected coverage, and arrival/acknowledgement never certifies complete fresh history. Those required ports are not a PostgreSQL implementation. [Reply TDD and integration gates](../../../docs/communications/reply-detection-tdd.md) record the current scope.
+
 Compile without application dependencies:
 
 ```sh

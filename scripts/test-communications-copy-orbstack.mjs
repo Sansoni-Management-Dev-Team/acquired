@@ -58,7 +58,7 @@ for(const args of [['install','--ignore-scripts','--no-audit','--no-fund'],['run
   }
 }
 const api=require('/verify/dist/src/index.js');
-for(const name of ['UnipileV1Transport','createUnipileV1MessagingAdapter','createDispatchCoordinator','JournalCodec','CommunicationsClient','createCommunicationsServer']) assert.equal(typeof api[name],'function');
+for(const name of ['UnipileV1Transport','createUnipileV1MessagingAdapter','createDispatchCoordinator','JournalCodec','CommunicationsClient','createCommunicationsServer','normalizeV1ReplyEvent','createReplyWebhookIngress','createReplyProcessor','createReplyWebhookServer']) assert.equal(typeof api[name],'function');
 assert.equal(process.env.UNIPILE_API_KEY,undefined);
 assert.equal(process.env.DATABASE_URL,undefined);
 process.stdout.write('Independent package build/tests/exports passed without Acquire modules or provider credentials.\n');

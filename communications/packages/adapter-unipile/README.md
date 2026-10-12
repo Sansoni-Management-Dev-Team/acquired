@@ -12,6 +12,7 @@ The user's DSN/key authenticated successfully for v1 (HTTP 200 with no connected
 - Account/source health and message/invitation receipt normalization. Null, mismatched or malformed references remain unknown.
 - A social messaging adapter for WhatsApp and LinkedIn, with required trusted direct-chat recipient mapping and optional verified invitation profile mapping. Original conversation/account/generation and payload digests are checked before submission. Historical lookup is read-only.
 - Static configured-header webhook authentication using `request.rawHeaders`, rejecting duplicate occurrences. This is separate from v2's HMAC verifier.
+- All-channel incoming event normalization: verified direct-chat participants and canonical aliases for WhatsApp/LinkedIn, authenticated full-message/header enrichment for email, exact scoped generation/account/product and timestamp bounds. Outgoing/group/nonreply/system activity is excluded; contradictions and uncertain identities/folders require review. This pure function does not provide history or freshness coverage.
 
 The social adapter requires an authoritative dispatch coordinator at composition. It supplies no journal, leases, quotas or authorization repository, and advertises no durable idempotency or event coverage. The coordinator's required storage port is not itself a durable implementation. Trusted mappings cannot be inferred from a caller's recipient or an unverified provider response.
 

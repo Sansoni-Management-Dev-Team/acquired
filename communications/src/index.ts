@@ -7,3 +7,5 @@ export * from "../packages/sdk/src/index";
 export { createCommunicationsServer, type CommunicationsServerDependencies } from "../services/api/src/server";
 export * from "../packages/core/src/dispatch";
 export * from "../packages/core/src/journal-codec";
+export * from "../packages/core/src/reply-ingress";
+export { createReplyWebhookServer, type ReplyWebhookServerDependencies } from "../services/api/src/reply-webhook-server";
