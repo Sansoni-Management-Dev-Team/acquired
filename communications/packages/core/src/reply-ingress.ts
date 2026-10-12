@@ -18,7 +18,8 @@ export type WebhookClaim = {kind:"claimed";record:ClaimedWebhook} | {kind:"compl
 export interface ReplyProcessorPort {
  /** Exact binding/key only; enforce current grants, generation and renewable worker lease fencing. */
  claim(input:{binding:ConnectionBinding;key:string}):Promise<WebhookClaim>;
- /** MUST atomically persist event/dedupe, person-wide hold (all channel/backends), terminal receipt.
+ /** Application-side/colocated policy port, NOT a separate service DB repository.
+  * MUST atomically persist event/dedupe, person-wide hold (all channel/backends), terminal receipt.
   * Recheck grant/generation/token, approved matches and enrollment cutoffs within that transaction.
   * A stale worker or changed identity must not commit a stop. Never clear existing holds.
   * A review decision must also block affected reply coverage; terminal receipt is not readiness. */
@@ -91,8 +92,9 @@ export function createReplyWebhookIngress(options:ReplyIngressOptions):ReplyIngr
   }};
 }
 
-/** No storage implementation or campaign policy is embedded here. The required atomic finish
- * transaction makes normalized event dedupe + person-wide hold + receipt completion indivisible. */
+/** Application-side policy coordination. Its atomic finish requires colocated application
+ * storage. A separate service database uses createWebhookEventProcessor instead, followed
+ * by an application receipt/hold transaction and a service outbox acknowledgement. */
 export function createReplyProcessor(options:ReplyProcessorOptions):{process(key:string):Promise<ReplyProcessResult>} {
   assertSameBinding(options.binding,options.binding);
   if(!fields(options.binding as unknown as Record<string,unknown>,bindingFields))throw new Error('Invalid reply configuration');

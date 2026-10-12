@@ -8,4 +8,7 @@ export { createCommunicationsServer, type CommunicationsServerDependencies } fro
 export * from "../packages/core/src/dispatch";
 export * from "../packages/core/src/journal-codec";
 export * from "../packages/core/src/reply-ingress";
+export * from "../packages/core/src/webhook-events";
+export * from "../packages/core/src/webhook-codec";
+export * from "../packages/storage-postgres/src/webhook-repository";
 export { createReplyWebhookServer, type ReplyWebhookServerDependencies } from "../services/api/src/reply-webhook-server";

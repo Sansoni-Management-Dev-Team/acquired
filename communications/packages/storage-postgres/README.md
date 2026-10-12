@@ -1,0 +1,9 @@
+# PostgreSQL webhook storage
+
+`createPostgresWebhookRepository` prepares concrete encrypted capture and expiring receipt claims for the service schema. It imports no database driver, Acquire module or framework. Supply a `SqlPool` wrapper and `WebhookCodec`; the driver must destroy a checked-out connection when `release(error)` receives an error.
+
+Capture validates the exact binding and scoped raw-byte receipt key, enters the restricted control role, locks the current connection/generation/grant, inserts encrypted bytes, compares existing receipts under their original retained key version, and returns only after commit. Claim checks that same authority and uses a database-clock lease with a fresh random token. Transaction errors are sanitized; uncertain commits and poisoned sessions are discarded.
+
+This module has no migration/startup path, provider calls or memory fallback. It does not implement terminal normalization, outbox delivery, campaign holds, historical generation reconciliation or send admission. Do not activate it as a complete reply pipeline. `subscriberId` is a validated configuration reference reserved for future outbox composition; capture/claim does not deliver to that subscriber.
+
+Scripted-driver tests verify the query and failure protocol, including real codec rotation, but cannot prove PostgreSQL concurrency or persistence. The explicit opt-in real database tests live in Acquire's `src/db/communications-webhook-local.integration.test.ts`, outside the independent package so `pg` remains an application-supplied runtime dependency. They require the specifically approved schema and exact isolated database identity. They never create schema or grant permissions. Committed synthetic immutable history stays in the fixture database, with accounts and grants retired afterward.
