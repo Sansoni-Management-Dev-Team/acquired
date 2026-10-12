@@ -2,11 +2,11 @@
 
 Plan: [39-communications-service-execution-plan.md](../39-communications-service-execution-plan.md).
 
-Last updated: 2026-10-12.
+Last updated: 2026-10-13.
 
 ## Current position
 
-- Current scope: implement the communications plan with TDD and local OrbStack verification; establish parity with remote app/services/database first.
+- Current scope: implement the communications plan with TDD and local OrbStack verification; establish parity with remote app/services/database first. All Unipile source work is consolidated in the separate feature worktree; the duplicate original-main foundation has been archived and removed as requested.
 - Implementation authorization: user requested beginning the plan, authorized subagents, and required OrbStack testing with an up-to-date remote baseline. The user later explicitly approved the three exact local parity artifacts; those approvals do not extend to new communications storage, production migration or release.
 - Current task: durable service capture/claim/terminal event/outbox and single-use auth-state repositories on `codex/unipile-reply-detection`, with actual PostgreSQL TDD against approved 001/002. Acquire receipt/holds/stops consumption, recorded identity and delivery bridges are prepared; its real DB tests require separately approved 003. Independent review and fresh final verification passed, with precise results below.
 - Implementation status: reusable contracts/wrappers/SDK, v1 transport/social adapter, dispatch/encryption, reply normalization/enrichment, HTTP ingress and durable capture/event/outbox/setup repositories are implemented in scoped slices. Service persistence now has actual isolated PostgreSQL evidence. Acquire policy composition remains prepared, with real tests pending 003. Provider ownership/alias authority, complete history/coverage, tenant send fencing, lifecycle composition, email send/drafts, UI/routing and complete legacy runtime extraction remain unfinished. Existing defaults and DigitalOcean services remain available.
@@ -227,6 +227,13 @@ For each release/live operation record the requested scope, revision, environmen
 - Single-use setup authorization final: 22 actual PostgreSQL and 48 unit/native checks pass. Independent REDs fixed persistent GUC session contamination, simultaneous reconnect locking, stalled/synchronous-overrun deadlines, competing rollback and unobserved callback SQL. Monotonic guards and exact returned-promise observation prevent late work; binder sessions are retired, and successful callbacks drain their SQL. Both native strict-rejection and main independent compiled proofs pass. The SQL callback is trusted, not a sandbox; driver `release(error)` must terminate the physical session.
 - Final frozen-tree checks: 3,357 full-suite passes/179 opt-in skips (347 files passed/30 skipped), eight deployment/smoke checks, 90 actual isolated PostgreSQL cases (74 new service/setup/identity plus 16 existing reply-policy), root typecheck, scoped lint and package build passed. Fresh dependency-installed OrbStack copy: 1,033 tests/39 files plus aggregate exports/build passed without Acquire/Next/pg/credentials or DB. Native all-channel and both callback deadline/rejection proofs passed. All native/package source hashes and fixture-script hashes match final production source; private `durable-replies-final-summary.json` records results. No failing edit remains.
 - Only the two specifically approved new schemas were applied; 003 remains unapproved/unapplied. No real provider write, routing/UI activation, credential backfill, push, publication or production operation occurred. [Durable evidence](durable-replies-tdd.md) records commands and limits.
+
+### 2026-10-13 — Original checkout cleanup
+
+- User requested consolidating the Unipile changes into the existing separate worktree. Fresh comparison verified all 84 original foundation files exactly matched saved commit `d8d0654`, which is an ancestor of feature implementation `c4c130e`.
+- Restored only the five owned tracked edits on original `main` to its HEAD. Moved the 79 owned untracked foundation files and their generated directory artifacts into a private ignored recoverable backup at `.local-data/communications/cleanup-backups/20261012T212643Z/` in the original checkout. Original source is now free of duplicate Unipile changes; all current code and documentation remain in this feature worktree.
+- Verified the original checkout now lists only `output/aws-infrastructure-review/` and the three work-time files. Their hashes, ignored root credentials and private Unipile intake credentials are unchanged. Feature source/dependencies and implementation commit remain unchanged; no application test rerun was needed for duplicate-file cleanup.
+- No database, container, provider, deployment or migration action occurred. 003 remains separately unapproved/unapplied. The prior 84-file-original-match checks are historical evidence before this intentional cleanup; do not expect those Unipile source files to remain on `main`.
 
 ## Exact next action
 
