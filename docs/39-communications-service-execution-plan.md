@@ -1,6 +1,6 @@
 # Communications service and Unipile execution plan
 
-Created: 2026-10-12. Status: implementation underway; contract/adapter/SDK, v1 social and dispatch/encryption foundations verified locally. V1 credentials/endpoint are verified and the three approved local database parity changes are applied. New storage schema approval, persistent integration, live channel capabilities and full runtime extraction remain outstanding. See the progress record for actual scope.
+Created: 2026-10-12. Status: implementation underway; contract/adapter/SDK, v1 social and dispatch/encryption foundations verified locally. V1 credentials/endpoint are verified and the three approved local database parity changes are applied. The specifically approved local storage/binding schemas 001/002 are applied and durable service repositories have real PostgreSQL tests. Separate 003 approval, app policy/fencing integration, live channel capabilities, UI and full runtime extraction remain outstanding. See the progress record for actual scope.
 
 This is the implementation checklist for adding Unipile as an optional connection backend for email, WhatsApp, and LinkedIn, while preserving the working backends and extracting a reusable communications service. Current progress, decisions, approvals, and handoffs live in [progress.md](communications/progress.md). This document defines the work; that document records what actually happened.
 

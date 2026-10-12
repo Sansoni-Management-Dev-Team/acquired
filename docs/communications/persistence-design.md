@@ -1,5 +1,8 @@
 # Communications persistence and binding design
 
+**Current execution update:** The exact reviewed local schemas 001/002 below were subsequently specifically approved and applied to isolated OrbStack, with backup/target/hash/RLS verification and actual service PostgreSQL tests. The review-time wording below records the earlier state. See [durable replies evidence](durable-replies-tdd.md) and [progress](progress.md). Separate 003 is unapproved/unapplied; no production/backfill activation is implied.
+
+
 Prepared 12 October 2026 for P2.1–P2.3, based on the version 1 contracts in `communications/packages/contracts/src/index.ts` and the existing Acquire schema. This is a provisional design and reviewable DDL, **not applied or integration verified**. No migration, backfill, schema push, transaction-rollback DDL execution, credential movement, default change or production operation was performed. The SQL is outside the Drizzle journal and no startup script invokes it.
 
 ## Boundary

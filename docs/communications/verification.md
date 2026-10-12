@@ -1,8 +1,24 @@
 # Communications foundation verification
 
+**Current continuation:** Approved local 001/002 are now applied, with actual PostgreSQL capture/terminal/outbox/setup tests. Prepared 003 remains unapproved/unapplied; real Acquire consumer tests remain pending. The older rows below record earlier scopes. Fresh continuation checks and actual limitations are in [durable replies TDD](durable-replies-tdd.md), [reply-consumption design](reply-consumption-design.md) and [progress](progress.md).
+
+
 Foundation verified locally on 12 October 2026 against base `fa544da5578375efd57af4ba680a403a1568769e`. The separate reply branch starts from current remote main `f66781e`, retains foundation snapshot `d8d0654` and adds the reply source changes. [Progress](progress.md) records outstanding work. Historical foundation/parity/channel logs remain in the original checkout's ignored `.local-data/communications/verification/`; new reply results are in that directory under the new worktree. Committed documents contain only sanitized summaries and reproducible commands.
 
-## Actual verification
+## Current durable continuation verification
+
+- Full application suite: **3,357 passed/179 opt-in skips**, 347 files passed/30 skipped; eight deployment/smoke checks passed. Logs: `durable-replies-final-full-tests.log`, `durable-replies-final-node-tests.log`. Skips are not passes.
+- Actual isolated OrbStack PostgreSQL: **90 passed** across seven files, including 74 new capture/event/outbox/setup/recorded-identity cases and 16 existing reply-policy cases. `durable-replies-final-postgres.log`; exact target/system-ID preflight, no automatic migration. The 14 new Acquire consumer cases remain unexecuted pending specific 003 approval.
+- Fresh standalone package copy: **1,033 passed/39 files**, independent install/build/aggregate exports, without Acquire/Next/pg, credentials or DB mounts. `durable-replies-final-independent-copy.log`, `independent-copy.json`. This verifies the reusable foundation, not complete extraction of legacy runtimes.
+- Native network-none OrbStack proof: actual typed EventCodec/outbox coordinator with provider-shaped GET enrichment for all channels, five event ciphertext round trips, 12 coordinator attempts, three crash replays and three corrupt fingerprint rejections. `durable-replies-final-native.log`, `reply-orbstack.json`; app commits/authority/storage remain memory fixtures and coverage is not advanced.
+- Root typecheck, package build and scoped source/script lint passed. Native compiled auth-session rejection and deadline-overrun proofs passed with no late ACK/commit, competing rollback or unhandled rejection. `durable-replies-final-root-types.log`, `durable-replies-final-lint.log`, `auth-session-native-final.log`, `outbox-worker-native-deadline-final.log`. No new Next production build claimed.
+- Frozen-tree source verification matched every recorded native/package production hash and fixture-script hash. `durable-replies-final-summary.json`; original 84 foundation files still match `d8d0654`, remote main remains `f66781e`.
+
+Only approved local 001/002 were applied after private backup/target/hash checks; 003 is unapproved/unapplied. App policy/fences, live ownership/coverage, runtime/UI wiring and complete extraction remain open. Existing DigitalOcean paths remain available. [Durable TDD](durable-replies-tdd.md) links actual RED/characterization evidence and limits.
+
+## Historical verification
+
+### Earlier foundation and storage preparation
 
 | Check | Command/evidence | Result and scope |
 | --- | --- | --- |
@@ -35,7 +51,7 @@ The standalone runner retains its owned memory-only fixture at `http://127.0.0.1
 - Parent implementation evidence: initial digest/legacy stubs failed 23 tests; initial Acquire composition stub failed its nine scenarios; mutation/provenance/unsupported-field defects each had recorded failing tests before fixes. Logs are `legacy-*-red.log`, `acquire-bridge-red.log`, `*-green.log`.
 - Fixture isolation: `scripts/communications-fixture-env.test.mjs` first demonstrated a child Next env loader reviving synthetic local-file credentials; explicit blanking then passed. Harnesses now discover matching names and prevent provider/service credentials being loaded into fixture children.
 
-Pure package tests and the memory fixture do not prove persistent lease fencing, quota reservations, webhook durability, complete real-provider history or production readiness. The two proposed communications/app-binding schema files have static parse/FK/peer review only; neither was executed, even inside a rollback transaction. The three separately approved parity artifacts were applied as recorded below. [Persistence design](persistence-design.md) and [review](persistence-review.md) list repository/concurrency proof still required.
+Pure package tests and the memory fixture do not prove persistent lease fencing, quota reservations, webhook durability, complete real-provider history or production readiness. At the earlier foundation verification, the two communications/app-binding schema files had static parse/FK/peer review only. They were subsequently specifically approved/applied locally as recorded in the current continuation. The three separately approved parity artifacts were applied as recorded below. [Persistence design](persistence-design.md) and [review](persistence-review.md) list repository/concurrency proof still required.
 
 ## V1 and storage-building-block TDD follow-up
 
@@ -47,7 +63,7 @@ The later [feature parity audit](unipile-feature-parity.md) is documentation/sou
 
 [Reply enrichment TDD](reply-enrichment-tdd.md) records 100 additional assertions, actual documented full-email variants, read-only scope guards and independent deadline/reference fixes. Required physical-owner/alias verification ports remain unimplemented repositories; exact GET evidence is not a fresh complete history certificate.
 
-[Webhook storage TDD](webhook-storage-tdd.md) records 134 additional assertions, encrypted receipts, the prepared injected-driver SQL repository and separate service/application transaction correction. App fingerprint/review/routing/barrier prerequisites are explicit. The two outstanding schema hashes remain unchanged and unapproved; no real capture/claim database tests ran.
+[Webhook storage TDD](webhook-storage-tdd.md) records 134 additional assertions, encrypted receipts, the prepared injected-driver SQL repository and separate service/application transaction correction. App fingerprint/review/routing/barrier prerequisites are explicit. That earlier review left the two schema hashes unchanged/unapproved and had no real capture/claim DB execution. The current continuation applied the specifically approved unchanged files and ran real tests; 003 remains pending.
 
 ## Parity and external prerequisites
 
@@ -55,6 +71,6 @@ The later [feature parity audit](unipile-feature-parity.md) is documentation/sou
 
 The user specifically approved the three local parity artifacts. Parent took both local backups and verified exact file hashes/loopback ports/containers/database/system IDs, then applied only shared `0018` plus shared/isolated RLS parity. The ordinary 0018 ledger hash/timestamp was recorded atomically. Post-checks show shared application catalogs and 17-entry ledger match production, and isolated application catalogs/campaign privileges match. Explicit remaining differences: PostgreSQL patch levels, Supabase provisioning helper, isolated owner role/grants and absent historical isolated ledger. Generic catalog-check commands still exit 1 for those differences; they are not called blanket passes. Evidence: `parity-approved-execution.json`, `parity-approved-summary.json`, post-parity logs and [baseline follow-up](parity-baseline.md).
 
-A separate schema-only approval question is pending for service SQL SHA256 `b2d673205ba759bb1126db90b719bf39d44d8f3977d1bbe2ab97aa48c00b308d` and app-binding SQL SHA256 `f25cba158289dde111e3aae6038be286b12f1dc4a64db9bf4c94f404259b14cf`, both targeting only isolated `127.0.0.1:5445/acquire_channels`. New target/hash/collision/backup preflight and independent static parsing completed, but neither new schema is approved/applied or runtime-verified. These are separate from the three executed parity approvals.
+The subsequent specific local approval and application covered service SQL SHA256 `b2d673205ba759bb1126db90b719bf39d44d8f3977d1bbe2ab97aa48c00b308d` and app-binding SQL SHA256 `f25cba158289dde111e3aae6038be286b12f1dc4a64db9bf4c94f404259b14cf`, both targeting only isolated `127.0.0.1:5445/acquire_channels`. Fresh target/hash/collision/backup checks preceded actual application; catalogs/RLS and real service repository behavior were verified. These were separate approvals from the three parity artifacts. Newly prepared 003 is still unapproved/unapplied, with exact scope/hash in the progress record.
 
 The supplied Unipile key yielded two read-only v2 `401 api/invalid_credentials` responses. The user-requested retest on 12 October used the exact `/v2/accounts/` path and rechecked the supplied Getting Started guide; the dashboard-specific v1 DSN was unavailable at that point. Sanitized retest evidence is in `.local-data/communications/verification/unipile-key-retest.json`. The user subsequently supplied a DSN and the existing key returned HTTP 200 on its `/api/v1/accounts?limit=1` endpoint, with an empty `AccountList`. Sanitized evidence is in `.local-data/communications/verification/unipile-dsn-validation.json`; the verified v1 DSN/base/version is saved in ignored environment files. The bounded v1 transport/social adapter is fixture-verified; live channel capability validation and persistent lifecycle/event/email integration remain outstanding. No auth link, webhook registration or real send occurred. Application connection selection and live adapter activation remain on the existing paths until persistent integration and validated configuration are ready.

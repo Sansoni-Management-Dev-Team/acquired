@@ -1,6 +1,8 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { assertSameBinding, type ConnectionBinding } from '../../contracts/src';
-import type { WebhookCapture, WebhookCapturePort, WebhookClaim } from '../../core/src/reply-ingress';
+import type { WebhookCapture, WebhookCapturePort } from '../../core/src/reply-ingress';
+import type { EventEnvelope, EventPayload, EventScope } from '../../core/src/event-codec';
+import type { NormalizedWebhookPort, NormalizedWebhookOutcome } from '../../core/src/webhook-events';
 
 /** Minimal injected driver protocol, compatible with a PostgreSQL pool without importing its runtime. */
 export interface SqlResult<Row = Record<string, unknown>> { rows: Row[]; rowCount?: number | null }
@@ -14,14 +16,20 @@ export interface WebhookRepositoryCodec {
   decode(scope: { binding: ConnectionBinding; key: string }, envelope: unknown): WebhookCapture;
   digest(scope: { binding: ConnectionBinding; key: string }, rawBody: Uint8Array, keyVersion?: string): string;
 }
+export interface WebhookEventRepositoryCodec {
+  encode(scope: EventScope, payload: EventPayload): EventEnvelope;
+  decode(scope: EventScope, envelope: unknown): EventPayload;
+}
 export interface PostgresWebhookRepositoryOptions {
   pool: SqlPool;
   binding: ConnectionBinding;
   integrationId: string;
   providerConfigurationReference: string;
-  /** Reserved for separate normalized-event/outbox composition. Capture/claim makes no subscriber delivery claim. */
+  /** Exact configured subscriber; publishing does not imply application receipt or person hold. */
   subscriberId: string;
   codec: WebhookRepositoryCodec;
+  /** Required for event/review completion; capture/claim-only compositions may omit it. */
+  eventCodec?: WebhookEventRepositoryCodec;
   leaseSeconds?: number;
   retentionSeconds?: number;
 }
@@ -70,26 +78,27 @@ const INBOX_COLUMNS = `id, backend, integration_id, dedupe_key, payload_digest, 
  (expires_at > clock_timestamp()) AS alive, (retry_at IS NULL OR retry_at <= clock_timestamp()) AS retry_due,
  (lease_until IS NULL OR lease_until <= clock_timestamp()) AS lease_expired`;
 
-/** Prepared capture and claim only. No migration/startup, finish, app hold, provider I/O or memory fallback. */
-export function createPostgresWebhookRepository(options: PostgresWebhookRepositoryOptions): WebhookCapturePort & {
-  claim(input: { binding: ConnectionBinding; key: string }): Promise<WebhookClaim>;
-} {
+/** Durable service receipt/event/outbox transactions. No migration/startup, application hold,
+ * provider I/O or memory fallback. Application policy consumes the scoped outbox separately. */
+export function createPostgresWebhookRepository(options: PostgresWebhookRepositoryOptions): WebhookCapturePort & NormalizedWebhookPort {
   let binding: ConnectionBinding;
   try {
     exactBinding(options.binding, options.binding);
     binding = structuredClone(options.binding);
   } catch { throw new Error('Invalid webhook repository configuration'); }
-  const integrationId = options.integrationId, configurationReference = options.providerConfigurationReference;
+  const integrationId = options.integrationId, configurationReference = options.providerConfigurationReference, subscriberId = options.subscriberId;
   const leaseSeconds = options.leaseSeconds ?? 60, retentionSeconds = options.retentionSeconds ?? 2_592_000;
   if (binding.backend !== 'unipile' || !id(integrationId) || !id(configurationReference, 2000) || !id(options.subscriberId) ||
       !Number.isSafeInteger(leaseSeconds) || leaseSeconds < 1 || leaseSeconds > 3600 ||
       !Number.isSafeInteger(retentionSeconds) || retentionSeconds < 1 || retentionSeconds > 31_536_000 ||
       typeof options.pool?.connect !== 'function' || typeof options.codec?.encode !== 'function' ||
-      typeof options.codec?.decode !== 'function' || typeof options.codec?.digest !== 'function') {
+      typeof options.codec?.decode !== 'function' || typeof options.codec?.digest !== 'function' ||
+      options.eventCodec !== undefined && (typeof options.eventCodec.encode !== 'function' || typeof options.eventCodec.decode !== 'function')) {
     throw new Error('Invalid webhook repository configuration');
   }
   const connect = options.pool.connect.bind(options.pool);
   const encode = options.codec.encode.bind(options.codec), decode = options.codec.decode.bind(options.codec), digest = options.codec.digest.bind(options.codec);
+  const encodeEvent = options.eventCodec?.encode.bind(options.eventCodec), decodeEvent = options.eventCodec?.decode.bind(options.eventCodec);
   const scopeValues = [binding.applicationId,binding.tenantId,binding.ownerId,binding.connectionId,binding.accountId,
     binding.generation,binding.channel,binding.platform,binding.backend,integrationId,configurationReference];
   async function currentScope(client: SqlClient): Promise<boolean> {
@@ -115,6 +124,89 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
     const actualDigest = digest({ binding: structuredClone(binding), key }, Uint8Array.from(record.rawBody), row.key_version);
     if (!hex(actualDigest) || !timingSafeEqual(Buffer.from(actualDigest, 'hex'), Buffer.from(row.payload_digest, 'hex'))) fail();
     return record;
+  }
+  const hash = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
+  const eventScope = [binding.applicationId,binding.tenantId,binding.ownerId,binding.connectionId,binding.accountId,binding.generation,binding.channel,binding.platform,binding.backend];
+  function semanticEvent(outcome: Extract<NormalizedWebhookOutcome, { kind: 'event' }>) {
+    const event = outcome.event;
+    if (!event || event.type !== 'message') fail();
+    exactBinding(binding, event.reference.binding);
+    if (event.conversation) exactBinding(binding, event.conversation.binding);
+    const eventKey = hash(['communications.reply.event.v1',eventScope,event.conversation?.id ?? null,event.reference.id]);
+    const fingerprint = hash(['communications.reply.content.v1',eventScope,event.reference.id,event.conversation?.id ?? null,event.direction,event.sender.kind,event.sender.value,new Date(event.occurredAt).toISOString()]);
+    if (outcome.eventKey !== eventKey || outcome.fingerprint !== fingerprint) fail();
+    return { eventKey, fingerprint };
+  }
+  function reviewFingerprint(key: string, code: string) { return hash(['communications.reply.review.v1',eventScope,key,code]); }
+  function sealedEvent(key: string, payload: EventPayload) {
+    if (!encodeEvent) fail();
+    const envelope = encodeEvent({ binding: structuredClone(binding), key }, structuredClone(payload));
+    if (!object(envelope) || ![Object.prototype,null].includes(Object.getPrototypeOf(envelope))) fail();
+    const fields = ['format','keyVersion','nonce','ciphertext','tag'];
+    const descriptors = Object.getOwnPropertyDescriptors(envelope);
+    if (Reflect.ownKeys(descriptors).length !== fields.length || fields.some(field => !Object.hasOwn(descriptors,field)) ||
+        Reflect.ownKeys(descriptors).some(field => typeof field !== 'string' || !fields.includes(field) || !('value' in descriptors[field]!) || !descriptors[field]!.enumerable) ||
+        envelope.format !== 'communications-event-v1' || !id(envelope.keyVersion,64) || !id(envelope.nonce,200) || !id(envelope.tag,200) ||
+        typeof envelope.ciphertext !== 'string' || !envelope.ciphertext.length) fail();
+    const encrypted = JSON.stringify(envelope);
+    if (encrypted.length > 2_200_000) fail();
+    return { encrypted, keyVersion: envelope.keyVersion };
+  }
+  function decodedEvent(key: string, namespace: string, row: Record<string,unknown>): EventPayload {
+    if (!decodeEvent || row.application_id !== binding.applicationId || row.tenant_id !== binding.tenantId || row.owner_id !== binding.ownerId ||
+        row.connection_id !== binding.connectionId || row.generation !== binding.generation || row.account_id !== binding.accountId ||
+        row.source_namespace !== namespace || row.source_event_key !== key || !id(row.key_version,64) ||
+        typeof row.encrypted_event !== 'string' || row.encrypted_event.length > 2_200_000) fail();
+    const envelope: unknown = JSON.parse(row.encrypted_event);
+    if (!object(envelope) || envelope.keyVersion !== row.key_version) fail();
+    const payload = structuredClone(decodeEvent({ binding: structuredClone(binding), key },envelope));
+    if (!payload || !hex(payload.fingerprint) || !validDate(payload.receivedAt)) fail();
+    if (namespace === 'reply_message/v1') {
+      if (payload.outcome.kind !== 'event') fail();
+      const semantic = semanticEvent(payload.outcome), event = payload.outcome.event;
+      if (event.type !== 'message' || semantic.fingerprint !== payload.fingerprint || row.event_type !== 'message' || row.direction !== event.direction ||
+          new Date(row.occurred_at as string).toISOString() !== new Date(event.occurredAt).toISOString()) fail();
+    } else if (payload.outcome.kind !== 'review' || payload.fingerprint !== reviewFingerprint(key,payload.outcome.code) ||
+        row.event_type !== 'account' || row.direction !== null ||
+        new Date(row.occurred_at as string).toISOString() !== new Date(payload.receivedAt).toISOString()) fail();
+    return payload;
+  }
+  function eventId(value: unknown): string {
+    const result = typeof value === 'bigint' || typeof value === 'number' || typeof value === 'string' ? String(value) : '';
+    if (!/^[1-9][0-9]{0,18}$/.test(result)) fail();
+    return result;
+  }
+  async function persistEvent(client: SqlClient, receiptKey: string, key: string, namespace: string, payload: EventPayload) {
+    const sealed = sealedEvent(key,payload), event = payload.outcome.kind === 'event' ? payload.outcome.event : undefined;
+    const eventType = event?.type === 'message' ? 'message' : 'account';
+    const direction = event?.type === 'message' ? event.direction : null;
+    const occurredAt = event?.type === 'message' ? event.occurredAt : payload.receivedAt;
+    const inserted = await client.query(`INSERT INTO communications.events
+ (application_id,tenant_id,owner_id,connection_id,generation,account_id,source_namespace,source_event_key,event_type,direction,occurred_at,encrypted_event,key_version,webhook_inbox_id)
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+ ON CONFLICT(connection_id,generation,source_namespace,source_event_key) DO NOTHING RETURNING id`,
+      [binding.applicationId,binding.tenantId,binding.ownerId,binding.connectionId,binding.generation,binding.accountId,namespace,key,eventType,direction,occurredAt,sealed.encrypted,sealed.keyVersion,receiptKey]);
+    if (inserted.rows.length === 1) return { id: eventId(inserted.rows[0].id), conflict: false };
+    if (inserted.rows.length !== 0) fail();
+    const existing = await client.query(`SELECT id,application_id,tenant_id,owner_id,connection_id,generation,account_id,
+ source_namespace,source_event_key,event_type,direction,occurred_at,encrypted_event,key_version
+ FROM communications.events WHERE connection_id=$1 AND generation=$2 AND source_namespace=$3 AND source_event_key=$4 FOR SHARE`,
+      [binding.connectionId,binding.generation,namespace,key]);
+    if (existing.rows.length !== 1) fail();
+    const original = decodedEvent(key,namespace,existing.rows[0]);
+    // A review key identifies one immutable webhook receipt, including its capture time.
+    // Message semantic duplicates can legitimately come from different delivery times.
+    if (namespace === 'reply_review/v1' && original.receivedAt !== payload.receivedAt) fail();
+    return { id: eventId(existing.rows[0].id), conflict: original.fingerprint !== payload.fingerprint };
+  }
+  async function queueEvent(client: SqlClient, id: string) {
+    await client.query(`INSERT INTO communications.event_outbox(event_id,subscriber_id,application_id,tenant_id,owner_id)
+ VALUES($1,$2,$3,$4,$5) ON CONFLICT(event_id,subscriber_id) DO NOTHING`,
+      [id,subscriberId,binding.applicationId,binding.tenantId,binding.ownerId]);
+    const existing = await client.query(`SELECT event_id,subscriber_id,application_id,tenant_id,owner_id
+ FROM communications.event_outbox WHERE event_id=$1 AND subscriber_id=$2 FOR SHARE`,[id,subscriberId]);
+    if (existing.rows.length !== 1 || eventId(existing.rows[0].event_id) !== id || existing.rows[0].subscriber_id !== subscriberId ||
+        existing.rows[0].application_id !== binding.applicationId || existing.rows[0].tenant_id !== binding.tenantId || existing.rows[0].owner_id !== binding.ownerId) fail();
   }
   async function transaction<T>(operation: (client: SqlClient) => Promise<T>): Promise<T> {
     let client: SqlClient | undefined, commitAttempted = false, discard: Error | undefined;
@@ -200,6 +292,65 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
         if (!await currentScope(client)) fail();
         await client.query('COMMIT');
         return { binding: structuredClone(binding), key: captured.key, status };
+      });
+    },
+    async finish(input) {
+      let record: typeof input.record, outcome: NormalizedWebhookOutcome;
+      try {
+        const copy = structuredClone(input); record = copy.record; outcome = copy.outcome;
+        validateCapture(binding,record);
+        if (!id(record.token) || !object(outcome)) fail();
+        if (outcome.kind === 'ignore') {
+          if (Object.keys(outcome).some(key => !['kind','reason'].includes(key)) || typeof outcome.reason !== 'string' || !/^[a-z][a-z0-9_]{0,79}$/.test(outcome.reason)) fail();
+        } else if (outcome.kind === 'review') {
+          if (Object.keys(outcome).some(key => !['kind','code'].includes(key)) || !['protocol','account_changed','identity_pending'].includes(outcome.code)) fail();
+          sealedEvent(record.key,{ outcome, fingerprint: reviewFingerprint(record.key,outcome.code), receivedAt: record.receivedAt });
+        } else if (outcome.kind === 'event') {
+          semanticEvent(outcome);
+          sealedEvent(outcome.eventKey,{ outcome, fingerprint: outcome.fingerprint, receivedAt: record.receivedAt });
+        } else return fail();
+      } catch { return fail(); }
+      const rejected = () => ({ binding: structuredClone(binding), key: record.key, committed: false });
+      return transaction(async client => {
+        if (!await currentScope(client)) { await client.query('ROLLBACK'); return rejected(); }
+        const selected = await client.query(`SELECT ${INBOX_COLUMNS},
+ (state='processing' AND lease_token=$5 AND lease_until>clock_timestamp()) AS claim_valid
+ FROM communications.webhook_inbox WHERE id=$1 AND backend=$2 AND integration_id=$3 AND dedupe_key=$4 FOR UPDATE`,
+          [record.key,binding.backend,integrationId,record.key,record.token]);
+        if (selected.rows.length !== 1 || selected.rows[0].alive !== true || selected.rows[0].claim_valid !== true) {
+          await client.query('ROLLBACK'); return rejected();
+        }
+        const original = openRow(record.key,selected.rows[0]);
+        if (original.receivedAt !== record.receivedAt || !Buffer.from(original.rawBody).equals(Buffer.from(record.rawBody))) fail();
+        let eventResult: { id: string; conflict: boolean } | undefined;
+        let reviewCode: 'protocol' | 'account_changed' | 'identity_pending' | undefined;
+        if (outcome.kind === 'event') {
+          eventResult = await persistEvent(client,record.key,outcome.eventKey,'reply_message/v1',{
+            outcome,fingerprint:outcome.fingerprint,receivedAt:record.receivedAt,
+          });
+          if (eventResult.conflict) reviewCode = 'protocol';
+        } else if (outcome.kind === 'review') reviewCode = outcome.code;
+        if (reviewCode) {
+          const review: Extract<NormalizedWebhookOutcome,{ kind:'review' }> = { kind:'review',code:reviewCode };
+          eventResult = await persistEvent(client,record.key,record.key,'reply_review/v1',{
+            outcome:review,fingerprint:reviewFingerprint(record.key,reviewCode),receivedAt:record.receivedAt,
+          });
+          if (eventResult.conflict) fail();
+          // Invalidating cursor leases prevents an old crawler from clearing this review barrier.
+          await client.query(`UPDATE communications.event_cursors SET invalidated=true, complete=false, lease_token=NULL, lease_until=NULL
+ WHERE connection_id=$1 AND generation=$2 AND application_id=$3 AND tenant_id=$4 AND owner_id=$5 AND account_id=$6`,
+            [binding.connectionId,binding.generation,binding.applicationId,binding.tenantId,binding.ownerId,binding.accountId]);
+        }
+        if (eventResult) await queueEvent(client,eventResult.id);
+        if (!await currentScope(client)) { await client.query('ROLLBACK'); return rejected(); }
+        const updated = await client.query(`UPDATE communications.webhook_inbox SET state='processed',lease_token=NULL,lease_until=NULL,retry_at=NULL,failure_code=$6
+ WHERE id=$1 AND backend=$2 AND integration_id=$3 AND dedupe_key=$4 AND state='processing' AND lease_token=$5
+ AND lease_until>clock_timestamp() AND expires_at>clock_timestamp() RETURNING id`,
+          [record.key,binding.backend,integrationId,record.key,record.token,reviewCode ? `reply_${reviewCode}` : outcome.kind === 'ignore' ? `ignored_${outcome.reason}` : null]);
+        if (updated.rows.length === 0 || !await currentScope(client)) { await client.query('ROLLBACK'); return rejected(); }
+        if (updated.rows.length !== 1 || updated.rows[0].id !== record.key) fail();
+        await client.query('COMMIT');
+        return { binding: structuredClone(binding), key: record.key, committed: true };
       });
     },
     async claim(input) {

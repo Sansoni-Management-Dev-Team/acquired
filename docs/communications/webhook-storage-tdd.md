@@ -1,5 +1,8 @@
 # Encrypted webhook storage and separate event transactions
 
+**Current execution update:** The exact reviewed local schemas 001/002 below were subsequently specifically approved and applied to isolated OrbStack, with backup/target/hash/RLS verification and actual service PostgreSQL tests. The review-time wording below records the earlier state. See [durable replies evidence](durable-replies-tdd.md) and [progress](progress.md). Separate 003 is unapproved/unapplied; no production/backfill activation is implied.
+
+
 Continuation on `codex/unipile-reply-detection`, 12 October 2026. P2.3/P3.4; scoped A05/A09/A11/A21/A22 evidence. No schema was applied in this continuation.
 
 ## Implemented code

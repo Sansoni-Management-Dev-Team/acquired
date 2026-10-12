@@ -1,5 +1,8 @@
 # Independent provisional persistence review
 
+**Current execution update:** The exact reviewed local schemas 001/002 below were subsequently specifically approved and applied to isolated OrbStack, with backup/target/hash/RLS verification and actual service PostgreSQL tests. The review-time wording below records the earlier state. See [durable replies evidence](durable-replies-tdd.md) and [progress](progress.md). Separate 003 is unapproved/unapplied; no production/backfill activation is implied.
+
+
 Reviewed 2026-10-12. This is a static review of the prepared SQL and design. **No SQL statement, migration, schema change or rollback rehearsal was executed.** Database/runtime isolation and concurrency remain unverified. These artifacts are not approved for execution.
 
 Initial reviewed artifacts:
