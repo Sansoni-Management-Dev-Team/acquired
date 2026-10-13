@@ -9,7 +9,7 @@ const binding:ConnectionBinding={applicationId:'app',tenantId:'tenant',ownerId:'
 const body=Buffer.from('{"event":"synthetic"}'),vector=Object.values(binding);
 const hash=(v:unknown)=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
 const capture:WebhookCapture={binding,key:hash(['communications.webhook.receipt.v1',vector,createHash('sha256').update(body).digest('hex')]),rawBody:body,receivedAt:'2026-10-12T10:00:00.000Z'};
-function fixture(installed:unknown='communications.tenant_reply_barriers',withPort=true){
+function fixture(installed:unknown=true,withPort=true){
   const calls:string[]=[],state={duplicate:false,claimState:'pending',catalogRows:1,catalogValue:installed};
   const codec=new WebhookCodec({activeVersion:'wire1',keys:[{version:'wire1',encryptionKey:Buffer.alloc(32,11),digestKey:Buffer.alloc(32,12)}]});
   const envelope=codec.encode(capture);
@@ -33,20 +33,20 @@ function fixture(installed:unknown='communications.tenant_reply_barriers',withPo
 describe('webhook tenant fence composition, scripted SQL only',()=>{
   for(const operation of ['capture','claim','finish'] as const){
     it(`fails closed for ${operation} with installed003 and absent tenant port before work locks`,async()=>{
-      const f=fixture('communications.tenant_reply_barriers',false);
+      const f=fixture(true,false);
       const pending=operation==='capture'?f.repo.capture(capture):operation==='claim'?f.repo.claim({binding,key:capture.key}):f.repo.finish({record:{...capture,token:'claim-token'},outcome:{kind:'review',code:'identity_pending'}});
       await expect(pending).rejects.toThrow('Webhook repository unavailable');
       expect(f.calls.some(s=>s.includes('FROM communications.connections')||s.includes('webhook_inbox'))).toBe(false);expect(f.calls).toContain('ROLLBACK');
     });
   }
   it('preserves approved001 capture when003 is absent and no port configured',async()=>{
-    const f=fixture(null,false);await expect(f.repo.capture(capture)).resolves.toMatchObject({status:'accepted'});expect(f.calls).toContain('COMMIT');
+    const f=fixture(false,false);await expect(f.repo.capture(capture)).resolves.toMatchObject({status:'accepted'});expect(f.calls).toContain('COMMIT');
   });
   it.each([undefined,'unexpected.schema'])('rejects malformed catalog evidence %s',async(value)=>{
-    const f=fixture(null,false);f.state.catalogValue=value;await expect(f.repo.capture(capture)).rejects.toThrow();expect(f.calls.some(s=>s.includes('FROM communications.connections'))).toBe(false);
+    const f=fixture(false,false);f.state.catalogValue=value;await expect(f.repo.capture(capture)).rejects.toThrow();expect(f.calls.some(s=>s.includes('FROM communications.connections'))).toBe(false);
   });
   it('rejects missing catalog row before scope locks',async()=>{
-    const f=fixture(null,false);f.state.catalogRows=0;await expect(f.repo.capture(capture)).rejects.toThrow();expect(f.calls.some(s=>s.includes('FROM communications.connections'))).toBe(false);
+    const f=fixture(false,false);f.state.catalogRows=0;await expect(f.repo.capture(capture)).rejects.toThrow();expect(f.calls.some(s=>s.includes('FROM communications.connections'))).toBe(false);
   });
   it('locks tenant before connection/inbox and commits routing before acceptance',async()=>{
     const f=fixture();await expect(f.repo.capture(capture)).resolves.toMatchObject({status:'accepted'});
@@ -98,21 +98,21 @@ describe('webhook fence transaction budget',()=>{
     expect(await observed(createPostgresWebhookRepository({...f.options,...budgets}).capture(capture))).toBe('rejected');expect(f.client.release).toHaveBeenCalledWith(expect.any(Error));expect(f.calls).not.toContain('COMMIT');
   });
   it('disposes a connection arriving after the deadline without BEGIN',async()=>{
-    const f=fixture(null,false),late=deferred<SqlClient>();
+    const f=fixture(false,false),late=deferred<SqlClient>();
     const repo=createPostgresWebhookRepository({...f.options,...budgets,pool:{connect:()=>late.promise}});
     const pending=repo.capture(capture);expect(await observed(pending)).toBe('rejected');late.resolve(f.client);await new Promise(r=>setTimeout(r,5));expect(f.calls).not.toContain('BEGIN');expect(f.client.release).toHaveBeenCalledTimes(1);
   });
   it('uses monotonic time when a synchronous connect starves the timer',async()=>{
-    const f=fixture(null,false),repo=createPostgresWebhookRepository({...f.options,...budgets,pool:{async connect(){overrun();return f.client;}}});
+    const f=fixture(false,false),repo=createPostgresWebhookRepository({...f.options,...budgets,pool:{async connect(){overrun();return f.client;}}});
     await expect(repo.capture(capture)).rejects.toThrow();expect(f.calls).not.toContain('BEGIN');expect(f.client.release).toHaveBeenCalledTimes(1);
   });
   it('does not accept a COMMIT response after its elapsed budget',async()=>{
-    const f=fixture(null,false),query=f.client.query;
+    const f=fixture(false,false),query=f.client.query;
     f.client.query=async<Row>(sql:string,values?:unknown[])=>{const result=await query<Row>(sql,values);if(sql==='COMMIT')overrun();return result;};
     await expect(createPostgresWebhookRepository({...f.options,...budgets}).capture(capture)).rejects.toThrow();expect(f.client.release).toHaveBeenCalledWith(expect.any(Error));
   });
   it('does not race ROLLBACK against an active query when the deadline expires',async()=>{
-    const f=fixture(null,false),query=f.client.query;f.client.query=async<Row>(sql:string,values?:unknown[])=>sql.startsWith('INSERT INTO communications.webhook_inbox')?new Promise<SqlResult<Row>>(()=>{}):query<Row>(sql,values);
+    const f=fixture(false,false),query=f.client.query;f.client.query=async<Row>(sql:string,values?:unknown[])=>sql.startsWith('INSERT INTO communications.webhook_inbox')?new Promise<SqlResult<Row>>(()=>{}):query<Row>(sql,values);
     expect(await observed(createPostgresWebhookRepository({...f.options,...budgets}).capture(capture))).toBe('rejected');expect(f.calls).not.toContain('ROLLBACK');expect(f.client.release).toHaveBeenCalledTimes(1);
   });
 });

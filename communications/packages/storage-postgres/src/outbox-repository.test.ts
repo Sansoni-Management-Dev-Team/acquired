@@ -45,7 +45,7 @@ function driver(steps: Step[]) {
         }, calls, release
     };
 }
-const prefix = (barrier: null | string = null): Step[] => [{
+const prefix = (barrier: boolean = false): Step[] => [{
         sql: /^BEGIN$/
     }, {
         sql: /^SET LOCAL ROLE/
@@ -94,7 +94,7 @@ describe('outbox repository guard protocol (scripted driver; no database durabil
         expect(d.pool.connect).not.toHaveBeenCalled();
     });
     it('fails closed when003 exists without explicit tenant-first port', async () => {
-        const d = driver([...prefix('communications.tenant_reply_barriers'), {
+        const d = driver([...prefix(true), {
                 sql: /^ROLLBACK$/
             }]);
         await expect(createPostgresOutboxRepository(options(d)).claim()).rejects.toThrow(/^Outbox repository unavailable$/);
@@ -102,7 +102,7 @@ describe('outbox repository guard protocol (scripted driver; no database durabil
         expect(d.release).toHaveBeenCalledOnce();
     });
     it('locks exact configured tenant before original generation/grant or outbox locks', async () => {
-        const d = driver([...prefix('communications.tenant_reply_barriers'), {
+        const d = driver([...prefix(true), {
                 sql: /SELECT fixture_barrier/
             }, {
                 sql: /FROM communications.connections/, rows: [scopeRow]

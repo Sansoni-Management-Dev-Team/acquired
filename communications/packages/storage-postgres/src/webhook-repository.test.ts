@@ -20,7 +20,7 @@ function scripted(steps:Step[]) {
 }
 const trustedRole={role_name:'communications_control',rolsuper:false,rolbypassrls:false,rolcanlogin:false};
 const timeoutStep=():Step=>({sql:/set_config/});
-const catalogStep=():Step=>({sql:/to_regclass/,rows:[{barrier:null}]});
+const catalogStep=():Step=>({sql:/to_regclass/,rows:[{barrier:false}]});
 const roleStep=():Step=>({sql:/FROM pg_roles/,rows:[trustedRole]});
 const begin=():Step[]=>[{sql:/^BEGIN$/},{sql:/^SET LOCAL ROLE communications_control$/},roleStep(),timeoutStep(),catalogStep(),{sql:/FROM communications\.connections/,rows:[scopeRow]}];
 const end=():Step[]=>[{sql:/FROM communications\.connections/,rows:[scopeRow]},{sql:/^COMMIT$/}];

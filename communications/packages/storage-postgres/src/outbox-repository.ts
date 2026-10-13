@@ -206,10 +206,10 @@ export function createPostgresOutboxRepository(options: OutboxRepositoryOptions)
             const role = await wrapped.query('SELECT current_user AS role_name,r.rolsuper,r.rolbypassrls,r.rolcanlogin FROM pg_roles r WHERE r.rolname=current_user');
             if (role.rows.length !== 1 || role.rows[0].role_name !== 'communications_control' || role.rows[0].rolsuper !== false || role.rows[0].rolbypassrls !== false || role.rows[0].rolcanlogin !== false)
                 fail();
-            const installed = await wrapped.query("SELECT to_regclass('communications.tenant_reply_barriers')::text AS barrier");
-            if (installed.rows.length !== 1 || installed.rows[0].barrier !== null && installed.rows[0].barrier !== 'communications.tenant_reply_barriers')
+            const installed = await wrapped.query("SELECT to_regclass('communications.tenant_reply_barriers') IS NOT NULL AS barrier");
+            if (installed.rows.length !== 1 || typeof installed.rows[0].barrier !== 'boolean')
                 fail();
-            if (installed.rows[0].barrier !== null && !fence)
+            if (installed.rows[0].barrier === true && !fence)
                 fail();
             if (fence)
                 await fence(wrapped, fixed.applicationId, fixed.tenantId);

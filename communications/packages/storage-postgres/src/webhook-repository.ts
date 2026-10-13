@@ -281,9 +281,9 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
  FROM pg_roles r WHERE r.rolname=current_user`);
         if (role.rows.length !== 1 || role.rows[0].role_name !== 'communications_control' || role.rows[0].rolsuper !== false || role.rows[0].rolbypassrls !== false || role.rows[0].rolcanlogin !== false) fail();
         await transactional.query("SELECT set_config('lock_timeout',$1,true),set_config('statement_timeout',$2,true)", [`${lockTimeoutMs}ms`, `${statementTimeoutMs}ms`]);
-        const schema = await transactional.query("SELECT to_regclass('communications.tenant_reply_barriers')::text AS barrier");
-        if (schema.rows.length !== 1 || schema.rows[0].barrier !== null && schema.rows[0].barrier !== 'communications.tenant_reply_barriers') fail();
-        const fenced = schema.rows[0].barrier !== null;
+        const schema = await transactional.query("SELECT to_regclass('communications.tenant_reply_barriers') IS NOT NULL AS barrier");
+        if (schema.rows.length !== 1 || typeof schema.rows[0].barrier !== 'boolean') fail();
+        const fenced = schema.rows[0].barrier === true;
         if (fenced && (!lockReply || !routeReply || !latchReview) || !fenced && lockReply) fail();
         // Fencing callbacks are trusted SQL composition, not a sandbox; retire delegated sessions
         // to avoid returning session-level configuration changes to the pool after a commit.

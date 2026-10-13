@@ -21,7 +21,7 @@ function fixture(patch: Record<string, unknown> = {}, codec = new WebhookCodec({
     let rows: unknown[] = [];
     if (sql.includes('FROM pg_roles')) rows = [{ role_name: 'communications_control', rolsuper: false, rolbypassrls: false, rolcanlogin: false }];
     else if (sql.includes('set_config')) rows = [];
-    else if (sql.includes('to_regclass')) rows = [{ barrier: null }];
+    else if (sql.includes('to_regclass')) rows = [{ barrier: false }];
     else if (sql.includes('FROM communications.connections')) rows = [scopeRow];
     else if (sql.includes('FROM communications.webhook_inbox')) rows = [row];
     else if (!['BEGIN', 'COMMIT', 'ROLLBACK', 'SET LOCAL ROLE communications_control'].includes(sql) && !sql.startsWith('INSERT INTO communications.webhook_inbox')) throw new Error('Unexpected scripted SQL');
