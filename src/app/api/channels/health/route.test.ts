@@ -1,45 +1,37 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ getSession: vi.fn(), checkHostedHealth: vi.fn(), checkGmailHealth: vi.fn(), requireDb: vi.fn(), decryptToken: vi.fn() }));
-vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: mocks.getSession } } }));
-vi.mock("@/lib/channel-health", () => ({ checkHostedHealth: mocks.checkHostedHealth, checkGmailHealth: mocks.checkGmailHealth }));
-vi.mock("@/db/client", () => ({ requireDb: mocks.requireDb }));
-vi.mock("@/lib/token-crypto", () => ({ decryptToken: mocks.decryptToken }));
+const m = vi.hoisted(() => ({ session: vi.fn(), database: vi.fn(), decrypt: vi.fn(), oldHosted: vi.fn(), oldGmail: vi.fn() }));
+vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: m.session } } }));
+vi.mock("@/db/client", () => ({ requireDb: m.database }));
+vi.mock("@/lib/token-crypto", () => ({ decryptToken: m.decrypt }));
 import { POST } from "./route";
-const request = (provider: string, origin = "https://app.example") => new Request(`https://app.example/api/channels/health?provider=${provider}&userId=attacker`, { method: "POST", headers: { origin } });
-beforeEach(() => { vi.resetAllMocks(); mocks.getSession.mockResolvedValue({ user: { id: "owner" }, session: { activeOrganizationId: "org" } }); });
-it("rejects unauthenticated, cross-origin and unknown checks before touching credentials", async () => {
-  mocks.getSession.mockResolvedValueOnce(null);
-  expect((await POST(request("gmail"))).status).toBe(401);
-  expect((await POST(request("gmail", "https://other.example"))).status).toBe(403);
-  expect((await POST(request("arbitrary"))).status).toBe(400);
-  expect(mocks.requireDb).not.toHaveBeenCalled(); expect(mocks.checkHostedHealth).not.toHaveBeenCalled();
+const req = (query: string, origin = "https://app.example") => new Request(`https://app.example/api/channels/health?${query}`, { method: "POST", headers: { origin } });
+beforeEach(() => { vi.resetAllMocks(); m.session.mockResolvedValue({ user: { id: "owner" }, session: { activeOrganizationId: "org" } }); vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ ok: true, status: "connected" })); vi.stubEnv("LINKEDIN_SERVICE_URL", "https://retired.example.test"); vi.stubEnv("LINKEDIN_SERVICE_SECRET", "fixture-retired-secret"); });
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllEnvs(); });
+it.each(["gmail", "whatsapp", "linkedin"])("retires old %s health checks without loading tokens or services", async (provider) => {
+    const response = await POST(req(`provider=${provider}`));
+    expect(response.status).toBe(410);
+    expect(await response.json()).toMatchObject({ code: "connection_method_retired" });
+    expect(m.database).not.toHaveBeenCalled();
+    expect(m.decrypt).not.toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
 });
-it("uses signed-in ownership and returns uncached health results", async () => {
-  mocks.checkHostedHealth.mockResolvedValue({ status: "healthy", message: "Connected", checkedAt: "now" });
-  const response = await POST(request("linkedin"));
-  expect(mocks.checkHostedHealth).toHaveBeenCalledWith("linkedin", { organizationId: "org", userId: "owner" });
-  expect(response.headers.get("cache-control")).toBe("no-store");
-  expect(await response.json()).toMatchObject({ status: "healthy" });
+it.each(["email", "whatsapp", "linkedin"])("returns truthful unavailable Unipile %s health", async (channel) => {
+    const response = await POST(req(`channel=${channel}&backend=unipile`));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ status: "unavailable" });
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(m.database).not.toHaveBeenCalled();
 });
-it("does not decrypt or call Gmail for disconnected accounts", async () => {
-  const limit = vi.fn().mockResolvedValue([]);
-  const chain = { from: vi.fn(), where: vi.fn(), limit }; chain.from.mockReturnValue(chain); chain.where.mockReturnValue(chain);
-  mocks.requireDb.mockReturnValue({ select: () => chain });
-  expect(await (await POST(request("gmail"))).json()).toMatchObject({ status: "attention" });
-  expect(mocks.decryptToken).not.toHaveBeenCalled(); expect(mocks.checkGmailHealth).not.toHaveBeenCalled();
+it("retains session, organization and trusted origin guards", async () => {
+    m.session.mockResolvedValueOnce(null);
+    expect((await POST(req("channel=email&backend=unipile"))).status).toBe(401);
+    m.session.mockResolvedValueOnce({ user: { id: "owner" }, session: {} });
+    expect((await POST(req("channel=email&backend=unipile"))).status).toBe(403);
+    expect((await POST(req("channel=email&backend=unipile", "https://other.example"))).status).toBe(403);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
 });
-it("does not return credential or database errors", async () => {
-  mocks.requireDb.mockImplementation(() => { throw new Error("private database connection"); });
-  const data = await (await POST(request("gmail"))).json();
-  expect(data.status).toBe("unavailable"); expect(JSON.stringify(data)).not.toContain("private");
-});
-
-afterEach(() => vi.unstubAllEnvs());
-it("tests the public HTTPS origin behind an internal container address", async () => {
-  vi.stubEnv("APP_URL", "https://acquire.mlai.au");
-  mocks.checkHostedHealth.mockResolvedValue({ status: "healthy" });
-  const response = await POST(new Request("http://0.0.0.0:3000/api/channels/health?provider=linkedin", { method: "POST", headers: { origin: "https://acquire.mlai.au" } }));
-  expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({ status: "healthy" });
-  expect(mocks.checkHostedHealth).toHaveBeenCalledWith("linkedin", { organizationId: "org", userId: "owner" });
+it.each(["channel=unknown&backend=unipile", "channel=email&backend=direct", "provider=unknown", "channel=email", ""])("rejects unsupported health selection %s", async (query) => {
+    expect((await POST(req(query))).status).toBe(400);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
 });

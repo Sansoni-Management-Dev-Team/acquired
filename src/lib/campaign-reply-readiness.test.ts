@@ -8,6 +8,12 @@ const mock = vi.hoisted(() => ({
   mailbox: vi.fn(),
 }));
 vi.mock("server-only", () => ({}));
+// Explicit synthetic grant policy; actual historical grants are separately paused.
+vi.mock("@/lib/gmail-connection", () => ({ connectionCanMonitorReplies: (grant: {encryptedRefreshToken: string|null;reconnectRequired: boolean;scopes: string[]|null}) => !!grant.encryptedRefreshToken && !grant.reconnectRequired && !!grant.scopes?.includes("https://www.googleapis.com/auth/gmail.readonly") && !!grant.scopes?.includes("https://www.googleapis.com/auth/gmail.compose") }));
+vi.mock("@/lib/channels/delivery-registry", async () => {
+  const { campaignDeliveryFixture } = await import("@/test/campaign-delivery-fixture");
+  return { deliveryProvider: campaignDeliveryFixture({ whatsappReady: mock.whatsapp, linkedinReady: mock.delivery }) };
+});
 vi.mock("@/db/campaign-client", () => ({
   rows: mock.rows,
   withCampaignDb: (_actor: unknown, fn: (client: unknown) => unknown) => fn({}),

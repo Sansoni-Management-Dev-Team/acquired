@@ -1,6 +1,6 @@
 import "server-only";
 import { rejected, type CampaignDeliveryProvider } from "./delivery-provider";
-import { GmailSendRejected } from "@/adapters/gmail-errors";
+import { EmailSubmissionRejected } from "@/lib/email-delivery-error";
 import type { CampaignMailbox } from "@/lib/campaign-mailbox";
 import { ReplyCheckReview } from "@/lib/campaign-reply-status";
 import { deliveryOutcomeSchema } from "@/domain/channel-delivery";
@@ -33,7 +33,7 @@ export const emailDeliveryProvider = (
       });
     } catch (error) {
       return rejected(
-        error instanceof GmailSendRejected ? error.failure : error,
+        error instanceof EmailSubmissionRejected ? error.failure : error,
         "email",
       );
     }

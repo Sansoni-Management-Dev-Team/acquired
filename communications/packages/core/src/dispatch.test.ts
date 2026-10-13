@@ -2,8 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import type { ConnectionBinding, DeliveryOutcome, MessageSubmission, MessagingAdapter, ReceiptLookup } from "../../contracts/src";
 import { messageDigest } from "./message-digest";
 import { createDispatchCoordinator, type DispatchJournalPort, type DispatchRecord } from "./dispatch";
-import { createLegacyMessagingAdapter } from "../../adapter-legacy/src";
-import { createGmailAdapter } from "../../adapter-gmail/src";
 
 const binding: ConnectionBinding = { applicationId: "fixture-app", tenantId: "fixture-tenant", ownerId: "fixture-owner", connectionId: "fixture-connection", accountId: "fixture-account", generation: 1, channel: "whatsapp", platform: "whatsapp", backend: "unipile" };
 function submission(): MessageSubmission {
@@ -183,69 +181,6 @@ describe("dispatch coordinator with a required synthetic journal port", () => {
     const f = fixture(); const coordinator = createDispatchCoordinator(binding, f.adapter, f.journal); const result = await coordinator.submit(submission());
     if (result.status === "submitted") result.receipt.recipient.value = "mutated public result";
     expect(await coordinator.submit(submission())).toEqual(submitted());
-  });
-  it("preserves the real legacy browser LinkedIn action receipt namespace through the coordinator", async () => {
-    const f = fixture(); const originalBinding: ConnectionBinding = { ...binding, channel: "linkedin", platform: "linkedin", backend: "browser" };
-    const message = { recipient: { kind: "linkedin_profile" as const, value: "https://www.linkedin.com/in/synthetic-legacy" }, text: "Synthetic browser message" };
-    const input: MessageSubmission = { snapshot: { binding: originalBinding, key: "browser-key", operation: "message", payloadDigest: messageDigest("message", message) }, message };
-    const legacy = createLegacyMessagingAdapter({ binding: originalBinding, status: "connected", capabilities: { messaging: { send: true, durableIdempotency: true, receiptLookup: true }, events: { read: false, history: false, realtime: false } } }, {
-      ready: async () => ({ status: "ready" }),
-      submit: async () => ({ status: "submitted", id: "real-legacy-action-namespace" }),
-      lookup: async () => null,
-    });
-    const coordinator = createDispatchCoordinator(originalBinding, legacy, f.journal);
-    const expected = { status: "submitted", receipt: { operation: { binding: originalBinding, id: "real-legacy-action-namespace" }, recipient: message.recipient } };
-    expect(await coordinator.submit(input)).toEqual(expected);
-    expect(await coordinator.lookup({ snapshot: input.snapshot })).toEqual(expected);
-  });
-});
-
-describe("recorded legacy recovery through actual reusable adapters", () => {
-  function gmailFixture() {
-    const f = fixture(); const originalBinding: ConnectionBinding = { ...binding, channel: "email", platform: "gmail", backend: "direct" };
-    const message = { recipient: { kind: "email" as const, value: "synthetic@example.invalid" }, text: "Synthetic Gmail", rfcMessageId: "<original-operation@example.invalid>", conversation: { binding: originalBinding, id: "original-thread" } };
-    const input: MessageSubmission = { snapshot: { binding: originalBinding, key: "gmail-key", operation: "message", payloadDigest: messageDigest("message", message) }, message };
-    const send = vi.fn(async () => { throw new Error("synthetic accepted then response lost"); });
-    const findByRfcMessageId = vi.fn(async () => ({ id: "actual-gmail-message", threadId: "original-thread" }));
-    const readiness = vi.fn<MessagingAdapter["ready"]>(async () => ({ status: "ready" }));
-    const adapter = createGmailAdapter({ binding: originalBinding, mailbox: { send, findByRfcMessageId }, readiness, messageDigest });
-    const coordinator = createDispatchCoordinator(originalBinding, adapter, f.journal);
-    return { ...f, fixture: f, originalBinding, input, send, findByRfcMessageId, readiness, adapter, coordinator };
-  }
-  it("captures original RFC Message-ID/thread at claim and recovers unknown Gmail without a message ID or readiness", async () => {
-    const f = gmailFixture(); expect(await f.coordinator.submit(f.input)).toEqual({ status: "unknown" });
-    expect(f.fixture.stored).toMatchObject({ state: "unknown", rfcMessageId: f.input.message.rfcMessageId, conversation: f.input.message.conversation });
-    f.readiness.mockResolvedValue({ status: "review", code: "reconnect" }); f.readiness.mockClear();
-    const recovered = await f.coordinator.lookup({ snapshot: f.input.snapshot });
-    expect(recovered).toEqual({ status: "submitted", receipt: { message: { binding: f.originalBinding, id: "actual-gmail-message" }, conversation: f.input.message.conversation, recipient: f.input.message.recipient } });
-    expect(f.findByRfcMessageId).toHaveBeenCalledExactlyOnceWith(f.input.message.rfcMessageId);
-    expect(f.readiness).not.toHaveBeenCalled(); expect(f.send).toHaveBeenCalledTimes(1);
-    expect(await f.coordinator.submit(f.input)).toEqual(recovered); expect(f.send).toHaveBeenCalledTimes(1);
-  });
-  it("rejects a caller-invented Gmail RFC correlation ID before provider read", async () => {
-    const f = gmailFixture(); await f.coordinator.submit(f.input);
-    await expect(f.coordinator.lookup({ snapshot: f.input.snapshot, rfcMessageId: "<another@example.invalid>" })).rejects.toThrow("operation_conflict");
-    expect(f.findByRfcMessageId).not.toHaveBeenCalled();
-  });
-  it("retains unknown when RFC lookup finds another thread", async () => {
-    const f = gmailFixture(); await f.coordinator.submit(f.input); f.findByRfcMessageId.mockResolvedValue({ id: "actual-gmail-message", threadId: "another-thread" });
-    expect(await f.coordinator.lookup({ snapshot: f.input.snapshot })).toEqual({ status: "unknown" }); expect(f.fixture.journal.reconcile).not.toHaveBeenCalled();
-  });
-  it.each(["message", "invitation"] as const)("recovers unknown browser LinkedIn %s using only the original authoritative operation key", async operation => {
-    const f = fixture(); const originalBinding: ConnectionBinding = { ...binding, channel: "linkedin", platform: "linkedin", backend: "browser" };
-    const message = { recipient: { kind: "linkedin_profile" as const, value: "https://www.linkedin.com/in/synthetic-legacy" }, text: "Synthetic browser action" };
-    const input: MessageSubmission = { snapshot: { binding: originalBinding, key: `browser-${operation}-key`, operation, payloadDigest: messageDigest(operation, message) }, message };
-    const submit = vi.fn(async () => { throw new Error("synthetic browser accepted then response lost"); });
-    const legacyLookup = vi.fn(async () => ({ status: "submitted" as const, id: "real-browser-action" }));
-    const ready = vi.fn<MessagingAdapter["ready"]>(async () => ({ status: "ready" }));
-    const adapter = createLegacyMessagingAdapter({ binding: originalBinding, status: "connected", capabilities: { messaging: { send: true, durableIdempotency: true, receiptLookup: true }, events: { read: false, history: false, realtime: false }, linkedin: { resolveProfile: false, relationships: false, invitations: true } } }, { ready: () => ready(originalBinding), submit, lookup: legacyLookup });
-    const coordinator = createDispatchCoordinator(originalBinding, adapter, f.journal); expect(await coordinator.submit(input)).toEqual({ status: "unknown" });
-    ready.mockResolvedValue({ status: "review", code: "reconnect" }); ready.mockClear();
-    const expected = { status: "submitted", receipt: { operation: { binding: originalBinding, id: "real-browser-action" }, recipient: message.recipient } };
-    expect(await coordinator.lookup({ snapshot: input.snapshot })).toEqual(expected);
-    expect(legacyLookup).toHaveBeenCalledExactlyOnceWith({ key: input.snapshot.key });
-    expect(ready).not.toHaveBeenCalled(); expect(submit).toHaveBeenCalledTimes(1);
-    expect(await coordinator.submit(input)).toEqual(expected); expect(submit).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -2,6 +2,10 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 const mock = vi.hoisted(() => ({ rows: vi.fn(), query: vi.fn(), start: vi.fn(), provision: vi.fn(), remove: vi.fn(), replyTick: vi.fn(), actor: vi.fn(), find: vi.fn(),waReceipt:vi.fn(),liReceipt:vi.fn(),fresh:vi.fn() }));
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/channels/delivery-registry", async () => {
+  const { campaignDeliveryFixture } = await import("@/test/campaign-delivery-fixture");
+  return { deliveryProvider: campaignDeliveryFixture({ whatsappLookup: mock.waReceipt, linkedinLookup: mock.liReceipt }) };
+});
 vi.mock("@/db/campaign-client", () => ({ rows: mock.rows, withCampaignTickLock: async (callback: () => Promise<unknown>) => ({ acquired: true, result: await callback() }), withCampaignWorker: (callback: (client: unknown) => unknown) => callback({ query: mock.query }), withCampaignDb: (actor: unknown, callback: (client: unknown) => unknown) => { mock.actor(actor); return callback({ query: mock.query }); } }));
 vi.mock("@/lib/campaign-n8n", () => ({ startSequenceContact: mock.start, provisionSequenceWorkflow: mock.provision, removeSequenceWorkflow: mock.remove, n8nCampaignEnabled: () => true }));
 vi.mock("@/lib/campaign-reply-monitor", () => ({ runReplyMonitorTick: mock.replyTick, checkContactReplyMonitors: vi.fn(), assertContactReplyFresh: mock.fresh }));

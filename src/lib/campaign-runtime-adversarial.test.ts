@@ -3,6 +3,10 @@ import { randomUUID } from "node:crypto";
 import type { CampaignDefinition } from "@/domain/campaign";
 const mock = vi.hoisted(() => ({ rows: vi.fn(), query: vi.fn(), fresh: vi.fn(), monitor: vi.fn(), delivery: vi.fn(), send: vi.fn(), linkedin: vi.fn(), whatsapp: vi.fn(), connected: vi.fn(), gmail: { inboundFrom: vi.fn(), hasConversation: vi.fn(), outboundToSince: vi.fn() } }));
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/channels/delivery-registry", async () => {
+  const { campaignDeliveryFixture } = await import("@/test/campaign-delivery-fixture");
+  return { deliveryProvider: campaignDeliveryFixture({ whatsappReady: mock.connected, linkedinReady: mock.delivery, whatsappSend: mock.whatsapp, linkedinSend: mock.linkedin }) };
+});
 vi.mock("@/db/campaign-client", () => ({ rows: mock.rows, withCampaignDb: (_actor: unknown, callback: (client: unknown) => unknown) => callback({ query: mock.query }), withCampaignWorker: (callback: (client: unknown) => unknown) => callback({ query: mock.query }) }));
 vi.mock("@/lib/gmail-connection", () => ({ connectionCanMonitorReplies: () => true }));
 vi.mock("@/lib/campaign-mailbox", () => ({ campaignTestSendAnytime: () => true, campaignMailboxForConnection: () => ({ ...mock.gmail, send: mock.send }) }));
@@ -159,9 +163,9 @@ it("records a lasting review when a contact changed before the initial n8n prefl
 });
 
 for(const kind of ['email','whatsapp','linkedin'] as const) it(`${kind}: a confirmed quota rejection preserves the scheduled step without an unknown claim`,async()=>{
- channel(kind);const {ReplyCheckPending}=await import('./campaign-reply-status');const {GmailSendRejected}=await import('@/adapters/gmail-errors');
+ channel(kind);const {ReplyCheckPending}=await import('./campaign-reply-status');const {EmailSubmissionRejected}=await import('@/lib/email-delivery-error');
  const pending=new ReplyCheckPending('rate_limited',kind,new Date(Date.now()+120000));
- if(kind==='email')mock.send.mockRejectedValue(new GmailSendRejected(pending));
+ if(kind==='email')mock.send.mockRejectedValue(new EmailSubmissionRejected(pending));
  else if(kind==='whatsapp')mock.whatsapp.mockResolvedValue({status:'waiting',code:'rate_limited',retryAt:pending.retryAt.toISOString()});
  else mock.linkedin.mockResolvedValue({status:'retry',nextEligibleAt:pending.retryAt.getTime()/1000});
  await processCampaignEnrolment(actor,id);expect(attempt).toBe('cancelled');expect(state).toBe('active');expect(stepIndex).toBe(0);expect(nextAt!.getTime()).toBeGreaterThan(Date.now());

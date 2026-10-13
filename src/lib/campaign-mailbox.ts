@@ -1,6 +1,7 @@
 import "server-only";
-import type { Delivery, OutboundMessage } from "@/adapters/mailbox";
-import { connectionCanMonitorReplies, mailboxForConnection, type GmailConnectionGrant } from "@/lib/gmail-connection";
+import type { Delivery, OutboundMessage } from "@/domain/email-message";
+import { type GmailConnectionGrant } from "@/lib/gmail-connection";
+import { ReplyCheckReview } from "@/lib/campaign-reply-status";
 import { campaignReadSignal } from "@/lib/campaign-work-budget";
 
 export type CampaignMailbox = {
@@ -70,8 +71,8 @@ class LocalCampaignMailbox implements CampaignMailbox {
   }
 }
 
-export function campaignMailboxForConnection(connection: GmailConnectionGrant, mailboxId: string): CampaignMailbox {
-  if (!connectionCanMonitorReplies(connection)) throw new Error("Reconnect Gmail with compose and read-only access before automation");
+export function campaignMailboxForConnection(_connection: GmailConnectionGrant, mailboxId: string): CampaignMailbox {
   const sink = localSinkUrl();
-  return sink ? new LocalCampaignMailbox(sink, mailboxId) : mailboxForConnection(connection);
+  if (!sink) throw new ReplyCheckReview("delivery_disabled", "email");
+  return new LocalCampaignMailbox(sink, mailboxId);
 }

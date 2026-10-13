@@ -7,17 +7,17 @@ vi.mock("@/lib/google-oauth", () => ({ createGoogleAuthorization: vi.fn(), verif
 import { GET as connect } from "./connect/route";
 import { GET as callback } from "./callback/route";
 afterEach(() => { vi.unstubAllEnvs(); vi.resetAllMocks(); });
-
 it("redirects unauthenticated Gmail connections to the public sign-in page", async () => {
-  vi.stubEnv("APP_URL", "https://acquire.mlai.au");
-  mocks.getSession.mockResolvedValue(null);
-  const response = await connect(new Request("http://0.0.0.0:3000/api/mailbox/google/connect"));
-  expect(response.headers.get("location")).toBe("https://acquire.mlai.au/sign-in?next=/settings");
+    vi.stubEnv("APP_URL", "https://acquire.mlai.au");
+    mocks.getSession.mockResolvedValue(null);
+    const response = await connect(new Request("http://0.0.0.0:3000/api/mailbox/google/connect"));
+    expect(response.headers.get("location")).toBe("https://acquire.mlai.au/sign-in?next=/settings");
 });
-
-it("redirects rejected OAuth callbacks to public settings instead of the container address", async () => {
-  vi.stubEnv("APP_URL", "https://acquire.mlai.au");
-  mocks.verifyState.mockImplementation(() => { throw new Error("Invalid state"); });
-  const response = await callback(new Request("http://0.0.0.0:3000/api/mailbox/google/callback?code=invalid&state=invalid"));
-  expect(response.headers.get("location")).toBe("https://acquire.mlai.au/settings?gmail=error&reason=Invalid%20state");
+it("requires sign-in for retired Gmail callbacks and never echoes OAuth errors", async () => {
+    vi.stubEnv("APP_URL", "https://acquire.mlai.au");
+    mocks.getSession.mockResolvedValue({ user: { id: "owner" }, session: { activeOrganizationId: "org" } });
+    const response = await callback(new Request("http://0.0.0.0:3000/api/mailbox/google/callback?code=invalid&state=invalid"));
+    expect(response.status).toBe(410);
+    expect(response.headers.get("location")).toBeNull();
+    expect(mocks.verifyState).not.toHaveBeenCalled();
 });

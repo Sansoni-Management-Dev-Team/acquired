@@ -1,33 +1,36 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ getSession: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: mocks.getSession } } }));
 import { GET, POST, DELETE } from "./route";
+afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks(); });
 beforeEach(() => {
-  vi.restoreAllMocks();
-  mocks.getSession.mockResolvedValue({ user: { id: "owner" }, session: { activeOrganizationId: "org" } });
-  process.env.WHATSAPP_SERVICE_URL = "http://localhost:18095";
-  process.env.WHATSAPP_SERVICE_SECRET = "private-service-secret";
+    mocks.getSession.mockResolvedValue({ user: { id: "owner" }, session: { activeOrganizationId: "org" } });
+    vi.stubEnv("WHATSAPP_SERVICE_URL", "https://legacy.example.test");
+    vi.stubEnv("WHATSAPP_SERVICE_SECRET", "fixture-retired-secret");
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ status: "connected" }));
 });
-describe("WhatsApp channel proxy", () => {
-  it("requires a logged-in owner and rejects foreign origins", async () => {
-    mocks.getSession.mockResolvedValueOnce(null);
-    expect((await GET(new Request("http://localhost/api/channels/whatsapp"))).status).toBe(401);
-    expect((await POST(new Request("http://localhost/api/channels/whatsapp", { method: "POST", headers: { origin: "https://another.example" } }))).status).toBe(403);
-  });
-  it("derives ownership from the session and strips secrets from responses", async () => {
-    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ status: "connected", address: "61400000000", encrypted_creds: "sensitive", keys: "sensitive" }));
-    const response = await GET(new Request("http://localhost/api/channels/whatsapp?userId=attacker"));
-    const [url, options] = fetch.mock.calls[0];
-    expect(String(url)).toContain("userId=owner"); expect(String(url)).toContain("organizationId=org");
-    expect(options?.headers).toEqual({ Authorization: "Bearer private-service-secret" });
-    expect(await response.json()).toEqual({ status: "connected", address: "61400000000" });
+it.each([["GET", GET], ["POST", POST], ["DELETE", DELETE]] as const)("retires authenticated WhatsApp %s without service egress or content processing", async (method, handler) => {
+    const req = new Request("https://app.example/api/channels/whatsapp?op=connection&userId=attacker", { method, headers: { origin: "https://app.example" }, ...(method === "POST" ? { body: '{"private":"retired-body"}' } : {}) });
+    const body = vi.spyOn(req, "text");
+    const response = await handler(req);
+    expect(response.status).toBe(410);
+    expect(await response.json()).toMatchObject({ code: "connection_method_retired" });
     expect(response.headers.get("cache-control")).toBe("no-store");
-  });
-  it("disconnect uses authenticated DELETE and missing config is unavailable", async () => {
-    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ status: "disconnected" }));
-    expect((await DELETE(new Request("http://localhost/api/channels/whatsapp", { method: "DELETE", headers: { origin: "http://localhost" } }))).status).toBe(200);
-    expect(fetch.mock.calls[0][1]?.method).toBe("DELETE");
-    delete process.env.WHATSAPP_SERVICE_URL;
-    expect((await GET(new Request("http://localhost/api/channels/whatsapp"))).status).toBe(503);
-  });
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(body).not.toHaveBeenCalled();
+});
+it("keeps authentication, organization selection and write origin guards", async () => {
+    mocks.getSession.mockResolvedValueOnce(null);
+    expect((await GET(new Request("https://app.example/api/channels/whatsapp"))).status).toBe(401);
+    mocks.getSession.mockResolvedValueOnce({ user: { id: "owner" }, session: {} });
+    expect((await GET(new Request("https://app.example/api/channels/whatsapp"))).status).toBe(403);
+    for (const handler of [POST, DELETE])
+        expect((await handler(new Request("https://app.example/api/channels/whatsapp", { method: handler === POST ? "POST" : "DELETE", headers: { origin: "https://other.example" } }))).status).toBe(403);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+});
+it("accepts the trusted public write origin behind an internal proxy and still retires", async () => {
+    vi.stubEnv("APP_URL", "https://app.example");
+    const response = await POST(new Request("http://0.0.0.0:3000/api/channels/whatsapp", { method: "POST", headers: { origin: "https://app.example" }, body: "{}" }));
+    expect(response.status).toBe(410);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
 });

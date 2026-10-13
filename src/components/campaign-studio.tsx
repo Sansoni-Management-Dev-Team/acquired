@@ -242,6 +242,6 @@ export function CampaignStudio({ mandateId, mandateName, initialData, initialVie
         <div className="flex justify-end gap-2"><button type="button" className={button} onClick={() => setAddPersonOpen(false)}>Cancel</button><button type="submit" disabled={busy} className={primary}>Add person</button></div>
       </form>
     </section></div>}
-    <p className="flex items-center gap-2 text-xs text-[var(--muted)]"><Clock3 size={14} /> Sending window: weekdays, 9 am–5 pm Melbourne time. {data.replyMonitoring?.mode === "enforce" ? "Replies on any monitored channel stop the entire sequence." : data.replyMonitoring?.mode === "observe" ? "Reply monitoring is in observation mode; email replies stop the sequence." : "WhatsApp and LinkedIn steps use your connected accounts; their replies are not yet monitored."}</p>
+    <p className="flex items-center gap-2 text-xs text-[var(--muted)]"><Clock3 size={14} /> Sending window: weekdays, 9 am–5 pm Melbourne time. {data.replyMonitoring?.mode === "enforce" ? "Replies on any monitored channel stop the entire sequence." : data.replyMonitoring?.mode === "observe" ? "Reply monitoring is in observation mode; email replies stop the sequence." : "Channel delivery requires a verified Unipile connection."}</p>
   </div>;
 }

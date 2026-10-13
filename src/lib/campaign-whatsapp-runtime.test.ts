@@ -2,6 +2,10 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 const mock = vi.hoisted(() => ({ rows: vi.fn(), query: vi.fn(), send: vi.fn(), connected: vi.fn(), gmail: { inboundFrom: vi.fn(), hasConversation: vi.fn(), outboundToSince: vi.fn() } }));
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/channels/delivery-registry", async () => {
+  const { campaignDeliveryFixture } = await import("@/test/campaign-delivery-fixture");
+  return { deliveryProvider: campaignDeliveryFixture({ whatsappReady: mock.connected, whatsappSend: mock.send }) };
+});
 vi.mock("@/db/campaign-client", () => ({ rows: mock.rows, withCampaignDb: (_actor: unknown, fn: (client: unknown) => unknown) => fn({ query: mock.query }), withCampaignWorker: (fn: (client: unknown) => unknown) => fn({ query: mock.query }) }));
 vi.mock("@/lib/gmail-connection", () => ({ connectionCanMonitorReplies: () => true }));
 vi.mock("@/lib/campaign-mailbox", () => ({ campaignTestSendAnytime: () => true, campaignMailboxForConnection: () => mock.gmail }));

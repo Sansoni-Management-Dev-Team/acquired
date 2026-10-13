@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mock = vi.hoisted(() => ({ rows: vi.fn(), query: vi.fn(), read: vi.fn(), inbound: vi.fn(), connected: vi.fn(), linkedin: vi.fn() }));
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/gmail-connection", () => ({ connectionCanMonitorReplies: (grant: {encryptedRefreshToken: string|null;reconnectRequired: boolean;scopes: string[]|null}) => !!grant.encryptedRefreshToken && !grant.reconnectRequired && !!grant.scopes?.includes("https://www.googleapis.com/auth/gmail.readonly") }));
 vi.mock("@/db/campaign-client", () => ({ rows: mock.rows, withCampaignDb: (_actor: unknown, fn: (client: unknown) => unknown) => fn({ query: mock.query }), withCampaignWorker: (fn: (client: unknown) => unknown) => fn({ query: mock.query }) }));
 vi.mock("@/lib/campaign-mailbox", () => ({ campaignMailboxForConnection: () => ({ inboundFrom: mock.inbound }) }));
 vi.mock("@/lib/campaign-reply-providers", () => ({ readChannelReplies: mock.read }));
