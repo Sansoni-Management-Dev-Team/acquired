@@ -18,3 +18,29 @@ Execution evidence: PostgreSQL17 system identifier `7696118996713136162`; privat
 A current-source proof rerun on14 October restarted only this existing fixture after validating its nonempty17 cluster, exact system identifier and unchanged approved artifacts/backup. No initialization or migration occurred. Private `legacy-extraction-standalone-recovery.json` and `standalone-db-proof.json` record the result.
 
 This does not enable sending, certify fresh provider coverage, publish a repository, or certify the independent legacy WhatsApp database. Legacy source extraction is recorded separately in [the handoff](../../../docs/communications/legacy-extraction.md). New journal admission remains disabled; the independent application receipt in this proof is synthetic and does not replace Acquire's real policy transaction tests.
+
+## New reviewed storage artifacts awaiting specific approval
+
+The existing001/002 approval/application does not authorize the following new files.
+Both target only this existing5446 database/system identifier and are unapplied.
+
+| Artifact | SHA-256 | Scope |
+| --- | --- | --- |
+| `003-connection-retirement.local.sql` | `2448ee14577f97a6d17e3c307fe376c4d44dfb204f0a94a83b652fb56a905dde` | Durable encrypted retirement intent, exclusive physical-account fences and deferred grant guard |
+| `004-email-tracking.local.sql` | `71fa73939d98509d7c28da4d8f8fa0efe550f74fd5a6b134b230747cd4900edc` | Append-only encrypted ACK/verified sent association and deferred scope/identity guard |
+
+See [retirement design](../../../docs/communications/connection-retirement-design.md) and
+[tracking TDD](../../../docs/communications/email-tracking-tdd.md) for reviewed code/tests
+and execution checks. Before authorized execution, check exact target/system ID, labels,
+image, roles, baseline FORCE-RLS tables, absent new objects and artifact hashes; take and
+validate a fresh custom-format private backup. Apply each unchanged artifact once,003
+then004, and independently verify catalog/privileges/trigger definitions afterward.
+There is no new cluster startup or migration hook.
+
+The prepared `COMMUNICATIONS_STANDALONE_LIFECYCLE_AUDIT=1 node scripts/test-communications-standalone-lifecycle-local.mjs`
+requires all30 actual PostgreSQL cases, zero skips and stable source fingerprints.
+It does not start a container or apply SQL. Those cases remain unexecuted until specific
+approval/application. The original three-channel service proof after both schemas is
+`COMMUNICATIONS_STANDALONE_AUDIT=1 COMMUNICATIONS_STANDALONE_LIFECYCLE_SCHEMA=1 node scripts/communications-standalone-db-proof.mjs`;
+its explicit schema mode requires19 named FORCE-RLS tables and still uses synthetic
+memory application receipts. Sending and full runtime integration remain disabled.

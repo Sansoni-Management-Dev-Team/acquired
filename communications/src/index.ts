@@ -18,3 +18,5 @@ export * from "../packages/core/src/connection-setup";
 export * from "../packages/storage-postgres/src/reply-barrier";
 export * from "../packages/storage-postgres/src/dispatch-journal";
 export * from "../packages/core/src/connection-lifecycle";
+export * from "../packages/storage-postgres/src/connection-retirement";
+export * from "../packages/storage-postgres/src/email-tracking";

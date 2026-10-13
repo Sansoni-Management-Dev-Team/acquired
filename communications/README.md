@@ -98,3 +98,27 @@ matching reserved history and current grants before and after evidence collectio
 Both database phases and the verifier share one monotonic bounded deadline. The
 verifier is runtime authority, not permission inferred from a nonnull SQL proof field.
 See [result TDD](../docs/communications/dispatch-results-tdd.md).
+
+## Prepared lifecycle and email tracking persistence
+
+`ConnectionRetirementCodec` and `createPostgresConnectionRetirement` implement encrypted
+original-generation retirement intents and the lifecycle coordinator's prepare/finish
+ports. New work, reconnects, leases and coverage certification require the proposed
+standalone003 fences. A prepared ticket resolves only after definite retirement commit;
+lost commits and unknown/rejected deletion remain fenced. Canonical physical ownership
+still requires the independent trusted generation/owner bridge.
+
+`createPostgresEmailTracking` and `createTrackedEmailSubmission` retain encrypted tracking
+ACKs and authenticated/read-verified actual sent associations. An ACK remains unknown to
+the ordinary messaging contract. A recorded association can supply the journal's matching
+read-only reconciliation evidence; it never writes that journal or charges quota itself.
+Configure the tracking read transaction below the outer journal verification budget, and
+compose its positional verifier explicitly with the journal's object/signal callback.
+
+Both repositories build and pass scripted/native/independent review tests. Their new
+standalone5446 migrations003/004 are **unapproved and unapplied**;30 actual PostgreSQL cases
+are prepared but unexecuted. Neither runtime provider action nor schema operation occurs
+on import/startup. [Retirement review](../docs/communications/connection-retirement-design.md)
+and [tracking TDD](../docs/communications/email-tracking-tdd.md) describe the exact artifacts
+and required authority. Actual database verification and full runtime activation remain
+separate gates.

@@ -6,40 +6,18 @@ import { chmodSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSyn
 import { createRequire } from 'node:module';
 import { basename, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseStandaloneEnv, validateStandaloneContainer } from './communications-standalone-fixture-guards.mjs';
+export { parseStandaloneEnv, validateStandaloneContainer } from './communications-standalone-fixture-guards.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const privateDirectory = join(root, '.local-data/communications');
 const containerName = 'acquire-communications-standalone-postgres-1';
 const imageReference = 'postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193';
-const tables = ['access_grants', 'physical_accounts', 'connections', 'connection_generations', 'operation_journal', 'account_leases', 'quota_buckets', 'auth_states', 'identity_aliases', 'event_cursors', 'webhook_inbox', 'events', 'event_outbox', 'tenant_reply_barriers', 'webhook_receipt_routes', 'reply_review_latches'].sort();
+const tables = ['access_grants', 'physical_accounts', 'connections', 'connection_generations', 'operation_journal', 'account_leases', 'quota_buckets', 'auth_states', 'identity_aliases', 'event_cursors', 'webhook_inbox', 'events', 'event_outbox', 'tenant_reply_barriers', 'webhook_receipt_routes', 'reply_review_latches', ...(process.env.COMMUNICATIONS_STANDALONE_LIFECYCLE_SCHEMA === '1' ? ['connection_retirements','email_tracking_acknowledgements','email_tracking_associations'] : [])].sort();
 const sha = value => createHash('sha256').update(value).digest('hex');
 const hash = value => sha(JSON.stringify(value));
 const vector = b => [b.applicationId, b.tenantId, b.ownerId, b.connectionId, b.accountId, b.generation, b.channel, b.platform, b.backend];
 
-export function validateStandaloneContainer(m) {
-  assert.equal(m.Name, `/${containerName}`);
-  assert.equal(m.Config?.Labels?.['acquire.fixture'], 'communications-standalone');
-  assert.equal(m.Config?.Labels?.['com.docker.compose.project'], 'acquire-communications-standalone');
-  assert.equal(m.Config?.Image, imageReference);
-  assert.equal(m.State?.Running, true); assert.equal(m.State?.Health?.Status, 'healthy');
-  assert.equal(m.HostConfig?.NetworkMode, 'acquire-communications-standalone_default');
-  const ports = { '5432/tcp': [{ HostIp: '127.0.0.1', HostPort: '5446' }] };
-  assert.deepEqual(m.HostConfig.PortBindings, ports); assert.deepEqual(m.NetworkSettings?.Ports, ports);
-  assert.match(m.Image, /^sha256:[a-f0-9]{64}$/);
-  return m.Image;
-}
-export function parseStandaloneEnv(text) {
-  const v = Object.create(null);
-  for (const line of text.split(/\r?\n/)) {
-    if (!line || line.startsWith('#')) continue;
-    const match = /^(POSTGRES_USER|POSTGRES_DB|POSTGRES_PASSWORD)=([A-Za-z0-9_-]+)$/.exec(line);
-    assert.ok(match && !Object.hasOwn(v, match[1]), 'Invalid fixture credential format');
-    v[match[1]] = match[2];
-  }
-  assert.equal(v.POSTGRES_USER, 'communications_fixture'); assert.equal(v.POSTGRES_DB, 'communications_fixture');
-  assert.match(v.POSTGRES_PASSWORD ?? '', /^[A-Za-z0-9_-]{32,256}$/);
-  return v;
-}
 export function validateHashes(expected, actual) {
   assert.ok(expected && typeof expected === 'object' && !Array.isArray(expected) && Object.keys(expected).length);
   for (const [path, digest] of Object.entries(expected)) {
@@ -85,9 +63,9 @@ function copiedPackage() {
   return { api, report, copy, compiled };
 }
 function selfTest() {
-  const m = { Name: `/${containerName}`, Image: `sha256:${'a'.repeat(64)}`, Config: { Image: imageReference, Labels: { 'acquire.fixture': 'communications-standalone', 'com.docker.compose.project': 'acquire-communications-standalone' } }, State: { Running: true, Health: { Status: 'healthy' } }, HostConfig: { NetworkMode: 'acquire-communications-standalone_default', PortBindings: { '5432/tcp': [{ HostIp: '127.0.0.1', HostPort: '5446' }] } }, NetworkSettings: { Ports: { '5432/tcp': [{ HostIp: '127.0.0.1', HostPort: '5446' }] } } };
+  const m = { Name: `/${containerName}`, Image: imageReference.slice('postgres@'.length), Config: { Image: imageReference, Labels: { 'acquire.fixture': 'communications-standalone', 'com.docker.compose.project': 'acquire-communications-standalone' } }, State: { Running: true, Health: { Status: 'healthy' } }, HostConfig: { NetworkMode: 'acquire-communications-standalone_default', PortBindings: { '5432/tcp': [{ HostIp: '127.0.0.1', HostPort: '5446' }] } }, NetworkSettings: { Ports: { '5432/tcp': [{ HostIp: '127.0.0.1', HostPort: '5446' }] } } };
   assert.equal(validateStandaloneContainer(m), m.Image);
-  for (const change of [v => { v.Name = '/another'; }, v => { v.Config.Labels['acquire.fixture'] = 'other'; }, v => { v.Config.Labels['com.docker.compose.project'] = 'other'; }, v => { v.State.Running = false; }, v => { v.State.Health.Status = 'unhealthy'; }, v => { v.HostConfig.NetworkMode = 'host'; }, v => { v.HostConfig.PortBindings['5432/tcp'][0].HostIp = '0.0.0.0'; }, v => { v.NetworkSettings.Ports['5432/tcp'][0].HostPort = '5434'; }, v => { v.NetworkSettings.Ports['8080/tcp'] = []; }, v => { v.Image = 'postgres:latest'; }]) { const altered = structuredClone(m); change(altered); assert.throws(() => validateStandaloneContainer(altered)); }
+  for (const change of [v => { v.Name = '/another'; }, v => { v.Config.Labels['acquire.fixture'] = 'other'; }, v => { v.Config.Labels['com.docker.compose.project'] = 'other'; }, v => { v.State.Running = false; }, v => { v.State.Health.Status = 'unhealthy'; }, v => { v.HostConfig.NetworkMode = 'host'; }, v => { v.HostConfig.PortBindings['5432/tcp'][0].HostIp = '0.0.0.0'; }, v => { v.NetworkSettings.Ports['5432/tcp'][0].HostPort = '5434'; }, v => { v.NetworkSettings.Ports['8080/tcp'] = []; }, v => { v.Image = 'postgres:latest'; }, v => { v.Image = `sha256:${'f'.repeat(64)}`; }]) { const altered = structuredClone(m); change(altered); assert.throws(() => validateStandaloneContainer(altered)); }
   const wrongImage = structuredClone(m); wrongImage.Config.Image = 'postgres:latest'; assert.throws(() => validateStandaloneContainer(wrongImage));
   const env = `POSTGRES_USER=communications_fixture\nPOSTGRES_DB=communications_fixture\nPOSTGRES_PASSWORD=${'x'.repeat(43)}\n`;
   assert.equal(parseStandaloneEnv(env).POSTGRES_DB, 'communications_fixture');
@@ -171,7 +149,7 @@ async function main() {
       cases.push({ channel, journal: 'encrypted_disabled_replay', webhook: 'encrypted_processed_replay', applicationReceipt: 'synthetic_memory_commit_before_ack', outbox: 'acknowledged_terminal_replay', pendingGate: 'blocked_before_ack_clear_after', providerWrites: 0 });
     }
     validateHashes(copied.compiled, inventory(join(copied.copy, 'dist'))); validateHashes(copied.report.sourceHashes, inventory(join(root, 'communications'), true)); assert.equal(await publicRelationCount(), 0);
-    completedReport = { checkedAt: new Date().toISOString(), scope: 'Service-only PostgreSQL, independently installed copied modules, synthetic authority ports', database: 'communications_fixture', databaseSystemIdentifier: insideId, container: containerName, image, dockerContext: 'orbstack', copiedPackage: copied.copy, sourceHashes: copied.report.sourceHashes, compiledHashes: copied.report.compiledHashes, dependencyLockSha256: copied.report.resolvedDependencyLockSha256, scriptSha256: sha(readFileSync(fileURLToPath(import.meta.url))), serviceTablesForceRls: 16, publicRelations: 0, acquireTables: 0, acquireRoles: 0, cases, providerWrites: 0, migrationsApplied: 0, applicationPostgresProof: false, completeReplyCoverageProof: false, applicationReadinessProof: false, completeDispatchRepositoryProof: false, wholeBackendRuntimeExtractionVerified: false };
+    completedReport = { checkedAt: new Date().toISOString(), scope: 'Service-only PostgreSQL, independently installed copied modules, synthetic authority ports', database: 'communications_fixture', databaseSystemIdentifier: insideId, container: containerName, image, dockerContext: 'orbstack', copiedPackage: copied.copy, sourceHashes: copied.report.sourceHashes, compiledHashes: copied.report.compiledHashes, dependencyLockSha256: copied.report.resolvedDependencyLockSha256, scriptSha256: sha(readFileSync(fileURLToPath(import.meta.url))), serviceTablesForceRls: tables.length, publicRelations: 0, acquireTables: 0, acquireRoles: 0, cases, providerWrites: 0, migrationsApplied: 0, applicationPostgresProof: false, completeReplyCoverageProof: false, applicationReadinessProof: false, completeDispatchRepositoryProof: false, wholeBackendRuntimeExtractionVerified: false };
   } finally {
     let cleanupFailed = false;
     try {
