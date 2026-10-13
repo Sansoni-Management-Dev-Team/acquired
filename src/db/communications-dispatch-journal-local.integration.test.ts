@@ -375,4 +375,101 @@ describe.skipIf(!enabled)('isolated PostgreSQL gated dispatch journal', () => {
     expect(await lease(f)).toEqual(originalLease);
     expect((await local.pool.query('SELECT count(*)::integer AS buckets,sum(used)::integer AS used FROM communications.quota_buckets WHERE account_id=$1', [b.accountId])).rows[0]).toEqual({ buckets: 2, used: 2 });
   });
+  // Synthetic trusted SQL admission fixtures exercise result storage only. They
+  // do not prove a held application permit or enable production dispatch.
+  async function admitted(f: Fixture, repo = repository(f)) {
+    const d = claimed(await repo.claim(f.input)), original = await stored(f), c = await local.pool.connect();
+    try {
+      await c.query('BEGIN'); await c.query('SET LOCAL ROLE communications_control');
+      await f.barrier.lock(c, f.binding.applicationId, f.binding.tenantId);
+      for (const kind of ['account', 'application']) await c.query("INSERT INTO communications.quota_buckets(account_id,bucket_kind,application_id,window_kind,window_start,used,limit_value) VALUES($1,$2,$3,'hour',date_trunc('hour',clock_timestamp()),1,100)", [f.binding.accountId, kind, kind === 'account' ? '' : f.binding.applicationId]);
+      await c.query("UPDATE communications.operation_journal SET state='dispatching',quota_reserved=true WHERE id=$1", [original.id]);
+      await c.query('COMMIT');
+    } catch (error) { await c.query('ROLLBACK'); throw error; } finally { c.release(); }
+    const current = await repo.get(f.snapshot); if (!current || current.state !== 'dispatching') throw Error('Synthetic admission absent');
+    return { token: d.token, record: current };
+  }
+  function accepted(f: Fixture) {
+    return { status: 'submitted' as const, receipt: { message: { binding: f.binding, id: `accepted-${f.suffix}` }, conversation: f.input.conversation, recipient: f.recipient, submittedAt: new Date().toISOString() } };
+  }
+  async function quota(f: Fixture) { return (await local.pool.query('SELECT bucket_kind,used FROM communications.quota_buckets WHERE account_id=$1 ORDER BY bucket_kind', [f.binding.accountId])).rows; }
+  it.each(['email','whatsapp','linkedin'] as const)('durably completes an admitted %s receipt without replacing context or charging quota again', async channel => {
+    const f = await fixture(channel), repo = repository(f), d = await admitted(f, repo), outcome = accepted(f), before = await stored(f), originalQuota = await quota(f);
+    const result = await repo.complete({ ...d, outcome });
+    expect(result).toEqual({ ...f.input, message: outcome.receipt.message, state: 'completed', outcome });
+    const finished = await stored(f);
+    expect(finished.state).toBe('submitted'); expect(finished.encrypted_operation_context).toBe(before.encrypted_operation_context);
+    expect(finished.encrypted_receipt).not.toContain(outcome.receipt.message.id); expect(finished.quota_reserved).toBe(true);
+    expect(await repo.complete({ ...d, outcome })).toEqual(result); expect(await stored(f)).toEqual(finished);
+    expect(await quota(f)).toEqual(originalQuota); expect(await repo.get(f.snapshot)).toEqual(result);
+    expect(await repo.claim(f.input)).toEqual({ kind: 'existing', record: result });
+  });
+  it('records unknown for an expired in-flight lease without reclaiming or resubmitting', async () => {
+    const f = await fixture(), repo = repository(f), d = await admitted(f, repo), before = await stored(f), originalQuota = await quota(f);
+    await local.pool.query("UPDATE communications.account_leases SET expires_at=clock_timestamp()-interval '1 second' WHERE account_id=$1", [f.binding.accountId]);
+    expect(await repo.complete({ ...d, outcome: { status: 'unknown' } })).toEqual({ ...d.record, state: 'unknown', outcome: { status: 'unknown' } });
+    const after = await stored(f); expect(after.claim_token).toBe(before.claim_token); expect(after.quota_reserved).toBe(true);
+    expect(await quota(f)).toEqual(originalQuota); expect((await repo.claim(f.input)).kind).toBe('existing');
+  });
+  it('persists a definite admitted rejection while retaining charged quota', async () => {
+    const f = await fixture(), repo = repository(f), d = await admitted(f, repo), outcome = { status: 'rejected' as const, code: 'confirmed_not_accepted' }, before = await quota(f);
+    expect(await repo.complete({ ...d, outcome })).toEqual({ ...d.record, state: 'completed', outcome });
+    expect((await stored(f)).quota_reserved).toBe(true); expect(await quota(f)).toEqual(before);
+  });
+  it('rejects accepted completion from a stale lease without changing the unresolved journal', async () => {
+    const f = await fixture(), repo = repository(f), d = await admitted(f, repo), before = await stored(f);
+    await local.pool.query("UPDATE communications.account_leases SET expires_at=clock_timestamp()-interval '1 second' WHERE account_id=$1", [f.binding.accountId]);
+    await expect(repo.complete({ ...d, outcome: accepted(f) })).rejects.toThrow(); expect(await stored(f)).toEqual(before);
+  });
+  it('preserves accepted durable result after a lost completion COMMIT response', async () => {
+    const f = await fixture('email'), repo = repository(f), d = await admitted(f, repo), lost = lostCommitPool(), outcome = accepted(f);
+    await expect(repository(f, { pool: lost.pool }).complete({ ...d, outcome })).rejects.toThrow();
+    expect(lost.errors).toHaveLength(1); expect(lost.statements.at(-1)).toBe('COMMIT');
+    expect((await repo.get(f.snapshot))?.state).toBe('completed');
+    expect(await repo.complete({ ...d, outcome })).toEqual(await repo.get(f.snapshot));
+  });
+
+  it.each(['email','whatsapp','linkedin'] as const)('reconciles an admitted unknown %s only from matching trusted read-only evidence', async channel => {
+    const f = await fixture(channel), ordinary = repository(f), d = await admitted(f, ordinary);
+    const unknown = await ordinary.complete({ ...d, outcome: { status: 'unknown' } }), outcome = accepted(f), verify = vi.fn(async (input: unknown, signal: AbortSignal) => { void input; void signal; return outcome; });
+    const repo = repository(f, { verifyReconciliation: verify } as Partial<PostgresDispatchJournalOptions>);
+    await local.pool.query("UPDATE communications.account_leases SET expires_at=clock_timestamp()-interval '1 second' WHERE account_id=$1", [f.binding.accountId]);
+    const before = await stored(f), charged = await quota(f);
+    const result = await repo.reconcile({ record: unknown, outcome });
+    expect(result).toEqual({ ...f.input, message: outcome.receipt.message, state: 'completed', outcome });
+    expect(verify).toHaveBeenCalledOnce(); expect(verify.mock.calls[0][0]).toEqual({ record: unknown, outcome });
+    const after = await stored(f); expect(after.resolution_evidence_digest).toMatch(/^[a-f0-9]{64}$/);
+    expect(after.encrypted_operation_context).toBe(before.encrypted_operation_context); expect(after.claim_token).toBe(before.claim_token);
+    expect(await quota(f)).toEqual(charged); expect(await repo.reconcile({ record: unknown, outcome })).toEqual(result);
+    expect(verify).toHaveBeenCalledOnce(); expect(await stored(f)).toEqual(after);
+  });
+  it('refuses caller-proposed acceptance when the read-only verifier disagrees', async () => {
+    const f = await fixture('email'), ordinary = repository(f), d = await admitted(f, ordinary), unknown = await ordinary.complete({ ...d, outcome: { status: 'unknown' } }), wanted = accepted(f), before = await stored(f);
+    const verify = vi.fn(async () => ({ ...wanted, receipt: { ...wanted.receipt, message: { binding: f.binding, id: 'different-original-message' } } }));
+    const repo = repository(f, { verifyReconciliation: verify } as Partial<PostgresDispatchJournalOptions>);
+    await expect(repo.reconcile({ record: unknown, outcome: wanted })).rejects.toThrow(); expect(verify).toHaveBeenCalledOnce(); expect(await stored(f)).toEqual(before);
+  });
+  it('denies revoked authority before any reconciliation provider read', async () => {
+    const f = await fixture(), ordinary = repository(f), d = await admitted(f, ordinary), unknown = await ordinary.complete({ token: d.token, record: d.record, outcome: { status: 'unknown' } }), wanted = accepted(f), before = await stored(f), verify = vi.fn(async () => wanted);
+    const repo = repository(f, { verifyReconciliation: verify } as Partial<PostgresDispatchJournalOptions>);
+    await local.pool.query('UPDATE communications.access_grants SET revoked_at=clock_timestamp() WHERE application_id=$1', [f.binding.applicationId]);
+    await expect(repo.reconcile({ record: unknown, outcome: wanted })).rejects.toThrow(); expect(verify).not.toHaveBeenCalled(); expect(await stored(f)).toEqual(before);
+  });
+  it('rechecks revocation after provider evidence before changing the original unknown result', async () => {
+    const f = await fixture(), ordinary = repository(f), d = await admitted(f, ordinary), unknown = await ordinary.complete({ ...d, outcome: { status: 'unknown' } }), wanted = accepted(f), before = await stored(f);
+    const repo = repository(f, { verifyReconciliation: async () => { await local.pool.query('UPDATE communications.access_grants SET revoked_at=clock_timestamp() WHERE application_id=$1', [f.binding.applicationId]); return wanted; } } as Partial<PostgresDispatchJournalOptions>);
+    await expect(repo.reconcile({ record: unknown, outcome: wanted })).rejects.toThrow(); expect(await stored(f)).toEqual(before);
+  });
+  it('does not reconcile an unadmitted uncertain claim even with a verifier configured', async () => {
+    const f = await fixture(), ordinary = repository(f), d = claimed(await ordinary.claim(f.input)), unknown = await ordinary.complete({ token: d.token, record: d.record, outcome: { status: 'unknown' } }), wanted = accepted(f), before = await stored(f), verify = vi.fn(async () => wanted);
+    const repo = repository(f, { verifyReconciliation: verify } as Partial<PostgresDispatchJournalOptions>);
+    await expect(repo.reconcile({ record: unknown, outcome: wanted })).rejects.toThrow(); expect(verify).not.toHaveBeenCalled(); expect(await stored(f)).toEqual(before); await noQuota(f);
+  });
+  it('bounds provider evidence and ignores late acceptance without a journal change', async () => {
+    const f = await fixture(), ordinary = repository(f), d = await admitted(f, ordinary), unknown = await ordinary.complete({ ...d, outcome: { status: 'unknown' } }), wanted = accepted(f), before = await stored(f); let signal: AbortSignal | undefined;
+    const repo = repository(f, { reconciliationTimeoutMs: 5, verifyReconciliation: async (_input: unknown, abort: AbortSignal) => { signal = abort; await new Promise(resolve => setTimeout(resolve,25)); return wanted; } } as Partial<PostgresDispatchJournalOptions>);
+    await expect(repo.reconcile({ record: unknown, outcome: wanted })).rejects.toThrow(); await new Promise(resolve => setTimeout(resolve,35));
+    expect(signal?.aborted).toBe(true); expect(await stored(f)).toEqual(before);
+  });
+
 });

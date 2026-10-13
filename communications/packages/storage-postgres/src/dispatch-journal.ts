@@ -35,6 +35,10 @@ export interface PostgresDispatchJournalOptions {
     transactionTimeoutMs?: number;
     statementTimeoutMs?: number;
     lockTimeoutMs?: number;
+    /** Trusted read-only original-provider lookup. Never infer acceptance from a
+     * caller proposal or a missing message. Must enforce original account ownership. */
+    verifyReconciliation?(input: { record: DispatchRecord; outcome: DeliveryOutcome }, signal: AbortSignal): Promise<DeliveryOutcome | null>;
+    reconciliationTimeoutMs?: number;
 }
 const bindingFields = ['applicationId', 'tenantId', 'ownerId', 'connectionId', 'accountId', 'generation', 'channel', 'platform', 'backend'] as const;
 const retryCodes = ['incomplete', 'stale', 'busy', 'timeout', 'rate_limited', 'unavailable', 'identity_pending'];
@@ -79,14 +83,16 @@ type Context = {
     recipient: CanonicalIdentity;
     message?: ProviderReference;
 } & DispatchMetadata;
-/** Bounded P2.3 claim/preflight persistence only. Dispatch is ALWAYS disabled; no quota writes,
- * submitted completion, provider I/O, default permission, lease reclaim of existing operations,
- * or reconciliation proof is implemented. Historical reads retain original immutable generation.
+/** Bounded P2.3 claim/preflight and fenced result persistence. Dispatch admission is
+ * ALWAYS disabled; no quota writes, provider I/O, default permission or lease reclaim.
+ * Completion may record results of an already admitted original operation; this does
+ * not create an application permit or admit any new work. Reconciliation requires
+ * a configured trusted read-only verifier and a previously reserved original operation. Historical reads retain original immutable generation.
  * release(error) must physically terminate the checked-out session, as pg.PoolClient does. */
 export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJournalOptions): DispatchJournalPort {
     let options: PostgresDispatchJournalOptions;
     try {
-        options = record(inputOptions, ['pool', 'binding', 'integrationId', 'providerConfigurationReference', 'providerApiVersion', 'authority', 'leaseOwnerToken', 'codec', 'recipientDigest'], ['claimSeconds', 'leaseSeconds', 'transactionTimeoutMs', 'statementTimeoutMs', 'lockTimeoutMs']) as unknown as PostgresDispatchJournalOptions;
+        options = record(inputOptions, ['pool', 'binding', 'integrationId', 'providerConfigurationReference', 'providerApiVersion', 'authority', 'leaseOwnerToken', 'codec', 'recipientDigest'], ['claimSeconds', 'leaseSeconds', 'transactionTimeoutMs', 'statementTimeoutMs', 'lockTimeoutMs', 'verifyReconciliation', 'reconciliationTimeoutMs']) as unknown as PostgresDispatchJournalOptions;
     }
     catch {
         throw Error('Invalid dispatch journal configuration');
@@ -94,6 +100,8 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
     let fixed: ConnectionBinding;
     let activeCodecVersion: string, activeRecipientVersion: string;
     let connect: SqlPool['connect'], encode: DispatchJournalCodec['encode'], decode: DispatchJournalCodec['decode'], digest: DispatchJournalCodec['digest'], identityDigest: CanonicalRecipientDigest['digest'];
+    const reconciliationTimeout = options.reconciliationTimeoutMs ?? 3000;
+    let verification: PostgresDispatchJournalOptions['verifyReconciliation'];
     const claimSeconds = options.claimSeconds ?? 60, leaseSeconds = options.leaseSeconds ?? 60, timeout = options.transactionTimeoutMs ?? 20000, statementTimeout = options.statementTimeoutMs ?? 5000, lockTimeout = options.lockTimeoutMs ?? 1000;
     try {
         observe(options.pool);
@@ -112,6 +120,9 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
         // Capture each callable once while configuration exceptions remain sanitized.
         // An accessor must not change the method between validation and binding.
         const connectPort = options.pool?.connect, encodePort = options.codec?.encode, decodePort = options.codec?.decode, digestPort = options.codec?.digest, identityPort = options.recipientDigest?.digest;
+        if (!Number.isSafeInteger(reconciliationTimeout) || reconciliationTimeout < 1 || reconciliationTimeout > 5000 || reconciliationTimeout + timeout >= 30000 || options.verifyReconciliation !== undefined && typeof options.verifyReconciliation !== 'function') fail();
+        const verifierPort = options.verifyReconciliation;
+        verification = verifierPort === undefined ? undefined : Function.prototype.bind.call(verifierPort, options);
         if (typeof connectPort !== 'function' || typeof encodePort !== 'function' || typeof decodePort !== 'function' || typeof digestPort !== 'function' || typeof identityPort !== 'function')
             fail();
         connect = Function.prototype.bind.call(connectPort, options.pool);
@@ -272,9 +283,9 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
                 status: 'unknown';
             }> };
     }
-    async function transaction<T>(work: (c: SqlClient) => Promise<T>): Promise<T> {
+    async function transaction<T>(work: (c: SqlClient) => Promise<T>, operationDeadline?: number): Promise<T> {
         let client: SqlClient | undefined, released = false, expired = false, commitAttempted = false, inFlight = 0, discard: Error | undefined;
-        const deadline = performance.now() + timeout;
+        const deadline = Math.min(performance.now() + timeout, operationDeadline ?? Number.POSITIVE_INFINITY);
         const dispose = () => { if (!client || released)
             return; released = true; try {
             client.release(discard);
@@ -341,7 +352,7 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
         };
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
-            const stopped = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { expire(); reject(Error('Dispatch journal unavailable')); }, timeout); });
+            const stopped = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { expire(); reject(Error('Dispatch journal unavailable')); }, Math.max(1, Math.ceil(deadline - performance.now()))); });
             return await Promise.race([Promise.resolve().then(run), stopped]);
         }
         finally {
@@ -372,7 +383,7 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
             fail();
         return { fence: bigint(changed.rows[0].fencing_token) };
     }
-    async function owned(c: SqlClient, r: Record<string, unknown>, token: string) { if (r.state !== 'claimed' || r.quota_reserved !== false || r.claim_token !== token || r.lease_owner_token !== worker || r.claim_alive !== true)
+    async function owned(c: SqlClient, r: Record<string, unknown>, token: string, state: 'claimed' | 'dispatching' = 'claimed') { if (r.state !== state || r.quota_reserved !== (state === 'dispatching') || r.claim_token !== token || r.lease_owner_token !== worker || r.claim_alive !== true)
         fail(); const l = await c.query('SELECT account_id,owner_token,fencing_token::text AS fencing_token,(expires_at>clock_timestamp()) AS alive FROM communications.account_leases WHERE account_id=$1 FOR UPDATE', [fixed.accountId]); if (l.rows.length !== 1 || l.rows[0].account_id !== fixed.accountId || l.rows[0].owner_token !== worker || l.rows[0].alive !== true || bigint(l.rows[0].fencing_token) !== bigint(r.fencing_token))
         fail(); }
     function mutation(input: unknown, withOutcome: boolean) { const raw = record(input, ['token', 'record', ...(withOutcome ? ['outcome'] : [])]); if (!id(raw.token))
@@ -462,7 +473,7 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
             let m: ReturnType<typeof mutation>;
             try {
                 m = mutation(input, true);
-                if (m.outcome?.status === 'submitted')
+                if (m.outcome?.status === 'submitted' && !['dispatching', 'completed'].includes(m.provided.state))
                     fail();
             }
             catch {
@@ -479,7 +490,13 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
                 if (!found)
                     fail();
                 const current = read(found, m.provided.snapshot);
-                if (found.claim_token !== m.token || !isDeepStrictEqual(base(current), base(m.provided)))
+                const originalContext = context(open(current.snapshot, 'context', found.encrypted_operation_context, found.operation_context_key_version), true);
+                const declaredContext = base(m.provided);
+                if (m.provided.state === 'completed' && current.state === 'completed' && !originalContext.message) {
+                    if (!isDeepStrictEqual(m.provided.message, current.message)) fail();
+                    delete declaredContext.message;
+                }
+                if (found.claim_token !== m.token || !isDeepStrictEqual(originalContext, declaredContext))
                     fail();
                 const wanted = m.outcome!;
                 if (current.state === 'completed' || current.state === 'unknown') {
@@ -490,14 +507,28 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
                     await c.query('COMMIT');
                     return current;
                 }
-                if (m.provided.state !== 'claimed')
-                    fail();
-                await owned(c, found, m.token);
+                if (m.provided.state !== current.state || !['claimed', 'dispatching'].includes(current.state)) fail();
+                if (current.state === 'dispatching') {
+                    if (found.quota_reserved !== true || found.lease_owner_token !== worker) fail();
+                    // A stale worker may conservatively record uncertainty, but never
+                    // a terminal acceptance/rejection without its live original fence.
+                    if (wanted.status !== 'unknown') await owned(c, found, m.token, 'dispatching');
+                } else await owned(c, found, m.token);
                 const target = wanted.status === 'unknown' ? 'unknown' : wanted.status === 'waiting' || wanted.status === 'review' ? 'blocked' : wanted.status;
-                if (!['unknown', 'blocked', 'rejected', 'skipped'].includes(target))
+                if (!['unknown', 'blocked', 'rejected', 'skipped', 'submitted'].includes(target))
                     fail();
+                if (wanted.status === 'submitted') {
+                    if (current.state !== 'dispatching' || found.quota_reserved !== true) fail();
+                    const encryptedReceipt = seal(current.snapshot, 'receipt', wanted.receipt);
+                    const facts = wanted.receipt as unknown as Record<string, unknown>;
+                    const accepted = await c.query(`UPDATE communications.operation_journal SET state='submitted',encrypted_receipt=$5,receipt_key_version=$6,submitted_at=$7::timestamptz,delivered_at=$8::timestamptz,read_at=$9::timestamptz,updated_at=clock_timestamp() WHERE application_id=$1 AND tenant_id=$2 AND owner_id=$3 AND operation_key=$4 AND state='dispatching' AND claim_token=$10 AND claim_until>clock_timestamp() AND quota_reserved=true AND EXISTS(SELECT 1 FROM communications.account_leases l WHERE l.account_id=communications.operation_journal.account_id AND l.owner_token=communications.operation_journal.lease_owner_token AND l.fencing_token=communications.operation_journal.fencing_token AND l.expires_at>clock_timestamp()) RETURNING ${columns}`, [...scopes, current.snapshot.key, encryptedReceipt.json, encryptedReceipt.version, facts.submittedAt ?? null, facts.deliveredAt ?? null, facts.readAt ?? null, m.token]);
+                    if (accepted.rows.length !== 1 || !await grant(c)) fail();
+                    const completed = read(accepted.rows[0], current.snapshot);
+                    if (completed.state !== 'completed' || !isDeepStrictEqual(completed.outcome, wanted)) fail();
+                    await c.query('COMMIT'); return completed;
+                }
                 const encrypted = wanted.status === 'unknown' ? null : seal(current.snapshot, 'outcome', wanted);
-                const changed = await c.query(`UPDATE communications.operation_journal SET state=$5,outcome_status=$6,encrypted_outcome=$7,outcome_key_version=$8,updated_at=clock_timestamp() WHERE application_id=$1 AND tenant_id=$2 AND owner_id=$3 AND operation_key=$4 AND state='claimed' AND claim_token=$9 AND claim_until>clock_timestamp() AND quota_reserved=false AND EXISTS(SELECT 1 FROM communications.account_leases l WHERE l.account_id=communications.operation_journal.account_id AND l.owner_token=communications.operation_journal.lease_owner_token AND l.fencing_token=communications.operation_journal.fencing_token AND l.expires_at>clock_timestamp()) RETURNING ${columns}`, [...scopes, current.snapshot.key, target, wanted.status === 'unknown' ? null : wanted.status, encrypted?.json ?? null, encrypted?.version ?? null, m.token]);
+                const changed = await c.query(`UPDATE communications.operation_journal SET state=$5,outcome_status=$6,encrypted_outcome=$7,outcome_key_version=$8,updated_at=clock_timestamp() WHERE application_id=$1 AND tenant_id=$2 AND owner_id=$3 AND operation_key=$4 AND state=$10 AND claim_token=$9 AND quota_reserved=$11 AND ($12::boolean OR (claim_until>clock_timestamp() AND EXISTS(SELECT 1 FROM communications.account_leases l WHERE l.account_id=communications.operation_journal.account_id AND l.owner_token=communications.operation_journal.lease_owner_token AND l.fencing_token=communications.operation_journal.fencing_token AND l.expires_at>clock_timestamp()))) RETURNING ${columns}`, [...scopes, current.snapshot.key, target, wanted.status === 'unknown' ? null : wanted.status, encrypted?.json ?? null, encrypted?.version ?? null, m.token, current.state, current.state === 'dispatching', current.state === 'dispatching' && wanted.status === 'unknown']);
                 if (changed.rows.length !== 1 || !await grant(c))
                     fail();
                 const completed = read(changed.rows[0], current.snapshot);
@@ -507,12 +538,62 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
                 return completed;
             });
         },
-        async reconcile(input) { try {
-            const r = record(input, ['record', 'outcome']), stored = parsedRecord(r.record);
-            outcome(r.outcome, stored.snapshot, base(stored));
-        }
-        catch {
-            return fail();
-        } return fail(); },
+        async reconcile(input) {
+            let requested: DispatchRecord, wanted: DeliveryOutcome;
+            try {
+                const raw = record(input, ['record', 'outcome']);
+                requested = parsedRecord(raw.record);
+                wanted = outcome(raw.outcome, requested.snapshot, base(requested));
+                if (!verification || !['unknown', 'dispatching', 'completed'].includes(requested.state) || wanted.status !== 'submitted') fail();
+            } catch { return fail(); }
+            // Both database phases and provider verification share one monotonic
+            // budget; a fresh second transaction cannot renew the method deadline.
+            const operationDeadline = performance.now() + timeout + reconciliationTimeout;
+            const original = async (c: SqlClient, lock: boolean) => {
+                if (!await generation(c) || !await grant(c)) fail();
+                const found = await row(c, requested.snapshot.key, lock); if (!found) fail();
+                const current = read(found, requested.snapshot);
+                const contextBefore = context(open(current.snapshot, 'context', found.encrypted_operation_context, found.operation_context_key_version), true);
+                const declared = base(requested);
+                if (requested.state === 'completed' && current.state === 'completed' && !contextBefore.message) {
+                    if (!isDeepStrictEqual(requested.message, current.message)) fail(); delete declared.message;
+                }
+                if (!isDeepStrictEqual(contextBefore, declared) || found.quota_reserved !== true) fail();
+                if (current.state === 'completed') {
+                    if (!isDeepStrictEqual(current.outcome, wanted)) fail();
+                } else if (!['unknown', 'dispatching'].includes(current.state)) fail();
+                return { found, current };
+            };
+            // Authorization precedes provider reads. This separate committed read is
+            // not a durable send permit and authorizes no provider mutation.
+            const observed = await transaction(async c => {
+                const { current } = await original(c, false);
+                if (!await grant(c)) fail(); await c.query('COMMIT'); return current;
+            }, operationDeadline);
+            if (observed.state === 'completed') return observed;
+            const controller = new AbortController(), deadline = Math.min(performance.now() + reconciliationTimeout, operationDeadline);
+            let timer: ReturnType<typeof setTimeout> | undefined;
+            try {
+                if (performance.now() >= deadline) fail();
+                const stopped = new Promise<never>((_resolve, reject) => { timer = setTimeout(() => { controller.abort(); reject(Error('Reconciliation unavailable')); }, Math.max(1, Math.ceil(deadline - performance.now()))); });
+                const pending = Promise.resolve().then(() => verification!(structuredClone({ record: observed, outcome: wanted }), controller.signal));
+                const evidence = await Promise.race([pending, stopped]);
+                if (controller.signal.aborted || performance.now() >= deadline || evidence === null || !isDeepStrictEqual(outcome(evidence, requested.snapshot, base(observed)), wanted)) fail();
+            } catch { return fail(); } finally { clearTimeout(timer); controller.abort(); }
+            return transaction(async c => {
+                await tenant(c); await account(c);
+                const { found, current } = await original(c, true);
+                if (current.state === 'completed') { if (!await grant(c)) fail(); await c.query('COMMIT'); return current; }
+                if (wanted.status !== 'submitted') fail();
+                const encrypted = seal(current.snapshot, 'receipt', wanted.receipt), proof = observe(digest(structuredClone(current.snapshot), 'receipt', structuredClone(wanted.receipt), encrypted.version));
+                if (!hex(proof)) fail();
+                const facts = wanted.receipt as unknown as Record<string, unknown>;
+                const changed = await c.query(`UPDATE communications.operation_journal SET state='submitted',encrypted_receipt=$5,receipt_key_version=$6,submitted_at=$7::timestamptz,delivered_at=$8::timestamptz,read_at=$9::timestamptz,resolution_evidence_digest=$10,updated_at=clock_timestamp() WHERE application_id=$1 AND tenant_id=$2 AND owner_id=$3 AND operation_key=$4 AND state=$11 AND quota_reserved=true AND claim_token=$12 RETURNING ${columns}`, [...scopes, current.snapshot.key, encrypted.json, encrypted.version, facts.submittedAt ?? null, facts.deliveredAt ?? null, facts.readAt ?? null, proof, found.state, found.claim_token]);
+                if (changed.rows.length !== 1 || !await grant(c)) fail();
+                const completed = read(changed.rows[0], current.snapshot);
+                if (completed.state !== 'completed' || !isDeepStrictEqual(completed.outcome, wanted)) fail();
+                await c.query('COMMIT'); return completed;
+            }, operationDeadline);
+        },
     };
 }

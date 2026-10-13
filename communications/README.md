@@ -9,8 +9,8 @@ depend only on Node built-ins and injected ports.
 | --- | --- |
 | `packages/contracts` | Connection/account/generation ownership, canonical identities, capabilities, coverage and receipt provenance |
 | `packages/core` | Stable content/draft fingerprints, encrypted codecs, dispatch coordination and authoritative reply/setup/outbox ports |
-| `packages/adapter-unipile` | V1 transport/social adapter, exact account/chat/receipt and all-channel reply normalization, hosted setup and version-specific webhook authentication; separate provisional v2 transport |
-| `packages/storage-postgres` | Driver-injected encrypted webhook/event/outbox/auth-state repositories and tenant reply barriers; bounded durable send journal with dispatch deliberately disabled |
+| `packages/adapter-unipile` | V1 transport/social and bounded email adapter, account/source/owner projection and lifecycle coordinator, exact reply normalization/hosted setup/authentication; separate provisional v2 transport |
+| `packages/storage-postgres` | Driver-injected encrypted webhook/event/outbox/auth-state repositories and tenant reply barriers; bounded durable send journal with fenced completion and verifier-gated recovery; dispatch admission deliberately disabled |
 | `packages/sdk` | Versioned HTTP client; unknown outcome handling and original-generation recovery |
 | `services/api` | Authenticated scoped server, separate bounded webhook listener and explicit synthetic fixtures |
 
@@ -68,7 +68,33 @@ for exact current-source results and separately approved database targets.
 
 The local 001/002/003 artifacts were each specifically approved/applied only on isolated
 OrbStack 5445. The approved service-only split and proof on 5446 are separate from the
-legacy WhatsApp target proposed on 5447. Never reuse an approval for a new target or altered
+separately approved/applied legacy WhatsApp target on 5447. Never reuse an approval for a new target or altered
 artifact. Startup never auto-migrates; code extraction does not authorize historical data
 cleanup. See the [execution plan](../docs/39-communications-service-execution-plan.md) and
 [persistence design](../docs/communications/persistence-design.md).
+
+## Email, lifecycle and result recovery continuation
+
+`createUnipileV1EmailAdapter` validates saved recipients, exact message/thread/RFC
+correlation and required mailbox owner authority. Vendor tracking acknowledgements are
+exposed by `submitAcknowledged`; the normal messaging contract conservatively returns
+unknown until a real original message receipt exists. There is no automatic search or
+resend, vendor draft synchronization or sent-webhook tracking journal in this slice.
+See [email TDD](../docs/communications/unipile-v1-email-tdd.md).
+
+`UnipileV1AccountLifecycle`, `projectV1Account` and
+`createConnectionLifecycleCoordinator` compare the exact account/source and recorded
+provider owner namespace. They do not convert opaque provider IDs into canonical physical
+identity or person aliases, certify full sync, or supply missing durable disconnect
+intent storage. Required current authorization and definitely committed exclusive
+retirement precede deletion; uncertain replay never deletes again. See
+[lifecycle TDD](../docs/communications/account-lifecycle-tdd.md).
+
+The PostgreSQL journal can store encrypted accepted/rejected/uncertain results of a
+previously admitted operation. It never admits a new send or charges quota in these
+result paths. Current original fences govern terminal worker completion; unknown
+reconciliation requires a configured trusted read-only original-provider verifier,
+matching reserved history and current grants before and after evidence collection.
+Both database phases and the verifier share one monotonic bounded deadline. The
+verifier is runtime authority, not permission inferred from a nonnull SQL proof field.
+See [result TDD](../docs/communications/dispatch-results-tdd.md).

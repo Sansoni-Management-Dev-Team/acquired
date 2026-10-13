@@ -1,0 +1,23 @@
+# Fenced dispatch results and read-only reconciliation
+
+P2.3/P4.1 continuation,14 October2026. This extends result storage on the existing specifically approved5445 schema. `beginDispatch` still returns `delivery_disabled`: no provider admission, application permit, quota charge, live sending, new schema or migration is enabled.
+
+## Actual TDD
+
+Seven real PostgreSQL result cases were added to the existing32-case journal suite. The unchanged repository failed six relevant assertions after validating fixture inputs, then all39 passed. They cover all three channels' encrypted accepted receipts, repeated original completion, original claim/context retention and no second quota charge; expired in-flight work becoming unknown; definite rejection retaining quota; stale terminal acceptance denial; and lost completion COMMIT response with durable replay. An initial test fixture incorrectly referred to a missing conversation property; it was corrected and the RED run repeated against unchanged production before counting evidence. Dependency/fixture errors are not product REDs.
+
+Eight reconciliation cases then failed against the completion-only implementation, followed by all47 passing on actual PostgreSQL. A malformed helper spread included an extra claim-decision discriminator in one setup; it was corrected and the unchanged completion-only RED run repeated before counting evidence. Cases cover email/WhatsApp/LinkedIn original receipt recovery after lease expiry, verifier disagreement, revoked grant before any provider read, revocation during evidence collection, unadmitted unknown rejection and late verifier acceptance after timeout. No provider request occurs in these synthetic cases.
+
+Independent scripted-driver review reproduced two further genuine defects: a function's overridden `.bind` substituted a different verifier, and the second transaction received a fresh deadline allowing the whole reconciliation to exceed its intended budget. Both independent regressions now pass. The original verifier is captured with `Function.prototype.bind.call`; both database phases and provider evidence share one monotonic deadline. Sessions whose database result or COMMIT is uncertain are physically retired through the required driver contract.
+
+Private logs: `journal-results-valid-red.log`, `journal-results-green.log`, `journal-reconciliation-valid-red.log`, `journal-reconciliation-green.log`, `dispatch-journal-result-review-red.log`, `journal-result-independent-green.log` and `journal-results-reviewed-postgres.log`. Final combined current-source verification is recorded in [verification](verification.md).
+
+## Authority and scope
+
+Completion compares exact original scope, generation, key, digest and encrypted claim-time recipient/thread/RFC context. It can learn a message receipt without replacing that immutable context. A claimed operation cannot become accepted by claiming to be dispatching. Definite terminal worker completion needs the original token, worker, live claim and account fence; a stale in-flight worker may only preserve uncertainty. Replays retain original quota and history.
+
+Unknown/dispatched reconciliation requires already reserved original history and a configured trusted `verifyReconciliation` callback. Current scoped grants are checked before the read-only provider port, and rechecked under the service tenant barrier/account/journal locks before mutation. The callback must independently verify the original provider account, message and operation association; it cannot search and guess, submit, or resend. A matching receipt is encrypted, and a keyed snapshot/receipt digest records the trusted resolution. Missing, changed or late evidence leaves the unresolved journal intact. The SQL digest's presence alone is not ownership or acceptance proof.
+
+The tests use actual existing PostgreSQL, synthetic trusted SQL admission seeds, synthetic keys and read-only verifier fixtures. SQL seeds reserve two fixture quota buckets and mark an original claim dispatching specifically to exercise result persistence. They do **not** implement or certify the production admission protocol, immutable application intent, actual provider ownership, full reply coverage or exactly-once cross-account application quota. New admission still needs the held application transaction and critical-writer integration described in [send-admission-design](send-admission-design.md).
+
+No exact approved SQL bytes changed or were reapplied. No real provider or credential was used. The caller-owned callback and SQL driver remain trusted service composition ports; this module does not turn arbitrary injected code or database control credentials into an untrusted security sandbox.

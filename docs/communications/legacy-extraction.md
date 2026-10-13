@@ -1,6 +1,6 @@
 # Legacy channel extraction and Acquire retirement
 
-User decision D19 supersedes retaining executable direct connections in Acquire. Work is isolated in `project-acquire-unipile-replies`, branch `codex/unipile-reply-detection`. The independent local Git repository is `/Users/callum/Documents/Development/legacy-channel-services`. It has its own dependencies, build scripts, service configuration, tests and runbook; it is not an Acquire worktree. No remote repository, deployment or DigitalOcean decommission occurred.
+User decision D19 supersedes retaining executable direct connections in Acquire. Work is isolated in `project-acquire-unipile-replies`, branch `codex/unipile-reply-detection`. The independent repository is now published privately at [GitHub](https://github.com/callumholt/legacy-channel-services), at verified commit `08aa426`. Its local Git repository is `/Users/callum/Documents/Development/legacy-channel-services`. It has its own dependencies, build scripts, service configuration, tests and runbook; it is not an Acquire worktree. GitHub publication was explicitly requested after local extraction. No deployment or DigitalOcean decommission occurred.
 
 ## Preserved service boundary
 
@@ -26,7 +26,7 @@ Characterization tests ran before and after extraction; new authorization/retire
 | Boundary | Evidence | Limit |
 | --- | --- | --- |
 | Independent Gmail + portable adapters | Fresh Linux installation/build/exports in OrbStack;56 Gmail +167 adapter tests, no application or credential mounts; test phase network disabled | No live mailbox/OAuth consumer |
-| Independent WhatsApp |87 pure tests pass on host and fresh OrbStack Linux; four database tests prepared/skipped. Peer grant/role checks pass | New5447 storage not initialized or migrated; no pairing/sending |
+| Independent WhatsApp |87 pure tests pass on host and fresh OrbStack Linux; four real restricted-role database tests pass on approved5447. Peer grant/role checks pass | Approved5447 now initialized/migrated; four actual restricted-role DB cases pass; no pairing/sending |
 | Independent LinkedIn |193 Python cases and six real-Chromium fictional smoke checks before/after and in independently built OrbStack image | No live login/account state; optional model-agent workflow excluded |
 | Acquire PostgreSQL prerequisites |183 cases/13 files, zero skips on existing approved5445; recorded source hashes match | Synthetic identity/provider ports, bounded journal; dispatch remains disabled |
 | Service-only communications PostgreSQL | Approved5446 real storage, independent copied modules, all three channels' encrypted journal/capture/event/outbox replay and commit-before-ACK | Application receipt is synthetic memory; no real Acquire policy transaction or fresh coverage claim |
@@ -34,13 +34,13 @@ Characterization tests ran before and after extraction; new authorization/retire
 
 The specifically approved5446 initialization and exact001/002 migrations completed once, with a fresh validated private backup, exact target/system-ID/hash checks and catalog/RLS postchecks. A proof rerun restarted only that existing verified cluster; no schema operation occurred.
 
-The separate WhatsApp fixture `127.0.0.1:5447/legacy_channels` remains **unapproved and uninitialized**. Pending approval is specific to:
+The separate WhatsApp fixture `127.0.0.1:5447/legacy_channels` was subsequently **specifically approved, initialized and migrated**. All four real restricted-role tests pass. Exact approved artifacts:
 
 | Artifact in independent repository | SHA-256 |
 | --- | --- |
 | `services/whatsapp/ops/compose.storage.local.yml` | `d49c82279fddde5badef7df92af6623963bec3c068dfa2dd877c84b719748f74` |
 | `services/whatsapp/ops/001-whatsapp-storage.local.sql` | `3a094a66e80483d96c9744a3dcfc17d1c661a08f1e3f81889998a3fd9227b5e5` |
 
-Initialization/migration must follow exact target/hash/image checks and a fresh validated backup. Prior5446 approval and generic continuation do not cover5447. Its service role is intentionally trusted across tenants; API authorization owns scope. SQL prevents deletion/cascading loss but does not provide semantic immutable-column or terminal-state triggers. Do not describe it as a fully untrusted database security boundary.
+Initialization/migration followed exact target/hash/image/empty namespace checks and a fresh validated private backup. System identifier `7696273365081522210`. The subsequent explicit5447 approval covered this target and these unchanged bytes; prior5446 approval did not. See the [independent storage verification](../../../legacy-channel-services/docs/whatsapp/storage-verification.md). Its service role is intentionally trusted across tenants; API authorization owns scope. SQL prevents deletion/cascading loss but does not provide semantic immutable-column or terminal-state triggers. Do not describe it as a fully untrusted database security boundary.
 
 The Unipile build remains unfinished: authoritative account ownership/alias binding, lifecycle/hosted setup composition, complete history/coverage/checkpoints, email send integration, application/service admission and quotas, uncertain-send reconciliation, authenticated UI/runtime wiring and live capability checks are still required. No sending or setup is enabled merely by providing the key. See [progress](progress.md) and [send admission design](send-admission-design.md) for the next authorized code slice and specific schema approval gates.

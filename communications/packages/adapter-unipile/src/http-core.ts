@@ -124,7 +124,7 @@ export class BoundedUnipileHttp {
             throw new Error("Invalid Unipile request");
         return result;
     }
-    async request(method: "GET" | "POST", url: URL, body: BodyInit | undefined, options: UnipileRequestOptions, extraHeaders: Record<string, string> = {}): Promise<UnipileHttpResult> {
+    async request(method: "GET" | "POST" | "DELETE", url: URL, body: BodyInit | undefined, options: UnipileRequestOptions, extraHeaders: Record<string, string> = {}): Promise<UnipileHttpResult> {
         if (url.origin !== this.#baseUrl.origin || !url.pathname.startsWith(this.#baseUrl.pathname))
             throw new Error("Invalid Unipile request");
         if (options.signal?.aborted)
@@ -134,7 +134,7 @@ export class BoundedUnipileHttp {
         const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, this.#timeoutMs);
         const cancel = () => controller.abort();
         options.signal?.addEventListener("abort", cancel, { once: true });
-        const uncertainKind = method === "POST" ? "unknown" : "unavailable";
+        const uncertainKind = method !== "GET" ? "unknown" : "unavailable";
         try {
             const response = await abortable(this.#fetch(url, {
                 method, redirect: "error", signal: controller.signal,
@@ -151,7 +151,7 @@ export class BoundedUnipileHttp {
             }
             if (response.status >= 400) {
                 // Never return provider titles/details/body; those can contain tokens or message content.
-                if (method === "POST" && this.#strictWriteRejections) {
+                if (method !== "GET" && this.#strictWriteRejections) {
                     const definiteStatuses = [400, 401, 403, 404, 405, 413, 415, 429];
                     if ([409, 422].includes(response.status)) {
                         const error = await readJson(response, this.#maxResponseBytes, controller.signal);
