@@ -14,12 +14,12 @@ describe('explicit v1 hosted connection links',()=>{
   ] as const)('creates a single %s/%s link with server-owned DSN',async(channel,platform,provider)=>{
     const f=fixture(),i={...input(),channel,platform};expect(await f.api.createLink(i)).toEqual({kind:'success',status:200,data:{object:'HostedAuthURL',url:'https://account.unipile.com/opaque-auth-link'}});
     const [url,request]=f.fetch.mock.calls[0];expect(String(url)).toBe('https://api1.unipile.com:20255/api/v1/hosted/accounts/link');expect(request?.method).toBe('POST');expect(request?.redirect).toBe('error');
-    expect(JSON.parse(String(request?.body))).toEqual({type:'create',providers:[provider],api_url:'https://api1.unipile.com:20255',expiresOn:i.expiresAt,name:i.state,success_redirect_url:i.successRedirectUrl,failure_redirect_url:i.failureRedirectUrl,notify_url:i.notifyUrl});
+    expect(JSON.parse(String(request?.body))).toEqual({type:'create',providers:[provider],single_use:true,api_url:'https://api1.unipile.com:20255',expiresOn:i.expiresAt,name:i.state,success_redirect_url:i.successRedirectUrl,failure_redirect_url:i.failureRedirectUrl,notify_url:i.notifyUrl});
     expect(request?.headers).toMatchObject({'X-API-KEY':'synthetic-api-key','Content-Type':'application/json'});
   });
   it('reconnects only the original recorded account with no create-provider list',async()=>{
     const f=fixture();await f.api.createLink({...input(),type:'reconnect',providerAccountId:'original-account'});
-    const body=JSON.parse(String(f.fetch.mock.calls[0][1]?.body));expect(body.type).toBe('reconnect');expect(body.reconnect_account).toBe('original-account');expect(body.providers).toBeUndefined();
+    const body=JSON.parse(String(f.fetch.mock.calls[0][1]?.body));expect(body.type).toBe('reconnect');expect(body.reconnect_account).toBe('original-account');expect(body.providers).toBeUndefined();expect(body.single_use).toBeUndefined();
   });
   it.each([
     {channel:'whatsapp',platform:'gmail'}, {type:'create',providerAccountId:'account'}, {type:'reconnect'}, {state:'owner@email.example'}, {expiresAt:'2026-10-12T09:00:00.000Z'}, {expiresAt:'2026-10-12T11:00:00.000Z'}, {expiresAt:'2026-02-31T10:00:00.000Z'}, {successRedirectUrl:'https://other.example/settings'}, {failureRedirectUrl:'https://user:password@app.example.com/settings'}, {notifyUrl:'https://service.example.com/notify#secret'}, {notifyUrl:'http://service.example.com/notify'}, {unknown:'field'},

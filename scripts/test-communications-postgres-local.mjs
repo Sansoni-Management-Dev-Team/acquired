@@ -36,6 +36,7 @@ const tests = [
   'communications-reply-barrier', 'communications-reply-consumer',
   'communications-reply-pipeline', 'campaign-replies',
   'communications-dispatch-barrier',
+  'communications-dispatch-journal',
 ].map(name => `src/db/${name}-local.integration.test.ts`);
 
 // Import only after selecting the explicit isolated fixture configuration.

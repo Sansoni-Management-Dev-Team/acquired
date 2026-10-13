@@ -1,0 +1,24 @@
+# New isolated fixture only. Starting PostgreSQL initializes its empty database;
+# do not start until specifically approved for the proposed standalone target.
+# No SQL/init directory is mounted and startup never applies our migrations.
+name: acquire-communications-standalone
+services:
+  postgres:
+    image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    env_file:
+      - ../../../.local-data/communications/standalone.env
+    environment:
+      POSTGRES_USER: communications_fixture
+      POSTGRES_DB: communications_fixture
+    ports:
+      - "127.0.0.1:5446:5432"
+    volumes:
+      - ../../../.local-data/communications/standalone/postgres:/var/lib/postgresql/data
+    labels:
+      acquire.fixture: communications-standalone
+    restart: "no"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U communications_fixture -d communications_fixture"]
+      interval: 5s
+      timeout: 5s
+      retries: 20

@@ -18,3 +18,4 @@ export { createReplyWebhookServer, type ReplyWebhookServerDependencies } from ".
 export * from "../packages/storage-postgres/src/auth-state-repository";
 export * from "../packages/core/src/connection-setup";
 export * from "../packages/storage-postgres/src/reply-barrier";
+export * from "../packages/storage-postgres/src/dispatch-journal";

@@ -58,7 +58,7 @@ for(const args of [['install','--ignore-scripts','--no-audit','--no-fund'],['run
   }
 }
 const api=require('/verify/dist/src/index.js');
-for(const name of ['UnipileV1Transport','createUnipileV1MessagingAdapter','createDispatchCoordinator','JournalCodec','WebhookCodec','EventCodec','createConnectionSetupCoordinator','createPostgresReplyBarrier','createOutboxDeliveryWorker','createPostgresOutboxRepository','createPostgresAuthStateRepository','UnipileV1HostedAuth','createPostgresWebhookRepository','createWebhookEventProcessor','CommunicationsClient','createCommunicationsServer','normalizeV1ReplyEvent','createUnipileV1ReplyEnricher','createReplyWebhookIngress','createReplyProcessor','createReplyWebhookServer']) assert.equal(typeof api[name],'function');
+for(const name of ['UnipileV1Transport','createUnipileV1MessagingAdapter','createDispatchCoordinator','JournalCodec','WebhookCodec','EventCodec','createConnectionSetupCoordinator','createPostgresReplyBarrier','createPostgresDispatchJournal','createOutboxDeliveryWorker','createPostgresOutboxRepository','createPostgresAuthStateRepository','UnipileV1HostedAuth','createPostgresWebhookRepository','createWebhookEventProcessor','CommunicationsClient','createCommunicationsServer','normalizeV1ReplyEvent','createUnipileV1ReplyEnricher','createReplyWebhookIngress','createReplyProcessor','createReplyWebhookServer']) assert.equal(typeof api[name],'function');
 assert.equal(process.env.UNIPILE_API_KEY,undefined);
 assert.equal(process.env.DATABASE_URL,undefined);
 process.stdout.write('Independent package build/tests/exports passed without Acquire modules or provider credentials.\n');
@@ -69,11 +69,23 @@ execFileSync('docker', ['--context', 'orbstack', 'run', '--rm', '--interactive',
   '--label', 'acquire.fixture=communications-copy', '--read-only', '--user', `${process.getuid()}:${process.getgid()}`,
   '--mount', `type=bind,src=${copy},dst=/verify`, '--tmpfs', '/tmp:rw,mode=1777', '--workdir', '/verify',
   '--env', 'npm_config_cache=/tmp/npm-cache', '--env', 'npm_config_userconfig=/tmp/no-npmrc',
+  '--env', 'npm_config_maxsockets=4',
   '--env', 'npm_config_ignore_scripts=true', '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
   '--pids-limit', '128', '--memory', '512m', metadata.Image, 'node'], {
   cwd: root, input: verify, stdio: ['pipe', 'inherit', 'inherit'],
 });
+const compiledHashes = {};
+function compiledInventory(directory) {
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) compiledInventory(path);
+    else compiledHashes[path.slice(copy.length + 1)] = createHash('sha256').update(readFileSync(path)).digest('hex');
+  }
+}
+compiledInventory(join(copy, 'dist'));
 const report = { checkedAt: new Date().toISOString(), scope: 'Fresh isolated foundation copy with independent npm install, build, tests and aggregate exports',
+  compiledHashes,
+  verificationScriptHashes: { 'scripts/test-communications-copy-orbstack.mjs': createHash('sha256').update(readFileSync(fileURLToPath(import.meta.url))).digest('hex') },
   sourceHashes: hashes, image: metadata.Image, dockerContext: 'orbstack', packageManager: `npm@${packageManagerVersion}`, packageManagerIntegrity: `sha512-${packageManagerIntegrity}`, testMaxWorkers: 2, providerWrites: 0, migrationsApplied: 0,
   resolvedDependencyLockSha256: createHash('sha256').update(readFileSync(join(copy, 'package-lock.json'))).digest('hex'),
   wholeRuntimeExtractionVerified: false, retainedPrivateCopy: copy };

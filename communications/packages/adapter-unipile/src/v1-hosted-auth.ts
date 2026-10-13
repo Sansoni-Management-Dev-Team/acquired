@@ -73,7 +73,7 @@ export class UnipileV1HostedAuth {
       if(typeof copied.expiresAt!=='string'||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(copied.expiresAt)||!Number.isFinite(expires)||new Date(expires).toISOString()!==copied.expiresAt||!Number.isFinite(now)||expires<=now||expires-now>this.#maxAge)throw Error();
       const success=this.#url(copied.successRedirectUrl),failure=this.#url(copied.failureRedirectUrl),notify=this.#url(copied.notifyUrl);
       if(!this.#redirects.has(success.origin)||!this.#redirects.has(failure.origin)||!this.#notifications.has(notify.origin))throw Error();
-      body=JSON.stringify({type:copied.type,...(copied.type==='create'?{providers:[provider]}:{reconnect_account:copied.providerAccountId}),api_url:this.#http.url('').origin,expiresOn:copied.expiresAt,name:copied.state,success_redirect_url:success.href,failure_redirect_url:failure.href,notify_url:notify.href});
+      body=JSON.stringify({type:copied.type,...(copied.type==='create'?{providers:[provider],single_use:true}:{reconnect_account:copied.providerAccountId}),api_url:this.#http.url('').origin,expiresOn:copied.expiresAt,name:copied.state,success_redirect_url:success.href,failure_redirect_url:failure.href,notify_url:notify.href});
     }catch{throw Error('Invalid hosted authentication request');}
     const result=await this.#http.request('POST',this.#http.url('hosted/accounts/link'),body,{signal:options.signal},{'Content-Type':'application/json'});
     if(result.kind!=='success')return result;
