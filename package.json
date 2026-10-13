@@ -42,7 +42,8 @@
     "test:communications:legacy-orbstack": "COMMUNICATIONS_ORBSTACK_LEGACY=1 UNIPILE_API_KEY= vitest run src/lib/channels/communications-adapters.orbstack.test.ts",
     "test:communications:orbstack": "node scripts/test-communications-orbstack.mjs",
     "test:communications:copy-orbstack": "node scripts/test-communications-copy-orbstack.mjs",
-    "test:communications:replies-orbstack": "node scripts/test-communications-replies-orbstack.mjs"
+    "test:communications:replies-orbstack": "node scripts/test-communications-replies-orbstack.mjs",
+    "test:communications:postgres-local": "node scripts/test-communications-postgres-local.mjs"
   },
   "packageManager": "pnpm@11.8.0+sha512.c1f5e7c4cb241c8f174b743851d82f42b802324afc8b0f116b96adb15aa06664948dde36960a3ba1079ba5b4b29dd0140135b94b5b5f5263592249d68e555f26",
   "dependencies": {

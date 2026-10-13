@@ -1,11 +1,20 @@
 # Communications foundation verification
 
-**Current continuation:** Approved local 001/002 are now applied, with actual PostgreSQL capture/terminal/outbox/setup tests. Prepared 003 remains unapproved/unapplied; real Acquire consumer tests remain pending. The older rows below record earlier scopes. Fresh continuation checks and actual limitations are in [durable replies TDD](durable-replies-tdd.md), [reply-consumption design](reply-consumption-design.md) and [progress](progress.md).
+**Current continuation:** Approved local 001/002/003 are applied. 151 actual PostgreSQL fence, consumer, pipeline, setup and dispatch checks pass; current results are recorded above the historical scopes. The older rows below record earlier scopes. Fresh continuation checks and actual limitations are in [durable replies TDD](durable-replies-tdd.md), [reply-consumption design](reply-consumption-design.md) and [progress](progress.md).
 
 
 Foundation verified locally on 12 October 2026 against base `fa544da5578375efd57af4ba680a403a1568769e`. The separate reply branch starts from current remote main `f66781e`, retains foundation snapshot `d8d0654` and adds the reply source changes. [Progress](progress.md) records outstanding work. Historical foundation/parity/channel logs remain in the original checkout's ignored `.local-data/communications/verification/`; new reply results are in that directory under the new worktree. Committed documents contain only sanitized summaries and reproducible commands.
 
-## Current tenant-fence and setup continuation
+## Approved 003 verification
+
+- `node scripts/test-communications-postgres-local.mjs`: **151 passed, 12 files, zero skips** on exact OrbStack `127.0.0.1:5445/acquire_channels`, system ID `7694812678792806433`. Structured report confirms all selected suites executed and recorded source/test files stayed unchanged. Private `communications-postgres-local.{log,json}` and `communications-postgres-local-vitest.json` retain evidence.
+- Full suite: **3,499 passed/226 opt-in skipped**, 352 files passed/34 skipped (`approved-003-full.log`). The skipped DB cases above are separately executed; skips are not counted as passes. Root typecheck and changed-source/script lint pass.
+- Exact 003 approval/application followed fresh private backup, hash, loopback/system-ID/receipt/collision checks. Catalog/RLS/privilege postchecks and unchanged legacy counts passed; `communications-approved-003-execution.json`. Approved SQL bytes are unchanged.
+- Actual encrypted service receipt→event/outbox→Acquire identity/receipt/holds/stops/audit commit→ACK works across all three channels and mixed legacy backend bindings. Lost app/service COMMIT responses replay original durable receipts; app rollback leaves service work recoverable. Membership locking, timeout session retirement, ambiguity/review and replay are tested on actual PostgreSQL.
+- Nineteen new SQL characterizations check the actual journal dispatch trigger and quota rollback. They do not constitute a complete journal repository or certify application readiness/coverage. Concurrent unrelated fixtures reproduced `40001`; production retry is preserved, and files run sequentially while intentional competing-client tests remain active.
+- Fixture prerequisites were corrected without weakening constraints or changing production modules. Header/owner/enrichment/delivery authentication ports remain synthetic. No live provider, complete history, original/historical normalization rollout, tenant-wide legacy admission, UI or full runtime extraction is claimed. [Progress](progress.md) contains the next action.
+
+## Previous tenant-fence and setup continuation
 
 Frozen-tree checks: **3,499 full-suite passes/207 opt-in skips** (352 files passed/33 skipped), **98 actual approved-schema OrbStack PostgreSQL cases** across eight files, and **1,156 fresh standalone-package cases/44 files** plus independent build/exports. Root typecheck, scoped lint and native network-none all-channel proof passed. Logs: `fence-setup-final-full.log`, `fence-setup-final-postgres.log`, `fence-setup-final-copy-green.log`, `fence-setup-final-root-types.log`, `fence-setup-final-lint.log`, `fence-setup-final-native.log`; sanitized summary `fence-setup-final-summary.json`.
 
@@ -13,7 +22,7 @@ All native/package source and fixture-script hashes match the final production t
 
 Nine real barrier,16 consumer and nine service→Acquire→ACK tests remain prepared and **UNEXECUTED** pending specifically approved003. Current database98cases exclude those34 tests. Provider fetch/header/owner proofs in setup tests are synthetic ports, and native app/storage authority remains memory. No complete fresh history, tenant-wide legacy send admission, UI activation, live ownership/capability or complete runtime extraction is claimed. No migration or real provider write occurred in this continuation. The prior durable continuation below records its earlier tree.
 
-## Current durable continuation verification
+## Previous durable continuation verification
 
 - Full application suite: **3,357 passed/179 opt-in skips**, 347 files passed/30 skipped; eight deployment/smoke checks passed. Logs: `durable-replies-final-full-tests.log`, `durable-replies-final-node-tests.log`. Skips are not passes.
 - Actual isolated OrbStack PostgreSQL: **90 passed** across seven files, including 74 new capture/event/outbox/setup/recorded-identity cases and 16 existing reply-policy cases. `durable-replies-final-postgres.log`; exact target/system-ID preflight, no automatic migration. The 14 new Acquire consumer cases remain unexecuted pending specific 003 approval.

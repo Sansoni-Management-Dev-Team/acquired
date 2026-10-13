@@ -1,6 +1,6 @@
 # Communications service and Unipile execution plan
 
-Created: 2026-10-12. Status: implementation underway; contract/adapter/SDK, v1 social and dispatch/encryption foundations verified locally. V1 credentials/endpoint are verified and the three approved local database parity changes are applied. The specifically approved local storage/binding schemas 001/002 are applied and durable service repositories have real PostgreSQL tests. Separate 003 approval, app policy/fencing integration, live channel capabilities, UI and full runtime extraction remain outstanding. See the progress record for actual scope.
+Created: 2026-10-12. Status: implementation underway; contract/adapter/SDK, v1 social and dispatch/encryption foundations verified locally. V1 credentials/endpoint are verified and the three approved local database parity changes are applied. The specifically approved local storage/binding schemas 001/002 are applied and durable service repositories have real PostgreSQL tests. The specifically approved local 003 reply-consumption schema is applied; actual app policy/fencing verification is underway. Live channel capabilities, UI and full runtime extraction remain outstanding. See the progress record for actual scope.
 
 This is the implementation checklist for adding Unipile as an optional connection backend for email, WhatsApp, and LinkedIn, while preserving the working backends and extracting a reusable communications service. Current progress, decisions, approvals, and handoffs live in [progress.md](communications/progress.md). This document defines the work; that document records what actually happened.
 
@@ -225,7 +225,7 @@ For each completed task record: source revision and dirty-tree scope; exact reda
 
 Use existing checks where applicable, after reviewing their current implementation:
 
-- App contracts/domain/adapters/routes: targeted `pnpm exec vitest run <reviewed test files>`, followed by relevant regression suites, `pnpm typecheck`, targeted lint, and `pnpm build` when integration changes justify them.
+- App contracts/domain/adapters/routes: targeted `node node_modules/vitest/vitest.mjs run <reviewed test files>`, followed by relevant regression suites, `node node_modules/typescript/bin/tsc --noEmit`, targeted lint, and app build when integration changes justify it. Do not use `pnpm exec` in the feature worktree: its dependency symlink is shared with the original checkout.
 - WhatsApp: `pnpm test:whatsapp`; database variants only with an isolated, already approved schema.
 - LinkedIn: `pnpm test:linkedin` and `pnpm test:linkedin:smoke` only after confirming the selected local container, synthetic owners and disabled live gates.
 - Cross-channel/n8n integration: `pnpm test:channels:local` with its dedicated fixture stack, idle isolated database and existing schema. The current harness checks prerequisites and states it runs no migrations; inspect invoked scripts again before use. Do not auto-bootstrap missing schema.
@@ -246,4 +246,4 @@ Reference material from the initial investigation; revalidate the selected API v
 - [Email search/pagination](https://developer.unipile.com/v2.0/reference/getemailslist)
 - [Email send/header contract](https://developer.unipile.com/v2.0/reference/sendemail)
 
-The supplied credential is configured as `UNIPILE_API_KEY` in ignored root `.env.local`, with a private intake copy in `.local-data/communications/unipile.env`. Both files have private permissions. Its type, scope, API version, validity and account permissions have not been verified. Do not print it, commit it, load either file into fixture environments, or copy it into the extracted repository. A shared local path is not a production secrets strategy; configure service secrets independently per environment.
+The supplied credential is configured as `UNIPILE_API_KEY` in ignored root `.env.local`, with a private intake copy in `.local-data/communications/unipile.env`. Both files have private permissions. The key successfully authenticated a read-only empty account-list request on the user-supplied v1 DSN; v2 returned 401. Account-specific products, ownership and capabilities remain unverified. Do not print it, commit it, load either file into fixture environments, or copy it into the extracted repository. A shared local path is not a production secrets strategy; configure service secrets independently per environment.

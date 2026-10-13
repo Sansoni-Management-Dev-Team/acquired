@@ -74,13 +74,16 @@ describe.skipIf(!enabled)('isolated PostgreSQL Acquire reply consumption, author
             await client.query("INSERT INTO communications.connection_generations(connection_id,generation,application_id,tenant_id,owner_id,account_id,channel,platform,backend,integration_id,provider_api_version,provider_configuration_reference,authority,capabilities) VALUES($1,1,'acquire',$2,$3,$4,$5,$6,'unipile','consumer-integration','v1','consumer-configuration','service','{}')", [binding.connectionId, org, owner, binding.accountId, channel, binding.platform]);
             await client.query("INSERT INTO public.communication_bindings(id,organization_id,owner_user_id,service_connection_id,service_account_id,generation,channel,platform,backend,authority) VALUES($1,$2,$3,$4,$5,1,$6,$7,'unipile','service')", [bindingId, org, owner, binding.connectionId, binding.accountId, channel, binding.platform]);
             const monitorBindings = [bindingId];
+            // Existing safety allows one active enrolment per recipient. Bind all three channel
+            // backends to that enrolment, as a multichannel sequence does in the application.
+            const sequence = randomUUID(), version = randomUUID(), enrolment = randomUUID();
+            await client.query("INSERT INTO public.campaign_sequences(id,organization_id,owner_user_id,mandate_id,name,draft) VALUES($1,$2,$3,$4,'Synthetic','{}')", [sequence, org, owner, mandate]);
+            await client.query('INSERT INTO public.campaign_sequence_versions(id,organization_id,owner_user_id,sequence_id,version,definition) VALUES($1,$2,$3,$4,1,$5)', [version, org, owner, sequence, JSON.stringify({ nextAction: 'email' })]);
+            await client.query("INSERT INTO public.campaign_enrolments(id,organization_id,owner_user_id,sequence_id,version_id,mandate_id,contact_id,mailbox_connection_id,recipient_email,next_step_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'recipient@example.invalid',now())", [enrolment, org, owner, sequence, version, mandate, contact, mailbox]);
             for (const nextAction of ['email', 'whatsapp', 'linkedin'] as const) {
-                const sequence = randomUUID(), version = randomUUID(), enrolment = randomUUID(), legacyBinding = randomUUID(), backend = nextAction === 'email' ? 'direct' : nextAction === 'whatsapp' ? 'baileys' : 'browser';
+                const legacyBinding = randomUUID(), backend = nextAction === 'email' ? 'direct' : nextAction === 'whatsapp' ? 'baileys' : 'browser';
                 await client.query("INSERT INTO public.communication_bindings(id,organization_id,owner_user_id,service_connection_id,service_account_id,generation,channel,platform,backend,authority,legacy_mailbox_id,legacy_whatsapp_id,legacy_linkedin_reference) VALUES($1,$2,$3,$4,$5,1,$6,$7,$8,'legacy_port',$9,$10,$11)", [legacyBinding, org, owner, `legacy-${nextAction}-${nonce}`, `legacy-account-${nextAction}-${nonce}`, nextAction, nextAction === 'email' ? 'gmail' : nextAction, backend, nextAction === 'email' ? mailbox : null, nextAction === 'whatsapp' ? whatsapp : null, nextAction === 'linkedin' ? `synthetic-browser-${nonce}` : null]);
                 monitorBindings.push(legacyBinding);
-                await client.query("INSERT INTO public.campaign_sequences(id,organization_id,owner_user_id,mandate_id,name,draft) VALUES($1,$2,$3,$4,'Synthetic','{}')", [sequence, org, owner, mandate]);
-                await client.query('INSERT INTO public.campaign_sequence_versions(id,organization_id,owner_user_id,sequence_id,version,definition) VALUES($1,$2,$3,$4,1,$5)', [version, org, owner, sequence, JSON.stringify({ nextAction })]);
-                await client.query("INSERT INTO public.campaign_enrolments(id,organization_id,owner_user_id,sequence_id,version_id,mandate_id,contact_id,mailbox_connection_id,recipient_email,next_step_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'recipient@example.invalid',now())", [enrolment, org, owner, sequence, version, mandate, contact, mailbox]);
                 await client.query('INSERT INTO public.campaign_channel_bindings(enrolment_id,organization_id,owner_user_id,channel,binding_id) VALUES($1,$2,$3,$4,$5)', [enrolment, org, owner, nextAction, legacyBinding]);
             }
             await client.query("INSERT INTO public.campaign_reply_identities(organization_id,owner_user_id,contact_id,channel,identity,source_identity,email,since) VALUES($1,$2,$3,$4,$5,$6,'recipient@example.invalid','2026-01-01')", [org, owner, contact, channel, legacyIdentity, source]);
@@ -139,7 +142,7 @@ describe.skipIf(!enabled)('isolated PostgreSQL Acquire reply consumption, author
         const s = await state(f);
         expect(s.receipts).toHaveLength(1);
         expect(s.holds).toHaveLength(1);
-        expect((await pool.query("SELECT count(*)::int n FROM public.audit_events WHERE organization_id=$1 AND action='campaign.reply_received'", [f.org])).rows[0].n).toBe(3);
+        expect((await pool.query("SELECT count(*)::int n FROM public.audit_events WHERE organization_id=$1 AND action='campaign.reply_received'", [f.org])).rows[0].n).toBe(1);
     });
     it('conflicting replay preserves the old fingerprint and blocks all original owner monitors', async () => {
         const f = await fixture(), d = f.message();

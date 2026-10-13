@@ -6,6 +6,7 @@ import { WebhookCodec } from '../../communications/packages/core/src/webhook-cod
 import { createPostgresWebhookRepository, type SqlPool } from '../../communications/packages/storage-postgres/src/webhook-repository';
 import type { ConnectionBinding } from '../../communications/packages/contracts/src';
 import type { WebhookCapture } from '../../communications/packages/core/src/reply-ingress';
+import { createPostgresReplyBarrier } from '../../communications/packages/storage-postgres/src/reply-barrier';
 
 // Explicit opt-in, exact isolated target only. No DDL, GRANT, migrations or schema setup.
 // Committed synthetic immutable history is retained; accounts/grants are retired afterward.
@@ -41,7 +42,7 @@ describe.skipIf(!enabled)('isolated PostgreSQL encrypted webhook capture and cla
       await client.query("INSERT INTO communications.connection_generations(connection_id,generation,application_id,tenant_id,owner_id,account_id,channel,platform,backend,integration_id,provider_api_version,provider_configuration_reference,authority,capabilities) VALUES($1,1,$2,$3,$4,$5,$6,$7,'unipile','fixture-integration','v1','fixture-configuration','service','{}')",[binding.connectionId,binding.applicationId,binding.tenantId,binding.ownerId,binding.accountId,channel,binding.platform]);
       await client.query('COMMIT');fixtures.push(binding);
     }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
-    const repository=createPostgresWebhookRepository({pool:driver,binding,integrationId:'fixture-integration',providerConfigurationReference:'fixture-configuration',subscriberId:'fixture-subscriber',codec,leaseSeconds});
+    const repository=createPostgresWebhookRepository({pool:driver,binding,integrationId:'fixture-integration',providerConfigurationReference:'fixture-configuration',subscriberId:'fixture-subscriber',codec,leaseSeconds,replyBarrier:createPostgresReplyBarrier({binding,integrationId:'fixture-integration',codec})});
     const rawBody=Buffer.from(JSON.stringify({event:'message_received',account_id:'fixture-provider',message_id:suffix,text:'synthetic-incoming-text'}));
     const key=createHash('sha256').update(JSON.stringify(['communications.webhook.receipt.v1',[binding.applicationId,binding.tenantId,binding.ownerId,binding.connectionId,binding.accountId,binding.generation,binding.channel,binding.platform,binding.backend],createHash('sha256').update(rawBody).digest('hex')])).digest('hex');
     const capture:WebhookCapture={binding,key,rawBody,receivedAt:new Date().toISOString()};

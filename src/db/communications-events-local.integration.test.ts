@@ -15,7 +15,7 @@ describe.skipIf(!enabled)('isolated PostgreSQL normalized event and outbox compl
   afterAll(() => local.close());
   const subscriberId = 'terminal-subscriber';
   function repository(binding: ConnectionBinding, overrides: { pool?: SqlPool; leaseSeconds?: number } = {}) {
-    return createPostgresWebhookRepository({ pool: local.driver, binding, integrationId: 'terminal-integration', providerConfigurationReference: 'terminal-configuration', subscriberId, codec: local.webhookCodec, eventCodec, ...overrides } as Parameters<typeof createPostgresWebhookRepository>[0]) as ReturnType<typeof createPostgresWebhookRepository> & NormalizedWebhookPort;
+    return createPostgresWebhookRepository({ pool: local.driver, binding, integrationId: 'terminal-integration', providerConfigurationReference: 'terminal-configuration', subscriberId, codec: local.webhookCodec, eventCodec, replyBarrier: local.replyBarrier(binding, 'terminal-integration', eventCodec), ...overrides } as Parameters<typeof createPostgresWebhookRepository>[0]) as ReturnType<typeof createPostgresWebhookRepository> & NormalizedWebhookPort;
   }
   async function claim(repo: ReturnType<typeof repository>, capture: ReturnType<Awaited<ReturnType<typeof local.fixture>>['capture']>): Promise<ClaimedWebhook> {
     await repo.capture(capture); const claimed = await repo.claim({ binding: capture.binding, key: capture.key });

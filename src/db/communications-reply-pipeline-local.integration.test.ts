@@ -28,7 +28,24 @@ function deferred() { let resolve!: () => void; const promise = new Promise<void
 describe.skipIf(!enabled)('isolated PostgreSQL service event to Acquire policy commit to subscriber ACK', () => {
     const servicePool = new pg.Pool({ connectionString: localCampaignDatabase, max: 8, connectionTimeoutMillis: 5000 });
     const appPool = new pg.Pool({ connectionString: localCampaignDatabase, max: 8, connectionTimeoutMillis: 5000 });
-    const driver = (pool: pg.Pool): SqlPool => ({ async connect() { const client = await pool.connect(); return { async query<Row>(text: string, values?: unknown[]) { const result = await client.query(text, values); return { rows: result.rows as Row[], rowCount: result.rowCount }; }, release(error?: Error) { client.release(error); } }; } });
+    const driver = (pool: pg.Pool, failures?: {
+        phase: string;
+        code: string;
+    }[], phase = 'fixture'): SqlPool => ({ async connect() {
+            const client = await pool.connect();
+            return { async query<Row>(text: string, values?: unknown[]) {
+                    try {
+                        const result = await client.query(text, values);
+                        return { rows: result.rows as Row[], rowCount: result.rowCount };
+                    }
+                    catch (error) {
+                        const code = error !== null && typeof error === 'object' ? Object.getOwnPropertyDescriptor(error, 'code')?.value : undefined;
+                        if (typeof code === 'string' && /^[A-Z0-9]{5}$/.test(code))
+                            failures?.push({ phase, code });
+                        throw error;
+                    }
+                }, release(error?: Error) { client.release(error); } };
+        } });
     const appDriver = driver(appPool), serviceDriver = driver(servicePool);
     const codec = new EventCodec({ activeVersion: 'pipeline-event-v1', keys: [{ version: 'pipeline-event-v1', encryptionKey: Buffer.alloc(32, 201), digestKey: Buffer.alloc(32, 202) }] });
     const webhookCodec = new WebhookCodec({ activeVersion: 'pipeline-webhook-v1', keys: [{ version: 'pipeline-webhook-v1', encryptionKey: Buffer.alloc(32, 203), digestKey: Buffer.alloc(32, 204) }] });
@@ -80,19 +97,22 @@ describe.skipIf(!enabled)('isolated PostgreSQL service event to Acquire policy c
             await client.query("INSERT INTO public.targets(id,organization_id,mandate_id,company_name,firmographics) VALUES($1,$2,$3,'Synthetic','{}')", [target, org, mandate]);
             await client.query("INSERT INTO public.communication_bindings(id,organization_id,owner_user_id,service_connection_id,service_account_id,generation,channel,platform,backend,authority) VALUES($1,$2,$3,$4,$5,1,$6,$7,'unipile','service')", [bindingId, org, owner, binding.connectionId, binding.accountId, channel, binding.platform]);
             for (const currentOwner of [owner, other]) {
-                const contact = randomUUID(), mailbox = randomUUID(), whatsapp = randomUUID();
+                const contact = randomUUID(), mailbox = randomUUID(), whatsapp = randomUUID(), sequence = randomUUID(), version = randomUUID(), enrolment = randomUUID();
+                const recipient = currentOwner === owner ? 'primary-recipient@example.invalid' : 'duplicate-recipient@example.invalid';
                 await client.query("INSERT INTO public.contacts(id,organization_id,target_id,display_name,provenance) VALUES($1,$2,$3,'Synthetic','{}')", [contact, org, target]);
-                await client.query("INSERT INTO public.campaign_contact_assignments(organization_id,contact_id,owner_user_id,email) VALUES($1,$2,$3,'recipient@example.invalid')", [org, contact, currentOwner]);
+                await client.query('INSERT INTO public.campaign_contact_assignments(organization_id,contact_id,owner_user_id,email) VALUES($1,$2,$3,$4)', [org, contact, currentOwner, recipient]);
                 await client.query("INSERT INTO public.mailbox_connections(id,organization_id,user_id,provider,address) VALUES($1,$2,$3,'gmail','synthetic@example.invalid')", [mailbox, org, currentOwner]);
                 await client.query("INSERT INTO public.whatsapp_connections(id,organization_id,user_id,status) VALUES($1,$2,$3,'disconnected')", [whatsapp, org, currentOwner]);
                 await client.query("INSERT INTO public.campaign_reply_identities(organization_id,owner_user_id,contact_id,channel,identity,source_identity,email,since) VALUES($1,$2,$3,$4,$5,$6,'recipient@example.invalid','2026-01-01')", [org, currentOwner, contact, channel, identity, source]);
+                // Distinct current assignments satisfy ownership/active-email safety. Their common
+                // recorded email snapshot and canonical identity group these duplicate person rows.
+                await client.query("INSERT INTO public.campaign_sequences(id,organization_id,owner_user_id,mandate_id,name,draft) VALUES($1,$2,$3,$4,'Synthetic','{}')", [sequence, org, currentOwner, mandate]);
+                await client.query('INSERT INTO public.campaign_sequence_versions(id,organization_id,owner_user_id,sequence_id,version,definition) VALUES($1,$2,$3,$4,1,$5)', [version, org, currentOwner, sequence, JSON.stringify({ nextAction: 'email' })]);
+                await client.query('INSERT INTO public.campaign_enrolments(id,organization_id,owner_user_id,sequence_id,version_id,mandate_id,contact_id,mailbox_connection_id,recipient_email,next_step_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,now())', [enrolment, org, currentOwner, sequence, version, mandate, contact, mailbox, recipient]);
                 const actions = currentOwner === owner ? ['email', 'whatsapp', 'linkedin'] as const : ['email'] as const;
                 for (const action of actions) {
-                    const sequence = randomUUID(), version = randomUUID(), enrolment = randomUUID(), legacyBinding = randomUUID(), backend = action === 'email' ? 'direct' : action === 'whatsapp' ? 'baileys' : 'browser';
+                    const legacyBinding = randomUUID(), backend = action === 'email' ? 'direct' : action === 'whatsapp' ? 'baileys' : 'browser';
                     await client.query("INSERT INTO public.communication_bindings(id,organization_id,owner_user_id,service_connection_id,service_account_id,generation,channel,platform,backend,authority,legacy_mailbox_id,legacy_whatsapp_id,legacy_linkedin_reference) VALUES($1,$2,$3,$4,$5,1,$6,$7,$8,'legacy_port',$9,$10,$11)", [legacyBinding, org, currentOwner, `legacy-${action}-${legacyBinding}`, `legacy-account-${legacyBinding}`, action, action === 'email' ? 'gmail' : action, backend, action === 'email' ? mailbox : null, action === 'whatsapp' ? whatsapp : null, action === 'linkedin' ? `synthetic-browser-${nonce}` : null]);
-                    await client.query("INSERT INTO public.campaign_sequences(id,organization_id,owner_user_id,mandate_id,name,draft) VALUES($1,$2,$3,$4,'Synthetic','{}')", [sequence, org, currentOwner, mandate]);
-                    await client.query('INSERT INTO public.campaign_sequence_versions(id,organization_id,owner_user_id,sequence_id,version,definition) VALUES($1,$2,$3,$4,1,$5)', [version, org, currentOwner, sequence, JSON.stringify({ nextAction: action })]);
-                    await client.query("INSERT INTO public.campaign_enrolments(id,organization_id,owner_user_id,sequence_id,version_id,mandate_id,contact_id,mailbox_connection_id,recipient_email,next_step_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,'recipient@example.invalid',now())", [enrolment, org, currentOwner, sequence, version, mandate, contact, mailbox]);
                     await client.query('INSERT INTO public.campaign_channel_bindings(enrolment_id,organization_id,owner_user_id,channel,binding_id) VALUES($1,$2,$3,$4,$5)', [enrolment, org, currentOwner, action, legacyBinding]);
                 }
             }
@@ -148,10 +168,14 @@ describe.skipIf(!enabled)('isolated PostgreSQL service event to Acquire policy c
         const original: CommunicationReplyDelivery = { binding, bindingId, subscriberId, serviceEventId: eventId, sourceKey, payload };
         const sign = (d: CommunicationReplyDelivery) => createHmac('sha256', Buffer.alloc(32, 211)).update(JSON.stringify([vector(d.binding), d.bindingId, d.subscriberId, d.serviceEventId, d.sourceKey, d.payload.fingerprint, new Date(d.payload.receivedAt).toISOString(), d.payload.outcome.kind])).digest('hex');
         const expectedSignature = sign(original);
-        const options: CommunicationReplyConsumerOptions = { pool: appDriver, actor, binding, bindingId, subscriberId, authenticateDelivery: async (d) => sign(d) === expectedSignature, resolveIdentity: createRecordedReplyIdentityResolver({ actor, binding, bindingId }) };
-        const outbox = (changes: Partial<OutboxRepositoryOptions> = {}) => createPostgresOutboxRepository({ pool: serviceDriver, binding, subscriberId, codec, replyBarrier: barrier, ...changes });
+        const failures: {
+            phase: string;
+            code: string;
+        }[] = [];
+        const options: CommunicationReplyConsumerOptions = { pool: driver(appPool, failures, 'app'), actor, binding, bindingId, subscriberId, authenticateDelivery: async (d) => sign(d) === expectedSignature, resolveIdentity: createRecordedReplyIdentityResolver({ actor, binding, bindingId }) };
+        const outbox = (changes: Partial<OutboxRepositoryOptions> = {}) => createPostgresOutboxRepository({ pool: driver(servicePool, failures, 'outbox'), binding, subscriberId, codec, replyBarrier: barrier, ...changes });
         const worker = (changes: Partial<CommunicationReplyConsumerOptions> = {}, port: EventOutboxPort = outbox()) => createCommunicationReplyDeliveryWorker({ ...options, ...changes, outbox: port });
-        return { org, owner, other, binding, eventId, options, outbox, worker };
+        return { org, owner, other, binding, eventId, options, outbox, worker, failures };
     }
     async function state(f: Awaited<ReturnType<typeof fixture>>) {
         const [outbox, receipts, holds, enrolments, audit] = await Promise.all([
@@ -165,7 +189,7 @@ describe.skipIf(!enabled)('isolated PostgreSQL service event to Acquire policy c
     }
     it.each(['email', 'whatsapp', 'linkedin'] as const)('a %s reply stops all mixed backends and duplicate owners before service ACK', async (channel) => {
         const f = await fixture(channel);
-        expect(await f.worker().run()).toEqual({ status: 'delivered' });
+        expect(await f.worker().run(), `Database SQLSTATE diagnostics only: ${JSON.stringify(f.failures)}`).toEqual({ status: 'delivered' });
         const s = await state(f);
         expect(s.outbox.state).toBe('acknowledged');
         expect(s.receipts).toHaveLength(1);
@@ -174,14 +198,20 @@ describe.skipIf(!enabled)('isolated PostgreSQL service event to Acquire policy c
         expect(new Set(s.enrolments.map(e => e.backend))).toEqual(new Set(['direct', 'baileys', 'browser']));
         expect(new Set(s.enrolments.map(e => e.owner_user_id))).toEqual(new Set([f.owner, f.other]));
         expect(s.enrolments.every(e => e.state === 'stopped' && e.stop_reason === 'reply_received')).toBe(true);
-        expect(s.stopAudits).toBe(4);
+        expect(s.stopAudits).toBe(2);
     });
     it('does not acknowledge a service lease while the real application COMMIT is pending', async () => {
         const f = await fixture(), entered = deferred(), resume = deferred();
-        const paused: SqlPool = { async connect() { const client = await appDriver.connect(); return { async query<Row>(text: string, values?: unknown[]) { if (text === 'COMMIT') {
-                    entered.resolve();
-                    await resume.promise;
-                } return client.query<Row>(text, values); }, release(error?: Error) { client.release(error); } }; } };
+        const paused: SqlPool = { async connect() {
+                const client = await appDriver.connect();
+                return { async query<Row>(text: string, values?: unknown[]) {
+                        if (text === 'COMMIT') {
+                            entered.resolve();
+                            await resume.promise;
+                        }
+                        return client.query<Row>(text, values);
+                    }, release(error?: Error) { client.release(error); } };
+            } };
         const pending = f.worker({ pool: paused }).run();
         try {
             await Promise.race([entered.promise, pending.then(() => { throw Error('Expected application commit boundary'); })]);
@@ -200,10 +230,17 @@ describe.skipIf(!enabled)('isolated PostgreSQL service event to Acquire policy c
     it('recovers a lost application COMMIT response by replaying the immutable receipt before ACK', async () => {
         const f = await fixture(), outbox = f.outbox({ leaseSeconds: 1 });
         let interrupted = false;
-        const lost: SqlPool = { async connect() { const client = await appDriver.connect(); return { async query<Row>(text: string, values?: unknown[]) { const result = await client.query<Row>(text, values); if (text === 'COMMIT' && !interrupted) {
-                    interrupted = true;
-                    throw Object.assign(Error('Synthetic lost app response'), { code: 'ECONNRESET' });
-                } return result; }, release(error?: Error) { client.release(error); } }; } };
+        const lost: SqlPool = { async connect() {
+                const client = await appDriver.connect();
+                return { async query<Row>(text: string, values?: unknown[]) {
+                        const result = await client.query<Row>(text, values);
+                        if (text === 'COMMIT' && !interrupted) {
+                            interrupted = true;
+                            throw Object.assign(Error('Synthetic lost app response'), { code: 'ECONNRESET' });
+                        }
+                        return result;
+                    }, release(error?: Error) { client.release(error); } };
+            } };
         expect(await f.worker({ pool: lost }, outbox).run()).toEqual({ status: 'retry' });
         const before = await state(f);
         expect(before.outbox.state).toBe('delivering');
@@ -219,8 +256,14 @@ describe.skipIf(!enabled)('isolated PostgreSQL service event to Acquire policy c
     });
     it('rolls back policy effects on an application receipt failure and leaves service work recoverable', async () => {
         const f = await fixture('whatsapp'), outbox = f.outbox({ leaseSeconds: 1 });
-        const failing: SqlPool = { async connect() { const client = await appDriver.connect(); return { async query<Row>(text: string, values?: unknown[]) { if (text.startsWith('INSERT INTO public.communication_event_receipts'))
-                    await client.query('SELECT 1/0'); return client.query<Row>(text, values); }, release(error?: Error) { client.release(error); } }; } };
+        const failing: SqlPool = { async connect() {
+                const client = await appDriver.connect();
+                return { async query<Row>(text: string, values?: unknown[]) {
+                        if (text.startsWith('INSERT INTO public.communication_event_receipts'))
+                            await client.query('SELECT 1/0');
+                        return client.query<Row>(text, values);
+                    }, release(error?: Error) { client.release(error); } };
+            } };
         expect(await f.worker({ pool: failing }, outbox).run()).toEqual({ status: 'retry' });
         const before = await state(f);
         expect(before.outbox.state).toBe('delivering');
@@ -239,11 +282,19 @@ describe.skipIf(!enabled)('isolated PostgreSQL service event to Acquire policy c
             delivery: OutboxDelivery;
             receipt: ApplicationReplyReceipt;
         } | undefined;
-        const lost: SqlPool = { async connect() { const client = await serviceDriver.connect(); return { async query<Row>(text: string, values?: unknown[]) { if (text.includes("SET state='acknowledged'"))
-                    ack = true; const result = await client.query<Row>(text, values); if (text === 'COMMIT' && ack && !interrupted) {
-                    interrupted = true;
-                    throw Object.assign(Error('Synthetic lost ACK response'), { code: 'ECONNRESET' });
-                } return result; }, release(error?: Error) { client.release(error); } }; } };
+        const lost: SqlPool = { async connect() {
+                const client = await serviceDriver.connect();
+                return { async query<Row>(text: string, values?: unknown[]) {
+                        if (text.includes("SET state='acknowledged'"))
+                            ack = true;
+                        const result = await client.query<Row>(text, values);
+                        if (text === 'COMMIT' && ack && !interrupted) {
+                            interrupted = true;
+                            throw Object.assign(Error('Synthetic lost ACK response'), { code: 'ECONNRESET' });
+                        }
+                        return result;
+                    }, release(error?: Error) { client.release(error); } };
+            } };
         const repo = f.outbox({ pool: lost }), port: EventOutboxPort = { claim: () => repo.claim(), acknowledge(input) { last = structuredClone(input); return repo.acknowledge(input); } };
         expect(await f.worker({}, port).run()).toEqual({ status: 'retry' });
         const before = await state(f);

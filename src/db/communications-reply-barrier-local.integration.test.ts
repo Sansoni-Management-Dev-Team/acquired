@@ -6,7 +6,7 @@ import { EventCodec } from '../../communications/packages/core/src/event-codec';
 import { createPostgresReplyBarrier } from '../../communications/packages/storage-postgres/src/reply-barrier';
 import type { SqlClient } from '../../communications/packages/storage-postgres/src/webhook-repository';
 import { createCommunicationsLocalFixture } from './communications-local-test-support';
-// PREPARED ONLY. Root must signal this exact003 migration was approved/applied before execution.
+// Runs only against the specifically approved/applied isolated003 schema.
 // Missing schema is a prerequisite error, never a meaningful TDD red or an automatic migration.
 const enabled = process.env.COMMUNICATIONS_REPLY_BARRIER_LOCAL_DB === '1';
 describe.skipIf(!enabled)('approved isolated003 tenant reply barrier and immutable routing', () => {

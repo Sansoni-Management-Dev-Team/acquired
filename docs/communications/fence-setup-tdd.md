@@ -1,6 +1,6 @@
 # Tenant fencing, setup composition and bounded consumption
 
-P2.3/P3.2/P3.4/P4.2 prerequisites on the separate Unipile worktree. This continues [durable reply evidence](durable-replies-tdd.md). Local 001/002 are approved/applied. `ops/communications/003-reply-consumption.local.sql` remains unchanged at SHA-256 `4f79939442b22109fed2bee069059d8701126170202fa902e9aa6655b039fefd`, unapproved and unapplied. No test auto-provisions schema, and missing prerequisites are not TDD RED.
+P2.3/P3.2/P3.4/P4.2 prerequisites on the separate Unipile worktree. This continues [durable reply evidence](durable-replies-tdd.md). Local 001/002 are approved/applied. `ops/communications/003-reply-consumption.local.sql` remains unchanged at SHA-256 `4f79939442b22109fed2bee069059d8701126170202fa902e9aa6655b039fefd`, now specifically approved and applied to the exact isolated target. The latest local execution and actual 003 evidence supersede the prepared status below; previous verification counts remain historical. No test auto-provisions schema, and missing prerequisites are not TDD RED.
 
 ## Implemented boundaries and evidence
 
@@ -17,7 +17,7 @@ P2.3/P3.2/P3.4/P4.2 prerequisites on the separate Unipile worktree. This continu
 
 The first fresh standalone run found two stale scripted review fixtures missing the new read-only catalog/time-budget SQL. Those were fixture protocol failures, not production TDD defects. `webhook-review-protocol-characterization.log` passes all seven original cases; negative assertions now require reaching encrypted inbox validation, preventing prerequisite failures from masquerading as successful corruption checks.
 
-## Actual local verification
+## Previous local verification
 
 Frozen-tree final results: 3,499 full-suite passes/207 opt-in skips (352 files passed/33 skipped), 1,156 standalone-package passes/44 files, root typecheck, scoped lint, independent package build/exports and native network-none all-channel proof passed. Current results are in [verification](verification.md) and private `fence-setup-final-*` logs. Real approved-schema suite: 98 passed across eight files (82 new service/setup/recorded identity cases and 16 existing reply-policy cases). It executes no 003-dependent case. Independent package copy verifies framework-free build/exports/tests; native network-none all-channel proof keeps memory authority/application commits explicit.
 
@@ -32,3 +32,9 @@ The runtime account-owner verifier, notification authentication and original pro
 Complete fresh history, checkpoint/coverage, historical normalization/reconciliation, observed-reply enforcement replay, original send journal/quota/admission across both campaign runtimes, application-owned drafts, lifecycle/status/disconnect/health, UI and full legacy runtime extraction remain open. Already-ACKed observe-mode events do not automatically redeliver when enforcement turns on. Local review must be rechecked after tenant-fence acquisition across all relevant owners. Existing holds are never cleared by reconnect, defaults or review resolution.
 
 No real provider POST/send/invitation, account link, webhook registration, production change, backfill, UI routing activation, branch push or publication occurred. Original-main duplicate cleanup stays preserved; all source work remains in the feature worktree.
+
+## Approved 003 follow-through
+
+The latest exact user approval and fresh private backup/target/hash/collision checks allowed unchanged003 application. All 34 previously prepared fence/consumer/pipeline cases now pass, alongside82 prior service/setup/identity and16 existing policy regressions. Nineteen additional first-passing SQL dispatch characterizations bring actual local DB verification to151 cases/12 files with zero skips. `node scripts/test-communications-postgres-local.mjs` reproduces the complete selected suite without DDL or live credentials.
+
+Missing barrier ports and invalid multi-enrolment fixture setup were prerequisite defects, not production TDD REDs. Concurrent files additionally reproduced legitimate40001 serialization retries; serial file execution removes unrelated fixture interference and preserves intentional lock/concurrency scenarios. No production source change was needed. Full3499passes/226opt-in skips, roottypes and changed-source/script lint pass. Current scope, private evidence, remaining admission/coverage/runtime tasks and exact approvals are in [progress](progress.md) and [verification](verification.md).

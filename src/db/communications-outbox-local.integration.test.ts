@@ -75,7 +75,7 @@ describe.skipIf(!enabled)('isolated PostgreSQL scoped outbox leases and applicat
             client.release();
         }
         const repository = (changes: Partial<OutboxRepositoryOptions> = {}) => createPostgresOutboxRepository({
-            pool: local.driver, binding: b, subscriberId, codec, ...changes
+            pool: local.driver, binding: b, subscriberId, codec, replyBarrier: local.replyBarrier(b), ...changes
         });
         return {
             ...f, eventId: eventId!, sourceEventKey, payload, repository

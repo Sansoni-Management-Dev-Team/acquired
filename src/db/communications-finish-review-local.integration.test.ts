@@ -10,7 +10,7 @@ describe.skipIf(process.env.COMMUNICATIONS_AUDIT_LOCAL_DB!=='1')('normalized rev
   beforeAll(local.preflight);afterAll(local.close);
   it.each(['plaintext_time','receipt_time'] as const)('does not complete a review with contradictory %s',async variant=>{
     const f=await local.fixture(),capture=f.capture();
-    const repo=createPostgresWebhookRepository({pool:local.driver,binding:f.binding,integrationId:'terminal-integration',providerConfigurationReference:'terminal-configuration',subscriberId:'review-subscriber',codec:local.webhookCodec,eventCodec});
+    const repo=createPostgresWebhookRepository({pool:local.driver,binding:f.binding,integrationId:'terminal-integration',providerConfigurationReference:'terminal-configuration',subscriberId:'review-subscriber',codec:local.webhookCodec,eventCodec,replyBarrier:local.replyBarrier(f.binding,'terminal-integration',eventCodec)});
     await repo.capture(capture);const claim=await repo.claim({binding:f.binding,key:capture.key});if(claim.kind!=='claimed')throw Error('Synthetic claim failed');
     const b=f.binding,scope=[b.applicationId,b.tenantId,b.ownerId,b.connectionId,b.accountId,b.generation,b.channel,b.platform,b.backend];
     const fingerprint=createHash('sha256').update(JSON.stringify(['communications.reply.review.v1',scope,capture.key,'protocol'])).digest('hex');

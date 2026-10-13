@@ -4,7 +4,8 @@ import { localCampaignDatabase } from '../../scripts/campaign-integration-suppor
 import { WebhookCodec } from '../../communications/packages/core/src/webhook-codec';
 import type { ConnectionBinding } from '../../communications/packages/contracts/src';
 import type { WebhookCapture } from '../../communications/packages/core/src/reply-ingress';
-import type { SqlPool } from '../../communications/packages/storage-postgres/src/webhook-repository';
+import type { SqlPool, WebhookEventRepositoryCodec } from '../../communications/packages/storage-postgres/src/webhook-repository';
+import { createPostgresReplyBarrier } from '../../communications/packages/storage-postgres/src/reply-barrier';
 
 /** Synthetic DML only, against the specifically approved isolated database. Never bootstrap schema. */
 export function createCommunicationsLocalFixture() {
@@ -52,5 +53,8 @@ export function createCommunicationsLocalFixture() {
       }
     } finally { await pool.end(); }
   }
-  return { pool, driver, webhookCodec, preflight, fixture, close };
+  function replyBarrier(binding: ConnectionBinding, integrationId = 'terminal-integration', eventCodec?: WebhookEventRepositoryCodec) {
+    return createPostgresReplyBarrier({ binding, integrationId, codec: webhookCodec, ...(eventCodec ? { eventCodec } : {}) });
+  }
+  return { pool, driver, webhookCodec, preflight, fixture, close, replyBarrier };
 }
