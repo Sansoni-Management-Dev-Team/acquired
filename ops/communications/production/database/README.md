@@ -25,9 +25,7 @@ Every execution session must carry both exact settings:
 
 Missing, malformed, incorrect or mismatched settings abort the transaction. These
 are session settings, not placeholders interpolated into SQL. No local system
-identifier is accepted as a hard-coded alternative. The actual production system
-identifier is currently unknown (`null` in the manifest), so these artifacts are
-not yet an executable target approval request.
+identifier is accepted as a hard-coded alternative. The actual production system identifier is currently unknown (`null` in the proposal manifest). Specific approval may cover this exact new host/database/volume and the frozen file hashes together with initialization. Before SQL execution, independently capture and record the newly initialized cluster identity and supply it to the mandatory guard; no alternate existing database or volume is covered. See the authoritative [production review](../../../../docs/communications/production-migration-review.md).
 
 001 additionally requires an absent communications namespace, absent restricted
 service roles and no public application relations. Later files retain original
