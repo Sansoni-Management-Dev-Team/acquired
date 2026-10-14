@@ -1,3 +1,4 @@
+import { performance as monotonicClock } from 'node:perf_hooks';
 import { describe,expect,it,vi } from 'vitest';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -62,7 +63,15 @@ describe('provider-neutral hosted setup lifecycle',()=>{
  it('captures dependencies and fixed configuration before callbacks mutate them',async()=>{const f=fixture(),coordinator=f.coordinator();f.options.redirectOrigin='https://evil.test';f.options.hostedAuth.createLink=async()=>{throw Error('replacement');};expect((await coordinator.begin()).status).toBe('redirect');expect(f.createLink).toHaveBeenCalledOnce();});
  it.each([{timeoutMs:0},{timeoutMs:30000},{timeoutMs:1.5},{successPath:'//evil.test'},{successPath:'/success\n?normalized=1'},{failurePath:'https://evil.test'},{redirectOrigin:'https://app.example.test/path'},{notifyUrl:'http://evil.test'},{redirectOrigin:'http://127.0.0.1:3000'},{backend:'unknown'},{channel:'email',platform:'whatsapp'}] as Partial<ConnectionSetupOptions>[])('rejects unsafe fixed setup configuration %#',change=>{expect(()=>fixture(change).coordinator()).toThrow('Invalid connection setup configuration');});
  it('bounds stalled provider link creation and ignores late success',async()=>{const link=deferred<Awaited<ReturnType<ConnectionSetupOptions['hostedAuth']['createLink']>>>();let signal:AbortSignal|undefined;const f=fixture({timeoutMs:10,hostedAuth:{createLink:(_input,options)=>{signal=options?.signal;return link.promise;}}});expect(await f.coordinator().begin()).toEqual({status:'unknown'});expect(signal?.aborted).toBe(true);link.resolve({kind:'success',status:200,data:{url:'https://account.example.test/late'}});});
- it('prevents provider invocation after a synchronous state overrun',async()=>{const f=fixture({timeoutMs:5,states:{issue:async()=>{const end=performance.now()+15;while(performance.now()<end){}return {nonce,expiresAt:new Date(Date.now()+60_000).toISOString(),expectedConnectionId:'new',expectedGeneration:1};},complete:async()=>({status:'rejected',code:'invalid'})}});expect(await f.coordinator().begin()).toEqual({status:'unavailable'});expect(f.createLink).not.toHaveBeenCalled();});
- it('prevents redirect success after a synchronous provider overrun',async()=>{const f=fixture({timeoutMs:5,hostedAuth:{createLink:async()=>{const end=performance.now()+15;while(performance.now()<end){}return {kind:'success',status:200,data:{url:'https://account.example.test/late'}};}}});expect(await f.coordinator().begin()).toEqual({status:'unknown'});});
+ it('prevents provider invocation after a synchronous state overrun',async()=>{
+  vi.useFakeTimers();let now=0;const clock=vi.spyOn(monotonicClock,'now').mockImplementation(()=>now);
+  try {const f=fixture({timeoutMs:5,states:{issue:async()=>{now=15;return {nonce,expiresAt:new Date(Date.now()+60_000).toISOString(),expectedConnectionId:'new',expectedGeneration:1};},complete:async()=>({status:'rejected',code:'invalid'})}});expect(await f.coordinator().begin()).toEqual({status:'unavailable'});expect(f.createLink).not.toHaveBeenCalled();}
+  finally {clock.mockRestore();vi.useRealTimers();}
+ });
+ it('prevents redirect success after a synchronous provider overrun',async()=>{
+  vi.useFakeTimers();let now=0;const clock=vi.spyOn(monotonicClock,'now').mockImplementation(()=>now),provider=vi.fn(async()=>{now=15;return {kind:'success' as const,status:200,data:{url:'https://account.example.test/late'}};});
+  try {const f=fixture({timeoutMs:5,hostedAuth:{createLink:provider}});expect(await f.coordinator().begin()).toEqual({status:'unknown'});expect(provider).toHaveBeenCalledOnce();}
+  finally {clock.mockRestore();vi.useRealTimers();}
+ });
  it('returns unknown for notification timeout while permitting later durable commit/replay',async()=>{const commit=deferred<Awaited<ReturnType<ConnectionSetupOptions['states']['complete']>>>(),f=fixture({timeoutMs:10,states:{issue:async()=>{throw Error('unused');},complete:()=>commit.promise}});expect(await f.coordinator().complete({nonce,notification:{}})).toEqual({status:'unknown'});commit.resolve({status:'completed',binding});});
 });
