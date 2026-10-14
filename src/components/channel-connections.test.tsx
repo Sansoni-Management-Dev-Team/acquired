@@ -8,12 +8,13 @@ it('offers configured Unipile setup and distinguishes syncing from send readines
  const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,checkedAt:'2026-10-14T00:00:00.000Z',connections:[{binding,label:'owner@example.test',status:'syncing',capabilities:{messaging:{send:true,durableIdempotency:true,receiptLookup:true},events:{read:true,history:true,realtime:true}},readiness:{status:'waiting',code:'incomplete'},isDefault:false}]}}/>);
  expect(html).toContain('owner@example.test');expect(html).toContain('Syncing');expect(html).toContain('Use for new work');expect(html).toContain('Disconnect');expect(html).not.toContain('Setup unavailable');expect(html).not.toContain('>Ready<');
 });
-it("shows only Unipile for all three channels with unavailable setup", () => {
+it("uses channel names without exposing the internal supplier", () => {
     const View = ChannelConnections as React.ComponentType<Record<string, unknown>>;
     const html = renderToStaticMarkup(<View notice={{}}/>);
     for (const channel of ["Email", "WhatsApp", "LinkedIn"])
         expect(html).toContain(channel);
-    expect(html.match(/Connect (?:Email|WhatsApp|LinkedIn) with Unipile/g)).toHaveLength(3);
+    expect(html.match(/Connect (?:Email|WhatsApp|LinkedIn)<\/button>/g)).toHaveLength(3);
+    expect(html).not.toMatch(/unipile/i);
     expect(html.match(/disabled=""/g)).toHaveLength(3);
     expect(html).toContain("Setup unavailable");
     expect(html).not.toMatch(/api\/mailbox\/google|Browser connection|Linked device|QR code|Open LinkedIn|Connect Gmail/);
@@ -31,6 +32,7 @@ it("never infers a Unipile connection from old settings or legacy connection not
 it('marks IMAP unavailable while configured Gmail and Outlook remain selectable', () => {
  const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,connections:[],checkedAt:'2026-10-14T00:00:00.000Z'}}/>);
  const option=(value:string)=>html.match(new RegExp(`<option\\b[^>]*value="${value}"[^>]*>[^<]*</option>`))?.[0];
+ expect(html).not.toMatch(/unipile/i);
  expect(option('imap')).toContain('disabled=""');
  expect(option('imap')).toContain('IMAP unavailable');
  expect(option('gmail')).toContain('Gmail');expect(option('gmail')).not.toContain('disabled');

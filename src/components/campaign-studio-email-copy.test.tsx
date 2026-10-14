@@ -20,16 +20,16 @@ function confirmation(mailbox:StudioData['mailbox']){
  expect(html).toContain('aria-label="Confirm automation"');
  return {html,button:html.match(/<button\b[^>]*>[\s\S]*?<\/button>/g)?.find(value=>value.includes('Confirm and start'))};
 }
-it('asks for an email account through Unipile and preserves the unready confirmation gate',()=>{
+it('asks for an email account without exposing internal suppliers and preserves the unready confirmation gate',()=>{
  const {html,button}=confirmation(null);
  expect(html).toContain('From your email account.');
- expect(html).toContain('Connect an email account through Unipile with verified reply monitoring for this sequence.');
- expect(html).not.toMatch(/your Gmail account|Connect Gmail/);
+ expect(html).toContain('Connect an email account with verified reply monitoring for this sequence.');
+ expect(html).not.toMatch(/your Gmail account|Connect Gmail|unipile|firmable|n8n/i);
  expect(button).toContain('disabled=""');
 });
 it('shows the selected email address and keeps a ready mailbox confirmation available',()=>{
  const {html,button}=confirmation({address:'sender@outlook.test',ready:true,dailyCap:100,status:'ready'});
  expect(html).toContain('From sender@outlook.test.');
- expect(html).not.toContain('Connect an email account through Unipile');
+ expect(html).not.toContain('Connect an email account');
  expect(button).not.toContain('disabled=""');
 });

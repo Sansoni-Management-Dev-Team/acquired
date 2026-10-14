@@ -20,9 +20,9 @@ export const gmailStatusLabels: Record<GmailConnectionStatus, string> = {
 };
 
 export const gmailStatusMessages: Record<GmailConnectionStatus, string> = {
-  not_connected: "Connect email through Unipile before subscribing contacts.",
-  reconnect_required: "Reconnect email through Unipile in Settings before subscribing contacts.",
-  compose_access_needed: "Reconnect email with Unipile in Settings to grant compose access before subscribing contacts.",
+  not_connected: "Connect email before subscribing contacts.",
+  reconnect_required: "Reconnect email in Settings before subscribing contacts.",
+  compose_access_needed: "Reconnect email in Settings to grant compose access before subscribing contacts.",
   reply_access_needed: "Complete email connection and verified reply monitoring before subscribing contacts.",
   ready: "Email is ready for campaigns.",
 };

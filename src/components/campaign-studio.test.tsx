@@ -53,6 +53,16 @@ it("explains connected Gmail with missing reply access on People", () => {
 });
 
 it("shows an unconnected mailbox without implying an expired connection", () => {
-  expect(render()).toContain("Connect email through Unipile before subscribing contacts.");
+  expect(render()).toContain("Connect email before subscribing contacts.");
   expect(render()).not.toContain("Reconnect required");
 });
+
+ it('keeps campaign connection guidance free of internal supplier names', () => {
+  expect(render()).not.toMatch(/unipile|n8n|firmable/i);
+ });
+ it.each([null, 'workflow-1'])('uses generic published workflow copy while preserving configured links (%s)', workflowId => {
+  const definition = { schemaVersion: 1 as const, steps: [{ id: 'email-1', kind: 'email' as const, title: 'Introduction', subject: 'Hello', body: 'Hello there' }] };
+  const html = renderToStaticMarkup(<CampaignStudio mandateId="mandate" mandateName="Example" initialView="sequences" initialData={{ ...data, n8nUrl: 'https://automation.example.test', sequences: [{ id: 'sequence-1', name: 'Introduction', draft: definition, publishedDefinition: definition, publishedVersion: 1, n8nWorkflowId: workflowId, updatedAt: '2026-10-14T00:00:00Z' }] }} />);
+  expect(html).not.toMatch(/unipile|n8n|firmable/i);
+  if(workflowId) expect(html).toContain('https://automation.example.test/workflow/workflow-1');
+ });

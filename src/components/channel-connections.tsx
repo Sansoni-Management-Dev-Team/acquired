@@ -4,9 +4,9 @@ import { BriefcaseBusiness, Mail, MessageCircle } from 'lucide-react';
 import { assertManagementSnapshot, type ConnectionManagementSnapshot, type ManagedConnection } from '../../communications/packages/contracts/src/management';
 import type { Platform } from '../../communications/packages/contracts/src';
 const channels = [
- { channel:'email' as const,name:'Email',icon:Mail,description:'Connect an email account through Unipile.' },
- { channel:'whatsapp' as const,name:'WhatsApp',icon:MessageCircle,description:'Connect your WhatsApp account through Unipile.' },
- { channel:'linkedin' as const,name:'LinkedIn',icon:BriefcaseBusiness,description:'Connect your LinkedIn account through Unipile.' },
+ { channel:'email' as const,name:'Email',icon:Mail,description:'Connect an email account.' },
+ { channel:'whatsapp' as const,name:'WhatsApp',icon:MessageCircle,description:'Connect your WhatsApp account.' },
+ { channel:'linkedin' as const,name:'LinkedIn',icon:BriefcaseBusiness,description:'Connect your LinkedIn account.' },
 ];
 const unavailable=():ConnectionManagementSnapshot=>({available:false,connections:[],checkedAt:new Date().toISOString()});
 function connectionStatus(c:ManagedConnection) {
@@ -18,6 +18,7 @@ function connectionStatus(c:ManagedConnection) {
 }
 export function ChannelConnections({initialSnapshot}:{initialSnapshot?:ConnectionManagementSnapshot}={}) {
  const [snapshot,setSnapshot]=useState<ConnectionManagementSnapshot>(initialSnapshot??unavailable),[busy,setBusy]=useState(false),[notice,setNotice]=useState(''),[emailPlatform,setEmailPlatform]=useState<Platform>('gmail');
+ const [noticeChannel,setNoticeChannel]=useState<string>('');
  const retirementKeys=useRef(new Map<string,string>()),mounted=useRef(true),inFlight=useRef(false);
  const refresh=useCallback(async(signal?:AbortSignal)=>{
   try {const response=await fetch('/api/channels/connections',{cache:'no-store',credentials:'same-origin',signal});const value:unknown=await response.json();assertManagementSnapshot(value);if(mounted.current&&!signal?.aborted)setSnapshot(value);}
@@ -25,13 +26,20 @@ export function ChannelConnections({initialSnapshot}:{initialSnapshot?:Connectio
  },[]);
  useEffect(()=>{mounted.current=true;const controller=new AbortController();void Promise.resolve().then(()=>refresh(controller.signal));return()=>{mounted.current=false;controller.abort();};},[refresh]);
  const manage=useCallback(async(input:Record<string,unknown>)=>{
-  if(inFlight.current)return;inFlight.current=true;setBusy(true);setNotice('');
+  if(inFlight.current)return;inFlight.current=true;setBusy(true);
+  const channel=input.channel??(input.binding as {channel?:string}|undefined)?.channel;
+  setNoticeChannel(typeof channel==='string'?channel:'');
+  setNotice(input.action==='setup'?'Opening account connection…':'');
   try {
    const response=await fetch('/api/channels/connections',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(input)});
    if(!response.ok)throw Error('Unavailable');const result=await response.json();if(!mounted.current)return;
    if(input.action==='setup'&&result.status==='redirect'){
     const url=new URL(result.action?.url);if(url.origin!=='https://account.unipile.com'||url.username||url.password||url.hash||Date.parse(result.action?.expiresAt)<=Date.now()||!Number.isFinite(Date.parse(result.action?.expiresAt)))throw Error('Invalid link');
     window.location.assign(url.href);return;
+   }
+   if(input.action==='setup'){
+    setNotice('Account setup could not be opened. Please try again.');
+    await refresh();return;
    }
    if(result.status==='unknown')setNotice('The result could not be confirmed. Check the connection before trying another action.');
    else if(result.status==='review'||result.status==='rejected'||result.status==='unavailable')setNotice('This connection needs attention before the action can complete.');
@@ -48,8 +56,8 @@ export function ChannelConnections({initialSnapshot}:{initialSnapshot?:Connectio
  }
  return <section aria-labelledby="channel-connections-heading" className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-6">
   <div className="flex items-center justify-between gap-3"><h2 id="channel-connections-heading" className="text-lg font-semibold">Channel connections</h2><button type="button" disabled={busy} onClick={()=>void refresh()} className="text-sm underline disabled:opacity-50">Refresh</button></div>
-  <p id="channel-setup-availability" className="mt-2 text-sm text-[var(--muted)]">{snapshot.available?'Connect accounts and choose which connection to use for new work.':'Account setup through Unipile is not available yet.'}</p>
-  {notice&&<p role="status" aria-live="polite" className="mt-3 text-sm">{notice}</p>}
+  <p id="channel-setup-availability" className="mt-2 text-sm text-[var(--muted)]">{snapshot.available?'Connect accounts and choose which connection to use for new work.':'Account setup is not available yet.'}</p>
+  {notice&&!noticeChannel&&<p role="status" aria-live="polite" className="mt-3 text-sm">{notice}</p>}
   <div className="mt-5 space-y-3">{channels.map(({channel,name,icon:Icon,description})=><div key={channel} className="rounded-lg border border-[var(--border)] bg-[var(--background)] p-4 sm:p-5">
    <div className="flex flex-wrap items-center gap-3"><div className="flex size-10 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--panel)]"><Icon size={20} aria-hidden="true"/></div><h3 className="flex-1 font-semibold">{name}</h3>{!snapshot.available&&<span className="rounded-full border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted)]">Setup unavailable</span>}</div>
    <p className="mt-3 text-sm text-[var(--muted)]">{description}</p>
@@ -63,7 +71,8 @@ export function ChannelConnections({initialSnapshot}:{initialSnapshot?:Connectio
     </div>
    </div>)}
    {channel==='email'&&snapshot.available&&<label className="mt-4 block text-sm">Email provider<select aria-label="Email provider" value={emailPlatform} disabled={busy} onChange={e=>setEmailPlatform(e.target.value as Platform)} className="ml-3 rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2"><option value="gmail">Gmail</option><option value="outlook">Outlook</option><option value="imap" disabled>IMAP unavailable</option></select></label>}
-   <button type="button" disabled={!snapshot.available||busy} aria-describedby="channel-setup-availability" onClick={()=>void manage({action:'setup',channel,platform:channel==='email'?emailPlatform:channel})} className="mt-4 inline-flex min-h-12 items-center justify-center rounded-md border border-[var(--border)] px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50">Connect {name} with Unipile</button>
+   <button type="button" disabled={!snapshot.available||busy} aria-describedby="channel-setup-availability" onClick={()=>void manage({action:'setup',channel,platform:channel==='email'?emailPlatform:channel})} className="mt-4 inline-flex min-h-12 items-center justify-center rounded-md border border-[var(--border)] px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50">{busy&&noticeChannel===channel?'Connecting…':<>Connect {name}</>}</button>
+   {notice&&noticeChannel===channel&&<p role="status" aria-live="polite" className="mt-3 text-sm">{notice}</p>}
   </div>)}</div>
  </section>;
 }

@@ -17,6 +17,18 @@ describe('explicit v1 hosted connection links',()=>{
     expect(JSON.parse(String(request?.body))).toEqual({type:'create',providers:[provider],single_use:true,api_url:'https://api1.unipile.com:20255',expiresOn:i.expiresAt,name:i.state,success_redirect_url:i.successRedirectUrl,failure_redirect_url:i.failureRedirectUrl,notify_url:i.notifyUrl});
     expect(request?.headers).toMatchObject({'X-API-KEY':'synthetic-api-key','Content-Type':'application/json'});
   });
+  it('accepts the live v1 created response while normalizing its object label',async()=>{
+    const f=fixture();f.fetch.mockResolvedValueOnce(Response.json({object:'HostedAuthUrl',url:'https://account.unipile.com/opaque-auth-link'},{status:201}));
+    expect(await f.api.createLink(input())).toEqual({kind:'success',status:201,data:{object:'HostedAuthURL',url:'https://account.unipile.com/opaque-auth-link'}});
+    expect(f.fetch).toHaveBeenCalledOnce();
+  });
+  it('still rejects untrusted hosts and wrong object labels in created responses',async()=>{
+    const f=fixture();
+    for(const data of [{object:'HostedAuthUrl',url:'https://evil.example/link'},{object:'Account',url:'https://account.unipile.com/link'},{object:['HostedAuthUrl'],url:'https://account.unipile.com/link'}]){
+      f.fetch.mockResolvedValueOnce(Response.json(data,{status:201}));
+      expect(await f.api.createLink(input())).toEqual({kind:'unknown',reason:'invalid_response',status:201});
+    }
+  });
   it('reconnects only the original recorded account with no create-provider list',async()=>{
     const f=fixture();await f.api.createLink({...input(),type:'reconnect',providerAccountId:'original-account'});
     const body=JSON.parse(String(f.fetch.mock.calls[0][1]?.body));expect(body.type).toBe('reconnect');expect(body.reconnect_account).toBe('original-account');expect(body.providers).toBeUndefined();expect(body.single_use).toBeUndefined();

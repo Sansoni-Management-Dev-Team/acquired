@@ -78,11 +78,11 @@ export class UnipileV1HostedAuth {
     const result=await this.#http.request('POST',this.#http.url('hosted/accounts/link'),body,{signal:options.signal},{'Content-Type':'application/json'});
     if(result.kind!=='success')return result;
     try{
-      if(result.status!==200||!result.data||typeof result.data!=='object'||Array.isArray(result.data)||!('object' in result.data)||result.data.object!=='HostedAuthURL'||!('url' in result.data))throw Error();
+      if(![200,201].includes(result.status)||!result.data||typeof result.data!=='object'||Array.isArray(result.data)||!('object' in result.data)||(result.data.object!=='HostedAuthURL'&&result.data.object!=='HostedAuthUrl')||!('url' in result.data))throw Error();
       // Provider round-trip can consume the complete requested link lifetime.
       const observedAt=this.#now();if(!Number.isFinite(observedAt)||observedAt>=expiresAtMs)throw Error();
       const url=this.#url(result.data.url);if(!this.#hosted.has(url.origin))throw Error();
-      return {kind:'success',status:200,data:{object:'HostedAuthURL',url:url.href}};
+      return {kind:'success',status:result.status,data:{object:'HostedAuthURL',url:url.href}};
     }catch{return {kind:'unknown',reason:'invalid_response',status:result.status};}
   }
 }

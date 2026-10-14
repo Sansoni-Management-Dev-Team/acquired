@@ -93,7 +93,7 @@ function fixture() {
             const payload = JSON.parse(init.body as string);
             callback = { nonce: payload.name, capability: new URL(payload.notify_url).searchParams.get('capability')! };
             expect(states.has(createHash('sha256').update(payload.name).digest('hex'))).toBe(true);
-            return Response.json({ object: 'HostedAuthURL', url: 'https://account.unipile.com/hosted/opaque' });
+            return Response.json({ object: 'HostedAuthUrl', url: 'https://account.unipile.com/hosted/opaque' }, {status:201});
         }
         if (url.pathname.endsWith('/users/me'))
             return Response.json({ object: 'AccountOwnerProfile', provider: 'GMAIL', email: 'verified-owner@example.test', aliases: [] });
