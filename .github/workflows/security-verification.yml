@@ -20,7 +20,8 @@ jobs:
       - run: |
           npm install --global pnpm@11.8.0
           pnpm install --frozen-lockfile
-          pnpm test
+          pnpm exec vitest run --maxWorkers 2 --testTimeout 20000
+          pnpm run test:node
           pnpm exec next typegen
           pnpm exec tsc --noEmit --incremental false
           python3 -m unittest discover -s cloudflare/crawl4ai -p 'test_*.py'
