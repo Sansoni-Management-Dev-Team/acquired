@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
-import { assertCampaignWhatsappConnected, campaignWhatsapp, lookupCampaignWhatsapp, whatsappCampaignEnabled } from './campaign-whatsapp';
-import { assertLinkedinDeliveryReady, campaignLinkedin, campaignLinkedinAccountStatus, linkedinCampaignEnabled, lookupCampaignLinkedin } from './campaign-linkedin';
-import { readChannelReplies } from './campaign-reply-providers';
-import { whatsappDeliveryProvider } from './channels/whatsapp-delivery';
-import { linkedinDeliveryProvider } from './channels/linkedin-delivery';
+import { assertCampaignWhatsappConnected, campaignWhatsapp, lookupCampaignWhatsapp, whatsappCampaignEnabled } from '@/test/fixtures/campaign-whatsapp';
+import { assertLinkedinDeliveryReady, campaignLinkedin, campaignLinkedinAccountStatus, linkedinCampaignEnabled, lookupCampaignLinkedin } from '@/test/fixtures/legacy-campaign-linkedin';
+import { readChannelReplies } from '@/test/fixtures/campaign-reply-providers';
+import { pausedDeliveryProvider } from './channels/paused-delivery';
 
 const actor = { organizationId: 'retirement-org', userId: 'recorded-owner' };
 const input = { actor, key: 'historical-operation', recipient: '61412345678@s.whatsapp.net', text: 'Authorized old synthetic fixture', operation: 'message' as const };
@@ -45,8 +44,8 @@ describe('configured legacy social providers are retired from Acquire', () => {
     it.each(['whatsapp', 'linkedin'] as const)('%s old reply reader cannot certify complete coverage', async channel => {
         await expect(readChannelReplies(actor, channel, 'recorded-cursor', new Date(0))).rejects.toMatchObject(denied); expect(fetcher).not.toHaveBeenCalled();
     });
-    it.each([['whatsapp', whatsappDeliveryProvider], ['linkedin', linkedinDeliveryProvider]] as const)('%s app factory remains paused and advertises no live capabilities', async (_channel, factory) => {
-        const provider = factory();
+    it.each(['whatsapp', 'linkedin'] as const)('%s paused factory advertises no live capabilities', async channel => {
+        const provider = pausedDeliveryProvider(channel);
         expect(provider.capabilities).toEqual({ durableIdempotency: false, receiptLookup: false, connectionRequests: false });
         await expect(provider.ready(actor)).rejects.toMatchObject(denied);
         expect(await provider.submit(input)).toEqual({ status: 'review', code: 'delivery_disabled' });

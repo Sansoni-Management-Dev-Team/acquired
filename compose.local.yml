@@ -1,28 +1,6 @@
 name: project-acquire
 
 services:
-  whatsapp:
-    profiles: [whatsapp]
-    build:
-      context: ./services/whatsapp
-      platforms: [linux/amd64]
-    platform: linux/amd64
-    container_name: project-acquire-whatsapp
-    environment:
-      DATABASE_URL: postgresql://project_acquire:project_acquire@postgres:5432/project_acquire
-      WHATSAPP_ENCRYPTION_KEY: ${WHATSAPP_ENCRYPTION_KEY:-}
-      WHATSAPP_SERVICE_SECRET: ${WHATSAPP_SERVICE_SECRET:-}
-    ports:
-      - "127.0.0.1:18095:8080"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health',{headers:{Authorization:'Bearer '+process.env.WHATSAPP_SERVICE_SECRET}}).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    restart: unless-stopped
   crawl4ai:
     build:
       context: ./cloudflare/crawl4ai

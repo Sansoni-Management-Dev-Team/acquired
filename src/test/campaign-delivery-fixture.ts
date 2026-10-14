@@ -1,9 +1,9 @@
 import type { CampaignActor } from "@/db/campaign-client";
 import type { ReplyChannel } from "@/domain/campaign-replies";
 import type { DeliveryOutcome } from "@/domain/channel-delivery";
-import type { CampaignMailbox } from "@/lib/campaign-mailbox";
-import type { CampaignLinkedinResult } from "@/lib/campaign-linkedin";
-import { emailDeliveryProvider } from "@/lib/channels/email-delivery";
+import type { CampaignMailbox } from "@/test/fixtures/campaign-mailbox";
+import type { CampaignLinkedinResult } from "@/test/fixtures/legacy-campaign-linkedin";
+import { emailDeliveryProvider } from "./email-delivery-fixture";
 import { rejected, type CampaignDeliveryProvider } from "@/lib/channels/delivery-provider";
 
 // Policy tests inject in-memory ports explicitly; no application registry imports

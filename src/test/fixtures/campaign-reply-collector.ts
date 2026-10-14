@@ -1,3 +1,4 @@
+// Test-only historical reply characterization; no production import is permitted.
 import { replyPageSchema, type ReplyPage } from "@/domain/campaign-replies";
 import { ReplyCheckReview } from "@/lib/campaign-reply-status";
 import { campaignRemainingMs } from "@/lib/campaign-work-budget";

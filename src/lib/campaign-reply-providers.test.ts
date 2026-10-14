@@ -1,6 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
-import { readChannelReplies } from './campaign-reply-providers';
+import { readChannelReplies } from '@/test/fixtures/campaign-reply-providers';
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 it.each(['whatsapp', 'linkedin'] as const)('%s retirement preserves actor and opaque historical cursor without certifying coverage', async channel => {
     const actor = { organizationId: 'org&userId=other', userId: 'recorded-owner' }, cursor = 'opaque/+?other-owner';

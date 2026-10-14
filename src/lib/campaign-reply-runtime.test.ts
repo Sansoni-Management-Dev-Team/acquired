@@ -4,9 +4,9 @@ const mock = vi.hoisted(() => ({ rows: vi.fn(), query: vi.fn(), check: vi.fn(), 
 vi.mock("server-only", () => ({}));
 vi.mock("@/db/campaign-client", () => ({ rows: mock.rows, withCampaignDb: (_actor: unknown, fn: (client: unknown) => unknown) => fn({ query: mock.query }), withCampaignWorker: (fn: (client: unknown) => unknown) => fn({ query: mock.query }) }));
 vi.mock("@/lib/campaign-reply-monitor", () => ({ checkContactReplyMonitors: mock.check, assertContactReplyFresh: mock.fresh, prepareReplyContact: vi.fn(), runReplyMonitorTick: vi.fn() }));
-vi.mock("@/lib/campaign-mailbox", () => ({ campaignTestSendAnytime: () => true, campaignMailboxForConnection: () => ({ ...mock.gmail, send: mock.email }) }));
-vi.mock("@/lib/campaign-whatsapp", async original => ({ ...await original<typeof import("./campaign-whatsapp")>(), campaignWhatsapp: mock.whatsapp, assertCampaignWhatsappConnected: vi.fn() }));
-vi.mock("@/lib/campaign-linkedin", async original => ({ ...await original<typeof import("./campaign-linkedin")>(), campaignLinkedin: mock.linkedin, assertLinkedinDeliveryReady: vi.fn() }));
+vi.mock("@/test/fixtures/campaign-mailbox", () => ({ campaignTestSendAnytime: () => true, campaignMailboxForConnection: () => ({ ...mock.gmail, send: mock.email }) }));
+vi.mock("@/test/fixtures/campaign-whatsapp", async original => ({ ...await original<typeof import("@/test/fixtures/campaign-whatsapp")>(), campaignWhatsapp: mock.whatsapp, assertCampaignWhatsappConnected: vi.fn() }));
+vi.mock("@/test/fixtures/legacy-campaign-linkedin", async original => ({ ...await original<typeof import("@/test/fixtures/legacy-campaign-linkedin")>(), campaignLinkedin: mock.linkedin, assertLinkedinDeliveryReady: vi.fn() }));
 import { ingestCampaignReply } from "./campaign-reply-store";
 import { processCampaignEnrolment } from "./campaign-service";
 import { ReplyCheckPending } from "./campaign-reply-status";

@@ -3,7 +3,7 @@ const m = vi.hoisted(() => ({ session: vi.fn(), authorize: vi.fn(), verify: vi.f
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: m.session } } }));
 vi.mock("@/lib/google-oauth", () => ({ createGoogleAuthorization: m.authorize, verifyGoogleState: m.verify, exchangeGoogleCode: m.exchange, fetchGoogleUserInfo: m.profile }));
 vi.mock("@/db/client", () => ({ requireDb: m.database }));
-vi.mock("@/lib/gmail-connection", () => ({ connectionCanMonitorReplies: vi.fn() }));
+vi.mock("@/test/fixtures/gmail-connection", () => ({ connectionCanMonitorReplies: vi.fn() }));
 import { GET as connect } from "./connect/route";
 import { GET as callback } from "./callback/route";
 beforeEach(() => { vi.resetAllMocks(); m.session.mockResolvedValue({ user: { id: "owner", email: "owner@example.test" }, session: { activeOrganizationId: "org" } }); m.authorize.mockReturnValue({ url: "https://accounts.google.com/synthetic" }); m.verify.mockReturnValue({ userId: "owner", organizationId: "org", verifier: "fixture" }); m.exchange.mockResolvedValue({ refresh_token: "fixture", access_token: "fixture", scope: "", expires_in: 3600 }); vi.spyOn(globalThis, "fetch").mockResolvedValue(Response.json({})); });

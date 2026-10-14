@@ -2,7 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({ getSession: vi.fn(), verifyState: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: mocks.getSession } } }));
 vi.mock("@/db/client", () => ({ requireDb: vi.fn() }));
-vi.mock("@/lib/gmail-connection", () => ({ connectionCanMonitorReplies: vi.fn() }));
+vi.mock("@/test/fixtures/gmail-connection", () => ({ connectionCanMonitorReplies: vi.fn() }));
 vi.mock("@/lib/google-oauth", () => ({ createGoogleAuthorization: vi.fn(), verifyGoogleState: mocks.verifyState, exchangeGoogleCode: vi.fn(), fetchGoogleUserInfo: vi.fn() }));
 import { GET as connect } from "./connect/route";
 import { GET as callback } from "./callback/route";

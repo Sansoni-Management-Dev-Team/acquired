@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
-import { campaignLinkedin, lookupCampaignLinkedin } from './campaign-linkedin';
-import { campaignWhatsapp, lookupCampaignWhatsapp } from './campaign-whatsapp';
-import { readChannelReplies } from './campaign-reply-providers';
+import { campaignLinkedin, lookupCampaignLinkedin } from '@/test/fixtures/legacy-campaign-linkedin';
+import { campaignWhatsapp, lookupCampaignWhatsapp } from '@/test/fixtures/campaign-whatsapp';
+import { readChannelReplies } from '@/test/fixtures/campaign-reply-providers';
 const actor = { organizationId: 'org&userId=other', userId: 'recorded-owner?organizationId=other' }, fetcher = vi.fn();
 beforeEach(() => { vi.stubGlobal('fetch', fetcher); vi.stubEnv('CAMPAIGN_LINKEDIN_ENABLED', 'true'); for (const name of ['LINKEDIN', 'WHATSAPP']) { vi.stubEnv(`${name}_SERVICE_URL`, 'https://legacy.example.test'); vi.stubEnv(`${name}_SERVICE_SECRET`, 'synthetic-secret'); } });
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); fetcher.mockClear(); });

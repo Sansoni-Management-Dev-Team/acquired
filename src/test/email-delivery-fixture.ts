@@ -1,7 +1,7 @@
 import "server-only";
-import { rejected, type CampaignDeliveryProvider } from "./delivery-provider";
-import { EmailSubmissionRejected } from "@/lib/email-delivery-error";
-import type { CampaignMailbox } from "@/lib/campaign-mailbox";
+import { rejected, type CampaignDeliveryProvider } from "@/lib/channels/delivery-provider";
+import { EmailSubmissionRejected } from "./email-delivery-error";
+import type { CampaignMailbox } from "@/test/fixtures/campaign-mailbox";
 import { ReplyCheckReview } from "@/lib/campaign-reply-status";
 import { deliveryOutcomeSchema } from "@/domain/channel-delivery";
 export const emailDeliveryProvider = (

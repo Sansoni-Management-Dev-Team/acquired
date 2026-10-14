@@ -1,3 +1,4 @@
+// Historical synthetic campaign fixture only; never imported by production.
 import 'server-only';
 import type { CampaignActor } from '@/db/campaign-client';
 import type { DeliveryOutcome } from '@/domain/channel-delivery';

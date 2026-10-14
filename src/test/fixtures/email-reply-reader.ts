@@ -1,6 +1,7 @@
+// Test-only historical reply characterization; no production import is permitted.
 import { z } from "zod";
 import type { ReplyPage } from "@/domain/campaign-replies";
-import type { CampaignMailbox } from "@/lib/campaign-mailbox";
+import type { CampaignMailbox } from "@/test/fixtures/campaign-mailbox";
 const checkpointSchema = z
   .object({
     v: z.literal(2),

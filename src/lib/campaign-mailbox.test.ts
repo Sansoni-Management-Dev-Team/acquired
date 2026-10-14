@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 const mock = vi.hoisted(() => ({ live: vi.fn() }));
-vi.mock("@/lib/gmail-connection", () => ({ connectionCanMonitorReplies: () => true, mailboxForConnection: mock.live }));
-import { campaignMailboxForConnection, campaignTestSendAnytime } from "./campaign-mailbox";
+vi.mock("@/test/fixtures/gmail-connection", () => ({ connectionCanMonitorReplies: () => true, mailboxForConnection: mock.live }));
+import { campaignMailboxForConnection, campaignTestSendAnytime } from "@/test/fixtures/campaign-mailbox";
 const grant = { encryptedRefreshToken: "fixture", reconnectRequired: false, scopes: [] };
 beforeEach(() => { vi.resetAllMocks(); vi.stubEnv("NODE_ENV", "development"); vi.stubEnv("LOCAL_DEVELOPMENT", "true"); vi.stubEnv("DATABASE_URL", "postgresql://fixture:fixture@127.0.0.1:5434/project_acquire"); vi.stubEnv("CAMPAIGN_TEST_SINK_URL", "http://127.0.0.1:18094/"); vi.stubEnv("CAMPAIGN_TEST_SEND_ANYTIME", "true"); });
 afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });

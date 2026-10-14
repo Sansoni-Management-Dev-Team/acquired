@@ -4,9 +4,9 @@ import pg from "pg";
 import { randomUUID } from "node:crypto";
 vi.mock("server-only", () => ({}));
 vi.mock("@vercel/functions", () => ({ attachDatabasePool: vi.fn() }));
-vi.mock("@/lib/campaign-reply-providers", () => ({ readChannelReplies: vi.fn() }));
-import { readChannelReplies } from "@/lib/campaign-reply-providers";
-import { scanReplyChannel } from "@/lib/campaign-reply-monitor";
+vi.mock("@/test/fixtures/campaign-reply-providers", () => ({ readChannelReplies: vi.fn() }));
+import { readChannelReplies } from "@/test/fixtures/campaign-reply-providers";
+import { scanReplyChannel } from "@/test/fixtures/legacy-campaign-reply-monitor";
 import { withCampaignDb } from "@/db/campaign-client";
 import type { ReplyPage } from "@/domain/campaign-replies";
 

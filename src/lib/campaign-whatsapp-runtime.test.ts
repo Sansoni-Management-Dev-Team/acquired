@@ -1,15 +1,19 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 const mock = vi.hoisted(() => ({ rows: vi.fn(), query: vi.fn(), send: vi.fn(), connected: vi.fn(), gmail: { inboundFrom: vi.fn(), hasConversation: vi.fn(), outboundToSince: vi.fn() } }));
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/campaign-reply-monitor",()=>({checkContactReplyMonitors:vi.fn(),assertContactReplyFresh:vi.fn()}));
 vi.mock("@/lib/channels/delivery-registry", async () => {
   const { campaignDeliveryFixture } = await import("@/test/campaign-delivery-fixture");
   return { deliveryProvider: campaignDeliveryFixture({ whatsappReady: mock.connected, whatsappSend: mock.send }) };
 });
 vi.mock("@/db/campaign-client", () => ({ rows: mock.rows, withCampaignDb: (_actor: unknown, fn: (client: unknown) => unknown) => fn({ query: mock.query }), withCampaignWorker: (fn: (client: unknown) => unknown) => fn({ query: mock.query }) }));
-vi.mock("@/lib/gmail-connection", () => ({ connectionCanMonitorReplies: () => true }));
-vi.mock("@/lib/campaign-mailbox", () => ({ campaignTestSendAnytime: () => true, campaignMailboxForConnection: () => mock.gmail }));
-vi.mock("@/lib/campaign-whatsapp", async importOriginal => ({ ...await importOriginal<typeof import("./campaign-whatsapp")>(), campaignWhatsapp: mock.send, assertCampaignWhatsappConnected: mock.connected }));
+vi.mock("@/test/fixtures/gmail-connection", () => ({ connectionCanMonitorReplies: () => true }));
+vi.mock("@/test/fixtures/campaign-mailbox", () => ({ campaignTestSendAnytime: () => true, campaignMailboxForConnection: () => mock.gmail }));
+vi.mock("@/test/fixtures/campaign-whatsapp", async importOriginal => ({ ...await importOriginal<typeof import("@/test/fixtures/campaign-whatsapp")>(), campaignWhatsapp: mock.send, assertCampaignWhatsappConnected: mock.connected }));
+vi.mock("@/lib/communications-bindings",()=>({resolveRecordedApplicationConnection:async(actor:{organizationId:string;userId:string},channel:string)=>({bindingId:'original',binding:{applicationId:'acquire',tenantId:actor.organizationId,ownerId:actor.userId,connectionId:'original',accountId:'account',generation:1,channel,platform:channel,backend:'unipile'},recoveryOnly:false})}));
+vi.mock("@/lib/communications-client",()=>({actorCommunicationsClient:async()=>({ready:async()=>{await mock.connected();return {status:'ready'};}})}));
+afterEach(()=>{vi.unstubAllEnvs();vi.useRealTimers();});
 import { processCampaignEnrolment } from "./campaign-service";
 const actor = { organizationId: "org", userId: "owner" };
 const id = randomUUID();
@@ -17,9 +21,9 @@ const message = { id: randomUUID(), kind: "whatsapp", title: "WhatsApp introduct
 const definition = { schemaVersion: 1, steps: [message, { id: randomUUID(), kind: "wait", title: "Wait", days: 3 }, { id: randomUUID(), kind: "email", title: "Follow-up", subject: "Hi", body: "Hello" }] };
 let state: string, previous: string | undefined, phoneChanged: boolean, held: boolean;
 beforeEach(() => {
-  vi.clearAllMocks(); state = "active"; previous = undefined; phoneChanged = false; held = false;
+  vi.useFakeTimers();vi.setSystemTime(new Date("2026-10-06T01:00:00Z"));vi.stubEnv("COMMUNICATIONS_RUNTIME_ENABLED","true");vi.clearAllMocks(); state = "active"; previous = undefined; phoneChanged = false; held = false;
   mock.gmail.inboundFrom.mockResolvedValue([]); mock.gmail.hasConversation.mockResolvedValue(false); mock.gmail.outboundToSince.mockResolvedValue([]);
-  mock.query.mockResolvedValue({ rows: [], rowCount: 1 }); mock.connected.mockResolvedValue(undefined); mock.send.mockResolvedValue({ id: "provider-id", recipient: "61412345678@s.whatsapp.net", status: "submitted",sentAt:new Date().toISOString() });
+  mock.query.mockResolvedValue({ rows: [], rowCount: 1 }); mock.connected.mockResolvedValue(undefined); mock.send.mockResolvedValue({ id: "provider-id", recipient: "+61412345678", status: "submitted",sentAt:new Date().toISOString() });
   let contactReads = 0;
   mock.rows.mockImplementation(async (_client, sql: string) => {
     if (sql.startsWith("SELECT * FROM campaign_enrolments")) return [{ id, state, organization_id: "org", owner_user_id: "owner", step_index: 0, next_step_at: new Date(0), recipient_email: "alex@example.test", started_at: new Date(0), initial_conversation_reviewed: true }];
@@ -36,7 +40,7 @@ beforeEach(() => {
 });
 it("sends the personalized message once and records the provider result before advancing", async () => {
   expect(await processCampaignEnrolment(actor, id)).toEqual({ outcome: "sent" });
-  expect(mock.send).toHaveBeenCalledExactlyOnceWith(actor, { key:`campaign:${id}:${message.id}`,recipient: "61412345678@s.whatsapp.net", text: "Hi Alex at Example" });
+  expect(mock.send).toHaveBeenCalledExactlyOnceWith(actor, { key:`campaign:${id}:${message.id}`,recipient: "+61412345678", text: "Hi Alex at Example" });
   expect(mock.query.mock.calls.find(([sql]) => sql.includes("provider_message_id = $2"))![1][1]).toBe("whatsapp:provider-id");
   expect(mock.query.mock.calls.some(([sql]) => sql.includes("INSERT INTO audit_events") && mock.query.mock.calls.some(([,values])=>values.includes("campaign.whatsapp_submitted")))).toBe(true);
   expect(mock.query.mock.calls.find(([sql]) => sql.includes("step_index = $3"))![1][2]).toBe(2);

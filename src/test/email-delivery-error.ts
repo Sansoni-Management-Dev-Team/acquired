@@ -1,4 +1,4 @@
-import type { ReplyCheckPending, ReplyCheckReview } from "./campaign-reply-status";
+import type { ReplyCheckPending, ReplyCheckReview } from "@/lib/campaign-reply-status";
 
 /** A provider has definitely rejected this email before acceptance. */
 export class EmailSubmissionRejected extends Error {

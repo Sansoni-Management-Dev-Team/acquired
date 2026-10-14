@@ -1,6 +1,6 @@
 import { expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
-import { readEmailReplyPage } from "./email-reply-reader";
+import { readEmailReplyPage } from "@/test/fixtures/email-reply-reader";
 const identities = Array.from({ length: 125 }, (_, i) => ({
   identity: `contact${String(i).padStart(3, "0")}@example.invalid`,
   since: new Date(0),

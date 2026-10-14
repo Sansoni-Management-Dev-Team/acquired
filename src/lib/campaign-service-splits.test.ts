@@ -3,8 +3,8 @@ import { campaignPathFor, type CampaignDefinition } from "@/domain/campaign";
 const mocks = vi.hoisted(() => ({ rows: vi.fn(), worker: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/db/campaign-client", () => ({ rows: mocks.rows, withCampaignWorker: mocks.worker, withCampaignDb: vi.fn() }));
-vi.mock("@/lib/gmail-connection", () => ({ connectionCanMonitorReplies: vi.fn() }));
-vi.mock("@/lib/campaign-mailbox", () => ({ campaignTestSendAnytime: () => false, campaignMailboxForConnection: vi.fn() }));
+vi.mock("@/test/fixtures/gmail-connection", () => ({ connectionCanMonitorReplies: vi.fn() }));
+vi.mock("@/test/fixtures/campaign-mailbox", () => ({ campaignTestSendAnytime: () => false, campaignMailboxForConnection: vi.fn() }));
 import { processN8nCampaignStep, publishCampaign } from "./campaign-service";
 import { withCampaignDb } from "@/db/campaign-client";
 
@@ -61,7 +61,6 @@ it("projects live attempts using each enrolment's immutable published definition
   mocks.rows.mockResolvedValueOnce([])
     .mockResolvedValueOnce([{ id: "enrolment", contact_id: "contact", version: 1, version_definition: definition, state: "active", step_index: 2, next_step_at: sentAt, started_at: sentAt, last_sent_at: sentAt, recipient_email: "alex@example.test", stop_reason: null }])
     .mockResolvedValueOnce([{ id: "contact", target_id: "target", display_name: "Alex", company_name: "Company", personal_data: { email: "alex@example.test" }, fictionalised: false }])
-    .mockResolvedValueOnce([])
     .mockResolvedValueOnce([{ entity_id: "enrolment", action: "campaign.retry_scheduled", created_at: sentAt, metadata: { stepIndex: 2 } }])
     .mockResolvedValueOnce([{ enrolment_id: "enrolment", step_index: 0, state: "sent", sent_at: sentAt }]);
   const studio = await listCampaignStudio({ organizationId: "org", userId: "user" }, "mandate");

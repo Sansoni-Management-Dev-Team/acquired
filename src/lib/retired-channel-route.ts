@@ -15,7 +15,7 @@ export async function authorizeChannelRequest(request: Request, redirectToSignIn
     return null;
 }
 export function retiredChannelResponse(): Response {
-    return Response.json({ code: "connection_method_retired", error: "This connection method is no longer available. Use Unipile in Settings." }, { status: 410, headers: { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
+    return Response.json({ code: "connection_method_retired", error: "This connection method is no longer available. Manage connections in Settings." }, { status: 410, headers: { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
 }
 export async function retiredChannelRoute(request: Request): Promise<Response> {
     return await authorizeChannelRequest(request) ?? retiredChannelResponse();

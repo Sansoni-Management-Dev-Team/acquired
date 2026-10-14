@@ -1,3 +1,4 @@
+// Test-only historical reply characterization; no production import is permitted.
 import 'server-only';
 import type { CampaignActor } from '@/db/campaign-client';
 import type { ReplyChannel, ReplyPage } from '@/domain/campaign-replies';

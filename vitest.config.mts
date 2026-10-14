@@ -11,7 +11,6 @@ export default defineConfig({
     exclude: [
       "**/node_modules/**",
       "**/.git/**",
-      "services/whatsapp/**",
       ".local-data/**",
       "cloudflare/research/workflow-tests/**",
       "cloudflare/research/provider-coordinator.integration.test.ts",
