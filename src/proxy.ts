@@ -1,8 +1,12 @@
 import { getSessionCookie } from "better-auth/cookies";
 import { NextRequest, NextResponse } from "next/server";
+import { guardBrowserMutation } from "@/lib/browser-mutation";
 import { appRedirectUrl } from "@/lib/request-origin";
 
 export function proxy(request: NextRequest) {
+  if (request.nextUrl.pathname.startsWith("/api/")) {
+    return guardBrowserMutation(request) ?? NextResponse.next();
+  }
   if (getSessionCookie(request)) return NextResponse.next();
 
   const signIn = appRedirectUrl("/sign-in", request);
@@ -11,5 +15,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/mandates/:path*", "/targets/:path*", "/outreach/:path*", "/audit/:path*", "/settings/:path*", "/onboarding/:path*", "/auth/complete/:path*"],
+  matcher: ["/api/:path*", "/mandates/:path*", "/targets/:path*", "/outreach/:path*", "/audit/:path*", "/settings/:path*", "/onboarding/:path*", "/auth/complete/:path*"],
 };

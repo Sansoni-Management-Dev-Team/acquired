@@ -82,10 +82,10 @@ export async function POST(request: Request) {
       signals: evidence,
       start: new Date(),
     });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "AI outreach drafting failed";
-    console.error("[outreach-drafting] generation.failed", JSON.stringify({ provider: provider?.providerName || "unconfigured", targetId: target.id, message }));
-    return Response.json({ error: message }, { status: 502 });
+  } catch {
+    // Provider exceptions may include credentials or private response bodies.
+    console.error("[outreach-drafting] generation.failed", JSON.stringify({ provider: provider?.providerName || "unconfigured", targetId: target.id }));
+    return Response.json({ error: "Outreach generation is temporarily unavailable. Try again later." }, { status: 502 });
   }
   if (parsed.data.preview) return Response.json({ preview: drafts, saved: false });
   if (!contact) return Response.json({ error: "Select a contact before saving" }, { status: 409 });

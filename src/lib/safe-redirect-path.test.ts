@@ -11,3 +11,10 @@ describe("safeRedirectPath", () => {
     expect(safeRedirectPath("//example.com")).toBe("/targets");
   });
 });
+
+it.each(['/\\evil.example', '/path\\evil', '/\tevil', '/\nevil', '/\revil', '/\u0000evil', '///evil.example'])('rejects ambiguous redirect %j', path => {
+  expect(safeRedirectPath(path)).toBe('/targets');
+});
+it('normalizes accepted redirects as a path with query and fragment on the same origin', () => {
+  expect(safeRedirectPath('/settings/../targets?q=hello%20world#company')).toBe('/targets?q=hello%20world#company');
+});

@@ -1,8 +1,9 @@
 # syntax=docker/dockerfile:1
 # This image contains Acquire's communications host composition, not a generic SDK daemon.
 FROM node:22.23.1-bookworm-slim AS build
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-RUN npm install --global pnpm@11.8.0
+RUN npm install --global npm@12.2.0 pnpm@11.8.0
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 COPY tsconfig.json ./
@@ -13,12 +14,15 @@ COPY ops/communications/production/service/configuration-preflight.ts ./ops/comm
 RUN node scripts/build-communications-production.mjs
 
 FROM node:22.23.1-bookworm-slim AS dependencies
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-RUN npm install --global pnpm@11.8.0
+RUN npm install --global npm@12.2.0 pnpm@11.8.0
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --prod --frozen-lockfile --ignore-scripts
 
 FROM node:22.23.1-bookworm-slim AS runtime
+RUN npm install --global npm@12.2.0
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ARG SOURCE_COMMIT
 LABEL org.opencontainers.image.title="Acquire communications host" org.opencontainers.image.revision=$SOURCE_COMMIT
