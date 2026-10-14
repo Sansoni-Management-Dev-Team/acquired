@@ -50,7 +50,7 @@ it("returns a readable error when the drafting provider cannot initialise", asyn
   m.provider.mockImplementation(() => { throw new Error("Drafting provider is not configured"); });
   const response = await POST(request(true));
   expect(response.status).toBe(502);
-  expect(await response.json()).toEqual({ error: "Drafting provider is not configured" });
+  expect(await response.json()).toEqual({ error: "Outreach generation is temporarily unavailable. Try again later." });
   expect(m.generate).not.toHaveBeenCalled();
   expect(m.insert).not.toHaveBeenCalled();
   expect(m.update).not.toHaveBeenCalled();
@@ -64,4 +64,16 @@ it.each(["parked", "excluded"])("blocks preview for a %s company without contact
   expect(m.provider).not.toHaveBeenCalled();
   expect(m.insert).not.toHaveBeenCalled();
   expect(m.update).not.toHaveBeenCalled();
+});
+
+it('never reflects provider exceptions or logs their potentially sensitive text', async () => {
+ const privateDetail = 'private-provider-host synthetic-secret-token';
+ m.generate.mockRejectedValue(Error(privateDetail));
+ const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+ try {
+  const response = await POST(request(true));
+  expect(response.status).toBe(502);
+  expect(await response.json()).toEqual({error:'Outreach generation is temporarily unavailable. Try again later.'});
+  expect(JSON.stringify(log.mock.calls)).not.toContain(privateDetail);
+ } finally { log.mockRestore(); }
 });

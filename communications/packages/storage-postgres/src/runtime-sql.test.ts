@@ -1,10 +1,23 @@
+import { performance } from 'node:perf_hooks';
 import { describe, it, expect, vi } from 'vitest';
 import { runtimeTransaction } from './runtime-sql';
 import type { SqlClient, SqlResult } from './webhook-repository';
 const roles = { role_name: 'communications_control', rolsuper: false, rolbypassrls: false, rolcanlogin: false };
 const client = () => ({ query: vi.fn(async (sql: string): Promise<SqlResult> => ({ rows: sql.includes('pg_roles') ? [roles] : [] })), release: vi.fn() });
 describe('configured account SQL lifecycle characterization', () => {
-    it('late connect retires once before any SQL', async () => { const c = client(); let connected!: (value: SqlClient) => void; await expect(runtimeTransaction({ connect: () => new Promise(resolve => { connected = resolve; }) }, 5, async () => true)).rejects.toThrow('Account runtime unavailable'); connected(c as SqlClient); await new Promise(r => setTimeout(r, 5)); expect(c.query).not.toHaveBeenCalled(); expect(c.release).toHaveBeenCalledTimes(1); expect(c.release.mock.calls[0][0]).toBeInstanceOf(Error); });
+    it('late connect retires once before any SQL', async () => {
+        vi.useFakeTimers();
+        const clock = vi.spyOn(performance, 'now').mockReturnValue(0);
+        try {
+            const c = client(); let connected!: (value: SqlClient) => void;
+            const pending = runtimeTransaction({ connect: () => new Promise(resolve => { connected = resolve; }) }, 5, async () => true);
+            const rejection = expect(pending).rejects.toThrow('Account runtime unavailable');
+            await vi.advanceTimersByTimeAsync(5); await rejection;
+            connected(c as SqlClient); await vi.advanceTimersByTimeAsync(0);
+            expect(c.query).not.toHaveBeenCalled(); expect(c.release).toHaveBeenCalledTimes(1);
+            expect(c.release.mock.calls[0][0]).toBeInstanceOf(Error);
+        } finally { clock.mockRestore(); vi.useRealTimers(); }
+    });
     it('synchronous connect starvation cannot begin or commit after monotonic deadline', async () => { const c = client(); await expect(runtimeTransaction({ connect: () => { const end = performance.now() + 15; while (performance.now() < end) { } return Promise.resolve(c as SqlClient); } }, 5, async () => true)).rejects.toThrow(); expect(c.query).not.toHaveBeenCalled(); expect(c.release).toHaveBeenCalledTimes(1); });
     it('lost COMMIT acknowledgement is uncertain and physically retires original session', async () => { const c = client(); c.query.mockImplementation(async (sql: string) => { if (sql === 'COMMIT')
         throw Error('Synthetic committed response loss'); return { rows: sql.includes('pg_roles') ? [roles] : [] }; }); await expect(runtimeTransaction({ connect: async () => c as SqlClient }, 50, async () => true)).rejects.toThrow(); expect(c.release).toHaveBeenCalledTimes(1); expect(c.release.mock.calls[0][0]).toBeInstanceOf(Error); expect(c.query.mock.calls.some(x => x[0] === 'ROLLBACK')).toBe(false); });

@@ -1,0 +1,67 @@
+name: Security remediation verification
+on:
+  push:
+    branches: [codex/security-report-remediation]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  regression:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22.23.1
+      - run: |
+          npm install --global pnpm@11.8.0
+          pnpm install --frozen-lockfile
+          pnpm exec vitest run --maxWorkers 2 --testTimeout 20000
+          pnpm run test:node
+          pnpm exec next typegen
+          pnpm exec tsc --noEmit --incremental false
+          python3 -m unittest discover -s cloudflare/crawl4ai -p 'test_*.py'
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [app, communications, crawl4ai]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build fresh image without starting service or database
+        env:
+          SERVICE: ${{ matrix.service }}
+        run: |
+          case "$SERVICE" in
+            app) docker build --pull -f ops/app/Dockerfile --build-arg NEXT_PUBLIC_APP_URL=https://acquire.mlai.au -t "security-$SERVICE:$GITHUB_SHA" . ;;
+            communications) docker build --pull -f ops/communications/production/service/Dockerfile --build-arg SOURCE_COMMIT="$GITHUB_SHA" -t "security-$SERVICE:$GITHUB_SHA" . ;;
+            crawl4ai) docker build --pull -t "security-$SERVICE:$GITHUB_SHA" cloudflare/crawl4ai ;;
+          esac
+      - name: Install checksum-verified Trivy
+        run: |
+          curl --fail --location --retry 3 -o /tmp/trivy.tar.gz https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz
+          curl --fail --location --retry 3 -o /tmp/trivy-checksums.txt https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_checksums.txt
+          cd /tmp
+          grep ' trivy_0.75.0_Linux-64bit.tar.gz$' trivy-checksums.txt | sed 's/trivy_0.75.0_Linux-64bit.tar.gz/trivy.tar.gz/' | sha256sum --check
+          tar -xzf trivy.tar.gz trivy
+      - name: Scan actual image and reject fixable high or critical advisories
+        env:
+          SERVICE: ${{ matrix.service }}
+        run: |
+          mkdir security-evidence
+          docker image inspect "security-$SERVICE:$GITHUB_SHA" --format '{{.Id}}' > security-evidence/image-id.txt
+          /tmp/trivy image --scanners vuln --ignore-unfixed --severity HIGH,CRITICAL --format json --output security-evidence/trivy.json --exit-code 1 "security-$SERVICE:$GITHUB_SHA"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: security-${{ matrix.service }}-${{ github.sha }}
+          path: security-evidence/
+          if-no-files-found: ignore

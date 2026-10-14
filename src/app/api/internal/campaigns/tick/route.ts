@@ -11,5 +11,5 @@ export async function POST(request: Request) {
   const right = Buffer.from(supplied);
   if (left.length !== right.length || !timingSafeEqual(left, right)) return Response.json({ error: "Unauthorised" }, { status: 401 });
   try { return Response.json(await runCampaignTick()); }
-  catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Worker failed" }, { status: 500 }); }
+  catch { return Response.json({ error: "Worker failed" }, { status: 500 }); }
 }
