@@ -5,15 +5,25 @@ import { JournalCodec } from '../../communications/packages/core/src/journal-cod
 import { createPostgresEmailTracking, type EmailTrackingOptions, type VerifiedEmailSentAssociation } from '../../communications/packages/storage-postgres/src/email-tracking';
 import type { SqlPool } from '../../communications/packages/storage-postgres/src/webhook-repository';
 import { createCommunicationsStandaloneFixture } from './communications-standalone-test-support';
+import { createPostgresDispatchJournal } from '../../communications/packages/storage-postgres/src/dispatch-journal';
+import { createPostgresHistoryCheckpoints } from '../../communications/packages/storage-postgres/src/history-checkpoints';
+import { HistoryCheckpointCodec } from '../../communications/packages/storage-postgres/src/history-checkpoint-codec';
+import { EventCodec } from '../../communications/packages/core/src/event-codec';
+import type { RecordedLifecycleConnection } from '../../communications/packages/core/src/connection-lifecycle';
 // PREPARED / UNEXECUTED until exact standalone004 approval. No startup/bootstrap/DDL.
-// Synthetic reserved journal fixture is SQL-only characterization, not app/provider admission.
+// Original reservation uses the real journal/lease/quota/admission transactions.
+// HistoryCheckpoint stores encrypted proof of a synthetic empty email scan. The
+// held application/source observations are fixture authority, not live membership
+// or provider coverage; real service coverage/quota/ledger checks still run.
 const enabled = process.env.COMMUNICATIONS_STANDALONE_AUDIT === '1' && process.env.COMMUNICATIONS_EMAIL_TRACKING_AUDIT === '1';
 describe.skipIf(!enabled)('standalone5446 durable email tracking (requires specifically approved004)', () => {
     const local = createCommunicationsStandaloneFixture(), retained: ConnectionBinding[] = [];
     const codec = new JournalCodec({ activeVersion: 'fixture-k1', keys: [{ version: 'fixture-k1', encryptionKey: Buffer.alloc(32, 71), digestKey: Buffer.alloc(32, 72) }] });
     const target = { kind: 'email' as const, value: 'synthetic-recipient@example.test' };
     const recipientDigest = { keyVersion: 'fixture-r1', digest: (recipient: unknown, version: string) => createHmac('sha256', `synthetic-recipient-${version}`).update(JSON.stringify(recipient)).digest('hex') };
-    beforeAll(() => local.preflight(['communications.email_tracking_acknowledgements', 'communications.email_tracking_associations']), 20000);
+    const historyCodec = new HistoryCheckpointCodec({ activeVersion: 'tracking-history', keys: [{ version: 'tracking-history', encryptionKey: Buffer.alloc(32, 77), digestKey: Buffer.alloc(32, 78) }] });
+    const eventCodec = new EventCodec({ activeVersion: 'tracking-event', keys: [{ version: 'tracking-event', encryptionKey: Buffer.alloc(32, 79), digestKey: Buffer.alloc(32, 80) }] });
+    beforeAll(() => local.preflight(['communications.email_tracking_acknowledgements', 'communications.email_tracking_associations', 'communications.dispatch_admissions', 'communications.application_quota_buckets', 'communications.history_refreshes', 'communications.history_initial_sync']), 20000);
     afterAll(async () => {
         try {
             for (const b of retained)
@@ -23,25 +33,53 @@ describe.skipIf(!enabled)('standalone5446 durable email tracking (requires speci
             await local.close();
         }
     }, 20000);
-    async function fixture(platform: 'gmail' | 'outlook' | 'imap' = 'gmail') {
+    async function reservedUnknown(b: ConnectionBinding, snapshot: OperationSnapshot, integration: string, configuration: string, provider: string) {
+        const record: RecordedLifecycleConnection = { binding: b, providerAccountId: provider, sourceId: 'synthetic-mail-source', ownerIdentity: { namespace: 'synthetic-tracking-owner', value: 'recorded-fixture-owner' } };
+        const history = createPostgresHistoryCheckpoints({ pool: local.driver, binding: b, record, integrationId: integration, providerConfigurationReference: configuration, subscriberId: 'tracking-fixture-subscriber', codec: historyCodec, eventCodec });
+        const since = (await local.pool.query("SELECT clock_timestamp()-interval '1 minute' AS since")).rows[0].since.toISOString();
+        const query = { binding: b, scope: 'tracking-fixture-account', since, cursor: null, refresh: true };
+        const ticket = await history.begin(query);
+        expect(ticket).not.toBeNull();
+        if (!ticket)
+            throw Error('Expected synthetic history ticket');
+        const observedAt = new Date().toISOString();
+        const page = { events: [], nextCursor: null, coverage: { binding: b, scope: query.scope, from: since, through: ticket.startedAt, observedAt, complete: true, initialSyncComplete: true, invalidated: false }, provenance: { providerAccountId: provider, sourceId: record.sourceId, initialSyncEvidence: { kind: 'query_baseline' as const, record, completedAt: observedAt, evidenceId: `synthetic-empty-scan:${snapshot.key}`, query: { scope: query.scope, from: since, through: ticket.startedAt } }, outbound: [], exhausted: true, refresh: true } };
+        expect((await history.commit(ticket, page)).coverage.complete).toBe(true);
+        const journal = createPostgresDispatchJournal({ pool: local.driver, binding: b, integrationId: integration, providerConfigurationReference: configuration, providerApiVersion: 'v1', authority: 'service', codec, recipientDigest, leaseOwnerToken: `tracking-worker:${b.connectionId}`, claimSeconds: 60, leaseSeconds: 60,
+            admission: { quota: { account: { hour: 100, day: 100 }, application: { hour: 100, day: 100 } }, coverage: { assertCoverage: (client, input) => history.assertCoverage(client, input) }, application: { async open(challenge, signal) {
+                        expect(signal.aborted).toBe(false);
+                        expect(challenge.record.snapshot).toEqual(snapshot);
+                        return { kind: 'held' as const, permit: { permitId: randomUUID(), intentDigest: codec.digest(snapshot, 'context', { domain: 'synthetic-held-tracking-fixture', recipient: target }), coverageScopes: [{ binding: b, recipient: target, scopeDigest: history.scopeDigest(query.scope), requiredSince: since }],
+                                async commit(receipt, commitSignal) { expect(commitSignal.aborted).toBe(false); expect(await journal.readAdmission(snapshot)).toEqual(receipt); return 'committed' as const; }, async abort() { } } };
+                    } } }
+        });
+        const claim = await journal.claim({ snapshot, recipient: target });
+        expect(claim.kind).toBe('claimed');
+        if (claim.kind !== 'claimed')
+            throw Error('Expected original synthetic journal claim');
+        const admitted = await journal.beginDispatch({ token: claim.token, record: claim.record });
+        expect(admitted.kind).toBe('admitted');
+        if (admitted.kind !== 'admitted')
+            throw Error('Expected exact synthetic service admission');
+        const receipt = await journal.readAdmission(snapshot);
+        expect(receipt).not.toBeNull();
+        // Admission must first COMMIT as dispatching for the deferred005 authority guard.
+        // Complete uncertainty separately, matching a real post-admission lost response.
+        expect((await journal.complete({ token: claim.token, record: admitted.record, outcome: { status: 'unknown' } })).state).toBe('unknown');
+        return receipt!.journalId;
+    }
+    async function fixture(platform: 'gmail' | 'outlook' | 'imap' = 'gmail', futureVerification = false) {
         const suffix = randomUUID(), b: ConnectionBinding = { applicationId: `email-fixture-app-${suffix}`, tenantId: `email-fixture-tenant-${suffix}`, ownerId: `email-fixture-owner-${suffix}`, connectionId: `email-fixture-connection-${suffix}`, accountId: `email-fixture-account-${suffix}`, generation: 1, channel: 'email', platform, backend: 'unipile' };
-        const snapshot: OperationSnapshot = { binding: b, key: `email-fixture-op-${suffix}`, operation: 'message', payloadDigest: 'a'.repeat(64) }, identitySnapshot: OperationSnapshot = { ...snapshot, key: `identity-${suffix}` }, provider = `synthetic-provider-${suffix}`, integration = `synthetic-integration-${suffix}`, configuration = `synthetic-config-${suffix}`, journal = `synthetic-journal-${suffix}`, tracking = `synthetic-tracking-${suffix}`;
-        const identity = { providerAccountId: provider }, context = { recipient: target }, idEnvelope = codec.encode(identitySnapshot, 'context', identity), contextEnvelope = codec.encode(snapshot, 'context', context);
+        const snapshot: OperationSnapshot = { binding: b, key: `email-fixture-op-${suffix}`, operation: 'message', payloadDigest: 'a'.repeat(64) }, identitySnapshot: OperationSnapshot = { ...snapshot, key: `identity-${suffix}` }, provider = `synthetic-provider-${suffix}`, integration = `synthetic-integration-${suffix}`, configuration = `synthetic-config-${suffix}`, tracking = `synthetic-tracking-${suffix}`;
+        const identity = { providerAccountId: provider }, idEnvelope = codec.encode(identitySnapshot, 'context', identity);
         const c = await local.pool.connect();
         try {
             await c.query('BEGIN');
             await c.query('SET LOCAL ROLE communications_control');
             await c.query("INSERT INTO communications.access_grants(application_id,tenant_id,owner_id,expires_at) VALUES($1,$2,$3,clock_timestamp()+interval '1 hour')", [b.applicationId, b.tenantId, b.ownerId]);
-            await c.query("INSERT INTO communications.physical_accounts(id,channel,identity_namespace,identity_digest,identity_key_version,verified_at) VALUES($1,'email','email_tracking_fixture',$2,'fixture-identity',clock_timestamp())", [b.accountId, createHash('sha256').update(suffix).digest('hex')]);
+            await c.query("INSERT INTO communications.physical_accounts(id,channel,identity_namespace,identity_digest,identity_key_version,verified_at) VALUES($1,'email','email_tracking_fixture',$2,'fixture-identity',clock_timestamp()+CASE WHEN $3::boolean THEN interval '1 day' ELSE interval '0 seconds' END)", [b.accountId, createHash('sha256').update(suffix).digest('hex'), futureVerification]);
             await c.query("INSERT INTO communications.connections(id,application_id,tenant_id,owner_id,account_id,channel,platform,backend,current_generation,status,active) VALUES($1,$2,$3,$4,$5,'email',$6,'unipile',1,'connected',true)", [b.connectionId, b.applicationId, b.tenantId, b.ownerId, b.accountId, platform]);
             await c.query("INSERT INTO communications.connection_generations(connection_id,generation,application_id,tenant_id,owner_id,account_id,channel,platform,backend,integration_id,provider_api_version,provider_configuration_reference,provider_account_digest,encrypted_provider_account_id,provider_account_key_version,authority,capabilities) VALUES($1,1,$2,$3,$4,$5,'email',$6,'unipile',$7,'v1',$8,$9,$10,$11,'service','{}')", [b.connectionId, b.applicationId, b.tenantId, b.ownerId, b.accountId, platform, integration, configuration, codec.digest(identitySnapshot, 'context', identity), JSON.stringify(idEnvelope), idEnvelope.keyVersion]);
-            await c.query('SELECT communications.lock_reply_barrier($1,$2)', [b.applicationId, b.tenantId]);
-            await c.query("INSERT INTO communications.account_leases(account_id,owner_token,fencing_token,expires_at) VALUES($1,'synthetic-owner',1,clock_timestamp()+interval '1 hour')", [b.accountId]);
-            await c.query("INSERT INTO communications.operation_journal(id,application_id,tenant_id,owner_id,operation_key,connection_id,generation,account_id,operation,payload_digest,recipient_digest,digest_version,recipient_key_version,encrypted_operation_context,operation_context_key_version,operation_context_digest,claim_token,claim_until,fencing_token,lease_owner_token) VALUES($1,$2,$3,$4,$5,$6,1,$7,'message',$8,$9,'message-v1','fixture-r1',$10,$11,$12,'synthetic-claim',clock_timestamp()+interval '1 hour',1,'synthetic-owner')", [journal, b.applicationId, b.tenantId, b.ownerId, snapshot.key, b.connectionId, b.accountId, snapshot.payloadDigest, recipientDigest.digest(target, 'fixture-r1'), JSON.stringify(contextEnvelope), contextEnvelope.keyVersion, codec.digest(snapshot, 'context', context)]);
-            for (const kind of ['account', 'application'])
-                await c.query("INSERT INTO communications.quota_buckets(account_id,bucket_kind,application_id,window_kind,window_start,used,limit_value) VALUES($1,$2,$3,'hour',date_trunc('hour',clock_timestamp()),1,100)", [b.accountId, kind, kind === 'account' ? '' : b.applicationId]);
-            await c.query("UPDATE communications.operation_journal SET state='dispatching',quota_reserved=true WHERE id=$1", [journal]);
-            await c.query("UPDATE communications.operation_journal SET state='unknown' WHERE id=$1", [journal]);
             await c.query('COMMIT');
             retained.push(b);
         }
@@ -52,6 +90,9 @@ describe.skipIf(!enabled)('standalone5446 durable email tracking (requires speci
         finally {
             c.release();
         }
+        // Verification is immutable. The negative future-date fixture is a new
+        // account with no invented reservation; authority fails before ACK lookup.
+        const journal = futureVerification ? null : await reservedUnknown(b, snapshot, integration, configuration, provider);
         const association: VerifiedEmailSentAssociation = { receipt: { message: { binding: b, id: `actual-email-${suffix}` }, recipient: target, submittedAt: '2026-10-14T01:00:00.000Z' }, rfcMessageId: `<original-${suffix}@example.test>`, evidenceDigest: createHash('sha256').update(`synthetic-verified-${suffix}`).digest('hex') };
         const options: EmailTrackingOptions = { pool: local.driver, binding: b, integrationId: integration, providerConfigurationReference: configuration, providerAccountId: provider, codec, recipientDigest, trackingDigest: { keyVersion: 'fixture-t1', versions: ['fixture-t1'], digest: (input, version) => createHmac('sha256', `synthetic-tracking-${version}`).update(JSON.stringify(input)).digest('hex') }, decodeProviderAccount: input => {
                 expect(input.binding).toEqual(b);
@@ -66,26 +107,8 @@ describe.skipIf(!enabled)('standalone5446 durable email tracking (requires speci
     }
     type Fixture = Awaited<ReturnType<typeof fixture>>;
     async function independentOriginal(f: Fixture) {
-        const snapshot = { ...f.snapshot, key: `second-${randomUUID()}` }, journal = `second-journal-${randomUUID()}`, context = { recipient: target }, envelope = codec.encode(snapshot, 'context', context);
-        const c = await local.pool.connect();
-        try {
-            await c.query('BEGIN');
-            await c.query('SET LOCAL ROLE communications_control');
-            await c.query('SELECT communications.lock_reply_barrier($1,$2)', [f.b.applicationId, f.b.tenantId]);
-            await c.query(`INSERT INTO communications.operation_journal(id,application_id,tenant_id,owner_id,operation_key,connection_id,generation,account_id,operation,payload_digest,recipient_digest,digest_version,recipient_key_version,encrypted_operation_context,operation_context_key_version,operation_context_digest,claim_token,claim_until,fencing_token,lease_owner_token) SELECT $1,application_id,tenant_id,owner_id,$2,connection_id,generation,account_id,operation,payload_digest,recipient_digest,digest_version,recipient_key_version,$3,$4,$5,claim_token,claim_until,fencing_token,lease_owner_token FROM communications.operation_journal WHERE id=$6`, [journal, snapshot.key, JSON.stringify(envelope), envelope.keyVersion, codec.digest(snapshot, 'context', context), f.journal]);
-            await c.query('UPDATE communications.quota_buckets SET used=used+1 WHERE account_id=$1', [f.b.accountId]);
-            await c.query("UPDATE communications.operation_journal SET state='dispatching',quota_reserved=true WHERE id=$1", [journal]);
-            await c.query("UPDATE communications.operation_journal SET state='unknown' WHERE id=$1", [journal]);
-            await c.query('COMMIT');
-            return { snapshot, journal };
-        }
-        catch (error) {
-            await c.query('ROLLBACK');
-            throw error;
-        }
-        finally {
-            c.release();
-        }
+        const snapshot = { ...f.snapshot, key: `second-${randomUUID()}` };
+        return { snapshot, journal: await reservedUnknown(f.b, snapshot, f.integration, f.configuration, f.provider) };
     }
     async function state(f: Fixture) { return { journal: (await local.pool.query('SELECT * FROM communications.operation_journal WHERE id=$1', [f.journal])).rows[0], quota: (await local.pool.query('SELECT * FROM communications.quota_buckets WHERE account_id=$1 ORDER BY bucket_kind', [f.b.accountId])).rows }; }
     function lossDriver(kind: 'ack' | 'association') {
@@ -112,7 +135,7 @@ describe.skipIf(!enabled)('standalone5446 durable email tracking (requires speci
     }
     it.each(['gmail', 'outlook', 'imap'] as const)('commits encrypted %s ACK then independently verified association without altering quota/journal', async (platform) => { const f = await fixture(platform), before = await state(f); expect(await f.repo.recordAcknowledgement({ snapshot: f.snapshot, trackingId: f.tracking })).toEqual({ kind: 'recorded' }); const raw = (await local.pool.query('SELECT * FROM communications.email_tracking_acknowledgements WHERE journal_id=$1', [f.journal])).rows[0]; expect(JSON.stringify(raw)).not.toContain(f.tracking); expect(JSON.stringify(raw)).not.toContain(f.provider); expect(await f.repo.associate({ snapshot: f.snapshot, trackingId: f.tracking, notification: f.notification() })).toEqual({ kind: 'associated', association: f.association }); expect(await f.repo.get(f.snapshot)).toEqual({ trackingId: f.tracking, association: f.association }); expect(await state(f)).toEqual(before); });
     it('concurrent exact ACK duplicates commit one immutable row', async () => { const f = await fixture(); const results = await Promise.all([f.repo.recordAcknowledgement({ snapshot: f.snapshot, trackingId: f.tracking }), f.repo.recordAcknowledgement({ snapshot: f.snapshot, trackingId: f.tracking })]); expect(results.map(v => v.kind).sort()).toEqual(['duplicate', 'recorded']); expect((await local.pool.query('SELECT count(*)::integer AS n FROM communications.email_tracking_acknowledgements WHERE journal_id=$1', [f.journal])).rows[0].n).toBe(1); });
-    it('requires mailbox verification no later than the DB clock', async () => { const f = await fixture(); await local.pool.query("UPDATE communications.physical_accounts SET verified_at=clock_timestamp()+interval '1 day' WHERE id=$1", [f.b.accountId]); await expect(f.repo.recordAcknowledgement({ snapshot: f.snapshot, trackingId: f.tracking })).rejects.toThrow('Email tracking unavailable'); expect((await local.pool.query('SELECT count(*)::integer AS n FROM communications.email_tracking_acknowledgements WHERE journal_id=$1', [f.journal])).rows[0].n).toBe(0); });
+    it('requires mailbox verification no later than the DB clock', async () => { const f = await fixture('gmail', true); expect((await local.pool.query('SELECT verified_at>clock_timestamp() AS future FROM communications.physical_accounts WHERE id=$1', [f.b.accountId])).rows[0].future).toBe(true); await expect(f.repo.recordAcknowledgement({ snapshot: f.snapshot, trackingId: f.tracking })).rejects.toThrow('Email tracking unavailable'); expect((await local.pool.query('SELECT count(*)::integer AS n FROM communications.operation_journal WHERE connection_id=$1', [f.b.connectionId])).rows[0].n).toBe(0); expect((await local.pool.query('SELECT count(*)::integer AS n FROM communications.email_tracking_acknowledgements WHERE integration_id=$1', [f.integration])).rows[0].n).toBe(0); });
     it('does not reuse one original tracking ID for a different independent reserved operation', async () => { const f = await fixture(); await f.repo.recordAcknowledgement({ snapshot: f.snapshot, trackingId: f.tracking }); const other = await independentOriginal(f), before = await state(f); await expect(f.repo.recordAcknowledgement({ snapshot: other.snapshot, trackingId: f.tracking })).rejects.toThrow('Email tracking unavailable'); expect((await local.pool.query('SELECT count(*)::integer AS n FROM communications.email_tracking_acknowledgements WHERE journal_id=$1', [other.journal])).rows[0].n).toBe(0); expect(await state(f)).toEqual(before); });
     it('fails closed when persisted tracking key inventory is omitted during rotation', async () => { const f = await fixture(); await f.repo.recordAcknowledgement({ snapshot: f.snapshot, trackingId: f.tracking }); const other = await independentOriginal(f); const full = createPostgresEmailTracking({ ...f.options, trackingDigest: { ...f.options.trackingDigest, keyVersion: 'fixture-t2', versions: ['fixture-t1', 'fixture-t2'] } }); expect(await full.recordAcknowledgement({ snapshot: f.snapshot, trackingId: f.tracking })).toEqual({ kind: 'duplicate' }); const missing = createPostgresEmailTracking({ ...f.options, trackingDigest: { ...f.options.trackingDigest, keyVersion: 'fixture-t2', versions: ['fixture-t2'] } }); await expect(missing.recordAcknowledgement({ snapshot: other.snapshot, trackingId: f.tracking })).rejects.toThrow('Email tracking unavailable'); });
     it('handles event-before-ACK by remaining missing, then replay associates exactly once', async () => { const f = await fixture(); expect(await f.repo.associate({ snapshot: f.snapshot, trackingId: f.tracking, notification: f.notification() })).toEqual({ kind: 'missing' }); await f.repo.recordAcknowledgement({ snapshot: f.snapshot, trackingId: f.tracking }); expect((await f.repo.associate({ snapshot: f.snapshot, trackingId: f.tracking, notification: f.notification() })).kind).toBe('associated'); expect((await f.repo.associate({ snapshot: f.snapshot, trackingId: f.tracking, notification: f.notification() })).kind).toBe('duplicate'); });

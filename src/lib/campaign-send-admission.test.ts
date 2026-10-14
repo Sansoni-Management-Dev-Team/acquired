@@ -184,3 +184,14 @@ it('a paused saved-draft enrollment cannot inherit earlier message approval', as
 });
 it('preloads only the authenticated original intent coverage without consulting defaults or current source readiness', async () => { const f = fixture(), prepared = await f.repo.prepare({ source, message, coverageScopes: [{ bindingId: 'binding', scopeDigest: 'a'.repeat(64) }] }); f.calls.length = 0; expect(await f.repo.getPreparedCoverage(prepared.submission.snapshot)).toEqual([{ binding, scopeDigest: 'a'.repeat(64) }]); expect(f.calls.some(sql => sql.includes('communication_defaults') || sql.includes('campaign_enrolments') || sql.includes('communication_reply_monitors') || sql.includes('communication_dispatch_permits'))).toBe(false); expect(f.calls.at(-1)).toBe('COMMIT'); });
 it('altered lookup snapshot cannot disclose the original intent coverage', async () => { const f = fixture(), prepared = await f.repo.prepare({ source, message, coverageScopes: [{ bindingId: 'binding', scopeDigest: 'a'.repeat(64) }] }); await expect(f.repo.getPreparedCoverage({ ...prepared.submission.snapshot, payloadDigest: 'f'.repeat(64) })).rejects.toThrow('Send authority unavailable'); });
+it('draft preparation holds its app gate without requesting UPDATE permission on read-only enrollments',async()=>{
+ const f=fixture('email'),original=f.query.getMockImplementation()!;
+ f.query.mockImplementation(async(sql,values)=>{if(sql.includes('FROM public.messages')&&/FOR UPDATE OF m,e/.test(sql))throw Object.assign(Error('Synthetic actual-role enrollment permission denial'),{code:'42501'});return original(sql,values);});
+ const prepared=await f.repo.prepare({source:{kind:'draft',messageId:'draft',revision:'2026-10-01T00:00:00.000Z'},message:{recipient:{kind:'email',value:'person@example.test'},subject:'Approved subject',text:'Approved body'},coverageScopes:[{bindingId:'binding',scopeDigest:'a'.repeat(64)}]});
+ expect(prepared.epoch).toBe(1);expect(f.calls.findIndex(sql=>sql.includes('communications_lock_send_gate($1)'))).toBeLessThan(f.calls.findIndex(sql=>sql.includes('FROM public.messages')));
+});
+it('authenticated immutable intent reads work with the approved SELECT/INSERT-only role',async()=>{
+ const f=fixture(),prepared=await f.repo.prepare({source,message,coverageScopes:[{bindingId:'binding',scopeDigest:'a'.repeat(64)}]}),original=f.query.getMockImplementation()!;
+ f.query.mockImplementation(async(sql,values)=>{if(sql.includes('FROM public.communication_dispatch_intents')&&/FOR SHARE/.test(sql))throw Object.assign(Error('Synthetic immutable-intent UPDATE privilege denial'),{code:'42501'});return original(sql,values);});
+ expect(await f.repo.getPreparedCoverage(prepared.submission.snapshot)).toEqual([{binding,scopeDigest:'a'.repeat(64)}]);
+});

@@ -148,6 +148,19 @@ describe.skipIf(!enabled)('two-database configured Acquire communications host (
                     }, release(error?: Error) { physical.release(error); } };
             } };
         const options: ConfiguredUnipileV1RuntimeOptions = { pool: driver, provider: { apiVersion: 'v1', baseUrl: 'https://synthetic.unipile.example:20255/api/v1', apiKey: 'synthetic-host-only', fetch: providerFetch }, applicationId: scope.applicationId, integrationId: `host-integration-${deployment}`, providerConfigurationReference: `host-config-${deployment}`, vault: { activeVersion: keys[0].version, keys, identityKey: Buffer.alloc(32, 73), identityKeyVersion: 'host-identity' }, callbackKey: Buffer.alloc(32, 75), webhookSecret, redirectOrigin: 'https://app.example.test', successPath: '/settings?setup=returned', failurePath: '/settings?setup=failed', notifyUrl: 'https://service.example.test/v1/setup/notify' };
+        // Match the configured host's management status. Provider readiness separately
+        // verifies the actual mailbox owner, grant and recorded source.
+        options.readiness = async requested => {
+            try {
+                const current = await runtime.store.resolve(requested);
+                if (!current || !current.active || current.status !== 'connected')
+                    return { status: 'review', code: 'reconnect' };
+                const proof = await (await host.history(requested)).repository.coverage({ binding: requested, scope: 'account', since: new Date(Date.now() - 300000).toISOString(), cursor: null, refresh: true });
+                return proof?.complete && proof.initialSyncComplete && !proof.invalidated ? { status: 'ready' } : { status: 'waiting', code: 'incomplete' };
+            } catch {
+                return { status: 'waiting', code: 'unavailable' };
+            }
+        };
         const runtime = createConfiguredUnipileV1Runtime(options);
         const host = createAcquireCommunicationsRuntime({ unipile: runtime, serviceOptions: options, applicationPool: app.driver, applicationCodec: appCodec, scopedAuthKey, subscriberId: `host-subscriber-${run}`, quota: { account: { hour: 10, day: 20 }, application: { hour: 100, day: 200 } } });
         const actualService = await createAcquireCommunicationsService({ host, unipile: runtime, options });
@@ -198,6 +211,10 @@ describe.skipIf(!enabled)('two-database configured Acquire communications host (
             expect(response.status).toBe(200);
             await response.arrayBuffer();
             await actualService.tick();
+            expect((await service.pool.query('SELECT state,scoped_receipt_key IS NOT NULL AS scoped FROM communications.provider_webhook_spool WHERE bound_connection_id=$1', [binding.connectionId])).rows).toEqual([{ state: 'routed', scoped: true }]);
+            const association = await service.pool.query('SELECT (SELECT count(*)::integer FROM communications.email_tracking_acknowledgements k WHERE k.journal_id=j.id) AS acknowledgements,(SELECT count(*)::integer FROM communications.email_tracking_associations a JOIN communications.email_tracking_acknowledgements k ON k.id=a.acknowledgement_id WHERE k.journal_id=j.id) AS associations FROM communications.operation_journal j WHERE j.application_id=$1 AND j.tenant_id=$2 AND j.owner_id=$3 AND j.operation_key=$4', [scope.applicationId, scope.tenantId, scope.ownerId, prepared.submission.snapshot.key]);
+            expect(association.rows).toHaveLength(1);
+            expect(association.rows[0]).toEqual({ acknowledgements: 1, associations: 1 });
         }
         async function quota() { return (await service.pool.query('SELECT bucket_kind,window_kind,used FROM communications.quota_buckets WHERE account_id=$1 ORDER BY bucket_kind,window_kind', [binding.accountId])).rows; }
         return { scope, binding, submission: prepared.submission, client, runtime, host, bindAccount, sentNotification, quota, emailId, threadId, recipient, get sentAt() { return sentAt; }, get emailPosts() { return emailPosts; }, get observedBeforePost() { return observedBeforePost; } };

@@ -169,7 +169,9 @@ export function createPostgresAccountRuntime(options: AccountRuntimeRepositoryOp
     }
     // Generation stores an independent provider-ID digest, not the scoped envelope replay digest.
     async function read(c: SqlClient, b: ConnectionBinding, current: boolean, lock = false) {
-        const rows = await c.query(`SELECT ${columns} FROM communications.connections c JOIN communications.connection_generations g ON g.connection_id=c.id AND g.generation=$5 JOIN communications.physical_accounts p ON p.id=g.account_id JOIN communications.account_runtime_metadata m ON m.connection_id=g.connection_id AND m.generation=g.generation WHERE c.application_id=$1 AND c.tenant_id=$2 AND c.owner_id=$3 AND c.id=$4 ${current ? 'AND c.current_generation=g.generation' : ''} ${lock ? 'FOR UPDATE OF c FOR SHARE OF g,m,p' : ''}`, [...values(b), b.connectionId, b.generation]);
+        // Metadata is append-only and its role deliberately lacks UPDATE. Row locks
+        // require that privilege; current authority is serialized on c/g/p instead.
+        const rows = await c.query(`SELECT ${columns} FROM communications.connections c JOIN communications.connection_generations g ON g.connection_id=c.id AND g.generation=$5 JOIN communications.physical_accounts p ON p.id=g.account_id JOIN communications.account_runtime_metadata m ON m.connection_id=g.connection_id AND m.generation=g.generation WHERE c.application_id=$1 AND c.tenant_id=$2 AND c.owner_id=$3 AND c.id=$4 ${current ? 'AND c.current_generation=g.generation' : ''} ${lock ? 'FOR UPDATE OF c FOR SHARE OF g,p' : ''}`, [...values(b), b.connectionId, b.generation]);
         if (rows.rows.length > 1)
             fail();
         return rows.rows.length ? parsed(rows.rows[0]) : null;

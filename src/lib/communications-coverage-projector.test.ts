@@ -36,3 +36,23 @@ it('service revalidation loss after staging both app rows never commits the appl
 it('stalled service-held callback is bounded and never starts late application SQL', async () => { const f = fixture(), repo = createAcquireCoverageProjector({ ...f.options, timeoutMs: 20, withCoverage: async () => new Promise(() => { }) }); await expect(repo.project(query)).rejects.toThrow('Coverage projection unavailable'); expect(f.sql).not.toHaveBeenCalled(); });
 it('retires its application session before notifying externally observed cancellation', async () => { const f = fixture(), original = f.options.withCoverage; let unretired = false; const repo = createAcquireCoverageProjector({ ...f.options, async withCoverage(query, work, options) { options?.signal?.addEventListener('abort', () => { if (!f.release.mock.calls.length)
         unretired = true; }); return original(query, work, options); } }); await repo.project(query); expect(unretired).toBe(false); });
+it('successful service transaction retirement after a definite app commit is not projection cancellation',async()=>{
+ const f=fixture(),controller=new AbortController();
+ const repo=createAcquireCoverageProjector({...f.options,async withCoverage(_query,work){
+  const result=await work({coverage,scopeDigest:'a'.repeat(64),serviceRevision:'4',signal:controller.signal,revalidate:f.revalidate});
+  // The concrete service transaction retires its session and then aborts its exposed signal
+  // on success as well as failure. This happens after the app callback has committed.
+  controller.abort();return result;
+ }});
+ await expect(repo.project(query)).resolves.toBeUndefined();
+ expect(f.calls).toContain('COMMIT');expect(f.revalidate).toHaveBeenCalledOnce();
+});
+it('service failure after the app callback commit remains unavailable',async()=>{
+ const f=fixture();const repo=createAcquireCoverageProjector({...f.options,async withCoverage(_query,work){await work({coverage,scopeDigest:'a'.repeat(64),serviceRevision:'4',signal:new AbortController().signal,revalidate:f.revalidate});throw Error('Synthetic lost service COMMIT');}});
+ await expect(repo.project(query)).rejects.toThrow('Coverage projection unavailable');expect(f.calls).toContain('COMMIT');
+});
+it('service abort before app commit still retires the app session and rejects projection',async()=>{
+ const f=fixture(),controller=new AbortController();f.revalidate.mockImplementationOnce(async()=>{controller.abort();});
+ const repo=createAcquireCoverageProjector({...f.options,async withCoverage(_query,work){return work({coverage,scopeDigest:'a'.repeat(64),serviceRevision:'4',signal:controller.signal,revalidate:f.revalidate});}});
+ await expect(repo.project(query)).rejects.toThrow('Coverage projection unavailable');expect(f.calls).not.toContain('COMMIT');expect(f.release).toHaveBeenLastCalledWith(expect.any(Error));
+});

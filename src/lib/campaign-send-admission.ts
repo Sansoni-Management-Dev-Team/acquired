@@ -322,7 +322,7 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
             }
         }
         else {
-            const selected = await tx.query(`SELECT m.id,m.state,m.subject,m.body,m.updated_at,m.approved_by,m.approved_at,e.contact_id,e.state AS enrolment_state,c.personal_data,c.fictionalised,c.display_name FROM public.messages m JOIN public.sequence_enrolments e ON e.id=m.enrolment_id JOIN public.contacts c ON c.id=e.contact_id JOIN public.outreach_draft_bindings b ON b.message_id=m.id WHERE m.id=$1 AND m.organization_id=$2 AND b.owner_user_id=$3 AND b.binding_id=$4 FOR UPDATE OF m,e`, [source.messageId, ...scope, bindingId]);
+            const selected = await tx.query(`SELECT m.id,m.state,m.subject,m.body,m.updated_at,m.approved_by,m.approved_at,e.contact_id,e.state AS enrolment_state,c.personal_data,c.fictionalised,c.display_name FROM public.messages m JOIN public.sequence_enrolments e ON e.id=m.enrolment_id JOIN public.contacts c ON c.id=e.contact_id JOIN public.outreach_draft_bindings b ON b.message_id=m.id WHERE m.id=$1 AND m.organization_id=$2 AND b.owner_user_id=$3 AND b.binding_id=$4 FOR UPDATE OF m`, [source.messageId, ...scope, bindingId]);
             if (selected.rows.length !== 1)
                 fail();
             r = selected.rows[0];
@@ -343,8 +343,10 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
         const recipients = { email: { kind: 'email' as const, value: outreachEmail(data.email) }, whatsapp: { kind: 'phone' as const, value: contactPhone(data.phone) }, linkedin: { kind: 'linkedin_profile' as const, value: contactLinkedin(data.linkedinUrl || data.linkedin || data.linkedin_url) } };
         return { recipients, contactId: r.contact_id, requiredSince, sourceDigest: acquireSourceDigest(sourceValue), channels, address: outreachEmail(data.email) };
     }
+    // The held organization gate serializes policy/intent writers; append-only intent rows
+    // need SELECT only, without a FOR SHARE lock that would require UPDATE privilege.
     async function stored(tx: Session['tx'], key: string) {
-        const r = await tx.query('SELECT * FROM public.communication_dispatch_intents WHERE organization_id=$1 AND owner_user_id=$2 AND operation_key=$3 FOR SHARE', [...scope, key]);
+        const r = await tx.query('SELECT * FROM public.communication_dispatch_intents WHERE organization_id=$1 AND owner_user_id=$2 AND operation_key=$3', [...scope, key]);
         if (r.rows.length > 1)
             fail();
         return r.rows[0];

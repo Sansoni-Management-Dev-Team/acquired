@@ -182,7 +182,7 @@ export function createPostgresHistoryCheckpoints(options: HistoryCheckpointOptio
                 if (selected.rows.length !== 1)
                     fail();
                 const row = selected.rows[0];
-                if (row.claim_valid !== true || row.alive !== true || dbDate(row.received_at) !== claim.receivedAt)
+                if (row.claim_valid !== true || row.alive !== true)
                     fail();
                 const envelope = JSON.parse(String(row.encrypted_payload));
                 if (envelope.keyVersion !== row.key_version)
@@ -197,10 +197,12 @@ export function createPostgresHistoryCheckpoints(options: HistoryCheckpointOptio
                 const status = raw.AccountStatus;
                 if (status.account_id !== record.providerAccountId || status.account_type !== b.channel.toUpperCase() || status.message !== 'SYNC_SUCCESS' || b.channel === 'linkedin' && status.product !== expectedProduct || status.product !== undefined && (expectedProduct === undefined || status.product !== expectedProduct))
                     fail();
-                const evidence: HistoryInitialSyncEvidence = { kind: 'provider_sync_success', record: structuredClone(record), completedAt: claim.receivedAt, evidenceId: claim.key }, sealed = seal(structuredClone(b), initialScope, evidence);
-                const inserted = await c.query(`INSERT INTO communications.history_initial_sync(application_id,tenant_id,owner_id,connection_id,generation,account_id,webhook_inbox_id,completed_at,encrypted_evidence,key_version,digest_key_version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) ON CONFLICT(connection_id,generation) DO NOTHING RETURNING webhook_inbox_id`, [...cursorValues('history-initial-sync').slice(0, 6), claim.key, claim.receivedAt, JSON.stringify(sealed), sealed.keyVersion, keyVersion]);
+                // The retained capture authenticates ingress time; SQL owns receipt observation time.
+                // Copy its full-precision value in SQL to satisfy the immutable receipt fence.
+                const evidence: HistoryInitialSyncEvidence = { kind: 'provider_sync_success', record: structuredClone(record), completedAt: dbDate(row.received_at), evidenceId: claim.key }, sealed = seal(structuredClone(b), initialScope, evidence);
+                const inserted = await c.query(`INSERT INTO communications.history_initial_sync(application_id,tenant_id,owner_id,connection_id,generation,account_id,webhook_inbox_id,completed_at,encrypted_evidence,key_version,digest_key_version) SELECT $1,$2,$3,$4,$5,$6,$7,w.received_at,$8,$9,$10 FROM communications.webhook_inbox w WHERE w.id=$7 ON CONFLICT(connection_id,generation) DO NOTHING RETURNING webhook_inbox_id`, [...cursorValues('history-initial-sync').slice(0, 6), claim.key, JSON.stringify(sealed), sealed.keyVersion, keyVersion]);
                 if (inserted.rows.length === 0) {
-                    const old = await c.query(`SELECT encrypted_evidence,key_version,digest_key_version,webhook_inbox_id,completed_at FROM communications.history_initial_sync WHERE connection_id=$1 AND generation=$2 FOR SHARE`, [b.connectionId, b.generation]);
+                    const old = await c.query(`SELECT encrypted_evidence,key_version,digest_key_version,webhook_inbox_id,completed_at FROM communications.history_initial_sync WHERE connection_id=$1 AND generation=$2`, [b.connectionId, b.generation]);
                     if (old.rows.length !== 1)
                         fail();
                     const v = old.rows[0], e = JSON.parse(String(v.encrypted_evidence));
@@ -224,13 +226,14 @@ export function createPostgresHistoryCheckpoints(options: HistoryCheckpointOptio
                 return { status: inserted.rows.length === 1 ? 'recorded' as const : 'duplicate' as const };
             });
         },
+        // Initial-sync evidence is append-only; row locks would require an unnecessary UPDATE grant.
         async initialSync(signal) {
             if (b.channel === 'email')
                 return null;
             return tx(signal, async (c) => {
                 await fence(c);
                 await authority(c);
-                const rows = await c.query(`SELECT encrypted_evidence,key_version,digest_key_version,webhook_inbox_id,completed_at,(completed_at<=clock_timestamp()) AS time_valid FROM communications.history_initial_sync WHERE connection_id=$1 AND generation=$2 FOR SHARE`, [b.connectionId, b.generation]);
+                const rows = await c.query(`SELECT encrypted_evidence,key_version,digest_key_version,webhook_inbox_id,completed_at,(completed_at<=clock_timestamp()) AS time_valid FROM communications.history_initial_sync WHERE connection_id=$1 AND generation=$2`, [b.connectionId, b.generation]);
                 if (rows.rows.length === 0)
                     return null;
                 if (rows.rows.length !== 1)

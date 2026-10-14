@@ -83,9 +83,29 @@ describe.skipIf(!enabled)('standalone original-source history checkpoint SQL', (
         const claimed = await capture.claim({ binding: f.b, key });
         if (claimed.kind !== 'claimed')
             throw Error('Expected synthetic original claim');
-        return { ...f, claim: claimed.record, repo: createPostgresHistoryCheckpoints({ ...f.options, captureCodec, expectedSyncProduct: 'classic' }) };
+        return { ...f, capture, claim: claimed.record, repo: createPostgresHistoryCheckpoints({ ...f.options, captureCodec, expectedSyncProduct: 'classic' }) };
     }
-    it('actual retained wire receipt authenticates source sync completion and owned terminal capture atomically', async () => { const f = await syncFixture(); expect(await f.repo.initialSync()).toBeNull(); expect(await f.repo.recordInitialSync(f.claim)).toEqual({ status: 'recorded' }); expect(await f.repo.initialSync()).toEqual({ kind: 'provider_sync_success', record: f.record, completedAt: f.claim.receivedAt, evidenceId: f.claim.key }); expect((await local.pool.query('SELECT state FROM communications.webhook_inbox WHERE id=$1', [f.claim.key])).rows[0].state).toBe('processed'); });
+    it('actual retained wire receipt authenticates source sync completion and owned terminal capture atomically', async () => {
+        const f = await syncFixture();
+        const databaseReceivedAt = (await local.pool.query('SELECT received_at FROM communications.webhook_inbox WHERE id=$1', [f.claim.key])).rows[0].received_at.toISOString();
+        const firstEvidence = { kind: 'provider_sync_success', record: f.record, completedAt: databaseReceivedAt, evidenceId: f.claim.key };
+        expect(await f.repo.initialSync()).toBeNull();
+        expect(await f.repo.recordInitialSync(f.claim)).toEqual({ status: 'recorded' });
+        expect(await f.repo.initialSync()).toEqual(firstEvidence);
+        expect((await local.pool.query('SELECT state FROM communications.webhook_inbox WHERE id=$1', [f.claim.key])).rows[0].state).toBe('processed');
+        // Another authenticated notice preserves the first immutable initial-sync evidence.
+        const rawBody = Buffer.from(JSON.stringify({ AccountStatus: { account_id: f.record.providerAccountId, account_type: 'LINKEDIN', message: 'SYNC_SUCCESS', product: 'classic' }, notice_id: 'second-synthetic-notice' }));
+        const vector = [f.b.applicationId, f.b.tenantId, f.b.ownerId, f.b.connectionId, f.b.accountId, f.b.generation, f.b.channel, f.b.platform, f.b.backend];
+        const key = createHash('sha256').update(JSON.stringify(['communications.webhook.receipt.v1', vector, createHash('sha256').update(rawBody).digest('hex')])).digest('hex');
+        await f.capture.capture({ binding: f.b, key, rawBody, receivedAt: new Date().toISOString() });
+        const next = await f.capture.claim({ binding: f.b, key });
+        expect(next.kind).toBe('claimed');
+        if (next.kind !== 'claimed')
+            throw Error('Expected authenticated second notice');
+        expect(await f.repo.recordInitialSync(next.record)).toEqual({ status: 'duplicate' });
+        expect(await f.repo.initialSync()).toEqual(firstEvidence);
+        expect((await local.pool.query('SELECT state FROM communications.webhook_inbox WHERE id=$1', [key])).rows[0].state).toBe('processed');
+    });
     it('wrong product never records initial completion or ACKs an original receipt', async () => { const f = await syncFixture('recruiter'); await expect(f.repo.recordInitialSync(f.claim)).rejects.toThrow(); expect(await f.repo.initialSync()).toBeNull(); expect((await local.pool.query('SELECT state FROM communications.webhook_inbox WHERE id=$1', [f.claim.key])).rows[0].state).toBe('processing'); });
     it('explicit invalidation cannot leave fresh dispatch coverage', async () => { const f = await fixture(), ticket = (await f.repo.begin(f.query))!; await f.repo.commit(ticket, f.page(ticket)); await f.repo.invalidate(f.query); expect(await f.repo.coverage(f.query)).toMatchObject({ complete: false, invalidated: true }); });
 });

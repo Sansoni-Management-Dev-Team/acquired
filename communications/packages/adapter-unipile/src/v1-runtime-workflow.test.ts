@@ -103,6 +103,18 @@ function fixture() {
     return { runtime, fetch, query, states, connections, statements, revoke: () => { allowed = false; }, changedOwner: () => { changedOwner = true; }, async notify() { return runtime.completeSetupNotification({ rawBody: Buffer.from(JSON.stringify({ status: 'CREATION_SUCCESS', name: callback!.nonce, account_id: 'provider' })), capability: callback!.capability }); } };
 }
 describe('concrete hosted setup workflow protocol (no actual database)', () => {
+    it('reports an exact historical generation as disconnected without provider reads or status writes', async () => {
+        const f = fixture();
+        await f.runtime.setup(scope, { channel: 'email', platform: 'gmail' });
+        await f.notify();
+        const initial = (await f.runtime.list(scope)).connections[0];
+        f.connections.get(initial.binding.connectionId)!.current_generation = 2;
+        const readsBefore = f.fetch.mock.calls.length;
+        const writesBefore = f.statements.filter(q => q.sql.startsWith('UPDATE communications.connections')).length;
+        expect(await f.runtime.status(scope, initial.binding)).toMatchObject({ binding: initial.binding, status: 'disconnected', isDefault: false, readiness: { status: 'review', code: 'reconnect' } });
+        expect(f.fetch).toHaveBeenCalledTimes(readsBefore);
+        expect(f.statements.filter(q => q.sql.startsWith('UPDATE communications.connections'))).toHaveLength(writesBefore);
+    });
     it('commits issued state before one hosted POST, queues callback, then fresh owner polling binds canonical owner', async () => { const f = fixture(); expect((await f.runtime.setup(scope, { channel: 'email', platform: 'gmail' })).status).toBe('redirect'); expect(await f.notify()).toEqual({ status: 'queued' }); expect(f.connections.size).toBe(0); expect(f.fetch).toHaveBeenCalledTimes(1); const result = await f.runtime.list(scope); expect(result.connections).toHaveLength(1); expect(result.connections[0]).toMatchObject({ label: 'verified-owner@example.test', status: 'connected', readiness: { status: 'waiting', code: 'incomplete' } }); expect(result.connections[0].binding.accountId).toMatch(/^physical-[a-f0-9]{64}$/); expect(f.statements.filter(q => q.sql.includes('INSERT INTO communications.connection_generations'))).toHaveLength(1); expect(f.statements.flatMap(q => q.values)).not.toContain('actual-owner-provider-id'); expect(f.statements.flatMap(q => q.values)).not.toContain('verified-owner@example.test'); expect((await f.runtime.setDefault(scope, result.connections[0].binding)).isDefault).toBe(true); });
     it('callback does not resurrect expired membership; a freshly signed current-owner request drains the same nonce', async () => { const f = fixture(); await f.runtime.setup(scope, { channel: 'email', platform: 'gmail' }); f.revoke(); expect(await f.notify()).toEqual({ status: 'queued' }); await expect(f.runtime.list(scope)).rejects.toThrow(); expect(f.connections.size).toBe(0); expect(await f.runtime.authorizeSignedScope(scope, { expiresAt: new Date(Date.now() + 30000).toISOString() })).toBe(true); expect((await f.runtime.list(scope)).connections).toHaveLength(1); expect(f.fetch.mock.calls.filter(c => c[1]?.method === 'POST')).toHaveLength(1); });
     it('changed account product never binds or consumes the original stored callback', async () => { const f = fixture(); await f.runtime.setup(scope, { channel: 'email', platform: 'gmail' }); await f.notify(); f.changedOwner(); expect((await f.runtime.list(scope)).connections).toHaveLength(0); expect([...f.states.values()][0].consumed_at).toBeNull(); expect(f.statements.filter(q => q.sql.includes('INSERT INTO communications.connection_generations'))).toHaveLength(0); });

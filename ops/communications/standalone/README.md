@@ -1,5 +1,7 @@
 # Standalone service database review
 
+**Current status (2026-10-14):** The specifically approved local artifacts and separately approved008 repair were applied unchanged once. All265 actual PostgreSQL tests pass (67 new +198 regression), zero skips. Historical preparation/pending wording below describes the earlier stage. Do not reapply SQL. Exact targets, hashes and execution evidence are recorded in [the final migration review](../../../docs/communications/final-local-migration-review.md). Runtime activation and live validation remain separate.
+
 This is the specifically approved and initialized isolated fixture, independent of Acquire's application tables. Both exact SQL artifacts below were applied once after target/hash checks and a fresh validated backup. Existing approvals did not authorize this target; the user subsequently explicitly approved its initialization and these two migrations. No automatic migration runs on startup.
 
 Exact approved target: owned OrbStack `127.0.0.1:5446/communications_fixture`, container `acquire-communications-standalone-postgres-1`, label `acquire.fixture=communications-standalone`. Compose pins the existing PostgreSQL17 image digest, fixes database/user names, binds loopback only, and uses a dedicated ignored data directory. Its private ignored `standalone.env` contains fixture credentials only; do not print it or substitute live credentials.

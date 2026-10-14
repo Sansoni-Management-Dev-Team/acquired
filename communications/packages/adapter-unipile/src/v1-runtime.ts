@@ -301,9 +301,13 @@ export function createConfiguredUnipileV1Runtime(options: ConfiguredUnipileV1Run
         async status(input, requested) {
             const s = scope(input), b = binding(s, requested);
             await store.requireGrant(s);
-            const stored = await store.resolve(b);
+            const stored = await store.resolve(b, false);
             if (!stored)
                 failure();
+            // Historical generations retain their original metadata and grant checks.
+            // Status must not query or update a successor's provider account.
+            if (!stored.active)
+                return managed(stored);
             const proof = await reader.verify({ platform: b.platform, providerAccountId: stored.owner.providerAccountId, sourceId: stored.owner.sourceId });
             if (proof.kind !== 'verified')
                 return managed(stored);

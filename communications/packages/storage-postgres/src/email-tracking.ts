@@ -490,7 +490,9 @@ export function createPostgresEmailTracking(inputOptions: EmailTrackingOptions):
     function ackPayload(original: Original, trackingId: string) { return { domain: 'communications.email-ack.v1', integrationId: integration, providerConfigurationReference: configuration, providerAccountId: provider, trackingId, recipient: original.recipient, ...(original.conversation ? { conversation: original.conversation } : {}), ...(original.message ? { message: original.message } : {}) }; }
     async function ack(c: SqlClient, s: OperationSnapshot, original: Original, trackingId?: string) {
         const candidates = trackingId ? trackingVersions.map(v => trackingKey(trackingId, v)) : [];
-        const found = await c.query(`SELECT id,journal_id,tracking_digest,tracking_key_version,encrypted_ack,ack_key_version,ack_digest FROM communications.email_tracking_acknowledgements WHERE journal_id=$1 ${trackingId ? 'OR (integration_id=$2 AND provider_configuration_reference=$3 AND tracking_digest=ANY($4::text[]))' : ''} FOR SHARE`, trackingId ? [original.row.id, integration, configuration, candidates] : [original.row.id]);
+        // Append-only receipts require no mutable-row privilege. Account/journal
+        // authority locks serialize producers; uniqueness retains exact history.
+        const found = await c.query(`SELECT id,journal_id,tracking_digest,tracking_key_version,encrypted_ack,ack_key_version,ack_digest FROM communications.email_tracking_acknowledgements WHERE journal_id=$1 ${trackingId ? 'OR (integration_id=$2 AND provider_configuration_reference=$3 AND tracking_digest=ANY($4::text[]))' : ''}`, trackingId ? [original.row.id, integration, configuration, candidates] : [original.row.id]);
         if (found.rows.length > 1)
             fail();
         if (!found.rows.length)
@@ -524,7 +526,7 @@ export function createPostgresEmailTracking(inputOptions: EmailTrackingOptions):
         row: Record<string, unknown>;
         trackingId: string;
     }) {
-        const selected = await c.query('SELECT acknowledgement_id,encrypted_association,association_key_version,association_digest,evidence_digest FROM communications.email_tracking_associations WHERE acknowledgement_id=$1 FOR SHARE', [acknowledgement.row.id]);
+        const selected = await c.query('SELECT acknowledgement_id,encrypted_association,association_key_version,association_digest,evidence_digest FROM communications.email_tracking_associations WHERE acknowledgement_id=$1', [acknowledgement.row.id]);
         if (selected.rows.length > 1)
             fail();
         if (!selected.rows.length)

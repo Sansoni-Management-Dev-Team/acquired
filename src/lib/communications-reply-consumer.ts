@@ -368,8 +368,7 @@ export function createCommunicationReplyConsumer(options: CommunicationReplyCons
             return transaction(signal, async (client, retireResolverSession, callbackSignal) => {
                 await enter(client, 'acquire_campaign_user');
                 await client.query("SELECT set_config('app.acquire_org',$1,true),set_config('app.acquire_user',$2,true)", [actor.organizationId, actor.userId]);
-                if (process.env.COMMUNICATIONS_RUNTIME_ENABLED === 'true')
-                    await lockAcquireSendGate(client, actor.organizationId, { required: true });
+                await lockAcquireSendGate(client, actor.organizationId, { required: process.env.COMMUNICATIONS_RUNTIME_ENABLED === 'true' });
                 const member = await client.query('SELECT public.communications_lock_reply_member($1,$2) AS allowed', [actor.organizationId, actor.userId]);
                 if (member.rows.length !== 1 || member.rows[0].allowed !== true || mode() === 'off')
                     fail();

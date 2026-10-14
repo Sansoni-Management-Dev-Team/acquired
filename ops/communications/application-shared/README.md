@@ -1,5 +1,7 @@
 # Shared application-only migration review artifacts
 
+**Current status (2026-10-14):** The specifically approved local artifacts and separately approved008 repair were applied unchanged once. All265 actual PostgreSQL tests pass (67 new +198 regression), zero skips. Historical preparation/pending wording below describes the earlier stage. Do not reapply SQL. Exact targets, hashes and execution evidence are recorded in [the final migration review](../../../docs/communications/final-local-migration-review.md). Runtime activation and live validation remain separate.
+
 **UNAPPROVED / UNAPPLIED.** Prepared code only. The user requested all code first and migrations at the end. These files have no automatic startup, bootstrap, runner or application hook. No new database is initialized and no schema/data change has been executed.
 
 These are **application-only** artifacts for the existing owned OrbStack `project-acquire-postgres` container, sole `127.0.0.1:5434`, database/operator `project_acquire`, system identifier `7680143844628185121`. A read-only catalog audit confirmed its application communication bindings/checkpoints/intents are absent, existing `acquire_campaign_user`/`acquire_campaign_worker` roles are restricted and the `communications` service schema is absent. Neither artifact installs service tables, functions, roles, grants, queues, accounts or provider credentials.

@@ -165,6 +165,10 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
                     live();
                     await tx.query('COMMIT');
                     live();
+                    // The service retires and aborts its exposed signal after its successful
+                    // transaction too. After definite app COMMIT, await that service result
+                    // directly; a service error/deadline still rejects the projection.
+                    EventTarget.prototype.removeEventListener.call(peerSignal, 'abort', cancel);
                 }, { signal: controller.signal });
             };
             try {

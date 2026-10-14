@@ -65,7 +65,8 @@ export function createRuntimeEmail(options: RuntimeEmailOptions): {
     tracking: ReturnType<typeof createPostgresEmailTracking>;
 } {
     const { connection, store, vault, transport, ownerReader } = options, b = structuredClone(connection.binding), owner = structuredClone(connection.owner), addresses = owner.aliases.filter(a => a.kind === 'email').map(a => a.value);
-    const ownership = async (signal: AbortSignal) => { await store.requireGrant(b); const result = await ownerReader.verify({ platform: b.platform, providerAccountId: owner.providerAccountId, sourceId: owner.sourceId }, signal); await store.requireGrant(b); return result.kind === 'verified' && isDeepStrictEqual(result.owner.physicalOwner, owner.physicalOwner) && isDeepStrictEqual(result.owner.providerOwner, owner.providerOwner) && isDeepStrictEqual(result.owner.aliases, owner.aliases); };
+    const accessScope = { applicationId: b.applicationId, tenantId: b.tenantId, ownerId: b.ownerId };
+    const ownership = async (signal: AbortSignal) => { await store.requireGrant({ ...accessScope }); const result = await ownerReader.verify({ platform: b.platform, providerAccountId: owner.providerAccountId, sourceId: owner.sourceId }, signal); await store.requireGrant({ ...accessScope }); return result.kind === 'verified' && isDeepStrictEqual(result.owner.physicalOwner, owner.physicalOwner) && isDeepStrictEqual(result.owner.providerOwner, owner.providerOwner) && isDeepStrictEqual(result.owner.aliases, owner.aliases); };
     const tracking = createPostgresEmailTracking({ pool: options.pool, binding: b, integrationId: options.integrationId, providerConfigurationReference: options.providerConfigurationReference, providerAccountId: owner.providerAccountId, codec: vault.journal,
         recipientDigest: { keyVersion: vault.identityKeyVersion, digest(identity: CanonicalIdentity, v: string) { return vault.physicalIdentityDigest({ namespace: identity.kind, value: identity.value }, v); } },
         trackingDigest: { keyVersion: vault.keyVersion, versions: vault.versions(), digest: (input, v) => vault.trackingDigest(input, v) },
@@ -85,7 +86,7 @@ export function createRuntimeEmail(options: RuntimeEmailOptions): {
             if (result.kind !== 'success' || result.status !== 200)
                 return null;
             const proof = verifyRuntimeSentEmail({ binding: b, ownerAddresses: addresses, providerAccountId: owner.providerAccountId, raw: result.data, evidence: input.evidence, recipient: input.recipient, ...(input.conversationId ? { conversationId: input.conversationId } : {}) });
-            await store.requireGrant(b);
+            await store.requireGrant({ ...accessScope });
             return proof;
         } });
     async function original(input: Parameters<NonNullable<Parameters<typeof createUnipileV1EmailAdapter>[0]['verifyOriginal']>>[0]): Promise<VerifiedV1EmailOriginal | null> {
