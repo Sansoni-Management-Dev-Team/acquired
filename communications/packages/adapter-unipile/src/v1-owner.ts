@@ -59,11 +59,14 @@ export function projectV1CanonicalOwner(account: unknown, profile: unknown, inpu
         return review('identity_pending');
     let physicalOwner: VerifiedUnipileOwner['physicalOwner'], canonicalIdentity: CanonicalIdentity, providerOwner: VerifiedUnipileOwner['providerOwner'], aliases: CanonicalIdentity[] = [];
     if (platform === 'whatsapp') {
-        if (typeof product.phone_number !== 'string' || !/^\+[1-9]\d{6,14}$/.test(product.phone_number))
+        // This authenticated field contains international digits; a missing plus
+        // needs no country inference. Reject local prefixes and formatting.
+        if (typeof product.phone_number !== 'string' || !/^\+?[1-9]\d{6,14}$/.test(product.phone_number))
             return review('identity_pending');
-        physicalOwner = { namespace: 'e164', value: product.phone_number };
-        providerOwner = { namespace: 'unipile.v1.whatsapp.im.phone_number', value: product.phone_number };
-        canonicalIdentity = { kind: 'phone', value: product.phone_number };
+        const phone = product.phone_number.startsWith('+') ? product.phone_number : `+${product.phone_number}`;
+        physicalOwner = { namespace: 'e164', value: phone };
+        providerOwner = { namespace: 'unipile.v1.whatsapp.im.phone_number', value: phone };
+        canonicalIdentity = { kind: 'phone', value: phone };
     }
     else {
         if (!object(profile) || profile.object !== 'AccountOwnerProfile' || !id(product.id))

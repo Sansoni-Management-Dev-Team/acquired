@@ -38,3 +38,27 @@ it('marks IMAP unavailable while configured Gmail and Outlook remain selectable'
  expect(option('gmail')).toContain('Gmail');expect(option('gmail')).not.toContain('disabled');
  expect(option('outlook')).toContain('Outlook');expect(option('outlook')).not.toContain('disabled');
 });
+
+it.each(['connecting','syncing','connected'] as const)('shows an accessible loading icon for %s with incomplete connection checks',status=>{
+ const binding={applicationId:'acquire',tenantId:'org',ownerId:'owner',connectionId:'pending',accountId:'account',generation:1,channel:'linkedin' as const,platform:'linkedin' as const,backend:'unipile' as const};
+ const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,checkedAt:'2026-10-14T00:00:00.000Z',connections:[{binding,label:'Synthetic LinkedIn account',status,capabilities:{messaging:{send:true,durableIdempotency:true,receiptLookup:true},events:{read:true,history:true,realtime:true}},readiness:{status:'waiting',code:'incomplete'},isDefault:false}]}}/>);
+ expect(html).toContain('aria-label="LinkedIn connection pending"');
+ expect(html).toContain('aria-busy="true"');expect(html).toContain('animate-spin');
+ expect(html).toContain('motion-reduce:animate-none');
+});
+it.each(['disconnected','failed','verification_required','connected'] as const)('does not animate a settled %s connection',status=>{
+ const binding={applicationId:'acquire',tenantId:'org',ownerId:'owner',connectionId:'settled',accountId:'account',generation:1,channel:'linkedin' as const,platform:'linkedin' as const,backend:'unipile' as const};
+ const readiness=status==='connected'?{status:'ready' as const}:{status:'review' as const,code:'reconnect' as const};
+ const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,checkedAt:'2026-10-14T00:00:00.000Z',connections:[{binding,label:'Synthetic LinkedIn account',status,capabilities:{messaging:{send:true,durableIdempotency:true,receiptLookup:true},events:{read:true,history:true,realtime:true}},readiness,isDefault:false}]}}/>);
+ expect(html).not.toContain('connection pending');expect(html).not.toContain('animate-spin');
+});
+it('shows callback waiting feedback immediately after returning from account setup',()=>{
+ const html=renderToStaticMarkup(<ChannelConnections setupReturned initialSnapshot={{available:true,checkedAt:'2026-10-14T00:00:00.000Z',connections:[]}}/>);
+ expect(html).toContain('Waiting for account connection');expect(html).toContain('animate-spin');
+});
+
+it.each([['disconnected','Disconnected'],['failed','Connection failed']] as const)('keeps terminal %s status ahead of stale incomplete readiness',(status,label)=>{
+ const binding={applicationId:'acquire',tenantId:'org',ownerId:'owner',connectionId:'terminal',accountId:'account',generation:1,channel:'linkedin' as const,platform:'linkedin' as const,backend:'unipile' as const};
+ const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,checkedAt:'2026-10-14T00:00:00.000Z',connections:[{binding,label:'Synthetic account',status,capabilities:{messaging:{send:true,durableIdempotency:true,receiptLookup:true},events:{read:true,history:true,realtime:true}},readiness:{status:'waiting',code:'incomplete'},isDefault:false}]}}/>);
+ expect(html).toContain(label);expect(html).not.toContain('Syncing');expect(html).not.toContain('animate-spin');
+});

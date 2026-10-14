@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { projectV1CanonicalOwner, UnipileV1OwnerReader } from './v1-owner';
+import { projectV1CanonicalOwner, parseVerifiedV1Owner, UnipileV1OwnerReader } from './v1-owner';
 const account = (type = 'GOOGLE_OAUTH', product: Record<string, unknown> = { id: 'opaque-owner', username: 'not-a-mailbox' }) => ({ object: 'Account', id: 'provider/id', type, connection_params: { [type === 'WHATSAPP' || type === 'LINKEDIN' ? 'im' : 'mail']: product }, sources: [{ id: 'opaque-source', status: 'OK' }] });
 const profile = { object: 'AccountOwnerProfile', provider: 'GMAIL', email: 'Primary@Example.com', aliases: [{ email: 'alias@example.com', verification_status: 'accepted' }, { email: 'not-verified@example.com', verification_status: 'pending' }] };
 describe('canonical v1 account owner reads', () => {
@@ -26,3 +26,18 @@ describe('canonical v1 account owner reads', () => {
         await new Promise<void>(r => server.close(() => r()));
     } });
 });
+
+ it.each(['15550000123', '+15550000123'])('canonicalizes authenticated international WhatsApp identity consistently (%s)', phone_number => {
+  const result=projectV1CanonicalOwner(account('WHATSAPP',{phone_number}),null,{platform:'whatsapp',providerAccountId:'provider/id'});
+  expect(result.kind).toBe('verified');
+  if(result.kind==='verified'){
+   expect(result.owner.physicalOwner).toEqual({namespace:'e164',value:'+15550000123'});
+   expect(result.owner.providerOwner).toEqual({namespace:'unipile.v1.whatsapp.im.phone_number',value:'+15550000123'});
+   expect(result.owner.canonicalIdentity).toEqual({kind:'phone',value:'+15550000123'});
+   expect(result.owner.aliases).toEqual([{kind:'phone',value:'+15550000123'}]);
+   expect(parseVerifiedV1Owner(result.owner)).toEqual(result.owner);
+  }
+ });
+ it.each(['05550000123','0015550000123','+015550000123',' 15550000123','15550000123 ','+1 5550000123','+1(555)0000123','+1-5550000123','15550000123@s.whatsapp.net','15550000123:1','++15550000123','123456','1234567890123456',15550000123,null,undefined])('does not guess WhatsApp ownership from ambiguous phone data (%s)', phone_number => {
+  expect(projectV1CanonicalOwner(account('WHATSAPP',{phone_number}),null,{platform:'whatsapp',providerAccountId:'provider/id'})).toEqual({kind:'review',code:'identity_pending'});
+ });
