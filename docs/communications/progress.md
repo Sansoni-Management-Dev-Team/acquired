@@ -326,7 +326,7 @@ Three agents implemented/reviewed disjoint production, unit and actual PostgreSQ
 
 ## Exact next action
 
-Code is frozen and combined verification passed. Commit the reviewed build locally and update the private worktree handoff; keep main and the published legacy repo unchanged. The exact new-schema67-case runner is prepared and does not migrate.
+Code is frozen and combined verification passed. The complete build is locally committed at `6452ef7d70141a20f05a1c4b99107cc902e238a4`; it has not been pushed or deployed. Main and the published legacy repo are unchanged. The exact new-schema67-case runner is prepared and does not migrate. Private worktree handoffs identify the current revision and verification summary.
 
 After the complete code build is reviewable, request explicit approval for each of the eight exact file/hash/target combinations in [final-local-migration-review.md](final-local-migration-review.md). Only after that approval: attest owned targets, take fresh validated private backups, execute approved unchanged SQL once in target order, verify catalogs/RLS/ACL/history, and run all67 prepared cases without skips plus applicable existing regressions. The prepared runner performs no migration and rejects missing schema. Shared5434 postchecks are separate from isolated5445 proof.
 
