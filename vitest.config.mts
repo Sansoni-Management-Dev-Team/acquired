@@ -11,13 +11,17 @@ export default defineConfig({
     exclude: [
       "**/node_modules/**",
       "**/.git/**",
-      "services/whatsapp/**",
       ".local-data/**",
       "cloudflare/research/workflow-tests/**",
       "cloudflare/research/provider-coordinator.integration.test.ts",
       // These use node:test and are run by test:node after Vitest.
       "scripts/app-deploy-host.test.mjs",
       "scripts/app-public-smoke.test.mjs",
+      "scripts/communications-standalone-lifecycle-runner.test.mjs",
+      "scripts/communications-deploy-host.test.mjs",
+      "scripts/communications-deploy-schema-preflight.test.mjs",
+      "scripts/communications-production-database.test.mjs",
+      "scripts/communications-production-package.test.mjs",
     ],
   },
 });

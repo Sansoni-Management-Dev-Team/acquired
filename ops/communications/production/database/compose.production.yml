@@ -1,0 +1,39 @@
+# REVIEW ONLY. Starting this database/initializing its volume requires specific approval.
+name: acquire-communications-storage
+services:
+  postgres:
+    image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    env_file:
+      - path: .env.database
+        format: raw
+    environment:
+      POSTGRES_USER: communications_admin
+      POSTGRES_DB: acquire_communications
+    command: ["postgres", "-c", "shared_buffers=32MB", "-c", "max_connections=30", "-c", "max_wal_size=256MB", "-c", "acquire.deployment_target=acquire-app-01/acquire_communications"]
+    volumes:
+      - production-data:/var/lib/postgresql/data
+    networks:
+      application:
+        aliases: [acquire-communications-db]
+    restart: unless-stopped
+    mem_limit: 256m
+    shm_size: 64m
+    stop_grace_period: 90s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U communications_admin -d acquire_communications"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  production-data:
+    external: true
+    name: acquire_communications_production_pgdata
+networks:
+  application:
+    external: true
+    name: acquire-app_default

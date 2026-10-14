@@ -1,0 +1,9 @@
+import {afterEach,expect,it,vi} from 'vitest';
+vi.mock('server-only',()=>({}));const m=vi.hoisted(()=>({db:vi.fn(),config:vi.fn()}));vi.mock('@/db/campaign-client',()=>({withCampaignDb:m.db}));vi.mock('../../communications/packages/sdk/src',()=>({CommunicationsClient:class{constructor(config:unknown){m.config(config);}}}));
+import {actorCommunicationsClient} from './communications-client';
+import {createScopedServiceAuth} from '../../communications/packages/core/src/scoped-service-auth';
+afterEach(()=>vi.unstubAllEnvs());
+it('issues a short-lived service credential only after current owner membership commits',async()=>{
+ vi.stubEnv('COMMUNICATIONS_RUNTIME_ENABLED','true');vi.stubEnv('COMMUNICATIONS_SERVICE_URL','https://service.example');vi.stubEnv('COMMUNICATIONS_SCOPED_AUTH_KEY',Buffer.alloc(32,7).toString('base64'));m.db.mockImplementation(async(_actor,work)=>work({}));await actorCommunicationsClient({organizationId:'org',userId:'owner'});expect(m.db).toHaveBeenCalledWith({organizationId:'org',userId:'owner'},expect.any(Function));const config=m.config.mock.lastCall?.[0];expect(config.baseUrl).toBe('https://service.example');const auth=createScopedServiceAuth({key:Buffer.alloc(32,7),audience:'communications',applicationId:'acquire',authorize:async()=>true});expect(await auth.verify('Bearer '+config.apiKey)).toEqual({applicationId:'acquire',tenantId:'org',ownerId:'owner'});
+});
+it('does not issue a client after member revocation or when runtime is unconfigured',async()=>{m.config.mockClear();vi.stubEnv('COMMUNICATIONS_RUNTIME_ENABLED','true');m.db.mockRejectedValueOnce(Error('revoked'));await expect(actorCommunicationsClient({organizationId:'org',userId:'owner'})).rejects.toThrow();expect(m.config).not.toHaveBeenCalled();vi.stubEnv('COMMUNICATIONS_RUNTIME_ENABLED','false');await expect(actorCommunicationsClient({organizationId:'org',userId:'owner'})).rejects.toThrow();});

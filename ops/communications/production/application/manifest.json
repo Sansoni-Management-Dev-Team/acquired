@@ -1,0 +1,89 @@
+{
+  "createdAt": "2026-10-14T10:38:32.374Z",
+  "status": "review-only-unapproved-unapplied",
+  "target": {
+    "provider": "Supabase",
+    "projectRef": "njasjqpztiteionfxxul",
+    "host": "aws-0-ap-northeast-2.pooler.supabase.com",
+    "port": 5432,
+    "database": "postgres",
+    "operator": "postgres",
+    "systemIdentifier": "7678071634733212629",
+    "databaseOid": 5,
+    "serverMajor": 17,
+    "clientTlsVerificationRequired": true
+  },
+  "catalogAudit": {
+    "capturedAt": "2026-10-14T10:36:03.401Z",
+    "fullCatalogSha256": "71e1c0cd82deb18e937006e8e1845db37ef0e3a71cd8243708a84d1a9cb230e2",
+    "guardedPrerequisiteColumnsMd5": "1c31fc217ecc81f0d94f6dda189bb16f",
+    "fingerprintTables": [
+      "organization",
+      "user",
+      "member",
+      "mailbox_connections",
+      "whatsapp_connections",
+      "whatsapp_delivery_actions",
+      "campaign_send_attempts",
+      "campaign_enrolments",
+      "messages",
+      "contacts",
+      "sequence_enrolments",
+      "campaign_contact_assignments",
+      "campaign_sequences",
+      "campaign_sequence_versions",
+      "campaign_reply_holds",
+      "campaign_reply_identities",
+      "campaign_reply_monitors"
+    ],
+    "sqlGuardScope": "Exact system/database/operator plus baseline prerequisite column shape. The broader private catalog SHA-256 is review evidence, not a guard against every possible concurrent DDL change."
+  },
+  "prerequisites": {
+    "drizzle0012Roles": "already-present-ledger-source-hash-matched",
+    "drizzle0017OptionalPeople": "already-present-ledger-source-hash-matched",
+    "drizzle0018WhatsAppDeliveryJournal": "already-present-ledger-source-hash-matched-do-not-reapply",
+    "newMigrationNeededForThose": false,
+    "rolesValidated": [
+      "acquire_campaign_user",
+      "acquire_campaign_worker"
+    ],
+    "operatorRoleMembershipsValidated": true,
+    "missingNewApplicationTables": true
+  },
+  "files": [
+    {
+      "path": "ops/communications/production/application/001-app-prerequisites.production.sql",
+      "sha256": "51f97c4c1c0ed75fa63ae5ba0c998a4f05f3b4cbebe0b5f2dada00f5e4488b6e",
+      "source": "ops/communications/application-shared/001-app-prerequisites.local.sql",
+      "sourceSha256": "a4b9a27dc2808eea1f2bbba163772e4c04d4fd400099d552837045a00b49774e",
+      "bodyStartsAt": "-- Immutable exact service binding snapshots;",
+      "bodySha256": "5fbf2b7e050f898e8f7e6e9f5d7f7793d4623694ae53517616ee95e9aa580c4a",
+      "bodyByteLength": 27201,
+      "bodyPreserved": true,
+      "approval": "not_requested",
+      "applied": false
+    },
+    {
+      "path": "ops/communications/production/application/002-send-admission.production.sql",
+      "sha256": "918781025751d540efeb3ec57fcbe3eaa5f818e357a6907304a75398473ee06d",
+      "source": "ops/communications/application-shared/002-send-admission.local.sql",
+      "sourceSha256": "67e1891d47d67583e01803fd2fd3ac4b77f79c6964734af9903ca0fa915125d5",
+      "bodyStartsAt": "CREATE ROLE acquire_communications_writer",
+      "bodySha256": "f64f118588af4eea3e466189dfdcf9fbf485beeb9cc04abab44bee6c46f1287e",
+      "bodyByteLength": 20795,
+      "bodyPreserved": true,
+      "approval": "not_requested",
+      "applied": false
+    }
+  ],
+  "executionOrder": [
+    "ops/communications/production/application/001-app-prerequisites.production.sql",
+    "ops/communications/production/application/002-send-admission.production.sql"
+  ],
+  "limitations": [
+    "No production migration has been executed or approved.",
+    "No SQL parse-through-execution or postmigration production behavior is claimed.",
+    "A fresh backup, repeated target checks, body/hash review and explicit per-file approval are required before execution.",
+    "Runtime must remain disabled until separately approved service-schema, application-schema and deployment prerequisites are satisfied."
+  ]
+}

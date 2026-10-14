@@ -15,7 +15,7 @@ function LoadingView({ pathname, tab }: { pathname: string; tab?: string | null 
   const title = people ? "People" : sequences ? "Sequences" : company ? "Company details"
     : isMandate ? (tab === "targets" ? "Companies" : tab === undefined ? "Mandate" : "Brief")
     : ({ "/": "Create a mandate", "/mandates/new": "Create a mandate", "/mandates": "Acquisition mandates", "/targets": "Acquisition mandates", "/settings": "Settings", "/audit": "Audit trail", "/outreach": "People", "/preview/outreach": "People", "/sign-in": "Sign in to the deal desk", "/sign-up": "Create your deal desk", "/forgot-password": "Reset your password", "/reset-password": "Choose a new password", "/onboarding": "Create your workspace", "/auth/complete": "Preparing your deal desk" }[pathname] ?? "Loading page");
-  const description = people ? "Contacts with email addresses from research and Firmable enrichment, with outreach progress."
+  const description = people ? "Contacts with email addresses from research and company enrichment, with outreach progress."
     : sequences ? "Publish a sequence and subscribe contacts using your connected mailbox."
     : pathname === "/settings" ? "Manage your outreach profile, business research, channel connections and account."
     : pathname === "/mandates" ? "Keep each acquisition brief, target universe and pipeline separate." : undefined;

@@ -36,6 +36,7 @@ describe("instant page loading", () => {
     expect(html).toContain(`>${title}</h1>`);
     expect(html).toContain('aria-busy="true"');
     expect(html).toContain('role="status"');
+    expect(html).not.toMatch(/unipile|firmable|n8n/i);
     expect(html).toContain("motion-reduce:animate-none");
   });
 

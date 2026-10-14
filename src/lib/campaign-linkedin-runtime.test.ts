@@ -1,11 +1,15 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 const mock = vi.hoisted(() => ({ rows: vi.fn(), query: vi.fn(), linkedin: vi.fn(), gmail: { inboundFrom: vi.fn(), hasConversation: vi.fn(), outboundToSince: vi.fn() } }));
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/campaign-reply-monitor",()=>({checkContactReplyMonitors:vi.fn(),assertContactReplyFresh:vi.fn()}));
 vi.mock("@/db/campaign-client", () => ({ rows: mock.rows, withCampaignDb: (_actor: unknown, fn: (client: unknown) => unknown) => fn({ query: mock.query }), withCampaignWorker: (fn: (client: unknown) => unknown) => fn({ query: mock.query }) }));
-vi.mock("@/lib/gmail-connection", () => ({ connectionCanMonitorReplies: () => true }));
-vi.mock("@/lib/campaign-mailbox", () => ({ campaignTestSendAnytime: () => true, campaignMailboxForConnection: () => mock.gmail }));
+vi.mock("@/test/fixtures/gmail-connection", () => ({ connectionCanMonitorReplies: () => true }));
+vi.mock("@/test/fixtures/campaign-mailbox", () => ({ campaignTestSendAnytime: () => true, campaignMailboxForConnection: () => mock.gmail }));
 vi.mock("@/lib/campaign-linkedin", () => ({ campaignLinkedin: mock.linkedin, assertLinkedinDeliveryReady: vi.fn(), linkedinCampaignEnabled: () => true, linkedinProfileFor: () => "https://www.linkedin.com/in/alex" }));
+vi.mock("@/lib/communications-bindings",()=>({resolveRecordedApplicationConnection:async(actor:{organizationId:string;userId:string},channel:string)=>({bindingId:'original',binding:{applicationId:'acquire',tenantId:actor.organizationId,ownerId:actor.userId,connectionId:'original',accountId:'account',generation:1,channel,platform:channel,backend:'unipile'},recoveryOnly:false})}));
+vi.mock("@/lib/communications-client",()=>({actorCommunicationsClient:async()=>({ready:async()=>{return {status:'ready'};}})}));
+afterEach(()=>{vi.unstubAllEnvs();vi.useRealTimers();});
 import { processCampaignEnrolment } from "./campaign-service";
 const actor = { organizationId: "org", userId: "owner" };
 const id = randomUUID();
@@ -16,7 +20,7 @@ const definition = { schemaVersion: 1, steps: [anchor], splits: [split] };
 let sentAt: Date;
 let state: string;
 beforeEach(() => {
-  vi.clearAllMocks(); sentAt = new Date(Date.now() - 86400_000); state = "active";
+  vi.useFakeTimers();vi.setSystemTime(new Date("2026-10-06T01:00:00Z"));vi.stubEnv("COMMUNICATIONS_RUNTIME_ENABLED","true");vi.clearAllMocks(); sentAt = new Date(Date.now() - 86400_000); state = "active";
   mock.gmail.inboundFrom.mockResolvedValue([]); mock.gmail.hasConversation.mockResolvedValue(false); mock.gmail.outboundToSince.mockResolvedValue([]);
   mock.query.mockResolvedValue({ rows: [], rowCount: 1 });
   mock.rows.mockImplementation(async (_client, sql: string) => {
@@ -31,7 +35,7 @@ beforeEach(() => {
 it("polls a sent request without resending while acceptance is pending", async () => {
   mock.linkedin.mockResolvedValue({ connected: false });
   expect(await processCampaignEnrolment(actor, id)).toEqual({ outcome: "waiting_for_acceptance" });
-  expect(mock.linkedin).toHaveBeenCalledExactlyOnceWith(actor, { operation: "status", profile: "https://www.linkedin.com/in/alex" });
+  expect(mock.linkedin).toHaveBeenCalledExactlyOnceWith(actor, { operation: "status", profile: "https://www.linkedin.com/in/alex", enrolmentId:id });
   expect(mock.query.mock.calls.some(([sql]) => sql.includes("state = 'claimed'"))).toBe(false);
 });
 it.each([true, false])("persists the observed %s branch before advancing", async connected => {

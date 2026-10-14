@@ -8,6 +8,12 @@ const mock = vi.hoisted(() => ({
   mailbox: vi.fn(),
 }));
 vi.mock("server-only", () => ({}));
+// Explicit synthetic grant policy; actual historical grants are separately paused.
+vi.mock("@/test/fixtures/gmail-connection", () => ({ connectionCanMonitorReplies: (grant: {encryptedRefreshToken: string|null;reconnectRequired: boolean;scopes: string[]|null}) => !!grant.encryptedRefreshToken && !grant.reconnectRequired && !!grant.scopes?.includes("https://www.googleapis.com/auth/gmail.readonly") && !!grant.scopes?.includes("https://www.googleapis.com/auth/gmail.compose") }));
+vi.mock("@/lib/channels/delivery-registry", async () => {
+  const { campaignDeliveryFixture } = await import("@/test/campaign-delivery-fixture");
+  return { deliveryProvider: campaignDeliveryFixture({ whatsappReady: mock.whatsapp, linkedinReady: mock.delivery }) };
+});
 vi.mock("@/db/campaign-client", () => ({
   rows: mock.rows,
   withCampaignDb: (_actor: unknown, fn: (client: unknown) => unknown) => fn({}),
@@ -18,10 +24,10 @@ vi.mock("@/lib/campaign-reply-monitor", () => ({
 vi.mock("@/lib/campaign-linkedin", () => ({
   assertLinkedinDeliveryReady: mock.delivery,
 }));
-vi.mock("@/lib/campaign-whatsapp", () => ({
+vi.mock("@/test/fixtures/campaign-whatsapp", () => ({
   assertCampaignWhatsappConnected: mock.whatsapp,
 }));
-vi.mock("@/lib/campaign-mailbox", () => ({
+vi.mock("@/test/fixtures/campaign-mailbox", () => ({
   campaignMailboxForConnection: mock.mailbox,
 }));
 import { campaignReplyReadiness } from "./campaign-reply-readiness";
@@ -133,7 +139,7 @@ it("reports disabled WhatsApp journals before declaring recovery ready", async (
 });
 
 it.each([true, false])(
-  "email readiness validates the owned mailbox and required scopes: %s",
+  "retired email grant scopes cannot restore disabled delivery: %s",
   async (ready) => {
     const job = {
       id: "enrolment",
@@ -174,9 +180,10 @@ it.each([true, false])(
     expect(
       await campaignReplyReadiness({ organizationId: "org", userId: "owner" }),
     ).toMatchObject({
-      recoveryReady: ready,
-      enrolments: [{ delivery: ready ? "ready" : "review" }],
+      recoveryReady: false,
+      enrolments: [{ delivery: "review" }],
     });
-    expect(mock.mailbox.mock.calls.length).toBe(ready ? 1 : 0);
+    expect(mock.mailbox).not.toHaveBeenCalled();
+    expect(mock.rows.mock.calls.some(([,sql])=>String(sql).includes("FROM mailbox_connections"))).toBe(false);
   },
 );

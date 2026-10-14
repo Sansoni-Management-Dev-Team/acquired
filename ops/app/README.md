@@ -33,10 +33,9 @@ Manual deployments remain available through these commands. GitHub also runs
 its **Run workflow** button on `main`. PRs run build checks on GitHub-hosted
 runners, but PR branches are not deployed and do not use the production runner.
 
-GitHub's Ubuntu runner runs the deployment regression tests and builds the
-Linux image. It uploads an image artifact retained for three days. The dedicated
+GitHub's Ubuntu runner runs deployment regressions and builds both the app and communications Linux images. It uploads an image artifact retained for three days. The dedicated
 `acquire-app-01-deploy` runner on the Droplet downloads that run's artifact and
-executes `scripts/app-deploy-host.sh`. Images use the exact commit SHA; the
+checks both databases read-only and executes `scripts/communications-deploy-host.sh` before `scripts/app-deploy-host.sh`. Images use the exact commit SHA; the
 downloaded archive SHA-256 and image revision label are checked before rollout.
 This avoids comparing Docker engine-specific image IDs. No app
 secret, DigitalOcean token or SSH private key is stored in GitHub for this flow.
@@ -44,9 +43,7 @@ secret, DigitalOcean token or SSH private key is stored in GitHub for this flow.
 The `digitalocean-production` environment permits only `main`. Releases are
 serialized and use an on-host lock shared with manual deployment. Runtime secrets
 stay in the existing server `.env.hosted`; readiness and public OAuth/sign-in
-redirect checks trigger image/compose rollback on failure. There are no automatic
-database migrations or Cloudflare Worker/service deployments. Deploy changes to
-those components separately when needed. Older CI images are removed after a
+redirect checks trigger image/compose rollback on failure. There are no automatic database migrations, database initialization or Cloudflare Worker deployments. The communications service requires a separately initialized production database and private runtime configuration; a missing prerequisite stops the release before the app changes. See [the production migration review](../../docs/communications/production-migration-review.md) and [service packaging](../communications/production/service/README.md). Older CI images are removed after a
 successful release, retaining the current and previous images. Provider data and
 channel sessions are preserved.
 
@@ -137,7 +134,9 @@ and ensure only one scheduler dispatches. Reconnect Git and remove/change the
 override only when automatic Vercel deployment is intended. A powered-off
 Droplet still incurs charges; deletion is a separate decision.
 
-## Campaign reply enforcement rollout
+## Historical campaign reply enforcement rollout
+
+The reader-specific instructions below describe the retired direct LinkedIn stack. Current campaign delivery and reply coverage use the communications service. Preserve historical holds and attempts; do not redeploy the retired reader as part of a current release.
 
 Both deployment paths run the packaged `campaign-readiness.mjs` after database
 health and roll back when enforcement readiness fails. The owner-scoped

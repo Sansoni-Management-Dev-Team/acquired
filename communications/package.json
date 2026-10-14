@@ -1,0 +1,11 @@
+{
+  "name": "@acquire/communications",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Provider-neutral communications contracts, adapters, SDK and injected service boundary",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "engines": { "node": ">=22" },
+  "scripts": { "build": "tsc -p tsconfig.build.json", "test": "vitest run" },
+  "devDependencies": { "@types/node": "^26.3.0", "typescript": "^5.9.3", "vitest": "^4.1.11" }
+}

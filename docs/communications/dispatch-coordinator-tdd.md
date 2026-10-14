@@ -1,0 +1,52 @@
+# Dispatch coordinator: scoped TDD evidence
+
+Tasks: P1.3 and P2 admission/recovery interface work. Acceptance subsets: A05–A08, A15, and A21 call ordering, original-reference provenance, and uncertainty handling. This is an implemented, locally tested coordinator over required injected ports; it is **not** a durable journal, database repository, lease/quota implementation, completed migration, or enabled application path.
+
+## Boundary and required ports
+
+`communications/packages/core/src/dispatch.ts` exports `createDispatchCoordinator(binding, adapter, journal): MessagingAdapter`. It captures one immutable exact binding and the adapter/journal method callbacks. There is no provider registry, default resolution, fallback, network access, environment loading, database import, or production in-memory journal.
+
+The required `DispatchJournalPort` owns current authorization and these database obligations:
+
+1. `claim({snapshot, recipient})` atomically claims the original scope/key or returns the matching historical record. It charges no quota. It must reject changed operation/binding/digest/recipient. Historical replay must be checked before current-generation admission constraints, as described in [persistence-design.md](persistence-design.md).
+2. The claim winner calls `adapter.ready` using a cloned exact binding. A waiting/review result is durably completed as a predispatch block without calling quota admission or provider submit. Same-key replay preserves that block; intentional later work needs a new operation key.
+3. `beginDispatch({token, record})` rechecks current grant, current generation/account, active ownership, worker lease/fence, and applicable policy. It charges account/application quotas exactly once and commits claimed → dispatching with a fenced compare-and-set before acknowledging `admitted`. An uncertain commit must report uncertainty, rather than providing an assumed permission to send.
+4. Only successful dispatch admission can call `adapter.submit`. The original snapshot/message are cloned separately for every callback. Provider exceptions or malformed/mismatched results become unknown.
+5. `complete({token, record, outcome})` commits the exact result through a fenced conditional transition. Failed persistence returns unknown without retrying persistence or sending again. A future request sees the authoritative existing claimed/dispatching/unknown state and cannot redispatch.
+6. `get(snapshot)` reads the exact original record under current authorization. `reconcile({record, outcome})` preserves immutable original provenance and commits trusted read-only receipt evidence. The repository must enforce state/fencing/concurrent-result compatibility; these interface types cannot supply that proof.
+
+An existing claimed row is conservatively non-dispatchable here. Reclaiming a proven predispatch-expired claim would require a separately specified repository workflow; this coordinator does not infer it from elapsed time. No automatic retry occurs at any boundary.
+
+`DispatchRecord` retains the exact operation snapshot, recipient, state, result, an optional separately journal-verified original message reference, and optional original conversation/RFC Message-ID metadata captured at claim. Metadata must survive admission, completion, and reconciliation unchanged. It retains no message text. An actual database implementation must encrypt/digest sensitive recipient/receipt/correlation data rather than treating this port representation as storage format.
+
+## Provenance and read-only recovery
+
+Before dispatch, the coordinator validates the full payload digest, operation, exact binding, canonical channel-appropriate recipient, known message fields, and referenced chat binding. It compares returned journal records at every boundary. Submitted receipts preserve the original binding and recipient. A supplied original conversation must be present and equal in the message receipt, not merely on the same account.
+
+Invitations require action receipts. Message operations require message receipts, with the existing browser LinkedIn exception: that legacy service's actual accepted-operation ID remains an action reference and never becomes a fake provider message ID. A passing characterization uses the real reusable legacy wrapper through the coordinator and retains that action receipt for submission and completed historical lookup.
+
+A supplied journal message reference must agree with a completed message receipt. Invalid receipt commits, wrong-account/generation references, changed content, changed recipient, and mismatched message IDs are not certified as submitted.
+
+Historical lookup is independent of current connection readiness and never calls claim, admission, ready, or submit. Completed records replay directly. Recovery has three explicit paths:
+
+- Provider-message recovery requires a journal-verified original message reference and an identical requested message reference, plus the exact original snapshot/recipient.
+- Direct Gmail can recover a lost-response send by the **original RFC Message-ID captured at claim** through its existing mailbox port. The caller cannot introduce another RFC ID; lookup uses the recorded value and original recipient. A recorded thread must agree with the recovered receipt. This preserves the existing Gmail behavior and does not make a sparse RFC lookup independent proof of recipient identity.
+- Browser LinkedIn message/invitation recovery uses the existing service's authoritative journal on the **original operation key/binding/digest**, via the immutable adapter. The receipt remains an action reference. This exception is specific to the existing browser journal; an unknown Unipile send without a known provider message ID cannot invoke it.
+
+Generic lookup rejection/skip/wait/review/null results preserve unknown: they do not prove an uncertain send was unaccepted. Only valid submitted evidence in its correct provider-message or legacy-action namespace can be reconciled here. There is no generic recipient/content search, backend fallback, or automatic resend. Receipt/retry dates require explicit RFC3339 timezones and real calendar dates; invalid dates are unknown, not silently normalized or replaced by observation time.
+
+## Red/green evidence
+
+- `dispatch-coordinator-red.log`: 35 tests failed for the deliberately unimplemented coordinator, establishing missing call ordering/replay/admission/recovery/mutation behavior before implementation.
+- `dispatch-coordinator-green.log`: the initial 35 assertions passed after implementation. Two additional recovery tests then failed because generic lookup rejection/skipping could clear an uncertain send (`dispatch-coordinator-recovery-red.log`); tightening recovery to exact submitted-message evidence made all 37 pass.
+- Independent `dispatch-review.test.ts` contributed six failing assertions (`dispatch-review-red.log`): wrong conversation, message/action namespace inversion, and recorded-message/receipt contradictions across replay, historical lookup, and completion. Production guards corrected those; the initial 43 combined tests passed in `dispatch-coordinator-review-green.log`.
+- Added a passing characterization using the actual legacy browser LinkedIn wrapper. Core/Gmail/legacy suites passed 106 assertions across six files at this checkpoint (`dispatch-coordinator-characterization.log`). This includes the coordinator's 38 original/characterization tests plus six independent review assertions.
+- Independent timestamp review added two failing assertions for a nonexistent February date and a timezone-less receipt (`dispatch-review-timestamp-red.log`). A strict RFC3339/calendar guard made the scoped 54 assertions pass (`dispatch-coordinator-timestamp-green.log`), preserving absent timestamps and real provider precision without fabricating facts.
+- Added five actual-wrapper legacy recovery assertions; four failed for missing claim-time RFC/thread metadata, caller-invented RFC acceptance, and missing browser message/invitation recovery (`dispatch-coordinator-legacy-recovery-red.log`). The other-thread unknown case already passed and served as characterization. After implementing immutable metadata and explicit legacy recovery paths, all 59 scoped core assertions passed (`dispatch-coordinator-legacy-recovery-green.log`), including 43 own coordinator assertions, eight independent review assertions and eight existing digest assertions.
+- Independent follow-up added five passing characterizations after green: original RFC cannot be replaced by caller correlation or reconciliation output; browser recovery stays in the action namespace; unknown Unipile sends with no journal-verified message ID cause no lookup, including a guessed caller ID. Reviewer ran all core/Unipile tests: 242 assertions across 12 files passed, with root type checks and review-file lint passing (`dispatch-review-legacy-characterization.log`). These additional cases characterize the implemented boundary and are not retroactively claimed as failing tests.
+
+Commands use `pnpm exec vitest run communications/packages/core/src ...`; logs are under ignored `.local-data/communications/verification/` and contain synthetic inputs only. Standalone production type checks and targeted lint passed (`dispatch-coordinator-types.log`, `dispatch-coordinator-lint.log`). A full root `pnpm typecheck`, including test files, passed again after the legacy recovery extension (`dispatch-coordinator-root-types.log`). Parent verification records the latest broader results after integration.
+
+The test journal is explicitly synthetic and memory-only. Its deterministic claim-winner test verifies coordinator behavior **assuming an atomic authoritative port**; it cannot prove PostgreSQL concurrency, restart durability, locks, grant revocation, leases, fencing, quota charging, or stale-worker isolation. Those require the concrete repository and explicitly approved isolated schema tests. No migration, SQL execution, real provider operation, connection activation, or deployment occurred.
+
+Current state: green. Next inject a real reviewed repository into the service composition boundary, retain legacy journal authority until an approved handoff, and prove the required transactions/concurrency/restart semantics against specifically approved OrbStack storage. Account/grant/coverage and application policy checks remain authoritative port/API responsibilities.

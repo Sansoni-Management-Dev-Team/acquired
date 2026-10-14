@@ -1,0 +1,21 @@
+# Same approved app origin; authenticated service routes share TLS without a new DNS name.
+acquire.mlai.au {
+    encode zstd gzip
+    request_body {
+        max_size 10MB
+    }
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+    handle /v1/* {
+        reverse_proxy 127.0.0.1:18099 {
+            flush_interval -1
+        }
+    }
+    handle {
+        reverse_proxy 127.0.0.1:18098 {
+            flush_interval -1
+        }
+    }
+}

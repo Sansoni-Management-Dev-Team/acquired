@@ -9,6 +9,16 @@
 !postcss.config.mjs
 !src
 !src/**
+!communications
+!communications/packages
+!communications/packages/*
+!communications/packages/*/src
+!communications/packages/*/src/**
+!communications/services
+!communications/services/api
+!communications/services/api/src
+!communications/services/api/src/**
+communications/**/*.test.*
 !public
 !public/**
 !ops
@@ -27,6 +37,8 @@ scripts/**
 !.local-data/manufacturing-search-index.json
 src/**/*.test.*
 src/**/*.integration.test.*
+src/test
+src/db/*-test-support.ts
 !cloudflare
 !cloudflare/research
 !cloudflare/research/local-reader.ts

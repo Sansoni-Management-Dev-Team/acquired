@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { collectReplyPages } from "./campaign-reply-collector";
+import { collectReplyPages } from "@/test/fixtures/campaign-reply-collector";
 import { withCampaignWorkBudget } from "./campaign-work-budget";
 
 const event = { id: "m1", fromIdentity: "alex@example.test", receivedAt: "2026-10-05T10:00:00Z" };

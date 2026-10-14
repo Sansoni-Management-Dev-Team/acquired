@@ -1,5 +1,7 @@
 # Gmail via Google OAuth — draft and send from the user's own mailbox
 
+> **Feature branch update, 14 October 2026:** Direct Gmail, Baileys WhatsApp and browser LinkedIn are extracted into `../legacy-channel-services`. This document describes the historical implementation. Acquire now saves/approves drafts locally, retains historical IDs, retires direct connection routes and pauses provider delivery pending verified Unipile integration. Main and deployed services are unchanged. See [current extraction handoff](communications/legacy-extraction.md).
+
 > **Historical design note — superseded 1 September 2026:** Gmail-native drafts are now implemented with the restricted `gmail.compose` scope. Approval creates or updates a Gmail draft, revocation removes it, and automatic sending remains disabled. References below to a runtime mock mailbox and `gmail.send` describe the original proposal, not the current application. See `24-architecture.md` for the as-built system.
 
 Written 26 Aug 2026, against the brief in `01-understanding.md` and the Gmail question left open

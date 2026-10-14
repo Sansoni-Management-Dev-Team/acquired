@@ -5,6 +5,21 @@ vi.mock("@vercel/functions", () => ({ attachDatabasePool: vi.fn() }));
 vi.mock("pg", () => ({ Pool: class { connect = mock.connect; } }));
 import { withCampaignDb, withCampaignWorker, withCampaignTickLock } from "./campaign-client";
 import { withCampaignWorkBudget, CampaignWorkDeferred } from "@/lib/campaign-work-budget";
+it('holds installed send authority before membership and policy callbacks when runtime is enabled', async()=>{
+ vi.stubEnv('COMMUNICATIONS_RUNTIME_ENABLED','true');let locked=false;
+ mock.query.mockImplementation(async(sql:string)=>{
+  if(sql.startsWith('SELECT current_user'))return {rows:[{active_role:role,rolbypassrls:false,rolsuper:false}]};
+  if(sql.includes('to_regprocedure'))return {rows:[{installed:true}]};
+  if(sql.startsWith('SELECT public.communications_lock_send_gate')){locked=true;return {rows:[{revision:'1'}]};}
+  if(sql.startsWith('SELECT 1 FROM member')){expect(locked).toBe(true);return {rowCount:1};}return {rows:[]};
+ });
+ await withCampaignDb({organizationId:'org',userId:'owner'},async()=>expect(locked).toBe(true));
+ locked=false;role='acquire_campaign_worker';await withCampaignWorker(async()=>expect(locked).toBe(true),'org');
+});
+it('refuses policy callbacks if the configured runtime schema is absent',async()=>{
+ vi.stubEnv('COMMUNICATIONS_RUNTIME_ENABLED','true');mock.query.mockImplementation(async(sql:string)=>sql.startsWith('SELECT current_user')?{rows:[{active_role:role,rolbypassrls:false,rolsuper:false}]}:sql.includes('to_regprocedure')?{rows:[{installed:false}]}:{rows:[],rowCount:1});
+ const callback=vi.fn();await expect(withCampaignDb({organizationId:'org',userId:'owner'},callback)).rejects.toThrow();expect(callback).not.toHaveBeenCalled();
+});
 let role: string, bypass: boolean, superuser: boolean, member: boolean;
 beforeEach(() => {
   vi.resetAllMocks(); vi.stubEnv("DATABASE_URL", "postgresql://test.invalid/test");

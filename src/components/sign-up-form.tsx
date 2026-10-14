@@ -48,7 +48,7 @@ export function SignUpForm() {
   }
 
   return (
-    <form onSubmit={submit} className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--panel)] p-7">
+    <form method="post" action="/api/auth/form-unavailable" onSubmit={submit} className="w-full max-w-md rounded-xl border border-[var(--border)] bg-[var(--panel)] p-7">
       <GoogleSignInButton />
       <label className="text-sm" htmlFor="name">Your name</label>
       <input required id="name" name="name" autoComplete="name" className="mb-4 mt-2 w-full rounded-md border border-[var(--border)] bg-[var(--input)] px-3 py-2.5 outline-none focus:border-[var(--accent)]" />

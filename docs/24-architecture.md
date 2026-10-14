@@ -1,5 +1,7 @@
 # Architecture
 
+> **Feature branch update, 14 October 2026:** Direct Gmail, Baileys WhatsApp and browser LinkedIn are extracted into `../legacy-channel-services`. This document describes the historical implementation. Acquire now saves/approves drafts locally, retains historical IDs, retires direct connection routes and pauses provider delivery pending verified Unipile integration. Main and deployed services are unchanged. See [current extraction handoff](communications/legacy-extraction.md).
+
 The state of the system as built. Everything runs as one Next.js deployment on Vercel pinned to `syd1`; the only stateful component we own is Neon Postgres.
 
 ## Infrastructure

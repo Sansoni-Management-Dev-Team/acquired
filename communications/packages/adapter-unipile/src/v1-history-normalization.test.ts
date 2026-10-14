@@ -1,0 +1,13 @@
+import { it, expect } from 'vitest';
+import { normalizeV1ReplyEvent, type V1ReplyEventContext } from './v1-events';
+import type { ConnectionBinding } from '../../contracts/src';
+const binding: ConnectionBinding = { applicationId: 'a', tenantId: 't', ownerId: 'o', connectionId: 'c', accountId: 'stable', generation: 1, channel: 'email', platform: 'gmail', backend: 'unipile' };
+const at = '2026-10-14T09:00:00.000Z';
+const attendee = (identifier: string) => ({ identifier, identifier_type: 'EMAIL_ADDRESS' });
+const mail = { object: 'Email', kind: '2_full', id: 'email', account_id: 'provider', date: at, role: 'archive', from_attendee: attendee('peer@example.com'), to_attendees: [attendee('owner@example.com')], cc_attendees: [], bcc_attendees: [], headers: [{ name: 'Message-ID', value: '<mail@fixture.test>' }] };
+const raw = { event: 'mail_received', account_id: 'provider', email_id: 'email', date: at };
+const context: V1ReplyEventContext = { binding, providerAccountId: 'provider', channel: 'email', ownerAddresses: ['owner@example.com'], timestampBounds: { from: at, through: at }, email: { binding, providerAccountId: 'provider', id: 'email', complete: true, headersComplete: true, mail } };
+it.each(['archive', 'spam', 'trash', 'custom'])('trusted all-folder history can classify a fully proven inbound %s email', role => { const c = { ...context, historyAllFolders: true as const, email: { ...context.email!, mail: { ...mail, role } } }; expect(normalizeV1ReplyEvent(raw, c)).toMatchObject({ kind: 'event', event: { direction: 'inbound', sender: { kind: 'email', value: 'peer@example.com' } } }); });
+it('raw caller flag never changes webhook default uncertain-folder behavior', () => { expect(normalizeV1ReplyEvent({ ...raw, historyAllFolders: true }, context)).toEqual({ kind: 'review', code: 'protocol' }); });
+it.each(['sent', 'drafts'])('history still excludes %s activity', role => { const c = { ...context, historyAllFolders: true as const, email: { ...context.email!, mail: { ...mail, role } } }; expect(normalizeV1ReplyEvent(raw, c).kind).toBe('ignore'); });
+it('all-folder evidence still requires owner recipient and exact complete anti-automation headers', () => { const c = { ...context, historyAllFolders: true as const, email: { ...context.email!, mail: { ...mail, to_attendees: [attendee('other@example.com')] } } }; expect(normalizeV1ReplyEvent(raw, c)).toEqual({ kind: 'review', code: 'identity_pending' }); });

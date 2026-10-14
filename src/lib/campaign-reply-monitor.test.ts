@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-const mock = vi.hoisted(() => ({ rows: vi.fn(), query: vi.fn(), read: vi.fn(), inbound: vi.fn(), connected: vi.fn(), linkedin: vi.fn() }));
+const mock = vi.hoisted(() => ({ rows: vi.fn(), query: vi.fn(), read: vi.fn(), inbound: vi.fn(), connected: vi.fn(), linkedin: vi.fn(), configuredRefresh:vi.fn(),configuredScan:vi.fn() }));
 vi.mock("server-only", () => ({}));
+vi.mock("@/test/fixtures/gmail-connection", () => ({ connectionCanMonitorReplies: (grant: {encryptedRefreshToken: string|null;reconnectRequired: boolean;scopes: string[]|null}) => !!grant.encryptedRefreshToken && !grant.reconnectRequired && !!grant.scopes?.includes("https://www.googleapis.com/auth/gmail.readonly") }));
 vi.mock("@/db/campaign-client", () => ({ rows: mock.rows, withCampaignDb: (_actor: unknown, fn: (client: unknown) => unknown) => fn({ query: mock.query }), withCampaignWorker: (fn: (client: unknown) => unknown) => fn({ query: mock.query }) }));
-vi.mock("@/lib/campaign-mailbox", () => ({ campaignMailboxForConnection: () => ({ inboundFrom: mock.inbound }) }));
-vi.mock("@/lib/campaign-reply-providers", () => ({ readChannelReplies: mock.read }));
-vi.mock("@/lib/campaign-whatsapp", async original => ({ ...await original<typeof import("./campaign-whatsapp")>(), whatsappCampaignEnabled: () => true, assertCampaignWhatsappConnected: mock.connected }));
-vi.mock("@/lib/campaign-linkedin", () => ({ linkedinCampaignEnabled: () => true, campaignLinkedinAccountStatus: async () => "connected", linkedinProfileFor: (data: Record<string, unknown>) => { if (!data.linkedinUrl) throw new Error("missing"); return data.linkedinUrl; }, campaignLinkedin: mock.linkedin }));
-import { checkContactReplyMonitors, scanReplyChannel, assertContactReplyFresh, prepareReplyContact, checkScheduledReplyContact, runReplyMonitorTick } from "./campaign-reply-monitor";
+vi.mock("@/test/fixtures/campaign-mailbox", () => ({ campaignMailboxForConnection: () => ({ inboundFrom: mock.inbound }) }));
+vi.mock("@/test/fixtures/campaign-reply-providers", () => ({ readChannelReplies: mock.read }));
+vi.mock("@/test/fixtures/campaign-whatsapp", async original => ({ ...await original<typeof import("@/test/fixtures/campaign-whatsapp")>(), whatsappCampaignEnabled: () => true, assertCampaignWhatsappConnected: mock.connected }));
+vi.mock("@/test/fixtures/legacy-campaign-linkedin", () => ({ linkedinCampaignEnabled: () => true, campaignLinkedinAccountStatus: async () => "connected", linkedinProfileFor: (data: Record<string, unknown>) => { if (!data.linkedinUrl) throw new Error("missing"); return data.linkedinUrl; }, campaignLinkedin: mock.linkedin }));
+vi.mock('./communications-configured-monitor',()=>({refreshConfiguredContact:mock.configuredRefresh,scanConfiguredChannel:mock.configuredScan}));
+import { checkContactReplyMonitors, scanReplyChannel, assertContactReplyFresh, prepareReplyContact, checkScheduledReplyContact, runReplyMonitorTick } from "@/test/fixtures/legacy-campaign-reply-monitor";
 import { withCampaignWorkBudget } from "./campaign-work-budget";
 import { ReplyCheckPending, ReplyCheckReview } from "./campaign-reply-status";
 import { monitorFresh } from "@/domain/campaign-replies";
@@ -204,3 +206,6 @@ it("extends an existing verified LinkedIn identity to cover an earlier enrolment
   expect(mock.linkedin).not.toHaveBeenCalled();
   expect(mock.query.mock.calls.some(([sql]) => sql.includes("UPDATE campaign_reply_identities SET since"))).toBe(true);
 });
+
+it('configured contact checks use service history and never enter legacy provider readers',async()=>{vi.stubEnv('COMMUNICATIONS_RUNTIME_ENABLED','true');mock.configuredRefresh.mockResolvedValue({complete:true});await checkContactReplyMonitors(actor,contact);expect(mock.configuredRefresh).toHaveBeenCalledWith(actor,contact);expect(mock.inbound).not.toHaveBeenCalled();expect(mock.connected).not.toHaveBeenCalled();expect(mock.linkedin).not.toHaveBeenCalled();});
+it('configured channel ticks use concrete service scan without acquiring old monitor leases',async()=>{vi.stubEnv('COMMUNICATIONS_RUNTIME_ENABLED','true');mock.configuredScan.mockResolvedValue({complete:true});expect(await scanReplyChannel(actor,'whatsapp',{refresh:true})).toEqual({complete:true});expect(mock.configuredScan).toHaveBeenCalledWith(actor,'whatsapp',{refresh:true});expect(mock.query.mock.calls.some(([sql])=>sql.includes('campaign_reply_monitors'))).toBe(false);expect(mock.read).not.toHaveBeenCalled();});

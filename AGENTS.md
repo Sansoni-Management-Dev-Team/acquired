@@ -17,3 +17,12 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 - Obtain Firmable browser credentials from Chrome DevTools → Application → Storage → Cookies, not Local Storage.
 - The `__client` cookie is under `https://clerk.firmable.com`; session cookies and `clerk_active_context` are under `https://app.firmable.com`.
 - Validate renewal before updating local/benchmark credentials or reconnecting production. Keep raw credentials in ignored private files; never put them in these instructions or source control.
+
+# Communications service and Unipile work
+
+- When working on email, WhatsApp, LinkedIn, Unipile, or communications extraction, first read `docs/39-communications-service-execution-plan.md` and `docs/communications/progress.md`.
+- Use the plan's task IDs and acceptance scenarios. Update progress, decisions, evidence, and the next action when stopping or handing off work; distinguish implemented, locally verified, live verified, and released work.
+- Follow the plan's TDD workflow: demonstrate a relevant failing test before implementing new behavior or fixing a defect; protect behavior-preserving extraction with passing characterization tests before and after. Record the red/green evidence and handoff state.
+- The user's 2026-10-13 scope change moves direct Gmail, Baileys WhatsApp and browser LinkedIn into the independent `../legacy-channel-services` repository and removes those executable connection methods from Acquire. Preserve their logic/tests before removal, recorded historical connection ownership and unresolved-send handling; never silently switch a campaign or send attempt to another backend. Historical schema/data cleanup is not authorized by code extraction.
+- Planning is not authorization to execute the implementation, apply migrations, enable live sends, or deploy. Follow the user's current authorization and the specific migration approval rule above.
+- Keep Unipile credentials in ignored private files. Never copy credential values into plans, logs, fixtures, or source control.

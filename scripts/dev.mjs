@@ -38,23 +38,9 @@ if (["D","E","F"].includes(design)) {
 }
 config.app.WHATSAPP_SERVICE_URL = "";
 config.app.WHATSAPP_SERVICE_SECRET = "";
-const whatsappEnvFile = resolve(".local-data/whatsapp/service.env");
-if (existsSync(whatsappEnvFile)) {
-  const whatsappEnv = parseEnv(readFileSync(whatsappEnvFile, "utf8"));
-  config.app.WHATSAPP_SERVICE_URL = "http://127.0.0.1:18095";
-  config.app.WHATSAPP_SERVICE_SECRET = whatsappEnv.WHATSAPP_SERVICE_SECRET;
-}
+// Retired backend credentials are never loaded into Acquire development.
 config.app.LINKEDIN_SERVICE_URL = "";
 config.app.LINKEDIN_SERVICE_SECRET = "";
-const linkedinRemoteTestFile = resolve(".local-data/linkedin/remote-test.env");
-const linkedinEnvFile = existsSync(linkedinRemoteTestFile) ? linkedinRemoteTestFile : resolve(".local-data/linkedin/service.env");
-if (existsSync(linkedinEnvFile)) {
-  const linkedinEnv = parseEnv(readFileSync(linkedinEnvFile, "utf8"));
-  const linkedinUrl = linkedinEnv.LINKEDIN_SERVICE_URL || "http://127.0.0.1:18096";
-  if (!/^http:\/\/127\.0\.0\.1:(18096|18097)$/.test(linkedinUrl)) throw new Error("LinkedIn testing must use the local service or private SSH tunnel");
-  config.app.LINKEDIN_SERVICE_URL = linkedinUrl;
-  config.app.LINKEDIN_SERVICE_SECRET = linkedinEnv.LINKEDIN_SERVICE_SECRET;
-}
 await stopPreviousDevServers([port, workerPort]);
 // Old processes may have written shutdown output while we were stopping them.
 log.reset();

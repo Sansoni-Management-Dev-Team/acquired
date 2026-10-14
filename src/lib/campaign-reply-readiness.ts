@@ -5,9 +5,6 @@ import { campaignChannels } from "@/domain/contact-record";
 import { assertContactReplyFresh } from "@/lib/campaign-reply-monitor";
 import { replyMonitorMode } from "@/lib/campaign-reply-store";
 import { deliveryProvider } from "@/lib/channels/delivery-registry";
-import { campaignMailboxForConnection } from "@/lib/campaign-mailbox";
-import { connectionCanMonitorReplies } from "@/lib/gmail-connection";
-import { ReplyCheckReview } from "@/lib/campaign-reply-status";
 import type { ReplyChannel } from "@/domain/campaign-replies";
 import {
   ReplyCheckPending,
@@ -64,34 +61,7 @@ export async function campaignReplyReadiness(actor: CampaignActor) {
     for (const channel of channels) {
       if (!deliveryFailures.has(channel)) {
         try {
-          const mailbox =
-            channel === "email"
-              ? await withCampaignDb(actor, async (client) => {
-                  const [connection] = await rows<{
-                    id: string;
-                    encrypted_refresh_token: string | null;
-                    reconnect_required: boolean;
-                    scopes: string[] | null;
-                  }>(
-                    client,
-                    "SELECT id,encrypted_refresh_token,reconnect_required,scopes FROM mailbox_connections WHERE organization_id=$1 AND user_id=$2 AND provider='gmail'",
-                    [actor.organizationId, actor.userId],
-                  );
-                  const grant = connection && {
-                    encryptedRefreshToken: connection.encrypted_refresh_token,
-                    reconnectRequired: connection.reconnect_required,
-                    scopes: connection.scopes,
-                  };
-                  if (
-                    !connection ||
-                    !grant ||
-                    !connectionCanMonitorReplies(grant)
-                  )
-                    throw new ReplyCheckReview("reconnect", "email");
-                  return campaignMailboxForConnection(grant, connection.id);
-                })
-              : undefined;
-          await deliveryProvider(channel, mailbox).ready(actor);
+          await deliveryProvider(channel, undefined).ready(actor);
           deliveryFailures.set(channel, null);
         } catch (error) {
           deliveryFailures.set(channel, replyCheckFailure(error, channel));

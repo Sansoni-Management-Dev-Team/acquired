@@ -2,15 +2,20 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
 const mock = vi.hoisted(() => ({ rows: vi.fn(), query: vi.fn(), start: vi.fn(), provision: vi.fn(), remove: vi.fn(), replyTick: vi.fn(), actor: vi.fn(), find: vi.fn(),waReceipt:vi.fn(),liReceipt:vi.fn(),fresh:vi.fn() }));
 vi.mock("server-only", () => ({}));
+vi.mock("@/lib/channels/delivery-registry", async () => {
+  const { campaignDeliveryFixture } = await import("@/test/campaign-delivery-fixture");
+  const fixture=campaignDeliveryFixture({ whatsappLookup: mock.waReceipt, linkedinLookup: mock.liReceipt });
+  return {deliveryProvider:(...args:Parameters<typeof fixture>)=>fixture(args[0],args[1]??{findByRfcMessageId:mock.find,send:async()=>{throw Error('No synthetic send allowed');},hasConversation:async()=>false,inboundFrom:async()=>[],outboundToSince:async()=>[]})};
+});
 vi.mock("@/db/campaign-client", () => ({ rows: mock.rows, withCampaignTickLock: async (callback: () => Promise<unknown>) => ({ acquired: true, result: await callback() }), withCampaignWorker: (callback: (client: unknown) => unknown) => callback({ query: mock.query }), withCampaignDb: (actor: unknown, callback: (client: unknown) => unknown) => { mock.actor(actor); return callback({ query: mock.query }); } }));
 vi.mock("@/lib/campaign-n8n", () => ({ startSequenceContact: mock.start, provisionSequenceWorkflow: mock.provision, removeSequenceWorkflow: mock.remove, n8nCampaignEnabled: () => true }));
 vi.mock("@/lib/campaign-reply-monitor", () => ({ runReplyMonitorTick: mock.replyTick, checkContactReplyMonitors: vi.fn(), assertContactReplyFresh: mock.fresh }));
-vi.mock("@/lib/campaign-mailbox", () => ({ campaignTestSendAnytime: () => true, campaignMailboxForConnection: () => ({ findByRfcMessageId: mock.find }) }));
-vi.mock("@/lib/campaign-whatsapp", async original=>({...await original<typeof import("./campaign-whatsapp")>(),lookupCampaignWhatsapp:mock.waReceipt}));
+vi.mock("@/test/fixtures/campaign-mailbox", () => ({ campaignTestSendAnytime: () => true, campaignMailboxForConnection: () => ({ findByRfcMessageId: mock.find }) }));
+vi.mock("@/test/fixtures/campaign-whatsapp", async original=>({...await original<typeof import("@/test/fixtures/campaign-whatsapp")>(),lookupCampaignWhatsapp:mock.waReceipt}));
 vi.mock("@/lib/campaign-linkedin", async original=>({...await original<typeof import("./campaign-linkedin")>(),lookupCampaignLinkedin:mock.liReceipt}));
 import { runCampaignTick, syncPublishedCampaignWorkflows } from "./campaign-service";
 const definition = { schemaVersion: 1, steps: [{ id: randomUUID(), kind: "email", title: "Intro", subject: "Hi", body: "Hello" }] };
-beforeEach(() => { vi.resetAllMocks(); vi.stubEnv("CAMPAIGN_REPLY_MONITOR_MODE", "off"); mock.rows.mockResolvedValue([]); mock.query.mockResolvedValue({ rows: [], rowCount: 1 }); mock.start.mockResolvedValue(undefined); mock.replyTick.mockResolvedValue({ scanned: 0, complete: 0, incomplete: 0, failed: 0, skipped: 0, deferred: 0 }); mock.provision.mockResolvedValue("workflow"); mock.remove.mockResolvedValue(undefined); });
+beforeEach(() => { vi.resetAllMocks(); vi.stubEnv("COMMUNICATIONS_RUNTIME_ENABLED","true"); vi.stubEnv("CAMPAIGN_REPLY_MONITOR_MODE", "off"); mock.rows.mockResolvedValue([]); mock.query.mockResolvedValue({ rows: [], rowCount: 1 }); mock.start.mockResolvedValue(undefined); mock.replyTick.mockResolvedValue({ scanned: 0, complete: 0, incomplete: 0, failed: 0, skipped: 0, deferred: 0 }); mock.provision.mockResolvedValue("workflow"); mock.remove.mockResolvedValue(undefined); });
 afterEach(() => vi.unstubAllEnvs());
 it("empty tick is a no-op and does not provision, dispatch or inspect mailbox", async () => {
   expect(await runCampaignTick()).toMatchObject({ processed: 0, n8nDispatches: 0, replyScans: 0, unknownChecks: 0 }); expect(mock.start).not.toHaveBeenCalled(); expect(mock.provision).not.toHaveBeenCalled(); expect(mock.find).not.toHaveBeenCalled();

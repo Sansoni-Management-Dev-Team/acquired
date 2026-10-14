@@ -1,8 +1,9 @@
+import {createHash} from 'node:crypto';
 import { beforeEach, expect, it, vi } from "vitest";
 const mock = vi.hoisted(() => ({ query: vi.fn(), rows: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/db/campaign-client", () => ({ rows: mock.rows, withCampaignWorker: (fn: (client: unknown) => unknown) => fn({ query: mock.query }), withCampaignDb: (_actor: unknown, fn: (client: unknown) => unknown) => fn({ query: mock.query }) }));
-import { ingestCampaignReply, assertNoReplyHold } from "./campaign-reply-store";
+import { ingestCampaignReply, assertNoReplyHold, replayContactReplies, saveReplyIdentity } from "./campaign-reply-store";
 const actor = { organizationId: "org", userId: "owner" };
 const event = { id: "provider-1", fromIdentity: "alex@example.test", receivedAt: "2026-10-05T10:00:00Z" };
 beforeEach(() => {
@@ -53,3 +54,6 @@ it("blocks reenrolment by contact identity even after an email address changes",
   delete process.env.CAMPAIGN_REPLY_MONITOR_MODE;
   await assertNoReplyHold({ query: mock.query } as never, actor, "contact");
 });
+
+it('explicit service identity registration records canonical URL without changing legacy ingestion',async()=>{const profile='https://www.linkedin.com/in/person';await saveReplyIdentity(actor,{contactId:'contact',email:null,channel:'linkedin',identity:profile,sourceIdentity:profile,since:new Date('2026-10-01'),authority:'service'});expect(mock.query.mock.calls.find(([sql])=>sql.startsWith('INSERT INTO campaign_reply_identities'))?.[1]).toContain(profile);await expect(ingestCampaignReply(actor,'linkedin','legacy-account',{...event,fromIdentity:profile})).rejects.toThrow('Invalid reply identity');});
+it('replays authenticated original service URL receipts into holds during observation-to-enforcement rollout',async()=>{const profile='https://www.linkedin.com/in/person',b={application_id:'acquire',organization_id:'org',owner_user_id:'owner',service_connection_id:'original-connection',service_account_id:'original-account',generation:1,channel:'linkedin',platform:'linkedin',backend:'unipile',authority:'service'},account=createHash('sha256').update(JSON.stringify(['communications.account.binding.v1',['acquire','org','owner','original-connection','original-account',1,'linkedin','linkedin','unipile']])).digest('hex');mock.rows.mockImplementation(async(_c,sql:string)=>sql.includes('SELECT DISTINCT r.*')?[{channel:'linkedin',account_identity:account,provider_event_id:'service-source',from_identity:profile,received_at:new Date(event.receivedAt)}]:sql.includes('FROM public.communication_bindings')?[b]:sql.includes('FROM campaign_reply_identities')?[{contact_id:'contact',email:'',identity:profile,since:new Date('2026-10-01')}]:[]);await replayContactReplies(actor,'contact');expect(mock.query.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO campaign_reply_holds'))).toBe(true);});

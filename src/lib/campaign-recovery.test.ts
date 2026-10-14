@@ -4,14 +4,15 @@ const mock = vi.hoisted(() => ({ rows: vi.fn(), query: vi.fn(), check: vi.fn(), 
 vi.mock("server-only", () => ({}));
 vi.mock("@/db/campaign-client", () => ({ rows: mock.rows, withCampaignDb: (_actor: unknown, fn: (client: unknown) => unknown) => fn({ query: mock.query }) }));
 vi.mock("@/lib/campaign-reply-monitor", () => ({ checkContactReplyMonitors: mock.check, assertContactReplyFresh: mock.fresh, assertReplyCoverage: mock.coverage }));
-vi.mock("@/lib/campaign-linkedin", () => ({ assertLinkedinDeliveryReady: mock.delivery }));
+vi.mock("@/lib/communications-bindings", () => ({ resolveRecordedApplicationConnection: async () => ({ bindingId: "original-binding", binding: { applicationId: "acquire", tenantId: "org", ownerId: "owner", connectionId: "original", accountId: "account", generation: 1, channel: "linkedin", platform: "linkedin", backend: "unipile" }, recoveryOnly: false }) }));
+vi.mock("@/lib/communications-client", () => ({ actorCommunicationsClient: async () => ({ ready: mock.delivery }) }));
 import { changeEnrolment } from "./campaign-service";
 import { ReplyCheckPending, ReplyCheckReview } from "./campaign-reply-status";
 const actor = { organizationId: "org", userId: "owner" };
 const id = randomUUID(), contactId = randomUUID();
 let attempt: string | undefined, canonicalHold: boolean;
 beforeEach(() => {
-  vi.resetAllMocks(); vi.stubEnv("CAMPAIGN_REPLY_MONITOR_MODE", "enforce"); vi.stubEnv("CAMPAIGN_TEST_SEND_ANYTIME", "true"); attempt = undefined; canonicalHold = false;
+  vi.resetAllMocks(); vi.stubEnv("COMMUNICATIONS_RUNTIME_ENABLED", "true"); mock.delivery.mockResolvedValue({status:"ready"}); vi.stubEnv("CAMPAIGN_REPLY_MONITOR_MODE", "enforce"); vi.stubEnv("CAMPAIGN_TEST_SEND_ANYTIME", "true"); attempt = undefined; canonicalHold = false;
   mock.query.mockResolvedValue({ rowCount: 1 });
   mock.rows.mockImplementation(async (_client, sql: string) => {
     if (sql.includes("FROM campaign_enrolments")) return [{ id, contact_id: contactId, organization_id: "org", owner_user_id: "owner", state: "needs_review", stop_reason: "reply_check_failed", recipient_email: null, recipient_linkedin: "https://www.linkedin.com/in/alex", step_index: 0, started_at: new Date(0) }];

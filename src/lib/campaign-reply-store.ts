@@ -1,3 +1,4 @@
+import {communicationReplyIdentity} from '../domain/communication-reply-identity';
 import "server-only";
 import { createHash } from "node:crypto";
 import type { PoolClient } from "pg";
@@ -15,9 +16,9 @@ export async function assertNoReplyHold(client: PoolClient, actor: CampaignActor
   if (hold) throw new Error(`Contact is held: ${hold.reason}`);
 }
 
-export async function saveReplyIdentity(actor: CampaignActor, input: { contactId: string; email: string | null; channel: ReplyChannel; identity: string; sourceIdentity: string; since: Date }) {
+export async function saveReplyIdentity(actor: CampaignActor, input: { contactId: string; email: string | null; channel: ReplyChannel; identity: string; sourceIdentity: string; since: Date; authority?:'service' }) {
   if (replyMonitorMode() === "off") return;
-  const normalized = replyIdentity(input.channel, input.identity);
+  const normalized = input.authority==='service'?communicationReplyIdentity(input.channel,input.identity):replyIdentity(input.channel, input.identity);
   if (!normalized) throw new Error("Invalid reply identity");
   await withCampaignDb(actor, async client => {
     const inserted = await client.query(`INSERT INTO campaign_reply_identities (organization_id, owner_user_id, contact_id, channel, identity, source_identity, email, since)
@@ -31,9 +32,9 @@ export async function saveReplyIdentity(actor: CampaignActor, input: { contactId
 
 // Runs inside the caller's transaction: the receipt, deduplication, contact hold,
 // stop and audit commit together. A page checkpoint must use this same client.
-export async function applyCampaignReply(client: PoolClient, actor: CampaignActor, channel: ReplyChannel, accountIdentity: string, raw: ReplyEvent) {
+export async function applyCampaignReply(client: PoolClient, actor: CampaignActor, channel: ReplyChannel, accountIdentity: string, raw: ReplyEvent, authority:'legacy'|'service'='legacy') {
   const event = replyEventSchema.parse(raw);
-  const identity = replyIdentity(channel, event.fromIdentity);
+  const identity = authority==='service'?communicationReplyIdentity(channel,event.fromIdentity):replyIdentity(channel, event.fromIdentity);
   if (!identity) throw new Error("Invalid reply identity");
   const receivedAt = new Date(event.receivedAt);
   await client.query(`INSERT INTO campaign_reply_receipts (organization_id,owner_user_id,channel,account_identity,provider_event_id,from_identity,received_at)
@@ -93,7 +94,7 @@ export async function ingestCampaignReply(actor: CampaignActor, channel: ReplyCh
     const [monitor] = await rows<{ account_identity: string | null }>(client, "SELECT account_identity FROM campaign_reply_monitors WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3", [actor.organizationId, actor.userId, channel]);
     if (monitor?.account_identity && monitor.account_identity !== accountIdentity) throw new Error("Reply monitor account changed; review the connection");
     return applyCampaignReply(client, actor, channel, accountIdentity, event);
-  });
+  }, actor.organizationId);
 }
 
 export async function replayContactReplies(actor: CampaignActor, contactId: string) {
@@ -103,8 +104,16 @@ export async function replayContactReplies(actor: CampaignActor, contactId: stri
       `SELECT DISTINCT r.* FROM campaign_reply_receipts r JOIN campaign_reply_identities i ON i.organization_id = r.organization_id AND i.owner_user_id = r.owner_user_id AND i.channel = r.channel AND i.identity = r.from_identity
        WHERE i.organization_id = $1 AND i.owner_user_id = $2 AND i.contact_id = $3 AND r.received_at >= i.since ORDER BY r.received_at LIMIT 501`, [actor.organizationId, actor.userId, contactId]);
     if (receipts.length > 500) throw new Error("Reply history requires review before sending");
-    for (const receipt of receipts) await applyCampaignReply(client, actor, receipt.channel, receipt.account_identity, { id: receipt.provider_event_id, fromIdentity: receipt.from_identity, receivedAt: receipt.received_at.toISOString() });
-  });
+    for (const receipt of receipts) {
+      let authority:'legacy'|'service'='legacy';
+      if(receipt.channel==='linkedin'&&receipt.from_identity.startsWith('https:')) {
+        const bindings=await rows<Record<string,unknown>>(client,"SELECT application_id,organization_id,owner_user_id,service_connection_id,service_account_id,generation,channel,platform,backend,authority FROM public.communication_bindings WHERE organization_id=$1 AND owner_user_id=$2 AND channel='linkedin' AND authority='service' AND backend='unipile'",[actor.organizationId,actor.userId]);
+        const original=bindings.some(b=>b.application_id==='acquire'&&b.organization_id===actor.organizationId&&b.owner_user_id===actor.userId&&b.authority==='service'&&b.backend==='unipile'&&b.channel==='linkedin'&&b.platform==='linkedin'&&typeof b.service_connection_id==='string'&&typeof b.service_account_id==='string'&&Number.isSafeInteger(b.generation)&&Number(b.generation)>0&&createHash('sha256').update(JSON.stringify(['communications.account.binding.v1',[b.application_id,b.organization_id,b.owner_user_id,b.service_connection_id,b.service_account_id,b.generation,b.channel,b.platform,b.backend]])).digest('hex')===receipt.account_identity);
+        if(!original)throw Error('Recorded service reply history unavailable');authority='service';
+      }
+      await applyCampaignReply(client, actor, receipt.channel, receipt.account_identity, { id: receipt.provider_event_id, fromIdentity: receipt.from_identity, receivedAt: receipt.received_at.toISOString() },authority);
+    }
+  }, actor.organizationId);
 }
 
 export async function assertNoSharedReplyHold(actor: CampaignActor, contactId: string) {

@@ -1,3 +1,5 @@
+# App-owned database/n8n/synthetic sink only. Retired provider runtimes live in ../legacy-channel-services.
+# Do not initialize databases or run migrations without specific approval.
 name: acquire-channel-services
 services:
   postgres:
@@ -31,42 +33,7 @@ services:
     command: ["node", "/app/campaign-sink.mjs"]
     volumes: ["../scripts/campaign-sink.mjs:/app/campaign-sink.mjs:ro"]
     ports: ["127.0.0.1:18124:8080"]
-  whatsapp-fixture:
-    build: ../services/whatsapp
-    image: acquire-channel-whatsapp:test
-    command: ["node", "fixture-server.mjs"]
-    user: "0:0"
-    ports: ["127.0.0.1:18125:8080"]
-    environment:
-      DATABASE_URL: postgresql://acquire_channels:isolated-channel-tests-only@postgres:5432/acquire_channels
-      WHATSAPP_SERVICE_SECRET: isolated-channel-fixture-secret-32chars
-      WHATSAPP_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
-      WHATSAPP_ISOLATED_FIXTURE: "true"
-      WHATSAPP_CAMPAIGNS_ENABLED: "true"
-      CAMPAIGN_REPLY_MONITOR_ENABLED: "true"
-      WHATSAPP_CAMPAIGN_SPACING_MS: "1000"
-      WHATSAPP_CAMPAIGN_HOURLY_CAP: "5"
-      WHATSAPP_CAMPAIGN_DAILY_CAP: "20"
-    volumes: ["channel-wa-fixture:/fixture-data"]
-    depends_on:
-      postgres:
-        condition: service_healthy
-  linkedin-fixture:
-    image: acquire-linkedin-local-linkedin:latest
-    ports: ["127.0.0.1:18126:8080"]
-    environment:
-      LINKEDIN_SERVICE_SECRET: isolated-channel-fixture-secret-32chars
-      LINKEDIN_ENCRYPTION_KEY: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
-      LINKEDIN_PUBLIC_URL: http://127.0.0.1:18126
-      LINKEDIN_ENABLE_FIXTURES: "true"
-      LINKEDIN_REPLY_MONITOR_ENABLED: "true"
-      LINKEDIN_ALLOW_LIVE_SENDS: "false"
-      LINKEDIN_ALLOW_CAMPAIGNS: "false"
-      LINKEDIN_STATE_DIR: /data
-    volumes: ["../services/linkedin:/app:ro", "channel-linkedin:/data"]
 
 volumes:
   channel-postgres:
   channel-n8n:
-  channel-wa-fixture:
-  channel-linkedin:
