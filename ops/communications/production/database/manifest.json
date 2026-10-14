@@ -1,0 +1,73 @@
+{
+  "status": "prepared_unapproved_unapplied",
+  "target": {
+    "host": "134.199.155.67",
+    "deploymentMarker": "acquire-app-01/acquire_communications",
+    "database": "acquire_communications",
+    "operator": "communications_admin",
+    "systemIdentifier": null,
+    "exposure": "private Docker bridge; no published PostgreSQL port"
+  },
+  "requiredOperatorSettings": [
+    "acquire.deployment_target",
+    "acquire.expected_system_identifier"
+  ],
+  "files": [
+    {
+      "source": "ops/communications/standalone/001-service-storage.local.sql",
+      "sourceSha256": "cedeedde1b873a943af4566af78faf184da56e3d68de7d7bb8a2d69b9127c2d0",
+      "production": "ops/communications/production/database/001-service-storage.production.sql",
+      "sha256": "b7277200f89cf8acaa66b6af060e812d520654a730ad2b8f989cc42b14571e2b",
+      "bodySha256": "6580ad59523a652e5f57550dc911aa15c0b514d762c2baec00f7380df67ab623"
+    },
+    {
+      "source": "ops/communications/standalone/002-reply-barrier.local.sql",
+      "sourceSha256": "3d2423f632f1e36fdffda5eeb803f5b5f6c32950f8a6f649abfdc4f6e6a2cbae",
+      "production": "ops/communications/production/database/002-reply-barrier.production.sql",
+      "sha256": "eaf9850e3433be03c94ce194e0d83eebc14a0939a4405b5ea5e54e16157ec1fb",
+      "bodySha256": "85ea48b72b7f6547f9994992876d0fbcf9e06a597f2a358fb4d9b015850589f7"
+    },
+    {
+      "source": "ops/communications/standalone/003-connection-retirement.local.sql",
+      "sourceSha256": "2448ee14577f97a6d17e3c307fe376c4d44dfb204f0a94a83b652fb56a905dde",
+      "production": "ops/communications/production/database/003-connection-retirement.production.sql",
+      "sha256": "d93d499b094e1a03a06b5a89bf67d94a272d9858241e25ff3faa191004757939",
+      "bodySha256": "f640b2c1ef5307b7f0a80381a72a3f2411463a810f56e09486bf8400f77c90f0"
+    },
+    {
+      "source": "ops/communications/standalone/004-email-tracking.local.sql",
+      "sourceSha256": "71fa73939d98509d7c28da4d8f8fa0efe550f74fd5a6b134b230747cd4900edc",
+      "production": "ops/communications/production/database/004-email-tracking.production.sql",
+      "sha256": "03695569f5b4a65d0e268473583b915ed57d4f33136120618341ff38888c91cb",
+      "bodySha256": "b0b8c243b55e5452f258af4ce164db549d378c1ffd1590a3fb8ca6d1faeff3aa"
+    },
+    {
+      "source": "ops/communications/standalone/005-send-admission.local.sql",
+      "sourceSha256": "6d6179fe4f27359dfbe3f6acaa535741036e1d589c9dafaff28323b37c58710c",
+      "production": "ops/communications/production/database/005-send-admission.production.sql",
+      "sha256": "70f7b1db8d9078b264747ef8cd113755e09375b87656b2f99e3b98ccfae81dfa",
+      "bodySha256": "f8cc571f29e49c739986e90c3fcc1770dbc3a4d79af34da25dd2ae0a19217976"
+    },
+    {
+      "source": "ops/communications/standalone/006-account-runtime.local.sql",
+      "sourceSha256": "cd6ec7e2c305fcd7536b013c7d0fcc2d17476e941fc58cc71f3e035fdaffc732",
+      "production": "ops/communications/production/database/006-account-runtime.production.sql",
+      "sha256": "e9b8279d1bb69bf1777a138d4a41f24dfbf68dde1c7674de574518688f583d9e",
+      "bodySha256": "9801f31e30386c537d3a86e88046779914d0803b3ec4b88ed7b38113e291cf25"
+    },
+    {
+      "source": "ops/communications/standalone/007-history-checkpoints.local.sql",
+      "sourceSha256": "e2406e5e2455856db703360123b7a352e4a7152cfad22ea50aa58b7930390d3e",
+      "production": "ops/communications/production/database/007-history-checkpoints.production.sql",
+      "sha256": "28a862f538573f9ba9c47b3e0886e7e4976f241d0f5e324a6fb4da1366e70611",
+      "bodySha256": "8fbbffe15c2d0208d0bc5eab7ff1ce1fa400d804eee6c4ff579f7687789c6381"
+    },
+    {
+      "source": "ops/communications/standalone/008-provider-spool-record-guard.local.sql",
+      "sourceSha256": "bc674ae0ece1ff3a305b35d120848140021b0480dd0c420359ace96cd3de3b5f",
+      "production": "ops/communications/production/database/008-provider-spool-record-guard.production.sql",
+      "sha256": "2fcfda8f11866335f7194742f1f5cdebf1fd3f849dc92ea87072175b1c78649e",
+      "bodySha256": "6b0365b0a449bb4803432fa135206f4879fbff61e2816fdf2d417eb5c0aa7bfb"
+    }
+  ]
+}

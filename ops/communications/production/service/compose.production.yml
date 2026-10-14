@@ -1,0 +1,41 @@
+name: acquire-communications
+services:
+  communications:
+    image: ${COMMUNICATIONS_IMAGE:?Set COMMUNICATIONS_IMAGE to the verified immutable release image}
+    env_file:
+      - path: .env.production
+        format: raw
+    environment:
+      NODE_ENV: production
+      COMMUNICATIONS_LISTEN_HOST: 0.0.0.0
+      COMMUNICATIONS_PORT: "5461"
+    ports:
+      - "127.0.0.1:18099:5461"
+    networks: [application]
+    init: true
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    mem_limit: 384m
+    stop_grace_period: 90s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.mjs"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  application:
+    external: true
+    name: acquire-app_default
