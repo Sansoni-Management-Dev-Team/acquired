@@ -30,7 +30,7 @@ Prepared files alone do not prove production initialization or a successful rele
    CA. The shared Docker network resolves `acquire-communications-db`; PostgreSQL
    has no published host port. Do not import local account records or local vault keys.
 5. Install the reviewed `Caddyfile` only when its service upstream is available;
-   validate before reload. The existing approved origin serves `/v1/*` to the
+   validate before reload. The existing approved origin serves `/v1/*` and the public `/health` contract probe to the
    communications listener and all other requests to Next. Do not enable logging of
    callback queries, authentication headers or provider bodies.
 6. Merge the reviewed revision and let GitHub deploy both images. Verify exact

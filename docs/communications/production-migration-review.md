@@ -92,3 +92,14 @@ The proposed service memory cap is 384 MiB and database cap is 256 MiB, alongsid
 the unchanged application cap. These limits are configuration proposals; peak
 production workload capacity has not been established. Send quotas remain zero
 during preflight, and local account/key material will not be imported implicitly.
+
+## Approved execution status — 2026-10-14
+
+The user specifically approved this proposal. Both application files and all eight
+service files committed once on the exact reviewed production targets. The new
+service cluster identity and per-file outcomes are retained in the ignored private
+execution journal; do not reapply these files. Application14/14 and service27/27
+FORCE-RLS table checks pass, and all48 pre-existing application table counts match
+the coordinated maintenance baseline. Runtime activation and final release checks
+are recorded in progress.md. This execution status supersedes the earlier pending
+approval status without changing any frozen SQL artifact or hash.
