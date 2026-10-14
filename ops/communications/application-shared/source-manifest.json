@@ -1,0 +1,26 @@
+{
+  "status": "prepared_unapproved_unapplied",
+  "target": {
+    "host": "127.0.0.1",
+    "port": 5434,
+    "database": "project_acquire",
+    "systemIdentifier": "7680143844628185121"
+  },
+  "sources": {
+    "ops/communications/002-acquire-bindings.local.sql": "f25cba158289dde111e3aae6038be286b12f1dc4a64db9bf4c94f404259b14cf",
+    "ops/communications/003-reply-consumption.local.sql": "4f79939442b22109fed2bee069059d8701126170202fa902e9aa6655b039fefd",
+    "ops/communications/004-send-admission.local.sql": "9968570f93ff145c137a2d9d165e6d663b28396d9609b36ef3eb8cc031eefb04"
+  },
+  "artifacts": {
+    "ops/communications/application-shared/001-app-prerequisites.local.sql": {
+      "sha256": "a4b9a27dc2808eea1f2bbba163772e4c04d4fd400099d552837045a00b49774e",
+      "statements": 92,
+      "plpgsqlFunctions": 5
+    },
+    "ops/communications/application-shared/002-send-admission.local.sql": {
+      "sha256": "67e1891d47d67583e01803fd2fd3ac4b77f79c6964734af9903ca0fa915125d5",
+      "statements": 50,
+      "plpgsqlFunctions": 8
+    }
+  }
+}

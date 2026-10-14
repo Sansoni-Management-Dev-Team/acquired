@@ -2,11 +2,14 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import {
   COMMUNICATIONS_CONTRACT_VERSION, ContractError, assertSubmissionReceiptMatches, assertSameBinding,
   resolveRecordedConnection, type AccessScope, type ConnectionRecord,
-  type DeliveryOutcome, type MessagingAdapter, type OperationSnapshot, type CanonicalIdentity, type ProviderReference,
+  type DeliveryOutcome, type MessagingAdapter, type OperationSnapshot, type CanonicalIdentity, type ProviderReference, type ReceiptLookup, type RelationshipStatus,
 } from "../../../packages/contracts/src/index";
 import { messageDigest } from "../../../packages/core/src/message-digest";
 import { isDeliveryOutcome, isReadiness } from "../../../packages/sdk/src/validation";
 import { InvalidRequest, parseLookup, parseReady, parseSubmission } from "./schema";
+import type { ConnectionManagementPort } from '../../../packages/contracts/src/management';
+import { assertManagedConnection, assertManagementSnapshot, assertManagementBinding, assertManagementSetupResponse, assertManagementDisconnectResponse, type ConnectionSetupRequest } from '../../../packages/contracts/src/management';
+import { parseBinding } from './schema';
 
 export interface CommunicationsServerDependencies {
   /** Authenticate independently of body claims; returning null rejects the caller. */
@@ -14,6 +17,9 @@ export interface CommunicationsServerDependencies {
   /** Exact immutable generation only. Historical generations must be disconnected/read-only. */
   connections: { get(scope: AccessScope, connectionId: string, generation: number): Promise<ConnectionRecord | null> };
   resolveAdapter(connection: ConnectionRecord, scope: AccessScope): Promise<MessagingAdapter>;
+  management?: ConnectionManagementPort;
+  lookupDetails?(connection:ConnectionRecord,scope:AccessScope,input:ReceiptLookup):Promise<DeliveryOutcome|null>;
+  inspectRelationship?(connection:ConnectionRecord,scope:AccessScope,input:{profile:CanonicalIdentity;refresh:true}):Promise<{status:RelationshipStatus;canMessage:boolean|null;observedAt:string}>;
   maxRequestBytes?: number;
   bodyTimeoutMs?: number;
 }
@@ -74,7 +80,8 @@ export function createCommunicationsServer(dependencies: CommunicationsServerDep
       if (request.method === "GET" && request.url === "/health") {
         respond(response, 200, { contractVersion: COMMUNICATIONS_CONTRACT_VERSION }); return;
       }
-      if (request.method !== "POST" || !["/v1/ready", "/v1/submit", "/v1/lookup"].includes(request.url ?? "")) {
+      const managementPath = ['/v1/connections/list', '/v1/connections/setup', '/v1/connections/status', '/v1/connections/disconnect', '/v1/connections/default'].includes(request.url ?? '');
+      if (request.method !== "POST" || !managementPath && !["/v1/ready", "/v1/submit", "/v1/lookup",'/v1/lookup/details','/v1/relationships/inspect'].includes(request.url ?? "")) {
         throw new HttpError(404, "not_found");
       }
       if (request.headers["x-communications-contract-version"] !== COMMUNICATIONS_CONTRACT_VERSION) {
@@ -83,9 +90,44 @@ export function createCommunicationsServer(dependencies: CommunicationsServerDep
       const scope = await dependencies.authorize(request);
       if (!scope) throw new HttpError(401, "unauthorized");
       const body = await readBody(request, maxRequestBytes, bodyTimeoutMs);
+      if(request.url==='/v1/relationships/inspect') {
+        if(!body||typeof body!=='object'||Array.isArray(body))throw new InvalidRequest();const raw=body as Record<string,unknown>;
+        if(Object.keys(raw).sort().join(',')!=='binding,profile,refresh'||raw.refresh!==true||!raw.profile||typeof raw.profile!=='object'||Array.isArray(raw.profile))throw new InvalidRequest();
+        const binding=parseBinding(raw.binding),profile=raw.profile as CanonicalIdentity;try{assertManagementBinding(binding,scope);}catch{throw new HttpError(403,'forbidden');}
+        if(binding.channel!=='linkedin'||Object.keys(profile).sort().join(',')!=='kind,value'||profile.kind!=='linkedin_profile'||typeof profile.value!=='string')throw new InvalidRequest();
+        let url:URL;try{url=new URL(profile.value);}catch{throw new InvalidRequest();}if(url.protocol!=='https:'||!['linkedin.com','www.linkedin.com'].includes(url.hostname)||!/^\/in\/[^/]+\/?$/.test(url.pathname)||url.username||url.password||url.port||url.search||url.hash)throw new InvalidRequest();
+        if(!dependencies.inspectRelationship)throw new HttpError(409,'unsupported');
+        const saved=await dependencies.connections.get(scope,binding.connectionId,binding.generation),connection=resolveRecordedConnection(scope,binding,saved?[saved]:[]);
+        const result=await dependencies.inspectRelationship(connection,scope,{profile,refresh:true});
+        if(!result||Object.keys(result).sort().join(',')!=='canMessage,observedAt,status'||!['connected','invitation_pending','not_connected','unknown'].includes(result.status)||!(result.canMessage===null||typeof result.canMessage==='boolean')||!Number.isFinite(Date.parse(result.observedAt))||Date.parse(result.observedAt)>Date.now())throw Error('Invalid relationship response');
+        respond(response,200,result);return;
+      }
+      if (managementPath) {
+        const manager = dependencies.management; if (!manager) throw new HttpError(409, 'unsupported');
+        if (!body || typeof body !== 'object' || Array.isArray(body)) throw new InvalidRequest();
+        const raw = body as Record<string, unknown>;
+        const exact = (keys: string[]) => { if (Object.keys(raw).some(k => !keys.includes(k))) throw new InvalidRequest(); };
+        if (request.url === '/v1/connections/list') { exact([]); const result = await manager.list(scope); assertManagementSnapshot(result, scope); respond(response, 200, result); return; }
+        if (request.url === '/v1/connections/setup') {
+          exact(['channel', 'platform', 'reconnectBinding']);
+          if (typeof raw.platform !== 'string' || !(raw.channel === 'email' && ['gmail', 'outlook', 'imap'].includes(String(raw.platform)) || raw.channel === 'whatsapp' && raw.platform === 'whatsapp' || raw.channel === 'linkedin' && raw.platform === 'linkedin')) throw new InvalidRequest();
+          const input: ConnectionSetupRequest = { channel: raw.channel as ConnectionSetupRequest['channel'], platform: raw.platform as ConnectionSetupRequest['platform'] };
+          if (raw.reconnectBinding !== undefined) { input.reconnectBinding = parseBinding(raw.reconnectBinding); if (input.reconnectBinding.channel !== input.channel || input.reconnectBinding.platform !== input.platform) throw new InvalidRequest(); try { assertManagementBinding(input.reconnectBinding, scope); } catch { throw new HttpError(403, 'forbidden'); } }
+          const result=await manager.setup(scope,input);assertManagementSetupResponse(result);respond(response,200,result);return;
+        }
+        exact(request.url === '/v1/connections/disconnect' ? ['binding', 'key'] : ['binding']);
+        const binding = parseBinding(raw.binding); try { assertManagementBinding(binding, scope); } catch { throw new HttpError(403, 'forbidden'); }
+        if (request.url === '/v1/connections/disconnect') {
+          if (typeof raw.key !== 'string' || !/^[A-Za-z0-9_-]{1,200}$/.test(raw.key)) throw new InvalidRequest();
+          const result=await manager.disconnect(scope,{binding,key:raw.key});assertManagementDisconnectResponse(result);respond(response,200,result);return;
+        }
+        const result = request.url === '/v1/connections/default' ? await manager.setDefault(scope, binding) : await manager.status(scope, binding);
+        assertManagedConnection(result, scope); assertSameBinding(result.binding, binding); if (request.url === '/v1/connections/default' && !result.isDefault) throw Error('Invalid default');
+        respond(response, 200, result); return;
+      }
       const ready = request.url === "/v1/ready" ? parseReady(body) : null;
       const submission = request.url === "/v1/submit" ? parseSubmission(body) : null;
-      const lookup = request.url === "/v1/lookup" ? parseLookup(body) : null;
+      const lookup = ['/v1/lookup','/v1/lookup/details'].includes(request.url??'') ? parseLookup(body) : null;
       const binding = ready ?? submission?.snapshot.binding ?? lookup!.snapshot.binding;
       if (binding.applicationId !== scope.applicationId || binding.tenantId !== scope.tenantId || binding.ownerId !== scope.ownerId) {
         throw new HttpError(403, "forbidden");
@@ -101,6 +143,10 @@ export function createCommunicationsServer(dependencies: CommunicationsServerDep
             (submission.snapshot.operation === "message" && !connection.capabilities.messaging.send)) throw new ContractError("connection_unavailable");
       }
       if (lookup?.message) assertSameBinding(binding, lookup.message.binding);
+      if(request.url==='/v1/lookup/details'){
+        if(!dependencies.lookupDetails)throw new HttpError(409,'unsupported');const outcome=await dependencies.lookupDetails(connection,scope,lookup!);checkReceipt(lookup!.snapshot,outcome,lookup!.expectedRecipient,lookup!.message);
+        if(!isDeliveryOutcome(outcome,lookup!.snapshot,lookup!.expectedRecipient,lookup!.message))throw Error('Invalid receipt details');respond(response,200,outcome);return;
+      }
       const adapter = await dependencies.resolveAdapter(connection, scope);
       if (ready) {
         const readiness = await adapter.ready(binding);

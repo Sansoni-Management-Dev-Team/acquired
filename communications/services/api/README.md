@@ -16,12 +16,27 @@ Endpoints:
 | POST `/v1/ready` | `{binding}` | Readiness of the recorded account |
 | POST `/v1/submit` | `MessageSubmission` | Submit a message/invitation through the exact adapter |
 | POST `/v1/lookup` | `ReceiptLookup` | Receipt lookup with no dispatch content |
+| POST `/v1/lookup/details` | `ReceiptLookup` | Read-only original receipt enrichment |
+| POST `/v1/relationships/inspect` | `{binding,profile,refresh:true}` | Original LinkedIn relationship inspection |
+| POST `/v1/connections/list` | `{}` | Owner-scoped managed connections |
+| POST `/v1/connections/setup` | `{channel,platform,reconnectBinding?}` | Hosted connection/reconnect setup |
+| POST `/v1/connections/status` | `{binding}` | Exact generation status |
+| POST `/v1/connections/default` | `{binding}` | New-work account selection |
+| POST `/v1/connections/disconnect` | `{binding,key}` | Durable original-generation retirement |
+| POST `/v1/setup/notify?capability=…` | Original raw callback | Private-capability setup capture |
+| POST `/v1/webhook` | Original raw event | Independently authenticated webhook capture |
 
-POSTs require `X-Communications-Contract-Version: 1` and an authenticated caller. Authorization is defined by the injected function; the synthetic example uses a fixture bearer token. Bodies are bounded, JSON-only, strictly validated, and unknown fields rejected. Errors contain bounded codes only. Response shapes are validated and preserve message receipt versus service action receipt provenance. A failure or invalid receipt after adapter submission produces `unknown`.
+SDK API POSTs require `X-Communications-Contract-Version: 1` and an authenticated caller. Setup notifications and webhooks use their own injected capability/header authentication rather than SDK caller credentials. Authorization is defined by the injected function; the synthetic example uses a fixture bearer token. Bodies are bounded, JSON-only, strictly validated, and unknown fields rejected. Errors contain bounded codes only. Response shapes are validated and preserve message receipt versus service action receipt provenance. A failure or invalid receipt after adapter submission produces `unknown`.
 
 Messaging endpoints accept `message` and `invitation` operation snapshots only; draft operations stay separate. Invitations require the original LinkedIn binding and advertised invitation capability, with an operation-specific digest. Receipt lookup can recover previously authorized invitations even when readiness/capabilities change; it requires receipt lookup support and never dispatches. When a caller supplies an original provider message reference, an actual matching message receipt is required—an action journal ID is insufficient.
 
-This service has **no persistent operation journal**. The injected adapter remains the authoritative journal/session/quota boundary. It must enforce concurrency, durable idempotency, account access, and readiness; server checks do not establish distributed safety. The synthetic entry uses memory-only fixtures, advertises `durableIdempotency: false`, and never contacts a provider. It is not a production service.
+The HTTP layer delegates persistence to its injected adapter. The configured host composes
+the durable PostgreSQL journal, held application admission, quotas and reply coverage;
+server input checks alone do not establish those guarantees. `createCommunicationsService`
+shares one native listener across the API, setup callback and webhook handlers while preserving
+their independent authentication and body/capture limits. It imports no application code,
+loads no credentials and performs no migrations. The synthetic entry remains memory-only,
+advertises `durableIdempotency: false`, and never contacts a provider.
 
 `createReplyWebhookServer` is a separate listener with dedicated `POST /v1/webhook`. Inject a `ReplyIngress` from the required capture coordinator. It authenticates raw headers before reading bounded JSON bytes and awaits an authoritative accepted/duplicate capture result before HTTP 200. Default body/capture timeouts are 5/20 seconds; their configured sum must stay below 30 seconds. Timeout returns 503 without claiming storage failed: a late commit may still occur and must deduplicate a provider retry. No webhook is registered or installed in Acquire routes by constructing this module.
 

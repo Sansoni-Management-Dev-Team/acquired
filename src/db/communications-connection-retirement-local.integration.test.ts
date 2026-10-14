@@ -43,7 +43,10 @@ describe.skipIf(!enabled)('approved standalone PostgreSQL connection retirement'
             await c.query('INSERT INTO communications.physical_accounts(id,channel,identity_namespace,identity_digest,identity_key_version,verified_at) VALUES($1,$2,$3,$4,$5,clock_timestamp())', [b.accountId, b.channel, physical.namespace, digest(physical), 'physical-fixture-v1']);
             await c.query("INSERT INTO communications.connections(id,application_id,tenant_id,owner_id,account_id,channel,platform,backend,current_generation,status,active) VALUES($1,$2,$3,$4,$5,'linkedin','linkedin','unipile',1,'connected',true)", [b.connectionId, b.applicationId, b.tenantId, b.ownerId, b.accountId]);
             await c.query("INSERT INTO communications.connection_generations(connection_id,generation,application_id,tenant_id,owner_id,account_id,channel,platform,backend,integration_id,provider_api_version,provider_configuration_reference,provider_account_digest,encrypted_provider_account_id,provider_account_key_version,credential_reference,authority,capabilities) VALUES($1,1,$2,$3,$4,$5,'linkedin','linkedin','unipile',$6,'v1','synthetic-retirement-config',$7,'synthetic-vault-envelope','provider-fixture-v1','synthetic-owner-vault','service','{}')", [b.connectionId, b.applicationId, b.tenantId, b.ownerId, b.accountId, integrationId, digest(record.providerAccountId)]);
-            await c.query("INSERT INTO communications.event_cursors(application_id,tenant_id,owner_id,connection_id,generation,account_id,scope_digest,encrypted_cursor,cursor_key_version,coverage_from,coverage_through,observed_at,complete,initial_sync_complete,invalidated,lease_token,lease_until) VALUES($1,$2,$3,$4,1,$5,$6,'synthetic-cursor','fixture',clock_timestamp()-interval '1 hour',clock_timestamp()-interval '5 seconds',clock_timestamp(),true,true,false,'synthetic-cursor-lease',clock_timestamp()+interval '1 minute')", [b.applicationId, b.tenantId, b.ownerId, b.connectionId, b.accountId, createHash('sha256').update(nonce).digest('hex')]);
+            // A pending cursor lease is enough to prove retirement clears workers.
+            // This fixture has no authenticated history scan, so it cannot certify
+            // complete coverage or an initial sync, including with007 installed.
+            await c.query("INSERT INTO communications.event_cursors(application_id,tenant_id,owner_id,connection_id,generation,account_id,scope_digest,complete,initial_sync_complete,invalidated,lease_token,lease_until) VALUES($1,$2,$3,$4,1,$5,$6,false,false,false,'synthetic-cursor-lease',clock_timestamp()+interval '1 minute')", [b.applicationId, b.tenantId, b.ownerId, b.connectionId, b.accountId, createHash('sha256').update(nonce).digest('hex')]);
         });
         grants.push([b.applicationId, b.tenantId, b.ownerId]);
         const verify = vi.fn<ConnectionRetirementOptions['verifyRecordedIdentity']>().mockImplementation(async (input) => ({ record: structuredClone(input.record), physicalIdentity: physical }));
@@ -53,7 +56,9 @@ describe.skipIf(!enabled)('approved standalone PostgreSQL connection retirement'
     async function prepare(f: Awaited<ReturnType<typeof fixture>>) { const result = await f.repo.prepareDisconnect(f.record, f.key, f.signal); expect(result.status).toBe('prepared'); if (result.status !== 'prepared')
         throw Error('Expected synthetic committed retirement'); return result.ticket; }
     it('atomically commits encrypted intent, original retirement and account-wide coverage invalidation', async () => {
-        const f = await fixture(), ticket = await prepare(f);
+        const f = await fixture();
+        expect((await local.pool.query('SELECT invalidated,complete,initial_sync_complete,encrypted_cursor,cursor_key_version,lease_token FROM communications.event_cursors WHERE account_id=$1',[f.b.accountId])).rows[0]).toEqual({invalidated:false,complete:false,initial_sync_complete:false,encrypted_cursor:null,cursor_key_version:null,lease_token:'synthetic-cursor-lease'});
+        const ticket = await prepare(f);
         const { rows: [row] } = await local.pool.query('SELECT * FROM communications.connection_retirements WHERE connection_id=$1', [f.b.connectionId]);
         expect(row.state).toBe('pending');
         expect(JSON.stringify(row)).not.toContain(f.record.providerAccountId);
@@ -108,6 +113,8 @@ describe.skipIf(!enabled)('approved standalone PostgreSQL connection retirement'
     });
     it('deferred precommit expiry rolls back an already staged retirement and cursor invalidation', async () => {
         const f = await fixture(), scope = { binding: f.b, key: f.key }, encrypted = codec.encode(scope, 'record', f.record);
+        const originalCursor=(await local.pool.query('SELECT invalidated,complete,initial_sync_complete,encrypted_cursor,cursor_key_version,lease_token,lease_until FROM communications.event_cursors WHERE account_id=$1',[f.b.accountId])).rows[0];
+        expect(originalCursor).toMatchObject({invalidated:false,complete:false,initial_sync_complete:false,encrypted_cursor:null,cursor_key_version:null,lease_token:'synthetic-cursor-lease'});
         await expect(tx(async (c) => {
             await c.query('SELECT communications.lock_reply_barrier($1,$2)', [f.b.applicationId, f.b.tenantId]);
             await c.query("UPDATE communications.access_grants SET expires_at=clock_timestamp()+interval '500 milliseconds' WHERE application_id=$1", [f.b.applicationId]);
@@ -118,6 +125,6 @@ describe.skipIf(!enabled)('approved standalone PostgreSQL connection retirement'
         })).rejects.toThrow(/grant expired before commit/);
         expect((await local.pool.query('SELECT active FROM communications.connections WHERE id=$1', [f.b.connectionId])).rows[0].active).toBe(true);
         expect((await local.pool.query('SELECT count(*)::integer AS count FROM communications.connection_retirements WHERE connection_id=$1', [f.b.connectionId])).rows[0].count).toBe(0);
-        expect((await local.pool.query('SELECT invalidated,complete FROM communications.event_cursors WHERE account_id=$1', [f.b.accountId])).rows[0]).toEqual({ invalidated: false, complete: true });
+        expect((await local.pool.query('SELECT invalidated,complete,initial_sync_complete,encrypted_cursor,cursor_key_version,lease_token,lease_until FROM communications.event_cursors WHERE account_id=$1', [f.b.accountId])).rows[0]).toEqual(originalCursor);
     });
 });

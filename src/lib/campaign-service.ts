@@ -1,3 +1,4 @@
+import {communicationReplyIdentity} from '../domain/communication-reply-identity';
 import "server-only";
 import { gmailConnectionStatus } from "@/domain/gmail-connection";
 import { randomUUID } from "node:crypto";
@@ -30,6 +31,7 @@ export class CampaignError extends Error {
   constructor(message: string, public status = 409) { super(message); }
 }
 
+function communicationsRuntimeEnabled() { return process.env.COMMUNICATIONS_RUNTIME_ENABLED === 'true'; }
 function parseDefinition(value: unknown): CampaignDefinition { return campaignDefinition.parse(value); }
 function personalData(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function emailForContact(contact: ContactRow) { return outreachEmail(personalData(contact.personal_data).email); }
@@ -81,7 +83,7 @@ async function recordReplyCheckFailure(enrolment: EnrolmentRow, error: unknown, 
     ) INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata)
       SELECT $2,$3,'campaign.reply_check_failed','campaign_enrolment',id,$5::jsonb FROM changed`,
     [enrolment.id, enrolment.organization_id, enrolment.owner_user_id, pending && phase === "preflight" ? nextStepAt : null, metadata],
-  ).then(() => undefined)));
+  ).then(() => undefined), enrolment.organization_id));
   return { outcome: pending ? "retry" as const : "needs_review" as const, nextStepAt: pending ? nextStepAt : null };
 }
 
@@ -90,7 +92,7 @@ async function clearReplyWait(enrolment: EnrolmentRow) {
   await withCampaignWorkCleanup(() => withCampaignWorker(client => client.query(`WITH changed AS (
     UPDATE campaign_enrolments SET stop_reason = NULL, updated_at = now() WHERE id = $1 AND state = 'active' AND stop_reason = 'reply_monitor_wait' RETURNING id
   ) INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id)
-    SELECT $2,$3,'campaign.reply_check_ready','campaign_enrolment',id FROM changed`, [enrolment.id, enrolment.organization_id, enrolment.owner_user_id]).then(() => undefined)));
+    SELECT $2,$3,'campaign.reply_check_ready','campaign_enrolment',id FROM changed`, [enrolment.id, enrolment.organization_id, enrolment.owner_user_id]).then(() => undefined), enrolment.organization_id));
 }
 
 async function ownMailbox(client: PoolClient, actor: CampaignActor) {
@@ -221,7 +223,7 @@ export async function enrolContacts(actor: CampaignActor, sequenceId: string, co
     if (!version) throw new CampaignError("Published version is missing");
     if (n8nCampaignEnabled() && !version.n8n_workflow_id) throw new CampaignError("This published version must be synced to n8n before new contacts can be added");
     const definition = parseDefinition(version.definition);
-    const mailbox = campaignChannels(definition).includes("email") ? await ownMailbox(client, actor) : null;
+    const mailbox = !communicationsRuntimeEnabled() && campaignChannels(definition).includes("email") ? await ownMailbox(client, actor) : null;
     const contacts = [] as { contact: ContactRow; email: string | null; phone: string | null; linkedin: string | null }[];
     const seen = new Set<string>();
     for (const id of uniqueIds) {
@@ -241,7 +243,8 @@ export async function enrolContacts(actor: CampaignActor, sequenceId: string, co
     }
     return { sequence, version, definition, mailbox, contacts };
   });
-  if (campaignStepEntries(prepared.definition).some(({ step }) => step.kind === "whatsapp")) await assertCampaignWhatsappConnected(actor);
+  if (communicationsRuntimeEnabled()) for (const channel of campaignChannels(prepared.definition)) await deliveryProvider(channel).ready(actor);
+  else if (campaignStepEntries(prepared.definition).some(({ step }) => step.kind === "whatsapp")) await assertCampaignWhatsappConnected(actor);
   // A prior conversation is checked before enrolment, then checked again at send.
   const gmail = prepared.mailbox ? campaignMailboxForConnection({ encryptedRefreshToken: prepared.mailbox.encrypted_refresh_token, reconnectRequired: prepared.mailbox.reconnect_required, scopes: prepared.mailbox.scopes }, prepared.mailbox.id) : null;
   const conversationChecks: { email: string | null; existing: boolean }[] = [];
@@ -262,10 +265,19 @@ export async function enrolContacts(actor: CampaignActor, sequenceId: string, co
       const enrolmentId = randomUUID();
       const firstIndex = campaignFirstStepIndex(prepared.definition, enrolmentId);
       const firstStep = campaignStepEntries(prepared.definition)[firstIndex].step;
-      const nextAt = existing ? null : nextSendAt(new Date());
-      const [enrolment] = await rows<EnrolmentRow>(client, `INSERT INTO campaign_enrolments (organization_id, owner_user_id, sequence_id, version_id, mandate_id, contact_id, mailbox_connection_id, recipient_email, state, stop_reason, next_step_at, runtime, id, step_index, recipient_phone, recipient_linkedin) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`, [actor.organizationId, actor.userId, sequenceId, prepared.version.id, prepared.sequence.mandate_id, contact.id, prepared.mailbox?.id || null, email, existing ? "needs_review" : "active", existing ? "existing_conversation" : null, nextAt, n8nCampaignEnabled() ? "n8n" : "legacy", enrolmentId, firstIndex, phone, linkedin]);
+      const needsConversationReview = existing || communicationsRuntimeEnabled();
+      const nextAt = needsConversationReview ? null : nextSendAt(new Date());
+      const [enrolment] = await rows<EnrolmentRow>(client, `INSERT INTO campaign_enrolments (organization_id, owner_user_id, sequence_id, version_id, mandate_id, contact_id, mailbox_connection_id, recipient_email, state, stop_reason, next_step_at, runtime, id, step_index, recipient_phone, recipient_linkedin) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`, [actor.organizationId, actor.userId, sequenceId, prepared.version.id, prepared.sequence.mandate_id, contact.id, prepared.mailbox?.id || null, email, needsConversationReview ? "needs_review" : "active", existing ? "existing_conversation" : communicationsRuntimeEnabled() ? "initial_conversation_requires_review" : null, nextAt, n8nCampaignEnabled() ? "n8n" : "legacy", enrolmentId, firstIndex, phone, linkedin]);
+      if (communicationsRuntimeEnabled()) for (const channel of campaignChannels(prepared.definition)) {
+        const bound = await client.query(`INSERT INTO public.campaign_channel_bindings(enrolment_id,organization_id,owner_user_id,channel,binding_id)
+ SELECT $1,d.organization_id,d.owner_user_id,d.channel,d.binding_id FROM public.communication_defaults d JOIN public.communication_bindings b ON b.id=d.binding_id
+ WHERE d.organization_id=$2 AND d.owner_user_id=$3 AND d.channel=$4 AND b.authority='service' AND b.backend='unipile' AND b.organization_id=d.organization_id AND b.owner_user_id=d.owner_user_id AND b.channel=d.channel RETURNING binding_id`, [enrolment.id, actor.organizationId, actor.userId, channel]);
+        if (bound.rowCount !== 1) throw new CampaignError(`A recorded ${channel} connection is required before enrollment`);
+        const canonical=channel==='email'?email:channel==='whatsapp'?phone:linkedin, identity=canonical?communicationReplyIdentity(channel,canonical):null; if(!canonical||!identity)throw new CampaignError(`A canonical ${channel} reply identity is required`);
+        await client.query("INSERT INTO public.campaign_reply_identities(organization_id,owner_user_id,contact_id,channel,identity,source_identity,email,since) SELECT $1,$2,$3,$4,$5,$6,$7,started_at FROM public.campaign_enrolments WHERE id=$8 AND organization_id=$1 AND owner_user_id=$2 ON CONFLICT DO NOTHING",[actor.organizationId,actor.userId,contact.id,channel,identity,canonical,email||'',enrolment.id]);
+      }
       await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) VALUES ($1,$2,'campaign.subscribed','campaign_enrolment',$3,$4)", [actor.organizationId, actor.userId, enrolment.id, JSON.stringify({ sequenceId, version: prepared.version.version, contactId: contact.id, firstAction: firstStep.title, existingConversation: existing })]);
-      results.push({ id: enrolment.id, contactId: contact.id, state: enrolment.state, nextStepAt: enrolment.next_step_at, firstAction: existing ? "Existing Gmail conversation found — review before sending" : `${campaignStepLabel(firstStep)}: ${firstStep.title}` });
+      results.push({ id: enrolment.id, contactId: contact.id, state: enrolment.state, nextStepAt: enrolment.next_step_at, firstAction: communicationsRuntimeEnabled() ? "Review the first conversation before sending" : existing ? "Existing Gmail conversation found — review before sending" : `${campaignStepLabel(firstStep)}: ${firstStep.title}` });
     }
     return results;
   });
@@ -288,7 +300,7 @@ export async function enrolContacts(actor: CampaignActor, sequenceId: string, co
 }
 
 function assertRetryableHold(enrolment: EnrolmentRow) {
-  if (enrolment.state !== "needs_review" || ["existing_conversation", "send_result_unknown", "linkedin_result_requires_review", "linkedin_result_unknown", "whatsapp_result_unknown", "manual_outbound_detected", "reply_identity_ambiguous"].includes(enrolment.stop_reason || "")) throw new CampaignError("This hold needs manual review, not an automatic retry");
+  if (enrolment.state !== "needs_review" || ["existing_conversation", "initial_conversation_requires_review", "send_result_unknown", "linkedin_result_requires_review", "linkedin_result_unknown", "whatsapp_result_unknown", "manual_outbound_detected", "reply_identity_ambiguous"].includes(enrolment.stop_reason || "")) throw new CampaignError("This hold needs manual review, not an automatic retry");
 }
 async function assertRecoveryAttempts(client: PoolClient, enrolment: EnrolmentRow) {
   const attempts = await rows<{ state: string }>(client, "SELECT state FROM campaign_send_attempts WHERE enrolment_id = $1 AND (state IN ('claimed','unknown') OR (step_index = $2 AND state = 'sent'))", [enrolment.id, enrolment.step_index]);
@@ -321,7 +333,7 @@ export async function changeEnrolment(actor: CampaignActor, enrolmentId: string,
     if (!enrolment) throw new CampaignError("Enrolment not found", 404);
     if (action === "pause" && enrolment.state !== "active") throw new CampaignError("Only active automation can be paused");
     if (action === "resume" && enrolment.state !== "paused") throw new CampaignError("Only manually paused automation can be resumed");
-    if (action === "review_existing_conversation" && (enrolment.state !== "needs_review" || enrolment.stop_reason !== "existing_conversation")) throw new CampaignError("There is no existing conversation to review");
+    if (action === "review_existing_conversation" && (enrolment.state !== "needs_review" || !["existing_conversation", "initial_conversation_requires_review"].includes(enrolment.stop_reason || ""))) throw new CampaignError("There is no existing conversation to review");
     if (action === "retry_preflight") {
       assertRetryableHold(enrolment); await assertRecoveryAttempts(client, enrolment);
       await assertReplyCoverage(client, actor, enrolment.contact_id, recoveryChannels, enrolment.started_at);
@@ -331,7 +343,8 @@ export async function changeEnrolment(actor: CampaignActor, enrolmentId: string,
     const state = action === "pause" ? "paused" : action === "stop" ? "stopped" : "active";
     const nextAt = action === "pause" ? enrolment.next_step_at : state === "active" ? nextSendAt(new Date(Math.max(Date.now(), enrolment.next_step_at?.getTime() || 0))) : null;
     const reviewed = action === "review_existing_conversation" || enrolment.initial_conversation_reviewed;
-    await client.query("UPDATE campaign_enrolments SET state = $2, stop_reason = $3, next_step_at = $4, initial_conversation_reviewed = $5, updated_at = now() WHERE id = $1", [enrolmentId, state, action === "stop" ? "manual_stop" : action === "pause" ? "manual_pause" : null, nextAt, reviewed]);
+    if(communicationsRuntimeEnabled()) await client.query("UPDATE campaign_enrolments SET state=$2,stop_reason=$3,next_step_at=$4,initial_conversation_reviewed=$5,communication_initial_reviewed_at=CASE WHEN $6::boolean THEN clock_timestamp() ELSE communication_initial_reviewed_at END,updated_at=now() WHERE id=$1",[enrolmentId,state,action === "stop" ? "manual_stop" : action === "pause" ? "manual_pause" : null,nextAt,reviewed,action==='review_existing_conversation']);
+    else await client.query("UPDATE campaign_enrolments SET state = $2, stop_reason = $3, next_step_at = $4, initial_conversation_reviewed = $5, updated_at = now() WHERE id = $1", [enrolmentId, state, action === "stop" ? "manual_stop" : action === "pause" ? "manual_pause" : null, nextAt, reviewed]);
     await client.query("INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id) VALUES ($1,$2,$3,'campaign_enrolment',$4)", [actor.organizationId, actor.userId, `campaign.${action}`, enrolmentId]);
     return { id: enrolmentId, state, nextStepAt: nextAt };
   });
@@ -346,7 +359,7 @@ async function stopForReply(actor: CampaignActor, enrolment: EnrolmentRow, provi
       await client.query(`WITH stopped AS (UPDATE campaign_enrolments SET state = 'stopped', stop_reason = 'reply_received', next_step_at = NULL, updated_at = now() WHERE organization_id = $1 AND recipient_email = $2 AND state IN ('active','paused','needs_review') RETURNING id, owner_user_id) INSERT INTO audit_events (organization_id, actor_id, action, entity_type, entity_id, metadata) SELECT $1, owner_user_id, 'campaign.reply_received', 'campaign_enrolment', id, jsonb_build_object('channel','email','providerEventId',$3::text) FROM stopped`, [actor.organizationId, enrolment.recipient_email, providerEventId]);
     }
     return inserted;
-  });
+  }, actor.organizationId);
 }
 
 async function checkReplies(actor: CampaignActor, enrolment: EnrolmentRow, mailbox: MailboxRow) {
@@ -375,8 +388,8 @@ async function claimSend(actor: CampaignActor, enrolmentId: string, expectedInde
     if (!version) throw new CampaignError("Sequence version is unavailable");
     const definition = parseDefinition(version.definition);
     const step = campaignStepEntries(definition)[expectedIndex]?.step;
-    const [mailbox] = step?.kind === "email" ? await rows<MailboxRow>(client, "SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE id = $1 AND organization_id = $2 AND user_id = $3 AND provider = 'gmail'", [enrolment.mailbox_connection_id, actor.organizationId, actor.userId]) : [];
-    if (step?.kind === "email" && (!mailbox || !connectionCanMonitorReplies({ encryptedRefreshToken: mailbox.encrypted_refresh_token, reconnectRequired: mailbox.reconnect_required, scopes: mailbox.scopes }))) throw new CampaignError("Sending mailbox needs reconnection");
+    const [mailbox] = !communicationsRuntimeEnabled() && step?.kind === "email" ? await rows<MailboxRow>(client, "SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE id = $1 AND organization_id = $2 AND user_id = $3 AND provider = 'gmail'", [enrolment.mailbox_connection_id, actor.organizationId, actor.userId]) : [];
+    if (!communicationsRuntimeEnabled() && step?.kind === "email" && (!mailbox || !connectionCanMonitorReplies({ encryptedRefreshToken: mailbox.encrypted_refresh_token, reconnectRequired: mailbox.reconnect_required, scopes: mailbox.scopes }))) throw new CampaignError("Sending mailbox needs reconnection");
     const [contact] = await rows<ContactRow>(client, `SELECT ${contactColumns} ${contactJoin} WHERE c.id = $1 AND c.organization_id = $2`, [enrolment.contact_id, actor.organizationId]);
     assertContactUnchanged(contact, enrolment, definition);
     const [assignment] = await rows<{ id: string }>(client, "SELECT id FROM campaign_contact_assignments WHERE organization_id = $1 AND contact_id = $2 AND email IS NOT DISTINCT FROM $3 AND owner_user_id = $4", [actor.organizationId, enrolment.contact_id, enrolment.recipient_email, actor.userId]);
@@ -406,7 +419,7 @@ async function claimSend(actor: CampaignActor, enrolmentId: string, expectedInde
 }
 
 async function claimStillEligible(actor: CampaignActor, enrolment: EnrolmentRow, attemptId: string, definition: CampaignDefinition) {
-  try { await assertContactReplyFresh(actor, enrolment.contact_id, campaignChannels(definition), enrolment.started_at); }
+  try { if (!communicationsRuntimeEnabled()) await assertContactReplyFresh(actor, enrolment.contact_id, campaignChannels(definition), enrolment.started_at); }
   catch (error) {
     await withCampaignDb(actor, client => client.query("UPDATE campaign_send_attempts SET state = 'cancelled', error = 'Reply monitoring changed before send' WHERE id = $1 AND state = 'claimed'", [attemptId]).then(() => undefined));
     throw error;
@@ -443,7 +456,7 @@ async function advanceCampaign(actor: CampaignActor, enrolment: EnrolmentRow, de
   const split = definition.splits?.find(split => split.afterStepId === step.id && split.condition);
   let decision = split ? await savedBranch(actor, enrolment.id, split.id) : undefined;
   if (split?.condition && !decision) {
-    const observed = await campaignLinkedin(actor, { operation: "status", profile: linkedinProfileFor(personalData(contact.personal_data)) });
+    const observed = await campaignLinkedin(actor, { operation: "status", profile: linkedinProfileFor(personalData(contact.personal_data)), ...(communicationsRuntimeEnabled()?{enrolmentId:enrolment.id}:{}) });
     if (observed.status !== "retry" && observed.connected == null) throw new CampaignError("LinkedIn connection status is unknown; review before continuing");
     const path = acceptancePath(observed.connected ?? null, sentAt, split.condition.timeoutDays, new Date());
     if (!path) {
@@ -469,7 +482,7 @@ async function processDeliveryStep(actor: CampaignActor, enrolment: EnrolmentRow
   const step = campaignStepEntries(definition)[enrolment.step_index].step;
   if (step.kind === "wait") throw new CampaignError("Invalid delivery step");
   const channel = step.kind;
-  const recipientFor = (contact:ContactRow) => channel === "whatsapp" ? whatsappRecipientFor(personalData(contact.personal_data)) : channel === "linkedin" ? linkedinProfileFor(personalData(contact.personal_data)) : emailForContact(contact);
+  const recipientFor = (contact:ContactRow) => channel === "whatsapp" ? communicationsRuntimeEnabled()?contactPhone(personalData(contact.personal_data).phone):whatsappRecipientFor(personalData(contact.personal_data)) : channel === "linkedin" ? linkedinProfileFor(personalData(contact.personal_data)) : emailForContact(contact);
   const recipient = recipientFor(contact);
   if (!recipient) throw new CampaignError("Delivery recipient is unavailable");
   const templateContact = {displayName:contact.display_name,companyName:contact.company_name};
@@ -491,7 +504,8 @@ async function processDeliveryStep(actor: CampaignActor, enrolment: EnrolmentRow
   try {
     const result = await provider.submit({actor,key:`campaign:${enrolment.id}:${step.id}`,recipient,text,messageId:claim.messageId,
       ...(step.kind === "email" ? {subject:renderCampaignTemplate(step.subject,templateContact)} : {}),
-      operation:step.kind === "linkedin" ? step.action : "message"});
+      operation:step.kind === "linkedin" ? step.action : "message",
+      ...(communicationsRuntimeEnabled() ? {attemptId:claim.attemptId,enrolmentId:enrolment.id,stepIndex:enrolment.step_index,stepId:step.id,runtime:enrolment.runtime,sourceVersionId:enrolment.version_id} : {})});
     if (result.status === "waiting" || result.status === "review") {
       // These results explicitly establish that no submission occurred.
       await withCampaignDb(actor,client=>client.query("UPDATE campaign_send_attempts SET state = 'cancelled' WHERE id = $1 AND state = 'claimed'",[claim.attemptId]));
@@ -526,7 +540,7 @@ export async function processCampaignEnrolment(actor: CampaignActor, enrolmentId
     const [version] = await rows<VersionRow>(client, "SELECT * FROM campaign_sequence_versions WHERE id = $1", [enrolment.version_id]);
     if (!version) throw new CampaignError("Sequence version is unavailable");
     const definition = parseDefinition(version.definition);
-    const [mailbox] = campaignChannels(definition).includes("email") ? await rows<MailboxRow>(client, "SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE id = $1 AND organization_id = $2 AND user_id = $3 AND provider = 'gmail'", [enrolment.mailbox_connection_id, actor.organizationId, actor.userId]) : [];
+    const [mailbox] = !communicationsRuntimeEnabled() && campaignChannels(definition).includes("email") ? await rows<MailboxRow>(client, "SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE id = $1 AND organization_id = $2 AND user_id = $3 AND provider = 'gmail'", [enrolment.mailbox_connection_id, actor.organizationId, actor.userId]) : [];
     const [contact] = await rows<ContactRow>(client, `SELECT ${contactColumns} ${contactJoin} WHERE c.id = $1 AND c.organization_id = $2`, [enrolment.contact_id, actor.organizationId]);
     await assertContactAllowed(client, actor, enrolment.recipient_email);
     await assertNoReplyHold(client, actor, enrolment.contact_id);
@@ -536,10 +550,10 @@ export async function processCampaignEnrolment(actor: CampaignActor, enrolmentId
   const { enrolment, mailbox, contact } = loaded;
   try {
     const required = campaignChannels(parseDefinition(loaded.version.definition));
-    if (required.includes("email") && !mailbox) throw new ReplyCheckReview("reconnect", "email");
+    if (!communicationsRuntimeEnabled() && required.includes("email") && !mailbox) throw new ReplyCheckReview("reconnect", "email");
     try { assertContactUnchanged(contact, enrolment, parseDefinition(loaded.version.definition)); }
     catch { throw new ReplyCheckReview("account_changed", required.length === 1 ? required[0] : undefined); }
-    await checkContactReplyMonitors(actor, { id: contact.id, email: enrolment.recipient_email, data: personalData(contact.personal_data), since: enrolment.started_at, requiredChannels: campaignChannels(parseDefinition(loaded.version.definition)) });
+    if (!communicationsRuntimeEnabled()) await checkContactReplyMonitors(actor, { id: contact.id, email: enrolment.recipient_email, data: personalData(contact.personal_data), since: enrolment.started_at, requiredChannels: campaignChannels(parseDefinition(loaded.version.definition)) });
     await clearReplyWait(enrolment);
     const [current] = await withCampaignDb(actor, client => rows<EnrolmentRow>(client, "SELECT * FROM campaign_enrolments WHERE id = $1", [enrolment.id]));
     if (current?.state === "stopped") return { outcome: "reply_received" as const };
@@ -629,8 +643,8 @@ async function reconcileUnknownAttempt(actor: CampaignActor, attemptId: string) 
     const definition = parseDefinition(version.definition);
     const step = campaignStepEntries(definition)[attempt.step_index]?.step;
     if (!step || step.kind === "wait") return null;
-    const [mailbox] = step.kind === "email" ? await rows<MailboxRow>(client,"SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE id = $1 AND organization_id = $2 AND user_id = $3",[enrolment.mailbox_connection_id,actor.organizationId,actor.userId]) : [];
-    if (step.kind === "email" && !mailbox) return null;
+    const [mailbox] = !communicationsRuntimeEnabled() && step.kind === "email" ? await rows<MailboxRow>(client,"SELECT id, organization_id, user_id, address, encrypted_refresh_token, reconnect_required, scopes, daily_cap FROM mailbox_connections WHERE id = $1 AND organization_id = $2 AND user_id = $3",[enrolment.mailbox_connection_id,actor.organizationId,actor.userId]) : [];
+    if (!communicationsRuntimeEnabled() && step.kind === "email" && !mailbox) return null;
     return {attempt,enrolment,definition,step,mailbox};
   });
   if (!loaded) return false;
@@ -639,7 +653,7 @@ async function reconcileUnknownAttempt(actor: CampaignActor, attemptId: string) 
   if (waiting?.category === "retry" && waiting.retryAt && Date.parse(waiting.retryAt) > Date.now()) return false;
   const adapter=mailbox ? campaignMailboxForConnection({encryptedRefreshToken:mailbox.encrypted_refresh_token,reconnectRequired:mailbox.reconnect_required,scopes:mailbox.scopes},mailbox.id) : undefined;
   const provider=deliveryProvider(step.kind,adapter);
-  const found=await provider.lookup({actor,key:`campaign:${enrolment.id}:${step.id}`,messageId:attempt.rfc_message_id});
+  const found=await provider.lookup({actor,key:`campaign:${enrolment.id}:${step.id}`,messageId:attempt.rfc_message_id,...(communicationsRuntimeEnabled()?{attemptId:attempt.id,enrolmentId:enrolment.id,stepIndex:attempt.step_index,stepId:step.id,runtime:enrolment.runtime,sourceVersionId:enrolment.version_id}:{})});
   if (found?.status === "waiting") throw new ReplyCheckPending(found.code, step.kind, new Date(found.retryAt));
   if (found?.status === "review") throw new ReplyCheckReview(found.code, step.kind);
   if (!found || (found.status !== "submitted" && found.status !== "skipped")) return false;

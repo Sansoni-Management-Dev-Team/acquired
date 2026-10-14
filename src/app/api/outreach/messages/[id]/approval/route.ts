@@ -1,3 +1,4 @@
+import { withOutreachSendTransaction } from '@/lib/outreach-send-transaction';
 import { and, eq, getTableColumns, sql } from "drizzle-orm";
 import { z } from "zod";
 import { requireDb } from "@/db/client";
@@ -7,6 +8,7 @@ import { enrolmentStateAfterApproval } from "@/domain/outreach-approval";
 import { auth } from "@/lib/auth";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { buyerProfileFromMetadata } from "@/domain/buyer-profile";
+import {snapshotApprovedDraftBinding} from '@/lib/outreach-draft-binding';
 
 const requestSchema = z.object({ approved: z.boolean() });
 
@@ -23,7 +25,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const parsed = requestSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Approval state is required." }, { status: 400 });
   const { id } = await params;
-  const database = requireDb();
+  try { return await withOutreachSendTransaction(requireDb(), { organizationId, userId: session.user.id }, async database => {
   const [message] = await database.select({ ...getTableColumns(messages), contentRevision: sql<string>`${messages.updatedAt}::text` }).from(messages).where(and(eq(messages.id, id), eq(messages.organizationId, organizationId))).limit(1);
   if (!message) return Response.json({ error: "Draft not found." }, { status: 404 });
   if (!["draft", "approved"].includes(message.state)) return approvalConflict(id, "delivery_record", "This delivery record cannot be changed through draft approval.");
@@ -50,6 +52,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   // Approval changes only saved application state. Provider identifiers are historical
   // and remain untouched; this action cannot authorize or invoke provider dispatch.
   const state = parsed.data.approved ? "approved" as const : "draft" as const;
+  if(parsed.data.approved)await snapshotApprovedDraftBinding(database,{organizationId,userId:session.user.id},message);
   const [saved] = await database.update(messages).set({ state, approvedBy: parsed.data.approved ? session.user.id : null, approvedAt: parsed.data.approved ? new Date() : null, updatedAt: new Date() }).where(and(
     eq(messages.id, id), eq(messages.organizationId, organizationId), eq(messages.state, message.state),
     sql`${messages.updatedAt} = ${message.contentRevision}::timestamptz`,
@@ -65,4 +68,5 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   await new OrganizationRepository(database, organizationId).appendAudit({ actorId: session.user.id, action: parsed.data.approved ? "outreach.message_approved" : "outreach.message_approval_revoked", entityType: "message", entityId: id, metadata: { enrolmentId: message.enrolmentId, enrolmentState, draftStorage: "application", historicalProviderDraftId: message.providerMessageId, liveDelivery: false } });
   console.info("[outreach-approval] saved", JSON.stringify({ messageId: id, state, enrolmentState, draftStorage: "application", liveDelivery: false }));
   return Response.json({ messageId: id, state, enrolmentState, draftStorage: "application", liveDelivery: false });
+  }); } catch { return Response.json({ error: 'The draft could not be saved safely. Try again later.' }, { status: 503 }); }
 }

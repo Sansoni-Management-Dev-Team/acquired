@@ -1,3 +1,4 @@
+import { prepareOutreachSendTransaction } from '@/lib/outreach-send-transaction';
 import { createHash } from "node:crypto";
 import { reviewedOutreachSignals } from "@/domain/reviewed-outreach-evidence";
 import { and, eq, sql } from "drizzle-orm";
@@ -97,6 +98,7 @@ export async function POST(request: Request) {
   const snapshots = new Map(existingMessages.map(message => [message.stepNumber, message]));
   try {
     const enrolment = await database.transaction(async tx => {
+      await prepareOutreachSendTransaction(tx, { organizationId, userId: session.user.id });
       let selectedEnrolment = existingEnrolments[0];
       if (!selectedEnrolment) {
         await tx.insert(sequences).values({ id: sequenceId, organizationId, name: `Mandate ${mandate.id} · contact ${contact.id}`, steps: DEFAULT_SEQUENCE, createdBy: session.user.id }).onConflictDoNothing();

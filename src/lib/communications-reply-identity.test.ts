@@ -82,3 +82,5 @@ describe('recorded owner-scoped campaign identity bridge', () => {
         expect(getter).not.toHaveBeenCalled();
     });
 });
+
+it('accepts an explicitly recorded canonical service URL without inventing a legacy provider URN',async()=>{const f=fixture();f.query.mockResolvedValue({rows:[{...f.row,identity:sender.value}],rowCount:1});expect(await createRecordedReplyIdentityResolver({actor,binding,bindingId})(f.client,f.input)).toEqual({...f.input,identity:sender.value,identityAuthority:'canonical_service'});});

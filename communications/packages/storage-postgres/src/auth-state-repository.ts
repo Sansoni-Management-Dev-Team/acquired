@@ -26,6 +26,8 @@ export interface AuthStateRepositoryOptions {
   backend: 'unipile';
   redirectOrigin: string;
   ttlSeconds?: number;
+  /** Concrete runtime schema uses tenant-first locks before grant/state/connection. */
+  lockTenant?: boolean;
   allowLoopbackRedirect?: boolean;
   authenticationTimeoutMs?: number;
   transactionTimeoutMs?: number;
@@ -74,6 +76,8 @@ export function createPostgresAuthStateRepository(options: AuthStateRepositoryOp
     if (scopeFields.some(key => !id(fixed[key]))) fail();
     scope = { applicationId: fixed.applicationId as string, tenantId: fixed.tenantId as string, ownerId: fixed.ownerId as string };
   } catch { throw Error('Invalid auth-state repository configuration'); }
+  if(options.lockTenant!==undefined&&typeof options.lockTenant!=='boolean')throw Error('Invalid auth-state repository configuration');
+  const lockTenant=options.lockTenant===true;
   const channel = options.channel, platform = options.platform, backend = options.backend, redirectOrigin = options.redirectOrigin;
   const ttlSeconds = options.ttlSeconds ?? 600;
   const authenticationTimeoutMs = options.authenticationTimeoutMs ?? 3000, transactionTimeoutMs = options.transactionTimeoutMs ?? 20_000;
@@ -92,7 +96,7 @@ export function createPostgresAuthStateRepository(options: AuthStateRepositoryOp
       !Number.isSafeInteger(lockTimeoutMs) || lockTimeoutMs < 1 || lockTimeoutMs > statementTimeoutMs ||
       !Number.isSafeInteger(ttlSeconds) || ttlSeconds < 1 || ttlSeconds > 3600 || typeof options.pool?.connect !== 'function' ||
       typeof options.authenticateNotification !== 'function' || typeof options.bindNotification !== 'function') throw Error('Invalid auth-state repository configuration');
-  const connect = options.pool.connect.bind(options.pool), authenticate = options.authenticateNotification.bind(options), bind = options.bindNotification.bind(options);
+  const connect = Function.prototype.bind.call(options.pool.connect,options.pool), authenticate = Function.prototype.bind.call(options.authenticateNotification,options), bind = Function.prototype.bind.call(options.bindNotification,options);
   const scopeValues = [scope.applicationId,scope.tenantId,scope.ownerId];
   function binding(value: unknown): ConnectionBinding {
     const raw = record(value,bindingFields);
@@ -138,7 +142,7 @@ export function createPostgresAuthStateRepository(options: AuthStateRepositoryOp
         assertLive();
         client = await connect();
         assertLive();
-        const query: SqlClient['query'] = client.query.bind(client);
+        const query: SqlClient['query'] = Function.prototype.bind.call(client!.query,client);
         const tx: SqlClient = { async query<Row=Record<string,unknown>>(text:string,values?:unknown[]) {
           assertLive();
           if (inFlight !== 0) fail();
@@ -154,6 +158,7 @@ export function createPostgresAuthStateRepository(options: AuthStateRepositoryOp
         const role = await tx.query(`SELECT current_user AS role_name,rolsuper,rolbypassrls,rolcanlogin FROM pg_roles WHERE rolname=current_user`);
         if (role.rows.length !== 1 || role.rows[0].role_name !== 'communications_control' || role.rows[0].rolsuper !== false || role.rows[0].rolbypassrls !== false || role.rows[0].rolcanlogin !== false) fail();
         await tx.query("SELECT set_config('lock_timeout',$1,true),set_config('statement_timeout',$2,true)",[`${lockTimeoutMs}ms`,`${statementTimeoutMs}ms`]);
+        if(lockTenant)await tx.query('SELECT communications.lock_reply_barrier($1,$2)',[scope.applicationId,scope.tenantId]);
         const result = await work(tx,() => { assertLive(); binderUsed = true; });
         assertLive();
         return result;

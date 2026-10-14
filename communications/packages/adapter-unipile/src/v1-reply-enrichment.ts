@@ -10,7 +10,7 @@ export interface V1ReplyReadTransport {
  getMessage(id:string,options?:UnipileRequestOptions):Promise<UnipileHttpResult>;
  getEmail(accountId:string,id:string,options?:UnipileRequestOptions):Promise<UnipileHttpResult>;
 }
-export type V1ReplyEnrichmentOptions = {binding:ConnectionBinding;providerAccountId:string;sourceId:string;eventsFrom:string;transport:V1ReplyReadTransport;now?:()=>number;deadlineMs?:number;
+export type V1ReplyEnrichmentOptions = {binding:ConnectionBinding;providerAccountId:string;sourceId:string;eventsFrom:string;transport:V1ReplyReadTransport;now?:()=>number;deadlineMs?:number;historyAllFolders?:true;
  /** Current physical owner verification from authenticated account metadata against the original
   * service-owned identity. Required: never infer WhatsApp LID/PN or IMAP owner from display names. */
  verifyOwner(input:{binding:ConnectionBinding;providerAccountId:string;sourceId:string;account:unknown;recordedOwner:{channel:'email';ownerAddresses:readonly string[]}|{channel:'whatsapp'|'linkedin';ownerProviderId:string;product:string};signal:AbortSignal}):Promise<boolean>;
@@ -36,9 +36,10 @@ const nonReply=new Set(['message_read','message_delivered','message_reaction','m
  * Required owner/alias ports must enforce current grants and original physical-account identity. */
 export function createUnipileV1ReplyEnricher(options:V1ReplyEnrichmentOptions):{normalize(raw:unknown,binding:ConnectionBinding):Promise<V1ReplyEventResult>} {
  assertSameBinding(options.binding,options.binding);
+ if(options.historyAllFolders!==undefined&&options.historyAllFolders!==true)throw new Error('Invalid reply enrichment configuration');
  if(options.binding.backend!=='unipile' || options.binding.channel!==options.channel || !id(options.providerAccountId) || !id(options.sourceId) || !date(options.eventsFrom))throw new Error('Invalid reply enrichment configuration');
  if(options.channel==='email'&&!Array.isArray(options.ownerAddresses))throw new Error('Invalid reply enrichment configuration');
- const binding=structuredClone(options.binding),providerAccountId=options.providerAccountId,sourceId=options.sourceId,eventsFrom=options.eventsFrom;
+ const allFolders=options.historyAllFolders===true;const binding=structuredClone(options.binding),providerAccountId=options.providerAccountId,sourceId=options.sourceId,eventsFrom=options.eventsFrom;
  const recorded=options.channel==='email'?{channel:'email' as const,ownerAddresses:[...options.ownerAddresses]}:{channel:options.channel,ownerProviderId:options.ownerProviderId,product:options.product};
  if(recorded.channel==='email'?(!recorded.ownerAddresses.length||recorded.ownerAddresses.length>100||!recorded.ownerAddresses.every(a=>typeof a==='string'&&a===a.toLowerCase()&&a===a.trim()&&/^[^\s<>@]+@[^\s<>@]+\.[^\s<>@]+$/.test(a))):
    (!id(recorded.ownerProviderId)||(recorded.channel==='whatsapp'?recorded.product!=='whatsapp':!['classic','sales_navigator','recruiter'].includes(recorded.product))))throw new Error('Invalid reply enrichment configuration');
@@ -84,7 +85,7 @@ export function createUnipileV1ReplyEnricher(options:V1ReplyEnrichmentOptions):{
     const types=binding.platform==='gmail'?['MAIL','GOOGLE','GOOGLE_OAUTH']:binding.platform==='outlook'?['MAIL','OUTLOOK','EXCHANGE']:['MAIL','ICLOUD'];
     if(mail.type!==undefined&&(typeof mail.type!=='string'||!types.includes(mail.type)))return review('account_changed');
     for(const field of ['type','provider_id','message_id'])if(raw[field]!==undefined&&raw[field]!==mail[field])return review();
-    return normalizeV1ReplyEvent(raw,{...context,channel:'email',ownerAddresses:[...recorded.ownerAddresses],email:{binding:structuredClone(binding),providerAccountId,id:raw.email_id as string,complete:true,headersComplete:true,mail}});
+    return normalizeV1ReplyEvent(raw,{...context,channel:'email',ownerAddresses:[...recorded.ownerAddresses],...(allFolders?{historyAllFolders:true as const}:{}),email:{binding:structuredClone(binding),providerAccountId,id:raw.email_id as string,complete:true,headersComplete:true,mail}});
    }
    const chat=await read(()=>getChat(providerAccountId,raw.chat_id as string,{signal}));
    if(!object(chat)||chat.object!=='Chat'||chat.account_id!==providerAccountId||chat.id!==raw.chat_id||chat.account_type!==recorded.channel.toUpperCase())return review('account_changed');

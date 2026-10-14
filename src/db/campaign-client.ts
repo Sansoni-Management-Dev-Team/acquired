@@ -2,6 +2,8 @@ import "server-only";
 import { attachDatabasePool } from "@vercel/functions";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { assertCampaignWorkRemaining, campaignRemainingMs, CampaignWorkDeferred } from "@/lib/campaign-work-budget";
+import { lockAcquireSendGate } from '@/lib/campaign-send-gate';
+import type { SqlPool } from '../../communications/packages/storage-postgres/src/webhook-repository';
 
 export type CampaignActor = { organizationId: string; userId: string };
 const globalForCampaign = globalThis as typeof globalThis & { acquireCampaignPool?: Pool };
@@ -14,6 +16,14 @@ function pool() {
   attachDatabasePool(created);
   globalForCampaign.acquireCampaignPool = created;
   return created;
+}
+/** Standard driver injection for the configured communications consumer. Repositories
+ * enter their own restricted role/transaction; uncertain sessions are physically discarded. */
+export function campaignSqlPool(): SqlPool {
+    return { async connect() {
+        const client=await pool().connect();
+        return { async query<Row>(text:string,values?:unknown[]) { const result=await client.query(text,values);return {rows:result.rows as Row[],rowCount:result.rowCount}; }, release(error?:Error) {client.release(error);} };
+    } };
 }
 
 async function assertRlsRole(client: PoolClient, expected: string) {
@@ -54,6 +64,7 @@ export async function withCampaignDb<T>(actor: CampaignActor, callback: (client:
     await scoped.query("SET LOCAL ROLE acquire_campaign_user");
     await assertRlsRole(scoped, "acquire_campaign_user");
     await scoped.query("SELECT set_config('app.acquire_org', $1, true), set_config('app.acquire_user', $2, true)", [actor.organizationId, actor.userId]);
+    if (process.env.COMMUNICATIONS_RUNTIME_ENABLED === 'true') await lockAcquireSendGate(scoped, actor.organizationId, { required: true });
     const membership = await scoped.query("SELECT 1 FROM member WHERE organization_id = $1 AND user_id = $2 LIMIT 1", [actor.organizationId, actor.userId]);
     if (!membership.rowCount) throw new Error("Campaign owner is no longer an organization member");
     const result = await callback(scoped);
@@ -69,7 +80,7 @@ export async function withCampaignDb<T>(actor: CampaignActor, callback: (client:
 
 // The worker role is only entered from the bearer-secret route. Individual
 // sends still re-enter the restricted user role with the job's recorded owner.
-export async function withCampaignWorker<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
+export async function withCampaignWorker<T>(callback: (client: PoolClient) => Promise<T>, organizationId?: string): Promise<T> {
   assertCampaignWorkRemaining();
   const client = await pool().connect();
   try {
@@ -77,6 +88,10 @@ export async function withCampaignWorker<T>(callback: (client: PoolClient) => Pr
     const scoped = await scheduledClient(client);
     await scoped.query("SET LOCAL ROLE acquire_campaign_worker");
     await assertRlsRole(scoped, "acquire_campaign_worker");
+    if (process.env.COMMUNICATIONS_RUNTIME_ENABLED === 'true' && organizationId !== undefined) {
+        await scoped.query("SELECT set_config('app.acquire_org', $1, true)",[organizationId]);
+        await lockAcquireSendGate(scoped, organizationId, { required: true });
+    }
     const result = await callback(scoped);
     await client.query("COMMIT");
     return result;

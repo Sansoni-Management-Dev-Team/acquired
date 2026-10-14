@@ -1,10 +1,12 @@
 # Communications service and Unipile execution plan
 
-Created: 2026-10-12. Status: implementation underway; contract/adapter/SDK, v1 social and dispatch/encryption foundations verified locally. V1 credentials/endpoint are verified and the three approved local database parity changes are applied. The specifically approved local storage/binding/reply schemas 001/002/003 are applied; actual app policy/fencing and bounded journal claims/results have real PostgreSQL verification. Independent service-only5446 schema/proof is specifically approved/applied and locally verified. D19 legacy source extraction and app retirement are implemented; independent WhatsApp5447 storage is specifically approved/applied and all four restricted-role cases pass; the legacy repository is published privately at user request. Send admission, live channel capabilities and Unipile UI/runtime activation remain outstanding. See the progress record for actual scope.
+Created: 2026-10-12. Status: build-first implementation complete in principal code paths; final combined verification passed; prepared fixtures and the67-case runner are frozen. Concrete account/runtime/history/admission and Acquire settings/campaign/draft APIs are built. Prior approved storage has198 current-source PostgreSQL passes; eight new exact artifacts and67 cases remain unapproved/unapplied/unexecuted. Legacy services are extracted into their private independent repository with approved5447 verification. Runtime activation, live parity and release remain unfinished. See the progress record for evidence and the final local migration review for exact pending targets.
 
 This is the implementation checklist for adding Unipile as an optional connection backend for email, WhatsApp, and LinkedIn, while preserving the working backends and extracting a reusable communications service. Current progress, decisions, approvals, and handoffs live in [progress.md](communications/progress.md). This document defines the work; that document records what actually happened.
 
 **2026-10-13 user scope change:** Direct Gmail, Baileys WhatsApp and browser LinkedIn must now move into the independent repository `/Users/callum/Documents/Development/legacy-channel-services` for reuse and continued development, and their executable connection methods must be removed from Acquire. This supersedes the earlier coexistence/legacy-retention clauses below. Preserve and characterize the extracted behavior first; retain historical recorded bindings, holds, receipts and unknown attempts without silently transferring them to Unipile. Removing code does not authorize deleting historical data, migrating another database, shutting down DigitalOcean instances or deploying the change. Scope and acceptance updates are recorded in progress D19.
+
+**2026-10-14 sequencing update:** Complete the remaining implementation and prepared tests before the final migration stage. New SQL stays unapplied; deferred database tests are not passes. Do not block independent building on pending migration approval. Consolidate exact final artifacts/targets/hashes for specific approval after the complete build is reviewable.
 
 ## How to resume and avoid omissions
 
@@ -23,7 +25,9 @@ Use stable task IDs below. Track `not_started`, `in_progress`, `blocked`, `imple
 
 TDD is the implementation method for new behavior and defect fixes in P1–P6. P0 establishes the existing baseline; planning, documentation, secret placement and operational rollout use appropriate direct verification instead of artificial failing tests.
 
-For each behavior slice:
+**User-directed verification cadence (2026-10-14, D21):** Write the remaining acceptance tests before their implementation, complete the remaining code, then run the combined suites at the end. This supersedes per-slice RED/GREEN reruns for the remaining build. Preserve earlier recorded RED/GREEN evidence; label newly batched cases as test-first until the final run, without inventing an executed RED. New-schema PostgreSQL tests remain prepared and unexecuted until the final specifically approved migration stage.
+
+For each behavior slice (historical cadence; remaining work follows D21 above):
 
 1. **Specify:** name the task and acceptance scenario, observable outcome, failure boundary and test layer. Assertions must describe behavior independently of the chosen implementation.
 2. **Red:** write or extend the smallest meaningful test and run it before implementing the behavior. Confirm it fails for the intended missing behavior or defect, not an unrelated broken dependency, missing credential or unavailable database. Record the command, assertion and failure evidence without secrets.
@@ -39,13 +43,13 @@ A task cannot become `verified` until its relevant tests and evidence are record
 
 ## Outcome and boundaries
 
-Acquire will call a versioned communications SDK/API. The service supports Unipile and the current direct Gmail, Baileys WhatsApp, and browser LinkedIn backends. Backend selection is explicit per connection. Existing defaults and active work are preserved.
+Acquire calls a versioned communications SDK/API with explicit immutable connection selection. Its configured implementation uses Unipile. Direct Gmail, Baileys WhatsApp and browser LinkedIn are preserved in the separate legacy repository under D19; historical bindings and unresolved work remain recorded without implicit transfer.
 
 Acquire retains campaigns, contact assignments, approvals, suppressions, person holds, business sending windows, n8n scheduling, and audit decisions. The service owns account connections, credentials, provider operations, account quotas, session leases, action journals, normalized communication events, and transport reconciliation. Effective admission honors both application and account limits without double-counting one operation.
 
 The extracted service must run without Acquire's Next.js, Better Auth, database membership tables, `@/` aliases, campaign entities, or n8n. The existing Python and Node runtimes can remain. The first release covers current operations and the requested Unipile integration; complete Unipile feature parity is outside this plan.
 
-Proposed structure, subject to the contract decision:
+Implemented structure:
 
 ```text
 communications/
@@ -53,11 +57,11 @@ communications/
   packages/core/
   packages/sdk/
   packages/adapter-unipile/
-  packages/adapter-gmail/
+  packages/storage-postgres/
   services/api/
-  services/linkedin/
-  services/whatsapp/
-  examples/minimal-client/
+src/lib/communications-*       # Acquire application composition
+ops/communications/standalone/  # Service-only reviewed SQL
+../legacy-channel-services/    # Independently published old services
 ```
 
 Keep transport contracts free of framework and database imports. Separate channel (`email`, `whatsapp`, `linkedin`), platform (`gmail`, `outlook`, `imap`, `whatsapp`, `linkedin`), and backend (`direct`, `baileys`, `browser`, `unipile`). Do not add Unipile as a channel or pretend every adapter supports every operation.
@@ -114,7 +118,7 @@ Contract work depends on the P0 inventory/baseline/decision evidence. Independen
 
 - [x] P1.1 Define versioned contracts for connections, setup actions, capabilities, normalized identities, paginated events/coverage, delivery outcomes, errors, and receipts.
 - [x] P1.2 Define messaging, optional email drafts/threading, and LinkedIn relationship/invitation interfaces. Preserve receipt lookup as a read-only operation.
-- [ ] P1.3 Introduce SDK/service boundaries and dependency-injected repositories/credential access. Wrap existing Gmail, WhatsApp, and LinkedIn behavior before moving runtime implementations.
+- [x] P1.3 Introduce SDK/service boundaries and dependency-injected repositories/credential access. Wrap existing Gmail, WhatsApp, and LinkedIn behavior before moving runtime implementations.
 - [ ] P1.4 Exercise shared contracts against the existing adapters; verify legacy-only operation without Unipile credentials. Document which leases/journals remain authoritative during transition.
 
 Exit: existing behavior passes through reusable contracts; shared packages have no Acquire imports. No connection is switched or credential moved.
@@ -123,8 +127,8 @@ Exit: existing behavior passes through reusable contracts; shared packages have 
 
 Depends on P1. Migration application is a separate, specifically approved action.
 
-- [ ] P2.1 Specify generic connection/account/grant records, backend references, connection generations, defaults, canonical identity aliases, and status/capability snapshots. Model service ownership independently of app membership tables.
-- [ ] P2.2 Specify enrolment/channel bindings, draft bindings, send-attempt connection/backend snapshots, and connection-bound event/checkpoint/lease keys. Freeze bindings before dispatch; recovery uses the recorded original connection.
+- [x] P2.1 Specify generic connection/account/grant records, backend references, connection generations, defaults, canonical identity aliases, and status/capability snapshots. Model service ownership independently of app membership tables.
+- [x] P2.2 Specify enrolment/channel bindings, draft bindings, send-attempt connection/backend snapshots, and connection-bound event/checkpoint/lease keys. Freeze bindings before dispatch; recovery uses the recorded original connection.
 - [ ] P2.3 Prepare exact migration/backfill artifacts with RLS/grants, ownership constraints, legacy read compatibility, duplicate-account policy, resumability, backups, and rollback/forward-recovery procedure. Do not apply them yet.
 - [ ] P2.4 After explicit approval for each artifact/environment, apply only that approved migration, verify schema and ownership parity, and verify existing credentials/enrolments/drafts/holds/unknown attempts remain intact.
 

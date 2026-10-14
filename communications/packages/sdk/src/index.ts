@@ -1,8 +1,9 @@
 import {
   COMMUNICATIONS_CONTRACT_VERSION,
   type ConnectionBinding, type DeliveryOutcome, type MessageSubmission,
-  type Readiness, type ReceiptLookup,
+  type Readiness, type ReceiptLookup, type AccessScope, type CanonicalIdentity, type RelationshipStatus,
 } from "../../contracts/src/index";
+import { assertManagedConnection, assertManagementBinding, assertManagementSnapshot, type ManagedConnection, type ConnectionManagementSnapshot, type ConnectionSetupRequest, type ConnectionSetupResponse, type ConnectionDisconnectResponse } from '../../contracts/src/management';
 import { isDeliveryOutcome, isReadiness } from "./validation";
 
 export interface CommunicationsClientConfig {
@@ -80,6 +81,42 @@ export class CommunicationsClient {
     if (!object(data) || data.contractVersion !== COMMUNICATIONS_CONTRACT_VERSION) throw new CommunicationsClientError("protocol");
     return { contractVersion: "1" };
   }
+  async connections(scope: AccessScope): Promise<ConnectionManagementSnapshot> {
+    const data = await this.#request('/v1/connections/list', {}); assertManagementSnapshot(data, scope); return data;
+  }
+  async setupConnection(scope: AccessScope, input: ConnectionSetupRequest): Promise<ConnectionSetupResponse> {
+    const captured = structuredClone(input); if (captured.reconnectBinding) assertManagementBinding(captured.reconnectBinding, scope);
+    try {
+      const data = await this.#request('/v1/connections/setup', captured);
+      if (!object(data)) throw new CommunicationsClientError('protocol');
+      if (data.status === 'redirect' && Object.keys(data).length === 2 && object(data.action) && Object.keys(data.action).sort().join(',') === 'expiresAt,type,url' && data.action.type === 'redirect' && typeof data.action.url === 'string' && typeof data.action.expiresAt === 'string') {
+        const url = new URL(data.action.url);
+        if (url.origin !== 'https://account.unipile.com' || url.username || url.password || url.hash || !Number.isFinite(Date.parse(data.action.expiresAt)) || Date.parse(data.action.expiresAt) <= Date.now()) throw new CommunicationsClientError('protocol');
+        return data as ConnectionSetupResponse;
+      }
+      if (Object.keys(data).length === 1 && ['unknown', 'unavailable'].includes(String(data.status))) return data as ConnectionSetupResponse;
+      if (Object.keys(data).length === 2 && data.status === 'rejected' && ['invalid', 'provider_rejected'].includes(String(data.code))) return data as ConnectionSetupResponse;
+      throw new CommunicationsClientError('protocol');
+    } catch (e) { if (e instanceof CommunicationsClientError && typeof e.status === 'number' && e.status === predispatchRejections[e.code]) throw e; return { status: 'unknown' }; }
+  }
+  async connectionStatus(binding: ConnectionBinding): Promise<ManagedConnection> {
+    assertManagementBinding(binding, binding); const data = await this.#request('/v1/connections/status', { binding: structuredClone(binding) });
+    assertManagedConnection(data, binding); if (JSON.stringify(data.binding) !== JSON.stringify(binding)) { // Compare values independently of property order.
+      for (const k of Object.keys(binding) as (keyof ConnectionBinding)[]) if (data.binding[k] !== binding[k]) throw new CommunicationsClientError('protocol');
+    } return data;
+  }
+  async disconnectConnection(binding: ConnectionBinding, key: string): Promise<ConnectionDisconnectResponse> {
+    assertManagementBinding(binding, binding);
+    try { const data = await this.#request('/v1/connections/disconnect', { binding: structuredClone(binding), key });
+      if (!object(data) || Object.keys(data).some(k => !['status', 'code'].includes(k)) || !['disconnected', 'unknown', 'rejected', 'review'].includes(String(data.status)) || data.code !== undefined && (typeof data.code !== 'string' || !/^[a-z_]{1,80}$/.test(data.code))) throw new CommunicationsClientError('protocol');
+      return data as ConnectionDisconnectResponse;
+    } catch (e) { if (e instanceof CommunicationsClientError && typeof e.status === 'number' && e.status === predispatchRejections[e.code]) throw e; return { status: 'unknown' }; }
+  }
+  async setDefaultConnection(binding: ConnectionBinding): Promise<ManagedConnection> {
+    assertManagementBinding(binding, binding); const data = await this.#request('/v1/connections/default', { binding: structuredClone(binding) }); assertManagedConnection(data, binding);
+    for (const k of Object.keys(binding) as (keyof ConnectionBinding)[]) if (data.binding[k] !== binding[k]) throw new CommunicationsClientError('protocol');
+    if (!data.isDefault) throw new CommunicationsClientError('protocol'); return data;
+  }
   async ready(binding: ConnectionBinding): Promise<Readiness> {
     const data = await this.#request("/v1/ready", { binding });
     if (!isReadiness(data)) throw new CommunicationsClientError("protocol");
@@ -101,6 +138,16 @@ export class CommunicationsClient {
     const data = await this.#request("/v1/lookup", captured);
     if (!isDeliveryOutcome(data, captured.snapshot, captured.expectedRecipient, captured.message)) throw new CommunicationsClientError("protocol");
     return data;
+  }
+  async lookupDetails(input: ReceiptLookup): Promise<DeliveryOutcome|null> {
+    const captured=structuredClone(input),data=await this.#request('/v1/lookup/details',captured);
+    if(!isDeliveryOutcome(data,captured.snapshot,captured.expectedRecipient,captured.message))throw new CommunicationsClientError('protocol');return data;
+  }
+  async inspectRelationship(binding:ConnectionBinding,profile:CanonicalIdentity):Promise<{status:RelationshipStatus;canMessage:boolean|null;observedAt:string}> {
+    assertManagementBinding(binding,binding);if(binding.channel!=='linkedin'||profile.kind!=='linkedin_profile')throw new CommunicationsClientError('invalid_request');
+    const data=await this.#request('/v1/relationships/inspect',{binding:structuredClone(binding),profile:structuredClone(profile),refresh:true});
+    if(!object(data)||Object.keys(data).sort().join(',')!=='canMessage,observedAt,status'||!['connected','invitation_pending','not_connected','unknown'].includes(String(data.status))||!(data.canMessage===null||typeof data.canMessage==='boolean')||typeof data.observedAt!=='string'||!Number.isFinite(Date.parse(data.observedAt))||Date.parse(data.observedAt)>Date.now())throw new CommunicationsClientError('protocol');
+    return data as {status:RelationshipStatus;canMessage:boolean|null;observedAt:string};
   }
   async #request(path: string, body?: unknown): Promise<unknown> {
     const controller = new AbortController();

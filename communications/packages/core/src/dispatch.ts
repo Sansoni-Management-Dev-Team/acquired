@@ -1,4 +1,4 @@
-import { isDeepStrictEqual } from "node:util";
+import { isDeepStrictEqual, types } from "node:util";
 import { assertOperationMatches, assertSameBinding, assertSubmissionReceiptMatches, ContractError } from "../../contracts/src";
 import type { CanonicalIdentity, ConnectionBinding, DeliveryOutcome, MessageSubmission, MessagingAdapter, OperationSnapshot, ProviderReference, Readiness } from "../../contracts/src";
 import { messageDigest } from "./message-digest";
@@ -10,6 +10,7 @@ export type DispatchRecord = { snapshot: OperationSnapshot; recipient: Canonical
   | { state: "unknown"; outcome: Extract<DeliveryOutcome, { status: "unknown" }> }
   | { state: "completed"; outcome: Exclude<DeliveryOutcome, { status: "unknown" }> }
 );
+export type UncertainDispatchRecord = DispatchRecord & {state: 'unknown' | 'dispatching'};
 export type ClaimDecision = { kind: "claimed"; token: string; record: DispatchRecord } | { kind: "existing"; record: DispatchRecord } | { kind: "blocked"; outcome: DispatchBlock };
 export type BeginDispatchDecision = { kind: "admitted"; record: DispatchRecord } | { kind: "blocked"; outcome: DispatchBlock } | { kind: "uncertain" };
 
@@ -23,6 +24,14 @@ export interface DispatchJournalPort {
   complete(input: { token: string; record: DispatchRecord; outcome: DeliveryOutcome }): Promise<DispatchRecord>;
   get(snapshot: OperationSnapshot): Promise<DispatchRecord | null>;
   reconcile(input: { record: DispatchRecord; outcome: DeliveryOutcome }): Promise<DispatchRecord>;
+}
+export interface DispatchCoordinatorOptions {
+  /** Trusted server composition only: a committed tracking ACK and authenticated,
+   * read-verified association must identify the original email. No caller ID/search.
+   * The journal independently verifies this proposal before durable reconciliation. */
+  recoverUnknownEmail?(record: UncertainDispatchRecord, signal: AbortSignal): Promise<DeliveryOutcome | null>;
+  /** Whole recovery/read + reconciliation response budget, never renewed per phase. */
+  recoveryTimeoutMs?: number;
 }
 
 const unknown = (): DeliveryOutcome => ({ status: "unknown" });
@@ -125,17 +134,53 @@ function replay(record: DispatchRecord): DeliveryOutcome {
 /** A single immutable adapter and a REQUIRED authoritative journal: no fallback or memory journal.
  * This coordinator orders calls, validates provenance and uncertainty, and captures immutable inputs.
  * The injected repository must provide real transactions/fences/quotas and enforce current grants. */
-export function createDispatchCoordinator(expectedBinding: ConnectionBinding, adapter: MessagingAdapter, journal: DispatchJournalPort): MessagingAdapter {
+export function createDispatchCoordinator(expectedBinding: ConnectionBinding, adapter: MessagingAdapter, journal: DispatchJournalPort, options: DispatchCoordinatorOptions = {}): MessagingAdapter {
   assertSameBinding(expectedBinding, expectedBinding);
   const binding = structuredClone(expectedBinding);
-  const adapterReady = adapter.ready.bind(adapter);
-  const adapterSubmit = adapter.submit.bind(adapter);
-  const adapterLookup = adapter.lookup.bind(adapter);
-  const claim = journal.claim.bind(journal);
-  const beginDispatch = journal.beginDispatch.bind(journal);
-  const complete = journal.complete.bind(journal);
-  const get = journal.get.bind(journal);
-  const reconcile = journal.reconcile.bind(journal);
+  const adapterReady = Function.prototype.bind.call(adapter.ready,adapter) as MessagingAdapter['ready'];
+  const adapterSubmit = Function.prototype.bind.call(adapter.submit,adapter) as MessagingAdapter['submit'];
+  const adapterLookup = Function.prototype.bind.call(adapter.lookup,adapter) as MessagingAdapter['lookup'];
+  const claim = Function.prototype.bind.call(journal.claim,journal) as DispatchJournalPort['claim'];
+  const beginDispatch = Function.prototype.bind.call(journal.beginDispatch,journal) as DispatchJournalPort['beginDispatch'];
+  const complete = Function.prototype.bind.call(journal.complete,journal) as DispatchJournalPort['complete'];
+  const get = Function.prototype.bind.call(journal.get,journal) as DispatchJournalPort['get'];
+  const reconcile = Function.prototype.bind.call(journal.reconcile,journal) as DispatchJournalPort['reconcile'];
+  let recover: DispatchCoordinatorOptions['recoverUnknownEmail'], recoveryTimeout: number;
+  try {
+    if (!options || types.isProxy(options) || Object.getPrototypeOf(options)!==Object.prototype) fail();
+    const d=Object.getOwnPropertyDescriptors(options);
+    if(Reflect.ownKeys(d).some(k=>typeof k!=='string'||!['recoverUnknownEmail','recoveryTimeoutMs'].includes(k)||!('value'in d[k]))) fail();
+    for(const descriptor of Object.values(d))if(types.isPromise(descriptor.value)){void Promise.prototype.then.call(descriptor.value,undefined,()=>{});fail();}
+    const fn=d.recoverUnknownEmail?.value;
+    recoveryTimeout=d.recoveryTimeoutMs?.value??10000;
+    if(fn!==undefined&&(typeof fn!=='function'||types.isProxy(fn))||!Number.isSafeInteger(recoveryTimeout)||recoveryTimeout<1||recoveryTimeout>10000)fail();
+    recover=fn===undefined?undefined:Function.prototype.bind.call(fn,options);
+  } catch { throw Error('Invalid dispatch recovery configuration'); }
+
+  async function recoverEmail(record: UncertainDispatchRecord):Promise<DeliveryOutcome>{
+    const controller=new AbortController(),deadline=performance.now()+recoveryTimeout;
+    let timer:ReturnType<typeof setTimeout>;
+    const stopped=new Promise<never>((_resolve,reject)=>{timer=setTimeout(()=>{controller.abort();reject(Error('Email recovery unavailable'));},recoveryTimeout);});
+    void stopped.catch(()=>undefined);
+    const live=()=>{if(controller.signal.aborted||performance.now()>=deadline){controller.abort();throw Error('Email recovery unavailable');}};
+    const call=async<T>(work:()=>Promise<T>):Promise<T>=>{live();const pending=Promise.resolve().then(()=>{live();return work();}).then(value=>{live();return value;});void pending.catch(()=>undefined);return Promise.race([pending,stopped]);};
+    function capture<T>(v:T):T{
+      const pending:unknown[]=[v];let count=0;
+      while(pending.length){const value=pending.pop();if(++count>10000)fail();if(types.isPromise(value)){void Promise.prototype.then.call(value,undefined,()=>{});fail();}
+        if(value===null||value===undefined||['string','boolean','number'].includes(typeof value))continue;
+        if(!value||typeof value!=='object'||types.isProxy(value)||![Object.prototype,null,Array.prototype].includes(Object.getPrototypeOf(value)))fail();
+        const d=Object.getOwnPropertyDescriptors(value);for(const k of Reflect.ownKeys(d)){if(typeof k!=='string'||!('value'in d[k]))fail();pending.push(d[k].value);}
+      }return structuredClone(v);
+    }
+    try{
+      const observed=capture(await call(()=>recover!(structuredClone(record),controller.signal)));
+      if(!validOutcome(observed,record.snapshot,record.recipient,undefined,record.conversation)||observed?.status!=='submitted'||!('message'in observed.receipt))return unknown();
+      const result=capture(await call(()=>reconcile(structuredClone({record,outcome:observed}))));
+      assertRecord(result,record.snapshot,record.recipient,record);
+      if(result.state!=='completed'||!isDeepStrictEqual(result.outcome,observed)||!isDeepStrictEqual(result.message,observed.receipt.message))return unknown();
+      live();return structuredClone(observed);
+    }catch{return unknown();}finally{clearTimeout(timer!);controller.abort();}
+  }
 
   async function persist(token: string, record: DispatchRecord, outcome: DeliveryOutcome): Promise<DeliveryOutcome> {
     try {
@@ -207,6 +252,11 @@ export function createDispatchCoordinator(expectedBinding: ConnectionBinding, ad
       }
       // A claimed row never crossed durable dispatch admission, so it cannot have a send to recover.
       if (record.state === "claimed") return unknown();
+      if((record.state==='unknown'||record.state==='dispatching')&&!record.message&&recover&&binding.backend==='unipile'&&binding.channel==='email'&&input.snapshot.operation==='message'){
+        // Browser/client proposals never nominate the learned message ID.
+        if(input.message)return unknown();
+        return recoverEmail(record as UncertainDispatchRecord);
+      }
       const knownMessage = !!record.message && !!input.message && input.snapshot.operation === "message";
       if (input.message && !record.message) return unknown();
       if (input.message && record.message && record.message.id !== input.message.id) throw new ContractError("receipt_mismatch");

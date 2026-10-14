@@ -1,18 +1,19 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { randomUUID } from "node:crypto";
-const mock = vi.hoisted(() => ({ rows: vi.fn(), query: vi.fn(), conversation: vi.fn() }));
+const mock = vi.hoisted(() => ({ rows: vi.fn(), query: vi.fn(), conversation: vi.fn(), ready: vi.fn() }));
 vi.mock("server-only", () => ({}));
 vi.mock("@/db/campaign-client", () => ({ rows: mock.rows, withCampaignDb: (_actor: unknown, callback: (client: unknown) => unknown) => callback({ query: mock.query }), withCampaignWorker: vi.fn() }));
 vi.mock("@/lib/gmail-connection", () => ({ connectionCanMonitorReplies: () => true }));
 vi.mock("@/lib/campaign-mailbox", () => ({ campaignTestSendAnytime: () => true, campaignMailboxForConnection: () => ({ hasConversation: mock.conversation }) }));
 vi.mock("@/lib/campaign-n8n", () => ({ n8nCampaignEnabled: () => true }));
+vi.mock("@/lib/channels/delivery-registry", () => ({ deliveryProvider: () => ({ ready: mock.ready }) }));
 import { enrolContacts, createMandateContact } from "./campaign-service";
 const actor = { organizationId: "org", userId: "owner" }; const contactId = randomUUID(); const sequenceId = randomUUID();
 let recipientDetails: Record<string, unknown>;
 let failure: string | null, kind: "email" | "whatsapp" | "linkedin", existing: boolean, contacts: number;
 beforeEach(() => {
   vi.resetAllMocks(); vi.stubEnv("CAMPAIGN_REPLY_MONITOR_MODE", "off"); failure = null; kind = "email"; existing = false; contacts = 0; recipientDetails = {};
-  mock.query.mockResolvedValue({ rows: [], rowCount: 1 }); mock.conversation.mockImplementation(async () => existing);
+  mock.query.mockResolvedValue({ rows: [], rowCount: 1 }); mock.ready.mockResolvedValue(undefined); mock.conversation.mockImplementation(async () => existing);
   mock.rows.mockImplementation(async (_client, sql: string, values: unknown[]) => {
     if (sql.startsWith("SELECT id FROM mandates")) return [{ id: "mandate" }];
     if (sql.startsWith("INSERT INTO contacts")) return [{ id: contactId }];
@@ -60,3 +61,8 @@ it("creates a person with no personal fields and a direct mandate link", async (
   expect(values.slice(0,4)).toEqual(["org", "mandate", "", null]);
   expect(JSON.parse(values[4])).toMatchObject({ email: null, linkedinUrl: null, phone: null, companyName: null });
 });
+
+it('configured email enrollment freezes service defaults without requiring retired Gmail credentials',async()=>{vi.stubEnv('COMMUNICATIONS_RUNTIME_ENABLED','true');failure='mailbox';const result=await enrolContacts(actor,sequenceId,[contactId]);expect(result).toHaveLength(1);expect(mock.rows.mock.calls.some(([,sql])=>sql.includes('FROM mailbox_connections'))).toBe(false);expect(mock.query.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO public.campaign_channel_bindings'))).toBe(true);expect(result[0].state).toBe('needs_review');expect(mock.ready).toHaveBeenCalledOnce();expect(mock.conversation).not.toHaveBeenCalled();});
+it('configured enrollment cannot continue without a persisted same-owner service binding',async()=>{vi.stubEnv('COMMUNICATIONS_RUNTIME_ENABLED','true');const old=mock.query.getMockImplementation()!;mock.query.mockImplementation((sql,...args)=>sql.startsWith('INSERT INTO public.campaign_channel_bindings')?Promise.resolve({rows:[],rowCount:0}):old(sql,...args));await expect(enrolContacts(actor,sequenceId,[contactId])).rejects.toThrow('recorded');});
+
+it('configured LinkedIn enrollment records canonical person identity in its frozen owner transaction',async()=>{vi.stubEnv('COMMUNICATIONS_RUNTIME_ENABLED','true');kind='linkedin';recipientDetails={email:null,linkedinUrl:'https://www.linkedin.com/in/alex/'};await enrolContacts(actor,sequenceId,[contactId]);const write=mock.query.mock.calls.find(([sql])=>sql.startsWith('INSERT INTO public.campaign_reply_identities'));expect(write).toBeDefined();expect(write![1]).toContain('https://www.linkedin.com/in/alex');});

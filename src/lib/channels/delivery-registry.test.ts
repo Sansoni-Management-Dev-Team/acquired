@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 import { deliveryProvider } from './delivery-registry';
+const configured=vi.hoisted(()=>({factory:vi.fn()}));vi.mock('./configured-communications',()=>({configuredCommunicationsProvider:configured.factory}));
 const input = { actor: { organizationId: 'org', userId: 'recorded-owner' }, key: 'historical-operation', recipient: 'recipient', text: 'Hello', messageId: '<receipt@example.invalid>' };
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 it.each(['email', 'whatsapp', 'linkedin'] as const)('%s registry cannot activate a legacy or unverified injected provider', async channel => {
@@ -16,3 +17,4 @@ it.each(['email', 'whatsapp', 'linkedin'] as const)('%s registry cannot activate
     await expect(provider.lookup(input)).rejects.toMatchObject({ code: 'delivery_disabled', channel });
     expect(mailbox.send).not.toHaveBeenCalled(); expect(mailbox.lookupSent).not.toHaveBeenCalled(); expect(fetcher).not.toHaveBeenCalled();
 });
+it.each(['email','whatsapp','linkedin'] as const)('selects only configured Unipile %s when explicitly enabled',channel=>{vi.stubEnv('COMMUNICATIONS_RUNTIME_ENABLED','true');const provider={channel,configured:true};configured.factory.mockReturnValue(provider);expect(deliveryProvider(channel)).toBe(provider);expect(configured.factory).toHaveBeenCalledWith(channel);});

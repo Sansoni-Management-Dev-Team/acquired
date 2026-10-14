@@ -2,6 +2,7 @@ import 'server-only';
 import { types } from 'node:util';
 import { assertSameBinding, type ConnectionBinding } from '../../communications/packages/contracts/src';
 import { replyIdentity } from '@/domain/campaign-replies';
+import {communicationReplyIdentity} from '../domain/communication-reply-identity';
 import type { CommunicationReplyConsumerOptions } from './communications-reply-consumer';
 const fields = ['applicationId', 'tenantId', 'ownerId', 'connectionId', 'accountId', 'generation', 'channel', 'platform', 'backend'] as const;
 function data(value: unknown, keys: readonly string[]): Record<string, unknown> {
@@ -84,13 +85,14 @@ export function createRecordedReplyIdentityResolver(options: Pick<CommunicationR
         for (const row of result.rows) {
             if (row.binding_id !== bindingId || row.application_id !== fixed.applicationId || row.organization_id !== actor.organizationId || row.owner_user_id !== actor.userId || row.service_connection_id !== fixed.connectionId || row.service_account_id !== fixed.accountId || row.generation !== fixed.generation || row.channel !== fixed.channel || row.platform !== fixed.platform || row.backend !== fixed.backend || row.authority !== 'service' || row.source_identity !== sender.value || typeof row.identity !== 'string')
                 return null;
-            const mapped = replyIdentity(fixed.channel, row.identity);
+            const mapped = communicationReplyIdentity(fixed.channel, row.identity);
+            if (mapped?.startsWith('https:') && mapped!==sender.value) return null;
             if (mapped !== row.identity || fixed.channel !== 'linkedin' && mapped !== replyIdentity(fixed.channel, sender.value))
                 return null;
             identities.add(mapped);
         }
         if (identities.size !== 1)
             return null;
-        return { actor: { ...actor }, binding: { ...fixed }, sender: { kind: sender.kind, value: sender.value } as Parameters<CommunicationReplyConsumerOptions['resolveIdentity']>[1]['sender'], identity: [...identities][0] };
+        return { actor: { ...actor }, binding: { ...fixed }, sender: { kind: sender.kind, value: sender.value } as Parameters<CommunicationReplyConsumerOptions['resolveIdentity']>[1]['sender'], identity: [...identities][0],...([...identities][0].startsWith('https:')?{identityAuthority:'canonical_service' as const}:{}) };
     };
 }

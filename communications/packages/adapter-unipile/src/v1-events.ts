@@ -8,7 +8,7 @@ export type V1ReplyEventContext =
       product: 'classic' | 'sales_navigator' | 'recruiter' | 'organization' | 'whatsapp';
       chat?: ScopedEvidence & { id: string; type: 'direct' | 'group'; participantProviderIds: string[] };
       sender?: ScopedEvidence & { providerId: string; identity: CanonicalIdentity } })
-  | (CommonContext & { channel: 'email'; ownerAddresses: string[];
+  | (CommonContext & { channel: 'email'; ownerAddresses: string[]; historyAllFolders?: true;
       email?: ScopedEvidence & { id: string; complete: true; headersComplete: true; mail: unknown } });
 export type V1ReplyEventResult =
   | { kind: 'event'; event: CommunicationEvent }
@@ -71,8 +71,9 @@ function event(binding: ConnectionBinding, messageId: string, sender: CanonicalI
  * verification. Email evidence must come from a full authenticated include_headers lookup of the
  * exact email. headersComplete asserts actual fetch completeness, not mere headers-array presence.
  * Timestamp bounds reject malformed/out-of-scope events; they do not certify coverage or freshness.
- * Inbox role is the only currently normalized email folder; other received-mail roles require
- * review rather than being dropped. Sent/draft roles establish nonreply activity. This restriction
+ * Default webhook normalization accepts inbox role; other received-mail roles require
+ * review rather than being dropped. Trusted exhaustive history may opt into all-folder reads only
+ * after exact full headers/owner recipients are fetched. Sent/draft roles establish nonreply activity. This restriction
  * cannot prove complete email coverage.
  * Parent email/RFC references are not conversation/thread IDs and are deliberately omitted.
  */
@@ -141,7 +142,7 @@ function emailEvent(raw: Record<string, unknown>, context: Extract<V1ReplyEventC
   if (owners.includes(sender)) return ignore('self_email');
   if (typeof mail.role !== 'string' || (raw.role !== undefined && raw.role !== mail.role)) return review();
   if (['sent', 'drafts', 'draft'].includes(mail.role.toLowerCase())) return ignore('non_inbound_email');
-  if (mail.role.toLowerCase() !== 'inbox') return review();
+  if (mail.role.toLowerCase() !== 'inbox' && context.historyAllFolders !== true) return review();
   const recipients: string[] = [];
   for (const key of ['to_attendees', 'cc_attendees', 'bcc_attendees']) {
     if (!Array.isArray(mail[key]) || mail[key].length > 1000) return review();

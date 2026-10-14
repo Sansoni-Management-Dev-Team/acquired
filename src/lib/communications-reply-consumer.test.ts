@@ -141,8 +141,11 @@ describe('Acquire reply consumer SQL protocol, scripted driver only', () => {
             f.resolveIdentity.mockImplementationOnce(async () => { block(); return proof; });
         if (stage === 'query') {
             const query = f.client.query.bind(f.client);
-            f.client.query = async <Row>(sql: string, values?: unknown[]) => { if (sql.startsWith('BEGIN'))
-                block(); return query<Row>(sql, values); };
+            f.client.query = async <Row>(sql: string, values?: unknown[]) => {
+                if (sql.startsWith('BEGIN'))
+                    block();
+                return query<Row>(sql, values);
+            };
         }
         await expect(createCommunicationReplyConsumer({ ...f.options, authenticationTimeoutMs: 5, transactionTimeoutMs: 10 }).apply(f.input)).rejects.toThrow('Communication reply consumption unavailable');
         expect(f.calls.some(c => c.sql === 'COMMIT' || c.sql === 'ROLLBACK')).toBe(false);
@@ -198,8 +201,12 @@ describe('Acquire reply consumer SQL protocol, scripted driver only', () => {
         const f = fixture();
         let unblock!: () => void;
         const stalled = new Promise<void>(resolve => { unblock = resolve; }), query = f.client.query.bind(f.client);
-        f.client.query = async <Row>(sql: string, values?: unknown[]) => { const result = await query<Row>(sql, values); if (sql === 'COMMIT')
-            await stalled; return result; };
+        f.client.query = async <Row>(sql: string, values?: unknown[]) => {
+            const result = await query<Row>(sql, values);
+            if (sql === 'COMMIT')
+                await stalled;
+            return result;
+        };
         const settled = createCommunicationReplyConsumer({ ...f.options, transactionTimeoutMs: 10 }).apply(f.input).then(() => 'completed', () => 'unavailable');
         try {
             expect(await settled).toBe('unavailable');
@@ -216,8 +223,12 @@ describe('Acquire reply consumer SQL protocol, scripted driver only', () => {
     it('closes the identity callback SQL capability on settlement and retires its session', async () => {
         const f = fixture(), proof = await f.resolveIdentity();
         let resolverClient!: SqlClient;
-        f.resolveIdentity.mockImplementationOnce(async (client?: SqlClient) => { if (!client)
-            throw Error('Expected callback client'); resolverClient = client; return proof; });
+        f.resolveIdentity.mockImplementationOnce(async (client?: SqlClient) => {
+            if (!client)
+                throw Error('Expected callback client');
+            resolverClient = client;
+            return proof;
+        });
         expect((await f.api.apply(f.input)).status).toBe('applied');
         const count = f.calls.length;
         await expect(resolverClient.query('SELECT late_identity_write')).rejects.toThrow('Communication reply consumption unavailable');
@@ -247,7 +258,7 @@ describe('Acquire reply consumer SQL protocol, scripted driver only', () => {
         expect(await f.api.apply(f.input)).toEqual({ status: 'applied', decision: 'stop' });
         expect(f.calls[0].sql).toBe('BEGIN ISOLATION LEVEL SERIALIZABLE');
         expect(f.calls.some(c => c.sql.includes('communications_lock_reply_member'))).toBe(true);
-        expect(helper.apply).toHaveBeenCalledWith(expect.objectContaining({ query: expect.any(Function), release: expect.any(Function) }), actor, channel, expect.any(String), expect.objectContaining({ id: f.input.sourceKey, fromIdentity: channel === 'linkedin' ? 'urn:li:fsd_profile:verifiedPerson' : channel === 'email' ? 'person@example.com' : '61412345678@s.whatsapp.net', receivedAt: '2026-10-12T10:00:00.000Z' }));
+        expect(helper.apply).toHaveBeenCalledWith(expect.objectContaining({ query: expect.any(Function), release: expect.any(Function) }), actor, channel, expect.any(String), expect.objectContaining({ id: f.input.sourceKey, fromIdentity: channel === 'linkedin' ? 'urn:li:fsd_profile:verifiedPerson' : channel === 'email' ? 'person@example.com' : '61412345678@s.whatsapp.net', receivedAt: '2026-10-12T10:00:00.000Z' }), 'service');
         expect(f.connect).toHaveBeenCalledOnce();
         expect(f.calls.filter(c => c.sql.startsWith('BEGIN'))).toHaveLength(1);
         expect(f.calls.findIndex(c => c.sql === 'SELECT policy_transaction_marker')).toBeGreaterThan(f.calls.findIndex(c => c.sql.startsWith('BEGIN')));
@@ -411,3 +422,55 @@ describe('Acquire reply consumer SQL protocol, scripted driver only', () => {
         expect(g.connect).not.toHaveBeenCalled();
     });
 });
+it('configured reply consumption takes the application send gate before member and policy locks', async () => {
+    const f = fixture(), query = f.client.query;
+    const previous = process.env.COMMUNICATIONS_RUNTIME_ENABLED;
+    process.env.COMMUNICATIONS_RUNTIME_ENABLED = 'true';
+    f.client.query = async <Row>(sql: string, values?: unknown[]) => {
+        if (sql.includes("to_regprocedure('public.communications_lock_send_gate")) {
+            f.calls.push({ sql, values: values ?? [] });
+            return { rows: [{ installed: true }] as Row[] };
+        }
+        if (sql.includes('communications_lock_send_gate')) {
+            f.calls.push({ sql, values: values ?? [] });
+            return { rows: [{ revision: '4' }] as Row[] };
+        }
+        return query<Row>(sql, values);
+    };
+    try {
+        await f.api.apply(f.input);
+        const gate = f.calls.findIndex(c => c.sql.includes('communications_lock_send_gate($1)'));
+        const member = f.calls.findIndex(c => c.sql.includes('communications_lock_reply_member'));
+        expect(gate).toBeGreaterThanOrEqual(0);
+        expect(gate).toBeLessThan(member);
+    }
+    finally {
+        if (previous === undefined)
+            delete process.env.COMMUNICATIONS_RUNTIME_ENABLED;
+        else
+            process.env.COMMUNICATIONS_RUNTIME_ENABLED = previous;
+    }
+});
+it('verified service LinkedIn URL mapping applies reply policy without a fabricated legacy URN', async () => { const f = fixture('linkedin'); if (f.input.payload.outcome.kind !== 'event')
+    throw Error('expected event'); const event = f.input.payload.outcome.event; if (event.type !== 'message')
+    throw Error('expected message'); f.resolveIdentity.mockResolvedValue({ actor: { ...actor }, binding: f.input.binding, sender: event.sender, identity: event.sender.value, identityAuthority: 'canonical_service' } as never); const r = await f.api.apply(f.input); expect(r.status).toBe('applied'); expect(helper.apply).toHaveBeenCalled(); });
+it.each(['email', 'whatsapp', 'linkedin'] as const)('authoritatively unrelated %s sender commits only an immutable ignored receipt', async (channel) => { const f = fixture(channel); f.resolveIdentity.mockResolvedValue(null as never); if (f.input.payload.outcome.kind !== 'event' || f.input.payload.outcome.event.type !== 'message')
+    throw Error('expected message'); const sender = f.input.payload.outcome.event.sender, unrelated = vi.fn(async () => ({ kind: 'unrelated' as const, proofVersion: 'acquire.reply.unrelated.v1' as const, actor, binding: f.input.binding, sender })); const api = createCommunicationReplyConsumer({ ...f.options, resolveUnrelated: unrelated }); expect(await api.apply(f.input)).toEqual({ status: 'applied', decision: 'ignore' }); expect(f.state.receipt?.result).toBe('ignored'); expect(f.state.latch).toBeNull(); expect(helper.apply).not.toHaveBeenCalled(); expect(unrelated).toHaveBeenCalledOnce(); });
+it('a null map without the configured authoritative unrelated classifier still requires review', async () => { const f = fixture(); f.resolveIdentity.mockResolvedValue(null as never); expect(await f.api.apply(f.input)).toEqual({ status: 'review', decision: 'review' }); expect(f.state.receipt?.result).toBe('review'); });
+it('raw caller unrelated flags cannot substitute trusted scope proof', async () => { const f = fixture(); Object.assign(f.input, { unrelated: true }); await expect(f.api.apply(f.input)).rejects.toThrow('Communication reply consumption unavailable'); expect(f.connect).not.toHaveBeenCalled(); });
+it.each(['actor', 'binding', 'sender', 'boolean'] as const)('wrong %s unrelated proof remains review', async (fault) => { const f = fixture(); f.resolveIdentity.mockResolvedValue(null as never); if (f.input.payload.outcome.kind !== 'event' || f.input.payload.outcome.event.type !== 'message')
+    throw Error('expected message'); let proof: unknown = { kind: 'unrelated', proofVersion: 'acquire.reply.unrelated.v1', actor, binding: f.input.binding, sender: f.input.payload.outcome.event.sender }; if (fault === 'boolean')
+    proof = true;
+else if (fault === 'actor')
+    proof = { ...proof as object, actor: { ...actor, userId: 'other' } };
+else if (fault === 'binding')
+    proof = { ...proof as object, binding: { ...f.input.binding, generation: 2 } };
+else
+    proof = { ...proof as object, sender: { kind: 'linkedin_profile', value: 'https://www.linkedin.com/in/other' } }; const api = createCommunicationReplyConsumer({ ...f.options, resolveUnrelated: async () => proof as never }); expect(await api.apply(f.input)).toEqual({ status: 'review', decision: 'review' }); expect(helper.apply).not.toHaveBeenCalled(); });
+it('unrelated probe uses engine-owned role transitions and restores owner before receipt writes', async () => { const f = fixture(); f.resolveIdentity.mockResolvedValue(null as never); if (f.input.payload.outcome.kind !== 'event' || f.input.payload.outcome.event.type !== 'message')
+    throw Error('expected message'); const sender = f.input.payload.outcome.event.sender, api = createCommunicationReplyConsumer({ ...f.options, async resolveUnrelated(clients) { await clients.owner.query('SELECT canonical_contact_probe'); await clients.registry.query('SELECT alias_probe'); return { kind: 'unrelated', proofVersion: 'acquire.reply.unrelated.v1', actor, binding: f.input.binding, sender }; } }); await api.apply(f.input); const roles = f.calls.filter(c => c.sql.startsWith('SET LOCAL ROLE')).map(c => c.sql); expect(roles.slice(-2)).toEqual(['SET LOCAL ROLE acquire_campaign_worker', 'SET LOCAL ROLE acquire_campaign_user']); expect(f.calls.findIndex(c => c.sql === 'SELECT alias_probe')).toBeLessThan(f.calls.findIndex(c => c.sql.startsWith('INSERT INTO public.communication_event_receipts'))); });
+it('canceled unrelated resolution retires the transaction and never commits an ignored receipt', async () => { const f = fixture(); f.resolveIdentity.mockResolvedValue(null as never); const controller = new AbortController(), api = createCommunicationReplyConsumer({ ...f.options, async resolveUnrelated(clients) { await clients.registry.query('SELECT alias_probe'); controller.abort(); return null; } }); await expect(api.apply(f.input, controller.signal)).rejects.toThrow('Communication reply consumption unavailable'); expect(f.state.receipt).toBeNull(); expect(f.calls.some(c => c.sql === 'COMMIT')).toBe(false); expect(f.release).toHaveBeenCalledWith(expect.any(Error)); });
+it('concurrent unrelated probes cannot change one another’s engine-owned SQL role', async () => { const f = fixture(); f.resolveIdentity.mockResolvedValue(null as never); let activeRole = ''; const original = f.client.query; f.client.query = async <Row>(sql: string, values?: unknown[]) => { if (sql.startsWith('SET LOCAL ROLE'))
+    activeRole = sql.slice('SET LOCAL ROLE '.length); if (sql === 'SELECT concurrent_owner')
+    expect(activeRole).toBe('acquire_campaign_user'); if (sql === 'SELECT concurrent_registry')
+    expect(activeRole).toBe('acquire_campaign_worker'); await Promise.resolve(); return original<Row>(sql, values); }; const api = createCommunicationReplyConsumer({ ...f.options, async resolveUnrelated(clients) { await Promise.all([clients.owner.query('SELECT concurrent_owner'), clients.registry.query('SELECT concurrent_registry')]); return null; } }); expect(await api.apply(f.input)).toEqual({ status: 'review', decision: 'review' }); });

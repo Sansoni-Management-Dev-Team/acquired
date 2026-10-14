@@ -1,3 +1,4 @@
+import { withOutreachSendTransaction } from '@/lib/outreach-send-transaction';
 import { and, eq, getTableColumns, sql } from "drizzle-orm";
 import { z } from "zod";
 import { requireDb } from "@/db/client";
@@ -22,7 +23,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const parsed = requestSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Enter the required draft copy." }, { status: 400 });
   const { id } = await params;
-  const database = requireDb();
+  try { return await withOutreachSendTransaction(requireDb(), { organizationId, userId: session.user.id }, async database => {
   const [message] = await database.select({ ...getTableColumns(messages), contentRevision: sql<string>`${messages.updatedAt}::text` }).from(messages).where(and(eq(messages.id, id), eq(messages.organizationId, organizationId))).limit(1);
   if (!message) return Response.json({ error: "Draft not found." }, { status: 404 });
   if (!["draft", "approved"].includes(message.state)) return Response.json({ error: "This delivery record is read-only." }, { status: 409 });
@@ -41,4 +42,5 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (!saved) return Response.json({ error: "This draft changed while saving. Reload it before editing." }, { status: 409 });
   await new OrganizationRepository(database, organizationId).appendAudit({ actorId: session.user.id, action: "outreach.draft_edited", entityType: "message", entityId: id, before: { channel: parsed.data.channel, copy: before }, after: parsed.data });
   return Response.json({ messageId: id });
+  }); } catch { return Response.json({ error: 'The draft could not be saved safely. Try again later.' }, { status: 503 }); }
 }

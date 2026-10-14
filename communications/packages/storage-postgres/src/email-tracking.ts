@@ -633,7 +633,7 @@ export function createPostgresEmailTracking(inputOptions: EmailTrackingOptions):
         async verifyReconciliation(record, proposed) {
             const input = object(record, ['snapshot', 'recipient', 'state'], ['outcome', 'message', 'conversation', 'rfcMessageId']), proposal = object(proposed, ['status'], ['receipt', 'code', 'retryAt', 'operation', 'reason']);
             const s = snapshot(input.snapshot);
-            if (input.state !== 'unknown' || proposal.status !== 'submitted')
+            if (!['unknown','dispatching'].includes(input.state as string) || proposal.status !== 'submitted')
                 return null;
             const originalRecipient = recipient(input.recipient);
             return bounded(async (budget) => {

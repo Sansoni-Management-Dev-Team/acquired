@@ -1,3 +1,4 @@
+import { lockAcquireSendGate } from './campaign-send-gate';
 import 'server-only';
 import { createHash } from 'node:crypto';
 import { types } from 'node:util';
@@ -5,6 +6,7 @@ import { performance } from 'node:perf_hooks';
 import type { PoolClient } from 'pg';
 import type { CampaignActor } from '@/db/campaign-client';
 import { replyIdentity } from '@/domain/campaign-replies';
+import { communicationReplyIdentity } from '../domain/communication-reply-identity';
 import { applyCampaignReply, replyMonitorMode } from './campaign-reply-store';
 import { assertSameBinding, type ConnectionBinding, type CanonicalIdentity, type CommunicationEvent } from '../../communications/packages/contracts/src';
 import type { EventPayload } from '../../communications/packages/core/src/event-codec';
@@ -22,6 +24,18 @@ export interface VerifiedCampaignReplyIdentity {
     binding: ConnectionBinding;
     sender: CanonicalIdentity;
     identity: string;
+    identityAuthority?: 'canonical_service';
+}
+export interface VerifiedUnrelatedCampaignReply {
+    kind: 'unrelated';
+    proofVersion: 'acquire.reply.unrelated.v1';
+    actor: CampaignActor;
+    binding: ConnectionBinding;
+    sender: CanonicalIdentity;
+}
+export interface RoleBoundUnrelatedReplyClients {
+    owner: SqlClient;
+    registry: SqlClient;
 }
 export interface CommunicationReplyConsumerOptions {
     /** release(error) must physically terminate/retire the checked-out session, as pg does. */
@@ -40,6 +54,13 @@ export interface CommunicationReplyConsumerOptions {
      * Await SQL sequentially. The callback client closes when resolution settles and rejects direct
      * transaction/role commands. SELECT/WITH can have side effects; this trusted port is not an SQL
      * sandbox. Its session is retired after invocation, including a successful commit. */
+    /** Optional concrete exhaustive classifier, never a caller field or boolean. The engine
+     * controls owner/worker roles on these same-TX clients and restores owner before writes. */
+    resolveUnrelated?(clients: RoleBoundUnrelatedReplyClients, input: {
+        actor: CampaignActor;
+        binding: ConnectionBinding;
+        sender: CanonicalIdentity;
+    }, signal?: AbortSignal): Promise<VerifiedUnrelatedCampaignReply | null>;
     resolveIdentity(client: SqlClient, input: {
         actor: CampaignActor;
         binding: ConnectionBinding;
@@ -158,9 +179,13 @@ function validateDelivery(b: ConnectionBinding, bindingId: string, subscriberId:
 export function createCommunicationReplyConsumer(options: CommunicationReplyConsumerOptions): {
     apply(input: CommunicationReplyDelivery, signal?: AbortSignal): Promise<CommunicationReplyConsumption>;
 } {
-    let binding: ConnectionBinding, actor: CampaignActor;
+    let binding: ConnectionBinding, actor: CampaignActor, unrelated: CommunicationReplyConsumerOptions['resolveUnrelated'];
     const authenticationTimeoutMs = options.authenticationTimeoutMs ?? 3000, transactionTimeoutMs = options.transactionTimeoutMs ?? 20000;
     try {
+        const classifier = options.resolveUnrelated;
+        if (classifier !== undefined && typeof classifier !== 'function')
+            fail();
+        unrelated = classifier === undefined ? undefined : Function.prototype.bind.call(classifier, options);
         binding = snapshot(options.binding) as ConnectionBinding;
         actor = snapshot(options.actor) as CampaignActor;
         assertSameBinding(binding, binding);
@@ -178,10 +203,12 @@ export function createCommunicationReplyConsumer(options: CommunicationReplyCons
     async function authenticated(delivery: CommunicationReplyDelivery, signal?: AbortSignal): Promise<boolean> {
         const controller = new AbortController(), deadline = performance.now() + authenticationTimeoutMs;
         let timer: ReturnType<typeof setTimeout> | undefined, abort: (() => void) | undefined;
-        const live = () => { if (signal?.aborted || controller.signal.aborted || performance.now() >= deadline) {
-            controller.abort();
-            fail();
-        } };
+        const live = () => {
+            if (signal?.aborted || controller.signal.aborted || performance.now() >= deadline) {
+                controller.abort();
+                fail();
+            }
+        };
         try {
             live();
             const stopped = new Promise<never>((_resolve, reject) => {
@@ -220,11 +247,14 @@ export function createCommunicationReplyConsumer(options: CommunicationReplyCons
         };
         // Retire the locked database session before invoking externally registered abort handlers.
         const expire = () => { timedOut = true; discard = true; dispose(); controller.abort(); };
-        const live = () => { if (signal?.aborted || timedOut || performance.now() >= deadline) {
-            expire();
-            fail();
-        } if (released)
-            fail(); };
+        const live = () => {
+            if (signal?.aborted || timedOut || performance.now() >= deadline) {
+                expire();
+                fail();
+            }
+            if (released)
+                fail();
+        };
         async function run() {
             try {
                 live();
@@ -338,6 +368,8 @@ export function createCommunicationReplyConsumer(options: CommunicationReplyCons
             return transaction(signal, async (client, retireResolverSession, callbackSignal) => {
                 await enter(client, 'acquire_campaign_user');
                 await client.query("SELECT set_config('app.acquire_org',$1,true),set_config('app.acquire_user',$2,true)", [actor.organizationId, actor.userId]);
+                if (process.env.COMMUNICATIONS_RUNTIME_ENABLED === 'true')
+                    await lockAcquireSendGate(client, actor.organizationId, { required: true });
                 const member = await client.query('SELECT public.communications_lock_reply_member($1,$2) AS allowed', [actor.organizationId, actor.userId]);
                 if (member.rows.length !== 1 || member.rows[0].allowed !== true || mode() === 'off')
                     fail();
@@ -411,23 +443,49 @@ export function createCommunicationReplyConsumer(options: CommunicationReplyCons
                     }
                     await Promise.all(requests);
                     const proof = snapshot(resolved) as VerifiedCampaignReplyIdentity | null;
-                    const mapped = proof && typeof proof.identity === 'string' ? replyIdentity(binding.channel, proof.identity) : null;
-                    if (!proof || !exact(proof, ['actor', 'binding', 'sender', 'identity']) || !exact(proof.actor, ['organizationId', 'userId']) || proof.actor.organizationId !== actor.organizationId || proof.actor.userId !== actor.userId || !same(binding, proof.binding) ||
-                        !canonicalSender(binding, proof.sender) || proof.sender.kind !== event.sender.kind || proof.sender.value !== event.sender.value || !mapped || mapped !== proof.identity ||
-                        (binding.channel !== 'linkedin' && mapped !== replyIdentity(binding.channel, event.sender.value))) {
-                        decision = 'review';
-                        reviewCode = 'identity_pending';
+                    const mapped = proof && typeof proof.identity === 'string' ? communicationReplyIdentity(binding.channel, proof.identity) : null;
+                    if (proof === null && unrelated) {
+                        let active = true;
+                        const probes: Promise<unknown>[] = [];
+                        let queue: Promise<unknown> = Promise.resolve();
+                        const capability = (role: 'acquire_campaign_user' | 'acquire_campaign_worker'): SqlClient => Object.freeze({ query<Row>(sql: string, values?: unknown[]) { const request = queue.then(async () => { if (!active || typeof sql !== 'string' || sql.length > 100000 || sql.includes(';') || !/^SELECT\s/i.test(sql.trim()))
+                                fail(); await enter(client, role); if (!active)
+                                fail(); return client.query<Row>(sql, values); }); void request.catch(() => { }); queue = request; probes.push(request); return request; }, release() { fail(); } });
+                        let negative: unknown;
+                        try {
+                            negative = await unrelated({ owner: capability('acquire_campaign_user'), registry: capability('acquire_campaign_worker') }, { actor: structuredClone(actor), binding: structuredClone(binding), sender: structuredClone(event.sender) }, callbackSignal);
+                        }
+                        finally {
+                            active = false;
+                        }
+                        await Promise.all(probes);
+                        await enter(client, 'acquire_campaign_user');
+                        const absent = snapshot(negative) as VerifiedUnrelatedCampaignReply | null;
+                        if (absent && exact(absent, ['kind', 'proofVersion', 'actor', 'binding', 'sender']) && absent.kind === 'unrelated' && absent.proofVersion === 'acquire.reply.unrelated.v1' && exact(absent.actor, ['organizationId', 'userId']) && absent.actor.organizationId === actor.organizationId && absent.actor.userId === actor.userId && same(binding, absent.binding) && canonicalSender(binding, absent.sender) && absent.sender.kind === event.sender.kind && absent.sender.value === event.sender.value)
+                            decision = 'ignore';
+                        else {
+                            decision = 'review';
+                            reviewCode = 'identity_pending';
+                        }
                     }
                     else {
-                        await enter(client, 'acquire_campaign_worker');
-                        // Existing policy uses this client's query protocol; no separate pool/transaction is opened.
-                        const applied = await applyCampaignReply(client as unknown as PoolClient, actor, binding.channel, accountIdentity, { id: delivery.sourceKey, fromIdentity: mapped, receivedAt: occurredAt });
-                        await enter(client, 'acquire_campaign_user');
-                        if (!['stop', 'ignore', 'review'].includes(applied))
-                            fail();
-                        decision = applied;
-                        if (decision === 'review')
+                        if (!proof || !exact(proof, ['actor', 'binding', 'sender', 'identity', ...(proof.identityAuthority === undefined ? [] : ['identityAuthority'])]) || !exact(proof.actor, ['organizationId', 'userId']) || proof.actor.organizationId !== actor.organizationId || proof.actor.userId !== actor.userId || !same(binding, proof.binding) ||
+                            !canonicalSender(binding, proof.sender) || proof.sender.kind !== event.sender.kind || proof.sender.value !== event.sender.value || !mapped || mapped !== proof.identity ||
+                            (binding.channel !== 'linkedin' && mapped !== replyIdentity(binding.channel, event.sender.value)) || (binding.channel === 'linkedin' && mapped?.startsWith('https:') && (proof.identityAuthority !== 'canonical_service' || mapped !== event.sender.value)) || (proof.identityAuthority !== undefined && proof.identityAuthority !== 'canonical_service')) {
+                            decision = 'review';
                             reviewCode = 'identity_pending';
+                        }
+                        else {
+                            await enter(client, 'acquire_campaign_worker');
+                            // Existing policy uses this client's query protocol; no separate pool/transaction is opened.
+                            const applied = await applyCampaignReply(client as unknown as PoolClient, actor, binding.channel, accountIdentity, { id: delivery.sourceKey, fromIdentity: mapped, receivedAt: occurredAt }, 'service');
+                            await enter(client, 'acquire_campaign_user');
+                            if (!['stop', 'ignore', 'review'].includes(applied))
+                                fail();
+                            decision = applied;
+                            if (decision === 'review')
+                                reviewCode = 'identity_pending';
+                        }
                     }
                 }
                 if (!original) {

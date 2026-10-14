@@ -408,6 +408,13 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
  WHERE connection_id=$1 AND generation=$2 AND application_id=$3 AND tenant_id=$4 AND owner_id=$5 AND account_id=$6`,
             [binding.connectionId,binding.generation,binding.applicationId,binding.tenantId,binding.ownerId,binding.accountId]);
         }
+        if(outcome.kind==='ignore'&&['outgoing_message','self_email','verified_email_sent','email_sync_observed'].includes(outcome.reason)){
+          // No reply/person hold is inferred. Fresh manual/outbound source evidence can invalidate
+          // an older crawl: retire that cursor lease in the same TX before acknowledging the inbox.
+          await client.query(`UPDATE communications.event_cursors SET invalidated=true, complete=false, lease_token=NULL, lease_until=NULL
+ WHERE connection_id=$1 AND generation=$2 AND application_id=$3 AND tenant_id=$4 AND owner_id=$5 AND account_id=$6`,
+            [binding.connectionId,binding.generation,binding.applicationId,binding.tenantId,binding.ownerId,binding.accountId]);
+        }
         if (eventResult) await queueEvent(client,eventResult.id);
         if (!await currentScope(client)) { await client.query('ROLLBACK'); return rejected(); }
         const updated = await client.query(`UPDATE communications.webhook_inbox SET state='processed',lease_token=NULL,lease_until=NULL,retry_at=NULL,failure_code=$6

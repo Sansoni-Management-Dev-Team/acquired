@@ -20,12 +20,16 @@ export type OutreachTargetView = {
   establishedYear?: number; availablePeopleCount?: number; firmableId?: string; contacts: OutreachContactView[]; signals: Signal[]; drafts: OutreachDraftView[];
 };
 
-export function OutreachQueue({ initialTargets, initialBuyerProfile, mandateId, initialTargetId, embedded = false, canCompose = true, showPeopleSearch = true, onRefresh, onDirtyChange }: { canCompose?: boolean; showPeopleSearch?: boolean; onDirtyChange?: (dirty: boolean) => void; embedded?: boolean; onRefresh?: () => void; mandateId: string; initialTargetId?: string; initialTargets: OutreachTargetView[]; initialBuyerProfile: BuyerProfile | null }) {
+export function OutreachQueue({ initialTargets, initialBuyerProfile, mandateId, initialTargetId, embedded = false, canCompose = true, showPeopleSearch = true, onRefresh, onDirtyChange,initialDeliveryAvailable=false }: { initialDeliveryAvailable?:boolean;canCompose?: boolean; showPeopleSearch?: boolean; onDirtyChange?: (dirty: boolean) => void; embedded?: boolean; onRefresh?: () => void; mandateId: string; initialTargetId?: string; initialTargets: OutreachTargetView[]; initialBuyerProfile: BuyerProfile | null }) {
   const router = useRouter();
   const refresh = () => { router.refresh(); onRefresh?.(); };
   const [selectedId, setSelectedId] = useState(initialTargetId || initialTargets.find(target => target.stage && !["parked", "excluded"].includes(target.stage))?.id || initialTargets[0]?.id || "");
   const [busy, setBusy] = useState<"candidates" | "contact" | "preview" | "drafts" | null>(null);
   const [messageBusy, setMessageBusy] = useState<string | null>(null);
+  const [deliveryAvailable,setDeliveryAvailable]=useState(initialDeliveryAvailable);
+  const [uncertainSends,setUncertainSends]=useState<Record<string,boolean>>({});
+  const sending=useRef(false);
+  useEffect(()=>{let cancelled=false;void fetch('/api/channels/connections',{cache:'no-store'}).then(async response=>{const result=await response.json();if(!cancelled)setDeliveryAvailable(response.ok&&result.available===true&&Array.isArray(result.connections)&&result.connections.some((c:{binding?:{channel?:string};status?:string})=>c.binding?.channel==='email'&&c.status==='connected'));}).catch(()=>{if(!cancelled)setDeliveryAvailable(false);});return()=>{cancelled=true;};},[]);
   const [activeChannel, setActiveChannel] = useState<OutreachChannel>("email");
   const [draftEdits, setDraftEdits] = useState<Record<string, OutreachChannelCopy>>({});
   const [preview, setPreview] = useState<PreviewDraft[]>([]);
@@ -112,6 +116,17 @@ export function OutreachQueue({ initialTargets, initialBuyerProfile, mandateId, 
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Approval could not be saved"); }
     finally { setMessageBusy(null); }
   }
+  async function sendDraft(draft:OutreachDraftView){
+    if(sending.current||messageBusy||!deliveryAvailable||draft.state!=='approved'||draft.gmailDraftSaved)return;
+    if(!uncertainSends[draft.id]&&!window.confirm(`Send the approved email to ${contact?.email}?`))return;
+    sending.current=true;setMessageBusy(draft.id);setError('');
+    try{const response=await fetch(`/api/outreach/messages/${draft.id}/send`,{method:'POST'}),result=await response.json() as {status?:string;error?:string};
+      if(!response.ok)throw Error(result.error||'Review the connection and reply checks before sending.');
+      if(result.status==='submitted'){setUncertainSends(current=>({...current,[draft.id]:false}));refresh();}
+      else if(result.status==='unknown'){setUncertainSends(current=>({...current,[draft.id]:true}));setError('The send is not yet confirmed. Check its status before taking another action.');}
+      else throw Error('The draft is waiting for its connection or reply checks.');
+    }catch(caught){setError(caught instanceof Error?caught.message:'Draft send could not be confirmed');}finally{sending.current=false;setMessageBusy(null);}
+  }
   if (!selected) return <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-8 text-sm text-[var(--muted)]">No businesses are attached to this mandate yet. Find businesses in Companies or import sourced records first.</div>;
 
   return <div className={`grid gap-5 ${embedded ? "" : "xl:grid-cols-[320px_1fr]"}`}>
@@ -157,6 +172,7 @@ export function OutreachQueue({ initialTargets, initialBuyerProfile, mandateId, 
             {activeChannel === "email" && <input aria-label={`Step ${draft.step} email subject`} disabled={!locallyEditable || approved} value={edit.subject || ""} onChange={(event) => setDraftEdits((current) => ({ ...current, [key]: { ...edit, subject: event.target.value } }))} className="mt-3 w-full rounded-md border border-[var(--border)] bg-[var(--input)] px-3 py-2 font-semibold disabled:opacity-70" />}
             <textarea aria-label={`Step ${draft.step} ${channelLabels[activeChannel]} message`} disabled={!locallyEditable || (activeChannel === "email" && approved)} value={edit.body} onChange={(event) => setDraftEdits((current) => ({ ...current, [key]: { ...edit, body: event.target.value } }))} className="mt-3 min-h-40 w-full resize-y rounded-md border border-[var(--border)] bg-[var(--input)] p-3 text-sm leading-6 text-[var(--muted)] disabled:opacity-70" />
             <div className="mt-3 flex flex-wrap items-center gap-3"><button disabled={!locallyEditable || (activeChannel === "email" && approved) || messageBusy !== null || !draftEdits[key]} onClick={() => saveDraft(draft)} className="rounded-md border border-[var(--border)] px-3 py-2 text-xs font-semibold disabled:opacity-40">{messageBusy === key ? "Saving…" : "Save edits"}</button><span className="text-xs text-[var(--muted)]">{draft.scheduledFor ? new Date(draft.scheduledFor).toLocaleDateString("en-AU", { dateStyle: "medium" }) : "Unscheduled"}</span><span className="text-xs text-[var(--muted)]">Evidence: {draft.signalIds.length ? draft.signalIds.join(", ") : "No company claim"}</span>{activeChannel === "email" ? <><span className="text-xs text-[var(--muted)]">Status: {draft.state}</span>{draft.gmailDraftSaved && <span className="text-xs text-[var(--status-emerald)]">Historical Gmail draft</span>}</> : <span className="text-xs text-[var(--muted)]">Saved workspace copy</span>}</div>
+            {activeChannel==='email'&&approved&&!draft.gmailDraftSaved&&deliveryAvailable&&<button disabled={messageBusy!==null||busy!==null||!canCompose||inactiveTarget||contact?.doNotContact||contact?.fictionalised||!contact?.email} onClick={()=>sendDraft(draft)} className="mt-4 rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-[var(--on-accent)] disabled:opacity-40">{messageBusy===draft.id?'Checking send…':uncertainSends[draft.id]?'Check send status':'Send approved email'}</button>}
           </article>;
         })}</>}
       </div>

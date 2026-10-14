@@ -84,7 +84,7 @@ export function createConnectionSetupCoordinator(options:ConnectionSetupOptions)
       !(channel==='email'&&['gmail','outlook','imap'].includes(platform)&&['direct','unipile'].includes(backend)||channel==='whatsapp'&&platform==='whatsapp'&&['baileys','unipile'].includes(backend)||channel==='linkedin'&&platform==='linkedin'&&['browser','unipile'].includes(backend))||
       typeof options.states?.issue!=='function'||typeof options.states?.complete!=='function'||typeof options.hostedAuth?.createLink!=='function'||typeof options.resolveReconnect!=='function')fail();
   } catch { throw Error('Invalid connection setup configuration'); }
-  const fixedScope=Object.freeze({...scope}),issue=options.states.issue.bind(options.states),complete=options.states.complete.bind(options.states),createLink=options.hostedAuth.createLink.bind(options.hostedAuth),resolve=options.resolveReconnect.bind(options);
+  const fixedScope=Object.freeze({...scope}),issue=Function.prototype.bind.call(options.states.issue,options.states),complete=Function.prototype.bind.call(options.states.complete,options.states),createLink=Function.prototype.bind.call(options.hostedAuth.createLink,options.hostedAuth),resolve=Function.prototype.bind.call(options.resolveReconnect,options);
   function scoped(value:unknown):ConnectionBinding {
     const binding=parsedBinding(value);
     if(scopeFields.some(key=>binding[key]!==fixedScope[key])||binding.channel!==channel||binding.platform!==platform||binding.backend!==backend)fail();return binding;

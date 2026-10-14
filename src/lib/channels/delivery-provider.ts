@@ -17,6 +17,14 @@ export type DeliveryInput = {
   subject?: string;
   messageId?: string;
   operation?: "connect" | "message";
+  attemptId?: string;
+  enrolmentId?: string;
+  stepIndex?: number;
+  stepId?: string;
+  runtime?: 'legacy' | 'n8n';
+  sourceVersionId?: string;
+  draftId?: string;
+  draftRevision?: string;
 };
 export interface CampaignDeliveryProvider {
   channel: ReplyChannel;
@@ -24,9 +32,10 @@ export interface CampaignDeliveryProvider {
   ready(actor: CampaignActor): Promise<void>;
   submit(input: DeliveryInput): Promise<DeliveryOutcome>;
   lookup(
-    input: Pick<DeliveryInput, "actor" | "key" | "messageId">,
+    input: DeliveryLookupInput,
   ): Promise<DeliveryOutcome | null>;
 }
+export type DeliveryLookupInput=Pick<DeliveryInput,'actor'|'key'|'messageId'|'attemptId'|'enrolmentId'|'stepIndex'|'stepId'|'runtime'|'sourceVersionId'|'draftId'|'draftRevision'>;
 export function rejected(
   error: unknown,
   channel: ReplyChannel,

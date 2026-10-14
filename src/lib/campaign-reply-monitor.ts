@@ -19,6 +19,7 @@ type IdentityRow = { channel: ReplyChannel; identity: string; source_identity: s
 export type ReplyContact = { id: string; email: string | null; data: Record<string, unknown>; since: Date; requiredChannels: ReplyChannel[] };
 
 export async function prepareReplyContact(actor: CampaignActor, contact: ReplyContact) {
+  if(process.env.COMMUNICATIONS_RUNTIME_ENABLED==='true'){await (await import('./communications-configured-monitor')).refreshConfiguredContact(actor,contact);return;}
   if (replyMonitorMode() === "off") return;
   const existing = await withCampaignDb(actor, client => rows<IdentityRow>(client, "SELECT * FROM campaign_reply_identities WHERE organization_id = $1 AND owner_user_id = $2 AND contact_id = $3", [actor.organizationId, actor.userId, contact.id]));
   const emailRequired = contact.requiredChannels.includes("email");
@@ -68,6 +69,7 @@ async function readEmailReplies(actor: CampaignActor, cursor: string | null): Pr
 }
 
 export async function scanReplyChannel(actor: CampaignActor, channel: ReplyChannel, options: { maxPages?: number; refresh?: boolean } = {}) {
+  if(process.env.COMMUNICATIONS_RUNTIME_ENABLED==='true')return (await import('./communications-configured-monitor')).scanConfiguredChannel(actor,channel,options);
   if (replyMonitorMode() === "off") return { complete: false };
   assertCampaignWorkRemaining();
   const token = randomUUID();
@@ -92,7 +94,7 @@ export async function scanReplyChannel(actor: CampaignActor, channel: ReplyChann
           last_success_at = CASE WHEN $7 THEN $8::timestamptz WHEN $11::boolean THEN NULL ELSE last_success_at END, last_error = CASE WHEN $7 AND NOT $10::boolean THEN NULL ELSE $9 END
           WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3 AND lease_token = $4`, [actor.organizationId, actor.userId, channel, token, page.accountIdentity, page.nextCursor, page.complete, new Date(page.checkedAt), JSON.stringify(replyCheckDiagnostic(new ReplyCheckPending(page.waitReason || "incomplete", channel, page.nextReadAt ? new Date(page.nextReadAt) : undefined, monitor.last_success_at))), Boolean(page.waitReason), page.coverageInvalidated ?? false]);
         return true;
-      })),
+      }, actor.organizationId)),
     });
   } catch (error) {
     const classified = replyCheckFailure(error, channel);
@@ -108,6 +110,7 @@ export async function scanReplyChannel(actor: CampaignActor, channel: ReplyChann
 }
 
 export async function checkContactReplyMonitors(actor: CampaignActor, contact: ReplyContact) {
+  if(process.env.COMMUNICATIONS_RUNTIME_ENABLED==='true'){await (await import('./communications-configured-monitor')).refreshConfiguredContact(actor,contact);await replayContactReplies(actor,contact.id);return;}
   if (replyMonitorMode() === "off") return;
   try { await prepareReplyContact(actor, contact); }
   catch (error) { if (replyMonitorMode() === "enforce") { if (campaignWorkDeferred(error)) throw error; throw replyCheckFailure(error); } return; }
@@ -127,6 +130,7 @@ export async function checkContactReplyMonitors(actor: CampaignActor, contact: R
 }
 
 export async function assertContactReplyFresh(actor: CampaignActor, contactId: string, required?: ReplyChannel[], since?: Date) {
+  if(process.env.COMMUNICATIONS_RUNTIME_ENABLED==='true'){await withCampaignDb(actor,client=>assertReplyCoverage(client,actor,contactId,required,since));await assertNoSharedReplyHold(actor,contactId);return;}
   if (replyMonitorMode() !== "enforce") return;
   await withCampaignDb(actor, client => assertReplyCoverage(client, actor, contactId, required, since));
   await assertNoSharedReplyHold(actor, contactId);
@@ -137,6 +141,11 @@ export async function assertContactReplyFresh(actor: CampaignActor, contactId: s
 export async function assertReplyCoverage(client: PoolClient, actor: CampaignActor, contactId: string, required?: ReplyChannel[], since?: Date) {
 
   await assertNoReplyHold(client, actor, contactId);
+  if(process.env.COMMUNICATIONS_RUNTIME_ENABLED==='true') {
+    if(!required?.length||!since)throw new ReplyCheckPending('incomplete');
+    const [current]=await rows<{ready:boolean}>(client,`SELECT count(DISTINCT b.channel)::integer=$5 AS ready FROM public.campaign_channel_bindings cb JOIN public.campaign_enrolments e ON e.id=cb.enrolment_id JOIN public.communication_bindings b ON b.id=cb.binding_id JOIN public.communication_reply_monitors m ON m.binding_id=b.id JOIN public.communication_consumer_checkpoints p ON p.binding_id=m.binding_id AND p.scope_digest=m.scope_digest WHERE e.organization_id=$1 AND e.owner_user_id=$2 AND e.contact_id=$3 AND e.state IN('active','paused','needs_review') AND b.channel=ANY($4::text[]) AND b.authority='service' AND b.backend='unipile' AND m.complete AND m.initial_sync_complete AND NOT m.invalidated AND m.coverage_from<=$6::timestamptz AND m.coverage_through>=$6::timestamptz AND m.coverage_through>=clock_timestamp()-interval '5 minutes' AND m.coverage_through<=m.observed_at AND m.observed_at<=clock_timestamp() AND m.observed_at>=clock_timestamp()-interval '5 minutes'`,[actor.organizationId,actor.userId,contactId,required,new Set(required).size,since]);
+    if(current?.ready!==true)throw new ReplyCheckPending('incomplete');return;
+  }
   const identities = await rows<IdentityRow>(client, "SELECT * FROM campaign_reply_identities WHERE organization_id = $1 AND owner_user_id = $2 AND contact_id = $3 FOR SHARE", [actor.organizationId, actor.userId, contactId]);
   const monitors = await rows<MonitorRow>(client, "SELECT * FROM campaign_reply_monitors WHERE organization_id = $1 AND owner_user_id = $2 FOR SHARE", [actor.organizationId, actor.userId]);
   for (const channel of new Set<ReplyChannel>([...(required || []), ...identities.map(item => item.channel)])) {
@@ -183,11 +192,13 @@ export async function runReplyMonitorTick(limit = 3) {
 // performs its own fresh read. Replay is required even if identity discovery or
 // today's inbox scan fails, including after observation-to-enforcement changes.
 export async function prepareScheduledReplyContact(actor: CampaignActor, contact: ReplyContact) {
+  if(process.env.COMMUNICATIONS_RUNTIME_ENABLED==='true'){await (await import('./communications-configured-monitor')).refreshConfiguredContact(actor,contact);await replayContactReplies(actor,contact.id);return;}
   await replayContactReplies(actor, contact.id);
   await prepareReplyContact(actor, contact);
 }
 
 export async function checkScheduledReplyContact(actor: CampaignActor, contact: ReplyContact) {
+  if(process.env.COMMUNICATIONS_RUNTIME_ENABLED==='true'){await (await import('./communications-configured-monitor')).refreshConfiguredContact(actor,contact);await replayContactReplies(actor,contact.id);return;}
   await replayContactReplies(actor, contact.id);
   await assertContactReplyFresh(actor, contact.id, contact.requiredChannels, contact.since);
 }
