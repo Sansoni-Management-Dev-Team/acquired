@@ -21,7 +21,8 @@ COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --prod --frozen-lockfile --ignore-scripts
 
 FROM node:22.23.1-bookworm-slim AS runtime
-RUN npm install --global npm@12.2.0
+# Runtime executes node directly and does not need npm or its dependency tree.
+RUN npm uninstall --global npm
 RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ARG SOURCE_COMMIT
