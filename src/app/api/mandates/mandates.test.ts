@@ -1,13 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyBrief, initialAssessment } from "@/domain/acquisition";
-const mocks = vi.hoisted(() => ({ session: vi.fn(), getMandate: vi.fn(), saveAssessment: vi.fn(), saveBrief: vi.fn(), memberships: vi.fn(), provider: vi.fn(), org: vi.fn(), generateMandate: vi.fn() }));
+const mocks = vi.hoisted(() => ({ session: vi.fn(), listMandates: vi.fn(), getMandate: vi.fn(), saveAssessment: vi.fn(), saveBrief: vi.fn(), memberships: vi.fn(), provider: vi.fn(), org: vi.fn(), generateMandate: vi.fn() }));
 vi.mock("@/lib/auth", () => ({ auth: { api: { getSession: mocks.session } } }));
 vi.mock("@/db/client", () => ({ requireDb: vi.fn(() => { throw new Error("Unexpected database access"); }) }));
-vi.mock("@/db/acquisition-repository", () => ({ AcquisitionRepository: class { constructor(org: string) { mocks.org(org); } getMandate = mocks.getMandate; saveAssessment = mocks.saveAssessment; saveBrief = mocks.saveBrief; memberships = mocks.memberships; } }));
+vi.mock("@/db/acquisition-repository", () => ({ AcquisitionRepository: class { constructor(org: string) { mocks.org(org); } listMandates = mocks.listMandates; getMandate = mocks.getMandate; saveAssessment = mocks.saveAssessment; saveBrief = mocks.saveBrief; memberships = mocks.memberships; } }));
 vi.mock("@/db/repositories", () => ({ OrganizationRepository: class {} }));
 vi.mock("@/adapters/provider-mode", () => ({ createTargetDataProvider: mocks.provider }));
 vi.mock("@/adapters/mandate-generation", () => ({ generateMandate: mocks.generateMandate }));
-import { POST as create } from "./route";
+import { GET as list, POST as create } from "./route";
 import { POST as update } from "./[id]/route";
 const id = "00000000-0000-4000-8000-000000000001";
 const targetId = "00000000-0000-4000-8000-000000000002";
@@ -15,6 +15,19 @@ const context = { params: Promise.resolve({ id }) };
 const request = (body: unknown) => new Request(`http://localhost/api/mandates/${id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 beforeEach(() => { vi.clearAllMocks(); mocks.session.mockResolvedValue({ user: { id: "user-a" }, session: { activeOrganizationId: "org-a" } }); mocks.getMandate.mockResolvedValue({ id, brief: emptyBrief() }); });
 describe("mandate API boundaries", () => {
+  it("returns only the authenticated workspace's list with its cache identity", async () => {
+    mocks.session.mockResolvedValue({ user: { id: "user-a" }, session: { id: "session-a", activeOrganizationId: "org-a" } });
+    mocks.listMandates.mockResolvedValue([]);
+    const response = await list(new Request("http://localhost/api/mandates"));
+    expect(mocks.org).toHaveBeenCalledWith("org-a");
+    expect(await response.json()).toEqual({ mandates: [], scope: JSON.stringify(["user-a", "org-a", "session-a"]) });
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+  });
+  it("rejects signed-out list reads before querying mandates", async () => {
+    mocks.session.mockResolvedValue(null);
+    expect((await list(new Request("http://localhost/api/mandates"))).status).toBe(401);
+    expect(mocks.listMandates).not.toHaveBeenCalled();
+  });
   it("rejects signed-out creation without writing", async () => {
     mocks.session.mockResolvedValue(null);
     expect((await create(request(emptyBrief()))).status).toBe(401);

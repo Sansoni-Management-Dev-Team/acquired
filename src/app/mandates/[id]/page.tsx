@@ -1,15 +1,9 @@
 import { mandatePeopleHref } from "@/domain/mandate-navigation";
 import { notFound, redirect, permanentRedirect } from "next/navigation";
-import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { acquisitionSession } from "@/lib/acquisition-session";
 import { MandateWorkspace } from "@/components/mandate-workspace";
-import { requireDb } from "@/db/client";
-import { organization } from "@/db/schema";
-import { buyerProfileFromMetadata } from "@/domain/buyer-profile";
-import { loadWorkspaceContacts } from "@/db/firmable-read-model";
-import { FirmableHistoryRepository } from "@/db/firmable-history-repository";
 import { CompanyListRepository } from '@/db/company-list-repository';
 import { defaultCompanyListQuery } from '@/domain/company-list';
 import { Suspense } from "react";
@@ -37,7 +31,6 @@ async function MandateContent({ id, requested }: { id: string; requested: string
     const initial = { mandate, memberships: [], coverage: [], valuations: [], buyerProfile: null, contacts: [], firmableRefreshes: [] };
     return <MandateWorkspace key={`${id}:${tab}`} mandates={mandates} initial={initial} initialCompanies={companies} tab={tab} />;
   }
-  const [memberships, coverage, valuations, organizations] = await Promise.all([repo.memberships(id), repo.coverage(id), repo.valuations(id), requireDb().select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, organizationId))]);
-  const initial = { mandate, memberships, coverage, valuations, buyerProfile: buyerProfileFromMetadata(organizations[0]?.metadata), contacts: await loadWorkspaceContacts(requireDb(), organizationId, memberships), firmableRefreshes: await new FirmableHistoryRepository(requireDb()).latestRuns(organizationId, memberships.map(item => item.target.id)) };
+  const initial = { mandate, memberships: [], coverage: [], valuations: [], buyerProfile: null, contacts: [], firmableRefreshes: [] };
   return <MandateWorkspace key={`${id}:${tab}`} mandates={mandates} initial={initial} tab={tab} />;
 }

@@ -8,6 +8,7 @@ import { PageLoading } from "./page-loading";
 const location = vi.hoisted(() => ({ pathname: "/", query: "", suspended: false }));
 vi.mock("next/navigation", () => ({
   usePathname: () => location.pathname,
+  useRouter: () => ({ replace: vi.fn() }),
   useSearchParams: () => {
     if (location.suspended) throw new Promise(() => {});
     return new URLSearchParams(location.query);
@@ -34,10 +35,13 @@ describe("instant page loading", () => {
     Object.assign(location, { pathname, query, suspended: false });
     const html = renderToStaticMarkup(<PageLoading />);
     expect(html).toContain(`>${title}</h1>`);
-    expect(html).toContain('aria-busy="true"');
+    if (pathname === "/" || pathname === "/mandates/new") {
+      expect(html).toContain('id="mandate-description"');
+      expect(html).not.toContain("Loading create a mandate");
+    } else if (pathname !== "/mandates") expect(html).toContain('aria-busy="true"');
     expect(html).toContain('role="status"');
     expect(html).not.toMatch(/unipile|firmable|n8n/i);
-    expect(html).toContain("motion-reduce:animate-none");
+    if (!["/", "/mandates/new", "/mandates"].includes(pathname)) expect(html).toContain("motion-reduce:animate-none");
   });
 
   it("keeps the people header and navigation visible when URL parameters suspend", () => {

@@ -4,10 +4,15 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { ArrowLeft, LoaderCircle } from "lucide-react";
+import { CachedMandateCreate, CachedMandatesPage, MandatePicker } from "./cached-mandate-pages";
 
 function LoadingView({ pathname, tab }: { pathname: string; tab?: string | null }) {
+  if (pathname === "/" || pathname === "/mandates/new") return <CachedMandateCreate />;
+  if (pathname === "/mandates") return <CachedMandatesPage />;
+  const section = pathname.match(/^\/mandates\/select\/(brief|targets|people|sequences)$/)?.[1];
+  if (section) return <MandatePicker section={section as "brief" | "targets" | "people" | "sequences"} />;
   const mandateId = pathname.match(/^\/mandates\/([^/]+)(?:\/|$)/)?.[1];
-  const isMandate = Boolean(mandateId && mandateId !== "new");
+  const isMandate = Boolean(mandateId && mandateId !== "new" && mandateId !== "select");
   const people = isMandate && /\/people$/.test(pathname);
   const sequences = isMandate && /\/outreach\/sequences$/.test(pathname);
   const company = isMandate && /\/targets\/[^/]+$/.test(pathname);

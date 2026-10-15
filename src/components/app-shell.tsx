@@ -10,7 +10,7 @@ import { AcquisitionProgress } from "./acquisition-progress";
 import { LegalLinks } from "./legal-page";
 import { CampaignReplyAlerts } from "./campaign-reply-alerts";
 
-import { mandateTabHref } from "@/domain/mandate-navigation";
+import { useCachedSession } from "./use-cached-mandates";
 type SidebarState = { mandates: { id: string; name: string }[]; selected?: string; tab: string };
 const SidebarContext = createContext<(value: string) => void>(() => {});
 export function SidebarRegistration({ value }: { value: SidebarState }) {
@@ -24,11 +24,16 @@ function SidebarRouteSync({ update }: { update: React.Dispatch<React.SetStateAct
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const routeId = pathname.match(/^\/mandates\/([^/]+)(?:\/|$)/)?.[1];
-  const selected = routeId && routeId !== "new" ? routeId : undefined;
+  const selected = routeId && routeId !== "new" && routeId !== "select" ? routeId : undefined;
   const tab = pathname.endsWith("/people") ? "people" : pathname.endsWith("/outreach/sequences") ? "sequences" : searchParams.get("tab") === "targets" || pathname.includes("/targets/") ? "targets" : "brief";
   useEffect(() => {
     update(current => JSON.stringify({ ...JSON.parse(current), selected, tab }));
   }, [selected, tab, update]);
+  return null;
+}
+
+function SessionWarmup() {
+  useCachedSession();
   return null;
 }
 
@@ -42,7 +47,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (["/sign-in", "/sign-up", "/forgot-password", "/reset-password", "/onboarding", "/auth/complete"].includes(pathname)) return <><div className="absolute right-4 top-4"><ThemeToggle /></div><main>{children}</main>{pathname !== "/sign-in" && <footer className="px-6 pb-8"><LegalLinks /></footer>}</>;
 
   return (
-    <SidebarContext.Provider value={setSidebarJson}><Suspense fallback={null}><SidebarRouteSync update={setSidebarJson} /></Suspense><div className={`min-h-screen lg:grid ${collapsed ? "lg:grid-cols-[80px_minmax(0,1fr)]" : "lg:grid-cols-[272px_minmax(0,1fr)]"}`}>
+    <SidebarContext.Provider value={setSidebarJson}><SessionWarmup /><Suspense fallback={null}><SidebarRouteSync update={setSidebarJson} /></Suspense><div className={`min-h-screen lg:grid ${collapsed ? "lg:grid-cols-[80px_minmax(0,1fr)]" : "lg:grid-cols-[272px_minmax(0,1fr)]"}`}>
       <aside className={`border-b border-[var(--border)] bg-[var(--background)] p-4 lg:sticky lg:top-0 lg:flex lg:h-screen lg:flex-col lg:border-b-0 lg:border-r ${collapsed ? "lg:px-3" : "lg:p-5"}`}>
         <div className={`flex items-center justify-between gap-2 ${collapsed ? "lg:flex-col" : ""}`}>
           <Link href="/" aria-label="Acquired — home" className="flex min-h-12 min-w-0 items-center gap-3">
@@ -58,10 +63,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Link href="/mandates" title="All mandates" onClick={() => setMobileOpen(false)} className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-sm text-[var(--muted)] hover:text-[var(--foreground)] ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><Building2 size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>All mandates</span></Link>
             {collapsed && <Link href="/mandates/new" title="New mandate" onClick={() => setMobileOpen(false)} className="hidden min-h-12 items-center justify-center rounded-md text-[var(--muted)] hover:text-[var(--foreground)] lg:flex"><Plus size={20} /><span className="sr-only">New mandate</span></Link>}
           </nav>
-          {sidebar.selected && <nav aria-label="Mandate sections" className="mt-6 space-y-1 border-t border-[var(--border)] pt-4">
-            {([["brief", "Brief", FileText], ["targets", "Companies", ListFilter], ["people", "People", Users], ["sequences", "Sequences", Mail]] as const).map(([tab, label, Icon]) => <Link key={tab} href={mandateTabHref(sidebar.selected!, tab)} aria-current={sidebar.tab === tab ? "page" : undefined} title={label} onClick={() => setMobileOpen(false)} className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-sm hover:bg-[var(--panel-raised)] ${sidebar.tab === tab ? "bg-[var(--panel-raised)] font-semibold text-[var(--foreground)]" : "text-[var(--muted)] hover:text-[var(--foreground)]"} ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><Icon size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>{label}</span></Link>)}
+          <nav aria-label="Mandate sections" className="mt-6 space-y-1 border-t border-[var(--border)] pt-4">
+            {([["brief", "Brief", FileText], ["targets", "Companies", ListFilter], ["people", "People", Users], ["sequences", "Sequences", Mail]] as const).map(([tab, label, Icon]) => <Link key={tab} href={`/mandates/select/${tab}`} aria-current={(sidebar.selected && sidebar.tab === tab) || pathname === `/mandates/select/${tab}` ? "page" : undefined} title={label} onClick={() => setMobileOpen(false)} className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-sm hover:bg-[var(--panel-raised)] ${(sidebar.selected && sidebar.tab === tab) || pathname === `/mandates/select/${tab}` ? "bg-[var(--panel-raised)] font-semibold text-[var(--foreground)]" : "text-[var(--muted)] hover:text-[var(--foreground)]"} ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><Icon size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>{label}</span></Link>)}
 
-          </nav>}
+          </nav>
           <nav aria-label="Account" className="mt-6 space-y-1 border-t border-[var(--border)] pt-4 lg:mt-auto">
             <Link href="/settings" title="Settings" onClick={() => setMobileOpen(false)} className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-sm text-[var(--muted)] hover:text-[var(--foreground)] ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><Settings size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>Settings</span></Link>
             <ThemeToggle collapsed={collapsed} subtle />

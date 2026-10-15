@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useMandateCache } from "@/lib/mandate-cache";
 import Link from "next/link";
 import { ArrowRight, CircleAlert, Clock3 } from "lucide-react";
 import type { AcquisitionBrief, MandateView } from "@/domain/acquisition";
@@ -9,8 +10,13 @@ import { CompanyPipelineProgress } from "./company-pipeline-progress";
 import { nextTestMandate } from "@/domain/test-mandates";
 import { DetailTooltip } from "./detail-tooltip";
 
-export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
+export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true }: { mandates: MandateView[]; recentStatus?: ReactNode; recentLoaded?: boolean }) {
   const [description, setDescription] = useState("");
+  const descriptionInput = useRef<HTMLTextAreaElement>(null);
+  // Preserve text entered into the server-rendered field before hydration.
+  useEffect(() => {
+    if (descriptionInput.current) setDescription(descriptionInput.current.value);
+  }, []);
   const [createdId, setCreatedId] = useState<string | null>(null);
   const [searchRun, setSearchRun] = useState<{ mandateId: string; jobId?: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -47,6 +53,7 @@ export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
         if (!saved.ok || !result.id) throw new Error(result.error || "Could not save the mandate.");
         id = result.id;
         setCreatedId(id);
+        useMandateCache.getState().upsert({ id, brief, createdAt: new Date().toISOString() });
       }
       setProgress("Starting company research…");
       const research = await fetch(`/api/mandates/${id}/research`, {
@@ -91,7 +98,7 @@ export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
               </span>
             </DetailTooltip>
           </div>
-          <textarea id="mandate-description" required minLength={10} maxLength={5000} rows={5} readOnly={Boolean(createdId)} value={description} onChange={event => setDescription(event.target.value)} placeholder="For example: We are seeking an established commercial refrigeration service business in Queensland or New South Wales with annual revenue of AUD 4–12 million, EBITDA of AUD 700,000–2 million and 15–55 employees. Prefer recurring maintenance and repair work for commercial customers, diversified customers and a capable management team. We are open to a full or majority acquisition with an owner transition period." className="mt-3 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--input)] px-4 py-3 text-base text-[var(--foreground)] placeholder:text-[var(--muted)] focus-visible:border-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]" />
+          <textarea ref={descriptionInput} id="mandate-description" required minLength={10} maxLength={5000} rows={5} readOnly={Boolean(createdId)} defaultValue={description} onChange={event => setDescription(event.target.value)} placeholder="For example: We are seeking an established commercial refrigeration service business in Queensland or New South Wales with annual revenue of AUD 4–12 million, EBITDA of AUD 700,000–2 million and 15–55 employees. Prefer recurring maintenance and repair work for commercial customers, diversified customers and a capable management team. We are open to a full or majority acquisition with an owner transition period." className="mt-3 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--input)] px-4 py-3 text-base text-[var(--foreground)] placeholder:text-[var(--muted)] focus-visible:border-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]" />
           {error && <p role="alert" className="mt-3 text-sm text-[var(--status-red)]">{error}</p>}
           {progress && <p role="status" className="mt-3 text-sm text-[var(--muted)]">{progress}</p>}
           {createdId && error && <Link href={`/mandates/${createdId}?tab=targets`} className="mt-2 inline-block text-sm text-[var(--accent)] underline underline-offset-4">Open your saved mandate</Link>}
@@ -101,7 +108,8 @@ export function HomeMandateCreate({ mandates }: { mandates: MandateView[] }) {
     </section>
     <section aria-labelledby="recent-mandates-heading" className="rounded-2xl border border-[var(--border)] bg-[var(--panel)] p-5 sm:p-7">
       <div className="flex items-center justify-between gap-4"><h2 id="recent-mandates-heading" className="text-2xl font-semibold">Your recent mandates</h2><Link href="/mandates" className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm hover:bg-[var(--panel-raised)]">View all</Link></div>
-      {mandates.length ? <div className="mt-5 grid gap-3">{mandates.slice(0, 5).map(mandate => <Link key={mandate.id} href={`/mandates/${mandate.id}`} className="flex items-center gap-4 rounded-xl border border-[var(--border)] p-4 hover:bg-[var(--panel-raised)]"><Clock3 size={20} className="shrink-0 text-[var(--accent)]" /><span><strong className="block">{mandate.brief.name}</strong><span className="mt-1 block text-xs text-[var(--muted)]">{new Date(mandate.createdAt).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" })}</span></span></Link>)}</div> : <p className="mt-5 text-sm text-[var(--muted)]">Your mandates will appear here after you create one.</p>}
+      {recentStatus && <div className="mt-5">{recentStatus}</div>}
+      {mandates.length ? <div className="mt-5 grid gap-3">{mandates.slice(0, 5).map(mandate => <Link key={mandate.id} href={`/mandates/${mandate.id}`} className="flex items-center gap-4 rounded-xl border border-[var(--border)] p-4 hover:bg-[var(--panel-raised)]"><Clock3 size={20} className="shrink-0 text-[var(--accent)]" /><span><strong className="block">{mandate.brief.name}</strong><span className="mt-1 block text-xs text-[var(--muted)]">{new Date(mandate.createdAt).toLocaleString("en-AU", { dateStyle: "medium", timeStyle: "short" })}</span></span></Link>)}</div> : recentLoaded ? <p className="mt-5 text-sm text-[var(--muted)]">Your mandates will appear here after you create one.</p> : null}
     </section>
   </div>;
 }

@@ -7,6 +7,7 @@ const stages = ["Brief", "Companies", "People", "Outreach"] as const;
 export function AcquisitionProgress() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  if (pathname.startsWith("/mandates/select/")) return null;
   const isMandate = /^\/mandates\/[^/]+(?:\/|$)/.test(pathname);
   if (pathname !== "/" && !isMandate && pathname !== "/preview/outreach") return null;
 

@@ -4,7 +4,11 @@ import {expect,it,vi} from 'vitest';
 vi.mock('next/navigation',()=>({useRouter:()=>({refresh:vi.fn()})}));
 import {MandateBriefForm} from './mandate-brief-form';
 import {emptyBrief} from '@/domain/acquisition';
-it('offers company or AU-only financial scope without assuming operating geography limits financial scope',()=>{
+it('shows the brief description and search action without the removed criteria controls',()=>{
  const html=renderToStaticMarkup(<MandateBriefForm mandateId="fixture" brief={emptyBrief()}/>);
- expect(html).toContain('Financial scope');expect(html).toContain('Company/group revenue');expect(html).toContain('Australian operations only');
+ expect(html).toContain('Describe the acquisition brief');
+ expect(html).toContain('Find companies');
+ expect(html).not.toContain('Financial scope');
+ expect(html).not.toContain('Acquisition criteria');
+ expect(html).not.toContain('Save criteria');
 });

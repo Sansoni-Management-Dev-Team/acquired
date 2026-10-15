@@ -2,12 +2,15 @@
 
 import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
+import { useMandateCache } from "@/lib/mandate-cache";
 import { authClient } from "@/lib/auth-client";
 
 export function SignOutButton() {
   const router = useRouter();
   async function signOut() {
     await authClient.signOut();
+    useMandateCache.getState().clear();
+    useMandateCache.persist.clearStorage();
     router.replace("/sign-in");
     router.refresh();
   }
