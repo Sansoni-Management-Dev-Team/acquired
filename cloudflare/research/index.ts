@@ -71,12 +71,12 @@ interface Env extends FirmableSessionEnv {
   RESEARCH_AI_EXTRACTION_REASONING?: string;
 }
 const coordinator = (env: Env) => env.PROVIDER_COORDINATOR?.getByName("account-wide");
-async function providerAction(env: Env, jobId: string, body: { action: string; token?: string | null; provider?: ResearchProvider; retryAfterMs?: number; url?: string; domain?: string }, budget?: { used: number; jobId?: string }) {
+async function providerAction(env: Env, jobId: string, body: { action: string; token?: string | null; provider?: ResearchProvider; retryAfterMs?: number; url?: string; domain?: string; holdMs?: number }, budget?: { used: number; jobId?: string }) {
   const stub = coordinator(env);
   if (!stub) return callback(env, jobId, body.action === "provider-reserve" ? { ...body, policy: "paid-v1" } : body, budget);
   // The coordinator holds the request while capacity is busy, so one admission
   // step usually replaces a series of sleep-and-poll rounds.
-  if (body.action === "provider-reserve" && body.token && body.provider) return stub.reserve({ jobId, token: body.token, provider: balancedReservation(body.provider, env).provider, local: balancedReservation(body.provider, env).balancedLocal || !productionPolicy(env), holdMs: 20000 });
+  if (body.action === "provider-reserve" && body.token && body.provider) return stub.reserve({ jobId, token: body.token, provider: balancedReservation(body.provider, env).provider, local: balancedReservation(body.provider, env).balancedLocal || !productionPolicy(env), holdMs: body.holdMs ?? 20000 });
   if (body.action === "browser-permit" && body.token) return stub.claim(jobId, body.token, body.url ? new URL(body.url).hostname.replace(/^www\./, "") : undefined);
   if (body.action === "provider-release" && body.token) return stub.release(jobId, body.token).then(() => ({ ok: true }));
   if (body.action === "browser-cooldown") return stub.cooldown(body.retryAfterMs || 30000, body.domain).then(() => ({ ok: true }));
@@ -577,6 +577,13 @@ const worker = {
       const query = body.query;
       const page = typeof body.page === "number" && Number.isInteger(body.page) && body.page >= 1 && body.page <= 3 ? body.page : 1;
       if ((page > 1 || body.engine && body.engine !== "duckduckgo") && productionPolicy(env)) return Response.json({ error: "Production search supports DuckDuckGo page 1 only", category: "unsupported_search" }, { status: 422 });
+      const suppliedDeadline = request.headers.get('x-research-deadline');
+      if (suppliedDeadline && !/^\d{1,16}$/.test(suppliedDeadline)) return Response.json({ error: 'Invalid search deadline' }, { status: 400 });
+      const deadline = Math.min(Date.now() + 45000, suppliedDeadline ? Number(suppliedDeadline) : Infinity);
+      const suppliedReservation = request.headers.get('x-research-browser-reservation');
+      const reservation = suppliedReservation || `sync-search:${crypto.randomUUID()}`;
+      let reserved = Boolean(suppliedReservation);
+      let productionJobId: string | undefined;
       try {
         if (!productionPolicy(env)) {
           const ids = {
@@ -604,17 +611,30 @@ const worker = {
         }
         const jobId = request.headers.get("x-research-job-id") || "";
         if (!/^[0-9a-f-]{36}$/i.test(jobId)) return Response.json({ error: "A research job is required for rate-controlled search" }, { status: 400 });
+        productionJobId = jobId;
         const markdown = await browserMarkdown(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
-          jobId, operation: "web_search",
+          jobId, operation: "web_search", deadline,
           cooldown: (retryAfterMs, domain) => providerAction(env, jobId, { action: "browser-cooldown", retryAfterMs, domain }),
-          release: () => providerAction(env, jobId, { action: "provider-release", token: request.headers.get("x-research-browser-reservation") }),
-          permit: () => providerAction(env, jobId, { action: "browser-permit", token: request.headers.get("x-research-browser-reservation"), url: `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}` }) as Promise<{ granted: boolean; retryAfterMs: number }>,
+          permit: async () => {
+            if (!reserved) {
+              // Synchronous field searches have no Workflow reservation. Book
+              // through the same queue and let browserMarkdown bound retries.
+              const admission = await providerAction(env, jobId, { action: 'provider-reserve', provider: 'search', token: reservation, holdMs: 0 }) as Admission;
+              if (!admission.granted) return { granted: false, retryAfterMs: admission.retryAfterMs };
+              reserved = true;
+            }
+            return providerAction(env, jobId, { action: 'browser-permit', token: reservation, url: `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}` }) as Promise<{ granted: boolean; retryAfterMs: number }>;
+          },
         });
         const results = searchResults(markdown);
         const seeds = results.map(r => r.url).slice(0, 6);
         if (!seeds.length && !/no results found|no more results/i.test(markdown)) throw new Error("Search could not be read");
         return Response.json({ seeds, results });
       } catch (error) { const failure = providerFailure(error); return Response.json({ error: failure.message, category: failure.category }, { status: failure.status >= 400 ? failure.status : 502 }); }
+      finally {
+        // Include admission failures: a queued reservation also needs cleanup.
+        if (productionJobId) await providerAction(env, productionJobId, { action: 'provider-release', token: reservation }).catch(() => {});
+      }
     }
     const firmableMatch = new URL(request.url).pathname.match(/^\/firmable\/([0-9a-f-]{36})$/i);
     if (firmableMatch) {

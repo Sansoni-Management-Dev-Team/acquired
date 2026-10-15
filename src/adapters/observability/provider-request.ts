@@ -17,6 +17,8 @@ export function providerDiagnostics(status: number, headers: Headers, body: unkn
   const readerReasons = ["reader_busy", "domain_backoff", "origin_rate_limit", "origin_http_error", "page_unavailable", "reader_timeout", "reader_failure"];
   const readerReason = provider === "local-crawl4ai" && typeof data.category === "string" && readerReasons.includes(data.category) ? data.category : undefined;
   if (readerReason) category = readerReason;
+  const workerAdmission = provider === 'research-worker' && status === 503 && data.category === 'browser_admission';
+  if (workerAdmission) category = 'browser_admission';
   const reader: Record<string, number | string | boolean> = {};
   if (provider === "local-crawl4ai") {
     const diagnostics = object(data.reader);
@@ -45,7 +47,7 @@ export function providerDiagnostics(status: number, headers: Headers, body: unkn
   }
   // Only known provider names are emitted; metadata may otherwise contain arbitrary text.
   const providerName = typeof metadata.provider_name === "string" && /^(Nex AGI|NEX|Nvidia|NVIDIA|OpenRouter|Cloudflare|Chutes|DeepInfra|Together|Google AI Studio|Novita|SambaNova)$/i.test(metadata.provider_name) ? metadata.provider_name : undefined;
-  return { category, classificationBasis: readerReason ? "reader_category" : category === "rate_limit_unspecified" || category === "provider_error" ? "http_status" : "provider_message_pattern", errorCodes: [error.code, ...errors.map(e => e.code)].map(numeric).filter(v => v !== undefined), limits, providerRequestIds: ids, upstreamProvider: providerName, ...(Object.keys(reader).length ? { reader } : {}) };
+  return { category, classificationBasis: workerAdmission ? 'worker_category' : readerReason ? "reader_category" : category === "rate_limit_unspecified" || category === "provider_error" ? "http_status" : "provider_message_pattern", errorCodes: [error.code, ...errors.map(e => e.code)].map(numeric).filter(v => v !== undefined), limits, providerRequestIds: ids, upstreamProvider: providerName, ...(Object.keys(reader).length ? { reader } : {}) };
 }
 
 export type RequestContext = {

@@ -122,3 +122,10 @@ it.each(['-1', 'Infinity', '1.5', '9007199254740992', 'private'])('rejects inval
  expect(JSON.parse(log.mock.calls.at(-1)![1]).responseBodyBytes).toBeUndefined();
  expect(JSON.stringify(log.mock.calls)).not.toContain('private');
 });
+
+it('keeps the Worker admission category without copying arbitrary response data', () => {
+ const result=providerDiagnostics(503,new Headers(),{category:'browser_admission',error:'private payload'},'research-worker');
+ expect(result).toMatchObject({category:'browser_admission',classificationBasis:'worker_category'});
+ expect(JSON.stringify(result)).not.toContain('private');
+ expect(providerDiagnostics(503,new Headers(),{category:'private payload'},'research-worker').category).toBe('provider_error');
+});

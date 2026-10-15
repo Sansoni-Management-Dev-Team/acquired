@@ -52,3 +52,14 @@ it('production full-page reads reuse the authenticated Worker crawler proxy with
  expect(await read(input.website,Date.now()+10000)).toMatchObject({reader:'crawl4ai-http',html:expect.stringContaining('office@')});
  expect(fetcher).toHaveBeenCalledWith('https://research.example.com/company-page',expect.objectContaining({headers:expect.objectContaining({authorization:'Bearer synthetic-worker-secret'})}));
 });
+
+it('retains admission classification and stops repeated field queries when browser capacity is deferred', async () => {
+ const {BrowserAdmissionDeferred}=await import('@/domain/research-provider-error');
+ const search=vi.fn(async()=>{throw new BrowserAdmissionDeferred('private diagnostic body');});
+ const result=await createCompanyMissingFieldResearch({readPage:async url=>({url,html:'Company homepage',reader:'fixture'}),search})({...base,missingFields:['company_emails','company_phones']});
+ expect(search).toHaveBeenCalledOnce();
+ expect(result.attempts.filter(a=>a.kind==='search')).toEqual([expect.objectContaining({status:'failed',category:'browser_admission'})]);
+ expect(result.fields.company_emails?.status).toBe('research_incomplete');
+ expect(result.fields.company_phones?.status).toBe('research_incomplete');
+ expect(JSON.stringify(result)).not.toContain('private diagnostic body');
+});

@@ -1,0 +1,25 @@
+{
+  "observed": "2026-10-14T23:22:35.743Z",
+  "probe": {
+    "status": 503,
+    "category": "browser_admission",
+    "admissionRejected": true,
+    "elapsedMs": 124
+  },
+  "databaseReadOnly": true,
+  "mandateId": "0ae75359-8f79-416e-9056-171225a01d47",
+  "background": {
+    "companies": 100,
+    "statuses": {
+      "partial": 81,
+      "failed": 19
+    },
+    "searched": 85,
+    "allSearchesFailed": 85,
+    "someSearchSucceeded": 0,
+    "noSearch": 15,
+    "failedSearchAttempts": 340,
+    "successfulSearchAttempts": 0,
+    "withEvidence": 33
+  }
+}

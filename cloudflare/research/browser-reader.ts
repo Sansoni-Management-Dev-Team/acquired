@@ -11,6 +11,7 @@ export const MAX_ADMISSION_ATTEMPTS = 6;
 export type BrowserReaderEnv = LocalReaderEnv & { CF_ACCOUNT_ID?: string; CF_BROWSER_TOKEN?: string; AI?: ResearchPdfConverter };
 export async function browserMarkdown(env: BrowserReaderEnv, url: string, options: {
   jobId?: string; requestId?: string; operation: string;
+  deadline?: number;
   permit(): Promise<{ granted: boolean; retryAfterMs: number; expired?: boolean }>;
   onRequest?(): void;
   cooldown?(retryAfterMs: number, domain?: string): Promise<unknown>;
@@ -31,8 +32,9 @@ export async function browserMarkdown(env: BrowserReaderEnv, url: string, option
   // reservation stays valid for 90 seconds, so claims retry within a bounded
   // window (below the app callback deadline) rather than a fixed two attempts:
   // concurrent searches on the shared host push each other's start back.
-  const admissionDeadline = started + ADMISSION_WINDOW_MS;
+  const admissionDeadline = Math.min(started + ADMISSION_WINDOW_MS, options.deadline ?? Infinity);
   for (let attempt = 0; ; attempt++) {
+    if (Date.now() >= admissionDeadline) throw new BrowserAdmissionDeferred('Browser admission deadline reached');
     options.onRequest?.();
     let permit: Awaited<ReturnType<typeof options.permit>>;
     try { permit = await options.permit(); }
@@ -42,6 +44,7 @@ export async function browserMarkdown(env: BrowserReaderEnv, url: string, option
     }
     admissionLog('permit_result', { attempt: attempt + 1, granted: permit.granted, retryAfterMs: permit.retryAfterMs, expired: permit.expired === true });
     if (permit.granted) {
+      if (Date.now() + permit.retryAfterMs >= admissionDeadline) throw new BrowserAdmissionDeferred('Browser admission deadline reached');
       if (permit.retryAfterMs > 0) await new Promise(resolve => setTimeout(resolve, Math.min(22000, permit.retryAfterMs)));
       break;
     }
@@ -54,12 +57,13 @@ export async function browserMarkdown(env: BrowserReaderEnv, url: string, option
   }
   options.onRequest?.();
   try {
+    if (Date.now() >= (options.deadline ?? Infinity)) throw new BrowserAdmissionDeferred('Browser request deadline reached');
     if (!local && /\.pdf$/i.test(new URL(url).pathname)) return await pdfMarkdown(env.AI, url, researchFetch(env, fetcher));
     const { response, data } = await providerJsonRequest<{ success?: boolean; result?: unknown; url?: string; markdown?: unknown }>(researchFetch(env, fetcher),
       endpoint, {
         method: 'POST', headers: { ...(!local ? { authorization: `Bearer ${env.CF_BROWSER_TOKEN}` } : { 'x-request-id': requestId, ...(options.jobId ? { 'x-research-job-id': options.jobId } : {}) }), 'Content-Type': 'application/json' },
         body: JSON.stringify({ url, gotoOptions: { waitUntil: 'domcontentloaded', timeout: 20000 } }),
-        signal: AbortSignal.timeout(25000),
+        signal: AbortSignal.timeout(Math.max(1, Math.min(25000, (options.deadline ?? Infinity) - Date.now()))),
       }, { provider: local ? 'local-crawl4ai' : 'cloudflare-browser', operation: options.operation, jobId: options.jobId, requestId });
     const diagnostics = providerDiagnostics(response.status, response.headers, data, local ? 'local-crawl4ai' : 'cloudflare-browser');
     if (response.status === 429 && options.cooldown && diagnostics.category !== "daily_quota") {

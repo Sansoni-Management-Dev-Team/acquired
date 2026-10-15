@@ -9,10 +9,11 @@ import { cloudflareSearchResults } from './cloudflare-web-search';
 import { readIdentityWebsite } from './abn-identity-resolver';
 import { providerJsonRequest } from './observability/provider-request';
 import { localReaderEndpoint } from '../../cloudflare/research/local-reader';
+import { ResearchProviderError } from '@/domain/research-provider-error';
 
 export type CompanyMissingField = 'description'|'company_emails'|'company_phones'|'year_founded'|'acn'|'website_address'|'employee_count'|'revenue'|'accreditation_contacts'|'team_members'|'accreditations';
 export type CompanyMissingFieldFact = {field:CompanyMissingField;value:unknown;sourceUrl:string;quote:string;capturedAt:string;scope?:string;currency?:string|null;period?:string|null;evidenceType:'published';reader:string;readStartedAt?:string;readElapsedMs?:number;association?:RelatedDomainAssociation};
-export type CompanyMissingFieldAttempt = {kind:'page'|'document'|'search';url?:string;field?:CompanyMissingField;status:'succeeded'|'failed'|'rejected';startedAt:string;elapsedMs:number;reason?:string;query?:string;resultCount?:number};
+export type CompanyMissingFieldAttempt = {kind:'page'|'document'|'search';url?:string;field?:CompanyMissingField;status:'succeeded'|'failed'|'rejected';startedAt:string;elapsedMs:number;reason?:string;category?:string;query?:string;resultCount?:number};
 export type CompanyMissingFieldResearchResult = {facts:CompanyMissingFieldFact[];fields:Partial<Record<CompanyMissingField,{status:'reported'|'not_disclosed'|'research_incomplete';reason?:string}>>;attempts:CompanyMissingFieldAttempt[];registryContacts:AccreditationContact[];teamMembers?:PublishedTeamMember[];accreditations?:PublishedAccreditation[];relatedDomains?:RelatedDomainAssociation[]};
 export type MissingFieldPage = {url:string;html?:string;markdown?:string;truncated?:boolean;reader:string;onlyMainContent?:false};
 export type CompanyMissingFieldResearchInput = {name:string;website:string;missingFields:CompanyMissingField[];deadline?:number;jobId?:string;maxPages?:number;maxSearchQueries?:number;knownRegistryUrls?:string[];raw?:Record<string,unknown>};
@@ -115,7 +116,7 @@ export function createCompanyMissingFieldResearch(deps:CompanyMissingFieldResear
     if(!deps.search||queries>=maxQueries||now()>=deadline){limited=true;return [];}
     queries++;searched.add(field);const at=now();
     try{const results=await deps.search(query,field,deadline);attempts.push({kind:'search',field,query:query.slice(0,500),resultCount:results.length,status:'succeeded',startedAt:new Date(at).toISOString(),elapsedMs:Math.max(0,now()-at)});return results;}
-    catch{attempts.push({kind:'search',field,query:query.slice(0,500),status:'failed',startedAt:new Date(at).toISOString(),elapsedMs:Math.max(0,now()-at),reason:'Field-specific search unavailable'});return [];}
+    catch(error){const category=error instanceof ResearchProviderError?error.category:undefined;attempts.push({kind:'search',field,query:query.slice(0,500),status:'failed',startedAt:new Date(at).toISOString(),elapsedMs:Math.max(0,now()-at),reason:'Field-specific search unavailable',...(category?{category}:{})});if(category==='browser_admission'){limited=true;queries=maxQueries;}return [];}
    };
    const results=await search(missingFieldSearchQuery(input,field));
    // Failure and empty-result responses both permit the bounded official-name fallback.
@@ -154,5 +155,5 @@ export function createMissingFieldCrawlReader(env:MissingFieldCrawlEnvironment={
 export async function researchCompanyMissingFields(input:CompanyMissingFieldResearchInput){return createCompanyMissingFieldResearch({
  readPage:createMissingFieldCrawlReader(),
  readDocument:async(url,deadline)=>{const result=await readIdentityWebsite(url,deadline);return{url:result.url,text:result.html,truncated:result.truncated};},
- search:async(query,_field,deadline)=>cloudflareSearchResults(query,(input,init)=>fetch(input,{...init,signal:AbortSignal.any([...(init?.signal?[init.signal]:[]),AbortSignal.timeout(Math.max(1,deadline-Date.now()))])}),input.jobId),
+ search:async(query,_field,deadline)=>cloudflareSearchResults(query,(input,init)=>{const headers=new Headers(init?.headers);headers.set('x-research-deadline',String(deadline));return fetch(input,{...init,headers,signal:AbortSignal.any([...(init?.signal?[init.signal]:[]),AbortSignal.timeout(Math.max(1,deadline-Date.now()))])});},input.jobId),
 })(input);}

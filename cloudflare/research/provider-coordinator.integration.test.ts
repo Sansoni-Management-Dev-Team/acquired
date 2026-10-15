@@ -1,5 +1,6 @@
 import { env } from "cloudflare:workers";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
+import worker from "./index";
 import type { ProviderCoordinator } from "./provider-coordinator";
 import { AI_CONCURRENCY, PAID_PAGE_SLOTS, PAID_START_SPACING_MS } from "../../src/domain/research-provider-queue";
 
@@ -78,4 +79,27 @@ it('persists a website cooldown without stopping unrelated website claims', asyn
   expect(await coordinator.claim('a', 'a', 'blocked.example')).toMatchObject({ granted: false, expired: false });
   expect(await coordinator.claim('a', 'a', 'other.example')).toMatchObject({ granted: true, retryAfterMs: 0 });
   await coordinator.release('a', 'a');
+});
+
+
+it('admits and releases a synchronous search through the real Durable Object coordinator', async () => {
+  const stub = bindings.PROVIDER_COORDINATOR.getByName(crypto.randomUUID());
+  const reserve = vi.fn((input: Parameters<typeof stub.reserve>[0]) => stub.reserve(input));
+  const environment = {
+    SERVICE_SECRET: 'offline-search-fixture', CF_ACCOUNT_ID: 'offline', CF_BROWSER_TOKEN: 'offline',
+    PROVIDER_COORDINATOR: { getByName: () => ({ reserve, claim: (job: string, token: string, domain?: string) => stub.claim(job, token, domain), release: (job: string, token: string) => stub.release(job, token) }) },
+  } as unknown as Parameters<typeof worker.fetch>[1];
+  const jobId = crypto.randomUUID();
+  const upstream = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({success: true, result: '## [Example Company](https://example.com/contact)'}));
+  try {
+    const response = await worker.fetch(new Request('https://worker.example/search', {
+      method: 'POST', headers: { authorization: 'Bearer offline-search-fixture', 'content-type': 'application/json', 'x-research-job-id': jobId },
+      body: JSON.stringify({query: 'site:example.com company contact'}),
+    }), environment);
+    expect(response.status).toBe(200);
+    expect(upstream).toHaveBeenCalledOnce();
+    expect(reserve).toHaveBeenCalledOnce();
+    const token = reserve.mock.calls[0][0].token;
+    expect(await stub.claim(jobId, token, 'html.duckduckgo.com')).toMatchObject({granted: false, expired: true});
+  } finally { upstream.mockRestore(); }
 });
