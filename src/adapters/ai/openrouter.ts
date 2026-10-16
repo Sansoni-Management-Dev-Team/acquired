@@ -82,10 +82,10 @@ export class OpenRouterAiProvider implements AiProvider {
         max_tokens: request.maxTokens || 3_000,
         temperature: request.temperature ?? 0.35,
         response_format: { type: "json_schema", json_schema: { name: request.name, strict: true, schema: request.schema } },
-        provider: { require_parameters: true, data_collection: "deny" },
+        provider: { require_parameters: true, data_collection: "allow" },
         ...(reasoningOptionalModels.has(model) ? { reasoning: { effort: "none", exclude: true } } : {}),
       });
-      aiLog("request", { provider: this.name, model, attempt, totalAttempts: attemptModels.length, responseSchema: request.name, maxTokens: request.maxTokens || 3_000, temperature: request.temperature ?? 0.35, reasoning: reasoningOptionalModels.has(model) ? "disabled" : "model_default", dataCollection: "deny" });
+      aiLog("request", { provider: this.name, model, attempt, totalAttempts: attemptModels.length, responseSchema: request.name, maxTokens: request.maxTokens || 3_000, temperature: request.temperature ?? 0.35, reasoning: reasoningOptionalModels.has(model) ? "disabled" : "model_default", dataCollection: "allow" });
       let response: Response;
       try {
         response = await this.fetcher(`${this.baseUrl}/chat/completions`, {

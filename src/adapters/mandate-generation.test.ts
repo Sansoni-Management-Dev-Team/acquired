@@ -1,10 +1,11 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { criterionDefinitions } from "@/domain/acquisition";
+import { FREE_RESEARCH_MODELS, MERCURY_FALLBACK_MODEL, NEMO_FALLBACK_MODEL } from "./ai/free-openrouter";
 import { generateMandate } from "./mandate-generation";
 
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
-it("uses free-only inference and returns editable, unreviewed criteria", async () => {
+it("uses free-first inference and returns editable, unreviewed criteria", async () => {
   vi.stubEnv("OPENROUTER_API_KEY", "test-key");
   const criteria = Object.fromEntries(criterionDefinitions.map(([key]) => [key, "Test preference"]));
   Object.assign(criteria, { subsectors: "CNC machining", geography: "VIC", revenue: "5000000–20000000", revenueCeiling: "20000000", ebitda: "1000000–3000000", headcount: "20–100" });
@@ -17,12 +18,12 @@ it("uses free-only inference and returns editable, unreviewed criteria", async (
   const body = JSON.parse(fetcher.mock.calls[0][1].body);
   expect(body.models.every((model: string) => model.endsWith(":free"))).toBe(true);
   expect(body.provider.max_price).toEqual({ prompt: 0, completion: 0 });
-  expect(body.models).toEqual(["dots-studio/dots-3-note-preview:free"]);
+  expect(body.models).toEqual(FREE_RESEARCH_MODELS);
   expect(body.reasoning.effort).toBe("none");
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
 
-it("does not fall back to paid AI when free models are unavailable and no OpenAI key is set", async () => {
+it("exhausts the bounded OpenRouter waterfall when no OpenAI key is set", async () => {
   vi.stubEnv("OPENROUTER_API_KEY", "test-key");
   vi.stubEnv("OPENAI_API_KEY", "");
   const fetcher = vi.fn().mockResolvedValue(Response.json({ error: "Unavailable" }, { status: 429 }));
@@ -30,9 +31,9 @@ it("does not fall back to paid AI when free models are unavailable and no OpenAI
   await expect(generateMandate()).rejects.toThrow("429");
   expect(fetcher).toHaveBeenCalledTimes(3);
   expect(fetcher.mock.calls.map(([, init]) => JSON.parse(init.body).models)).toEqual([
-    ["dots-studio/dots-3-note-preview:free"], ["nex-agi/nex-n2.5-mini:free"], ["qwen/qwen3.8-27b:free"],
+    FREE_RESEARCH_MODELS, [MERCURY_FALLBACK_MODEL], [NEMO_FALLBACK_MODEL],
   ]);
-  for (const [, init] of fetcher.mock.calls) expect(JSON.parse(init.body).provider.max_price).toEqual({ prompt: 0, completion: 0 });
+  expect(JSON.parse(fetcher.mock.calls[0][1].body).provider.max_price).toEqual({ prompt: 0, completion: 0 });
 });
 
 it("falls back to a cheap OpenAI model after every free model fails", async () => {
@@ -58,7 +59,7 @@ it("falls back to a cheap OpenAI model after every free model fails", async () =
   expect(body.response_format.type).toBe("json_schema");
 });
 
-it("uses the direct AI path for a buyer description and keeps unsupplied criteria unknown", async () => {
+it("uses free models first even for a buyer description and keeps unsupplied criteria unknown", async () => {
   vi.stubEnv("OPENROUTER_API_KEY", "test-key");
   vi.stubEnv("OPENAI_API_KEY", "openai-test-key");
   const criteria = Object.fromEntries(criterionDefinitions.map(([key]) => [key, "Unknown"]));
@@ -68,7 +69,8 @@ it("uses the direct AI path for a buyer description and keeps unsupplied criteri
   vi.stubGlobal("fetch", fetcher);
   const brief = await generateMandate("Find me gym supply businesses");
   expect(fetcher).toHaveBeenCalledTimes(1);
-  expect(fetcher.mock.calls[0][0]).toBe("https://api.openai.com/v1/chat/completions");
+  expect(fetcher.mock.calls[0][0]).toBe("https://openrouter.ai/api/v1/chat/completions");
+  expect(JSON.parse(fetcher.mock.calls[0][1].body).models).toEqual(FREE_RESEARCH_MODELS);
   expect(brief.naturalLanguage).toBe("Find me gym supply businesses");
   expect(brief.criteria.find(item => item.key === "subsectors")?.value).toBe("Gym equipment suppliers");
   expect(brief.criteria.find(item => item.key === "subsectors")?.origin).toBe("supplied");

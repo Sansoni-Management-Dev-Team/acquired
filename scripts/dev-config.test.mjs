@@ -56,3 +56,10 @@ it("connects local campaigns to OrbStack n8n with a callback to the selected app
   expect(config.app.OUTREACH_WORKER_SECRET).toBe("local-worker");
   expect(() => localDevConfig({ ...env, CAMPAIGN_N8N_ENABLED: "true", CAMPAIGN_N8N_URL: "https://n8n.mlai.au" }, "s")).toThrow("OrbStack n8n");
 });
+
+it('passes only selected OpenAI settings into local app and Worker bindings',()=>{
+ const config=localDevConfig({OPENAI_API_KEY:'synthetic-openai',RESEARCH_AI_PROVIDER:'openai',OPENAI_RESEARCH_MODEL:'gpt-6-luna',OPENAI_RESEARCH_FALLBACK_MODEL:'gpt-5.6-luna'},'local-secret');
+ expect(config.app.AI_PROVIDER).toBe('openai');
+ expect(config.worker).toMatchObject({OPENAI_API_KEY:'synthetic-openai',RESEARCH_AI_PROVIDER:'openai',OPENAI_RESEARCH_MODEL:'gpt-6-luna',OPENAI_RESEARCH_FALLBACK_MODEL:'gpt-5.6-luna'});
+ expect(config.worker).not.toHaveProperty('DATABASE_URL');
+});

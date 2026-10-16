@@ -20,7 +20,7 @@ describe("free research OpenRouter service", () => {
     await expect(ai.complete(researchExtractionRequest(request.messages))).rejects.toThrow(/output token limit/);
     const body = JSON.parse(fetcher.mock.calls[0][1].body);
     expect(body.reasoning.effort).toBe("none");
-    expect(body.models).toEqual(FREE_RESEARCH_MODELS.filter(m => m.startsWith("nex-agi/")));
+    expect(body.models).toEqual(FREE_RESEARCH_MODELS);
     expect(body.max_tokens).toBeGreaterThanOrEqual(2048);
     expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({ cost: 0 }));
   });
@@ -33,7 +33,7 @@ describe("free research OpenRouter service", () => {
     expect(onRequest).toHaveBeenCalledTimes(1);
     const [url, init] = fetcher.mock.calls[0];
     expect(url).toBe("https://openrouter.ai/api/v1/chat/completions");
-    expect(JSON.parse(init.body)).toMatchObject({ models: [...FREE_RESEARCH_MODELS], provider: { max_price: { prompt: 0, completion: 0 }, require_parameters: true, data_collection: "deny" } });
+    expect(JSON.parse(init.body)).toMatchObject({ models: [...FREE_RESEARCH_MODELS], provider: { max_price: { prompt: 0, completion: 0 }, require_parameters: true, data_collection: "allow" } });
     expect(JSON.parse(init.body).plugins).toBeUndefined();
     expect(JSON.parse(init.body).reasoning.effort).toBe("medium");
     expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({ model: FREE_RESEARCH_MODELS[1], cost: 0 }));
@@ -76,11 +76,11 @@ describe("free research OpenRouter service", () => {
     expect(fetcher).not.toHaveBeenCalled();
     await expect(new FreeOpenRouter({ paidFallback: false, apiKey: "secret", fetch: fetcher }).complete(request)).rejects.toThrow("Free research AI unavailable: request timed out or transport failed");
   });
-  it("does not route reasoning-disabled requests to an incompatible fallback", async () => {
-    const fetcher = vi.fn();
+  it("accepts verified Nemotron reasoning-disabled requests", async () => {
+    const fetcher = vi.fn().mockResolvedValue(completion({value:null,quote:null}));
     const ai = new FreeOpenRouter({ paidFallback: false, apiKey: "secret", models: ["nvidia/nemotron-3-super-120b-a12b:free"], fetch: fetcher });
-    await expect(ai.complete({ ...request, reasoning_effort: "none" })).rejects.toThrow(/reasoning mode/);
-    expect(fetcher).not.toHaveBeenCalled();
+    await expect(ai.complete({ ...request, reasoning_effort: "none" })).resolves.toMatchObject({response:{value:null,quote:null}});
+    expect(JSON.parse(fetcher.mock.calls[0][1].body).reasoning.effort).toBe("none");
   });
 });
 
@@ -94,7 +94,7 @@ describe("Mercury fallback", () => {
     expect(onRequest).toHaveBeenCalledTimes(2);
     const bodies = fetcher.mock.calls.map(([, init]) => JSON.parse(init.body));
     expect(bodies[0].provider.max_price).toEqual({ prompt: 0, completion: 0 });
-    expect(bodies[1]).toMatchObject({ models: [MERCURY_FALLBACK_MODEL], provider: { max_price: MERCURY_PRICE_CAP, require_parameters: true, data_collection: "deny" } });
+    expect(bodies[1]).toMatchObject({ models: [MERCURY_FALLBACK_MODEL], provider: { max_price: MERCURY_PRICE_CAP, require_parameters: true, data_collection: "allow" } });
     expect(onUsage).toHaveBeenCalledWith(expect.objectContaining({ model: MERCURY_FALLBACK_MODEL, cost: 0.0001, paidFallback: true }));
   });
   it("does not use paid inference after a successful free response", async () => {
@@ -107,10 +107,10 @@ describe("Mercury fallback", () => {
     await expect(new FreeOpenRouter({ apiKey: "secret", fetch: fetcher }).complete(request)).rejects.toThrow();
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
-  it("stops after Mercury fails instead of starting an unbounded retry loop", async () => {
+  it("stops after the bounded paid waterfall fails", async () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json({}, { status: 503 }));
-    await expect(new FreeOpenRouter({ apiKey: "secret", fetch: fetcher }).complete(request)).rejects.toThrow(/Mercury fallback/);
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    await expect(new FreeOpenRouter({ apiKey: "secret", fetch: fetcher }).complete(request)).rejects.toThrow(/NeMo fallback/);
+    expect(fetcher).toHaveBeenCalledTimes(3);
   });
   it("does not dispatch the fallback after the total request deadline", async () => {
     let now = 0;
@@ -212,4 +212,49 @@ it('does not share unavailable routing between instances, reasoning/schema finge
   const retry = new FreeOpenRouter({ apiKey: 'one', fetch: transient, paidFallback: false });
   for (let i = 0; i < 2; i++) await expect(retry.complete(request)).rejects.toThrow();
   expect(transient).toHaveBeenCalledTimes(2);
+});
+
+it('uses the live free pool with collection allowed and preserves free zero-price routing', async () => {
+ const fetcher=vi.fn().mockResolvedValue(completion({value:null,quote:null}));
+ await new FreeOpenRouter({apiKey:'secret',fetch:fetcher}).complete({...request,reasoning_effort:'none'});
+ const body=JSON.parse(fetcher.mock.calls[0][1].body);
+ expect(body.models).toEqual(['dots-studio/dots-3-note-preview:free','nvidia/nemotron-3.5-super-vl:free','nvidia/nemotron-3-super-120b-a12b:free']);
+ expect(body.provider).toMatchObject({data_collection:'allow',max_price:{prompt:0,completion:0}});
+});
+it('waterfalls from free to Mercury then NeMo, omitting unsupported NeMo reasoning and retaining schema validation',async()=>{
+ const fetcher=vi.fn()
+  .mockResolvedValueOnce(Response.json({}, {status:404}))
+  .mockResolvedValueOnce(Response.json({}, {status:429}))
+  .mockResolvedValueOnce(completion({value:'18',quote:'18 staff'},{model:'mistralai/mistral-nemo',usage:{cost:0.000001}}));
+ const usage=vi.fn();
+ expect((await new FreeOpenRouter({apiKey:'secret',fetch:fetcher,onUsage:usage}).complete({...request,reasoning_effort:'none'})).response).toEqual({value:'18',quote:'18 staff'});
+ const bodies=fetcher.mock.calls.map(([,init])=>JSON.parse(init.body));
+ expect(bodies.map(body=>body.models)).toEqual([FREE_RESEARCH_MODELS,[MERCURY_FALLBACK_MODEL],['mistralai/mistral-nemo']]);
+ expect(bodies[2]).not.toHaveProperty('reasoning');
+ expect(bodies[2].response_format.type).toBe('json_schema');
+ for(const body of bodies){expect(body.provider.data_collection).toBe('allow');expect(body.provider.require_parameters).toBe(true)}
+ expect(bodies[2].provider.max_price).toEqual(MERCURY_PRICE_CAP);
+ expect(usage).toHaveBeenCalledWith(expect.objectContaining({model:'mistralai/mistral-nemo',paidFallback:true}));
+});
+it('does not accept schema-invalid NeMo output or retry after account errors',async()=>{
+ const fetcher=vi.fn().mockResolvedValueOnce(Response.json({}, {status:404})).mockResolvedValueOnce(Response.json({}, {status:429})).mockResolvedValueOnce(completion({value:18}));
+ await expect(new FreeOpenRouter({apiKey:'secret',fetch:fetcher}).complete(request)).rejects.toThrow(/schema/);
+ expect(fetcher).toHaveBeenCalledTimes(3);
+});
+it('reserves bounded time for both paid fallbacks after a free timeout',async()=>{
+ let now=0;
+ const clock=vi.spyOn(Date,'now').mockImplementation(()=>now);
+ const timeout=vi.spyOn(AbortSignal,'timeout');
+ try{
+  const fetcher=vi.fn().mockImplementationOnce(async()=>{now=25000;throw new DOMException('Timeout','TimeoutError')})
+   .mockImplementationOnce(async()=>{now=35000;throw new DOMException('Timeout','TimeoutError')})
+   .mockResolvedValueOnce(completion({value:null,quote:null},{model:'mistralai/mistral-nemo'}));
+  await new FreeOpenRouter({apiKey:'secret',fetch:fetcher}).complete(request);
+  expect(timeout.mock.calls.map(([ms])=>ms)).toEqual([25000,10000,10000]);
+ }finally{clock.mockRestore();timeout.mockRestore()}
+});
+it('does not try NeMo after a paid account authentication failure',async()=>{
+ const fetcher=vi.fn().mockResolvedValueOnce(Response.json({}, {status:429})).mockResolvedValueOnce(Response.json({}, {status:401}));
+ await expect(new FreeOpenRouter({apiKey:'secret',fetch:fetcher}).complete(request)).rejects.toThrow('HTTP 401');
+ expect(fetcher).toHaveBeenCalledTimes(2);
 });

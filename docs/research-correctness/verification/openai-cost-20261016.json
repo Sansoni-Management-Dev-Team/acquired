@@ -1,0 +1,89 @@
+{
+  "checkedAt": "2026-10-16",
+  "scope": "Synthetic acquisition extraction, people, injection resistance, missing evidence, discovery, mandate unknowns and read-only status",
+  "method": "7 cases for 5 models; cheapest two passing models repeated. Standard uncached API pricing. Model output and reasoning tokens included; bounded retry on transient failures. Not an end-to-end company-cost benchmark.",
+  "pricesPerMillionTokens": {
+    "gpt-6-luna": {
+      "input": 0.1,
+      "cachedInput": 0.01,
+      "output": 0.5
+    },
+    "gpt-5.6-luna": {
+      "input": 0.2,
+      "cachedInput": 0.02,
+      "output": 1.2
+    }
+  },
+  "source": "https://developers.openai.com/api/docs/pricing",
+  "result": {
+    "event": "summary",
+    "graderCorrection": "Unicode apostrophe normalisation for status answers",
+    "results": [
+      {
+        "model": "gpt-4.1-nano",
+        "passed": 3,
+        "total": 7,
+        "requests": 7,
+        "cost": 0.00034380000000000006,
+        "costPerSuccess": 0.00011460000000000002,
+        "inputTokens": 1422,
+        "outputTokens": 504,
+        "reasoningTokens": 0,
+        "meanMs": 1599.857142857143
+      },
+      {
+        "model": "gpt-6-luna",
+        "passed": 14,
+        "total": 14,
+        "requests": 14,
+        "cost": 0.0008316,
+        "costPerSuccess": 5.94e-05,
+        "inputTokens": 2816,
+        "outputTokens": 1100,
+        "reasoningTokens": 0,
+        "meanMs": 1847.2857142857142
+      },
+      {
+        "model": "gpt-4o-mini",
+        "passed": 6,
+        "total": 7,
+        "requests": 7,
+        "cost": 0.0004389,
+        "costPerSuccess": 7.315e-05,
+        "inputTokens": 1422,
+        "outputTokens": 376,
+        "reasoningTokens": 0,
+        "meanMs": 1066
+      },
+      {
+        "model": "gpt-5.6-luna",
+        "passed": 14,
+        "total": 14,
+        "requests": 14,
+        "cost": 0.0018916,
+        "costPerSuccess": 0.0001351142857142857,
+        "inputTokens": 2816,
+        "outputTokens": 1107,
+        "reasoningTokens": 0,
+        "meanMs": 1755.9285714285713
+      },
+      {
+        "model": "gpt-5.4-nano",
+        "passed": 5,
+        "total": 7,
+        "requests": 7,
+        "cost": 0.00111035,
+        "costPerSuccess": 0.00022207,
+        "inputTokens": 1408,
+        "outputTokens": 663,
+        "reasoningTokens": 0,
+        "meanMs": 1315.4285714285713
+      }
+    ],
+    "shortlist": [
+      "gpt-6-luna",
+      "gpt-5.6-luna"
+    ],
+    "totalCost": 0.00461625
+  }
+}
