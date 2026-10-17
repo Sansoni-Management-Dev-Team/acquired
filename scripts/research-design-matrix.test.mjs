@@ -16,7 +16,10 @@ it('applies common limits to isolated source and refuses unexpected architecture
  const files=workloadFiles;
  const original=Object.fromEntries(files.map(f=>[f,readFileSync(f,'utf8')]));
  const source=benchmarkWorkloadSources({...original},{companies:20,minutes:10});
- expect(source[files[0]].match(/maxCompanies:20/g)).toHaveLength(3);
+ expect(source[files[0]].match(/maxCompanies:20/g)).toHaveLength(2);
+ expect(source[files[0]]).toContain('maxCompanies:initial.config.nativeAgent?Math.min(initial.config.targetBusinesses||20,20):20');
+ const smaller=benchmarkWorkloadSources({...original},{companies:7,minutes:10});expect(smaller[files[0]]).toContain('maxCompanies:initial.config.nativeAgent?Math.min(initial.config.targetBusinesses||20,20):7');
+ expect(()=>benchmarkWorkloadSources({...original,[files[0]]:original[files[0]].replace('Math.min(initial.config.targetBusinesses||20,20):100','Math.min(initial.config.targetBusinesses||20,21):100')},{companies:20,minutes:10})).toThrow('no longer matches');
  expect(source[files[1]]).toContain('DISCOVERY_CANDIDATE_LIMIT = 20');expect(source[files[1]]).toContain('automaticDeadline: Date.now() + 10 * 60 * 1000');
  expect(source[files[3]]).toContain('if (selectedDomains.size >= 20) return;');
  expect(source[files[4]]).toContain('discovery.targets.slice(0, 20)');

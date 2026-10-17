@@ -1,3 +1,5 @@
+import {agentTransactionRuntimeContext} from './agent-runtime-context';
+import {reportDispatchDiagnostic,type DispatchDiagnosticPort,type DispatchDiagnosticStage} from '../../communications/packages/core/src/dispatch-diagnostic';
 import { createHash, randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { isDeepStrictEqual, types } from 'node:util';
@@ -6,6 +8,8 @@ import { assertOperationMatches, assertSameBinding } from '../../communications/
 import { campaignDefinition, campaignStepEntries, renderCampaignTemplate, campaignSendWindowOpen, nextAllowedCampaignSend } from '../domain/campaign';
 import { campaignChannels, contactLinkedin, contactPhone } from '../domain/contact-record';
 import { outreachEmail } from '../domain/outreach-contact';
+import {readAgentCommunicationsSource,readAgentCommunicationsSourceKind,readAgentChannelCommunicationsSource,type AgentCommunicationsIntentSource} from './agent-communications-source';
+import {agentDriverAllowed} from './agent-driver-admission';
 import { lockAcquireSendGate } from './campaign-send-gate';
 import type { SqlClient, SqlResult } from '../../communications/packages/storage-postgres/src/webhook-repository';
 import type { ConnectionBinding, MessageSubmission } from '../../communications/packages/contracts/src';
@@ -26,12 +30,13 @@ export type DraftIntentSource = {
     messageId: string;
     revision: string;
 };
-export type AcquireIntentSource = CampaignIntentSource | DraftIntentSource;
+export type AcquireIntentSource = CampaignIntentSource | DraftIntentSource | AgentCommunicationsIntentSource;
 export interface AcquireCoverageScope {
     bindingId: string;
     scopeDigest: string;
 }
 export interface AcquireSendAdmissionOptions {
+    diagnostic?:DispatchDiagnosticPort;
     pool: SqlPool;
     binding: ConnectionBinding;
     bindingId: string;
@@ -52,14 +57,17 @@ export interface PreparedAcquireIntent {
     epoch: number;
     submission: MessageSubmission;
 }
+export interface AcquireNoSubmissionResolution {intentId:string;operationKey:string;proofDigest:string}
 export interface AcquireSendAdmission extends HeldApplicationAdmission {
+    /** Lookup-only proof: never prepares a new epoch or grants delivery. */
+    resolveNoSubmission?(snapshot:MessageSubmission['snapshot']):Promise<AcquireNoSubmissionResolution|null>;
     /** Authenticated original metadata for bounded preload; grants no send permission. */
     getPreparedCoverage(snapshot: MessageSubmission['snapshot']): Promise<Array<{
         binding: ConnectionBinding;
         scopeDigest: string;
     }>>;
     getPreparedIntent(input: {
-        sourceKind: 'campaign' | 'draft';
+        sourceKind: 'campaign' | 'draft' | 'agent';
         sourceId: string;
     }): Promise<PreparedAcquireIntent | null>;
     prepare(input: {
@@ -134,9 +142,12 @@ function canonical(v: unknown): unknown {
 export const acquireSourceDigest = (v: unknown) => createHash('sha256').update(JSON.stringify(canonical(v))).digest('hex');
 const timestamp = (v: unknown) => v instanceof Date ? Date.prototype.toISOString.call(v) : typeof v === 'string' && Number.isFinite(Date.parse(v)) ? new Date(v).toISOString() : fail();
 export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOptions): AcquireSendAdmission {
+    let diagnostic:DispatchDiagnosticPort|undefined;
     let binding: ConnectionBinding, bindingId: string, connect: SqlPool['connect'], encode: AcquireSendAdmissionOptions['codec']['encode'], decode: AcquireSendAdmissionOptions['codec']['decode'], digest: AcquireSendAdmissionOptions['codec']['digest'], verify: AcquireSendAdmissionOptions['verifyServiceAdmission'], keyVersion: string, timeout: number, maxAge: number, prove: AcquireSendAdmissionOptions['proveNoSubmission'];
     try {
         const o = plain(inputOptions);
+        if(o.diagnostic!==undefined&&(typeof o.diagnostic!=='function'||types.isProxy(o.diagnostic)))fail();
+        diagnostic=o.diagnostic as DispatchDiagnosticPort|undefined;
         binding = capture(o.binding) as ConnectionBinding;
         assertSameBinding(binding, binding);
         bindingId = o.bindingId as string;
@@ -169,7 +180,30 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
             fail();
         return { json: JSON.stringify(e), version: e.keyVersion, digest: digest(structuredClone(s), 'context', structuredClone(v), e.keyVersion) };
     }
-    async function session(signal?: AbortSignal, operationDeadline?: number) {
+    async function session(signal?:AbortSignal,operationDeadline?:number){
+        const deadline=Math.min(performance.now()+timeout,operationDeadline??Number.POSITIVE_INFINITY);
+        for(let attempt=0;attempt<10;attempt++){
+            let serialization=false;
+            try{return await sessionOnce(signal,deadline,()=>{serialization=true;});}
+            catch(error){
+                if(!serialization||attempt===9||signal?.aborted||performance.now()>=deadline)throw error;
+                // A retired, rolled-back bootstrap has no intent or external effect.
+                // Yield to normal tenant writers without restarting the absolute deadline.
+                const delay=Math.min(125,25*(attempt+1))+Math.floor(Math.random()*26);
+                await new Promise<void>((resolve,reject)=>{
+                    let done=false;
+                    const finish=(failed:boolean)=>{if(done)return;done=true;clearTimeout(timer);if(signal)EventTarget.prototype.removeEventListener.call(signal,'abort',cancel);if(failed)reject(error);else resolve();};
+                    const cancel=()=>finish(true);
+                    const timer=setTimeout(()=>finish(Boolean(signal?.aborted)||performance.now()>=deadline),Math.max(1,Math.min(delay,deadline-performance.now())));
+                    if(signal)EventTarget.prototype.addEventListener.call(signal,'abort',cancel,{once:true});
+                    if(signal?.aborted)cancel();
+                });
+            }
+        }
+        return fail();
+    }
+    async function sessionOnce(signal?: AbortSignal, operationDeadline?: number,onSerialization?:()=>void) {
+        let bootstrapComplete=false,bootstrapSerialization=false;
         let client: SqlClient | undefined, closed = false, committing = false, committed = false, inFlight = 0;
         const deadline = Math.min(performance.now() + timeout, operationDeadline ?? Number.POSITIVE_INFINITY);
         let stoppedReject!: (e: Error) => void;
@@ -216,7 +250,7 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
                         fail();
                     inFlight++;
                     try {
-                        return await q<Row>(sql, values);
+                        try{return await q<Row>(sql, values);}catch(error){if(!bootstrapComplete&&error&&typeof error==='object'&&!types.isProxy(error)&&Object.getOwnPropertyDescriptor(error,'code')?.value==='40001'){bootstrapSerialization=true;}const stage:DispatchDiagnosticStage=sql==='COMMIT'?'application.commit':sql.includes('agent_communications_source')?'application.source':sql.includes('communication_dispatch_permits')?'application.permit':sql.includes('communication_reply_monitors')?'application.coverage':sql.includes('communication_dispatch_intents')?'application.intent':sql.includes('communication_bindings')?'application.binding':'application.session';reportDispatchDiagnostic(diagnostic,stage,'error',error);throw error;}
                     }
                     finally {
                         inFlight--;
@@ -228,6 +262,8 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
             if (roles.rows.length !== 1 || roles.rows[0].role_name !== 'acquire_campaign_user' || roles.rows[0].rolsuper !== false || roles.rows[0].rolbypassrls !== false)
                 fail();
             await tx.query("SELECT set_config('statement_timeout',$1,true),set_config('lock_timeout',$2,true),set_config('app.acquire_org',$3,true),set_config('app.acquire_user',$4,true)", [`${Math.min(timeout, 5000)}ms`, `${Math.min(timeout, 1000)}ms`, ...scope]);
+            const runtime=agentTransactionRuntimeContext();
+            if(runtime.runtimeId)await tx.query("SELECT set_config('app.acquire_runtime_id',$1,true),set_config('app.acquire_channel_simulation',$2,true)",[runtime.runtimeId,runtime.channelSimulation?'true':'false']);
             const revision = await lockAcquireSendGate(tx, binding.tenantId, { required: true });
             const member = async () => {
                 const r = await tx.query('SELECT public.communications_lock_send_member($1,$2) AS allowed', scope);
@@ -235,6 +271,7 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
                     fail();
             };
             await member();
+            bootstrapComplete=true;
             return { tx, revision, member, call, async commit() {
                     committing = true;
                     try {
@@ -271,11 +308,12 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
                 else {
                     try {
                         await client.query('ROLLBACK');
+                        if(bootstrapSerialization&&!closed&&!signal?.aborted&&performance.now()<deadline)onSerialization?.();
                     }
                     catch {
                         dispose(Error('Send authority session retired'));
                     }
-                    dispose();
+                    dispose(bootstrapSerialization?Error('Send authority serialization session retired'):undefined);
                 }
             }
             else
@@ -302,6 +340,35 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
     }
     async function sourceState(tx: Session['tx'], source: AcquireIntentSource, message: MessageSubmission['message'], render: boolean) {
         let r: Record<string, unknown>, sourceValue: unknown, requiredSince: string, channels: string[];
+        if(source.kind==='agent'){
+            const kind=await readAgentCommunicationsSourceKind(tx,source,bindingId);
+            if(kind==='recorded_channel'){
+                const proof=await readAgentChannelCommunicationsSource(tx,source,bindingId);
+                if(proof.channel!==binding.channel||!isDeepStrictEqual(message.recipient,proof.recipient)||message.text!==proof.body)fail();
+                if(message.rfcMessageId!==undefined||message.replyTo!==undefined)fail();
+                if(binding.channel==='email'){
+                    if(message.subject!==proof.subject||message.conversation!==undefined)fail();
+                    if(proof.replyParent){if(!message.replyParent||message.replyParent.message.id!==proof.replyParent.id||message.replyParent.contentDigest!==proof.replyParent.contentDigest)fail();assertSameBinding(binding,message.replyParent.message.binding);}else if(message.replyParent!==undefined)fail();
+                }else{
+                    if(message.subject!==undefined||message.replyParent!==undefined)fail();
+                    if(proof.conversation){if(!message.conversation||message.conversation.id!==proof.conversation.id)fail();assertSameBinding(binding,message.conversation.binding);}else if(message.conversation!==undefined)fail();
+                }
+                const recipients={email:{kind:'email' as const,value:null as string|null},whatsapp:{kind:'phone' as const,value:null as string|null},linkedin:{kind:'linkedin_profile' as const,value:null as string|null}};
+                for(const route of proof.coverageRoutes)recipients[route.channel].value=route.recipient.value;
+                return {recipients,contactId:proof.contactId,requiredSince:proof.requiredSince,sourceDigest:acquireSourceDigest({source,proof}),channels:proof.coverageRoutes.map(r=>r.channel),coverageBindingIds:proof.coverageRoutes.map(r=>r.bindingId),operation:proof.effect==='invitation'?'invitation' as const:'message' as const,address:recipients.email.value??'',driverAllowed:true};
+            }
+            if(binding.channel!=='email')fail();
+            let proof:Awaited<ReturnType<typeof readAgentCommunicationsSource>>;try{proof=await readAgentCommunicationsSource(tx,source,bindingId);}catch(error){reportDispatchDiagnostic(diagnostic,'application.source','error',error);throw error;}
+            if(message.recipient.kind!=='email'||message.recipient.value!==proof.recipient||message.subject!==proof.subject||message.text!==proof.body)fail();
+            if(message.conversation!==undefined||message.rfcMessageId!==undefined||message.replyTo!==undefined)fail();
+            if(proof.replyParent){
+                if(!message.replyParent||message.replyParent.message.id!==proof.replyParent.id||message.replyParent.contentDigest!==proof.replyParent.contentDigest)fail();
+                assertSameBinding(binding,message.replyParent.message.binding);
+            }else if(message.replyParent!==undefined)fail();
+            // Native authorization already checks non-reply holds, opt-outs and
+            // verified history. Cold-sequence reply holds stay unchanged below.
+            return {recipients:{email:{kind:'email' as const,value:proof.recipient},whatsapp:{kind:'phone' as const,value:null},linkedin:{kind:'linkedin_profile' as const,value:null}},contactId:proof.contactId,requiredSince:proof.requiredSince,sourceDigest:acquireSourceDigest({source,proof}),channels:['email'],coverageBindingIds:[bindingId],address:proof.recipient,driverAllowed:true};
+        }
         if (source.kind === 'campaign') {
             const selected = await tx.query(`SELECT a.id AS attempt_id,a.state AS attempt_state,e.id AS enrolment_id,e.version_id,e.contact_id,e.step_index,e.runtime,e.state,(e.next_step_at<=clock_timestamp()) AS due,e.started_at,e.initial_conversation_reviewed,e.communication_initial_reviewed_at,(e.communication_initial_reviewed_at>=e.started_at AND e.communication_initial_reviewed_at<=clock_timestamp()) AS review_time_valid,v.definition,c.display_name,COALESCE(t.company_name,c.personal_data->>'companyName','') AS company_name,c.fictionalised,c.personal_data,e.recipient_email,e.recipient_phone,e.recipient_linkedin,EXISTS(SELECT 1 FROM public.campaign_channel_bindings cb WHERE cb.enrolment_id=e.id AND cb.organization_id=e.organization_id AND cb.owner_user_id=e.owner_user_id AND cb.channel=$6 AND cb.binding_id=$5) AS bound,EXISTS(SELECT 1 FROM public.campaign_contact_assignments ca WHERE ca.organization_id=e.organization_id AND ca.contact_id=e.contact_id AND ca.owner_user_id=e.owner_user_id) AS assigned FROM public.campaign_send_attempts a JOIN public.campaign_enrolments e ON e.id=a.enrolment_id JOIN public.campaign_sequence_versions v ON v.id=e.version_id JOIN public.contacts c ON c.id=e.contact_id LEFT JOIN public.targets t ON t.id=c.target_id WHERE a.id=$1 AND e.id=$2 AND e.organization_id=$3 AND e.owner_user_id=$4 FOR UPDATE OF a,e`, [source.attemptId, source.enrolmentId, ...scope, bindingId, binding.channel]);
             if (selected.rows.length !== 1)
@@ -341,7 +408,8 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
         if (target !== message.recipient.value || message.recipient.kind !== (binding.channel === 'email' ? 'email' : binding.channel === 'whatsapp' ? 'phone' : 'linkedin_profile'))
             fail();
         const recipients = { email: { kind: 'email' as const, value: outreachEmail(data.email) }, whatsapp: { kind: 'phone' as const, value: contactPhone(data.phone) }, linkedin: { kind: 'linkedin_profile' as const, value: contactLinkedin(data.linkedinUrl || data.linkedin || data.linkedin_url) } };
-        return { recipients, contactId: r.contact_id, requiredSince, sourceDigest: acquireSourceDigest(sourceValue), channels, address: outreachEmail(data.email) };
+        const driverAllowed=await agentDriverAllowed(tx,{organizationId:binding.tenantId,userId:binding.ownerId},{contactId:r.contact_id as string,address:outreachEmail(data.email),kind:source.kind,sourceRef:source.kind==='campaign'?source.enrolmentId:source.messageId});
+        return { recipients, contactId: r.contact_id, requiredSince, sourceDigest: acquireSourceDigest(sourceValue), channels, address: outreachEmail(data.email),driverAllowed };
     }
     // The held organization gate serializes policy/intent writers; append-only intent rows
     // need SELECT only, without a FOR SHARE lock that would require UPDATE privilege.
@@ -363,7 +431,7 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
             fail();
         if (digest(snapshot, 'context', value, row.intent_key_version) !== row.intent_digest)
             fail();
-        const originalSource = value.source as AcquireIntentSource, sourceId = originalSource.kind === 'campaign' ? originalSource.attemptId : originalSource.messageId, scopes = typeof row.coverage_scopes === 'string' ? JSON.parse(row.coverage_scopes) : row.coverage_scopes;
+        const originalSource = value.source as AcquireIntentSource, sourceId = originalSource.kind === 'campaign' ? originalSource.attemptId : originalSource.kind==='agent'?originalSource.operationId:originalSource.messageId, scopes = typeof row.coverage_scopes === 'string' ? JSON.parse(row.coverage_scopes) : row.coverage_scopes;
         if (row.source_kind !== originalSource.kind || row.source_id !== sourceId || !Number.isSafeInteger(row.epoch) || Number(row.epoch) < 1 || row.operation_key !== `acquire:${originalSource.kind}:${sourceId}:${row.epoch}` || row.contact_id !== value.contactId || timestamp(row.required_since) !== value.requiredSince || row.source_digest !== value.sourceDigest || !isDeepStrictEqual(scopes, value.coverageScopes))
             fail();
         const submission = value.submission as MessageSubmission;
@@ -384,14 +452,15 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
                 return { status: 'waiting', code: 'busy', retryAt: nextAllowedCampaignSend(observed).toISOString() } as const;
         }
         const state = await sourceState(s.tx, value.source, value.submission.message, false);
-        if (state.sourceDigest !== value.sourceDigest || state.contactId !== value.contactId)
-            fail();
-        const clear = await s.tx.query('SELECT public.communications_admission_person_clear($1,$2,$3,$4) AS clear', [...scope, state.contactId, state.address]);
+        if (state.sourceDigest !== value.sourceDigest || state.contactId !== value.contactId){reportDispatchDiagnostic(diagnostic,'application.source','blocked');
+            fail();}
+        if(!state.driverAllowed)return {status:'review',code:'forbidden'} as const;
+        const clear = value.source.kind==='agent'?{rows:[{clear:true}]}:await s.tx.query('SELECT public.communications_admission_person_clear($1,$2,$3,$4) AS clear', [...scope, state.contactId, state.address]);
         if (clear.rows.length !== 1 || clear.rows[0].clear !== true)
             return { status: 'review', code: 'forbidden' } as const;
         const covered = await s.tx.query(`SELECT count(*)::integer=$5::integer AS ready FROM public.communication_reply_monitors m JOIN public.communication_consumer_checkpoints p ON p.binding_id=m.binding_id AND p.scope_digest=m.scope_digest WHERE m.organization_id=$1 AND m.owner_user_id=$2 AND (m.binding_id::text,m.scope_digest) IN(SELECT x->>'bindingId',x->>'scopeDigest' FROM jsonb_array_elements($3::jsonb)x) AND m.complete AND m.initial_sync_complete AND NOT m.invalidated AND m.coverage_from<=$4::timestamptz AND m.coverage_through>=$4::timestamptz AND m.coverage_through>=clock_timestamp()-($6::double precision*interval '1 second') AND m.coverage_through<=m.observed_at AND m.observed_at<=clock_timestamp() AND m.observed_at>=clock_timestamp()-($6::double precision*interval '1 second') AND p.observed_service_revision>=$7::bigint`, [...scope, JSON.stringify(value.coverageScopes), value.requiredSince, value.coverageScopes.length, maxAge, serviceRevision]);
-        if (covered.rows.length !== 1 || covered.rows[0].ready !== true)
-            return { status: 'waiting', code: 'incomplete' } as const;
+        if (covered.rows.length !== 1 || covered.rows[0].ready !== true){reportDispatchDiagnostic(diagnostic,'application.coverage','blocked');
+            return { status: 'waiting', code: 'incomplete' } as const;}
         const used = await s.tx.query('SELECT id FROM public.communication_dispatch_permits WHERE intent_id=$1', [row.id]);
         if (used.rows.length)
             return { status: 'review', code: 'unresolved_send' } as const;
@@ -431,7 +500,7 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
             let s: Session | undefined;
             try {
                 const captured = capture(input);
-                if (!['campaign', 'draft'].includes(captured.sourceKind) || !id(captured.sourceId))
+                if (!['campaign', 'draft', 'agent'].includes(captured.sourceKind) || !id(captured.sourceId))
                     fail();
                 s = await session();
                 await recordedBinding(s.tx);
@@ -456,6 +525,24 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
             finally {
                 await s?.abort();
             }
+        }, async resolveNoSubmission(input) {
+            const controller=new AbortController(),deadline=performance.now()+timeout;let s:Session|undefined;
+            let rejectStopped!:(error:Error)=>void;const stopped=new Promise<never>((_,reject)=>{rejectStopped=reject;});void stopped.catch(()=>{});
+            const timer=setTimeout(()=>{controller.abort();rejectStopped(Error('Send authority unavailable'));},timeout);
+            try{
+                const snapshot=capture(input);assertSameBinding(binding,snapshot.binding);
+                s=await session(controller.signal,deadline);await recordedBinding(s.tx);const original=await stored(s.tx,snapshot.key),value=opened(original);assertOperationMatches(snapshot,value.snapshot);
+                const validateProof=(raw:unknown)=>{const proof=plain(raw);assertOperationMatches(snapshot,proof.snapshot as MessageSubmission['snapshot']);const outcome=plain(proof.outcome);if(!['waiting','review','rejected','skipped'].includes(outcome.status as string)||!id(proof.journalId)||!hex(proof.evidenceDigest)||!id(proof.keyVersion,64))fail();return proof;};
+                const readResolution=async()=>{const rows=await s!.tx.query('SELECT * FROM public.communication_intent_resolutions WHERE intent_id=$1',[original.id]);if(rows.rows.length>1)fail();const row=rows.rows[0];if(!row)return null;if(typeof row.encrypted_proof!=='string'||!id(row.proof_key_version,64)||!hex(row.proof_digest))fail();const envelope=JSON.parse(row.encrypted_proof);if(envelope.keyVersion!==row.proof_key_version)fail();const disposition=plain(decode(snapshot,'context',envelope));if(disposition.domain!=='acquire.no-submission.v1'||Object.keys(disposition).some(k=>!['domain','proof'].includes(k))||digest(snapshot,'context',disposition,row.proof_key_version)!==row.proof_digest)fail();validateProof(disposition.proof);return {intentId:original.id as string,operationKey:snapshot.key,proofDigest:row.proof_digest as string};};
+                let existing=await readResolution();if(existing){await s.member();await s.commit();return existing;}
+                await s.commit();s=undefined;if(!prove)return null;
+                const pending=Promise.resolve().then(()=>prove!(structuredClone(snapshot),controller.signal));void pending.catch(()=>{});const proof=await Promise.race([pending,stopped]);if(!proof)return null;validateProof(proof);
+                s=await session(controller.signal,deadline);await recordedBinding(s.tx);const latest=await stored(s.tx,snapshot.key);if(latest.id!==original.id)fail();opened(latest);existing=await readResolution();if(existing){await s.member();await s.commit();return existing;}
+                const disposition=seal(snapshot,{domain:'acquire.no-submission.v1',proof:capture(proof)});await s.tx.query('INSERT INTO public.communication_intent_resolutions(intent_id,encrypted_proof,proof_key_version,proof_digest) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING',[original.id,disposition.json,disposition.version,disposition.digest]);
+                // Read back and authenticate the immutable winning proof, including
+                // a concurrent resolution. Never invent a second operation key.
+                const result=await readResolution();if(!result)fail();await s.member();await s.commit();return result;
+            }catch{fail();}finally{clearTimeout(timer);controller.abort();await s?.abort();}
         }, async prepare(input) {
             let s: Session | undefined;
             const controller = new AbortController(), deadline = performance.now() + timeout;
@@ -465,9 +552,9 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
             const timer = setTimeout(() => { controller.abort(); rejectStopped(Error('Send authority unavailable')); }, timeout);
             const run = async () => {
                 const captured = capture(input);
-                if (!['campaign', 'draft'].includes(captured.source.kind) || !Array.isArray(captured.coverageScopes) || captured.coverageScopes.length < 1 || captured.coverageScopes.length > 3 || captured.coverageScopes.some(x => !id(x.bindingId) || !hex(x.scopeDigest)))
+                if (!['campaign', 'draft', 'agent'].includes(captured.source.kind) || !Array.isArray(captured.coverageScopes) || captured.coverageScopes.length < 1 || captured.coverageScopes.length > 3 || captured.coverageScopes.some(x => !id(x.bindingId) || !hex(x.scopeDigest)))
                     fail();
-                const source = captured.source, sourceId = source.kind === 'campaign' ? source.attemptId : source.messageId;
+                const source = captured.source, sourceId = source.kind === 'campaign' ? source.attemptId : source.kind==='agent'?source.operationId:source.messageId;
                 s = await session(controller.signal, deadline);
                 await recordedBinding(s.tx);
                 const observedRows = await s.tx.query('SELECT * FROM public.communication_dispatch_intents WHERE organization_id=$1 AND owner_user_id=$2 AND source_kind=$3 AND source_id=$4 ORDER BY epoch DESC LIMIT 1', [...scope, source.kind, sourceId]);
@@ -494,13 +581,14 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
                 if (existing && (!proof || existing.id !== observed?.id)) {
                     const value = opened(existing);
                     const current = await sourceState(s.tx, value.source, value.submission.message, false);
-                    if (current.sourceDigest !== value.sourceDigest || !isDeepStrictEqual(captured.message.recipient, value.submission.message.recipient))
+                    if (!current.driverAllowed || current.sourceDigest !== value.sourceDigest || !isDeepStrictEqual(captured.message.recipient, value.submission.message.recipient))
                         fail();
                     await s.member();
                     await s.commit();
                     return { intentId: existing.id as string, epoch: existing.epoch as number, submission: value.submission };
                 }
                 const state = await sourceState(s.tx, source, captured.message, true), epoch = existing ? Number(existing.epoch) + 1 : 1;
+                if(!state.driverAllowed)fail();
                 if (!Number.isSafeInteger(epoch) || epoch < 1 || epoch > 2147483647)
                     fail();
                 const coveredBindings: ConnectionBinding[] = [];
@@ -511,7 +599,8 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
                 }
                 if (new Set(coveredBindings.map(b => b.channel)).size !== state.channels.length || state.channels.some(c => !coveredBindings.some(b => b.channel === c)))
                     fail();
-                const operation = source.kind === 'campaign' && binding.channel === 'linkedin' && (campaignStepEntries(campaignDefinition.parse((await s.tx.query('SELECT definition FROM public.campaign_sequence_versions WHERE id=$1', [source.versionId])).rows[0]?.definition))[source.stepIndex].step as {
+                if(source.kind==='agent'&&('coverageBindingIds'in state)&&(!state.coverageBindingIds||state.coverageBindingIds.length!==captured.coverageScopes.length||state.coverageBindingIds.some(expected=>!captured.coverageScopes.some(actual=>actual.bindingId===expected))))fail();
+                const operation = source.kind==='agent'&&'operation'in state&&state.operation!==undefined?state.operation:source.kind === 'campaign' && binding.channel === 'linkedin' && (campaignStepEntries(campaignDefinition.parse((await s.tx.query('SELECT definition FROM public.campaign_sequence_versions WHERE id=$1', [source.versionId])).rows[0]?.definition))[source.stepIndex].step as {
                     action?: string;
                 }).action === 'connect' ? 'invitation' : 'message';
                 const key = `acquire:${source.kind}:${sourceId}:${epoch}`, submission = { snapshot: { binding: structuredClone(binding), key, operation, payloadDigest: messageDigest(operation, captured.message) }, message: captured.message } as MessageSubmission;
@@ -591,13 +680,15 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
                                 await held.commit();
                                 return 'committed';
                             }
-                            catch {
+                            catch(error) {
+                                reportDispatchDiagnostic(diagnostic,'application.permit','error',error);
                                 await held.abort();
                                 fail();
                             }
                         }, abort: () => held.abort() } };
             }
-            catch {
+            catch(error) {
+                reportDispatchDiagnostic(diagnostic,'application.policy','error',error);
                 await s?.abort();
                 return { kind: 'blocked', outcome: { status: 'review', code: 'forbidden' } };
             }

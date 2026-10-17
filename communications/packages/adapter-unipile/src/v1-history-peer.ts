@@ -9,8 +9,10 @@ export function projectHistoryPeer(profile: unknown, providerId: string, channel
         if (profile.provider !== 'WHATSAPP' || profile.id !== providerId)
             return null;
         const match = /^([1-9]\d{6,14})@s\.whatsapp\.net$/.exec(providerId);
-        if (!match)
-            return null;
+        if (!match){
+            if(!/^[A-Za-z0-9_-]+@lid$/.test(providerId)||typeof profile.phone_number!=='string'||!/^\+[1-9]\d{6,14}$/.test(profile.phone_number))return null;
+            return {kind:'phone',value:profile.phone_number};
+        }
         const value = `+${match[1]}`;
         if (profile.phone_number !== undefined && profile.phone_number !== value)
             return null;

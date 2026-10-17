@@ -1,4 +1,9 @@
 "use client";
+
+import {AgentManualFeedbackForm} from "@/components/agent-manual-feedback-form";
+
+import { randomUuid } from "@/lib/random-uuid";
+
 import { campaignReviewAction } from "@/domain/campaign-review-action";
 
 import "@xyflow/react/dist/style.css";
@@ -14,7 +19,7 @@ import { CampaignSequenceEditor } from "@/components/campaign-sequence-editor";
 
 import { replyChannelLabel, type ReplyChannel } from "@/domain/campaign-replies";
 
-type SequenceView = { id: string; name: string; draft: CampaignDefinition; publishedDefinition: CampaignDefinition | null; publishedVersion: number; n8nWorkflowId: string | null; updatedAt: string };
+type SequenceView = { id: string; name: string; draft: CampaignDefinition; publishedDefinition: CampaignDefinition | null; publishedVersion: number; n8nWorkflowId: string | null; updatedAt: string;draftRevision:string };
 type EnrolmentView = { lastReply?: { channel: ReplyChannel; receivedAt: string } | null; run?: CampaignRun; id: string; sequenceId: string; sequenceName: string; version: number; contactId: string; state: string; stopReason: string | null; stepIndex: number; nextStepAt: string | null; nextStepTitle: string | null; totalSteps: number; recipientEmail: string | null; startedAt: string; lastSentAt: string | null; activity: { action: string; at: string }[] };
 type ContactView = { id: string; name: string; company: string; email: string | null; phone?: string | null; linkedinUrl?: string | null; role?: string; fictionalised: boolean; doNotContact: boolean };
 export type StudioData = { replyMonitoring?: { mode: "off" | "observe" | "enforce"; monitors: { channel: ReplyChannel; lastSuccessAt: string | null; error: string | null; healthy: boolean }[] }; n8nUrl?: string | null; sequences: SequenceView[]; enrolments: EnrolmentView[]; contacts: ContactView[]; mailbox: { address: string | null; ready: boolean; status?: GmailConnectionStatus; dailyCap: number } | null };
@@ -27,16 +32,17 @@ const primary = "inline-flex min-h-10 items-center justify-center gap-2 rounded-
 
 function newDefinition(): CampaignDefinition {
   return { schemaVersion: 1, steps: [
-    { id: crypto.randomUUID(), kind: "email", title: "First introduction", subject: "A private introduction to {{company_name}}", body: "Hi {{first_name}},\n\nI wanted to introduce myself regarding {{company_name}}. Would you be open to a brief, confidential conversation?\n\nBest regards" },
-    { id: crypto.randomUUID(), kind: "wait", title: "Wait three days", days: 3 },
-    { id: crypto.randomUUID(), kind: "email", title: "Thoughtful follow-up", subject: "Following up on {{company_name}}", body: "Hi {{first_name}},\n\nI wanted to follow up on my note about {{company_name}}. If a conversation would be useful, I would be glad to arrange one.\n\nBest regards" },
+    { id: randomUuid(), kind: "email", title: "First introduction", subject: "A private introduction to {{company_name}}", body: "Hi {{first_name}},\n\nI wanted to introduce myself regarding {{company_name}}. Would you be open to a brief, confidential conversation?\n\nBest regards" },
+    { id: randomUuid(), kind: "wait", title: "Wait three days", days: 3 },
+    { id: randomUuid(), kind: "email", title: "Thoughtful follow-up", subject: "Following up on {{company_name}}", body: "Hi {{first_name}},\n\nI wanted to follow up on my note about {{company_name}}. If a conversation would be useful, I would be glad to arrange one.\n\nBest regards" },
   ] };
 }
 
+class CampaignRequestError extends Error{constructor(message:string,readonly status:number){super(message);}}
 async function requestJson<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { ...init, cache: "no-store", headers: { "Content-Type": "application/json", ...init?.headers } });
   const payload = await response.json().catch(() => ({})) as T & { error?: string };
-  if (!response.ok) throw new Error(payload.error || `Request failed (${response.status})`);
+  if (!response.ok) throw new CampaignRequestError(payload.error || `Request failed (${response.status})`,response.status);
   return payload;
 }
 
@@ -48,7 +54,7 @@ function statusLabel(enrolment: EnrolmentView) {
   return enrolment.state.charAt(0).toUpperCase() + enrolment.state.slice(1);
 }
 
-export function CampaignStudio({ mandateId, mandateName, initialData, initialView = "contacts", enrichmentContactIds }: { mandateId: string; mandateName: string; initialData: StudioData; initialView?: "contacts" | "sequences"; enrichmentContactIds?: string[] }) {
+export function CampaignStudio({ mandateId, mandateName, initialData, initialView = "contacts", enrichmentContactIds, learningEnabled=false }: { mandateId: string; mandateName: string; initialData: StudioData; initialView?: "contacts" | "sequences"; enrichmentContactIds?: string[];learningEnabled?:boolean }) {
   const [enrichmentFilter, setEnrichmentFilter] = useState(enrichmentContactIds !== undefined);
   const [data, setData] = useState<StudioData>(initialData);
   const [error, setError] = useState("");
@@ -57,6 +63,7 @@ export function CampaignStudio({ mandateId, mandateName, initialData, initialVie
   const [view, setView] = useState<"contacts" | "sequences">(initialView);
   const initialSequence = initialView === "sequences" ? initialData.sequences[0] : undefined;
   const [selectedSequenceId, setSelectedSequenceId] = useState<string | null>(initialSequence?.id || null);
+  const [draftBaseRevision,setDraftBaseRevision]=useState(initialSequence?.draftRevision||null);
   const [draftName, setDraftName] = useState(initialSequence?.name || "");
   const { draft, setDraft, resetDraft, ...history } = useCampaignHistory(initialSequence ? structuredClone(initialSequence.draft) : null);
   const [selectedStepId, setSelectedStepId] = useState<string | null>(initialSequence?.draft.steps[0]?.id || null);
@@ -92,6 +99,7 @@ export function CampaignStudio({ mandateId, mandateName, initialData, initialVie
   const chooseSequence = useCallback((sequence: SequenceView) => {
     setSelectedSequenceId(sequence.id);
     setDraftName(sequence.name);
+    setDraftBaseRevision(sequence.draftRevision);
     resetDraft(structuredClone(sequence.draft));
     setSelectedStepId(sequence.draft.steps[0]?.id || null);
     setView("sequences");
@@ -127,7 +135,7 @@ export function CampaignStudio({ mandateId, mandateName, initialData, initialVie
   async function perform(work: () => Promise<string>) {
     setBusy(true); setError(""); setNotice("");
     try { const message = await work(); setNotice(message); await load(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Request failed"); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Request failed"); if(cause instanceof CampaignRequestError&&cause.status===409){try{await load();}catch{/* Keep the local draft and original conflict visible. */}} }
     finally { setBusy(false); }
   }
 
@@ -135,19 +143,23 @@ export function CampaignStudio({ mandateId, mandateName, initialData, initialVie
     const definition = newDefinition();
     await perform(async () => {
       const created = await requestJson<SequenceView>(`/api/mandates/${mandateId}/campaigns`, { method: "POST", body: JSON.stringify({ mandateId, name: "New introduction sequence", definition }) });
-      setSelectedSequenceId(created.id); setDraftName(created.name); resetDraft(definition); setSelectedStepId(definition.steps[0].id); setView("sequences");
+      setSelectedSequenceId(created.id); setDraftBaseRevision(created.draftRevision); setDraftName(created.name); resetDraft(definition); setSelectedStepId(definition.steps[0].id); setView("sequences");
       return "Sequence created as a draft. Publish it before adding contacts.";
     });
   }
 
   async function saveSequence(publish: boolean) {
     if (!selectedSequenceId || !draft) return;
+    if(!draftBaseRevision){setError("Reload the saved draft before saving. Your local edits are kept.");return;}
     const parsed = (publish ? campaignDefinition : campaignDraftDefinition).safeParse({ ...draft, schemaVersion: 1 });
     if (!parsed.success) { setError(parsed.error.issues.map(issue => issue.message).join(". ")); return; }
     await perform(async () => {
-      await requestJson(`/api/campaigns/${selectedSequenceId}`, { method: "PUT", body: JSON.stringify({ name: draftName, definition: parsed.data }) });
+      const saved=await requestJson<{draftRevision:string}>(`/api/campaigns/${selectedSequenceId}`, { method: "PUT", body: JSON.stringify({ name: draftName, definition: parsed.data,expectedRevision:draftBaseRevision }) });
+      setDraftBaseRevision(saved.draftRevision);
+      setData(current=>({...current,sequences:current.sequences.map(sequence=>sequence.id===selectedSequenceId?{...sequence,draftRevision:saved.draftRevision,name:draftName,draft:parsed.data}:sequence)}));
       if (publish) {
-        const snapshot = await requestJson<{ version: number; n8nWorkflowId: string | null; localDevelopment: boolean }>(`/api/campaigns/${selectedSequenceId}/publish`, { method: "POST" });
+        const snapshot = await requestJson<{ version: number; n8nWorkflowId: string | null; localDevelopment: boolean;draftRevision:string }>(`/api/campaigns/${selectedSequenceId}/publish`, { method: "POST" });
+        setDraftBaseRevision(snapshot.draftRevision);
         const destination = snapshot.n8nWorkflowId ? "Workflow created." : `Published ${snapshot.localDevelopment ? "locally" : "using the app worker"}; an external workflow was not created because workflow integration is not enabled.`;
         return `Published version ${snapshot.version}. ${destination} Existing contacts remain on their original version.`;
       }
@@ -228,6 +240,8 @@ export function CampaignStudio({ mandateId, mandateName, initialData, initialVie
         </div>
       </div>
       {draft && selectedSequence ? <>
+        {draftBaseRevision!==selectedSequence.draftRevision&&<div role="status" className="border-y border-[var(--border)] p-4 text-sm">The saved draft changed. Your local edits are kept here. <button type="button" disabled={busy} onClick={()=>{chooseSequence(selectedSequence);setError('');setNotice('Loaded the saved draft.');}} className="underline underline-offset-4">Reload saved draft</button><p className="mt-1 text-xs text-[var(--muted)]">Reload replaces your local edits with the saved version.</p></div>}
+        {learningEnabled&&<AgentManualFeedbackForm mandateId={mandateId} source={{kind:'sequence_draft',sequenceId:selectedSequence.id,revision:selectedSequence.draftRevision}} busy={busy||draftBaseRevision!==selectedSequence.draftRevision||draftName!==selectedSequence.name||JSON.stringify(draft)!==JSON.stringify(selectedSequence.draft)}/>}
         <CampaignSequenceEditor key={selectedSequenceId} history={history} runs={data.enrolments.filter(item => item.sequenceId === selectedSequenceId && item.run).map(item => item.run!)} draft={draft} selectedStepId={selectedStepId} onChange={setDraft} onSelect={setSelectedStepId} />
         <div className="border-t border-[var(--border)] px-5 py-3 text-xs text-[var(--muted)]">Current published version: {selectedSequence.publishedVersion || "none"}. {selectedSequence.publishedVersion > 0 && !selectedSequence.n8nWorkflowId && "No external workflow is connected to this version."} {selectedSequence.n8nWorkflowId && data.n8nUrl && <a className="ml-2 font-medium underline" href={`${data.n8nUrl}/workflow/${selectedSequence.n8nWorkflowId}`} target="_blank" rel="noopener noreferrer">Open published workflow</a>}</div>
       </> : <div className="grid min-h-72 place-items-center p-8 text-sm text-[var(--muted)]">{data.sequences.length ? "Select a sequence to edit." : "Create a sequence to start building your flow."}</div>}

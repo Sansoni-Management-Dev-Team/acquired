@@ -1,3 +1,8 @@
+import {queueAgentChannelCommunicationChange} from './agent-channel-incoming';
+import {emailBounceSemantics} from '../../communications/packages/core/src/email-bounce';
+import {parseEventPayload} from '../../communications/packages/core/src/event-codec';
+import {queueAgentEmailBounce} from './agent-communications-events';
+import {queueAgentCommunicationChange} from './agent-communications-events';
 import { lockAcquireSendGate } from './campaign-send-gate';
 import 'server-only';
 import { createHash } from 'node:crypto';
@@ -160,6 +165,7 @@ function validateDelivery(b: ConnectionBinding, bindingId: string, subscriberId:
         if (!exact(outcome, ['kind', 'event', 'eventKey', 'fingerprint']) || outcome.kind !== 'event' || outcome.eventKey !== v.sourceKey || outcome.fingerprint !== payload.fingerprint)
             fail();
         const e = outcome.event;
+        if(object(e)&&e.type==='email_change'){const parsed=parseEventPayload({binding:b,key:v.sourceKey as string},payload);if(parsed.outcome.kind!=='event'||parsed.outcome.event.type!=='email_change'||parsed.outcome.event.change!=='bounce')fail();const semantic=emailBounceSemantics(b,parsed.outcome.event);if(v.sourceKey!==semantic.eventKey||payload.fingerprint!==semantic.fingerprint)fail();return v as unknown as CommunicationReplyDelivery;}
         if (!exact(e, ['type', 'reference', 'direction', 'sender', 'occurredAt'], ['conversation']) || e.type !== 'message' || !exact(e.reference, ['binding', 'id']) || !same(b, e.reference.binding) || !id(e.reference.id, 2048) ||
             typeof e.direction !== 'string' || !['inbound', 'outbound', 'self', 'group'].includes(e.direction) || !canonicalSender(b, e.sender) || !date(e.occurredAt) || Date.parse(e.occurredAt) > Date.parse(payload.receivedAt))
             fail();
@@ -379,12 +385,14 @@ export function createCommunicationReplyConsumer(options: CommunicationReplyCons
                     row.service_connection_id !== binding.connectionId || row.service_account_id !== binding.accountId || row.generation !== binding.generation || row.channel !== binding.channel || row.platform !== binding.platform || row.backend !== binding.backend || row.authority !== 'service')
                     fail();
                 const outcome = delivery.payload.outcome;
-                const event = outcome.kind === 'event' ? outcome.event as Extract<CommunicationEvent, {
+                const bounce=outcome.kind==='event'&&outcome.event.type==='email_change'&&outcome.event.change==='bounce'?outcome.event:null;
+                const event = outcome.kind === 'event'&&outcome.event.type==='message' ? outcome.event as Extract<CommunicationEvent, {
                     type: 'message';
                 }> : null;
-                const occurredAt = new Date(event?.occurredAt ?? delivery.payload.receivedAt).toISOString();
-                const stableOutcome = event ? [event.reference.id, event.conversation?.id ?? null, event.direction, event.sender.kind, event.sender.value, new Date(event.occurredAt).toISOString()] : ['review', outcome.kind === 'review' ? outcome.code : null];
-                const fingerprint = hash([VERSION, vector(binding), bindingId, delivery.serviceEventId, delivery.sourceKey, delivery.payload.fingerprint, new Date(delivery.payload.receivedAt).toISOString(), stableOutcome]);
+                const occurredAt = new Date(event?.occurredAt ?? bounce?.occurredAt??delivery.payload.receivedAt).toISOString();
+                const stableOutcome = bounce?['bounce',bounce.reference.id,bounce.recipient.kind,bounce.recipient.value,new Date(bounce.occurredAt).toISOString()]:event ? [event.reference.id, event.conversation?.id ?? null, event.direction, event.sender.kind, event.sender.value, new Date(event.occurredAt).toISOString()] : ['review', outcome.kind === 'review' ? outcome.code : null];
+                const receiptPreimage=JSON.stringify([VERSION, vector(binding), bindingId, delivery.serviceEventId, delivery.sourceKey, delivery.payload.fingerprint, new Date(delivery.payload.receivedAt).toISOString(), stableOutcome]);
+                const fingerprint = createHash('sha256').update(receiptPreimage).digest('hex');
                 const existing = await client.query(`SELECT binding_id,service_event_id,organization_id,owner_user_id,event_type,occurred_at,result,payload_fingerprint,fingerprint_version
  FROM public.communication_event_receipts WHERE binding_id=$1 AND service_event_id=$2 AND organization_id=$3 AND owner_user_id=$4`, [bindingId, delivery.serviceEventId, actor.organizationId, actor.userId]);
                 if (existing.rows.length > 1)
@@ -394,11 +402,13 @@ export function createCommunicationReplyConsumer(options: CommunicationReplyCons
                     !['processed', 'ignored', 'review'].includes(String(original.result))))
                     fail();
                 let decision: 'stop' | 'ignore' | 'review', reviewCode: string | undefined;
-                const replayConflict = !!original && (original.payload_fingerprint !== fingerprint || original.fingerprint_version !== VERSION || original.event_type !== (event ? 'message' : 'account') || new Date(original.occurred_at as string | Date).toISOString() !== occurredAt);
+                const replayConflict = !!original && (original.payload_fingerprint !== fingerprint || original.fingerprint_version !== VERSION || original.event_type !== (event ? 'message' : bounce?'email_change':'account') || new Date(original.occurred_at as string | Date).toISOString() !== occurredAt);
+                const humanReviewedUnrelated=!!original&&!replayConflict&&original.result==='review'&&(await client.query("SELECT EXISTS(SELECT 1 FROM public.communication_reply_review_latches l JOIN public.audit_events a ON a.organization_id=l.organization_id AND a.actor_id=l.owner_user_id AND a.action='communications.reply_review_resolved' AND l.resolution_reference='human-unrelated:'||(a.metadata->>'requestKey') AND a.metadata->>'decision'='reviewed_unrelated' AND a.metadata->>'bindingId'=l.binding_id::text AND a.metadata->>'serviceEventId'=l.service_event_id AND a.metadata->>'expectedFingerprint'=$5 WHERE l.binding_id=$1 AND l.service_event_id=$2 AND l.organization_id=$3 AND l.owner_user_id=$4 AND l.code='identity_pending' AND l.resolved_at IS NOT NULL) AS human_unrelated",[bindingId,delivery.serviceEventId,actor.organizationId,actor.userId,fingerprint])).rows[0]?.human_unrelated===true;
                 if (replayConflict) {
                     decision = 'review';
                     reviewCode = 'semantic_conflict';
                 }
+                else if(humanReviewedUnrelated)decision='ignore';
                 else if (outcome.kind === 'review') {
                     decision = 'review';
                     reviewCode = outcome.code;
@@ -490,13 +500,16 @@ export function createCommunicationReplyConsumer(options: CommunicationReplyCons
                 if (!original) {
                     const inserted = await client.query(`INSERT INTO public.communication_event_receipts
  (binding_id,service_event_id,organization_id,owner_user_id,event_type,occurred_at,result,payload_fingerprint,fingerprint_version)
- VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (binding_id,service_event_id) DO NOTHING RETURNING service_event_id`, [bindingId, delivery.serviceEventId, actor.organizationId, actor.userId, event ? 'message' : 'account', occurredAt, decision === 'stop' ? 'processed' : decision === 'ignore' ? 'ignored' : 'review', fingerprint, VERSION]);
+ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (binding_id,service_event_id) DO NOTHING RETURNING service_event_id`, [bindingId, delivery.serviceEventId, actor.organizationId, actor.userId, event ? 'message' : bounce?'email_change':'account', occurredAt, decision === 'stop' ? 'processed' : decision === 'ignore' ? 'ignored' : 'review', fingerprint, VERSION]);
                     // A concurrent insert may be invisible in this SERIALIZABLE snapshot. Roll back all policy
                     // effects and retry the complete transaction; never commit effects before checking its receipt.
                     if (inserted.rows.length !== 1 || inserted.rows[0].service_event_id !== delivery.serviceEventId)
                         fail();
                 }
                 const resolvedReplay = reviewCode ? await review(client, delivery, reviewCode, !!original && !replayConflict && original.result === 'review' && outcome.kind === 'review') : false;
+                if(bounce)await queueAgentEmailBounce(client,{bindingId,serviceEventId:delivery.serviceEventId,receiptFingerprint:original?.payload_fingerprint??fingerprint,changeFingerprint:fingerprint,recipient:bounce.recipient.value,providerMessageId:bounce.reference.id,occurredAt,receiptPreimage});
+                if(event?.direction==='inbound'&&!humanReviewedUnrelated)await queueAgentChannelCommunicationChange(client,{bindingId,serviceEventId:delivery.serviceEventId,receiptFingerprint:original?.payload_fingerprint??fingerprint,changeFingerprint:fingerprint,channel:binding.channel,sender:event.sender,providerMessageId:event.reference.id,providerConversationId:event.conversation?.id??null,occurredAt,reviewRequired:decision==='review',reviewReason:reviewCode??null,receiptPreimage});
+                if(event?.direction==='inbound'&&binding.channel==='email'&&!humanReviewedUnrelated)await queueAgentCommunicationChange(client,{bindingId,serviceEventId:delivery.serviceEventId,receiptFingerprint:original?.payload_fingerprint??fingerprint,changeFingerprint:fingerprint,sender:event.sender.value,providerMessageId:event.reference.id,occurredAt,reviewRequired:decision==='review'});
                 if (mode() === 'off')
                     fail();
                 await client.query('COMMIT');

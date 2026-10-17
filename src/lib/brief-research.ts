@@ -1,5 +1,6 @@
+import { configuredResearchAi } from '@/adapters/ai/research-provider';
 import { z } from "zod";
-import { FreeOpenRouter, FREE_MANDATE_MODELS } from "@/adapters/ai/free-openrouter";
+import { FREE_MANDATE_MODELS } from "@/adapters/ai/free-openrouter";
 import { completeOpenAiJson } from "@/adapters/ai/openai";
 import { briefToMandate, criterion, type AcquisitionBrief } from "@/domain/acquisition";
 import { publicResearchUrl } from "@/domain/research";
@@ -33,9 +34,9 @@ export async function generateBriefResearchScope(brief: AcquisitionBrief) {
   const json_schema = z.toJSONSchema(scopeSchema);
   let response: unknown;
   try {
-    response = (await new FreeOpenRouter({ apiKey: process.env.OPENROUTER_API_KEY || "", models: FREE_MANDATE_MODELS, paidFallback: false, sequentialFreeFallback: true }).complete({ operation: "mandate_generation", messages, max_tokens: 2048, reasoning_effort: "none", response_format: { type: "json_schema", json_schema } })).response;
+    response = (await configuredResearchAi({ models: FREE_MANDATE_MODELS }).complete({ operation: "mandate_generation", messages, max_tokens: 2048, reasoning_effort: "none", response_format: { type: "json_schema", json_schema } })).response;
   } catch (error) {
-    if (!process.env.OPENAI_API_KEY) throw error;
+    if (process.env.RESEARCH_AI_PROVIDER === "openai" || !process.env.OPENAI_API_KEY) throw error;
     response = (await completeOpenAiJson({ operation: "mandate_generation", messages, json_schema, max_tokens: 2048 })).response;
   }
   return scopeSchema.parse(response).scope;

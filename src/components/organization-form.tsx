@@ -1,5 +1,8 @@
 "use client";
 
+import { randomUuid } from "@/lib/random-uuid";
+
+
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
@@ -16,7 +19,7 @@ export function OrganizationForm() {
     setError("");
     const data = new FormData(event.currentTarget);
     const name = String(data.get("organizationName")).trim();
-    const result = await authClient.organization.create({ name, slug: organizationSlug(name, crypto.randomUUID()) });
+    const result = await authClient.organization.create({ name, slug: organizationSlug(name, randomUuid()) });
     if (result.error) {
       setError(result.error.message || "Workspace creation failed");
       setLoading(false);

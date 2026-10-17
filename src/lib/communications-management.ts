@@ -41,7 +41,7 @@ export async function connectionManagementRequest(request: Request): Promise<Res
   const encoded=process.env.COMMUNICATIONS_SCOPED_AUTH_KEY||'';if(!/^[A-Za-z0-9+/]{43}=$/.test(encoded))throw Error('Invalid configuration');
   const key=Buffer.from(encoded,'base64');if(key.length!==32||key.toString('base64')!==encoded)throw Error('Invalid configuration');
   const signer=createScopedServiceAuth({key,audience:'communications',applicationId:scope.applicationId,authorize:async()=>false});
-  client=new CommunicationsClient({baseUrl:process.env.COMMUNICATIONS_SERVICE_URL||'',contractVersion:'1',apiKey:signer.issue(scope),allowLoopbackHttp:process.env.NODE_ENV!=='production',timeoutMs:28000});
+  client=new CommunicationsClient({baseUrl:process.env.COMMUNICATIONS_SERVICE_URL||'',contractVersion:'1',apiKey:signer.issue(scope),allowLoopbackHttp:process.env.NODE_ENV!=='production',timeoutMs:28000,...(process.env.COMMUNICATIONS_LOCAL_SIMULATOR_ORIGIN?{localSimulatorOrigin:process.env.COMMUNICATIONS_LOCAL_SIMULATOR_ORIGIN}:{})});
  }catch{return respond({available:false,connections:[],checkedAt:new Date().toISOString()},503);}
  try {
   if(request.method==='GET'){

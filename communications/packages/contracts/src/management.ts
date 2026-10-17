@@ -50,12 +50,19 @@ export function assertManagementSnapshot(value: unknown, scope?: AccessScope): a
   const seen = new Set<string>(), defaults = new Set<string>();
   for (const c of o.connections) { assertManagedConnection(c, scope); if (seen.has(c.binding.connectionId)) invalid(); seen.add(c.binding.connectionId); if (c.isDefault) { if (defaults.has(c.binding.channel)) invalid(); defaults.add(c.binding.channel); } }
 }
-export function assertManagementSetupResponse(value: unknown): asserts value is ConnectionSetupResponse {
+/** Explicit test setting; never inferred from an untrusted hosted redirect. */
+export function localSimulatorHostedOrigin(value:string):string {
+ const u=new URL(value);
+ if(u.protocol!=='https:'||!['localhost','127.0.0.1','[::1]'].includes(u.hostname)||u.origin!==value||u.username||u.password)invalid();
+ return u.origin;
+}
+export function assertManagementSetupResponse(value: unknown,options?:{localSimulatorOrigin?:string}): asserts value is ConnectionSetupResponse {
+ const origin=options?.localSimulatorOrigin===undefined?'https://account.unipile.com':localSimulatorHostedOrigin(options.localSimulatorOrigin);
  const o=object(value,['status'],['action','code']);
  if(o.status==='redirect'){
   if(o.code!==undefined)invalid();const a=object(o.action,['type','url','expiresAt']);timestamp(a.expiresAt);
   if(a.type!=='redirect'||typeof a.url!=='string'||a.url.length>8192||Date.parse(a.expiresAt as string)<=Date.now())invalid();
-  const u=new URL(a.url);if(u.origin!=='https://account.unipile.com'||u.username||u.password||u.hash)invalid();return;
+  const u=new URL(a.url);if(u.origin!==origin||u.username||u.password||u.hash)invalid();return;
  }
  if(o.action!==undefined)invalid();
  if(['unknown','unavailable'].includes(String(o.status))&&o.code===undefined)return;

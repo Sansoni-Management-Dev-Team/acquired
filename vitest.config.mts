@@ -15,6 +15,8 @@ export default defineConfig({
       "cloudflare/research/workflow-tests/**",
       "cloudflare/research/provider-coordinator.integration.test.ts",
       // These use node:test and are run by test:node after Vitest.
+      "ops/agent-mode/native-worker.test.mjs",
+      "scripts/agent-mode-local-database.test.mjs",
       "scripts/app-deploy-host.test.mjs",
       "scripts/app-public-smoke.test.mjs",
       "scripts/communications-standalone-lifecycle-runner.test.mjs",

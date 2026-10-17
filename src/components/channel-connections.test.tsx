@@ -3,6 +3,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, expect, it, vi } from "vitest";
 import { ChannelConnections } from "./channel-connections";
 afterEach(() => vi.unstubAllEnvs());
+it.each([['incomplete','Connected · Checking history'],['unavailable','Connected · History check unavailable']] as const)('distinguishes a connected mailbox from an unfinished %s history check',(code,label)=>{
+ const binding={applicationId:'acquire',tenantId:'org',ownerId:'owner',connectionId:'c',accountId:'a',generation:1,channel:'email' as const,platform:'gmail' as const,backend:'unipile' as const};
+ const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,checkedAt:'2026-10-14T00:00:00.000Z',connections:[{binding,label:'owner@example.test',status:'connected',capabilities:{messaging:{send:true,durableIdempotency:true,receiptLookup:true},events:{read:true,history:true,realtime:true}},readiness:{status:'waiting',code},isDefault:false}]}}/>);
+ expect(html).toContain(label);expect(html).not.toContain('Syncing');expect(html).not.toContain('>Ready<');
+});
 it('offers configured Unipile setup and distinguishes syncing from send readiness', () => {
  const binding={applicationId:'acquire',tenantId:'org',ownerId:'owner',connectionId:'c',accountId:'a',generation:1,channel:'email' as const,platform:'gmail' as const,backend:'unipile' as const};
  const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,checkedAt:'2026-10-14T00:00:00.000Z',connections:[{binding,label:'owner@example.test',status:'syncing',capabilities:{messaging:{send:true,durableIdempotency:true,receiptLookup:true},events:{read:true,history:true,realtime:true}},readiness:{status:'waiting',code:'incomplete'},isDefault:false}]}}/>);

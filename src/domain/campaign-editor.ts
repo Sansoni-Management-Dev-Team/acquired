@@ -1,3 +1,4 @@
+import { randomUuid } from "@/lib/random-uuid";
 import { campaignDefinition, campaignStep, campaignSplit, campaignStepEntries, type CampaignDraft, type CampaignStep, type CampaignSplit } from "./campaign";
 
 export type CampaignClipboard = { kind: "message"; message: Exclude<CampaignStep, { kind: "wait" }>; days: number } | { kind: "path"; steps: CampaignStep[] } | { kind: "split"; split: CampaignSplit; anchor: Exclude<CampaignStep, { kind: "wait" }> };
@@ -29,8 +30,8 @@ export function campaignChain(draft: CampaignDraft, id: string) {
 export function replaceCampaignChain(draft: CampaignDraft, context: ReturnType<typeof campaignChain>, steps: CampaignStep[]): CampaignDraft {
   return context?.split && context.path ? { ...draft, splits: draft.splits?.map(split => split.id === context.split!.id ? { ...split, [context.path!]: steps } : split) } : { ...draft, steps };
 }
-const cloneStep = (step: CampaignStep) => ({ ...step, id: crypto.randomUUID(), ...(step.position ? { position: { x: step.position.x + 40, y: step.position.y + 40 } } : {}) });
-const wait = (days = 3): CampaignStep => ({ id: crypto.randomUUID(), kind: "wait", title: `Wait ${days} days`, days });
+const cloneStep = (step: CampaignStep) => ({ ...step, id: randomUuid(), ...(step.position ? { position: { x: step.position.x + 40, y: step.position.y + 40 } } : {}) });
+const wait = (days = 3): CampaignStep => ({ id: randomUuid(), kind: "wait", title: `Wait ${days} days`, days });
 
 export function campaignConnections(draft: CampaignDraft) {
   const connections: { source: string; target: string }[] = [];
@@ -154,7 +155,7 @@ export function pasteCampaignNode(draft: CampaignDraft, clipboard: CampaignClipb
     next = insertCampaignMessage(draft, anchor.id, "", copy).draft;
     anchor = copy;
   }
-  const split = { ...clipboard.split, ...(clipboard.split.position ? { position: { x: clipboard.split.position.x + 40, y: clipboard.split.position.y + 40 } } : {}), id: crypto.randomUUID(), afterStepId: anchor.id, pathA: clipboard.split.pathA.map(cloneStep), pathB: clipboard.split.pathB.map(cloneStep) };
+  const split = { ...clipboard.split, ...(clipboard.split.position ? { position: { x: clipboard.split.position.x + 40, y: clipboard.split.position.y + 40 } } : {}), id: randomUuid(), afterStepId: anchor.id, pathA: clipboard.split.pathA.map(cloneStep), pathB: clipboard.split.pathB.map(cloneStep) };
   next = { ...next, splits: [...(next.splits || []), split] };
   const parsed = campaignDefinition.safeParse({ ...next, schemaVersion: 1 });
   if (!parsed.success) throw new Error(parsed.error.issues[0].message);

@@ -1,0 +1,4 @@
+import {expect,it,vi} from 'vitest';
+import {randomUUID} from 'node:crypto';
+import {AgentChannelStore} from './agent-channel-store';
+it('does not accept client assertions or touch a database when no registered runtime is configured',async()=>{vi.stubEnv('AGENT_WORKER_SCOPE_MODE','exact');const connect=vi.fn();const store=new AgentChannelStore({connect},{organizationId:randomUUID(),userId:randomUUID()});expect(await store.wakeAfterChannelReview({requestKey:randomUUID(),bindingId:randomUUID(),serviceEventId:'event',expectedFingerprint:'a'.repeat(64),createdAt:new Date().toISOString(),decision:'reviewed_unrelated',reason:'The operator reviewed the original unrelated sender.'})).toEqual({queued:0,conversationIds:[],runtimeId:null,remaining:0});expect(connect).not.toHaveBeenCalled();await expect(store.wakeAfterChannelReview({verified:true})).rejects.toThrow();vi.unstubAllEnvs();});

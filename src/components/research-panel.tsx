@@ -1,4 +1,7 @@
 "use client";
+
+import { randomUuid } from "@/lib/random-uuid";
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CompanyPipelineProgress } from "./company-pipeline-progress";
 import { researchRoot, isCompanyPipeline, companyPipelineState, type CompanyResearchCoverage } from "./company-pipeline-state";
@@ -171,11 +174,11 @@ export function ResearchPanel({
     }
   }
   function resume(job: ResearchJob) {
-    void act({ ...job.config, requestId: crypto.randomUUID(), continueFrom: job.id, seeds: remainingFor(job).slice(0, 10), approved: true, budget });
+    void act({ ...job.config, requestId: randomUuid(), continueFrom: job.id, seeds: remainingFor(job).slice(0, 10), approved: true, budget });
   }
   function retryFailed(job: ResearchJob) {
     const seeds = (job.config.runtime?.attempts || []).filter(a => a.status === "failed" || /extraction failed/i.test(a.reason)).map(a => a.finalUrl || a.url).slice(0, 10);
-    void act({ ...job.config, requestId: crypto.randomUUID(), seeds, approved: true, discover: false, budget });
+    void act({ ...job.config, requestId: randomUuid(), seeds, approved: true, discover: false, budget });
   }
   if (hideProgress) return null;
   if (!showStartAction && !loading && data.enabled && !currentJob) return null;
@@ -189,7 +192,7 @@ export function ResearchPanel({
         <>
           {!active && showStartAction && (
             <div className="space-y-2">
-              <button className={button} disabled={busy || !brief?.naturalLanguage.trim() && !brief?.criteria.find(c => c.key === "subsectors")?.value.trim()} onClick={() => void act({ requestId: crypto.randomUUID(), fromBrief: true }, undefined, Boolean(onCandidatesFound))}>
+              <button className={button} disabled={busy || !brief?.naturalLanguage.trim() && !brief?.criteria.find(c => c.key === "subsectors")?.value.trim()} onClick={() => void act({ requestId: randomUuid(), fromBrief: true }, undefined, Boolean(onCandidatesFound))}>
                 Find & research businesses
               </button>
               <p className="text-xs text-[var(--muted)]">AI uses the saved brief to plan searches. Research providers receive search terms, source URLs and public page content. Provider charges may apply.</p>

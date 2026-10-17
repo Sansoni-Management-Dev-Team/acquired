@@ -1,8 +1,14 @@
 'use client';
+
+import {ChannelReviews} from './channel-reviews';
+
+import { randomUuid } from "@/lib/random-uuid";
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BriefcaseBusiness, LoaderCircle, Mail, MessageCircle } from 'lucide-react';
 import { assertManagementSnapshot, type ConnectionManagementSnapshot, type ManagedConnection } from '../../communications/packages/contracts/src/management';
 import type { Platform } from '../../communications/packages/contracts/src';
+import {hostedSetupRedirect} from '@/lib/communications-setup-redirect';
 const channels = [
  { channel:'email' as const,name:'Email',icon:Mail,description:'Connect an email account.' },
  { channel:'whatsapp' as const,name:'WhatsApp',icon:MessageCircle,description:'Connect your WhatsApp account.' },
@@ -19,11 +25,13 @@ function connectionStatus(c:ManagedConnection) {
  if(c.status==='disconnected')return 'Disconnected';if(c.status==='failed')return 'Connection failed';
  if(c.status==='verification_required'||c.readiness.status==='review'&&c.readiness.code==='reconnect')return 'Reconnect required';
  if(c.status==='connecting')return 'Connecting';
- if(c.status==='syncing'||c.readiness.status==='waiting'&&c.readiness.code==='incomplete')return 'Syncing';
+ if(c.status==='syncing')return 'Syncing';
+ if(c.status==='connected'&&c.readiness.status==='waiting'&&c.readiness.code==='incomplete')return 'Connected · Checking history';
+ if(c.status==='connected'&&c.readiness.status==='waiting'&&c.readiness.code==='unavailable')return 'Connected · History check unavailable';
  if(c.readiness.status==='ready')return 'Ready';
  if(c.readiness.status==='waiting')return 'Waiting for reply check';return 'Needs review';
 }
-export function ChannelConnections({initialSnapshot,setupReturned=false}:{initialSnapshot?:ConnectionManagementSnapshot;setupReturned?:boolean}={}) {
+export function ChannelConnections({initialSnapshot,setupReturned=false,localSimulatorOrigin}:{initialSnapshot?:ConnectionManagementSnapshot;setupReturned?:boolean;localSimulatorOrigin?:string}={}) {
  const [snapshot,setSnapshot]=useState<ConnectionManagementSnapshot>(initialSnapshot??unavailable),[busy,setBusy]=useState(false),[notice,setNotice]=useState(''),[emailPlatform,setEmailPlatform]=useState<Platform>('gmail');
  const [noticeChannel,setNoticeChannel]=useState<string>('');
  const [waitingForCallback,setWaitingForCallback]=useState(setupReturned);
@@ -70,9 +78,9 @@ export function ChannelConnections({initialSnapshot,setupReturned=false}:{initia
    const response=await fetch('/api/channels/connections',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(input)});
    if(!response.ok)throw Error('Unavailable');const result=await response.json();if(!mounted.current)return;
    if(input.action==='setup'&&result.status==='redirect'){
-    const url=new URL(result.action?.url);if(url.origin!=='https://account.unipile.com'||url.username||url.password||url.hash||Date.parse(result.action?.expiresAt)<=Date.now()||!Number.isFinite(Date.parse(result.action?.expiresAt)))throw Error('Invalid link');
+    const redirect=hostedSetupRedirect(result,{localSimulatorOrigin,pageOrigin:window.location.origin});
     try{sessionStorage.setItem(pendingSetupKey,JSON.stringify({channel,before:snapshot.connections.map(connectionKey),startedAt:Date.now()}));}catch{}
-    window.location.assign(url.href);return;
+    window.location.assign(redirect);return;
    }
    if(input.action==='setup'){
     setNotice('Account setup could not be opened. Please try again.');
@@ -85,10 +93,10 @@ export function ChannelConnections({initialSnapshot,setupReturned=false}:{initia
    await refresh();
   }catch {if(mounted.current)setNotice('The connection action could not be confirmed. Refresh to check its status.');}
   finally{inFlight.current=false;if(mounted.current)setBusy(false);}
- },[refresh,snapshot.connections]);
+ },[refresh,snapshot.connections,localSimulatorOrigin]);
  function disconnect(c:ManagedConnection) {
   if(!window.confirm(`Disconnect ${c.label}? Existing work will pause until its connection is resolved.`))return;
-  const identity=JSON.stringify(c.binding);let key=retirementKeys.current.get(identity);if(!key){key=crypto.randomUUID();retirementKeys.current.set(identity,key);}
+  const identity=JSON.stringify(c.binding);let key=retirementKeys.current.get(identity);if(!key){key=randomUuid();retirementKeys.current.set(identity,key);}
   void manage({action:'disconnect',binding:c.binding,key});
  }
  return <section aria-labelledby="channel-connections-heading" className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-6">
@@ -113,5 +121,6 @@ export function ChannelConnections({initialSnapshot,setupReturned=false}:{initia
    {notice&&noticeChannel===channel&&<p role="status" aria-live="polite" className="mt-3 text-sm">{notice}</p>}
    {waitingForCallback&&callbackChannel===channel&&<p role="status" aria-live="polite" className="mt-3 flex items-center gap-2 text-sm"><LoaderCircle size={16} role="img" aria-label={`${name} connection pending`} className="animate-spin motion-reduce:animate-none"/>Waiting for account connection…</p>}
   </div>)}</div>
+  <ChannelReviews/>
  </section>;
 }

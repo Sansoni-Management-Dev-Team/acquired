@@ -6,9 +6,9 @@ const scope = { applicationId: 'acquire', tenantId: 'org', ownerId: 'owner' };
 const connection: ManagedConnection = { binding: { ...scope, connectionId: 'c', accountId: 'a', generation: 1, channel: 'email', platform: 'gmail', backend: 'unipile' }, label: 'owner@example.test', status: 'syncing', capabilities: { messaging: { send: true, durableIdempotency: true, receiptLookup: true }, events: { read: true, history: true, realtime: true } }, readiness: { status: 'waiting', code: 'incomplete' }, isDefault: false };
 const closers: (() => Promise<void>)[] = [];
 afterEach(async () => { for (const close of closers.splice(0)) await close(); });
-async function fixture() {
+async function fixture(localSimulatorOrigin?:string) {
  const management = { list: vi.fn(async () => ({ available: true, connections: [connection], checkedAt: '2026-10-14T00:00:00.000Z' })), setup: vi.fn(async () => ({ status: 'redirect' as const, action: { type: 'redirect' as const, url: 'https://account.unipile.com/fixture', expiresAt: new Date(Date.now()+60000).toISOString() } })), status: vi.fn(async () => connection), disconnect: vi.fn(async () => ({ status: 'disconnected' as const })), setDefault: vi.fn(async () => ({ ...connection, isDefault: true })) };
- const server = createCommunicationsServer({ authorize: async r => r.headers.authorization === 'Bearer fixture' ? scope : null, connections: { get: vi.fn(async () => null) }, resolveAdapter: vi.fn(), management });
+ const server = createCommunicationsServer({ authorize: async r => r.headers.authorization === 'Bearer fixture' ? scope : null, connections: { get: vi.fn(async () => null) }, resolveAdapter: vi.fn(), management, ...(localSimulatorOrigin?{localSimulatorOrigin}:{}) });
  await new Promise<void>(r => server.listen(0,'127.0.0.1',r)); const a=server.address(); if(!a||typeof a==='string')throw Error('No listener');
  closers.push(()=>new Promise<void>(r=>{server.closeAllConnections();server.close(()=>r());}));
  const baseUrl=`http://127.0.0.1:${a.port}`;return {management,baseUrl,client:new CommunicationsClient({baseUrl,apiKey:'fixture',contractVersion:'1',allowLoopbackHttp:true})};
@@ -45,4 +45,12 @@ it('never exposes unexpected private fields or an unsafe hosted redirect on mana
  const retired=await fetch(f.baseUrl+'/v1/connections/disconnect',{method:'POST',headers,body:JSON.stringify({binding:connection.binding,key:'same-original-key'})});expect(retired.status).toBe(500);expect(await retired.text()).not.toContain('private-fixture-key');
  f.management.setup.mockResolvedValueOnce({status:'redirect',action:{type:'redirect',url:'https://other.example/unsafe',expiresAt:new Date(Date.now()+60000).toISOString()}});
  expect(await f.client.setupConnection(scope,{channel:'email',platform:'gmail'})).toEqual({status:'unknown'});
+});
+
+it('only explicitly configured local services return an exact local hosted origin',async()=>{
+ const origin='https://127.0.0.1:5490',f=await fixture(origin),headers={authorization:'Bearer fixture','x-communications-contract-version':'1','content-type':'application/json'};
+ f.management.setup.mockResolvedValue({status:'redirect',action:{type:'redirect',url:origin+'/hosted/fixture',expiresAt:new Date(Date.now()+60000).toISOString()}});
+ const response=await fetch(f.baseUrl+'/v1/connections/setup',{method:'POST',headers,body:JSON.stringify({channel:'email',platform:'gmail'})});expect(response.status).toBe(200);expect(await response.json()).toMatchObject({status:'redirect',action:{url:origin+'/hosted/fixture'}});
+ f.management.setup.mockResolvedValue({status:'redirect',action:{type:'redirect',url:'https://127.0.0.1:9999/hosted/fixture',expiresAt:new Date(Date.now()+60000).toISOString()}});
+ expect((await fetch(f.baseUrl+'/v1/connections/setup',{method:'POST',headers,body:JSON.stringify({channel:'email',platform:'gmail'})})).status).toBe(500);
 });

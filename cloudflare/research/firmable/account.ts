@@ -1,15 +1,18 @@
+import {withoutFirmablePersonPhones} from '../../../src/domain/firmable-person-privacy';
+import {nativeFirmableBudgetFetch,type NativeFirmableContext,type NativeFirmableBudgetEnv} from '../native-firmable-budget';
 import type { FirmableSessionEnv } from '../firmable-session-validation';
 import { seal, unseal, validCredentials, type Credentials } from './credentials';
 import { domain, normalize, ServiceError, upstream, type RecordData } from './transport';
 import { expandCompanyProfile } from './company';
-export interface FirmableServiceEnv extends FirmableSessionEnv { FIRMABLE_SERVICE_SECRET?: string; FIRMABLE_CREDENTIAL_KEY?: string; FIRMABLE_SESSION_TOKEN?: string }
-export type ServiceInput = { path: string; method: string; query: Record<string, string>; body?: RecordData };
+export interface FirmableServiceEnv extends FirmableSessionEnv,NativeFirmableBudgetEnv { FIRMABLE_SERVICE_SECRET?: string; FIRMABLE_CREDENTIAL_KEY?: string; FIRMABLE_SESSION_TOKEN?: string }
+export type ServiceInput = { path: string; method: string; query: Record<string, string>; body?: RecordData; nativeResearch?: NativeFirmableContext };
+type AccountStorage={get<T=unknown>(key:string):Promise<T|undefined>;put(key:string,value:unknown):Promise<void>};
 type State = { credentials?: Awaited<ReturnType<typeof seal>>; reconnectRequired?: boolean; cooldownUntil?: number; nextRequestAt?: number };
 export class FirmableAccount {
   private queue: Promise<unknown> = Promise.resolve();
   private pending = 0;
   private token?: { jwt: string; expiresAt: number };
-  constructor(private storage: Pick<DurableObjectStorage, 'get' | 'put'>, private env: FirmableServiceEnv, private fetcher: typeof fetch = fetch) {}
+  constructor(private storage: AccountStorage, private env: FirmableServiceEnv, private fetcher: typeof fetch = fetch) {}
   async handle(input: ServiceInput) {
     if (this.pending >= 10) return { status: 429, body: { category: 'service_busy' }, retryAfter: 10 };
     this.pending++;
@@ -20,6 +23,7 @@ export class FirmableAccount {
     try { return await result; } finally { this.pending--; }
   }
   private async execute(input: ServiceInput): Promise<{ status: number; body: RecordData; retryAfter?: number }> {
+    const fetcher=input.nativeResearch?nativeFirmableBudgetFetch(this.env,input.nativeResearch,this.fetcher,this.fetcher):this.fetcher;
     const state = await this.storage.get<State>('firmable:state') || {};
     const save = () => this.storage.put('firmable:state', state);
     if (input.path === '/status') return { status: 200, body: { configured: Boolean(this.env.FIRMABLE_CREDENTIAL_KEY && (state.credentials || this.env.FIRMABLE_CLIENT_COOKIE)), reconnectRequired: Boolean(state.reconnectRequired), cooldownUntil: state.cooldownUntil || null, tokenExpiresAt: this.token?.expiresAt || null } };
@@ -27,7 +31,7 @@ export class FirmableAccount {
       const credentials = input.body as unknown as Credentials;
       if (!credentials || !validCredentials(credentials)) throw new ServiceError(400, 'invalid_credentials');
       if (this.env.FIRMABLE_ORGANIZATION_ID && credentials.organizationId !== this.env.FIRMABLE_ORGANIZATION_ID) throw new ServiceError(400, 'unexpected_organization');
-      await this.renew(credentials, state);
+      await this.renew(credentials, state,fetcher);
       state.credentials = await seal(credentials, this.env.FIRMABLE_CREDENTIAL_KEY || '');
       state.reconnectRequired = false;
       await save();
@@ -44,10 +48,10 @@ export class FirmableAccount {
       if (delay) await new Promise(resolve => setTimeout(resolve, delay));
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          if (!this.token || this.token.expiresAt - 10_000 <= Date.now()) { await this.renew(credentials, state); await save(); }
+          if (!this.token || this.token.expiresAt - 10_000 <= Date.now()) { await this.renew(credentials, state,fetcher); await save(); }
           state.nextRequestAt = Date.now() + 1000;
           await save();
-          return (await upstream(this.fetcher, `https://api.firmable.com/internal${path}`, { method: body ? 'POST' : 'GET',
+          return (await upstream(fetcher, `https://api.firmable.com/internal${path}`, { method: body ? 'POST' : 'GET',
             headers: { Authorization: `Bearer ${this.token!.jwt}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })).data;
         } catch (error) {
           if (error instanceof ServiceError && error.category === 'upstream_authentication' && attempt === 0) { this.token = undefined; continue; }
@@ -123,7 +127,7 @@ export class FirmableAccount {
       } else if (input.path === '/people') {
         if (!/^fp\d+$/.test(input.query.id || '')) throw new ServiceError(422, 'unsupported_identifier');
         data = normalize(await request(`/people/${input.query.id}`));
-        if (input.query.includePhones === 'false') { delete data.phones; delete data.phone; delete data.mobile; data.has_phone = false; data.phone_available = false; }
+        if (input.query.includePhones === 'false')data=withoutFirmablePersonPhones(data);
       } else throw new ServiceError(404, 'not_found');
       return { status: 200, body: data };
     } catch (error) {
@@ -132,8 +136,8 @@ export class FirmableAccount {
       throw error;
     }
   }
-  private async renew(credentials: Credentials, state: State) {
-    const result = await upstream(this.fetcher, `https://clerk.firmable.com/v1/client/sessions/${credentials.sessionId}/tokens?__clerk_api_version=2026-05-12&_clerk_js_version=6.36.0`, {
+  private async renew(credentials: Credentials, state: State,fetcher:typeof fetch=this.fetcher) {
+    const result = await upstream(fetcher, `https://clerk.firmable.com/v1/client/sessions/${credentials.sessionId}/tokens?__clerk_api_version=2026-05-12&_clerk_js_version=6.36.0`, {
       method: 'POST', headers: { Cookie: `__client=${credentials.cookie}`, Origin: 'https://app.firmable.com', Referer: 'https://app.firmable.com/', 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ organization_id: credentials.organizationId, tab_state: 'visible', ...(credentials.sessionToken?{token:credentials.sessionToken}:{}) }).toString() });
     const jwt = result.data.jwt;

@@ -112,6 +112,9 @@ export interface OutboundMessage {
   subject?: string;
   conversation?: ProviderReference;
   rfcMessageId?: string;
+  /** Exact provider email parent plus approved full-content fingerprint. Server
+   * derives it from verified history; it is not a model-selected thread ID. */
+  replyParent?: {message:ProviderReference;contentDigest:string};
   replyTo?: string;
 }
 export interface MessageSubmission {
@@ -142,7 +145,8 @@ export type CommunicationEvent =
   | { type: "message"; reference: ProviderReference; conversation?: ProviderReference; direction: "inbound" | "outbound" | "self" | "group"; sender: CanonicalIdentity; occurredAt: string }
   | { type: "receipt"; receipt: MessageReceipt }
   | { type: "account"; binding: ConnectionBinding; status: ConnectionStatus; occurredAt: string }
-  | { type: "email_change"; reference: ProviderReference; change: "folder" | "bounce"; occurredAt: string };
+  | { type: "email_change"; reference: ProviderReference; change: "folder"; occurredAt: string }
+  | { type: "email_change"; reference: ProviderReference; change: "bounce"; recipient: CanonicalIdentity; occurredAt: string };
 export interface EventCursor { binding: ConnectionBinding; scope: string; value: string }
 export interface EventPage {
   events: CommunicationEvent[];

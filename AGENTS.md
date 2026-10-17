@@ -10,7 +10,17 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Project safety rule
 
-- Never run or apply a database migration without explicit user approval for that specific migration.
+- Never run or apply a database migration without explicit user approval for that specific migration, except for the scoped standing permission below.
+
+## Standing permission for the isolated agent build
+
+The user explicitly granted this exception on 17 October 2026, overriding the per-migration approval rule only for this target:
+
+- Create and apply migrations needed for the agent build in `/Users/callum/Documents/Development/project-acquire-agent-mode` only on database `acquire_agent_mode` at `127.0.0.1:5437`, with database marker `acquire-agent-mode-local-only`.
+- Verify the exact database identity/marker before application, keep applied migration files immutable, and record reviewed hashes and application/test evidence.
+- This is standing approval for that isolated database: do not ask for per-migration approval again within this scope.
+- Other databases, production deployment and live sending still require separate approval. This exception does not authorize changing the main/shared database or another worktree.
+
 
 # Firmable credential renewal
 

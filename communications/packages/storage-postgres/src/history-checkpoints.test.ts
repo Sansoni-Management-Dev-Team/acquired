@@ -11,6 +11,7 @@ function fixture() {
     const statements: string[] = [];
     const client = { release: vi.fn(), query: vi.fn(async (sql: string): Promise<SqlResult> => {
             statements.push(sql);
+            if(sql.includes('AS history_replies_pending'))return{rows:[{history_replies_pending:false}]};
             if (sql.includes('pg_roles'))
                 return { rows: [{ role: 'communications_control', rolsuper: false, rolbypassrls: false, rolcanlogin: false }] };
             if (sql.includes('advance_reply_barrier'))

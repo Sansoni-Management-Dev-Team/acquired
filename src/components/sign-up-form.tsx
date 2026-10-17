@@ -1,5 +1,8 @@
 "use client";
 
+import { randomUuid } from "@/lib/random-uuid";
+
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
@@ -34,7 +37,7 @@ export function SignUpForm() {
 
     const workspace = await authClient.organization.create({
       name: organizationName,
-      slug: organizationSlug(organizationName, crypto.randomUUID()),
+      slug: organizationSlug(organizationName, randomUuid()),
     });
 
     if (workspace.error) {

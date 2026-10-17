@@ -21,5 +21,5 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const actor = { organizationId, userId: session.user.id };
   await ensureDefaultCampaign(actor, id);
   const initialData = await listCampaignStudio(actor, id);
-  return <><MandateNavigation mandates={mandates} selected={id} tab="sequences" /><CampaignStudio mandateId={id} mandateName={mandate.brief.name} initialData={initialData} initialView="sequences" /></>;
+  return <><MandateNavigation mandates={mandates} selected={id} tab="sequences" /><CampaignStudio mandateId={id} mandateName={mandate.brief.name} initialData={initialData} learningEnabled={process.env.AGENT_GUIDANCE_ENABLED==='true'&&process.env.AGENT_MODE_EXPLORATION_ENABLED==='true'&&process.env.AGENT_DURABLE_STATE_ENABLED==='true'} initialView="sequences" /></>;
 }

@@ -52,13 +52,14 @@ export function parseReady(value: unknown): ConnectionBinding {
 export function parseSubmission(value: unknown): MessageSubmission {
   const obj = object(value, ["snapshot", "message"]);
   const recorded = snapshot(obj.snapshot);
-  const raw = object(obj.message, ["recipient", "text", "subject", "conversation", "rfcMessageId", "replyTo"]);
+  const raw = object(obj.message, ["recipient", "text", "subject", "conversation", "rfcMessageId", "replyTo", "replyParent"]);
   if (typeof raw.text !== "string" || raw.text.length > 100_000) invalid();
   const message: OutboundMessage = {
     recipient: identity(raw.recipient), text: raw.text,
     ...(raw.subject === undefined ? {} : { subject: optionalString(raw.subject, 1000) }),
     ...(raw.conversation === undefined ? {} : { conversation: reference(raw.conversation) }),
     ...(raw.rfcMessageId === undefined ? {} : { rfcMessageId: optionalString(raw.rfcMessageId) }),
+    ...(raw.replyParent === undefined ? {} : {replyParent:(()=>{const parent=object(raw.replyParent,['message','contentDigest']),contentDigest=string(parent.contentDigest,64);if(!/^[a-f0-9]{64}$/.test(contentDigest)||recorded.binding.channel!=='email'||raw.conversation!==undefined)invalid();const original=reference(parent.message);try{assertSameBinding(recorded.binding,original.binding);}catch{invalid();}return {message:original,contentDigest};})()}),
     ...(raw.replyTo === undefined ? {} : { replyTo: optionalString(raw.replyTo) }),
   };
   assertRecipientChannel(message.recipient, recorded.binding);

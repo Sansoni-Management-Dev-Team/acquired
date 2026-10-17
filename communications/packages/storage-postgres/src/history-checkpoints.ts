@@ -1,3 +1,4 @@
+import{assertHistoryRepliesProcessed}from'./history-pending';
 import { createHash, randomBytes } from 'node:crypto';
 import { types } from 'node:util';
 import { assertSameBinding, type ConnectionBinding, type EventQuery, type EventPage, type Coverage, type CanonicalIdentity } from '../../contracts/src';
@@ -140,7 +141,7 @@ export function createPostgresHistoryCheckpoints(options: HistoryCheckpointOptio
                 const revision = await fence(c);
                 await authority(c);
                 const assertion = { binding: structuredClone(b), scopeDigest: scopeDigest(q.scope), requiredSince: q.since, maxAgeSeconds: 300, serviceRevision: revision };
-                const verify = async () => { check(); await repository.assertCoverage(c, structuredClone(assertion)); const gate = await c.query(`SELECT communications.assert_dispatch_reply_barrier($1,$2)::text AS revision`, bind.slice(0, 2)); check(); if (gate.rows.length !== 1 || gate.rows[0].revision !== revision)
+                const verify = async () => { check(); await repository.assertCoverage(c, structuredClone(assertion)); await assertHistoryRepliesProcessed(c,b.applicationId,b.tenantId); const gate = await c.query(`SELECT communications.assert_dispatch_reply_barrier($1,$2)::text AS revision`, bind.slice(0, 2)); check(); if (gate.rows.length !== 1 || gate.rows[0].revision !== revision)
                     fail(); };
                 await verify();
                 const row = await c.query(`SELECT coverage_from,coverage_through,observed_at FROM communications.event_cursors WHERE connection_id=$1 AND generation=$2 AND scope_digest=$3 FOR SHARE`, [b.connectionId, b.generation, assertion.scopeDigest]);

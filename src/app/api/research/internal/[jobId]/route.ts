@@ -1,3 +1,6 @@
+import {executeNativePeopleResearch,finishNativePeopleResearch} from '@/lib/agent-people-execution';
+import {agentStore,nativeAgentEnabled} from '@/lib/agent-runtime';
+import {nativeResearchProviderAdmissionRequired} from '@/lib/agent-research-admission';
 import {dispatchCompanyBackground} from '@/lib/company-background-dispatch';
 import {executeCompanyBackground} from '@/lib/company-background-execution';
 import {queueCompanyPeople} from '@/lib/company-people-research';
@@ -52,19 +55,37 @@ import {
 } from "@/lib/research-service";
 export const maxDuration = 120;
 const DISCOVERY_PERSIST_BATCH = 8;
-async function getJob(request: Request, jobId: string, lean = false) {
+async function getJob(request: Request, jobId: string, lean = false,action='control') {
   if (!researchServiceAuthorized(request) || !researchEnabled()) return null;
   if (!z.string().uuid().safeParse(jobId).success) return null;
-  return (
+  const job = (
     await requireDb()
       .select(lean ? {
         ...researchExecutionSelection,
+        nativeAgentJob:sql<boolean>`${researchJobs.config} ? 'nativeAgent'`,
+        nativeAgentSnapshot:sql<ResearchConfig['nativeAgent']>`${researchJobs.config}->'nativeAgent'`,
         config: sql<ResearchConfig>`jsonb_build_object('researchRunId', ${researchJobs.config}->'researchRunId', 'budget', ${researchJobs.config}->'budget', 'automaticDeadline', ${researchJobs.config}->'automaticDeadline', 'newBusinessIds', ${researchJobs.config}->'newBusinessIds', 'performanceFlags', ${researchJobs.config}->'performanceFlags', 'discoveryCandidate', ${researchJobs.config}->'discoveryCandidate', 'parallelDiscovery', ${researchJobs.config}->'parallelDiscovery', 'companyBackgroundResearch', ${researchJobs.config}->'companyBackgroundResearch')`,
       } : researchExecutionSelection)
       .from(researchJobs)
       .where(eq(researchJobs.id, jobId))
       .limit(1)
   )[0];
+  if(!job)return null;
+  if(('nativeAgentJob' in job&&job.nativeAgentJob===true)||nativeResearchProviderAdmissionRequired(job.config)){
+    const metadata=(job.config as ResearchConfig).nativeAgent??('nativeAgentSnapshot' in job?job.nativeAgentSnapshot:undefined);
+    if(!nativeAgentEnabled()||!metadata||!['firmable-company-v1','firmable-people-v1'].includes(metadata.providerAdmission)||(job.config as ResearchConfig).researchRunId!==job.id||!(metadata.providerAdmission==='firmable-company-v1'?['control','d-search','d-company','d-finish','d-fail','native-provider-begin','native-provider-finish']:['control','native-people-plan','native-people-company','native-people-finish','native-provider-begin','native-provider-finish']).includes(action))return null;
+    const store=agentStore({organizationId:job.organizationId,userId:job.createdBy});
+    if(action!=='native-provider-finish'&&!await store.nativeResearchExecutionAllowed(metadata.threadId,metadata.operationId))return null;
+    return job;
+  }
+  // Root provenance fences children whose existing configuration builder did
+  // not copy extension fields. No agent schema is needed for original UI jobs.
+  const rootId=(job.config as ResearchConfig).researchRunId;
+  if(rootId&&rootId!==job.id&&z.string().uuid().safeParse(rootId).success){
+    const root=await new ResearchRepository(job.organizationId).getExecution(rootId);
+    if(root&&root.mandateId===job.mandateId&&nativeResearchProviderAdmissionRequired(root.config))return null;
+  }
+  return job;
 }
 async function getResearchControl(
   request: Request,
@@ -128,11 +149,27 @@ async function postResearchCallback(
   if (!researchServiceAuthorized(request) || !researchEnabled() || !z.string().uuid().safeParse(jobId).success) return researchJsonResponse({ error: "Not available" }, { status: 403 });
   const payload = await researchRequestJson(request).catch(() => null);
   setResearchDatabaseContext(researchCallbackContext(payload?.action));
-  const job = await getJob(request, jobId);
+  const job = await getJob(request, jobId,false,typeof payload?.action==='string'?payload.action:'progress');
   if (!job) return researchJsonResponse({ error: "Not available" }, { status: 403 });
   setResearchDatabaseContext({ jobId: job.id, organizationId: job.organizationId, mandateId: job.mandateId, runId: (job.config as ResearchConfig).researchRunId || job.id });
   configureResearchTelemetry(researchPerformanceFlags(job.config as ResearchConfig).telemetryBatching);
   const repo = new ResearchRepository(job.organizationId);
+  if(payload?.action==='native-people-plan'){const meta=(job.config as ResearchConfig).nativeAgent!;const plan=await agentStore({organizationId:job.organizationId,userId:job.createdBy}).nativePeoplePlan(meta.threadId,meta.operationId);return researchJsonResponse({targetIds:plan.selected.map(c=>c.targetId)});}
+  if(payload?.action==='native-people-company'){const p=z.object({action:z.literal('native-people-company'),targetId:z.string().uuid()}).strict().safeParse(payload);if(!p.success)return researchJsonResponse({error:'Invalid company step'},{status:400});return researchJsonResponse(await executeNativePeopleResearch(job,{targetId:p.data.targetId}));}
+  if(payload?.action==='native-people-finish')return researchJsonResponse(await finishNativePeopleResearch(job));
+  if(payload?.action==='native-provider-begin'||payload?.action==='native-provider-finish'){
+    const metadata=(job.config as ResearchConfig).nativeAgent;
+    if(!metadata)return researchJsonResponse({error:'Native research required'},{status:403});
+    const store=agentStore({organizationId:job.organizationId,userId:job.createdBy});
+    if(payload.action==='native-provider-begin'){
+      const p=z.object({action:z.literal('native-provider-begin'),targetId:z.string().uuid().optional(),key:z.string().min(1).max(200),requestDigest:z.string().regex(/^[a-f0-9]{64}$/)}).strict().safeParse(payload);
+      if(!p.success)return researchJsonResponse({error:'Invalid native provider request'},{status:400});
+      const result=await store.beginNativeResearchAttempt(metadata.threadId,p.data.key,{researchOperationId:metadata.operationId,researchJobId:job.id,provider:'firmable',...(p.data.targetId?{targetId:p.data.targetId}:{}),requestDigest:p.data.requestDigest});return researchJsonResponse(result);
+    }
+    const p=z.object({action:z.literal('native-provider-finish'),operationId:z.string().uuid(),fence:z.string().regex(/^\d+$/),outcome:z.object({actualCostMicroUsd:z.null(),costBasis:z.literal('unknown'),reason:z.literal('request_outcome_unknown').optional(),response:z.object({status:z.number().int().min(100).max(599),provider:z.literal('firmable'),requestDigest:z.string().regex(/^[a-f0-9]{64}$/)}).strict().optional()}).strict()}).strict().safeParse(payload);
+    if(!p.success)return researchJsonResponse({error:'Invalid native provider receipt'},{status:400});
+    await store.finishNativeResearchAttempt(metadata.threadId,p.data.operationId,p.data.fence,p.data.outcome,metadata.operationId);return researchJsonResponse({ok:true});
+  }
   if (['company-background-research','company-background-failed'].includes(payload?.action)) {
     if(!(job.config as ResearchConfig).companyBackgroundResearch)return researchJsonResponse({error:'Not a background job'},{status:400});
     const result=await executeCompanyBackground(job,payload.action==='company-background-failed');
@@ -141,6 +178,7 @@ async function postResearchCallback(
   }
   if (['company-people-status','d-search','d-company','d-finish','d-fail','e-plan','e-search','e-company','e-finish','e-fail','f-finish','f-fail'].includes(payload?.action)) {
     const result=await firmableCompanyResearch(job,payload);
+    if((job.config as ResearchConfig).nativeAgent&&['d-finish','d-fail'].includes(String(payload.action))){const meta=(job.config as ResearchConfig).nativeAgent!;await agentStore({organizationId:job.organizationId,userId:job.createdBy}).finishNativeResearchJob(meta.threadId,meta.operationId);}
     if(['d-company','e-company','d-finish','e-finish','f-finish'].includes(payload.action))after(async()=>{
       await dispatchCompanyBackground(job.organizationId,job.mandateId);
       const company=result as {matched?:boolean;targetId?:string;firmableId?:string};

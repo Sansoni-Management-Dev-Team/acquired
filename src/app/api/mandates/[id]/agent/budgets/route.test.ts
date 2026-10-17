@@ -1,0 +1,11 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+const mock=vi.hoisted(()=>({scope:vi.fn(),settings:vi.fn(),configure:vi.fn()}));
+vi.mock('@/lib/agent-request-scope',()=>({agentRequestScope:mock.scope,agentResponseHeaders:{'Cache-Control':'private, no-store'},agentRequestError:(error:string,status:number)=>Response.json({error},{status}),agentRequestFailure:()=>Response.json({error:'Changed or unavailable'},{status:409})}));
+import {GET,POST} from './route';
+const id='00000000-0000-4000-8000-000000000001',requestKey='00000000-0000-4000-8000-000000000002',context={params:Promise.resolve({id})};
+const input={requestKey,scope:'mandate',unit:'sends',windowStart:'2026-10-17T00:00:00Z',windowEnd:'2026-10-18T00:00:00Z',cap:'10',expectedRevision:0};
+const request=(body:unknown=input,origin='http://localhost')=>new Request(`http://localhost/api/mandates/${id}/agent/budgets`,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify(body)});
+beforeEach(()=>{vi.resetAllMocks();mock.scope.mockResolvedValue({thread:{id:'owned-thread'},store:{budgetSettings:mock.settings,configureExecutionBudget:mock.configure}});mock.settings.mockResolvedValue({canConfigure:true,accounts:[]});mock.configure.mockResolvedValue({id,revision:1,status:'configured'});});
+it('reads only this mandate budget projection without creating execution state',async()=>{expect((await GET(new Request('http://localhost'),context)).status).toBe(200);expect(mock.settings).toHaveBeenCalledWith(id);expect(mock.configure).not.toHaveBeenCalled();});
+it('passes only the explicit bounded configuration to the owned thread command',async()=>{expect((await POST(request(),context)).status).toBe(200);const {requestKey,...value}=input;expect(mock.configure).toHaveBeenCalledWith('owned-thread',requestKey,value);});
+it('rejects account/actor injection, unlimited caps and cross-origin writes',async()=>{for(const value of [{...input,organizationId:'other'},{...input,scopeKey:'user:other:sends'},{...input,cap:'Infinity'},{...input,scope:'*'}])expect((await POST(request(value),context)).status).toBe(400);expect((await POST(request(input,'https://foreign.invalid'),context)).status).toBe(403);expect(mock.configure).not.toHaveBeenCalled();});

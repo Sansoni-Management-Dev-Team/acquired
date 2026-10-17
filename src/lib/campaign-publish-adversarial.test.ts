@@ -38,3 +38,18 @@ it.each([
 });
 it("missing sequence cannot be published or saved by another owner", async () => { mock.rows.mockResolvedValue([]); await expect(publishCampaign(actor, id)).rejects.toMatchObject({ status: 404 }); await expect(saveCampaign(actor, id, "Changed", definition as never)).rejects.toMatchObject({ status: 404 }); expect(mock.rows.mock.calls.every(([, sql, params]) => sql.includes("owner_user_id") && params.includes(actor.userId))).toBe(true); expect(mock.provision).not.toHaveBeenCalled(); });
 it("a mandate outside the organisation cannot receive a sequence", async () => { mock.rows.mockResolvedValue([]); await expect(createCampaign(actor, id, "Test", definition as never)).rejects.toMatchObject({ status: 404 }); expect(mock.rows).toHaveBeenCalledOnce(); expect(mock.rows.mock.calls[0][2]).toEqual([id, actor.organizationId]); });
+it('refuses a stale draft revision without overwriting the saved sequence',async()=>{
+ mock.rows.mockResolvedValueOnce([{...version,draft_revision:'24'}]);
+ await expect(saveCampaign(actor,id,'Stale edit',definition as never,'23')).rejects.toMatchObject({status:409});
+ expect(mock.query).not.toHaveBeenCalled();expect(mock.rows).toHaveBeenCalledOnce();
+});
+it('saves only the displayed revision and returns its new concurrency token',async()=>{
+ mock.rows.mockResolvedValueOnce([{...version,draft_revision:'24'}]).mockResolvedValueOnce([{...version,draft_revision:'25',name:'Human edit'}]);
+ expect(await saveCampaign(actor,id,'Human edit',definition as never,'24')).toMatchObject({draftRevision:'25',name:'Human edit'});
+ expect(mock.rows.mock.calls[0][1]).toContain('FOR UPDATE');
+ expect(mock.rows.mock.calls[1][2]).toContain('24');
+});
+it('rejects publication if another draft write shares its timestamp but changes its revision',async()=>{
+ mock.rows.mockResolvedValueOnce([{...version,draft_revision:'24'}]).mockResolvedValueOnce([{...version,draft_revision:'25'}]);
+ await expect(publishCampaign(actor,id)).rejects.toThrow('changed during publishing');expect(mock.remove).toHaveBeenCalledWith('workflow');
+});

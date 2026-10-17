@@ -1,5 +1,8 @@
 "use client";
 
+import { randomUuid } from "@/lib/random-uuid";
+
+
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { contactEnrichmentProgress, type ContactEnrichmentRun } from "@/domain/contact-enrichment";
@@ -19,7 +22,7 @@ export function ContactEnrichmentProgress({ mandateId, targetIds, onBack }: { ma
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    void jsonRequest(`/api/mandates/${mandateId}`, { action: "enrich", targetIds, requestId: crypto.randomUUID() }).then(result => {
+    void jsonRequest(`/api/mandates/${mandateId}`, { action: "enrich", targetIds, requestId: randomUuid() }).then(result => {
       const queued = result.refresh?.runs || [];
       setWarnings(result.warnings || []);
       if (!queued.length) throw new Error(result.warnings?.join(" ") || "No companies could be queued for enrichment.");

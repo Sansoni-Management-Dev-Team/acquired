@@ -1,0 +1,19 @@
+import {renderToStaticMarkup} from 'react-dom/server';
+import {expect,it,vi} from 'vitest';
+import {AgentBudgetControls,usdToMicros,type AgentBudgetData} from './agent-budget-controls';
+const account={id:'budget',scope_key:'organization:usd_micro',unit:'usd_micro' as const,window_start:'2026-10-17T00:00:00Z',window_end:'2026-10-18T00:00:00Z',cap:'1234567',spent:'500000',reserved:'250000',revision:2};
+const initial:AgentBudgetData={canConfigure:true,accounts:[account]};
+it('converts decimal USD caps exactly without floating point rounding',()=>{expect(usdToMicros('0.000001')).toBe('1');expect(usdToMicros('1.234567')).toBe('1234567');expect(usdToMicros('999999.999999')).toBe('999999999999');expect(()=>usdToMicros('1.0000001')).toThrow();expect(()=>usdToMicros('-1')).toThrow();});
+it('shows organisation-wide budgets and reserved usage separately without treating configuration as send approval',()=>{const html=renderToStaticMarkup(<AgentBudgetControls mandateId="mandate" enabled initial={initial} onConfigure={vi.fn()}/>);for(const text of ['Organisation (all mandates)','$1.234567','$0.5','$0.25','does not approve research or messages'])expect(html).toContain(text);});
+it('keeps budget configuration disabled for non-admins and when native controls are unavailable',()=>{const html=renderToStaticMarkup(<AgentBudgetControls mandateId="mandate" enabled={false} initial={{...initial,canConfigure:false}} onConfigure={vi.fn()}/>);expect(html).toContain('Workspace administrators');expect(html).not.toContain('New budget window');});
+it('edits the exact saved window and base revision',async()=>{
+ vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.useFakeTimers();vi.stubGlobal('document',{visibilityState:'visible'});const {create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;const onConfigure=vi.fn().mockResolvedValue(undefined);vi.stubGlobal('fetch',vi.fn().mockResolvedValue(Response.json(initial)));
+ try{await act(async()=>{tree=create(<AgentBudgetControls mandateId="mandate" enabled initial={initial} onConfigure={onConfigure}/>);});await act(async()=>{tree!.root.findAllByType('button').find(b=>b.props.children==='Edit cap')!.props.onClick();});await act(async()=>{tree!.root.findAllByType('input').find(i=>i.props.name==='cap')!.props.onChange({target:{value:'2.500001'}});});await act(async()=>{await tree!.root.findByType('form').props.onSubmit({preventDefault(){}});});expect(onConfigure).toHaveBeenCalledWith(expect.objectContaining({scope:'organization',unit:'usd_micro',cap:'2500001',expectedRevision:2,windowStart:account.window_start,windowEnd:account.window_end}));
+ }finally{if(tree)await act(async()=>tree!.unmount());vi.useRealTimers();vi.unstubAllGlobals();}
+});
+
+it('preserves a dirty cap and disables saving when a background revision changes',async()=>{
+ vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.useFakeTimers();vi.stubGlobal('document',{visibilityState:'visible'});const {create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;vi.stubGlobal('fetch',vi.fn().mockResolvedValue(Response.json({...initial,accounts:[{...account,revision:3,cap:'3000000'}]})));
+ try{await act(async()=>{tree=create(<AgentBudgetControls mandateId="mandate" enabled initial={initial} onConfigure={vi.fn()}/>);});await act(async()=>{tree!.root.findAllByType('button').find(b=>b.props.children==='Edit cap')!.props.onClick();});await act(async()=>{tree!.root.findAllByType('input').find(i=>i.props.name==='cap')!.props.onChange({target:{value:'2.500001'}});});await act(async()=>{await vi.advanceTimersByTimeAsync(1);});expect(tree!.root.findAllByType('input').find(i=>i.props.name==='cap')!.props.value).toBe('2.500001');expect(tree!.root.findAllByType('button').find(b=>b.props.children==='Save budget cap')!.props.disabled).toBe(true);
+ }finally{if(tree)await act(async()=>tree!.unmount());vi.useRealTimers();vi.unstubAllGlobals();}
+});

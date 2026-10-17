@@ -10,7 +10,8 @@ export function benchmarkWorkloadSources(sources, { companies, minutes }) {
     if (sources[file].split(before).length - 1 !== count) throw Error(`Benchmark override no longer matches ${file}; review before running`);
     sources[file] = sources[file].replaceAll(before, after);
   };
-  replace('cloudflare/research/index.ts', 'maxCompanies:100', `maxCompanies:${companies}`, 3);
+  replace('cloudflare/research/index.ts', 'maxCompanies:100', `maxCompanies:${companies}`, 2);
+  replace('cloudflare/research/index.ts', 'maxCompanies:initial.config.nativeAgent?Math.min(initial.config.targetBusinesses||20,20):100', `maxCompanies:initial.config.nativeAgent?Math.min(initial.config.targetBusinesses||20,20):${companies}`, 1);
   replace('src/domain/automatic-research.ts', 'DISCOVERY_CANDIDATE_LIMIT = 90', `DISCOVERY_CANDIDATE_LIMIT = ${companies}`, 1);
   replace('src/domain/automatic-research.ts', 'automaticDeadline: Date.now() + effort.minutes * 60 * 1000', `automaticDeadline: Date.now() + ${minutes} * 60 * 1000`, 1);
   replace('src/app/api/mandates/[id]/research/route.ts', 'config.automaticDeadline=Date.now()+10*60000', `config.automaticDeadline=Date.now()+${minutes}*60000`, 1);
