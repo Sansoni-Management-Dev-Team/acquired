@@ -21,7 +21,11 @@ test('provider account-id return redirects locally without using it as connectio
 });
 test('gateway exposes only capability callback and fixed return routes',async()=>{
  const received=[];let mode='ok';const upstream=http.createServer((req,res)=>{const chunks=[];req.on('data',chunk=>chunks.push(chunk));req.on('end',()=>{received.push({method:req.method,url:req.url,headers:req.headers,body:Buffer.concat(chunks)});if(mode==='hang')return;if(mode==='large'){res.end('x'.repeat(9000));return;}if(mode==='fail'){res.statusCode=500;res.end('private provider diagnostic');return;}res.setHeader('Set-Cookie','must-not-leak=private');res.end('{"status":"queued"}');});});
- await listen(upstream,5461);const gateway=createSetupCallbackGateway({maxBodyBytes:64,timeoutMs:100});const port=await listen(gateway);
+ const upstreamPort=await listen(upstream);
+ // Keep the production destination policy fixed while the injected transport
+ // routes this suite only to its own ephemeral loopback fixture.
+ const fixtureRequest=(url,options,callback)=>{const target=new URL(url);assert.equal(target.origin,'http://127.0.0.1:5461');target.port=String(upstreamPort);return http.request(target,options,callback);};
+ const gateway=createSetupCallbackGateway({maxBodyBytes:64,timeoutMs:100,request:fixtureRequest});const port=await listen(gateway);
  try{
   const bytes=Buffer.from('{ "name" : "opaque", "octet":"é" }\n');
   let result=await request(port,'/v1/setup/notify?capability=synthetic._-cap',{method:'POST',body:bytes,headers:{'Content-Type':'application/json','Authorization':'Bearer do-not-forward','Cookie':'private-cookie'}});
@@ -43,5 +47,5 @@ test('gateway exposes only capability callback and fixed return routes',async()=
 });
 test('configuration cannot expose another service or bind arbitrary hosts',()=>{
  for(const serviceUrl of ['https://127.0.0.1:5461','http://localhost:5461','http://127.0.0.1:3000','http://127.0.0.1:5461/','http://127.0.0.1:5461@evil.invalid','http://127.0.0.1:5461?secret=x'])assert.throws(()=>createSetupCallbackGateway({serviceUrl}));
- assert.deepEqual(callbackGatewayAddress({}),{host:'127.0.0.1',port:5462});assert.deepEqual(callbackGatewayAddress({AGENT_SETUP_GATEWAY_HOST:'0.0.0.0'}),{host:'0.0.0.0',port:5462});assert.throws(()=>callbackGatewayAddress({AGENT_SETUP_GATEWAY_HOST:'public.invalid'}));assert.throws(()=>createSetupCallbackGateway({maxBodyBytes:2000000}));
+ assert.deepEqual(callbackGatewayAddress({}),{host:'127.0.0.1',port:5462});assert.deepEqual(callbackGatewayAddress({AGENT_SETUP_GATEWAY_HOST:'0.0.0.0'}),{host:'0.0.0.0',port:5462});assert.throws(()=>callbackGatewayAddress({AGENT_SETUP_GATEWAY_HOST:'public.invalid'}));assert.throws(()=>createSetupCallbackGateway({maxBodyBytes:2000000}));assert.throws(()=>createSetupCallbackGateway({request:null}));
 });

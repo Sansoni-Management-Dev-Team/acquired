@@ -11,8 +11,8 @@ const RETURN=/^\/setup\/(returned|failed)(?:\?account_id=[A-Za-z0-9_-]{1,2048})?
  * Incoming bytes are collected from a bounded stream before any forwarding so
  * oversize/unfinished requests cannot cause a partial callback to be processed.
  */
-export function createSetupCallbackGateway({serviceUrl=SERVICE_URL,maxBodyBytes=262144,timeoutMs=25000}={}){
- if(serviceUrl!==SERVICE_URL||!Number.isSafeInteger(maxBodyBytes)||maxBodyBytes<1||maxBodyBytes>262144||!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>25000)throw new Error('Invalid local setup gateway configuration');
+export function createSetupCallbackGateway({serviceUrl=SERVICE_URL,maxBodyBytes=262144,timeoutMs=25000,request=httpRequest}={}){
+ if(typeof request!=='function'||serviceUrl!==SERVICE_URL||!Number.isSafeInteger(maxBodyBytes)||maxBodyBytes<1||maxBodyBytes>262144||!Number.isSafeInteger(timeoutMs)||timeoutMs<1||timeoutMs>25000)throw new Error('Invalid local setup gateway configuration');
  const server=createServer({maxHeaderSize:8192},(req,res)=>{
   let finished=false,timer,upstream;
   const finish=(status,body,location)=>{
@@ -35,7 +35,7 @@ export function createSetupCallbackGateway({serviceUrl=SERVICE_URL,maxBodyBytes=
   req.on('data',chunk=>{if(finished)return;size+=chunk.length;if(size>maxBodyBytes){finish(413,'{"error":"body_too_large"}');return;}chunks.push(chunk);});
   req.on('end',()=>{
    if(finished)return;
-   upstream=httpRequest(SERVICE_URL+req.url,{method:'POST',headers:{'Content-Type':contentType,'Content-Length':size,'Connection':'close'}},reply=>{
+   upstream=request(SERVICE_URL+req.url,{method:'POST',headers:{'Content-Type':contentType,'Content-Length':size,'Connection':'close'}},reply=>{
     let responseBytes=0;
     reply.on('data',chunk=>{responseBytes+=chunk.length;if(responseBytes>8192)finish(502,'{"error":"invalid_callback_response"}');});
     reply.on('error',()=>finish(503,'{"error":"callback_unavailable"}'));
