@@ -36,3 +36,8 @@ The user explicitly granted this exception on 17 October 2026, overriding the pe
 - The user's 2026-10-13 scope change moves direct Gmail, Baileys WhatsApp and browser LinkedIn into the independent `../legacy-channel-services` repository and removes those executable connection methods from Acquire. Preserve their logic/tests before removal, recorded historical connection ownership and unresolved-send handling; never silently switch a campaign or send attempt to another backend. Historical schema/data cleanup is not authorized by code extraction.
 - Planning is not authorization to execute the implementation, apply migrations, enable live sends, or deploy. Follow the user's current authorization and the specific migration approval rule above.
 - Keep Unipile credentials in ignored private files. Never copy credential values into plans, logs, fixtures, or source control.
+
+
+## Audit fix fork ownership — 2026-10-18
+
+Read [BRANCHES.md](BRANCHES.md) before working here. This is an isolated source-only audit fork. The original worktrees and their current runtime/tests remain owned by the other thread. Do not run copied Compose/OrbStack launchers or apply migrations against their databases from this fork. No fork runtime identity, database or ports have been allocated. Keep changes on this lane's fix branch and leave integration until the original tests finish and the source snapshots are reconciled.
