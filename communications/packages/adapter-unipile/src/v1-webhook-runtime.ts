@@ -1,8 +1,10 @@
-import { assertSameBinding, type ConnectionBinding } from '../../contracts/src';
+import { assertSameBinding, assertOperationMatches, type ConnectionBinding, type OperationSnapshot } from '../../contracts/src';
 import type { ReplyIngress, ClaimedWebhook, ReplyNormalization, WebhookCapturePort } from '../../core/src/reply-ingress';
 import type { NormalizedWebhookPort } from '../../core/src/webhook-events';
 import type { ProviderWebhookSpool } from '../../storage-postgres/src/provider-webhook-spool';
+export type EmailSentAssociationWake={snapshot:OperationSnapshot;evidenceDigest:string};
 export interface ConfiguredV1WebhookRuntimeOptions {
+    onEmailSentAssociation?:(proof:EmailSentAssociationWake)=>Promise<void>;
     spool: ProviderWebhookSpool;
     authenticate(headers: readonly string[]): boolean;
     journal(binding: ConnectionBinding): Promise<NormalizedWebhookPort & WebhookCapturePort>;
@@ -16,6 +18,7 @@ export interface ConfiguredV1WebhookRuntimeOptions {
     }>;
     associateSent(record: ClaimedWebhook): Promise<{
         kind: 'associated' | 'duplicate' | 'missing' | 'review';
+        snapshot?:OperationSnapshot;evidenceDigest?:string;
     }>;
 }
 export interface ConfiguredV1WebhookRuntime {
@@ -111,6 +114,12 @@ export function createConfiguredUnipileV1WebhookRuntime(options: ConfiguredV1Web
                         fail();
                     if (result.kind === 'missing')
                         return { status: 'retry' };
+                    if(options.onEmailSentAssociation&&(result.kind==='associated'||result.kind==='duplicate')){
+                        if(!plain(result.snapshot)||typeof result.evidenceDigest!=='string'||!/^[a-f0-9]{64}$/.test(result.evidenceDigest))fail();
+                        const snapshot=structuredClone(result.snapshot) as unknown as OperationSnapshot;
+                        assertOperationMatches(snapshot,snapshot);assertSameBinding(b,snapshot.binding);
+                        await options.onEmailSentAssociation({snapshot,evidenceDigest:result.evidenceDigest as string});
+                    }
                     const completed = await finish({ record: original, outcome: result.kind === 'review' ? { kind: 'review', code: 'protocol' } : { kind: 'ignore', reason: 'verified_email_sent' } });
                     assertSameBinding(b, completed.binding);
                     return { status: completed.key === key && completed.committed === true ? 'processed' : 'retry' };

@@ -1,12 +1,10 @@
 import {after} from 'next/server';
-import {dispatchCompanyBackground} from '@/lib/company-background-dispatch';
-import {tickCompanyPeople} from '@/lib/company-people-research';
 import {selectedResearchPipeline} from '@/domain/research-pipeline-design';
 import { researchJsonResponse, researchRequestJson } from "@/lib/research-request-observability";
 import { observeResearchRequest } from "@/lib/research-request-observability";
 import { summariseResearchTimings, summariseCompactResearchTimings } from '@/domain/research-timing';
 import { missingResearchFields, fieldSatisfied, researchFields } from '@/domain/research-objectives';
-import { scheduleResearchRun } from "@/lib/research-scheduler";
+import {maintainMandateResearch} from '@/lib/research-maintenance';
 import { newResearchPerformanceFlags } from "@/lib/research-performance-flags";
 import { automaticResearchConfig } from "@/domain/automatic-research";
 import { z } from "zod";
@@ -51,32 +49,7 @@ async function getMandateResearch(
     repo.resultCounts(id),
     repo.targetEvidence(id),
   ]);
-  if(initialJobs.some(job=>(job.config as ResearchConfig).companyBackgroundResearch && job.status==='queued'))after(()=>dispatchCompanyBackground(org,id));
-  let reviewChanged = false;
-  for (const job of initialJobs.filter(j => !(j.config as ResearchConfig).companyBackgroundResearch && !terminalResearchStates.includes(j.status) && Date.now() - j.updatedAt.getTime() > 90000)) {
-    try {
-      const worker = await researchWorker(`/jobs/${job.id}`) as { status: string };
-      if (["running", "waiting"].includes(worker.status) && Date.now() - job.updatedAt.getTime() > 10 * 60000) {
-        const recovery = await researchWorker(`/jobs/${job.id}`, "POST", { action: "recover-stalled" }) as { recovered?: boolean };
-        if (recovery.recovered) { await repo.recoverStopped(job.id, job.revision, job.pages); reviewChanged = true; }
-      }
-      if (["errored", "terminated", "complete"].includes(worker.status)) { await repo.recoverStopped(job.id, job.revision, job.pages); reviewChanged = true; }
-    } catch { /* An unavailable status endpoint does not imply the job stopped. */ }
-  }
-  const recoveryRuns = new Set(initialJobs.flatMap(job => {
-    const config = job.config as ResearchConfig;
-    return config.mode === "automatic" ? [config.researchRunId || job.id] : [];
-  }));
-  for (const rootId of recoveryRuns) {
-    const root = initialJobs.find(job => job.id === rootId);
-    const settled = root && (root.config as ResearchConfig).parallelBusinessResearch && (root.config as ResearchConfig).parallelResearchSettled && (root.config as ResearchConfig).parallelResearchPendingTasks === 0 && terminalResearchStates.includes(root.status) && initialJobs.filter(j => (j.config as ResearchConfig).researchRunId === rootId).every(j => terminalResearchStates.includes(j.status));
-    if (!root || settled || root.status === "cancelled" || Date.now() >= ((root.config as ResearchConfig).automaticDeadline || 0)) continue;
-    try { if (await scheduleResearchRun(org, rootId, { recovery: true }) !== false) reviewChanged = true; }
-    catch { reviewChanged = true; /* A partial pass may have saved queued jobs before failing. */ }
-  }
-  for (const job of initialJobs.filter(job => (job.config as ResearchConfig).includeCompanyPeople && !(job.config as ResearchConfig).companyPeopleProgress?.settled && (job.config as ResearchConfig).researchRunId === job.id && terminalResearchStates.includes(job.status))) {
-    await tickCompanyPeople(job); reviewChanged = true;
-  }
+  const reviewChanged=await maintainMandateResearch(org,id,initialJobs,repo,after);
   const jobs = reviewChanged ? await repo.listReview(id) : initialJobs;
   const evidence: Record<string, EvidenceCounts> = {};
   for (const targetId of new Set([...targetEvidence.map(f => f.targetId!), ...jobs.flatMap(j => (j.config as ResearchConfig).targetId ? [(j.config as ResearchConfig).targetId!] : [])])) {

@@ -1,3 +1,4 @@
+import {firmableDoNotContact,withoutFirmablePersonPhones} from '@/domain/firmable-person-privacy';
 import { z } from "zod";
 import type { CompanyIdentifier, DecisionMakerSearchOptions, PersonCandidate, PersonDetail, PersonIdentifier } from "./source-contracts";
 import { fictionalisePersonalData } from "@/domain/fictionalise";
@@ -74,7 +75,7 @@ export function mapFirmablePerson(raw: Record<string, unknown>, identifier: Pers
     || contactValue(raw.phone);
   const source = { name: String(raw.full_name || raw.name || ""), email, mobile, linkedinUrl: String(raw.linkedin_url || raw.linkedin || "") };
   const output = fictionalise ? fictionalisePersonalData(source) : source;
-  return { id: String(raw.id || identifier.id || ""), position: String(raw.position || raw.title || "") || undefined, seniority: String(raw.seniority || "") || undefined, department: String(raw.department || "") || undefined, emailAvailable: Boolean(source.email), phoneAvailable: Boolean(source.mobile), emailLookupStatus: source.email ? "reported" : ["emails", "work_email", "personal_email"].some(key => raw[key] !== undefined) ? "unavailable" : "not_reported", phoneLookupStatus: source.mobile ? "reported" : ["phones", "phone"].some(key => raw[key] !== undefined) ? "unavailable" : "not_reported", name: output.name, email: output.email || undefined, phone: output.mobile || undefined, linkedinUrl: output.linkedinUrl, fictionalised: fictionalise, doNotContact: phones.some((phone) => phone.is_dnd === true), rawResponse: fictionalise ? undefined : raw };
+  return { id: String(raw.id || identifier.id || ""), position: String(raw.position || raw.title || "") || undefined, seniority: String(raw.seniority || "") || undefined, department: String(raw.department || "") || undefined, emailAvailable: Boolean(source.email), phoneAvailable: Boolean(source.mobile), emailLookupStatus: source.email ? "reported" : ["emails", "work_email", "personal_email"].some(key => raw[key] !== undefined) ? "unavailable" : "not_reported", phoneLookupStatus: source.mobile ? "reported" : ["phones", "phone"].some(key => raw[key] !== undefined) ? "unavailable" : "not_reported", name: output.name, email: output.email || undefined, phone: output.mobile || undefined, linkedinUrl: output.linkedinUrl, fictionalised: fictionalise, doNotContact: firmableDoNotContact(raw), rawResponse: fictionalise ? undefined : raw };
 }
 
 export class FirmableError extends Error {
@@ -266,8 +267,8 @@ export class FirmableClient {
     if (!selected) throw new FirmableError("/people", 0, "A person identifier is required");
     const params = new URLSearchParams({ [selected[0]]: selected[1] as string });
     if (options.includePhones === false) params.set('includePhones', 'false');
-    const raw = personSchema.parse(await this.request(`/people?${params}`));
-    if (options.includePhones === false) { delete raw.phones; delete raw.phone; delete raw.mobile; }
+    let raw = personSchema.parse(await this.request(`/people?${params}`));
+    if (options.includePhones === false)raw=personSchema.parse(withoutFirmablePersonPhones(raw));
     const person = mapFirmablePerson(raw, identifier, this.fictionalise);
     if (options.includePhones === false) { person.phone = undefined; person.phoneAvailable = false; person.phoneLookupStatus = "not_requested"; }
     return person;

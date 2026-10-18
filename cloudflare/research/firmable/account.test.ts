@@ -130,3 +130,21 @@ it('does not turn a malformed or unsuccessful nonempty people search into zero c
  const r=await account.handle({path:'/people/search',method:'POST',query:{},body:{companyId:'f123',size:100,from:0}});
  expect(r.status).toBe(502);expect(r.body.category).toBe('invalid_upstream_response');
 });
+
+it('native account integration reserves every physical auth/profile request while preserving one shared token',async()=>{
+ const storageData=new Map<string,unknown>(),storage={get:async(key:string)=>storageData.get(key),put:async(key:string,value:unknown)=>{storageData.set(key,value);}};
+ const calls:string[]=[],receipts:unknown[]=[],nativeEnv={...env,APP_ORIGIN:'https://app.example.invalid',SERVICE_SECRET:'synthetic-worker-secret'};
+ const fetcher:typeof fetch=async(input,init)=>{const url=String(input);if(url.startsWith(nativeEnv.APP_ORIGIN)){const p=JSON.parse(String(init?.body));calls.push(p.action);if(p.action==='native-provider-begin')return Response.json({kind:'started',operationId:'attempt',fence:'1'});receipts.push(p.outcome);return Response.json({ok:true});}calls.push(url.includes('clerk.')?'AUTH':'PROFILE');return url.includes('clerk.')?token():Response.json({id:'f123',name:'Synthetic company'});};
+ const account=new FirmableAccount(storage as never,nativeEnv,fetcher),nativeResearch={jobId:'a1a639c7-169c-4bcd-893a-991470047023',key:'company:f123'};
+ expect((await account.handle({...company,nativeResearch})).status).toBe(200);
+ expect(calls).toEqual(['native-provider-begin','AUTH','native-provider-finish','native-provider-begin','PROFILE','native-provider-finish']);expect(receipts).toHaveLength(2);expect(JSON.stringify(receipts)).not.toContain('signature');
+});
+it('native account budget denial stops before auth renewal or any provider HTTP',async()=>{
+ const storage={get:async()=>undefined,put:async()=>{}},upstream=vi.fn(),nativeEnv={...env,APP_ORIGIN:'https://app.example.invalid',SERVICE_SECRET:'synthetic-worker-secret'},fetcher:typeof fetch=async(input)=>{if(String(input).startsWith(nativeEnv.APP_ORIGIN))return Response.json({error:'Budget exhausted'},{status:409});return upstream();};
+ const account=new FirmableAccount(storage as never,nativeEnv,fetcher);
+ expect((await account.handle({...company,nativeResearch:{jobId:'a1a639c7-169c-4bcd-893a-991470047023',key:'company:f123'}})).status).toBe(409);expect(upstream).not.toHaveBeenCalled();
+});
+it('retains do-not-contact when phone fields are omitted from a person response',async()=>{
+ const {account}=setup([token(),Response.json({id:'fp123',name:'Synthetic person',phones:[{value:'+61 400 000 000',is_dnd:true}]})]);
+ const result=await account.handle({path:'/people',method:'GET',query:{id:'fp123',includePhones:'false'}});expect(result.status).toBe(200);expect(result.body.do_not_contact).toBe(true);expect(JSON.stringify(result.body)).not.toContain('+61 400 000 000');
+});

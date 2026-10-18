@@ -1,3 +1,4 @@
+import{ReplyProcessingPendingError}from'../../communications/packages/core/src/history-pending';
 import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { types } from 'node:util';
@@ -64,7 +65,7 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
         throw Error('Invalid coverage projection configuration');
     }
     return { async project(inputQuery) {
-            let client: SqlClient | undefined, closed = false;
+            let client: SqlClient | undefined, closed = false,appCommitAttempted=false;
             const controller = new AbortController(), deadline = performance.now() + timeout;
             let rejectStopped!: (e: Error) => void;
             const stopped = new Promise<never>((_, reject) => { rejectStopped = reject; });
@@ -105,6 +106,9 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
                     EventTarget.prototype.addEventListener.call(peerSignal, 'abort', cancel, { once: true });
                     live();
                     const revalidate = Function.prototype.bind.call(proof.revalidate, raw);
+                    const bootstrap=async()=>{
+                      for(let attempt=0;attempt<10;attempt++){
+                        let serialization=false;
                     client = await call(async () => {
                         const acquired = await connect();
                         if (closed || performance.now() >= deadline) {
@@ -120,12 +124,13 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
                                 fail();
                             inFlight++;
                             try {
-                                return await sql<Row>(text, values);
+                                try{return await sql<Row>(text, values);}catch(error){if(error&&typeof error==='object'&&!types.isProxy(error)&&Object.getOwnPropertyDescriptor(error,'code')?.value==='40001')serialization=true;throw error;}
                             }
                             finally {
                                 inFlight--;
                             }
                         }) };
+                    try{
                     await tx.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
                     await tx.query('SET LOCAL ROLE acquire_campaign_user');
                     const role = await tx.query('SELECT current_user AS role_name,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user');
@@ -139,6 +144,24 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
                             fail();
                     };
                     await member();
+                    return {tx,member};
+                    }catch(error){
+                      if(!serialization||attempt===9||inFlight)throw error;
+                      live();
+                      const failed=client;try{await call(()=>failed!.query('ROLLBACK'));}catch{client=undefined;if(!closed)failed?.release(Error('Coverage bootstrap rollback failed'));throw error;}
+                      client=undefined;if(!closed)failed?.release(Error('Coverage bootstrap serialization session retired'));
+                      live();
+                      // Only a definitely rolled-back bootstrap is retried. Yield
+                      // to tenant writers without renewing the original deadline
+                      // or replaying any projection write/service callback.
+                      const delay=Math.min(125,25*(attempt+1))+Math.floor(Math.random()*26);
+                      await call(()=>new Promise<void>(resolve=>setTimeout(resolve,Math.max(1,Math.min(delay,deadline-performance.now())))));
+                      live();
+                    }
+                      }
+                      return fail();
+                    };
+                    const {tx,member}=await bootstrap();
                     const local = await tx.query('SELECT * FROM public.communication_bindings WHERE id=$1 AND organization_id=$2 AND owner_user_id=$3', [bindingId, binding.tenantId, binding.ownerId]);
                     if (local.rows.length !== 1)
                         fail();
@@ -163,7 +186,7 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
                     await member();
                     await call(revalidate);
                     live();
-                    await tx.query('COMMIT');
+                    appCommitAttempted=true;await tx.query('COMMIT');
                     live();
                     // The service retires and aborts its exposed signal after its successful
                     // transaction too. After definite app COMMIT, await that service result
@@ -176,7 +199,8 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
                 void work.catch(() => { });
                 await Promise.race([work, stopped]);
             }
-            catch {
+            catch(error) {
+                if(error instanceof ReplyProcessingPendingError&&!appCommitAttempted&&!closed&&!controller.signal.aborted&&performance.now()<deadline)throw error;
                 fail();
             }
             finally {

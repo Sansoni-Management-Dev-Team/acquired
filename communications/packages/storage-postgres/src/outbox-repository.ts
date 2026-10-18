@@ -1,3 +1,5 @@
+import {parseEventPayload} from '../../core/src/event-codec';
+import {emailBounceSemantics} from '../../core/src/email-bounce';
 import { createHash, randomBytes } from 'node:crypto';
 import { types } from 'node:util';
 import { assertSameBinding, type ConnectionBinding, type CommunicationEvent } from '../../contracts/src';
@@ -82,6 +84,7 @@ function canonicalPayload(input: unknown, b: ConnectionBinding, key: string, nam
             }, fingerprint: raw.fingerprint, receivedAt: raw.receivedAt
         };
     }
+    if(namespace==='email_bounce/v1'){const payload=parseEventPayload({binding:b,key},input);if(payload.outcome.kind!=='event'||payload.outcome.event.type!=='email_change'||payload.outcome.event.change!=='bounce')fail();const semantic=emailBounceSemantics(b,payload.outcome.event);if(semantic.eventKey!==key||semantic.fingerprint!==payload.fingerprint)fail();return payload;}
     if (namespace !== 'reply_message/v1' || discriminator.kind !== 'event')
         fail();
     const outcome = object(raw.outcome, ['kind', 'event', 'eventKey', 'fingerprint']);
@@ -238,7 +241,7 @@ export function createPostgresOutboxRepository(options: OutboxRepositoryOptions)
     }
     function open(row: Record<string, unknown>): OutboxDelivery {
         const eid = eventId(row.event_id);
-        if (row.subscriber_id !== subscriberId || row.outbox_application_id !== fixed.applicationId || row.outbox_tenant_id !== fixed.tenantId || row.outbox_owner_id !== fixed.ownerId || row.application_id !== fixed.applicationId || row.tenant_id !== fixed.tenantId || row.owner_id !== fixed.ownerId || row.connection_id !== fixed.connectionId || row.generation !== fixed.generation || row.account_id !== fixed.accountId || !hex(row.source_event_key) || typeof row.source_namespace !== 'string' || !['reply_message/v1', 'reply_review/v1'].includes(row.source_namespace) || !id(row.key_version, 64) || typeof row.encrypted_event !== 'string' || row.encrypted_event.length > 2200000)
+        if (row.subscriber_id !== subscriberId || row.outbox_application_id !== fixed.applicationId || row.outbox_tenant_id !== fixed.tenantId || row.outbox_owner_id !== fixed.ownerId || row.application_id !== fixed.applicationId || row.tenant_id !== fixed.tenantId || row.owner_id !== fixed.ownerId || row.connection_id !== fixed.connectionId || row.generation !== fixed.generation || row.account_id !== fixed.accountId || !hex(row.source_event_key) || typeof row.source_namespace !== 'string' || !['reply_message/v1', 'reply_review/v1','email_bounce/v1'].includes(row.source_namespace) || !id(row.key_version, 64) || typeof row.encrypted_event !== 'string' || row.encrypted_event.length > 2200000)
             fail();
         const envelope = object(JSON.parse(row.encrypted_event), ['format', 'keyVersion', 'nonce', 'ciphertext', 'tag']);
         if (envelope.format !== 'communications-event-v1' || envelope.keyVersion !== row.key_version)
@@ -250,7 +253,8 @@ export function createPostgresOutboxRepository(options: OutboxRepositoryOptions)
         if (!date(occurredAt))
             fail();
         if (payload.outcome.kind === 'event') {
-            if (payload.outcome.event.type !== 'message' || row.event_type !== 'message' || row.direction !== payload.outcome.event.direction || Date.parse(occurredAt) !== Date.parse(payload.outcome.event.occurredAt))
+            if(payload.outcome.event.type==='email_change'&&payload.outcome.event.change==='bounce'){if(row.event_type!=='email_change'||row.direction!==null||Date.parse(occurredAt)!==Date.parse(payload.outcome.event.occurredAt))fail();}
+            else if (payload.outcome.event.type !== 'message' || row.event_type !== 'message' || row.direction !== payload.outcome.event.direction || Date.parse(occurredAt) !== Date.parse(payload.outcome.event.occurredAt))
                 fail();
         }
         else if (row.event_type !== 'account' || row.direction !== null || Date.parse(occurredAt) !== Date.parse(payload.receivedAt))

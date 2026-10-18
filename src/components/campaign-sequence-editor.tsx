@@ -1,5 +1,8 @@
 "use client";
 
+import { randomUuid } from "@/lib/random-uuid";
+
+
 import "@xyflow/react/dist/style.css";
 import { useEffect, useId, useRef, useState, type DragEvent } from "react";
 import { Background, Controls, MiniMap, ReactFlow, type Edge, type Node, type ReactFlowInstance } from "@xyflow/react";
@@ -24,11 +27,11 @@ const firstNodeY = 110;
 const mainX = 260;
 
 function newStep(kind: StepKind, action?: "connect" | "message"): CampaignStep {
-  if (kind === "linkedin" && action === "connect") return { id: crypto.randomUUID(), kind, action, title: "Send connection request", body: "" };
-  if (kind === "linkedin" || kind === "whatsapp") return { id: crypto.randomUUID(), kind, ...(kind === "linkedin" ? { action: "message" as const } : {}), title: `${stepLabels[kind]} follow-up`, body: "Hi {{first_name}}, would you be open to a short, confidential conversation about {{company_name}}?" };
+  if (kind === "linkedin" && action === "connect") return { id: randomUuid(), kind, action, title: "Send connection request", body: "" };
+  if (kind === "linkedin" || kind === "whatsapp") return { id: randomUuid(), kind, ...(kind === "linkedin" ? { action: "message" as const } : {}), title: `${stepLabels[kind]} follow-up`, body: "Hi {{first_name}}, would you be open to a short, confidential conversation about {{company_name}}?" };
   return kind === "wait"
-    ? { id: crypto.randomUUID(), kind, title: "Wait three days", days: 3 }
-    : { id: crypto.randomUUID(), kind, title: "Follow-up", subject: "Following up with {{company_name}}", body: "Hi {{first_name}},\n\nJust following up on my note.\n\nBest regards" };
+    ? { id: randomUuid(), kind, title: "Wait three days", days: 3 }
+    : { id: randomUuid(), kind, title: "Follow-up", subject: "Following up with {{company_name}}", body: "Hi {{first_name}},\n\nJust following up on my note.\n\nBest regards" };
 }
 
 function removalReason(draft: CampaignDraft, id: string) {
@@ -233,7 +236,7 @@ export function CampaignSequenceEditor({ draft: editableDraft, selectedStepId, o
     if (readOnly || (!atStart && (!anchor || anchor.kind === "wait")) || !canAddSplit || draft.splits?.some(split => split.afterStepId === afterId)) return;
     if (acceptance && (anchor?.kind !== "linkedin" || anchor.action !== "connect")) { setFeedback("Select a main-sequence LinkedIn connection request first."); return; }
     const path = (name: string) => [...(atStart ? [] : [newStep("wait")]), { ...newStep("email"), title: `Path ${name} ${atStart ? "introduction" : "follow-up"}` }];
-    const split: CampaignSplit = { id: crypto.randomUUID(), title: acceptance ? "Connection accepted?" : "Split paths", afterStepId: atStart ? "start" : anchor!.id, percentage: 50, ...(acceptance ? { condition: { kind: "linkedin_connected", timeoutDays: 7 } as const } : {}), pathA: acceptance ? [newStep("wait"), newStep("linkedin")] : path("A"), pathB: path(acceptance ? "No acceptance" : "B") };
+    const split: CampaignSplit = { id: randomUuid(), title: acceptance ? "Connection accepted?" : "Split paths", afterStepId: atStart ? "start" : anchor!.id, percentage: 50, ...(acceptance ? { condition: { kind: "linkedin_connected", timeoutDays: 7 } as const } : {}), pathA: acceptance ? [newStep("wait"), newStep("linkedin")] : path("A"), pathB: path(acceptance ? "No acceptance" : "B") };
     onChange({ ...draft, steps: atStart ? [newStep("wait"), ...draft.steps] : draft.steps, splits: [...(draft.splits || []), split] });
     onSelect(split.id);
   }

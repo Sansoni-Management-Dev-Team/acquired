@@ -2,6 +2,7 @@ import "server-only";
 import { attachDatabasePool } from "@vercel/functions";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
 import { assertCampaignWorkRemaining, campaignRemainingMs, CampaignWorkDeferred } from "@/lib/campaign-work-budget";
+import {agentTransactionRuntimeContext} from '@/lib/agent-runtime-context';
 import { lockAcquireSendGate } from '@/lib/campaign-send-gate';
 import type { SqlPool } from '../../communications/packages/storage-postgres/src/webhook-repository';
 
@@ -64,7 +65,10 @@ export async function withCampaignDb<T>(actor: CampaignActor, callback: (client:
     await scoped.query("SET LOCAL ROLE acquire_campaign_user");
     await assertRlsRole(scoped, "acquire_campaign_user");
     await scoped.query("SELECT set_config('app.acquire_org', $1, true), set_config('app.acquire_user', $2, true)", [actor.organizationId, actor.userId]);
-    if (process.env.COMMUNICATIONS_RUNTIME_ENABLED === 'true') await lockAcquireSendGate(scoped, actor.organizationId, { required: true });
+    const runtime=agentTransactionRuntimeContext();
+    if(runtime.runtimeId)await scoped.query("SELECT set_config('app.acquire_runtime_id',$1,true),set_config('app.acquire_channel_simulation',$2,true)",[runtime.runtimeId,runtime.channelSimulation?'true':'false']);
+    // Installed policy triggers remain active even when delivery is disabled.
+    await lockAcquireSendGate(scoped, actor.organizationId, { required: process.env.COMMUNICATIONS_RUNTIME_ENABLED==='true' });
     const membership = await scoped.query("SELECT 1 FROM member WHERE organization_id = $1 AND user_id = $2 LIMIT 1", [actor.organizationId, actor.userId]);
     if (!membership.rowCount) throw new Error("Campaign owner is no longer an organization member");
     const result = await callback(scoped);
@@ -88,9 +92,9 @@ export async function withCampaignWorker<T>(callback: (client: PoolClient) => Pr
     const scoped = await scheduledClient(client);
     await scoped.query("SET LOCAL ROLE acquire_campaign_worker");
     await assertRlsRole(scoped, "acquire_campaign_worker");
-    if (process.env.COMMUNICATIONS_RUNTIME_ENABLED === 'true' && organizationId !== undefined) {
+    if (organizationId !== undefined) {
         await scoped.query("SELECT set_config('app.acquire_org', $1, true)",[organizationId]);
-        await lockAcquireSendGate(scoped, organizationId, { required: true });
+        await lockAcquireSendGate(scoped, organizationId, { required: process.env.COMMUNICATIONS_RUNTIME_ENABLED==='true' });
     }
     const result = await callback(scoped);
     await client.query("COMMIT");

@@ -1,3 +1,4 @@
+import {durableAgentEnabled} from "@/lib/agent-runtime";
 import { notFound } from "next/navigation";
 import { z } from "zod";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
@@ -13,5 +14,5 @@ export default async function TargetPage({ params }: { params: Promise<{ id: str
   if (!mandate) notFound();
   const member = (await repo.memberships(id)).find(m => m.target.id === targetId);
   if (!member) notFound();
-  return <TargetWorksheet mandates={mandates} mandate={mandate} initial={member} />;
+  return <TargetWorksheet learningEnabled={process.env.AGENT_GUIDANCE_ENABLED==='true'&&process.env.AGENT_MODE_EXPLORATION_ENABLED==='true'&&durableAgentEnabled()} mandates={mandates} mandate={mandate} initial={member} />;
 }

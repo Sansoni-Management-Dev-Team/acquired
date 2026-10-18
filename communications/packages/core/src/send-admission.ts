@@ -1,3 +1,4 @@
+import{reportDispatchDiagnostic,type DispatchDiagnosticPort,type DispatchDiagnosticStage}from'./dispatch-diagnostic';
 import type { DispatchBlock, DispatchRecord, BeginDispatchDecision } from './dispatch';
 import { assertOperationMatches, assertSameBinding } from '../../contracts/src';
 import { types, isDeepStrictEqual } from 'node:util';
@@ -40,9 +41,9 @@ export interface HeldApplicationAdmission {
 export async function consumeHeldApplicationPermit(application: HeldApplicationAdmission, challenge: AdmissionChallenge, commitService: (permit: Pick<HeldApplicationPermit, 'permitId' | 'intentDigest' | 'coverageScopes'>) => Promise<{
     receipt: ServiceAdmissionReceipt;
     record: DispatchRecord;
-}>, signal: AbortSignal): Promise<BeginDispatchDecision> {
+}>, signal: AbortSignal,diagnostic?:DispatchDiagnosticPort): Promise<BeginDispatchDecision> {
     let abort: (() => Promise<void>) | undefined, stopped = false;
-    const denied = (): BeginDispatchDecision => ({ kind: 'uncertain' });
+    let stage:DispatchDiagnosticStage='admission.open';const denied = (): BeginDispatchDecision => {reportDispatchDiagnostic(diagnostic,stage,'blocked');return {kind:'uncertain'};};
     const cleanup = () => {
         const port = abort;
         abort = undefined;
@@ -75,7 +76,7 @@ export async function consumeHeldApplicationPermit(application: HeldApplicationA
             }
             if (opened?.kind !== 'held')
                 return denied();
-            const permit = opened.permit, commitPort = permit.commit, abortPort = permit.abort;
+            stage='admission.permit';const permit = opened.permit, commitPort = permit.commit, abortPort = permit.abort;
             if (typeof commitPort !== 'function' || typeof abortPort !== 'function')
                 return denied();
             abort = Function.prototype.bind.call(abortPort, permit);
@@ -96,14 +97,14 @@ export async function consumeHeldApplicationPermit(application: HeldApplicationA
             }
             if (!Array.isArray(proof.coverageScopes) || proof.coverageScopes.length < 1 || proof.coverageScopes.length > 3 || proof.coverageScopes.some(scope => scope.binding.applicationId !== input.record.snapshot.binding.applicationId || scope.binding.tenantId !== input.record.snapshot.binding.tenantId || scope.binding.ownerId !== input.record.snapshot.binding.ownerId || !/^[a-f0-9]{64}$/.test(scope.scopeDigest) || !Number.isFinite(Date.parse(scope.requiredSince))))
                 return denied();
-            const committed = structuredClone(await commitService(structuredClone(proof)));
+            stage='admission.service_commit';const committed = structuredClone(await commitService(structuredClone(proof)));
             if (stopped || signal.aborted || committed.record.state !== 'dispatching' || committed.receipt.permitId !== proof.permitId || committed.receipt.intentDigest !== proof.intentDigest || committed.receipt.serviceRevision !== input.serviceRevision)
                 return denied();
             if (Object.keys(committed.receipt).some(k => !['permitId', 'intentDigest', 'journalId', 'admissionId', 'snapshot', 'fencingToken', 'serviceRevision'].includes(k)) || typeof committed.receipt.journalId !== 'string' || !committed.receipt.journalId || typeof committed.receipt.admissionId !== 'string' || !committed.receipt.admissionId || !/^[1-9]\d{0,18}$/.test(committed.receipt.fencingToken) || Object.keys(committed.record).some(k => !['snapshot', 'recipient', 'state', 'message', 'conversation', 'rfcMessageId'].includes(k)) || !isDeepStrictEqual(committed.record.recipient, input.record.recipient) || !isDeepStrictEqual(committed.record.conversation, input.record.conversation) || !isDeepStrictEqual(committed.record.message, input.record.message) || committed.record.rfcMessageId !== input.record.rfcMessageId)
                 return denied();
             assertOperationMatches(input.record.snapshot, committed.receipt.snapshot);
             assertOperationMatches(input.record.snapshot, committed.record.snapshot);
-            const appCommit = Function.prototype.bind.call(commitPort, permit);
+            stage='admission.app_commit';const appCommit = Function.prototype.bind.call(commitPort, permit);
             if (await appCommit(structuredClone(committed.receipt), signal) !== 'committed' || stopped || signal.aborted)
                 return denied();
             return { kind: 'admitted', record: committed.record };
@@ -112,8 +113,8 @@ export async function consumeHeldApplicationPermit(application: HeldApplicationA
         void work.catch(() => { });
         return await Promise.race([work, stop]);
     }
-    catch {
-        return denied();
+    catch(error) {
+        reportDispatchDiagnostic(diagnostic,stage,'error',error);return denied();
     }
     finally {
         if (onAbort)

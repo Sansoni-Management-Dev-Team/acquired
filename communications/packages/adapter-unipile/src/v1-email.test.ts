@@ -80,3 +80,18 @@ describe('native loopback v1 email transport composition', () => {
         }
     });
 });
+it('threads a native inbound-first reply to the provider-verified parent without inventing an outbound journal proof',async()=>{
+ const f=fixture({verifyOriginal:async()=>null}),parent=full({role:'inbox',from_attendee:{identifier:recipient.value,identifier_type:'EMAIL_ADDRESS'},to_attendees:[{identifier:'owner@example.com',identifier_type:'EMAIL_ADDRESS'}],cc_attendees:[],bcc_attendees:[],body:'Who is buying?',subject:'Subject'});
+ f.transport.getEmail.mockResolvedValue({kind:'success',status:200,data:parent});
+ const contentDigest=(await import('node:crypto')).createHash('sha256').update('Subject\nWho is buying?').digest('hex');
+ const input=request({subject:'Re: Subject',replyParent:{message:ref('email/id'),contentDigest}} as never);
+ expect((await f.adapter.submitAcknowledged(input)).status).toBe('acknowledged');
+ expect(f.transport.sendEmail).toHaveBeenCalledWith('provider-account',expect.objectContaining({reply_to:'email/id'}),'original-key',expect.anything());
+});
+it.each([{from_attendee:{identifier:'other@example.com'}},{account_id:'other-account'},{body:'Changed provider body'},{role:'drafts'}])('rejects contradicted native parent metadata without sending %j',async changed=>{
+ const f=fixture(),parent=full({role:'inbox',from_attendee:{identifier:recipient.value,identifier_type:'EMAIL_ADDRESS'},to_attendees:[{identifier:'owner@example.com',identifier_type:'EMAIL_ADDRESS'}],cc_attendees:[],bcc_attendees:[],body:'Who is buying?',...changed});
+ f.transport.getEmail.mockResolvedValue({kind:'success',status:200,data:parent});
+ const contentDigest=(await import('node:crypto')).createHash('sha256').update('Subject\nWho is buying?').digest('hex');
+ expect(await f.adapter.submitAcknowledged(request({replyParent:{message:ref('email/id'),contentDigest}} as never))).toEqual({status:'review',code:'protocol'});
+ expect(f.transport.sendEmail).not.toHaveBeenCalled();
+});

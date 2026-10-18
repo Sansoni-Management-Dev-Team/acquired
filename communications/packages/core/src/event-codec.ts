@@ -94,7 +94,12 @@ function identity(input: unknown, external: EventScope): CanonicalIdentity {
   }
   return { kind: raw.kind, value: raw.value } as CanonicalIdentity;
 }
-function message(input: unknown, external: EventScope, receivedAt: string): Extract<CommunicationEvent,{type:'message'}> {
+function message(input: unknown, external: EventScope, receivedAt: string): Extract<CommunicationEvent,{type:'message'}>|Extract<CommunicationEvent,{type:'email_change';change:'bounce'}> {
+  if(input&&typeof input==='object'&&!types.isProxy(input)&&Object.getOwnPropertyDescriptor(input,'type')?.value==='email_change'){
+   const raw=record(input,['type','reference','change','recipient','occurredAt']);
+   if(external.binding.channel!=='email'||raw.change!=='bounce'||!validDate(raw.occurredAt)||Date.parse(raw.occurredAt)>Date.parse(receivedAt))fail();
+   return {type:'email_change',change:'bounce',reference:reference(raw.reference,external),recipient:identity(raw.recipient,external),occurredAt:raw.occurredAt};
+  }
   const raw = record(input,['type','reference','direction','sender','occurredAt'],['conversation']);
   if (raw.type !== 'message' || typeof raw.direction !== 'string' || !['inbound','outbound','self','group'].includes(raw.direction) || !validDate(raw.occurredAt) || Date.parse(raw.occurredAt) > Date.parse(receivedAt)) fail();
   return { type: 'message', reference: reference(raw.reference,external),

@@ -12,7 +12,7 @@ export function productionPolicy(env: LocalPolicyEnv) {
   return env.LOCAL_DEVELOPMENT !== "true" || env.LOCAL_RESEARCH_POLICY === "production";
 }
 
-/** Local research may call only its app, reader, search service and OpenRouter.
+/** Local research may call only its app, reader, search service and the configured AI API endpoints.
  * Reject redirects as well: --local alone does not restrict ordinary fetch(). */
 export function researchFetch(env: LocalPolicyEnv, fetcher: typeof fetch = fetch): typeof fetch {
   if (env.LOCAL_DEVELOPMENT !== "true") return fetcher;
@@ -23,7 +23,8 @@ export function researchFetch(env: LocalPolicyEnv, fetcher: typeof fetch = fetch
       (url.origin === app && (url.pathname.startsWith("/api/research/internal/") || url.pathname.startsWith("/api/firmable/internal/"))) ||
       url.href === localReaderEndpoint(env) ||
       (!productionPolicy(env) && url.origin === "http://127.0.0.1:7000" && /^\/(duckduckgo|google)\/search$/.test(url.pathname)) ||
-      url.href === "https://openrouter.ai/api/v1/chat/completions"
+      url.href === "https://openrouter.ai/api/v1/chat/completions" ||
+      url.href === "https://api.openai.com/v1/chat/completions"
     );
     if (!allowed) throw new Error("External destination blocked in local research");
     // workerd supports manual/follow only. Never follow a redirect outside the

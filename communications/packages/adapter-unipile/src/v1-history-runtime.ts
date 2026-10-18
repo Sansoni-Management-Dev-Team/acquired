@@ -1,6 +1,11 @@
+import {HistoryRefreshBusyError} from '../../core/src/history-refresh-busy';
+import {readUnipileAgentEmailHistory} from './v1-agent-email-history';
+import {readUnipileAgentSocialHistory} from './v1-agent-social-history';
+import type {V1ReplyReadTransport} from './v1-reply-enrichment';
+import type {RecordedLifecycleConnection} from '../../core/src/connection-lifecycle';
 import { projectHistoryPeer } from './v1-history-peer';
 import { isDeepStrictEqual } from 'node:util';
-import { assertSameBinding, type ConnectionBinding, type EventQuery, type MessageSubmission, type DeliveryOutcome } from '../../contracts/src';
+import { assertSameBinding, type CanonicalIdentity,type ConnectionBinding, type EventQuery,type EventPage, type MessageSubmission, type DeliveryOutcome } from '../../contracts/src';
 import type { ConfiguredUnipileV1Runtime } from './v1-runtime';
 import type { UnipileV1TransportConfig } from './v1-http';
 import { UnipileV1Transport } from './v1-http';
@@ -108,11 +113,11 @@ export async function createConfiguredUnipileV1History(options: ConfiguredHistor
         return { binding: structuredClone(b), providerAccountId: record.providerAccountId, sourceId: record.sourceId, providerId: input.providerId, product, identity };
     };
     const addresses = original.aliases.filter(a => a.kind === 'email').map(a => a.value), ownerProvider = b.channel === 'whatsapp' ? `${original.physicalOwner.value.slice(1)}@s.whatsapp.net` : original.providerOwner.value;
-    const normalizer = (allFolders: boolean) => async (raw: unknown, binding: ConnectionBinding) => {
+    const normalizer = (allFolders: boolean,readTransport:V1ReplyReadTransport=transport) => async (raw: unknown, binding: ConnectionBinding) => {
         const time = b.channel === 'email' && plain(raw) ? raw.date : plain(raw) ? raw.timestamp : null;
         if (typeof time !== 'string')
             return { kind: 'review' as const, code: 'protocol' as const };
-        const enricher = createUnipileV1ReplyEnricher({ binding: b, providerAccountId: record.providerAccountId, sourceId: record.sourceId, eventsFrom: time, transport, verifyOwner: input => verifyOwner(input.signal), resolveAlias, ...(b.channel === 'email' ? { channel: 'email' as const, ownerAddresses: addresses, ...(allFolders ? { historyAllFolders: true as const } : {}) } : { channel: b.channel, ownerProviderId: ownerProvider, product: product as 'whatsapp' | 'classic' | 'sales_navigator' | 'recruiter' }) });
+        const enricher = createUnipileV1ReplyEnricher({ binding: b, providerAccountId: record.providerAccountId, sourceId: record.sourceId, eventsFrom: time, transport:readTransport, verifyOwner: input => verifyOwner(input.signal), resolveAlias, ...(b.channel === 'email' ? { channel: 'email' as const, ownerAddresses: addresses, ...(allFolders ? { historyAllFolders: true as const } : {}) } : { channel: b.channel, ownerProviderId: ownerProvider, product: product as 'whatsapp' | 'classic' | 'sales_navigator' | 'recruiter' }) });
         return enricher.normalize(raw, binding);
     };
     const normalize = normalizer(true), normalizeWebhook = normalizer(false);
@@ -124,7 +129,24 @@ export async function createConfiguredUnipileV1History(options: ConfiguredHistor
                 unavailable();
             return send(input, signal);
         } }) : null;
-    return { repository, source, relationships, normalizeWebhook, refresh(query: EventQuery, request?: {
+    return { repository, source, relationships, normalizeWebhook,
+        async readAgentConversation(input:{recipient:string|CanonicalIdentity;since:string;signal?:AbortSignal}){
+            const common={source:{record,transport:historyTransport,resolveCurrent:current,initialSync:(_record:RecordedLifecycleConnection,signal:AbortSignal)=>repository.initialSync(signal),availableFrom,...(b.channel!=='email'?{eventAccountInfo:{ownerProviderId:ownerProvider,product}}:{})},transport,since:input.since,signal:input.signal,async readAndCommit(observedSource:ReturnType<typeof createUnipileV1HistorySource>,query:EventQuery){
+                let captured:EventPage|undefined;
+                const backfill=createHistoryBackfillWorker({repository,source:{async read(q,request){captured=await observedSource.read(q,request);return captured;}}});
+                const committed=await backfill.refresh(query,{signal:input.signal});
+                if(committed.status==='busy'&&!input.signal?.aborted)throw new HistoryRefreshBusyError(b);
+                if(committed.status!=='complete'||!captured)unavailable();
+                return captured;
+            },normalize:(t:V1ReplyReadTransport)=>normalizer(true,t),normalizeOutbound:(t:V1ReplyReadTransport)=>{const verified=createUnipileV1HistoryOutboundNormalizer({record,transport:t,ownerAddresses:addresses,ownerProviderId:ownerProvider,product,resolveAlias});return (raw:unknown,binding:ConnectionBinding,signal:AbortSignal)=>verified.normalize(raw,binding,signal);}};
+            if(b.channel==='email'){
+                const recipient=typeof input.recipient==='string'?input.recipient:input.recipient.kind==='email'?input.recipient.value:null;
+                if(recipient===null)unavailable();
+                return readUnipileAgentEmailHistory({...common,recipient});
+            }
+            if(typeof input.recipient==='string')unavailable();
+            return readUnipileAgentSocialHistory({...common,recipient:input.recipient});
+        }, refresh(query: EventQuery, request?: {
             signal?: AbortSignal;
         }) { return worker.refresh(query, request); } };
 }

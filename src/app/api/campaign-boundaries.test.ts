@@ -9,7 +9,7 @@ import { POST as action } from "./campaign-enrolments/[id]/action/route";
 import { POST as create, GET as list } from "./mandates/[id]/campaigns/route";
 const id = randomUUID(); const actor = { organizationId: "actual-org", userId: "actual-user" };
 const definition = { schemaVersion: 1, steps: [{ id: randomUUID(), kind: "email", title: "Intro", subject: "Hi", body: "Hello" }] };
-const payloads = { save: { name: "Sequence", definition }, publish: {}, action: { action: "pause" }, create: { mandateId: id, name: "Sequence", definition }, list: undefined };
+const payloads = { save: { name: "Sequence", definition, expectedRevision:"24" }, publish: {}, action: { action: "pause" }, create: { mandateId: id, name: "Sequence", definition }, list: undefined };
 const cases = [
   { name: "save", fn: PUT, service: mock.save, method: "PUT", status: 200 },
   { name: "publish", fn: publish, service: mock.publish, method: "POST", status: 200 },
@@ -24,9 +24,9 @@ it.each([
   { schemaVersion: 1, steps: [] },
   { ...definition, disconnectedConnections: [{ source: "start", target: definition.steps[0].id }] },
 ])("saves incomplete drafts without losing deletion state", async draft => {
-  const response = await invoke(cases[0], { name: "Sequence", definition: draft } as never);
+  const response = await invoke(cases[0], { name: "Sequence", definition: draft, expectedRevision:"24" } as never);
   expect(response.status).toBe(200);
-  expect(mock.save).toHaveBeenCalledWith(actor, id, "Sequence", draft);
+  expect(mock.save).toHaveBeenCalledWith(actor, id, "Sequence", draft, "24");
 });
 for (const entry of cases) {
   it.each([null, { session: {}, user: { id: "user" } }])(`${entry.name}: blocks missing session or organisation %#`, async session => { mock.session.mockResolvedValue(session); expect((await invoke(entry)).status).toBe(401); expect(entry.service).not.toHaveBeenCalled(); });
@@ -40,3 +40,7 @@ for (const entry of cases.filter(entry => ["save", "create", "action"].includes(
 }
 it("create rejects a valid body targeting a different mandate", async () => { expect((await invoke(cases[3], { ...payloads.create, mandateId: randomUUID() })).status).toBe(400); expect(mock.create).not.toHaveBeenCalled(); });
 it.each(["send", "retry", "delete", "resume_all", "__proto__", null])("action rejects unsupported operation %s", async value => { expect((await invoke(cases[2], { action: value } as never)).status).toBe(400); expect(mock.action).not.toHaveBeenCalled(); });
+
+it('save requires a displayed revision before reaching the shared service',async()=>{
+ expect((await invoke(cases[0],{name:'Sequence',definition} as never)).status).toBe(400);expect(mock.save).not.toHaveBeenCalled();
+});

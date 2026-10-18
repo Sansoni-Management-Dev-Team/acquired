@@ -1,3 +1,4 @@
+import{reportDispatchDiagnostic,type DispatchDiagnosticPort}from'../../core/src/dispatch-diagnostic';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { isDeepStrictEqual, types } from 'node:util';
 import { performance } from 'node:perf_hooks';
@@ -24,6 +25,7 @@ export interface CanonicalRecipientDigest {
     digest(recipient: CanonicalIdentity, keyVersion: string): string;
 }
 export interface PostgresDispatchJournalOptions {
+    diagnostic?:DispatchDiagnosticPort;
     pool: SqlPool;
     binding: ConnectionBinding;
     integrationId: string;
@@ -142,7 +144,7 @@ export interface PostgresDispatchJournal extends DispatchJournalPort {
 export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJournalOptions): PostgresDispatchJournal {
     let options: PostgresDispatchJournalOptions;
     try {
-        options = record(inputOptions, ['pool', 'binding', 'integrationId', 'providerConfigurationReference', 'providerApiVersion', 'authority', 'leaseOwnerToken', 'codec', 'recipientDigest'], ['claimSeconds', 'leaseSeconds', 'transactionTimeoutMs', 'statementTimeoutMs', 'lockTimeoutMs', 'verifyReconciliation', 'reconciliationTimeoutMs', 'admission']) as unknown as PostgresDispatchJournalOptions;
+        options = record(inputOptions, ['pool', 'binding', 'integrationId', 'providerConfigurationReference', 'providerApiVersion', 'authority', 'leaseOwnerToken', 'codec', 'recipientDigest'], ['claimSeconds', 'leaseSeconds', 'transactionTimeoutMs', 'statementTimeoutMs', 'lockTimeoutMs', 'verifyReconciliation', 'reconciliationTimeoutMs', 'admission','diagnostic']) as unknown as PostgresDispatchJournalOptions;
     }
     catch {
         throw Error('Invalid dispatch journal configuration');
@@ -155,6 +157,7 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
     let admission: PostgresDispatchJournalOptions['admission'];
     const claimSeconds = options.claimSeconds ?? 60, leaseSeconds = options.leaseSeconds ?? 60, timeout = options.transactionTimeoutMs ?? 20000, statementTimeout = options.statementTimeoutMs ?? 5000, lockTimeout = options.lockTimeoutMs ?? 1000;
     try {
+        if(options.diagnostic!==undefined&&(typeof options.diagnostic!=='function'||types.isProxy(options.diagnostic)))fail();
         observe(options.pool);
         observe(options.codec);
         observe(options.recipientDigest);
@@ -332,9 +335,9 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
         return observe(decode(structuredClone(s), purpose, envelope(JSON.parse(json), version)));
     }
     const columns = `id,application_id,tenant_id,owner_id,operation_key,connection_id,generation,account_id,operation,payload_digest,recipient_digest,digest_version,recipient_key_version,encrypted_operation_context,operation_context_key_version,operation_context_digest,state,claim_token,claim_until,fencing_token::text AS fencing_token,lease_owner_token,quota_reserved,encrypted_receipt,receipt_key_version,outcome_status,encrypted_outcome,outcome_key_version,submitted_at,delivered_at,read_at,(claim_until>clock_timestamp()) AS claim_alive`;
-    async function grant(c: SqlClient): Promise<boolean> { const result = await c.query(`SELECT application_id,tenant_id,owner_id FROM communications.access_grants WHERE application_id=$1 AND tenant_id=$2 AND owner_id=$3 AND revoked_at IS NULL AND expires_at>clock_timestamp() FOR SHARE`, [...scopes]); return result.rows.length === 1 && result.rows[0].application_id === fixed.applicationId && result.rows[0].tenant_id === fixed.tenantId && result.rows[0].owner_id === fixed.ownerId; }
-    async function generation(c: SqlClient, current = false): Promise<boolean> {
-        const result = await c.query(`SELECT c.id AS connection_id,c.application_id,c.tenant_id,c.owner_id,c.channel,c.platform,c.backend,c.current_generation,c.account_id AS current_account_id,c.active,c.status,g.generation,g.account_id,g.integration_id,g.provider_api_version,g.provider_configuration_reference,g.authority FROM communications.connections c JOIN communications.connection_generations g ON g.connection_id=c.id AND g.generation=$5 WHERE c.application_id=$1 AND c.tenant_id=$2 AND c.owner_id=$3 AND c.id=$4 ${current ? 'FOR UPDATE OF c' : ''}`, [...scopes, fixed.connectionId, fixed.generation]);
+    async function grant(c: SqlClient): Promise<boolean> {try{const result = await c.query(`SELECT application_id,tenant_id,owner_id FROM communications.access_grants WHERE application_id=$1 AND tenant_id=$2 AND owner_id=$3 AND revoked_at IS NULL AND expires_at>clock_timestamp() FOR SHARE`, [...scopes]); const allowed=result.rows.length === 1 && result.rows[0].application_id === fixed.applicationId && result.rows[0].tenant_id === fixed.tenantId && result.rows[0].owner_id === fixed.ownerId;if(!allowed)reportDispatchDiagnostic(options.diagnostic,'service.grant','blocked');return allowed;}catch(error){reportDispatchDiagnostic(options.diagnostic,'service.grant','error',error);throw error;}}
+    async function generation(c: SqlClient, current = false, lock = current): Promise<boolean> {
+        const result = await c.query(`SELECT c.id AS connection_id,c.application_id,c.tenant_id,c.owner_id,c.channel,c.platform,c.backend,c.current_generation,c.account_id AS current_account_id,c.active,c.status,g.generation,g.account_id,g.integration_id,g.provider_api_version,g.provider_configuration_reference,g.authority FROM communications.connections c JOIN communications.connection_generations g ON g.connection_id=c.id AND g.generation=$5 WHERE c.application_id=$1 AND c.tenant_id=$2 AND c.owner_id=$3 AND c.id=$4 ${lock ? 'FOR UPDATE OF c' : ''}`, [...scopes, fixed.connectionId, fixed.generation]);
         if (result.rows.length !== 1)
             return false;
         const r = result.rows[0];
@@ -455,6 +458,7 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
                 return result;
             }
             catch (error) {
+                reportDispatchDiagnostic(options.diagnostic,'service.sql','error',error);
                 if (performance.now() >= deadline)
                     expire();
                 const code = error && typeof error === 'object' && !types.isProxy(error) ? Object.getOwnPropertyDescriptor(error, 'code')?.value : undefined;
@@ -562,14 +566,32 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
         async proveNoSubmission(input) {
             const snapshot = snap(input);
             return transaction(async (c) => {
-                if (!await grant(c) || !await generation(c))
+                // Match admission's connection-before-journal lock order while
+                // retaining historical completed proofs on inactive generations.
+                if (!await grant(c) || !await generation(c, false, true))
                     fail();
-                const found = await row(c, snapshot.key);
+                let found = await row(c, snapshot.key, true);
                 if (!found) {
                     await c.query('COMMIT');
                     return null;
                 }
-                const original = read(found, snapshot);
+                let original = read(found, snapshot);
+                // An expired claim with no durable dispatch admission cannot reach
+                // provider I/O. Close that original claim under its row lock; never
+                // reclaim it, charge quota, or manufacture a provider receipt.
+                if (fixed.channel === 'email' && original.state === 'claimed' && found.quota_reserved === false && found.claim_alive === false) {
+                    if (!await generation(c, true))
+                        fail();
+                    const wanted = { status: 'rejected', code: 'expired_unpermitted_claim' } as const;
+                    const encrypted = seal(snapshot, 'outcome', wanted);
+                    const changed = await c.query(`UPDATE communications.operation_journal j SET state='rejected',outcome_status='rejected',encrypted_outcome=$2,outcome_key_version=$3,updated_at=clock_timestamp() WHERE j.id=$1 AND j.state='claimed' AND NOT j.quota_reserved AND j.claim_until<=clock_timestamp() AND j.encrypted_receipt IS NULL AND j.receipt_key_version IS NULL AND j.submitted_at IS NULL AND j.delivered_at IS NULL AND j.read_at IS NULL AND j.resolution_evidence_digest IS NULL AND NOT EXISTS(SELECT 1 FROM communications.dispatch_admissions a WHERE a.journal_id=j.id) AND NOT EXISTS(SELECT 1 FROM communications.email_tracking_acknowledgements a WHERE a.journal_id=j.id) RETURNING ${columns}`, [found.id, encrypted.json, encrypted.version]);
+                    if (changed.rows.length !== 1) {
+                        await c.query('COMMIT');
+                        return null;
+                    }
+                    found = changed.rows[0];
+                    original = read(found, snapshot);
+                }
                 if (found.quota_reserved !== false || original.state !== 'completed' || original.outcome.status === 'submitted') {
                     await c.query('COMMIT');
                     return null;
@@ -613,6 +635,7 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
                     return { kind: 'existing', record: original };
                 }
                 if (!await generation(c, true)) {
+                    reportDispatchDiagnostic(options.diagnostic,'service.generation','blocked');
                     await c.query('ROLLBACK');
                     return { kind: 'blocked', outcome: { status: 'review', code: 'reconnect' } };
                 }
@@ -752,7 +775,7 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
                         await c.query('COMMIT');
                         serviceCommitted = true;
                         return { record: admitted, receipt: { permitId: permit.permitId, intentDigest: permit.intentDigest, journalId: found.id as string, admissionId, snapshot: current.snapshot, fencingToken: found.fencing_token as string, serviceRevision: revision } };
-                    }, controller.signal);
+                    }, controller.signal,options.diagnostic);
                     if (serviceCommitAttempted && !serviceCommitted)
                         fail();
                     if (!serviceCommitted) {

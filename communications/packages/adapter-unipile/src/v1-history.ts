@@ -170,6 +170,7 @@ export function createUnipileV1HistorySource(options: V1HistoryOptions): {
                         }
                         if (normalized.kind === 'ignore')
                             continue;
+                        if(normalized.kind==='event'&&normalized.event.type==='email_change'&&normalized.event.change==='bounce')continue;
                         if (normalized.kind !== 'event' || !plain(normalized.event) || normalized.event.type !== 'message')
                             unavailable();
                         const event = normalized.event as unknown as Extract<CommunicationEvent, {

@@ -1,5 +1,8 @@
 "use client";
 
+import { randomUuid } from "@/lib/random-uuid";
+
+
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useMandateCache } from "@/lib/mandate-cache";
 import Link from "next/link";
@@ -8,23 +11,35 @@ import type { AcquisitionBrief, MandateView } from "@/domain/acquisition";
 import { CompanyDiscoveryLoading } from "./company-discovery-loading";
 import { CompanyPipelineProgress } from "./company-pipeline-progress";
 import { nextTestMandate } from "@/domain/test-mandates";
+import { useRouter } from "next/navigation";
+import { AgentModeToggle, AgentPlanReview } from "./agent-mode";
 import { DetailTooltip } from "./detail-tooltip";
 
-export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true }: { mandates: MandateView[]; recentStatus?: ReactNode; recentLoaded?: boolean }) {
+export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true, agentModeEnabled = false, nativeAgentEnabled = false }: { nativeAgentEnabled?: boolean; agentModeEnabled?: boolean; mandates: MandateView[]; recentStatus?: ReactNode; recentLoaded?: boolean }) {
+  const router = useRouter();
+  const [agentMode, setAgentMode] = useState(false);
+  const [reviewBrief, setReviewBrief] = useState<AcquisitionBrief | null>(null);
   const [description, setDescription] = useState("");
   const descriptionInput = useRef<HTMLTextAreaElement>(null);
   // Preserve text entered into the server-rendered field before hydration.
   useEffect(() => {
     if (descriptionInput.current) setDescription(descriptionInput.current.value);
   }, []);
+  const createLock = useRef(false);
+  const researchRequestId = useRef<string | null>(null);
+  const nativeCreateRequest = useRef<string | null>(null);
+  const [nativeCreateAttempted,setNativeCreateAttempted] = useState(false);
+  const nativeStartRequest = useRef<string | null>(null);
+  const nativeCreationRevision = useRef<string | null>(null);
   const [createdId, setCreatedId] = useState<string | null>(null);
   const [searchRun, setSearchRun] = useState<{ mandateId: string; jobId?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState("");
 
-  async function create(mode: "custom" | "demo" = "custom") {
-    if (busy) return;
+  async function create(mode: "custom" | "demo" = "custom", approvedBrief?: AcquisitionBrief) {
+    if (busy || createLock.current) return;
+    createLock.current = true;
     setError("");
     setBusy(true);
     setProgress(mode === "demo" ? "Loading a demo mandate…" : "Generating your mandate…");
@@ -32,7 +47,9 @@ export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true 
       let id = createdId;
       if (!id) {
         let brief: AcquisitionBrief;
-        if (mode === "demo") {
+        if (approvedBrief) {
+          brief = approvedBrief;
+        } else if (mode === "demo") {
           brief = nextTestMandate();
           setDescription(brief.naturalLanguage);
         } else {
@@ -44,32 +61,57 @@ export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true 
           if (!generated.ok || !draft.brief) throw new Error(draft.error || "Could not create a mandate from your description.");
           brief = draft.brief;
         }
+        if (agentMode && !approvedBrief) {
+          setReviewBrief(brief);
+          setBusy(false);
+          setProgress("");
+          return;
+        }
         setProgress("Saving your mandate…");
-        const saved = await fetch("/api/mandates", {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(brief),
+        const native = agentMode && nativeAgentEnabled;
+        if (native) {nativeCreateRequest.current ??= JSON.stringify({requestId:randomUuid(),brief});setNativeCreateAttempted(true);}
+        const saved = await fetch(native ? "/api/mandates/agent" : "/api/mandates", {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: native ? nativeCreateRequest.current! : JSON.stringify(brief),
           signal: AbortSignal.timeout(15000),
         });
-        const result = await saved.json() as { id?: string; error?: string };
+        const result = await saved.json() as { id?: string; revision?: string; error?: string };
         if (!saved.ok || !result.id) throw new Error(result.error || "Could not save the mandate.");
+        if(native){if(!result.revision || !/^\d{1,30}$/.test(result.revision))throw new Error("Could not confirm the saved mandate revision. Retry this exact request.");nativeCreationRevision.current=result.revision;}
         id = result.id;
         setCreatedId(id);
         useMandateCache.getState().upsert({ id, brief, createdAt: new Date().toISOString() });
       }
+      if(agentMode && nativeAgentEnabled){
+        if(!nativeCreationRevision.current)throw new Error("The reviewed creation revision is missing. Open the saved mandate to review it.");
+        nativeStartRequest.current ??= JSON.stringify({action:"start",requestKey:randomUuid(),expectedRevision:0,mandateRevision:nativeCreationRevision.current});
+        setProgress("Starting mandate supervision…");
+        const started=await fetch(`/api/mandates/${id}/agent/execution`,{method:"POST",headers:{"Content-Type":"application/json"},body:nativeStartRequest.current,signal:AbortSignal.timeout(15000)});
+        const result=await started.json() as {error?:string};if(!started.ok)throw new Error(result.error || "Could not confirm supervision. Retry the same request.");
+        router.push(`/mandates/${id}/agent`);setBusy(false);setProgress("");return;
+      }
       setProgress("Starting company research…");
+      researchRequestId.current ??= randomUuid();
       const research = await fetch(`/api/mandates/${id}/research`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId: crypto.randomUUID(), fromBrief: true }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId: researchRequestId.current, fromBrief: true }),
         signal: AbortSignal.timeout(30000),
       });
       const researchResult = await research.json() as { error?: string; jobId?: string };
       if (!research.ok && !(research.status === 409 && researchResult.error?.includes("already running"))) throw new Error(researchResult.error || "Could not start company research.");
-      setSearchRun({ mandateId: id, jobId: researchResult.jobId });
+      if (agentMode) {
+        router.push(`/mandates/${id}/agent`);
+        setBusy(false);
+        setProgress("");
+      } else setSearchRun({ mandateId: id, jobId: researchResult.jobId });
     } catch (cause) {
       setError(cause instanceof Error && cause.name === "TimeoutError" ? "This is taking longer than expected. Please try again." : cause instanceof Error ? cause.message : "Could not create the mandate.");
       setBusy(false);
       setProgress("");
+    } finally {
+      createLock.current = false;
     }
   }
 
+  if (reviewBrief) return <AgentPlanReview nativeAgentEnabled={nativeAgentEnabled} saved={Boolean(createdId) || nativeCreateAttempted} brief={reviewBrief} busy={busy} error={error} savedMandateId={createdId || undefined} onBack={() => { setReviewBrief(null); setError(""); }} onStart={() => void create("custom", reviewBrief)} />;
   if (searchRun) return <CompanyDiscoveryLoading mandateId={searchRun.mandateId} startedJobId={searchRun.jobId} />;
   if (busy) return <div className="mx-auto my-[8vh] max-w-[620px] px-4 sm:px-0"><CompanyPipelineProgress detail={progress || undefined} /></div>;
 
@@ -99,10 +141,11 @@ export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true 
             </DetailTooltip>
           </div>
           <textarea ref={descriptionInput} id="mandate-description" required minLength={10} maxLength={5000} rows={5} readOnly={Boolean(createdId)} defaultValue={description} onChange={event => setDescription(event.target.value)} placeholder="For example: We are seeking an established commercial refrigeration service business in Queensland or New South Wales with annual revenue of AUD 4–12 million, EBITDA of AUD 700,000–2 million and 15–55 employees. Prefer recurring maintenance and repair work for commercial customers, diversified customers and a capable management team. We are open to a full or majority acquisition with an owner transition period." className="mt-3 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--input)] px-4 py-3 text-base text-[var(--foreground)] placeholder:text-[var(--muted)] focus-visible:border-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]" />
+          {agentModeEnabled && <AgentModeToggle nativeAgentEnabled={nativeAgentEnabled} enabled={agentMode} disabled={busy || Boolean(createdId)} onChange={setAgentMode} />}
           {error && <p role="alert" className="mt-3 text-sm text-[var(--status-red)]">{error}</p>}
           {progress && <p role="status" className="mt-3 text-sm text-[var(--muted)]">{progress}</p>}
           {createdId && error && <Link href={`/mandates/${createdId}?tab=targets`} className="mt-2 inline-block text-sm text-[var(--accent)] underline underline-offset-4">Open your saved mandate</Link>}
-          <div className="mt-4 flex flex-wrap justify-end gap-3"><button type="button" disabled={busy || Boolean(createdId)} onClick={() => void create("demo")} className="min-h-12 rounded-xl border border-[var(--border)] px-5 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--panel-raised)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50">Run demo</button><button disabled={busy || description.trim().length < 10} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--on-accent)] hover:bg-[var(--accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50">{busy ? "Working…" : createdId ? "Retry company research" : "Find companies"}<ArrowRight size={17} /></button></div>
+          <div className="mt-4 flex flex-wrap justify-end gap-3"><button type="button" disabled={busy || Boolean(createdId)} onClick={() => void create("demo")} className="min-h-12 rounded-xl border border-[var(--border)] px-5 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--panel-raised)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50">Run demo</button><button disabled={busy || description.trim().length < 10} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--on-accent)] hover:bg-[var(--accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50">{busy ? "Working…" : createdId ? "Retry company research" : agentMode ? "Review agent plan" : "Find companies"}<ArrowRight size={17} /></button></div>
         </form>
       </div>
     </section>

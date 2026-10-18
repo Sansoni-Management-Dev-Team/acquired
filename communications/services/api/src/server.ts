@@ -8,7 +8,7 @@ import { messageDigest } from "../../../packages/core/src/message-digest";
 import { isDeliveryOutcome, isReadiness } from "../../../packages/sdk/src/validation";
 import { InvalidRequest, parseLookup, parseReady, parseSubmission } from "./schema";
 import type { ConnectionManagementPort } from '../../../packages/contracts/src/management';
-import { assertManagedConnection, assertManagementSnapshot, assertManagementBinding, assertManagementSetupResponse, assertManagementDisconnectResponse, type ConnectionSetupRequest } from '../../../packages/contracts/src/management';
+import { assertManagedConnection, assertManagementSnapshot, assertManagementBinding, assertManagementSetupResponse, assertManagementDisconnectResponse, localSimulatorHostedOrigin, type ConnectionSetupRequest } from '../../../packages/contracts/src/management';
 import { parseBinding } from './schema';
 
 export interface CommunicationsServerDependencies {
@@ -22,6 +22,7 @@ export interface CommunicationsServerDependencies {
   inspectRelationship?(connection:ConnectionRecord,scope:AccessScope,input:{profile:CanonicalIdentity;refresh:true}):Promise<{status:RelationshipStatus;canMessage:boolean|null;observedAt:string}>;
   maxRequestBytes?: number;
   bodyTimeoutMs?: number;
+  localSimulatorOrigin?: string;
 }
 
 class HttpError extends Error { constructor(readonly status: number, readonly code: string) { super(code); } }
@@ -69,6 +70,8 @@ function checkReceipt(snapshot: OperationSnapshot, outcome: DeliveryOutcome | nu
 }
 
 export function createCommunicationsServer(dependencies: CommunicationsServerDependencies) {
+  const localSimulatorOrigin=dependencies.localSimulatorOrigin===undefined?undefined:localSimulatorHostedOrigin(dependencies.localSimulatorOrigin);
+  if(localSimulatorOrigin!==undefined&&process.env.NODE_ENV==='production')throw new Error('Local simulator is disabled in production');
   const maxRequestBytes = dependencies.maxRequestBytes ?? 262_144;
   const bodyTimeoutMs = dependencies.bodyTimeoutMs ?? 5000;
   if (!Number.isSafeInteger(maxRequestBytes) || maxRequestBytes < 1 || maxRequestBytes > 1_048_576 ||
@@ -113,7 +116,7 @@ export function createCommunicationsServer(dependencies: CommunicationsServerDep
           if (typeof raw.platform !== 'string' || !(raw.channel === 'email' && ['gmail', 'outlook', 'imap'].includes(String(raw.platform)) || raw.channel === 'whatsapp' && raw.platform === 'whatsapp' || raw.channel === 'linkedin' && raw.platform === 'linkedin')) throw new InvalidRequest();
           const input: ConnectionSetupRequest = { channel: raw.channel as ConnectionSetupRequest['channel'], platform: raw.platform as ConnectionSetupRequest['platform'] };
           if (raw.reconnectBinding !== undefined) { input.reconnectBinding = parseBinding(raw.reconnectBinding); if (input.reconnectBinding.channel !== input.channel || input.reconnectBinding.platform !== input.platform) throw new InvalidRequest(); try { assertManagementBinding(input.reconnectBinding, scope); } catch { throw new HttpError(403, 'forbidden'); } }
-          const result=await manager.setup(scope,input);assertManagementSetupResponse(result);respond(response,200,result);return;
+          const result=await manager.setup(scope,input);assertManagementSetupResponse(result,{localSimulatorOrigin});respond(response,200,result);return;
         }
         exact(request.url === '/v1/connections/disconnect' ? ['binding', 'key'] : ['binding']);
         const binding = parseBinding(raw.binding); try { assertManagementBinding(binding, scope); } catch { throw new HttpError(403, 'forbidden'); }

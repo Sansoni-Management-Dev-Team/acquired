@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 import type { ResearchConfig } from '@/domain/research';
-const mocks = vi.hoisted(() => ({ company:vi.fn(), background:vi.fn(), dispatch:vi.fn(), people:vi.fn(), authorized: vi.fn(), get: vi.fn(), progress: vi.fn(), save: vi.fn(), after: vi.fn(), select: vi.fn(), cooldown: vi.fn() }));
+const mocks = vi.hoisted(() => ({ nativeEnabled:vi.fn(), nativeAllowed:vi.fn(), nativeBegin:vi.fn(),nativeFinish:vi.fn(),nativeComplete:vi.fn(),store:vi.fn(),company:vi.fn(), background:vi.fn(), dispatch:vi.fn(), people:vi.fn(), authorized: vi.fn(), get: vi.fn(), progress: vi.fn(), save: vi.fn(), after: vi.fn(), select: vi.fn(), cooldown: vi.fn() }));
+vi.mock('@/lib/agent-runtime',()=>({nativeAgentEnabled:mocks.nativeEnabled,agentStore:mocks.store}));
 vi.mock('@/lib/firmable-company-research',()=>({firmableCompanyResearch:mocks.company}));
 vi.mock('@/lib/company-background-execution',()=>({executeCompanyBackground:mocks.background}));
 vi.mock('@/lib/company-background-dispatch',()=>({dispatchCompanyBackground:mocks.dispatch}));
@@ -23,6 +24,7 @@ const call = (data: unknown) => POST(new Request('http://app/api', { method: 'PO
 const event = { revision: 1, status: 'crawling', pages: 0, modelCalls: 0, message: 'Heartbeat' };
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.nativeEnabled.mockReturnValue(false);mocks.nativeAllowed.mockResolvedValue(true);mocks.store.mockReturnValue({nativeResearchExecutionAllowed:mocks.nativeAllowed,beginNativeResearchAttempt:mocks.nativeBegin,finishNativeResearchAttempt:mocks.nativeFinish,finishNativeResearchJob:mocks.nativeComplete});
   job = { id: jobId, organizationId: 'org', mandateId: 'mandate', createdAt: new Date(), updatedAt: new Date(), status: 'queued', seeds: [], config: structuredClone(config), revision: 0, crawlId: null };
   mocks.authorized.mockReturnValue(true);
   mocks.select.mockReturnValue({ from: () => ({ where: () => ({ limit: async () => [job] }) }) });
@@ -146,4 +148,35 @@ it('background control uses execution deadline rather than an expired discovery 
  const future=Date.now()+110000;job.config={...job.config,researchRunId:'root',automaticDeadline:future,companyBackgroundResearch:{version:1,fields:['company_emails'],sourceRootId:'root',profileCapturedAt:new Date().toISOString(),verifyAbn:false}};
  mocks.get.mockResolvedValue({...job,id:'root',status:'complete',config:{automaticDeadline:Date.now()-60000}});
  const response=await GET(new Request('http://app/api'),{params:Promise.resolve({jobId})});expect((await response.json()).deadline).toBe(future);
+});
+
+it('blocks native root control and every callback before any provider work',async()=>{
+ Object.assign(job.config,{nativeAgent:{version:1,providerAdmission:'required'}});
+ for(const query of ['', '?control=1'])expect((await GET(new Request('http://app/api'+query),{params:Promise.resolve({jobId})})).status).toBe(403);
+ expect((await call({action:'d-search'})).status).toBe(403);
+ expect(mocks.company).not.toHaveBeenCalled();expect(mocks.progress).not.toHaveBeenCalled();expect(mocks.background).not.toHaveBeenCalled();
+});
+it('lean native marker and native-root child provenance cannot bypass provider admission',async()=>{
+ Object.assign(job,{nativeAgentJob:true});
+ expect((await GET(new Request('http://app/api?control=1'),{params:Promise.resolve({jobId})})).status).toBe(403);
+ Object.assign(job,{nativeAgentJob:false});job.config.researchRunId='e1227845-6013-43ed-a38d-c06b8824661f';
+ mocks.get.mockResolvedValue({...job,id:job.config.researchRunId,config:{...job.config,nativeAgent:{version:1}}});
+ expect((await call({action:'d-search'})).status).toBe(403);expect(mocks.company).not.toHaveBeenCalled();
+});
+
+function nativeJob(){mocks.nativeEnabled.mockReturnValue(true);Object.assign(job,{createdBy:'owned-user'});job.config.researchRunId=job.id;job.config.pipelineDesign='firmable-v1';job.config.nativeAgent={version:1,operationId:'700ea5af-232a-41b4-8f3e-d5e25dc75eab',threadId:'a7cb06d3-2f07-4426-bb94-708cd425177c',responsibilityId:'fc12b514-dfd7-42da-98b7-447591464c33',responsibilityRevision:1,mandateRevision:'123',contextRevision:'a'.repeat(64),providerAdmission:'firmable-company-v1'};}
+it('permits only current reviewed native Firmable company callbacks and derives the owner on the server',async()=>{
+ nativeJob();mocks.company.mockResolvedValue({records:[],totalCompany:0});
+ expect((await GET(new Request('http://app/api'),{params:Promise.resolve({jobId})})).status).toBe(200);
+ expect((await call({action:'d-search',from:0})).status).toBe(200);expect(mocks.store).toHaveBeenCalledWith({organizationId:'org',userId:'owned-user'});
+ expect((await call({action:'e-search',index:0})).status).toBe(403);expect((await call({action:'company-background-research'})).status).toBe(403);expect((await call({action:'company-people-status'})).status).toBe(403);
+ mocks.nativeAllowed.mockResolvedValue(false);expect((await call({action:'d-search',from:0})).status).toBe(403);
+});
+it('reserves native physical requests but rejects scope overrides and secret-bearing receipt bodies',async()=>{
+ nativeJob();mocks.nativeBegin.mockResolvedValue({kind:'started',operationId:'a1a639c7-169c-4bcd-893a-991470047023',fence:'1'});
+ expect((await call({action:'native-provider-begin',key:'step:0',requestDigest:'b'.repeat(64)})).status).toBe(200);
+ expect((await call({action:'native-provider-begin',key:'step:0',requestDigest:'b'.repeat(64),userId:'forged'})).status).toBe(400);
+ const base={action:'native-provider-finish',operationId:'a1a639c7-169c-4bcd-893a-991470047023',fence:'1'},outcome={actualCostMicroUsd:null,costBasis:'unknown',response:{status:200,provider:'firmable',requestDigest:'b'.repeat(64)}};
+ expect((await call({...base,outcome:{...outcome,response:{...outcome.response,jwt:'must-not-be-saved'}}})).status).toBe(400);
+ mocks.nativeAllowed.mockResolvedValue(false);expect((await call({...base,outcome})).status).toBe(200);expect(mocks.nativeFinish).toHaveBeenCalledWith(job.config.nativeAgent!.threadId,base.operationId,'1',outcome,job.config.nativeAgent!.operationId);
 });

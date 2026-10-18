@@ -71,3 +71,7 @@ describe('v1 inbound reply normalization', () => {
   it('reviews malformed email address instead of guessing', () => { const { raw, context, mail } = email(); mail.from_attendee.identifier = 'Name <peer@example.com>'; raw.from_attendee = mail.from_attendee; expect(normalizeV1ReplyEvent(raw, context)).toEqual(review()); });
   it.each([null,[],{},'private content'].map(raw => ({ raw })))('reviews malformed input without including content', ({ raw }) => { expect(normalizeV1ReplyEvent(raw, social().context)).toEqual(review()); });
 });
+it('projects exact machine DSN evidence as a bounce event without pretending it is a human reply',()=>{
+ const f=email();f.mail.from_attendee.identifier='mailer-daemon@example.net';f.mail.headers=[{name:'Return-Path',value:'<>'},{name:'Content-Type',value:'multipart/report; report-type=delivery-status'},{name:'X-Failed-Recipients',value:'peer@example.com'}];
+ expect(normalizeV1ReplyEvent(f.raw,f.context)).toMatchObject({kind:'event',event:{type:'email_change',change:'bounce',recipient:{kind:'email',value:'peer@example.com'},reference:{id:'email'},occurredAt:at}});
+});

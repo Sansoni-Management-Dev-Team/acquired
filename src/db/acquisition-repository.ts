@@ -1,5 +1,5 @@
 import { readableStoredBrief } from "@/domain/stored-brief";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { requireDb } from "./client";
 import { coverageRuns, mandates, mandateTargets, targets, valuationObservations, organization, researchFindings } from "./schema";
 import { OrganizationRepository } from "./repositories";
@@ -10,25 +10,49 @@ import { buyerProfileFromMetadata } from "@/domain/buyer-profile";
 export class AcquisitionRepository {
   constructor(private org: string, private db = requireDb()) { if (!org) throw new Error("Organisation required"); }
   async listMandates(): Promise<MandateView[]> {
-    const rows = await this.db.select().from(mandates).where(eq(mandates.organizationId, this.org)).orderBy(desc(mandates.createdAt));
+    const rows = await this.db.select({...getTableColumns(mandates),revision:sql<string>`xmin::text`}).from(mandates).where(eq(mandates.organizationId, this.org)).orderBy(desc(mandates.createdAt));
     return rows.map(row => {
       const parsed = briefSchema.safeParse(readableStoredBrief((row.filters as Record<string, unknown>).brief));
       const brief = parsed.success ? parsed.data : { ...emptyBrief(), name: row.confirmation?.slice(0, 80) || "Imported mandate — review required", naturalLanguage: row.naturalLanguage };
-      return { id: row.id, brief, createdAt: row.createdAt.toISOString() };
+      return { id: row.id, brief, createdAt: row.createdAt.toISOString(), revision:row.revision };
     });
   }
   async getMandate(id: string): Promise<MandateView | undefined> {
-    const [row] = await this.db.select().from(mandates).where(and(eq(mandates.organizationId, this.org), eq(mandates.id, id))).limit(1);
+    const [row] = await this.db.select({...getTableColumns(mandates),revision:sql<string>`xmin::text`}).from(mandates).where(and(eq(mandates.organizationId, this.org), eq(mandates.id, id))).limit(1);
     if (!row) return undefined;
     const parsed = briefSchema.safeParse(readableStoredBrief((row.filters as Record<string, unknown>).brief));
     const brief = parsed.success ? parsed.data : { ...emptyBrief(), name: row.confirmation?.slice(0, 80) || 'Imported mandate — review required', naturalLanguage: row.naturalLanguage };
-    return { id: row.id, brief, createdAt: row.createdAt.toISOString() };
+    return { id: row.id, brief, createdAt: row.createdAt.toISOString(), revision:row.revision };
+  }
+  async updateBrief(raw: AcquisitionBrief, actorId: string, id: string, expectedRevision:string):Promise<MandateView> {
+    const brief=briefSchema.parse(raw);
+    if(!/^\d{1,30}$/.test(expectedRevision))throw new Error('Reload the saved brief before editing.');
+    const filters={...briefToMandate(brief),brief};
+    const provenance={source:'Reviewed structured brief',capturedAt:new Date().toISOString()};
+    const installed=await this.db.execute(sql`SELECT to_regprocedure('public.communications_lock_send_gate(text)') IS NOT NULL AS installed`);
+    const flags=(Array.isArray(installed)?installed:(installed as {rows:{installed:boolean}[]}).rows) as {installed:boolean}[];
+    if(flags.length!==1||typeof flags[0].installed!=='boolean'||(!flags[0].installed&&process.env.COMMUNICATIONS_RUNTIME_ENABLED==='true'))throw new Error('Send authority unavailable');
+    const gate=flags[0].installed?sql`SELECT public.communications_lock_send_gate(${this.org}) AS revision`:sql`SELECT 0::bigint AS revision`;
+    // One statement keeps the audit and successful compare-and-swap atomic on
+    // both supported PostgreSQL drivers, including the HTTP driver.
+    const result=await this.db.execute(sql`WITH gate AS MATERIALIZED (${gate}), authorised AS MATERIALIZED (
+      SELECT member.id FROM member CROSS JOIN gate WHERE member.organization_id=${this.org} AND member.user_id=${actorId} AND gate.revision IS NOT NULL FOR SHARE OF member
+    ), changed AS (
+      UPDATE mandates SET filters=${JSON.stringify(filters)}::jsonb,natural_language=${brief.naturalLanguage},confirmation=${brief.name},provenance=${JSON.stringify(provenance)}::jsonb
+      FROM authorised WHERE mandates.id=${id}::uuid AND organization_id=${this.org} AND xmin::text=${expectedRevision}
+      RETURNING mandates.id,created_at,xmin::text AS revision
+    ), audited AS (
+      INSERT INTO audit_events(organization_id,actor_id,action,entity_type,entity_id,metadata)
+      SELECT ${this.org},${actorId},'mandate.brief_saved','mandate',id::text,jsonb_build_object('baseRevision',${expectedRevision}::text,'revision',revision) FROM changed RETURNING entity_id
+    ) SELECT changed.* FROM changed JOIN audited ON audited.entity_id=changed.id::text`);
+    const rows=(Array.isArray(result)?result:(result as {rows:{id:string;created_at:Date|string;revision:string}[]}).rows) as {id:string;created_at:Date|string;revision:string}[];
+    if(!rows.length)throw new Error('The saved brief changed or is unavailable. Reload it before saving your changes.');
+    const row=rows[0];return {id:row.id,brief,createdAt:new Date(row.created_at).toISOString(),revision:row.revision};
   }
   async saveBrief(brief: AcquisitionBrief, actorId: string, id?: string) {
     const values = { filters: { ...briefToMandate(brief), brief }, naturalLanguage: brief.naturalLanguage, confirmation: brief.name, provenance: { source: "Reviewed structured brief", capturedAt: new Date().toISOString() } };
     if (id) {
-      const rows = await this.db.update(mandates).set(values).where(and(eq(mandates.id, id), eq(mandates.organizationId, this.org))).returning({ id: mandates.id });
-      if (!rows.length) throw new Error("Mandate not found");
+      throw new Error('Use updateBrief with the reviewed base revision to edit an existing mandate.');
     } else {
       const [row] = await this.db.insert(mandates).values({ ...values, organizationId: this.org, createdBy: actorId }).returning({ id: mandates.id });
       id = row.id;

@@ -29,16 +29,16 @@ export function MandateNavigation({ mandates, selected, tab = "brief" }: { manda
   return <SidebarRegistration value={{ mandates: mandates.map(m => ({ id: m.id, name: m.brief.name })), selected, tab }} />;
 }
 
-export function MandateWorkspace({ mandates, initial, tab, initialCompanies }: { mandates: MandateView[]; initial: WorkspaceData; tab: string; initialCompanies?: CompanyList }) {
+export function MandateWorkspace({ mandates, initial, tab, initialCompanies, learningEnabled=false }: { learningEnabled?:boolean; mandates: MandateView[]; initial: WorkspaceData; tab: string; initialCompanies?: CompanyList }) {
   if (tab === 'targets') {
     const companies = initialCompanies || { mandate: initial.mandate, revision: '', active: false, hasResearch: false, ...companyListPage(initial.memberships.map(member => summariseCompany(member,initial.mandate,[],initial.contacts.some(c => c.targetId === member.target.id && Boolean(c.name?.trim())))), defaultCompanyListQuery) };
-    return <CompaniesWorkspace mandates={mandates} initial={companies} />;
+    return <CompaniesWorkspace learningEnabled={learningEnabled} mandates={mandates} initial={companies} />;
   }
   return <LegacyMandateWorkspace mandates={mandates} initial={initial} tab={tab} />;
 }
 function LegacyMandateWorkspace({ mandates, initial, tab }: { mandates: MandateView[]; initial: WorkspaceData; tab: string }) {
   const [mandate, setMandate] = useState(initial.mandate);
-  return <><MandateNavigation mandates={mandates.map(m => m.id === mandate.id ? mandate : m)} selected={mandate.id} tab={tab} /><div className="space-y-5 p-5 sm:p-8"><MandateBriefForm mandateId={mandate.id} brief={mandate.brief} onSaved={brief => setMandate(current => ({ ...current, brief }))} /></div></>;
+  return <><MandateNavigation mandates={mandates.map(m => m.id === mandate.id ? mandate : m)} selected={mandate.id} tab={tab} /><div className="space-y-5 p-5 sm:p-8"><MandateBriefForm key={mandate.id} mandateId={mandate.id} brief={mandate.brief} revision={mandate.revision} onSaved={(brief,revision) => setMandate(current => ({ ...current, brief,revision }))} /></div></>;
 }
 export function CoveragePanel({ data }: { data: WorkspaceData }) {
   const all = data.memberships;

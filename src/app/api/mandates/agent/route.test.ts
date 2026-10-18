@@ -1,0 +1,13 @@
+import {beforeEach,afterEach,it,expect,vi} from 'vitest';
+import {emptyBrief} from '@/domain/acquisition';
+const mock=vi.hoisted(()=>({session:vi.fn(),create:vi.fn(),pool:{}}));
+vi.mock('@/lib/auth',()=>({auth:{api:{getSession:mock.session}}}));
+vi.mock('@/lib/agent-runtime',()=>({nativeAgentEnabled:()=>process.env.AGENT_NATIVE_EXECUTION_ENABLED==='true',agentPool:()=>mock.pool}));
+vi.mock('@/lib/agent-native-create',async original=>({...await original<typeof import('@/lib/agent-native-create')>(),createNativeAgentMandate:mock.create}));
+import {POST} from './route';
+const requestId='00000000-0000-4000-8000-000000000001',input={requestId,brief:emptyBrief()},url='http://localhost/api/mandates/agent';
+const request=(body:unknown=input,origin='http://localhost')=>new Request(url,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify(body)});
+beforeEach(()=>{vi.resetAllMocks();vi.stubEnv('AGENT_NATIVE_EXECUTION_ENABLED','true');mock.session.mockResolvedValue({session:{activeOrganizationId:'owned-org'},user:{id:'owned-user'}});mock.create.mockResolvedValue({id:requestId,revision:'42',replayed:false});});afterEach(()=>vi.unstubAllEnvs());
+it('derives actor from session and returns exact creation revision without starting research',async()=>{const response=await POST(request());expect(response.status).toBe(201);expect(await response.json()).toMatchObject({id:requestId,revision:'42'});expect(mock.create).toHaveBeenCalledWith(mock.pool,{organizationId:'owned-org',userId:'owned-user'},input);expect(response.headers.get('Cache-Control')).toContain('no-store');});
+it('blocks disabled, foreign-origin, malformed and supplied-actor requests before saving',async()=>{vi.stubEnv('AGENT_NATIVE_EXECUTION_ENABLED','false');expect((await POST(request())).status).toBe(404);vi.stubEnv('AGENT_NATIVE_EXECUTION_ENABLED','true');expect((await POST(request(input,'https://foreign.invalid'))).status).toBe(403);for(const value of [{...input,userId:'other'},{...input,approved:true},{...input,requestId:'no'},{...input,brief:null}])expect((await POST(request(value))).status).toBe(400);expect(mock.create).not.toHaveBeenCalled();});
+it('requires a selected signed-in organisation and hides unexpected storage details',async()=>{mock.session.mockResolvedValueOnce(null);expect((await POST(request())).status).toBe(401);mock.create.mockRejectedValue(Error('secret database'));const response=await POST(request());expect(response.status).toBe(503);expect(await response.text()).not.toContain('secret');});

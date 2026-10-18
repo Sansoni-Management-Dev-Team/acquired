@@ -1,0 +1,9 @@
+import{it,expect,vi,beforeEach}from'vitest';
+const f=vi.hoisted(()=>({query:vi.fn()}));
+vi.mock('@/db/campaign-client',()=>({withCampaignDb:async(_actor:unknown,work:(c:unknown)=>unknown)=>work({query:f.query})}));
+import{settleAgentNoSubmission}from'./agent-communications-no-submission';
+const operation='40000000-0000-4000-8000-000000000001',intent='40000000-0000-4000-8000-000000000002',actor={organizationId:'opaque-org',userId:'opaque-user'},resolution={intentId:intent,operationKey:'immutable-original-channel-operation-key',proofDigest:'a'.repeat(64)};
+beforeEach(()=>f.query.mockReset());
+it('accepts exact authenticated original disposition metadata through the unchanged three-argument SQL entry',async()=>{f.query.mockResolvedValue({rows:[{outcome:{status:'not_submitted',...resolution}}]});expect(await settleAgentNoSubmission(actor,operation,resolution)).toEqual({status:'not_submitted',...resolution});expect(f.query).toHaveBeenCalledExactlyOnceWith('SELECT public.agent_communications_no_submission($1::uuid,$2::uuid,$3::text) AS outcome',[operation,intent,resolution.proofDigest]);});
+it('rejects a returned receipt for another intent or proof even if the operation key matches',async()=>{for(const patch of[{intentId:'40000000-0000-4000-8000-000000000003'},{proofDigest:'b'.repeat(64)},{operationKey:'other-key'},{status:'submitted'}]){f.query.mockResolvedValue({rows:[{outcome:{status:'not_submitted',...resolution,...patch}}]});await expect(settleAgentNoSubmission(actor,operation,resolution)).rejects.toThrow('Original no-submission');}});
+it('rejects malformed original metadata before any database command',async()=>{for(const patch of[{intentId:'invalid'},{proofDigest:'not-proof'},{operationKey:''}])await expect(settleAgentNoSubmission(actor,operation,{...resolution,...patch})).rejects.toThrow();expect(f.query).not.toHaveBeenCalled();});

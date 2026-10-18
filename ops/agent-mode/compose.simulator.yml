@@ -1,0 +1,20 @@
+# Applied only with the explicit simulator profile. No database or volume change.
+services:
+  app:
+    ports:
+      - "127.0.0.1:5492:5491"
+  simulator-bridge:
+    image: acquire-agent-mode:dev
+    container_name: project-acquire-agent-simulator-bridge
+    working_dir: /workspace
+    network_mode: "service:app"
+    volumes:
+      - ../..:/workspace:ro
+    command: ["node", "/workspace/ops/agent-mode/simulator-transports.mjs"]
+    environment:
+      AGENT_MODE_COMMUNICATIONS_MODE: simulator
+      NODE_ENV: development
+    depends_on:
+      app:
+        condition: service_started
+    restart: unless-stopped

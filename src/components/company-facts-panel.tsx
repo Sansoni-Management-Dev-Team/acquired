@@ -1,4 +1,7 @@
 "use client";
+
+import { randomUuid } from "@/lib/random-uuid";
+
 import { resolveCompanyField } from "@/domain/research-resolution";
 import { evidenceLabel, summariseEvidence } from "@/domain/evidence-status";
 import { useCallback, useState } from "react";
@@ -22,7 +25,7 @@ export function CompanyFactsPanel({ targetId, mandateId, preferredHeadcount, tar
   async function act(action: "start" | "cancel" | "retry-dispatch") {
     setBusy(true); setError("");
     try {
-      const response = await fetch(action === "start" ? url : `/api/research/${active!.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action === "start" ? { action, mandateId, requestId: crypto.randomUUID(), approved: true } : { action }) });
+      const response = await fetch(action === "start" ? url : `/api/research/${active!.id}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action === "start" ? { action, mandateId, requestId: randomUuid(), approved: true } : { action }) });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Research request failed");
       await refresh();

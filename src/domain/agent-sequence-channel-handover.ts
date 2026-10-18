@@ -1,0 +1,4 @@
+import{z}from'zod';import{agentPersonChannelRecipientSchema,agentChannelIdentityProofSchema}from'./agent-person-channel';
+const route={bindingId:z.string().uuid(),bindingDigest:z.string().regex(/^[a-f0-9]{64}$/),identityProof:agentChannelIdentityProofSchema,senderLabel:z.string().max(500).optional()};
+export const agentSequenceHandoverChannelSchema=z.discriminatedUnion('channel',[agentPersonChannelRecipientSchema.options[0].extend(route),agentPersonChannelRecipientSchema.options[1].extend(route),agentPersonChannelRecipientSchema.options[2].extend(route)]);
+export const agentSequenceChannelHandoverSchema=z.object({enrolmentId:z.string().uuid(),expectedVersionId:z.string().uuid(),channelPolicyRevision:z.number().int().positive(),sourceRevision:z.string().regex(/^[a-f0-9]{64}$/),channels:z.array(agentSequenceHandoverChannelSchema).min(1).max(3).refine(routes=>new Set(routes.map(route=>route.channel)).size===routes.length)}).strict();

@@ -1,0 +1,3 @@
+import {it,expect} from 'vitest';
+import {firmableDoNotContact,withoutFirmablePersonPhones} from './firmable-person-privacy';
+it('retains opt-out independently of phone disclosure and strips nested retained provider phone data',()=>{const raw={id:'fp1',phones:[{value:'0400000000',is_dnd:true}],browserResponse:{mobile:'0400000001'},email:'person@example.invalid'};expect(firmableDoNotContact(raw)).toBe(true);const redacted=withoutFirmablePersonPhones(raw);expect(redacted).toMatchObject({do_not_contact:true,email:'person@example.invalid'});expect(JSON.stringify(redacted)).not.toMatch(/040000000/);});

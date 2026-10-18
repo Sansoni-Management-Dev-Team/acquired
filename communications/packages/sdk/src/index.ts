@@ -3,7 +3,7 @@ import {
   type ConnectionBinding, type DeliveryOutcome, type MessageSubmission,
   type Readiness, type ReceiptLookup, type AccessScope, type CanonicalIdentity, type RelationshipStatus,
 } from "../../contracts/src/index";
-import { assertManagedConnection, assertManagementBinding, assertManagementSnapshot, type ManagedConnection, type ConnectionManagementSnapshot, type ConnectionSetupRequest, type ConnectionSetupResponse, type ConnectionDisconnectResponse } from '../../contracts/src/management';
+import { assertManagedConnection, assertManagementBinding, assertManagementSnapshot, assertManagementSetupResponse, localSimulatorHostedOrigin, type ManagedConnection, type ConnectionManagementSnapshot, type ConnectionSetupRequest, type ConnectionSetupResponse, type ConnectionDisconnectResponse } from '../../contracts/src/management';
 import { isDeliveryOutcome, isReadiness } from "./validation";
 
 export interface CommunicationsClientConfig {
@@ -14,6 +14,7 @@ export interface CommunicationsClientConfig {
   timeoutMs?: number;
   maxResponseBytes?: number;
   allowLoopbackHttp?: boolean;
+  localSimulatorOrigin?: string;
 }
 export class CommunicationsClientError extends Error {
   constructor(readonly code: string, readonly status?: number) { super(code); this.name = "CommunicationsClientError"; }
@@ -61,6 +62,7 @@ export class CommunicationsClient {
   #fetch: typeof globalThis.fetch;
   #timeout: number;
   #maxBytes: number;
+  #localSimulatorOrigin?: string;
   constructor(config: CommunicationsClientConfig) {
     let url: URL;
     try { url = new URL(config.baseUrl); } catch { throw new Error("Invalid communications client configuration"); }
@@ -75,6 +77,10 @@ export class CommunicationsClient {
     }
     this.#baseUrl = url; this.#key = config.apiKey; this.#fetch = config.fetch ?? globalThis.fetch;
     this.#timeout = timeout; this.#maxBytes = maxBytes;
+    if(config.localSimulatorOrigin!==undefined){
+      if(!loopback||url.protocol!=='https:'||typeof process!=='undefined'&&process.env.NODE_ENV==='production')throw new Error('Invalid local simulator client configuration');
+      this.#localSimulatorOrigin=localSimulatorHostedOrigin(config.localSimulatorOrigin);
+    }
   }
   async health(): Promise<{ contractVersion: "1" }> {
     const data = await this.#request("/health");
@@ -88,6 +94,7 @@ export class CommunicationsClient {
     const captured = structuredClone(input); if (captured.reconnectBinding) assertManagementBinding(captured.reconnectBinding, scope);
     try {
       const data = await this.#request('/v1/connections/setup', captured);
+      if(this.#localSimulatorOrigin!==undefined){assertManagementSetupResponse(data,{localSimulatorOrigin:this.#localSimulatorOrigin});return data;}
       if (!object(data)) throw new CommunicationsClientError('protocol');
       if (data.status === 'redirect' && Object.keys(data).length === 2 && object(data.action) && Object.keys(data.action).sort().join(',') === 'expiresAt,type,url' && data.action.type === 'redirect' && typeof data.action.url === 'string' && typeof data.action.expiresAt === 'string') {
         const url = new URL(data.action.url);

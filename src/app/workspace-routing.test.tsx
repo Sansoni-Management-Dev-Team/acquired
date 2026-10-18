@@ -61,11 +61,13 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); });
 
-it("opens the mandate creation flow on home with no provider request", async () => {
+it("opens the cached mandate creation shell without server-side repository or provider work", async () => {
   const html = await renderPage(await Home());
   expect(html).toContain(">Create a mandate</h1>");
   expect(html).toContain('id="mandate-description"');
-  expect(mocks.repository).toHaveBeenCalledExactlyOnceWith("org-a");
+  expect(mocks.repository).not.toHaveBeenCalled();
+  expect(mocks.listMandates).not.toHaveBeenCalled();
+  expect(html).toContain("Loading your mandates");
   expect(fetch).not.toHaveBeenCalled();
 });
 

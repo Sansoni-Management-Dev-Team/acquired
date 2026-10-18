@@ -1,0 +1,14 @@
+import {beforeEach,expect,it,vi} from 'vitest';
+const mocks=vi.hoisted(()=>({scope:vi.fn(),inbox:vi.fn(),control:vi.fn()}));
+vi.mock('@/lib/agent-request-scope',()=>({agentRequestScope:mocks.scope,agentResponseHeaders:{'Cache-Control':'private, no-store'},agentRequestError:(error:string,status:number)=>Response.json({error},{status}),agentRequestFailure:()=>Response.json({error:'Changed or unavailable'},{status:409})}));
+vi.mock('@/lib/agent-runtime',()=>({nativeAgentEnabled:()=>true}));
+import {GET,POST} from './route';
+const mandate='00000000-0000-4000-8000-000000000001',task='00000000-0000-4000-8000-000000000002',key='00000000-0000-4000-8000-000000000003';
+const context={params:Promise.resolve({id:mandate})},url='http://localhost/api/mandates/'+mandate+'/agent/handoffs';
+const body={action:'acknowledge',taskId:task,requestKey:key,revision:1,contextRevision:'a'.repeat(64)};
+const request=(value:unknown=body,origin='http://localhost')=>new Request(url,{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify(value)});
+beforeEach(()=>{vi.resetAllMocks();mocks.scope.mockResolvedValue({store:{handoffInbox:mocks.inbox,controlHandoff:mocks.control},thread:undefined});mocks.inbox.mockResolvedValue({tasks:[],members:[]});mocks.control.mockResolvedValue({id:task,revision:2,status:'acknowledged'});});
+it('reads assigned tasks without needing access to the owner thread or creating a thread',async()=>{const response=await GET(new Request(url),context);expect(response.status).toBe(200);expect(response.headers.get('Cache-Control')).toContain('no-store');expect(mocks.inbox).toHaveBeenCalledWith(mandate);expect(mocks.control).not.toHaveBeenCalled();});
+it('passes exact reviewed task/context revisions and no actor overrides to the scoped store',async()=>{expect((await POST(request(),context)).status).toBe(200);const {requestKey,...input}=body;expect(mocks.control).toHaveBeenCalledWith(mandate,requestKey,input);});
+it('rejects cross-origin, unknown fields, missing evidence and oversized input',async()=>{expect((await POST(request(body,'https://foreign.invalid'),context)).status).toBe(403);for(const value of [{...body,userId:'forged'},{...body,action:'link_sent'},{...body,revision:0}])expect((await POST(request(value),context)).status).toBe(400);expect((await POST(request({text:'x'.repeat(10001)}),context)).status).toBe(413);expect(mocks.control).not.toHaveBeenCalled();});
+it('preserves session denial and does not expose private storage failures',async()=>{mocks.scope.mockResolvedValue(new Response(null,{status:401}));expect((await GET(new Request(url),context)).status).toBe(401);mocks.scope.mockResolvedValue({store:{handoffInbox:mocks.inbox,controlHandoff:mocks.control}});mocks.control.mockRejectedValue(new Error('secret SQL'));const response=await POST(request(),context);expect(response.status).toBe(409);expect(await response.text()).not.toContain('secret');});

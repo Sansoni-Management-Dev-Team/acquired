@@ -19,7 +19,7 @@ async function read(url: string, signal?: AbortSignal, method = 'GET') {
   if (!response.ok) throw new Error(data.error || 'Could not load companies');
   return data;
 }
-export function CompaniesWorkspace({ mandates, initial }: { mandates: MandateView[]; initial: CompanyList }) {
+export function CompaniesWorkspace({ mandates, initial, learningEnabled=false }: { learningEnabled?:boolean; mandates: MandateView[]; initial: CompanyList }) {
   const [data, setData] = useState(() => discoveredCompaniesFor(initial)), [query, setQuery] = useState<CompanyListQuery>(defaultCompanyListQuery);
   const [selected, setSelected] = useState<string[]>([]), [review, setReview] = useState<CompanySummary | null>(null);
   const [enriching, setEnriching] = useState<string[] | null>(null), [error, setError] = useState('');
@@ -61,16 +61,16 @@ export function CompaniesWorkspace({ mandates, initial }: { mandates: MandateVie
       {!data.rows.length && <tr><td colSpan={4} className="p-8 text-[var(--muted)]">{data.hasResearch || data.total ? 'New companies will appear as they are found.' : <>No companies yet. <Link className="underline" href={mandateTabHref(id,'brief')}>Find businesses or import sourced records in Brief</Link> to start your review.</>}</td></tr>}
     </tbody></table></div>
     {data.pages > 1 && <nav aria-label="Company pages" className="flex items-center justify-between"><button disabled={data.page <= 1} onClick={() => change('page',data.page-1)}>Previous</button><span className="text-sm">Page {data.page} of {data.pages} · {data.total} companies</span><button disabled={data.page >= data.pages} onClick={() => change('page',data.page+1)}>Next</button></nav>}
-  </div>{review && <CompanyDetails key={review.id} mandate={data.mandate} row={review} onClose={() => setReview(null)} />}</>;
+  </div>{review && <CompanyDetails key={review.id} mandate={data.mandate} row={review} learningEnabled={learningEnabled} onClose={() => setReview(null)} />}</>;
 }
 
-function CompanyDetails({ mandate, row, onClose }: { mandate: MandateView; row: CompanySummary; onClose: () => void }) {
+function CompanyDetails({ mandate, row, onClose, learningEnabled=false }: { learningEnabled?:boolean; mandate: MandateView; row: CompanySummary; onClose: () => void }) {
   const [member,setMember] = useState<MembershipView>(), [error,setError] = useState('');
   useEffect(() => {
     const abort = new AbortController();
     void read(`/api/mandates/${mandate.id}/companies/${row.id}`,abort.signal).then(data => setMember(data.member)).catch(cause => { if (!abort.signal.aborted) setError(cause.message); });
     return () => abort.abort();
   }, [mandate.id,row.id]);
-  if (member) return <CompanyReviewPanel mandate={mandate} initial={member} position="Company" onClose={onClose} />;
+  if (member) return <CompanyReviewPanel learningEnabled={learningEnabled} mandate={mandate} initial={member} position="Company" onClose={onClose} />;
   return <div role="dialog" aria-modal="true" aria-label={row.name} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"><div className="rounded-lg bg-[var(--background)] p-8"><p role={error ? 'alert' : 'status'}>{error || `Loading ${row.name}…`}</p><button className="mt-4 underline" onClick={onClose}>Close</button></div></div>;
 }

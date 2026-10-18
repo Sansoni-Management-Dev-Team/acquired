@@ -9,6 +9,7 @@ import { messageDigest } from '../../core/src/message-digest';
 import { normalizeV1MessageLookup, normalizeV1InvitationSent, normalizeV1MessageSent } from './v1-normalization';
 import { createUnipileV1LinkedinRelationships } from './v1-relationships';
 import { UnipileV1RelationshipsHttp } from './v1-relationships-http';
+import {projectHistoryPeer} from './v1-history-peer';
 import { plain, opaque, boundedRead, portMethod } from './v1-read-guard';
 export interface V1SocialRuntimeOptions {
     connection: RuntimeConnection;
@@ -47,6 +48,7 @@ export function createV1SocialRuntime(options: V1SocialRuntimeOptions): Messagin
     if (!plain(options))
         fail();
     const connection = clone(options.connection), b = connection.binding, o = connection.owner;
+    const accessScope={applicationId:b.applicationId,tenantId:b.tenantId,ownerId:b.ownerId};
     assertSameBinding(b, b);
     if (b.backend !== 'unipile' || !['whatsapp', 'linkedin'].includes(b.channel) || !connection.active)
         fail();
@@ -80,13 +82,13 @@ export function createV1SocialRuntime(options: V1SocialRuntimeOptions): Messagin
             fail();
     }
     async function authority(signal: AbortSignal, check: () => void) {
-        await grant(b);
+        await grant({...accessScope});
         check();
         const proof = await owner({ platform: b.platform, providerAccountId: o.providerAccountId, sourceId: o.sourceId }, signal);
         check();
         if (proof.kind !== 'verified' || proof.owner.status !== 'connected' || !isDeepStrictEqual(proof.owner.physicalOwner, o.physicalOwner) || !isDeepStrictEqual(proof.owner.providerOwner, o.providerOwner))
             fail();
-        await grant(b);
+        await grant({...accessScope});
         check();
     }
     async function peer(target: CanonicalIdentity, signal: AbortSignal, check: () => void): Promise<string> {
@@ -98,10 +100,10 @@ export function createV1SocialRuntime(options: V1SocialRuntimeOptions): Messagin
             fail();
         const p = result.data;
         if (b.channel === 'whatsapp') {
-            const expected = `${target.value.slice(1)}@s.whatsapp.net`;
-            if (p.object !== 'UserProfile' || p.provider !== 'WHATSAPP' || p.id !== expected)
+            const verified=typeof p.id==='string'?projectHistoryPeer(p,p.id,'whatsapp'):null;
+            if (!verified||verified.kind!==target.kind||verified.value!==target.value)
                 fail();
-            return expected;
+            return p.id as string;
         }
         if (p.object !== 'UserProfile' || p.provider !== 'LINKEDIN' || !opaque(p.provider_id) || p.public_identifier !== identifier || p.is_self !== false || p.public_profile_url !== undefined && new URL(p.public_profile_url as string).pathname.replace(/\/$/, '') !== new URL(target.value).pathname.replace(/\/$/, ''))
             fail();
@@ -156,7 +158,7 @@ export function createV1SocialRuntime(options: V1SocialRuntimeOptions): Messagin
         await chat(receipt.conversation.id, peerId, signal, check);
         const response = await transport.getMessage(receipt.message.id, { signal });
         check();
-        await grant(b);
+        await grant({...accessScope});
         check();
         if (response.kind !== 'success' || response.status !== 200)
             return null;
@@ -220,7 +222,7 @@ export function createV1SocialRuntime(options: V1SocialRuntimeOptions): Messagin
                     if (input.message.conversation) {
                         ref(input.message.conversation);
                         await chat(input.message.conversation.id, peerId, signal, check);
-                        await grant(b);
+                        await grant({...accessScope});
                         check();
                         writing = true;
                         response = await transport.sendMessage(o.providerAccountId, input.message.conversation.id, { text: input.message.text }, { signal });
@@ -231,7 +233,7 @@ export function createV1SocialRuntime(options: V1SocialRuntimeOptions): Messagin
                         form.set('account_id', o.providerAccountId);
                         form.set('text', input.message.text);
                         form.append('attendees_ids', peerId);
-                        await grant(b);
+                        await grant({...accessScope});
                         check();
                         writing = true;
                         response = await http.request('POST', http.url('chats'), form, { signal });
