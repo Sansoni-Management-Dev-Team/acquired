@@ -10,6 +10,7 @@ import { buildAgentCommunicationsEnvironment } from './agent-mode-communications
 import { serializeAgentEnvironment } from './agent-mode-env-file.mjs';
 import {agentModeLauncherServices} from './agent-mode-launcher-services.mjs';
 import {assertAgentModeRestartIdle} from './agent-mode-restart-guard.mjs';
+import {assertAgentModeNamespaceActivation} from './agent-mode-namespace-activation.mjs';
 import { buildAgentWorkerEnvironment } from './agent-mode-worker-env.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -79,8 +80,12 @@ console.log('Starting Agent mode on OrbStack with its isolated local database; n
 const compose=['--context','orbstack','compose','-f',resolve(root,'ops/agent-mode/compose.local.yml'),...(simulated?['-f',resolve(root,chosen==='multichannel'?'ops/agent-mode/compose.multichannel.yml':chosen==='simulator50'?'ops/agent-mode/compose.simulator50.yml':chosen==='simulator25'?'ops/agent-mode/compose.simulator25.yml':'ops/agent-mode/compose.simulator.yml')]:[]),...(communications.enabled?['--profile','mailbox-setup']:[])];
 if(communications.enabled&&!existsSync(resolve(root,'.local-data/communications/service-build/service.cjs')))throw Error('Build the communications service before connection setup');
 const leaveWorkerStopped=process.argv.includes('--leave-worker-stopped');
-if(leaveWorkerStopped){const workerState=spawnSync('docker',['--context','orbstack','inspect','project-acquire-agent-worker','--format','{{.State.Running}}'],{encoding:'utf8'});if(workerState.status!==0||workerState.stdout.trim()!=='false')throw Error('Confirm the exact native worker is stopped before using --leave-worker-stopped');if(runtime.AGENT_NATIVE_EXECUTION_ENABLED!=='false')throw Error('Stopped-worker setup requires native execution disabled');}
 const restartApp=process.argv.includes('--restart-app');
+// Refuse first topology activation or namespace-owner replacement on an
+// ordinary up: that path can start the worker before the health gates below.
+// Exact worktree ownership is mandatory on controlled paths too.
+assertAgentModeNamespaceActivation({composeFile:resolve(root,'ops/agent-mode/compose.local.yml'),controlled:restartApp||leaveWorkerStopped,runDocker:args=>spawnSync('docker',args,{cwd:root,encoding:'utf8',timeout:5000})});
+if(leaveWorkerStopped){const workerState=spawnSync('docker',['--context','orbstack','inspect','project-acquire-agent-worker','--format','{{.State.Running}}'],{encoding:'utf8'});if(workerState.status!==0||workerState.stdout.trim()!=='false')throw Error('Confirm the exact native worker is stopped before using --leave-worker-stopped');if(runtime.AGENT_NATIVE_EXECUTION_ENABLED!=='false')throw Error('Stopped-worker setup requires native execution disabled');}
 const launchServices=agentModeLauncherServices({workerStopped:leaveWorkerStopped,restartApp,simulated,communications:communications.enabled});
 if(launchServices.stopWorkerBeforeUp){
   const stop=spawnSync('docker',['--context','orbstack','stop','project-acquire-agent-worker'],{cwd:root,stdio:'inherit'});
@@ -103,9 +108,9 @@ if(restartApp){
   const restart=spawnSync('docker',[...compose,'up','-d','--no-deps','--force-recreate','app'],{cwd:root,stdio:'inherit'});
   if(restart.status!==0)throw new Error('Agent preview app recreation failed');
 }
-// These processes share app's network namespace. A Next/app restart can leave
-// otherwise-running dependants attached to the old namespace; always rebind
-// them after the app/dependency update before asserting callback readiness.
+// All app processes share an independent inert namespace owner. Unexpected app
+// restarts preserve loopback. An explicit launcher update still rebinds these
+// processes for profile/image changes (including a replaced namespace owner).
 const rebind = spawnSync('docker', [...compose, 'up', '-d', '--no-deps', '--force-recreate', ...launchServices.rebind], { cwd: root, stdio: 'inherit' });
 if (rebind.status !== 0) process.exit(rebind.status || 1);
 if(communications.enabled){
@@ -143,8 +148,8 @@ const preflight = spawnSync('docker', ['--context', 'orbstack', 'exec', 'project
   console.log('Worker authentication verified; anonymous requests remain denied.');
 `], { cwd: root, stdio: 'inherit', timeout: 90000 });
 if (preflight.status !== 0) process.exit(preflight.status || 1);
-// The app owns a new network namespace. Recreate the worker only after every
-// service/authentication check succeeds; starting its old container is unsafe.
+// Recreate the worker only after every service/authentication check succeeds;
+// a deliberate app/profile update must not skip those existing readiness gates.
 if(launchServices.startWorkerAfterHealth){
   const start=spawnSync('docker',[...compose,'up','-d','--no-deps','--force-recreate','agent'],{cwd:root,stdio:'inherit'});
   if(start.status!==0)throw Error('Native worker could not rejoin the ready app namespace');

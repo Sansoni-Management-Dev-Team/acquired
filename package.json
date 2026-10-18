@@ -16,7 +16,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run && npm run test:node",
-    "test:node": "node --test scripts/app-deploy-host.test.mjs scripts/app-public-smoke.test.mjs scripts/communications-standalone-lifecycle-runner.test.mjs scripts/communications-deploy-host.test.mjs scripts/communications-production-database.test.mjs scripts/communications-production-package.test.mjs scripts/communications-deploy-schema-preflight.test.mjs scripts/agent-mode-local-database.test.mjs ops/agent-mode/native-worker.test.mjs scripts/agent-mode-communications-env.test.mjs scripts/agent-mode-env-file.test.mjs scripts/agent-mode-launcher-services.test.mjs scripts/agent-mode-restart-guard.test.mjs scripts/agent-mode-worker-env.test.mjs ops/agent-mode/setup-callback-gateway.test.mjs ops/agent-mode/simulator-transports.test.mjs",
+    "test:node": "node scripts/run-node-tests.mjs",
     "build:communications:service": "node scripts/build-communications-service.mjs",
     "test:campaign:integration": "node scripts/test-campaign-integration-local.mjs",
     "test:firmable-db": "RUN_FIRMABLE_DB_INTEGRATION=true vitest run src/db/firmable-history.integration.test.ts",

@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import {discoverNodeTestFiles} from "./scripts/test-runner-files.mjs";
 
 export default defineConfig({
   resolve: {
@@ -14,23 +15,8 @@ export default defineConfig({
       ".local-data/**",
       "cloudflare/research/workflow-tests/**",
       "cloudflare/research/provider-coordinator.integration.test.ts",
-      // These use node:test and are run by test:node after Vitest.
-      "ops/agent-mode/native-worker.test.mjs",
-      "scripts/agent-mode-communications-env.test.mjs",
-      "scripts/agent-mode-env-file.test.mjs",
-      "scripts/agent-mode-launcher-services.test.mjs",
-      "scripts/agent-mode-restart-guard.test.mjs",
-      "scripts/agent-mode-worker-env.test.mjs",
-      "ops/agent-mode/setup-callback-gateway.test.mjs",
-      "ops/agent-mode/simulator-transports.test.mjs",
-      "scripts/agent-mode-local-database.test.mjs",
-      "scripts/app-deploy-host.test.mjs",
-      "scripts/app-public-smoke.test.mjs",
-      "scripts/communications-standalone-lifecycle-runner.test.mjs",
-      "scripts/communications-deploy-host.test.mjs",
-      "scripts/communications-deploy-schema-preflight.test.mjs",
-      "scripts/communications-production-database.test.mjs",
-      "scripts/communications-production-package.test.mjs",
+      // Shared syntax-based discovery prevents Node suites from drifting out of test:node.
+      ...discoverNodeTestFiles(),
     ],
   },
 });
