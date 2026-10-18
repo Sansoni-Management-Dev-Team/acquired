@@ -2,5 +2,5 @@
 export function agentModeLauncherServices({workerStopped=false,restartApp=false,simulated=false,communications=false}={}){
  const holdWorker=workerStopped||restartApp;
  const sidecars=['transports','research',...(!holdWorker?['agent']:[]),...(simulated?['simulator-bridge']:[]),...(communications?['communications','setup-callback']:[])];
- return {up:holdWorker?['app',...sidecars]:[],rebind:sidecars,stopWorkerBeforeUp:restartApp&&!workerStopped,startWorkerAfterHealth:restartApp&&!workerStopped};
+ return {up:holdWorker?['network','app',...sidecars]:[],rebind:sidecars,stopWorkerBeforeUp:restartApp&&!workerStopped,startWorkerAfterHealth:restartApp&&!workerStopped};
 }
