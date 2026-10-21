@@ -1,4 +1,5 @@
 import 'server-only';
+import {isDeepStrictEqual} from 'node:util';
 import {readHostedDemoCommunicationsDescriptor} from './hosted-demo-communications-environment';
 import {withCampaignDb,type CampaignActor} from '@/db/campaign-client';
 import {CommunicationsClient} from '../../communications/packages/sdk/src';
@@ -31,7 +32,22 @@ export async function actorCommunicationsClient(actor:CampaignActor,options:{set
   if(typeof key==='string'&&(direct.has(key)||snapshot.has(key)||key==='setupConnection'))return async(...args:unknown[])=>{
    const binding=direct.has(key)?args[0]:snapshot.has(key)?(args[0]as{snapshot?:{binding?:unknown}})?.snapshot?.binding:(args[1]as{reconnectBinding?:unknown})?.reconnectBinding;
    if(!binding&&key!=='setupConnection')throw Error('Recorded communications binding required');
-   const lane=binding?await resolveOwnedCommunicationsLane(actor,binding as ConnectionBinding):initial;
+   let provisioningStatus=false;
+   if(key==='connectionStatus'&&options.setupLane==='hosted'){
+    const descriptor=readHostedDemoCommunicationsDescriptor(process.env,actor);
+    if(descriptor.phase==='provisioning'){
+     if(!descriptor.bindings.some(original=>isDeepStrictEqual(original,binding)))throw Error('Recorded hosted setup account unavailable');
+     const b=binding as ConnectionBinding;
+     await withCampaignDb(actor,async c=>{
+      const saved=await c.query("SELECT id FROM public.communication_bindings WHERE application_id=$1 AND organization_id=$2 AND owner_user_id=$3 AND service_connection_id=$4 AND service_account_id=$5 AND generation=$6 AND channel=$7 AND platform=$8 AND backend=$9 AND authority='service'",[b.applicationId,b.tenantId,b.ownerId,b.connectionId,b.accountId,b.generation,b.channel,b.platform,b.backend]);
+      if(saved.rows.length!==1)throw Error('Recorded hosted setup account unavailable');
+     });
+     provisioningStatus=true;
+    }
+   }
+   // Setup verification is a read-only capability. Submission, readiness,
+   // relationships, lookup and account changes still require the active lane.
+   const lane=provisioningStatus?'hosted':binding?await resolveOwnedCommunicationsLane(actor,binding as ConnectionBinding):initial;
    const selected=construct(lane),method=Reflect.get(selected,key);return Reflect.apply(method,selected,args);
   };
   const value=Reflect.get(target,key,target);if(typeof value==='function'&&typeof key==='string'&&!['connections','health','constructor'].includes(key))throw Error('Unsupported routed communications method');return typeof value==='function'?value.bind(target):value;

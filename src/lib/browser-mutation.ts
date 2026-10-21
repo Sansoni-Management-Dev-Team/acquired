@@ -5,10 +5,12 @@ import { hasTrustedRequestOrigin } from './request-origin';
 const independentBoundaries = [
   '/api/auth/', '/api/internal/', '/api/research/internal/', '/api/firmable/internal/',
 ];
+const hostedDemoCallbacks = new Set(['access', 'authority', 'recipient', 'coverage', 'events']
+  .map(name => `/api/agent/hosted-demo/${name}`));
 export function guardBrowserMutation(request: Request): Response | null {
   if (['GET', 'HEAD', 'OPTIONS'].includes(request.method)) return null;
   const path = new URL(request.url).pathname;
-  if (independentBoundaries.some(prefix => path.startsWith(prefix)) || path === '/api/inbound/reply') return null;
+  if (independentBoundaries.some(prefix => path.startsWith(prefix)) || path === '/api/inbound/reply' || hostedDemoCallbacks.has(path)) return null;
   const deny = (error: string, status: number) => Response.json({ error }, { status, headers: { 'Cache-Control': 'no-store' } });
   if (!hasTrustedRequestOrigin(request)) return deny('Invalid origin', 403);
   // DELETE operations need no body, but still require a trusted Origin.
