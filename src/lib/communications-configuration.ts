@@ -88,5 +88,6 @@ export async function configuredAcquireCommunicationsForBinding(actor:CampaignAc
  // Disabling a lane makes its original bindings unavailable; it never redirects
  // their history, receipts or effects through the primary provider profile.
  const lane=await resolveOwnedCommunicationsLane(actor,binding);
+ if(lane==='hosted')throw Error('Hosted bindings require the provider-free application facade');
  return lane==='testing'?configuredTestingCommunications(actor):lane==='demo'?configuredDemoCommunications():configuredAcquireCommunications();
 }

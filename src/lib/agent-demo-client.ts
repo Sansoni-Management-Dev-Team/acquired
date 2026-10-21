@@ -10,7 +10,7 @@ const mapping=source.extend({simulatorLeadId:z.string().regex(/^lead-\d{3}$/),em
 const responseSchema=z.object({version:z.literal(1),runId:z.string().regex(/^[a-z][a-z0-9-]{2,63}$/),demoId:uuid,mappingDigest:hash,mappings:z.array(mapping).min(1).max(50),accounts:z.array(z.object({channel:z.enum(['email','whatsapp','linkedin']),providerAccountId:text,sourceId:text}).strict()).length(3),limits:z.object({participants:z.literal(999),modelCalls:z.number().int().min(0).max(300),perPerson:z.number().int().min(0).max(6),perPersonChannel:z.literal(2)}).strict(),usage:z.object({participants:z.number().int().min(0).max(999),modelCalls:z.number().int().min(0).max(300),remainingModelCalls:z.number().int().min(0).max(300)}).strict(),replayed:z.boolean()}).strict();
 export type AgentDemoParticipantsRequest=z.infer<typeof requestSchema>;
 export type AgentDemoParticipantsResult=z.infer<typeof responseSchema>;
-export type AgentDemoControlConfiguration={endpoint:string;adminKey:string;expectedRunId?:string};
+export type AgentDemoControlConfiguration={endpoint:string;adminKey:string;expectedRunId?:string;transport?:'local'}|{transport:'hosted';expectedRunId:string;request:(input:AgentDemoParticipantsRequest,signal:AbortSignal)=>Promise<unknown>};
 export class AgentDemoRecipientError extends Error{
  readonly name='AgentDemoRecipientError';
  readonly status:number;
@@ -20,7 +20,7 @@ export class AgentDemoRecipientError extends Error{
  }
 }
 
-function controlEndpoint(config:AgentDemoControlConfiguration|null){
+function controlEndpoint(config:Exclude<AgentDemoControlConfiguration,{transport:'hosted'}>|null){
  try{
   if(!config||!config.adminKey||config.adminKey.trim()!==config.adminKey||/[\r\n]/.test(config.adminKey))throw Error();
   const url=new URL(config.endpoint);
@@ -38,9 +38,9 @@ function controlEndpoint(config:AgentDemoControlConfiguration|null){
 export async function prepareAgentDemoRecipients(mode:'real'|'demo',raw:unknown,config:AgentDemoControlConfiguration|null,fetcher:typeof fetch=fetch):Promise<{kind:'real'}|{kind:'demo';result:AgentDemoParticipantsResult}>{
  if(mode==='real')return {kind:'real'};
  const parsed=requestSchema.safeParse(raw);if(!parsed.success)throw Error('Invalid demo recipient request.');
- const input=parsed.data,url=controlEndpoint(config);
+ const input=parsed.data,local=config?.transport==='hosted'?null:config,url=config?.transport==='hosted'?null:controlEndpoint(local);
  let response:Response;
- try{response=await fetcher(url,{method:'POST',headers:{Authorization:'Bearer '+config!.adminKey,'Content-Type':'application/json'},body:JSON.stringify(input),redirect:'error',cache:'no-store',signal:AbortSignal.timeout(5000)});}catch{throw Error('Demo recipients are unavailable. Retry the same request to reconcile it.');}
+ try{const signal=AbortSignal.timeout(5000);response=config?.transport==='hosted'?Response.json(await config.request(input,signal)):await fetcher(url!,{method:'POST',headers:{Authorization:'Bearer '+local!.adminKey,'Content-Type':'application/json'},body:JSON.stringify(input),redirect:'error',cache:'no-store',signal});}catch{throw Error('Demo recipients are unavailable. Retry the same request to reconcile it.');}
  if(!response.ok){
   // Only fixed local contract codes affect presentation. Never surface remote
   // messages, bodies, account identities or credentials to the browser/logs.

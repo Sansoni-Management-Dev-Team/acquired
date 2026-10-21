@@ -1,6 +1,6 @@
 import {createHash} from 'node:crypto';
 import {it,expect,vi} from 'vitest';
-import {prepareAgentDemoRecipients} from './agent-demo-client';
+import {prepareAgentDemoRecipients,type AgentDemoParticipantsRequest} from './agent-demo-client';
 const uuid=(n:number)=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
 const scope={version:1 as const,demoId:uuid(1),mandateId:uuid(1),organizationId:'text-org',userId:'text-user',requestKey:uuid(2),people:[{sourcePersonId:uuid(3),sourceRevision:'42',sourceFingerprint:'a'.repeat(64)}]};
 const config={endpoint:'https://127.0.0.1:5890',adminKey:'private-control-test-key'};
@@ -42,4 +42,12 @@ it('returns a safe non-transient error for a refused saved demo source instead o
  const failure=prepareAgentDemoRecipients('demo',scope,config,vi.fn(async()=>Response.json({code:'demo_source_changed',private:'must not reach the browser'},{status:409})));
  await expect(failure).rejects.toMatchObject({name:'AgentDemoRecipientError',status:409,reason:'source_conflict'});
  await expect(failure).rejects.not.toThrow(/Retry|private|must not reach/);
+});
+
+it('uses only the trusted hosted transport with the same strict manifest and receipt verification, without a provider admin key',async()=>{
+ const request=vi.fn(async(input:AgentDemoParticipantsRequest,signal:AbortSignal)=>{void input;void signal;return response();}),fetcher=vi.fn();
+ const hosted={transport:'hosted' as const,expectedRunId:'gui-demo-test',request};
+ expect(await prepareAgentDemoRecipients('demo',scope,hosted,fetcher)).toMatchObject({kind:'demo',result:{runId:'gui-demo-test'}});
+ expect(request).toHaveBeenCalledOnce();expect(request.mock.calls[0]?.[0]).toEqual(scope);expect(request.mock.calls[0]?.[1]).toBeInstanceOf(AbortSignal);expect(fetcher).not.toHaveBeenCalled();
+ const other={...response(),runId:'another-run'};await expect(prepareAgentDemoRecipients('demo',scope,{...hosted,request:async()=>other},fetcher)).rejects.toThrow('Demo recipients could not be verified');
 });

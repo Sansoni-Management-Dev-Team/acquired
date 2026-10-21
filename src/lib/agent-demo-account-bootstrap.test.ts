@@ -21,3 +21,11 @@ it('never bootstraps or adopts legacy accounts when the selected testing profile
  await expect(verifyDemoAccountBindings(actor,{client:f.client,recorded:f.recorded})).rejects.toThrow(/5991.*not ready/);
  expect(f.client.setupConnection).not.toHaveBeenCalled();expect(f.client.connections).not.toHaveBeenCalled();expect(f.recorded).not.toHaveBeenCalled();
 });
+
+it('prepares hosted accounts only through explicit private production setup and exact attested run identities',async()=>{
+ const f=fixture(),runId='hosted-demo-example',descriptor={version:1,mode:'hosted-demo',phase:'provisioning',runId,integrationId:'sim-'+runId,configurationReference:'sim-'+runId+'-v1',applicationOrigin:'https://acquire.example.invalid',serviceOrigin:'https://simulator.example.invalid',setupOrigin:'https://simulator.example.invalid',actor:{applicationId:'acquire',tenantId:'org',ownerId:'owner'},capabilities:{dynamicRecipients:true,recipientContextLookup:true,remoteApplicationAuthority:true,durableEvents:true},bindings:f.connections.map(c=>c.binding)};
+ for(const[k,v]of Object.entries({NODE_ENV:'production',APP_URL:descriptor.applicationOrigin,AGENT_DEMO_TARGET:'hosted',AGENT_HOSTED_DEMO_COMMUNICATIONS_ENABLED:'true',AGENT_HOSTED_DEMO_COMMUNICATIONS_DESCRIPTOR_JSON:JSON.stringify(descriptor)}))vi.stubEnv(k,v);
+ f.recorded.mockImplementation(async binding=>({binding,bindingId:'binding-'+binding.channel,bindingDigest:'a'.repeat(64),active:true,providerAccountId:'sim-'+runId+'-'+binding.channel,sourceId:'sim-source-'+binding.channel}));
+ expect(await prepareDemoAccountConnection(actor,'email',f.client)).toEqual({status:'unknown'});expect((await verifyDemoAccountBindings(actor,{client:f.client,recorded:f.recorded})).map(s=>s.providerAccountId)).toEqual(channels.map(c=>'sim-'+runId+'-'+c));
+ await expect(prepareDemoAccountConnection({...actor,userId:'foreign'},'email',f.client)).rejects.toThrow();
+});
