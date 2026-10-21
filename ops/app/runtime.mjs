@@ -13,3 +13,5 @@ if (process.env.DATABASE_SSL_CA_BASE64) {
   process.env.DATABASE_SSL_CA = Buffer.from(process.env.DATABASE_SSL_CA_BASE64, "base64").toString("utf8");
 }
 await import("./server.js");
+const { startAgentBackgroundWorker } = await import('./agent-background-worker.mjs');
+await startAgentBackgroundWorker(process.env);

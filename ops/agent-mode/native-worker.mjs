@@ -5,7 +5,7 @@ import {setTimeout as delay} from 'node:timers/promises';
 export function nativeWorkerPollingMode(env={}){
  return env.NODE_ENV==='development'&&env.AGENT_MODE_COMMUNICATIONS_MODE==='simulator'&&env.AGENT_MODE_SIMULATOR_TEST_POLICY==='true'?'fast-test':'adaptive';
 }
-/** Local-only background driver. Browser tabs do not own polling or work. */
+/** Loopback background driver. Browser tabs do not own polling or work. */
 export async function requestNativeTick({secret,fetcher=globalThis.fetch,signal}={}){
  if(!secret)throw new Error('Native worker credentials unavailable');
  signal?.throwIfAborted();

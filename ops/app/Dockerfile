@@ -21,6 +21,8 @@ COPY --from=build --chown=node:node /app/.next/static ./.next/static
 COPY --from=build --chown=node:node /app/public ./public
 COPY --from=build --chown=node:node /app/.local-data/manufacturing-search-index.json ./.local-data/manufacturing-search-index.json
 COPY --chown=node:node ops/app/runtime.mjs ./runtime.mjs
+COPY --chown=node:node ops/app/agent-background-worker.mjs ./agent-background-worker.mjs
+COPY --chown=node:node ops/agent-mode/native-worker.mjs ./native-agent-driver.mjs
 COPY --chown=node:node ops/app/campaign-readiness.mjs ./campaign-readiness.mjs
 COPY --chown=node:node scripts/campaign-rollout-readiness.mjs ./campaign-rollout-readiness.mjs
 RUN mkdir -p .next/cache && chown node:node .next/cache

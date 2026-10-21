@@ -1,0 +1,402 @@
+{
+  "status": "unapplied proposal; not executed on any database",
+  "target": {
+    "database": "postgres",
+    "owner": "postgres",
+    "systemIdentifier": "7678071634733212629"
+  },
+  "localSchemaSha256": "fe1e18e73fe8cc57f19fbbf3fc98ff2b3a1d2764d8c950addfa2832172a0e23e",
+  "productionInventorySha256": "3bd11043af8d828637d7138e5b6971b86d357d470e536ab1f0625fbf7de6fb8c",
+  "artifactSha256": "ed8e64ef719a9d3d206605169aa442c3329d9023ce8cb951b05158727f54a6ea",
+  "newTables": [
+    "agent_authority_grants",
+    "agent_authority_uses",
+    "agent_budget_accounts",
+    "agent_budget_reservations",
+    "agent_channel_policies",
+    "agent_conversation_channels",
+    "agent_conversations",
+    "agent_demo_contact_mappings",
+    "agent_demo_mapping_receipts",
+    "agent_demo_mapping_requests",
+    "agent_demo_runs",
+    "agent_events",
+    "agent_handoffs",
+    "agent_linkedin_invitations",
+    "agent_linkedin_relationships",
+    "agent_mandate_execution_modes",
+    "agent_messages",
+    "agent_operations",
+    "agent_person_claims",
+    "agent_research_phase_allocations",
+    "agent_research_phase_budgets",
+    "agent_responsibilities",
+    "agent_review_batches",
+    "agent_runs",
+    "agent_runtime_registrations",
+    "agent_sink_messages",
+    "agent_threads",
+    "communication_submission_receipts",
+    "company_identity_claims",
+    "company_identity_decisions",
+    "company_identity_observations",
+    "company_identity_resolutions",
+    "company_identity_reviews",
+    "company_membership_projections"
+  ],
+  "excludedLocalTables": [
+    "agent_local_migrations",
+    "agent_simulator_test_policies",
+    "local_simulator_business_runs"
+  ],
+  "objectCounts": {
+    "FUNCTION": 187,
+    "TABLE": 34,
+    "SEQUENCE": 1,
+    "VIEW": 1,
+    "CONSTRAINT": 59,
+    "INDEX": 27,
+    "TRIGGER": 53,
+    "FK CONSTRAINT": 101,
+    "POLICY": 71,
+    "ROW SECURITY": 29,
+    "ACL": 231
+  },
+  "adaptations": [
+    {
+      "function": "agent_adopt_sequence_channels",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_channel_communications_change",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_channel_due_reassessment",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_channel_local_binding",
+      "change": "disabled local/legacy predicate; no hosted registration authority"
+    },
+    {
+      "function": "agent_channel_local_binding_before_execution_context",
+      "change": "disabled local/legacy predicate; no hosted registration authority"
+    },
+    {
+      "function": "agent_channel_operation_before_invitations",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_channel_outbound_consumed_turn",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_channel_proposal_before_execution_context",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_channel_proposal_before_invitations",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_channel_proposal_permitted_before_history_quiet",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_channel_record_submission",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_channel_reply_causality",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_communications_bounce",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_communications_change",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_control_handoff",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_demo_run_bindings_match",
+      "change": "disabled local/legacy predicate; no hosted registration authority"
+    },
+    {
+      "function": "agent_demo_runtime_ready",
+      "change": "disabled local/legacy predicate; no hosted registration authority"
+    },
+    {
+      "function": "agent_gui_testing_send_window_exempt",
+      "change": "disabled local/legacy predicate; no hosted registration authority"
+    },
+    {
+      "function": "agent_ingest_channel_relationship",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_invitation_before_company_projection",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_local_business_completion_guard",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_lock_member",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_native_sending_policy",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_operation_authorised_before_sending_policy",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_record_invitation_outcome",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_recorded_demo_route_matches",
+      "change": "replace colocated service generation join with exact registered run predicate; retain every original route/source/member/digest condition"
+    },
+    {
+      "function": "agent_register_channel",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_registered_worker_scopes",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_save_channel_history",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_simulator_window_exception",
+      "change": "disabled local/legacy predicate; no hosted registration authority"
+    },
+    {
+      "function": "agent_worker_scopes",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "agent_worker_scopes_for_mandate",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "communications_resolve_untracked_outbound",
+      "change": "colocated service review recovery unavailable; never clears a hold"
+    },
+    {
+      "function": "communications_submission_receipt_guard",
+      "change": "rename local clock/anchor/guard references only; all remaining body bytes retained"
+    },
+    {
+      "function": "local_simulator_operation_business_anchor",
+      "change": "production wall-time branch only; simulator context rejected"
+    }
+  ],
+  "functionBodySha256": {
+    "agent_adopt_sequence_channels": "6605b2c64485979307e737e2b2ab4ba17692ee0a3a6e421745ce538962653558",
+    "agent_aliases_have_unresolved_sends": "c51d3110137ebdd9451b2ecbe1cd391700e1064da4d69a77dced1a84492f57ee",
+    "agent_allocate_channel_target": "b89495e0992139074b2d0ed92cfd06664393f971301659edef5f12a27cd9b491",
+    "agent_allowed_mandate_binding": "9c0e9a96035b87a233935fa10d5a4ec002a8f311fe54fd02ea00af0659dead62",
+    "agent_assert_automatic_people_target": "d748e04b129e31c1eb93c8784bf421e7f9a35af055d01b23781ee1310c986c42",
+    "agent_assert_company_continuation": "0192346ecf2ceb46e3f63bc7cce3c077f4e05ca738c9ef8e445b7c4b959f2d77",
+    "agent_assert_control_scope": "73681d6e3fc12318558b80992d8498465c2a701e7499b3247ad8be4d3de476d1",
+    "agent_assert_execution_context_scope": "cd61432b224fcf10ba90cbc899245870d7ea7d205dbc1abe244e3cf192875f7b",
+    "agent_assert_mandate_outreach_mode": "2f8646edf3630aa043aa273b64c506f3207a95794b18050000559f03ee5616e3",
+    "agent_assert_manual_mandate_outreach_mode": "154f5ab7560d140b19d8159226ff698a62e67902adaa9e891cf5c152696beb70",
+    "agent_assert_target_allocation": "34db88ca397f97d2f7cd3fed5b877cdc4042bb257eb513858eb6026d5db912b1",
+    "agent_audit_completed_sequence": "faac56d9fb90052dc17859b40c47e27a925f3b829df8478ac1150cc0a8609d33",
+    "agent_authority_use_immutable": "5a25a2e38db1ca51affc1af769de42a1b07b645c1a6c97c9ba2bdbbab77dc8e0",
+    "agent_automatic_people_context": "1aaae5355ec0a5ec77994d1a32677a1c94207864f17362962c54cda1ccb5af97",
+    "agent_canonical_contact_aliases": "01da84b14f9236bbe373d4c0c23c3aad08b08ef5d34471d0e25587301fb5d077",
+    "agent_channel_canonical_json": "0a34d0ab7f32099ea52f50e3339a4924d31947b0c63b4e601a04ed934a56a5aa",
+    "agent_channel_communications_change": "cc2fc2f93731389f3bacfad9d372cbe1db990be24e7cb069ae945c26b02cc3ce",
+    "agent_channel_communications_no_submission": "4140f96ffb34dbbc4b693aee4a315f7fb1914a50ffe7b5f0fedaf58d5e7b5207",
+    "agent_channel_communications_source": "ad85f0881594aa9cb59c225d6a65133a5aa40b347a15e97f726e59f9daf5f732",
+    "agent_channel_due_reassessment": "fb30f69e40902630f1e88ae5d4df3dcca972075512df9843042a94168323773b",
+    "agent_channel_grant_immutable": "8f8b6ec1fe00b50c871baa432c90ec8ff873bd32525cf46db9c84e7d65a51a07",
+    "agent_channel_local_binding": "3cc4b81e104b102126781d5624f370784dc32e801b38a06270182a6e32dffa4a",
+    "agent_channel_local_binding_before_execution_context": "3cc4b81e104b102126781d5624f370784dc32e801b38a06270182a6e32dffa4a",
+    "agent_channel_operation_authorised": "96f767438cfa1bad6d36bcd7e82d954ad7093fd887c6fde25b87fb1371d34c21",
+    "agent_channel_operation_before_company_projection": "73dc28de72c9c4dbfa492fec36e135c6e1b67fc33afa29ff315026376b68250a",
+    "agent_channel_operation_before_invitations": "ffba9dc409e77c9a3df70a99a5b6eea77ca630a5b0930db577b3906f9dfb9079",
+    "agent_channel_outbound_consumed_turn": "84401049299eb52e1d37174e9d228ae9c591339407eb40e816f26afd97fa7bb5",
+    "agent_channel_proposal_before_execution_context": "52ffbbabc259d5a432ff11bd66fc6bde9e5caf9dee05098247a27c8e59460b84",
+    "agent_channel_proposal_before_invitations": "45b729ea43c509a17e8041e7d36e59aa96b2816fb99ec0bdfbd53969df81a731",
+    "agent_channel_proposal_permitted": "95ea2519388f30c5e1ca770e17400fb9616ebf3e51eb7828148b14060a9a9103",
+    "agent_channel_proposal_permitted_before_history_quiet": "94ecd92f713b27b60fc9ff6734254ac1f6f2a0676b086cbeafce2f7d9fad17ae",
+    "agent_channel_record_submission": "d5fb763d1144398bc2474e60374d0a255fe1a0fc3bf13faf53d6e057c12f1cd8",
+    "agent_channel_reply_causality": "525cf33feb3a10b1b2d6251010ad11e073b414acee0517eb8f2e9e68a494336c",
+    "agent_channel_reserved_recipient": "30882392c63325bb454efdb8eae9579815228c1c5674de3d52d48c16197979af",
+    "agent_channel_source_before_invitations": "82b70e0d1eb3bce98b7c424c7f30850d170694f5bc11477ea14cc16e265b1444",
+    "agent_communications_bounce": "5295a11af79fb0ae12b683a25b28a2ed541c527b6e480c1caedf83f7b4860686",
+    "agent_communications_change": "640c37f11d6efecd5992eda1311e6b985c752ed3df04331effe2148452ef58bb",
+    "agent_communications_intent_guard": "5509921d9742563c0bc8d9d29e54bbfb150639fdeb745feb79faba077d14633a",
+    "agent_communications_no_submission": "eb095306e914513150dfb55e0fb16f0495f21faa6309a80d35f1ceeb314e4de1",
+    "agent_communications_no_submission_before_channels": "54f81a97c998700d52dd4ee31656175d364e035907a2c79158daf4344f4f6db5",
+    "agent_communications_receipt_wake": "e0c82be5024907afe2b9e9431e541e5beb4f88b04240f7efd5a515e7ad1aa729",
+    "agent_communications_receipt_wake_before_channel_routes": "efcff57d0c42ef6c1280ccdf9318375c8c7caabe82492865d9e79fbd4534636a",
+    "agent_communications_source": "8caf6e16bacde1f40bc75269596b9d5875f43562d39692f0e1602113b45cde15",
+    "agent_communications_source_before_reply_parent": "3cfcd744b11e6228a10f690b378a292a75fb552ea7111ef2ceb074d27cf058a3",
+    "agent_communications_source_kind": "37bf4cc70a5c57253e2c9b0b56da5b29953f2c372b92d97b7cd949d68414e508",
+    "agent_company_continuation_job_guard": "6d18704861d1a55f73ae69af1c58910482ef53143264ae0e703a30849495f258",
+    "agent_company_continuation_operation_guard": "707f44df8d0edf7d0a045a8dd52d7e1a27af033d1faebbfc486287368139c6c9",
+    "agent_company_continuation_sources": "7ec13b3e12fcfe522b8ff4c84b56256bed9227b51830078c6549ab1fa237e70a",
+    "agent_company_conversation_permitted": "250e7d0a1d181674c79fb974aa0478394e25aa377cf7da5c9be978049232c521",
+    "agent_company_findings_digest": "79665af2df36ae8afce81c01a5eea44f9e6845394e66d5b1f993f3100d99879d",
+    "agent_company_membership_projection": "68e0e8c84afcf015e4f45974177bfb7eb4c3da26beb450bfee3504e8da9cccf6",
+    "agent_company_projection_writer_guard": "56baf8db159ead0370b54376058ae6db0bb97236e8868b7bf0c625ef0dbd0986",
+    "agent_configure_budget": "c9939015e89628d8cf15afaa3099af20e60193ecad09a7c7674b103dc138e858",
+    "agent_consume_delegation": "d4639d7e9f540cddeb830c0c0e469c6df99e7f67ce493a549ee833386e267f38",
+    "agent_consume_delegation_before_channels": "9080360b7f50c8d889a5f225e4259dc78ff7966c9532f285e5c4f1e6c4fc3d9f",
+    "agent_contact_delivery_recipients": "7e4f98615ee254edc22e4445fa7e06856dff3febd4d99001823875baeb01900c",
+    "agent_contact_identity_batch": "fef53ba8306a37df99bfcac9f6e4e15cd0b1c18ff3d334f4465fe8254cc7f00e",
+    "agent_context_revision": "834b46bbb89fcc2fdab6a26d1515a04e422c953744563a675f176c97d00fefb5",
+    "agent_context_revision_before_channels": "eb9230fbea28d4a55ea80ecb3c462a6eb3ad575dcd0da093c780979fcb85f6f6",
+    "agent_context_revision_before_company_projection": "f88da438d796b6091249de5f50a0bdddd027d821c13a9a5d236df2b880923efe",
+    "agent_context_revision_before_invitations": "f1bf06e570dd7cf7e7445eaa0bb1d3fe652b66a189c113997e4f431b967f9f82",
+    "agent_control_handoff": "b75c7708f4a33aa3f73c1b7d7130ac679e4496e1aa6772f4635c4f2773ace678",
+    "agent_conversation_guard": "fb00cc53cb5b943464911c6675d30170c829de6b3f7cb1dddebffe7d00caac71",
+    "agent_create_fields_job": "a6503a667db745553bad9040abfd6093ef493a1707b4f6bbeda7c5b5f4b5f9fa",
+    "agent_create_people_job": "41e69392b8d1f1d66a82cb5c987a69c869bed885c2f5021a450f12838309e093",
+    "agent_create_research_job": "f45bef5d0616ec77dab378eb38db9eeac0accdcb3b36aa04f073685e018ee788",
+    "agent_current_company_projection": "ad76378b6d442c0d4fbd6f0d1c4fa22eb88b3e7bffd6f2aca8d2d81b3d9c0445",
+    "agent_delivery_candidate_projection": "b2e3443a513750b805a35e2eabd306228767f255425607b95a4f473787208456",
+    "agent_delivery_contact_projection": "f402f4fd507f4ff5648c5f9edf72783926a5917a8ed51ca70fc5908f461f9b04",
+    "agent_demo_contact_fingerprint": "325bd9fe137f6b97b7871e32cb805cb663fe84ab8405dd97f3b2064db50d005e",
+    "agent_demo_evidence_immutable": "9c9a352f5254176c08b7c91fb20834ea9ea84ab4a1cb447465336371041eed8c",
+    "agent_demo_evidence_insert_guard": "0e7c2a4ce1232943265c8e2ae931731bf38a672b3a0760551d39dad16f734420",
+    "agent_demo_execution_readiness": "183e0367a2d8d4d283a329d8682f60a065dfb100a931e3540e2ef95d4396ddfb",
+    "agent_demo_manual_outreach_guard": "562c7fea4b0ba460c8a66096d11ab9782519e950a4ebe70f47ae21839ace0ed0",
+    "agent_demo_original_effect_identity_guard": "5e521cae5e8602f06371acb14e0d1017f9850cd4f1697b7ca3056388a8be6b64",
+    "agent_demo_run_bindings_match": "3cc4b81e104b102126781d5624f370784dc32e801b38a06270182a6e32dffa4a",
+    "agent_demo_runtime_ready": "3cc4b81e104b102126781d5624f370784dc32e801b38a06270182a6e32dffa4a",
+    "agent_demo_wire_valid": "220656ad51add58aa0e1d226640ec70c160f249eda1e43fb37d55a84fb7b3e40",
+    "agent_driver_allows": "a6597beaf3aa57f87eb53deb43492b8982105f9cc77d72eb4cd018d4874ddfad",
+    "agent_effective_contact": "f154528a9d4b30a54f4101a708312c36fd3a45f05e79e9117f3c764931ee6c92",
+    "agent_email_reply_parent": "52a9a93a95df249e8b528a265074ff377463d1cf7820ed3bc40346880fec393f",
+    "agent_email_window_open": "b6964491ea7816817e7e46062edd319d7b3a7aa2350d3bf61e8b0a7d57b3df42",
+    "agent_enrol_reviewed_sequence": "b692969ed6fbf8c31f184fccc79eca9d1d8b3143c431631d1782e0787b73c087",
+    "agent_event_eligible": "a37f3fd6cdf8f71076bff9e3b523351c48db20cf5ea685bb6bab1c8e38faa873",
+    "agent_event_eligible_before_channel_due": "4ce53a7235bea4ad9b645ef4e2c3122c10aab13b2b2bf88eb23d88c2b43e0ce8",
+    "agent_event_eligible_before_registry": "a4c2e855020f9a2e83af35a78708bbd2b8eead05fd45c60aed302718f90a95bd",
+    "agent_fields_company_snapshot": "b8125eb0cc78aa8077e652e0aa221646bba3c606ba1fce988ae2165402bea9d8",
+    "agent_fields_current_source": "a098fe74334456aec3f17c1cf3c7d173b574e4e1317e6d106da4eebba1078a85",
+    "agent_fields_job_before_company_projection": "7ca748b9471141f7038f1ba22b4ca847a0d54d4a45bee43f905fec5493320544",
+    "agent_fields_persistence_permitted": "0e5fda62418ed7c4c91bebbf9214c83c3907e12eb976818be43ed756f0a2aa5c",
+    "agent_fields_snapshot_before_company_projection": "f6e4b80c7b9929c9473c4d72974f17363857ad2abf1a314fb686c352bdcb5eb2",
+    "agent_grant_immutable_scope": "0c6ed8c8a5c09fc08d00b45025f068702e98fe1823755039eda867bafa09bdd3",
+    "agent_gui_testing_send_window_exempt": "3cc4b81e104b102126781d5624f370784dc32e801b38a06270182a6e32dffa4a",
+    "agent_handoff_assignee_current": "56ec060c9f71fe4c6314330895d4f4c8b2b638f0ef30a86bcc180664b52cc11a",
+    "agent_handoff_context": "0961309e157edc4b1c1019b44814d07ac6ad418ff9fae3a3d9313eeef4b1c88e",
+    "agent_handoff_guard": "63b2ababf899fa8e888bfb105e001c7c9d245f073cc570a7bbf512aaff785481",
+    "agent_handoff_inbox": "a5e18e93b76c3c585061d2aea76d5da33f03f45423d7c661f0e5ba89ec60bfa9",
+    "agent_history_accounts_clear": "7d2cc70708e8da49a165e13456382ca6d9eb61477ad4370799fb7c7dbd380bd2",
+    "agent_ingest_channel_relationship": "ea379f608b04aa58e759daf626b08e9bc7399059817c1e4e99fa52f4609f0a48",
+    "agent_intent_execution_context_guard": "9c1d390b1510dfef76cdc0f6730572ae555499b591b31020fe1608a266db0096",
+    "agent_invalidate_person_reviews": "38101c608682812dde573518434d3b5ccfb6db58d1221224b47581e2e2c930bd",
+    "agent_invalidate_person_reviews_before_invitations": "dde3f6c322ce6742307bb3992c606b63f93f6d9edb9b0540d78a7283903e58da",
+    "agent_invitation_before_company_projection": "7f8956fcdd8a6e522f668862d424d579ae7da4bb5314fcfae62f572aa72f3f4a",
+    "agent_invitation_no_submission": "6892a2fe50b555e8ca4e1fa2853ffcb00fe65a72cf7cdc0b084fbc020877e61b",
+    "agent_invitation_operation_authorised": "ed8139797a54c2f1646b54063381f092627d1fc49138ef9048191aa536249902",
+    "agent_is_demo_origin": "aabd5d5e14ac45e25669dcbe40722a0bd0ad871c89e8d2b54549e510e9da1ca5",
+    "agent_is_original_demo_source": "cacb0179216e4485a1259e5470628aafe5d83a17b5cc6eadb4a5af465e990458",
+    "agent_legacy_sequence_conflicts": "8795d75d0912f4132baba9f62a7fff7ebeac216f56f36ad5ada6284ae19f1a43",
+    "agent_legacy_sequence_occupied": "e542e874999d104c69978c5e8d9fd4544fd3b41919811074617c36f4df831ea1",
+    "agent_load_mandate_execution_context": "dc1a4f8726576d769eaa593af943cc9e7fb49bcd54cc15c30d27474131e6a6b3",
+    "agent_load_mandate_research_context": "2576185ec2fe24a18af2863d1a5f2543398e232771df9a5f7242d6fb6874ba39",
+    "agent_business_completion_guard": "bf05e0282ff287a7e9230e8bf4fd2c257dcdc7cb74f257b2c122497ff346d36c",
+    "agent_lock_member": "ae56446f1d4e705ab44aeb98cbb63542522d74a47f3580cae5fcdb9c00b9a923",
+    "agent_lock_send_gate": "1bec101c62720e412cf9fb7346c74116d654e5d1fe84d7d704d0720f0cbabc79",
+    "agent_mandate_execution_mode_immutable": "d7b900158122962a1fce9251cda5c9c6db583ed3ac79dc7905cb3905edb70387",
+    "agent_mandate_identity_scope": "e67b2ef8d80085a19748144f149476717c00f758ffc58169f85cf10b1de3939d",
+    "agent_mandate_legacy_sequence_occupied": "ab27e528308a10c50928660df8bf1dc2d1233b19db1cc1ba6b8b5e0c4fb7ccd2",
+    "agent_mandate_outreach_mode_guard": "95179dc3a4d254bbc698c8a27d35fde7e9c66d69b501376497ef6bb602be0725",
+    "agent_mandate_person_has_unresolved_sends": "9259080d3392bef0e487aee7f927735f7a46ea7da3c133a03dafdcbacecae300",
+    "agent_mandate_person_keys": "d8a5ed663602ebc26c736957fa9bd32b257cd308eb270e42f0bad8e427f490cb",
+    "agent_manual_feedback_source": "12fec731cad62d1d5d756a3cc06a4fa501b7a039e6040b11426ca9037ed31a46",
+    "agent_manual_target_snapshot": "b40ca805c38e47be022e00ab074103394b230a905df6586b14b220b8716f3a9b",
+    "agent_native_research_status": "b1cfe2744ce3773521199cb2d71ac3a1554c08715d23d11d2e91ce13f97a3b61",
+    "agent_native_sending_policy": "efc5c3b0d3138b1d56f811753dd033f6291d7f69dcb581cfe43ff0a398acc85b",
+    "agent_no_submission_before_invitations": "f0eb4cc67484595339e929bea7122a623bcc83a7651e99e142d8c12e4b14a132",
+    "agent_operation_authorised": "de6c7328abdb718e900ccc361b51b9cdb2a03a732e246fb981439902e481507a",
+    "agent_operation_authorised_before_channels": "489c2070604184d5a350ead8e75f2d7d3ea3dc1c6ebb0c53753ad39c449dad87",
+    "agent_operation_authorised_before_history_accounts": "26965ec1f01d0999b0031460b844cb09a74488af7cb7547692a47a0f26fbb029",
+    "agent_operation_authorised_before_sending_policy": "e06f97f315e6c756cdc5895afbfd8ec67451c8ace725f4e0fcaa1df17db109e9",
+    "agent_operation_before_company_projection": "b486dd5865758d78d5ec14d81db3e037409a15523c753b884896f05d0e41866c",
+    "agent_origin_mandate": "672514e01ece41018fc0aa8592f651736575cec7c6565c6efddc1c6c4014f7a7",
+    "agent_owned_target_snapshot": "b2c149bc78652444bfdfedddab997fd5600f53e3098811a5b4e22f70ddfa6661",
+    "agent_people_company_evidence": "1e5b74f8133bfe84e9eedd0fd74ae7d9c0c2204d80f7301fe9e5e52abf46a27e",
+    "agent_people_company_snapshot": "294fdf8740f9726028613c50c46cf7927e797fae17b886ec8bdef2a638a49aa2",
+    "agent_people_company_snapshot_before_company_projection": "1f24a977a937c267c2dc01937e9cb0719566e7a781c075d00344efdd32b34246",
+    "agent_person_has_unresolved_sends": "00c6a87feac0b1592308d4e32fd6860470424329bbf527905ba47b179a93731d",
+    "agent_person_keys": "dabc765c49ceabc732ea5861e9dfce91d2fee07bd5c990f65bd9e50c5b20a796",
+    "agent_person_unresolved_before_invitations": "2e1d76c1b4a699d8e9c5de2f339fdd5856ccd4f183a6007ac1ae67d73a303590",
+    "agent_prepare_firmable_research": "93d4725d4bd1432fc8f29e220d39205ad1f6bba75c95acb241f031f2cdf5876e",
+    "agent_prepare_hybrid_native_research": "7a513ba8c163ba370743290ce1bc2fc06c5fdb39895aad0302422e301b68f7d7",
+    "agent_public_conversation_facts": "062a01b6cced9555cc02c9da76d8ad1c815c821f5725c2bb236c97dacc82f6fe",
+    "agent_record_automatic_people_candidates": "adafd9e5d9ba8bc5cd43d79db12427ab56b68a98e206d6d98b13430f33057bb0",
+    "agent_record_invitation_outcome": "f9e09386da84f9d6583db591684e0b0c46ccb6219a79c7f26f75f39d3f43a0fc",
+    "agent_record_people_candidates": "37c845febdf4892c6c82ff3da632c5d14ac826e2d232b84457a3f27e2485d6d3",
+    "agent_recorded_binding_digest": "f321e01c151ad145040499923eacd9a13c7ae95c245aa0829d71463db04d7212",
+    "agent_recorded_demo_route_matches": "75938c0acec88333d638a7fbbd9a0796a36a3bda1667332e8c1e9c92f85a6ada",
+    "agent_recorded_reply_execution_scope": "e256db1210a45f4e964fb4771d9a4f7055c5e587dbd39a07917b25fc1f1f39a4",
+    "agent_recorded_reply_identity_registration": "6d14586817c1e362e660a06293eab8c4edf1b4a90e825da0d12e60a601aa9ba3",
+    "agent_register_channel": "ec25e4d8633550aa15a1087cc0a7c40c92ce9f5d7479c0f7e49b4e68a705e7a2",
+    "agent_register_runtime": "30b21367fa985b34cb38d595ee26d7c7d2d0c7ad78a70c1f796b4f5671da38ca",
+    "agent_registered_review_recovery_scopes": "4465ef860c902f5228404d9544d60cb0ca2cf0f840f2dda488e945c7cdc9fbaa",
+    "agent_registered_worker_scopes": "fd675bcf1cdf6501938299fab807ecaec6f0c2c9d1025729ec299f18d6df6f5d",
+    "agent_release_changed_research_budget": "30a1b9df2cdbef6f778b345f62f780e36ba2300ebb6a18697fa98d2bbc33bf51",
+    "agent_release_finished_research_budget": "a1c512332e46619b2dff871e9d4db371b532e3415ab833f2a64add94d0341dfc",
+    "agent_release_research_phase_internal": "597596eb5c80434b80259213f500a41d3c2c906e515c5b8fbb731e97fb0e5280",
+    "agent_reply_causality_guard": "21cdd70ba76deb8aa3a976ae05e583ae299b618772f3b4e154c68f7b85d478fe",
+    "agent_research_phase_budget_status": "da11a78aec9f28582d5ba717702307ed1554db4e7dd0c342efb055ee16705af9",
+    "agent_research_v5_scope": "8c17dba596a10cc2400175b39e9701679154f52e5e234cf94cb3d2aaf0b46fd0",
+    "agent_reserve_budget": "cd51b182d98b3aa273f7586d9a9353f6bd46f9d0797463912a012b620bcf6c16",
+    "agent_reserve_research_phase": "1b4d0bfa62687000c256f56a8bd367a683f3cb85139b4e5f19b0f22d21e7d1ce",
+    "agent_review_history_holds_clear": "5fe14ad1419cd49a320ebcb40d4bb3b7f3a8ac9b25d946a6fd91b929ebf080b8",
+    "agent_route_execution_permitted": "7a05437f7cc29eb44e95010e4a330885e728b28a89ff422e9d73c38ab3dd71c7",
+    "agent_same_execution_identity_scope": "84392cbd091fa18c69eedf16296e0509f95346e1d243ff18e491cbfed989b78c",
+    "agent_save_automatic_people_profile": "ab953b0637f70ee31947d8a571d34be3f80c424199a25626b49a1fd5864a9f82",
+    "agent_save_channel_history": "3b33ac93ce7d6298bdaa53204baced99430c63978d9a0614aa23851c877a3527",
+    "agent_save_channel_policy": "1dfabfb8f3bab658a617383e4c4f47e7739128c848107834d12136284a8f9b63",
+    "agent_save_channel_policy_before_execution_context": "c85ea98418f44616e02179c2bdbcaf5d83a3d775556c981cc8b147674859dac6",
+    "agent_save_people_profile": "e4bcea73165c4d3fc7509e72026a9c51096168460690910a5b7ad9a4374bbefb",
+    "agent_sequence_channel_handover_source": "e40cbda74f1e0f849d2d549617851cbdc872c23d1ff2e242f8e8c5d1321cbbcd",
+    "agent_sequence_driver_before_company_projection": "e02dd2cc4611ade323e0afc987046fb42697e91542bafff51c1fd4815dfb5aa2",
+    "agent_sequence_driver_matches": "c5615444a8cb8aa7dde067f33d5cf31bae37072f377d9fdd4836653a48ea79ca",
+    "agent_sequence_driver_matches_before_channels": "6acfa20f1a2c93b3c15e53c0fb87cf4b2d529c95a883456056f2c4ded0404dad",
+    "agent_sequence_handover_source": "a3e798372106b16a5d19368706106bddbb9591df557fc3091cc5983d1f15bb78",
+    "agent_settle_budget": "080fed1f3e3d7decbad130cb86309dac878f3087be3ac7f2e27ef801be1219b8",
+    "agent_simulator_window_exception": "b2b91d1e983745cc1a76ba6f2dd8ebf1729f1e9f409ce8fabd839323a3bd68a6",
+    "agent_sink_guard": "97c208e8eb8bbf20f8fce2d4d6100dc21691e369ae9ec5c38a878c66a69de6d4",
+    "agent_target_snapshot": "64b6d085d683c0c0ec19b0f9536960111faf808910efd4778c26b4f99dd3ddf4",
+    "agent_target_snapshot_before_company_projection": "e34e896bec76175eb94e6fffd18fbb453f2edc639d026d1803b054e44e369194",
+    "agent_transfer_research_phase_attempt": "04c70956cc839f9498cc4b92fe672377d8706a9a45f28c2c6c09e7d14acd3090",
+    "agent_worker_scopes": "528c1435f41ed16de157c7391eccd7a60b79f76db8e85c62450fc328d07fffd7",
+    "agent_worker_scopes_for_mandate": "43a8fbd80cc95080d90a88fd9d630fd070eb9603723f9625d0cb9de063d538f4",
+    "communications_policy_statement_fence": "f2614bb173202a38560b4fa862f91e58e432f17a1e8022af8a1d0f4dd627c14d",
+    "communications_resolve_untracked_outbound": "5c2acd184a5b4badda85886d08527dec3e3e22ea3a318fed0aee293c41473648",
+    "communications_submission_receipt_guard": "590ed332360a2ad160f320a1bc604870d7a59855be4bba820fd6af2112cbbbff",
+    "communications_submission_receipt_immutable": "40ffad0d220adff23a2f515570326e0f6dafb18df2f7e8b0d028338b442241d4",
+    "company_identity_append_only": "69d7847abf7c94f95137faf16d64519773dcab3275ff86c13df40ecce86a7ea9",
+    "agent_operation_business_anchor": "a6f9c76ec554c491eb429658bcf6e3673f8adb266fd89a462287116596a6dd18"
+  },
+  "rehearsalTarget": {
+    "database": "acquire_hosted_demo_rehearsal",
+    "owner": "postgres",
+    "marker": "acquire-hosted-demo-rehearsal-only",
+    "systemIdentifier": "independently captured from new isolated cluster; production identifier forbidden"
+  }
+}

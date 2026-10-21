@@ -140,8 +140,14 @@ describe('Acquire reply consumer SQL protocol, scripted driver only', () => {
         expect(f.release).toHaveBeenCalledWith(expect.any(Error));
     });
     it.each(['authentication', 'connect', 'query', 'identity'] as const)('rejects synchronous %s work that blocks the deadline timer', async (stage) => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        let elapsed = 0;
+        const monotonic = vi.spyOn(performance, 'now').mockImplementation(() => elapsed);
+        try {
         const f = fixture(), proof = await f.resolveIdentity();
-        const block = () => { const end = performance.now() + 20; while (performance.now() < end) { /* Synthetic callback starves timers. */ } };
+        // Advance elapsed work without servicing the deadline timer. Real CPU
+        // scheduling could previously expire authentication before later stages.
+        const block = () => { elapsed += 20; };
         if (stage === 'authentication')
             f.authenticateDelivery.mockImplementationOnce(async () => { block(); return true; });
         if (stage === 'connect')
@@ -163,6 +169,10 @@ describe('Acquire reply consumer SQL protocol, scripted driver only', () => {
         else {
             expect(f.release).toHaveBeenCalledOnce();
             expect(f.release).toHaveBeenCalledWith(expect.any(Error));
+        }
+        } finally {
+            monotonic.mockRestore();
+            vi.useRealTimers();
         }
     });
     it('honors a delivery abort inside identity resolution and prevents later SQL', async () => {

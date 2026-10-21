@@ -1,6 +1,6 @@
 // Build with synthetic configuration only. Runtime production secrets are separate.
 import { spawnSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 
 const origin = process.env.NEXT_PUBLIC_APP_URL;
 if (!origin || !/^https?:\/\//.test(origin)) throw new Error("Set NEXT_PUBLIC_APP_URL for this image");
@@ -24,5 +24,12 @@ const result = spawnSync("pnpm", ["build"], {
     OUTREACH_DRAFTING_PROVIDER: "fixture",
   },
 });
-if (result.status === 0) writeFileSync(".next/standalone/app-build.json", JSON.stringify({ origin }));
+if (result.status === 0) {
+  const manifest = JSON.parse(readFileSync('.next/prerender-manifest.json', 'utf8'));
+  if (!manifest.routes || typeof manifest.routes !== 'object'
+      || ['/', '/mandates/new'].some(route => Object.hasOwn(manifest.routes, route))) {
+    throw Error('Create pages must read agent availability at request time');
+  }
+  writeFileSync(".next/standalone/app-build.json", JSON.stringify({ origin }));
+}
 process.exit(result.status ?? 1);

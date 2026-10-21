@@ -1,0 +1,33 @@
+# Hosted demo database review
+
+All artifacts here are **proposals, unapplied on every database**. Creating a new rehearsal database, loading its schema, or applying either application migration requires the user's specific approval. Do not use the isolated-agent migration runner against production.
+
+The production app was inspected inside its actual healthy container at source `a62ea79`. Its verified-TLS PostgreSQL17 database is Supabase `njasjqpztiteionfxxul`, database `postgres`, owner `postgres`, system identifier `7678071634733212629`. It has no native agent tables or agent roles. The configured hosted actor is a current organization owner; the organization has 76 mandates, 3,564 companies and 2,997 contacts. These are read-only observations, not exported person profiles.
+
+## Exact proposed operations
+
+1. Create a new disposable PostgreSQL17 container named `acquire-hosted-demo-rehearsal-postgres`, with database `acquire_hosted_demo_rehearsal`, no network, no published ports and temporary storage. Load **only the captured production schema**, with no production rows, using the private bootstrap below. Existing local databases remain untouched.
+2. Apply `001-native-agent-baseline.proposed.sql` to that empty rehearsal schema, followed by `002-hosted-demo-registration.proposed.sql`. Verify the actual PostgreSQL objects, roles, permissions, predicates, constraints and representative restricted-role application transactions. Static parsing alone does not satisfy this step.
+3. Only after rehearsal passes, take a private production backup, revalidate the actual target and predecessors, then apply the **same two artifact bytes** to the production database. An explicit target selector distinguishes production from the independently identified rehearsal cluster. It is not approval. A differing target, predecessor body or partially installed baseline must stop.
+
+The private rehearsal-only bootstrap is in the agent worktree at `.local-data/agent-mode-orbstack/evidence/hosted-production-release-20261022/000-isolated-rehearsal-baseline.proposed.sql`. SHA-256: `ad943a83d806d74f14e7a792521633708e544f62dbf89d71e48abe2dc69a8d71`. It refuses production and a nonempty application schema. It creates only the six prerequisite NOLOGIN roles and empty production-schema objects inside the new isolated database. The private capture contains schema definitions, not business data or credentials.
+
+## Application migration scope
+
+`001` adds 34 application/support tables, an owner-only migration ledger, one identity sequence, a private view, two NOLOGIN roles, constraints, indexes, policies, triggers and the final native-agent functions. Existing dispatch intents gain three nullable execution-context columns; their source-kind constraint also permits `agent`. The existing writer-fence function gains the narrowly scoped agent writer path while retaining its campaign behavior. No existing business rows, contacts, mandates, approval history, service bindings or send attempts are backfilled, deleted or reassigned.
+
+The final schema comes from a schema-only inspection of the marked local build, compared with the actual production catalog. `001-native-agent-baseline.manifest.json` records object counts, source/body hashes and each adaptation. It excludes colocated communications storage, local migration ledgers, old fixture registrations and simulated clocks. Production time uses real wall time and rejects simulator clock context. Local-only predicates return false. The demo reply predicate retains the original member, mapping, recipient and binding checks, and verifies the application-owned registered run instead of reading a service database. Colocated untracked-outbound recovery refuses to clear holds; portable recovery needs separate service evidence work. No send approval or faster cold follow-up is introduced.
+
+`002` creates the immutable owner-managed hosted registration registry and its private predicates. It verifies exact `001` predecessor bodies before changing the demo predicates. The only message/invitation admission edit adds the exact registered-demo sending-hours exception; its inverse must equal the original definition. All approval, ownership, source, history, quota and 24-hour cold-cadence checks remain. The registry starts empty. No account or run is registered by either migration. Supabase API roles receive no access to new private objects.
+
+Before applying, compare each SQL file with the SHA-256 in `approval-manifest.json`. Do not edit approved bytes to get around a failed guard.
+
+## Activation after the schema
+
+Deploy the reviewed application image with one persistent Next process. Keep the primary communications configuration and codec intact. Provision the hosted capability using the separate private configuration file referenced in the testing-service handoff; its phase permits account setup only. Use normal email, WhatsApp and LinkedIn setup and persist their original bindings. Capture a fresh authenticated attestation, review the exact registration SQL, register the matching owned run, then pin the same original bindings on both services and restart them in a controlled order.
+
+For the agent UI, enable `AGENT_MODE_EXPLORATION_ENABLED=true` after verification. Both create pages read runtime availability at the request boundary so one image can be configured after deployment. For background work, the production image includes the existing adaptive native driver behind `AGENT_BACKGROUND_WORKER_ENABLED=true`, alongside `AGENT_DURABLE_STATE_ENABLED=true`, `AGENT_NATIVE_EXECUTION_ENABLED=true`, `AGENT_WORKER_SCOPE_MODE=registered`, `AGENT_WORKER_REQUIRE_MANDATE_SCOPE=true`, runtime ID `acquire-hosted-demo-v1`, and an independent private `AGENT_WORKER_SECRET`. The worker invokes the ordinary authenticated loopback tick, not a provider endpoint. It does not schedule duplicate research maintenance. All these activation values remain unset/off until the schema and registration are verified. Retain the normal Run demo flags from the integration guide.
+
+Complete email, WhatsApp and LinkedIn message/reply/ACK tests through the normal saved-intent flow, then restart/receipt recovery and negative cases. Record actual outbound text, AI replies, saved conversation rows and original operation receipts. A public health response, an isolated simulator AI proof or a unit test is not this end-to-end evidence.
+
+Rollback first disables hosted/native background flags and returns to the previous image/configuration. Preserve registered bindings, immutable receipts, unresolved sends and all saved history. No destructive down migration or automatic resend is proposed.

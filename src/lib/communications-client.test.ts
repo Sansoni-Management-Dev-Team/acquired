@@ -41,3 +41,17 @@ it('uses the authenticated independent hosted service only for explicit setup or
  const client=await actorCommunicationsClient(actor);await client.connectionStatus(binding as never);expect(m.call.mock.lastCall?.[1]).toBe(descriptor.serviceOrigin);await client.connections(descriptor.actor);expect(m.call.mock.lastCall?.[1]).toBe('https://primary.example');
  await expect(actorCommunicationsClient({...actor,userId:'foreign'},{setupLane:'hosted'})).rejects.toThrow();
 });
+
+it('reads exact recorded provisioning account status before registration without enabling operational routing',async()=>{
+ const runId='hosted-demo-provisioning',actor={organizationId:'org',userId:'owner'},binding={applicationId:'acquire',tenantId:'org',ownerId:'owner',connectionId:'original',accountId:'account',generation:1,channel:'email',platform:'gmail',backend:'unipile'};
+ const descriptor={version:1,mode:'hosted-demo',phase:'provisioning',runId,integrationId:'sim-'+runId,configurationReference:'sim-'+runId+'-v1',applicationOrigin:'https://acquire.example.invalid',serviceOrigin:'https://simulator.example.invalid',setupOrigin:'https://simulator.example.invalid',actor:{applicationId:'acquire',tenantId:'org',ownerId:'owner'},capabilities:{dynamicRecipients:true,recipientContextLookup:true,remoteApplicationAuthority:true,durableEvents:true},bindings:[binding]};
+ for(const[k,v]of Object.entries({NODE_ENV:'production',APP_URL:descriptor.applicationOrigin,COMMUNICATIONS_RUNTIME_ENABLED:'true',AGENT_HOSTED_DEMO_COMMUNICATIONS_ENABLED:'true',AGENT_HOSTED_DEMO_COMMUNICATIONS_DESCRIPTOR_JSON:JSON.stringify(descriptor),AGENT_HOSTED_DEMO_SERVICE_AUTH_KEY:Buffer.alloc(32,9).toString('base64url')}))vi.stubEnv(k,v);
+ const query=vi.fn(async()=>({rows:[{id:'recorded'}]}));m.db.mockImplementation(async(_actor,work)=>work({query}));m.route.mockClear();m.route.mockRejectedValue(Error('Provisioning is not active'));m.call.mockClear();
+ const client=await actorCommunicationsClient(actor,{setupLane:'hosted'});await expect(client.connectionStatus(binding as never)).resolves.toEqual({status:'unknown'});
+ expect(m.route).not.toHaveBeenCalled();expect(query).toHaveBeenCalledWith(expect.stringContaining("authority='service'"),['acquire','org','owner','original','account',1,'email','gmail','unipile']);
+ const before=m.call.mock.calls.length;
+ await expect(client.connectionStatus({...binding,generation:2}as never)).rejects.toThrow();
+ query.mockResolvedValueOnce({rows:[]});await expect(client.connectionStatus(binding as never)).rejects.toThrow();
+ await expect(client.submit({snapshot:{binding,operation:'message'}}as never)).rejects.toThrow('Provisioning is not active');
+ expect(m.call).toHaveBeenCalledTimes(before);
+});
