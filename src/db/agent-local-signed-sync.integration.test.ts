@@ -2,18 +2,27 @@ import {describe,it,expect,vi} from 'vitest';
 import {Pool} from 'pg';import {randomBytes,randomUUID} from 'node:crypto';import {mkdir,readFile,writeFile} from 'node:fs/promises';import {join,resolve} from 'node:path';import {execFileSync} from 'node:child_process';import {getCACertificates,setDefaultCACertificates} from 'node:tls';
 import {createAgentCompletionRuntime} from '../../testing/agent-completion/composition';import {bootstrapCompletionIdentity} from '../../testing/agent-completion/fixture';import {startCompletionListeners} from '../../testing/agent-completion/owned-listeners';import {emptyBrief} from '../domain/acquisition';import type {ConnectionBinding} from '../../communications/packages/contracts/src';import type {CommunicationsClient} from '../../communications/packages/sdk/src';
 import type {LocalSyncEventsOptions,LocalSyncEventProof} from '../../communications/packages/core/src/local-sync-event';
-// @ts-expect-error reviewed sibling plain-JavaScript source, no copied authority
-import {createDeepProfile} from '../../../project-acquire-agent-testing/testing/agent-simulator/deep-profile.mjs';
-// @ts-expect-error reviewed sibling plain-JavaScript source, no copied authority
-import {startSharedLocalProvider} from '../../../project-acquire-agent-testing/testing/agent-simulator/remote-clock-local.mjs';
-// @ts-expect-error reviewed sibling plain-JavaScript source, no copied authority
-import {deliverWebhooks} from '../../../project-acquire-agent-testing/testing/agent-simulator/provider.mjs';
+
+
+
+async function signedSyncSimulator(){
+ const [{createDeepProfile},{startSharedLocalProvider},{deliverWebhooks}]=await Promise.all([
+  // @ts-expect-error reviewed sibling plain-JavaScript source
+  import('../../../project-acquire-agent-testing/testing/agent-simulator/deep-profile.mjs'),
+  // @ts-expect-error reviewed sibling plain-JavaScript source
+  import('../../../project-acquire-agent-testing/testing/agent-simulator/remote-clock-local.mjs'),
+  // @ts-expect-error reviewed sibling plain-JavaScript source
+  import('../../../project-acquire-agent-testing/testing/agent-simulator/provider.mjs'),
+]);
+ return {createDeepProfile,startSharedLocalProvider,deliverWebhooks};
+}
 vi.mock('server-only',()=>({}));
 const enabled=process.env.RUN_SIM29_SIGNED_LOCAL_ACCEPTANCE==='true',databaseUrl='postgresql://project_acquire:agent-local-only@127.0.0.1:5437/acquire_agent_mode',channels=['whatsapp','linkedin'] as const;
 type ProviderEvent={id:string;payload:{AccountStatus?:{account_id:string}};status:string;attempts:number;localSync?:LocalSyncEventProof};
 const key=(n:number)=>Buffer.alloc(32,n).toString('base64');
 function environment(runId:string,credentials:{apiKey:string;webhookSecret:string},accounts:{channel:string;sourceId:string}[]){return{NODE_ENV:'development',AGENT_MODE_COMMUNICATIONS_MODE:'simulator',COMMUNICATIONS_RUNTIME_ENABLED:'true',CAMPAIGN_REPLY_MONITOR_MODE:'enforce',DATABASE_URL:databaseUrl,COMMUNICATIONS_DATABASE_URL:databaseUrl,COMMUNICATIONS_APPLICATION_ID:'acquire',COMMUNICATIONS_INTEGRATION_ID:'sim-'+runId,COMMUNICATIONS_PROVIDER_CONFIGURATION_REFERENCE:'sim-'+runId+'-v1',COMMUNICATIONS_SUBSCRIBER_ID:'sim29-'+runId,COMMUNICATIONS_LOCAL_SIMULATOR_ORIGIN:'https://127.0.0.1:5990',UNIPILE_API_URL:'https://127.0.0.1:5990',UNIPILE_API_KEY:credentials.apiKey,COMMUNICATIONS_SERVICE_URL:'https://127.0.0.1:5991',COMMUNICATIONS_REDIRECT_ORIGIN:'https://127.0.0.1:5991',COMMUNICATIONS_SETUP_NOTIFY_URL:'https://127.0.0.1:5991/v1/setup/notify',COMMUNICATIONS_ACTIVE_KEY_VERSION:'sync-v1',COMMUNICATIONS_KEYRING_JSON:JSON.stringify([{version:'sync-v1',encryptionKey:key(151),digestKey:key(152)}]),COMMUNICATIONS_IDENTITY_KEY:key(153),COMMUNICATIONS_IDENTITY_KEY_VERSION:'sync-identity-v1',COMMUNICATIONS_SETUP_CALLBACK_KEY:key(154),COMMUNICATIONS_SCOPED_AUTH_KEY:key(155),COMMUNICATIONS_WEBHOOK_SECRET:credentials.webhookSecret,ACQUIRE_COMMUNICATIONS_ACTIVE_KEY_VERSION:'sync-app-v1',ACQUIRE_COMMUNICATIONS_KEYRING_JSON:JSON.stringify([{version:'sync-app-v1',encryptionKey:key(156),digestKey:key(157)}]),COMMUNICATIONS_ACCOUNT_HOURLY_LIMIT:'100',COMMUNICATIONS_ACCOUNT_DAILY_LIMIT:'1000',COMMUNICATIONS_APPLICATION_HOURLY_LIMIT:'100',COMMUNICATIONS_APPLICATION_DAILY_LIMIT:'1000',...Object.fromEntries(accounts.map(a=>['COMMUNICATIONS_'+(a.channel==='email'?'GMAIL':a.channel.toUpperCase())+'_SOURCE_ID',a.sourceId]))};}
 async function scenario(signed:boolean){
+ const{createDeepProfile,startSharedLocalProvider,deliverWebhooks}=await signedSyncSimulator();
  const runId='agent-deep-sync-'+(signed?'signed-':'default-')+randomUUID().slice(0,8),scope={runId,organizationId:randomUUID(),userId:randomUUID()},actor={organizationId:scope.organizationId,userId:scope.userId},subject={applicationId:'acquire',tenantId:scope.organizationId,ownerId:scope.userId},mandateId=randomUUID(),directory=resolve('.local-data/agent-mode-orbstack/evidence/sim29-signed-sync',runId),pool=new Pool({connectionString:databaseUrl,max:10,connectionTimeoutMillis:3000});
  let proofFailure:unknown;let host:Awaited<ReturnType<typeof startSharedLocalProvider>>|undefined,runtime:ReturnType<typeof createAgentCompletionRuntime>|undefined,listeners:Awaited<ReturnType<typeof startCompletionListeners>>|undefined,ca:string[]|undefined,modelCalls=0;const checks:string[]=[],report:Record<string,unknown>={runId,scope,mandateId,signed,localExtension:signed?'signed-local-setup-epoch-v1':null,vendorParity:false,phase:'preflight'};const check=(name:string,actual:unknown,expected:unknown)=>{expect(actual,name).toEqual(expected);checks.push(name);};
  try{

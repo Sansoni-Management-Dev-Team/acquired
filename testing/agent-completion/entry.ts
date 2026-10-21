@@ -1,18 +1,30 @@
 import{readFile,open,rename}from'node:fs/promises';import{constants}from'node:fs';import{isAbsolute}from'node:path';import{Pool}from'pg';import{z}from'zod';
 // Reviewed sibling sources are bundled with current-app aliases by build.mjs.
-// @ts-expect-error sibling simulator is plain JavaScript
-import{Simulation}from'../../../project-acquire-agent-testing/testing/agent-simulator/core.mjs';
-// @ts-expect-error sibling simulator is plain JavaScript
-import{validateDeepProfile}from'../../../project-acquire-agent-testing/testing/agent-simulator/deep-profile.mjs';
-// @ts-expect-error sibling simulator is plain JavaScript
-import{startSharedLocalProvider,sharedLocalClockClient}from'../../../project-acquire-agent-testing/testing/agent-simulator/remote-clock-local.mjs';
-// @ts-expect-error sibling simulator is plain JavaScript
-import{deliverWebhooks}from'../../../project-acquire-agent-testing/testing/agent-simulator/provider.mjs';
-// @ts-expect-error sibling simulator is plain JavaScript
-import{createNativeModelCompletion}from'../../../project-acquire-agent-testing/testing/agent-simulator/native-model.mjs';
-// @ts-expect-error sibling simulator is plain JavaScript
-import{localFixtureDecision}from'../../../project-acquire-agent-testing/testing/agent-simulator/local-model-fixture.mjs';
+
+
+
+
+
+
 import{createAgentCompletionRuntime,type AgentCompletionOptions}from'./composition';import{startAgentCompletionHarness}from'./harness';import{bootstrapCompletionIdentity,validateCompletionDatabase}from'./fixture';import{readPrivateCompletionReview,runAgentCompletionCli}from'./cli';import{briefSchema}from'../../src/domain/acquisition';
+// Load sibling simulator sources only after an explicit, validated local invocation.
+async function completionSimulator(){
+ const [{Simulation},{validateDeepProfile},{startSharedLocalProvider,sharedLocalClockClient},{deliverWebhooks},{createNativeModelCompletion},{localFixtureDecision}]=await Promise.all([
+  // @ts-expect-error reviewed sibling plain-JavaScript source
+  import('../../../project-acquire-agent-testing/testing/agent-simulator/core.mjs'),
+  // @ts-expect-error reviewed sibling plain-JavaScript source
+  import('../../../project-acquire-agent-testing/testing/agent-simulator/deep-profile.mjs'),
+  // @ts-expect-error reviewed sibling plain-JavaScript source
+  import('../../../project-acquire-agent-testing/testing/agent-simulator/remote-clock-local.mjs'),
+  // @ts-expect-error reviewed sibling plain-JavaScript source
+  import('../../../project-acquire-agent-testing/testing/agent-simulator/provider.mjs'),
+  // @ts-expect-error reviewed sibling plain-JavaScript source
+  import('../../../project-acquire-agent-testing/testing/agent-simulator/native-model.mjs'),
+  // @ts-expect-error reviewed sibling plain-JavaScript source
+  import('../../../project-acquire-agent-testing/testing/agent-simulator/local-model-fixture.mjs'),
+]);
+ return {Simulation,validateDeepProfile,startSharedLocalProvider,sharedLocalClockClient,deliverWebhooks,createNativeModelCompletion,localFixtureDecision};
+}
 const absolute=z.string().refine(isAbsolute),scopeSchema=z.object({runId:z.string().regex(/^agent-deep-[a-z0-9][a-z0-9-]{0,36}$/),organizationId:z.string().uuid(),userId:z.string().uuid()}).strict();
 const schema=z.object({schema:z.literal('agent-completion-runtime/v1'),scope:scopeSchema,mandateId:z.string().uuid(),databaseUrl:z.string(),serviceDatabaseUrl:z.string(),profileDirectory:absolute,fixtureFile:absolute,briefFile:absolute,localSyncEventsKeyFile:absolute.optional(),tls:z.object({keyFile:absolute,certFile:absolute,caFile:absolute}).strict(),environment:z.record(z.string(),z.string()),model:z.discriminatedUnion('kind',[z.object({kind:z.literal('disabled')}).strict(),z.object({kind:z.literal('local-fixture')}).strict(),z.object({kind:z.literal('configured-ai'),configurationFile:absolute}).strict()])}).strict();
 type Config=z.infer<typeof schema>;
@@ -20,16 +32,17 @@ async function privateBytes(path:string){const f=await open(path,constants.O_RDO
 async function record(path:string,value:unknown,replace=false){const target=replace?path+'.next-'+process.pid:path,f=await open(target,'wx',0o600);try{await f.writeFile(JSON.stringify(value)+'\n');await f.sync();}finally{await f.close();}if(replace)await rename(target,path);}
 export async function readCompletionConfiguration(path:string){const c=schema.parse(await readPrivateCompletionReview(path));validateCompletionDatabase(c.databaseUrl);validateCompletionDatabase(c.serviceDatabaseUrl);if(c.environment.COMMUNICATIONS_RUNTIME_ENABLED!=='true'||c.environment.CAMPAIGN_REPLY_MONITOR_MODE!=='enforce'||c.environment.NODE_ENV!=='development'||c.environment.AGENT_MODE_COMMUNICATIONS_MODE!=='simulator'||c.environment.COMMUNICATIONS_LOCAL_SIMULATOR_ORIGIN!=='https://127.0.0.1:5990'||c.environment.COMMUNICATIONS_SERVICE_URL!=='https://127.0.0.1:5991'||c.environment.COMMUNICATIONS_INTEGRATION_ID!=='sim-'+c.scope.runId||c.environment.COMMUNICATIONS_PROVIDER_CONFIGURATION_REFERENCE!=='sim-'+c.scope.runId+'-v1'||c.environment.AGENT_MODE_SIMULATOR_TEST_POLICY==='true'||c.environment.AGENT_LOCAL_SIMULATION_ENABLED==='true'||process.env.NODE_EXTRA_CA_CERTS!==c.tls.caFile)throw Error('Exact completion configuration required');return c;}
 async function assertSaved(c:Config,pool:Pool){const saved=z.object({schema:z.literal('agent-completion-fixture/v1'),scope:scopeSchema,mandateId:z.string().uuid(),threadId:z.string().uuid(),status:z.literal('initialized')}).strict().parse(await readPrivateCompletionReview(c.fixtureFile));if(JSON.stringify(saved.scope)!==JSON.stringify(c.scope)||saved.mandateId!==c.mandateId)throw Error('Saved completion scope differs');const client=await pool.connect();try{await client.query('BEGIN READ ONLY');const row=(await client.query("SELECT current_database() database,shobj_description(d.oid,'pg_database') marker,(SELECT system_identifier::text FROM pg_control_system()) system,t.id FROM pg_database d CROSS JOIN agent_threads t JOIN member m ON m.organization_id=t.organization_id AND m.user_id=t.owner_user_id JOIN local_simulator_business_runs b ON b.organization_id=t.organization_id AND b.owner_user_id=t.owner_user_id WHERE d.datname=current_database() AND t.id=$1 AND t.mandate_id=$2 AND t.organization_id=$3 AND t.owner_user_id=$4 AND b.run_id=$5 AND b.runtime_id=$5",[saved.threadId,c.mandateId,c.scope.organizationId,c.scope.userId,c.scope.runId])).rows[0];if(row?.database!=='acquire_agent_mode'||row.marker!=='acquire-agent-mode-local-only'||row.system!=='7697400069962248225'||row.id!==saved.threadId)throw Error('Saved completion target differs');await client.query('COMMIT');}catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}return saved;}
-async function model(c:Config):Promise<AgentCompletionOptions['model']>{if(c.model.kind==='configured-ai'){const raw=z.object({baseUrl:z.literal('https://api.openai.com/v1'),apiKey:z.string().min(1),model:z.literal('gpt-6-luna'),maxInputChars:z.number().int().optional()}).strict().parse(await readPrivateCompletionReview(c.model.configurationFile));return{kind:'configured-ai',complete:createNativeModelCompletion(raw)};}return{kind:'local-fixture',complete:async input=>{if(c.model.kind==='disabled')throw Error('Completion model explicitly disabled');return{response:localFixtureDecision(JSON.parse(input.messages[1].content)),model:'gpt-6-luna',usage:{inputTokens:300,cachedInputTokens:0,outputTokens:80,reasoningTokens:0}};}};}
+async function model(c:Config,simulator:Awaited<ReturnType<typeof completionSimulator>>):Promise<AgentCompletionOptions['model']>{const{createNativeModelCompletion,localFixtureDecision}=simulator;if(c.model.kind==='configured-ai'){const raw=z.object({baseUrl:z.literal('https://api.openai.com/v1'),apiKey:z.string().min(1),model:z.literal('gpt-6-luna'),maxInputChars:z.number().int().optional()}).strict().parse(await readPrivateCompletionReview(c.model.configurationFile));return{kind:'configured-ai',complete:createNativeModelCompletion(raw)};}return{kind:'local-fixture',complete:async input=>{if(c.model.kind==='disabled')throw Error('Completion model explicitly disabled');return{response:localFixtureDecision(JSON.parse(input.messages[1].content)),model:'gpt-6-luna',usage:{inputTokens:300,cachedInputTokens:0,outputTokens:80,reasoningTokens:0}};}};}
 export function assertUnusedCompletionProfile(state:{messages:readonly unknown[];events:readonly unknown[];webhooks:readonly unknown[];authLinks:readonly unknown[];invitations:readonly unknown[];modelCalls:number}){if(state.messages.length||state.events.length||state.webhooks.length||state.authLinks.length||state.invitations.length||state.modelCalls)throw Error('Unused prepared completion profile required');}
 /** Standalone lifecycle; all effects require an explicit verb and private config.
  * init never reuses a saved fixture. serve only resumes an authenticated fixture.
  * Models run only from explicit native event/clock commands, never startup. */
 export async function main(argv:readonly string[]){const[verb,configFile,...command]=argv;if(!['init','serve','command'].includes(verb)||!configFile||(verb!=='command'&&command.length))throw Error('Explicit completion invocation required');const c=await readCompletionConfiguration(configFile);Object.assign(process.env,c.environment,{DATABASE_URL:c.databaseUrl,COMMUNICATIONS_DATABASE_URL:c.serviceDatabaseUrl,AGENT_WORKER_SCOPE_MODE:'registered',AGENT_WORKER_SCOPE_REQUIRED:'true',AGENT_WORKER_RUNTIME_ID:c.scope.runId});
+ const simulator=await completionSimulator(),{Simulation,validateDeepProfile,sharedLocalClockClient,startSharedLocalProvider,deliverWebhooks}=simulator;
  const sim=new Simulation(c.profileDirectory),state=validateDeepProfile(await sim.read());if(state.runId!==c.scope.runId)throw Error('Completion profile scope differs');const pools={application:new Pool({connectionString:c.databaseUrl,max:5,connectionTimeoutMillis:5000}),service:new Pool({connectionString:c.serviceDatabaseUrl,max:5,connectionTimeoutMillis:5000})};let harness:Awaited<ReturnType<typeof startAgentCompletionHarness>>|undefined,runtime:ReturnType<typeof createAgentCompletionRuntime>|undefined;
  try{
   const proofKey=c.localSyncEventsKeyFile?await privateBytes(c.localSyncEventsKeyFile):undefined;if(proofKey&&proofKey.length!==32)throw Error('Completion local proof key unavailable');const localSyncEvents=proofKey?{runId:c.scope.runId,integrationId:'sim-'+c.scope.runId,providerConfigurationReference:'sim-'+c.scope.runId+'-v1',signingKey:proofKey}:undefined;
-  const selectedModel=await model(c),brief=briefSchema.parse(await readPrivateCompletionReview(c.briefFile));
+  const selectedModel=await model(c,simulator),brief=briefSchema.parse(await readPrivateCompletionReview(c.briefFile));
   if(verb==='init'){assertUnusedCompletionProfile(state);await record(c.fixtureFile,{schema:'agent-completion-fixture/v1',scope:c.scope,mandateId:c.mandateId,status:'initializing'});await bootstrapCompletionIdentity({pool:pools.application,databaseUrl:c.databaseUrl,scope:c.scope,runtimeId:c.scope.runId,mandateId:c.mandateId,brief});}
   else await assertSaved(c,pools.application);
   const environment={...c.environment,DATABASE_URL:c.databaseUrl,COMMUNICATIONS_DATABASE_URL:c.serviceDatabaseUrl};

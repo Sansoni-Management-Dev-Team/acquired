@@ -32,7 +32,7 @@ it.each([
   { ...definition, schemaVersion: 1 as const, disconnectedConnections: [{ source: "start", target: definition.steps[0].id }] },
 ])("loads saved incomplete drafts into the studio", async draft => {
   vi.stubEnv("CAMPAIGN_REPLY_MONITOR_MODE", "off");
-  mock.rows.mockResolvedValueOnce([{ ...version, draft }]).mockResolvedValue([]);
+  mock.rows.mockResolvedValueOnce([{agent_managed:false}]).mockResolvedValueOnce([{ ...version, draft }]).mockResolvedValue([]);
   const studio = await listCampaignStudio(actor, "mandate");
   expect(studio.sequences[0].draft).toEqual(draft);
 });
