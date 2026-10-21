@@ -12,6 +12,7 @@ import { peoplePrompt, validatePeopleFindings, peopleFollowUpLinks, orderPeopleQ
 import { sitemapDocument, sitemapMarkdown, sitemapUrls } from "./sitemap";
 import { observedCompanyIdentifiers, abnFollowUpLinks } from './company-identifiers';
 import { prioritiseResearchPages } from './research-page-priority';
+import type {ResearchTraceContext} from './research-trace-context';
 import { extractionFailureReason, recoveryExtractionPrompt } from './research-extraction-recovery';
 import {
   researchPerformanceFlags,
@@ -35,6 +36,7 @@ export interface ResearchSteps {
   sleep(name: string, milliseconds: number): Promise<void>;
 }
 export type ResearchControl = {
+  traceContext?: ResearchTraceContext;
   status: string;
   config: ResearchConfig;
   seeds: string[];

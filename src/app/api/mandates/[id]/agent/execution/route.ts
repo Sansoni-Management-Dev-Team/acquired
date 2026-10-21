@@ -1,7 +1,10 @@
+import {refreshCompanyProjectionsBeforeNativeControl} from '@/lib/company-projection-refresh';
 import {z} from 'zod';
 import {guardBrowserMutation} from '@/lib/browser-mutation';
 import {nativeAgentEnabled} from '@/lib/agent-runtime';
+import {initializeAgentChannelDefaults} from '@/lib/agent-start-outreach';
 import {agentDriverSchema} from '@/domain/agent-ownership';
+import {agentDemoPreparationReadiness,agentDemoProvisioningConfiguration} from '@/lib/agent-demo-configuration';
 import {agentRequestScope as scope,agentRequestFailure as failure,agentRequestError as error,agentResponseHeaders as headers,type AgentRequestContext as Context} from '@/lib/agent-request-scope';
 
 const uuid=z.string().uuid(),revision=z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
@@ -25,7 +28,12 @@ export async function GET(request:Request,context:Context){
  try{
   const data=await scope(request,context);if(data instanceof Response)return data;
   const state=data.thread?await data.store.executionState(data.thread.id):null;
-  return Response.json({enabled:nativeAgentEnabled(),state,mandateRevision:data.mandate?.revision},{headers});
+  const config=agentDemoProvisioningConfiguration();
+  const readiness=agentDemoPreparationReadiness(config,data.actor);
+  // Existing prepared recipients retain their saved service and account bindings.
+  const selectedTesting=process.env.AGENT_DEMO_TARGET==='testing'&&state?.executionMode==='demo'&&!state.demoContacts?.prepared;
+  const demoService=selectedTesting?{communicationsApi:'https://127.0.0.1:5991',...readiness,...(!readiness.ready?{message:'The testing service on 5991 is not ready for this mandate yet. Your saved companies and people are available; simulated outreach has not started.'}:{})}:undefined;
+  return Response.json({enabled:nativeAgentEnabled(),state,mandateRevision:data.mandate?.revision,demoPreparationEnabled:readiness.ready,demoService},{headers});
  }catch(cause){return failure(cause);}
 }
 
@@ -38,6 +46,7 @@ export async function POST(request:Request,context:Context){
  try{
   const data=await scope(request,context);if(data instanceof Response)return data;
   const {action,requestKey,...input}=parsed.data;
+  if(action==='start'||action==='resume')await refreshCompanyProjectionsBeforeNativeControl(data.actor,(await context.params).id);
   let thread=data.thread;
   if(!thread){
    if(action!=='start')return error('Agent supervision has not been started.',404);
@@ -52,6 +61,9 @@ export async function POST(request:Request,context:Context){
    :action==='reassess_conversation'?await data.store.reassessConversationAfterReview(thread.id,requestKey,input)
    :action==='adopt_sequence'?await data.store.adoptSequenceConversation(thread.id,requestKey,input)
    :await data.store.controlResponsibility(thread.id,requestKey,{action,...input});
+  if(action==='start'||action==='resume')try{await initializeAgentChannelDefaults(data.store,thread.id,requestKey);}catch{
+   console.info('agent-channel-defaults',JSON.stringify({module:'agent-channel-defaults',mandateId:(await context.params).id,stage:'settings_not_ready',timestamp:new Date().toISOString()}));
+  }
   return Response.json({result},{headers});
  }catch(cause){return failure(cause);}
 }

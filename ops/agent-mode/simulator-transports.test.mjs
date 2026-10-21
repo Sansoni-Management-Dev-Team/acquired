@@ -29,3 +29,6 @@ test('50lead bridge has a separate fixed pair without changing25lead transport',
  assert.deepEqual(simulatorBridgeAddress({AGENT_MODE_COMMUNICATIONS_MODE:'simulator',AGENT_MODE_COMMUNICATIONS_PROFILE:'simulator50'}),{providerPort:5690,callbackPort:5691,servicePort:5461});
 });
 test('multichannel bridge uses only fixed5790/5791 pair',()=>{assert.deepEqual(simulatorBridgeAddress({AGENT_MODE_COMMUNICATIONS_MODE:'simulator',AGENT_MODE_COMMUNICATIONS_PROFILE:'multichannel'}),{providerPort:5790,callbackPort:5791,servicePort:5461});});
+test('dedicated demo transport has separate fixed provider callback and internal service ports',()=>{
+ assert.deepEqual(simulatorBridgeAddress({AGENT_MODE_COMMUNICATIONS_MODE:'simulator',AGENT_MODE_COMMUNICATIONS_PROFILE:'demos',NODE_ENV:'development'}),{providerPort:5890,callbackPort:5891,servicePort:5463,hostProviderPort:5893});
+});

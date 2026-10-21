@@ -11,7 +11,7 @@ export function createAgentChannelReadiness(ports:{loadBinding:(actor:CampaignAc
  return async(actor:CampaignActor,channels:Channel[]):Promise<Result[]>=>{
   if(channels.length>3)throw Error('Channel readiness scope unavailable');
   return Promise.all(channels.map(async channel=>{
-   if(!channel.bindingId)return {...channel,ready:false,readiness:'setup_required' as const,reason:'recorded_account_missing'};
+   if(!channel.bindingId)return {...channel,ready:false,readiness:'setup_required' as const,reason:channel.reason==='choose_recorded_account'?'choose_recorded_account':'recorded_account_missing'};
    try{
     const binding=await ports.loadBinding(actor,channel.bindingId);
     if(!binding||binding.tenantId!==actor.organizationId||binding.ownerId!==actor.userId||binding.channel!==channel.channel)return {...channel,ready:false,readiness:'verification_required' as const,reason:'recorded_account_changed'};

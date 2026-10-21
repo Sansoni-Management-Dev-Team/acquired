@@ -129,3 +129,14 @@ it('keeps the Worker admission category without copying arbitrary response data'
  expect(JSON.stringify(result)).not.toContain('private');
  expect(providerDiagnostics(503,new Headers(),{category:'private payload'},'research-worker').category).toBe('provider_error');
 });
+it('correlates every internal provider event and callback with sanitized mandate/run/operation IDs across outcomes',async()=>{
+ const log=vi.spyOn(console,'info').mockImplementation(()=>{}),fetcher=vi.fn().mockResolvedValueOnce(Response.json({ok:true})).mockRejectedValueOnce(Error('private transport message')),context={provider:'research-worker' as const,operation:'control',jobId:'job-12345',requestId:'request-12345',logicalCallId:'call-12345',mandateId:'mandate-12345',runId:'run-12345',operationId:'operation-12345'};
+ await providerJsonRequest(fetcher,'https://internal.example/control',{},context);await expect(providerJsonRequest(fetcher,'https://internal.example/control',{},context)).rejects.toThrow('private transport');
+ for(const[,value]of log.mock.calls)expect(JSON.parse(value)).toMatchObject({jobId:context.jobId,requestId:context.requestId,logicalCallId:context.logicalCallId,mandateId:context.mandateId,runId:context.runId,operationId:context.operationId});
+ for(const[,init]of fetcher.mock.calls){const headers=new Headers(init.headers);expect(headers.get('x-acquire-mandate-id')).toBe(context.mandateId);expect(headers.get('x-acquire-research-run')).toBe(context.runId);expect(headers.get('x-acquire-agent-operation')).toBe(context.operationId);expect(headers.has('x-acquire-native-research-key')).toBe(false);}expect(JSON.stringify(log.mock.calls)).not.toContain('private transport');
+});
+it('omits unsafe diagnostic IDs from logs and never adds internal trace headers to an external provider',async()=>{
+ const log=vi.spyOn(console,'info').mockImplementation(()=>{}),fetcher=vi.fn().mockResolvedValue(Response.json({ok:true}));
+ await providerJsonRequest(fetcher,'https://provider.example/api',{}, {provider:'openai',operation:'extract',jobId:'private buyer@example.com',requestId:'private; request',logicalCallId:'https://private.invalid/token',mandateId:'mandate-123',runId:'private run',operationId:'x'.repeat(101)});
+ const events=log.mock.calls.map(([,v])=>JSON.parse(v));for(const event of events){expect(event).toHaveProperty('mandateId','mandate-123');expect(event).not.toHaveProperty('jobId');expect(event).not.toHaveProperty('logicalCallId');expect(event).not.toHaveProperty('runId');expect(event).not.toHaveProperty('operationId');expect(event.requestId).toMatch(/^[a-f0-9-]{36}$/);}expect([...new Headers(fetcher.mock.calls[0][1].headers).keys()]).toEqual([]);expect(JSON.stringify(events)).not.toContain('private');
+});

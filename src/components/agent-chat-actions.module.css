@@ -1,0 +1,7 @@
+/* Keep chat actions consistent across links and native form controls. */
+.action {
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+}

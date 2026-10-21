@@ -1,5 +1,5 @@
-import {projectAgentChannelExecutionProgress} from './agent-execution-progress';
 import {projectAgentChannelDecisionContext} from './agent-channel-decision-context';
+import{readManagedDefaults}from'@/lib/communications-bindings';
 import{explicitAgentOptOut}from'@/domain/agent-execution';
 import {z} from 'zod';
 import {agentSequenceChannelHandoverSchema} from '@/domain/agent-sequence-channel-handover';
@@ -8,8 +8,9 @@ import type {Pool,PoolClient} from 'pg';
 import {resolveChannelReviewSchema} from '@/domain/channel-reviews';
 import {lockAcquireSendGate} from '@/lib/campaign-send-gate';
 import {configuredAgentRegisteredRuntime} from './agent-runtime-registry-store';
-import type {AgentActor} from './agent-store';
+import type {AgentActor,AgentStoreOptions} from './agent-store';
 import {AgentChatStore} from './agent-chat-store';
+import {projectAgentChannelExecutionProgress} from './agent-execution-progress';
 import {reviewWakeAuditCode} from './agent-channel-review-wake-proof';
 import {agentRecordDigest,type AgentThread} from './agent-store';
 import {agentChannelPolicyInputSchema,agentChannelRouteInputSchema,agentChannelSendingBudgetInputSchema} from '@/domain/agent-person-channel';
@@ -21,7 +22,7 @@ const uuid=z.string().uuid();
 const bindingDigest=(b:Record<string,unknown>)=>agentRecordDigest({applicationId:b.application_id,tenantId:b.organization_id,ownerId:b.owner_user_id,connectionId:b.service_connection_id,accountId:b.service_account_id,generation:b.generation,channel:b.channel,platform:b.platform,backend:b.backend});
 export class AgentChannelStore extends AgentChatStore{
  private readonly reviewPool:Pick<Pool,'connect'>;
- constructor(pool:Pick<Pool,'connect'>,actor:AgentActor){super(pool,actor);this.reviewPool=pool;}
+ constructor(pool:Pick<Pool,'connect'>,actor:AgentActor,options:AgentStoreOptions={}){super(pool,actor,options);this.reviewPool=pool;}
  /** Retry the exact committed decision after an API crash; the input is reloaded, never inferred. */
  async reconcileCommittedChannelReview(requestKey:string){
   uuid.parse(requestKey);if(!configuredAgentRegisteredRuntime())return {queued:0,conversationIds:[] as string[],runtimeId:null,remaining:0};
@@ -82,30 +83,64 @@ export class AgentChannelStore extends AgentChatStore{
   });
  }
  protected override async executionChannelProgress<T extends Record<string,unknown>>(c:PoolClient,t:AgentThread,conversations:T[]):Promise<T[]>{
-  return projectAgentChannelExecutionProgress(c,t,conversations);
+  return projectAgentChannelExecutionProgress(c,t,conversations,this.businessSql());
  }
- private async policyProjection(c:PoolClient,mandateId:string,threadId?:string){
+ private async policyProjection(c:PoolClient,mandateId:string,threadId?:string,defaults:Awaited<ReturnType<typeof readManagedDefaults>>=[]){
   const installed=(await c.query("SELECT to_regclass('public.agent_channel_policies') IS NOT NULL AS installed")).rows[0]?.installed===true;
   const row=installed&&threadId?(await c.query('SELECT * FROM agent_channel_policies WHERE thread_id=$1',[threadId])).rows[0]:null;
-  const bindings=(await c.query("SELECT * FROM communication_bindings WHERE organization_id=$1 AND owner_user_id=$2 AND application_id='acquire' AND backend='unipile' AND authority='service' ORDER BY channel,created_at DESC,id LIMIT 100",[this.actor.organizationId,this.actor.userId])).rows;
+  const bindings=(await c.query("SELECT b.*,NOT EXISTS(SELECT 1 FROM communication_bindings newer WHERE newer.organization_id=b.organization_id AND newer.owner_user_id=b.owner_user_id AND newer.application_id=b.application_id AND newer.service_connection_id=b.service_connection_id AND newer.generation>b.generation) AS eligible_for_new_work FROM communication_bindings b WHERE b.organization_id=$1 AND b.owner_user_id=$2 AND b.application_id='acquire' AND b.backend='unipile' AND b.authority='service' AND public.agent_allowed_mandate_binding($3::uuid,b.id) ORDER BY b.channel,b.created_at DESC,b.id LIMIT 100",[this.actor.organizationId,this.actor.userId,mandateId])).rows;
   const balances=(await c.query(`SELECT id,scope_key,revision,cap::text,spent::text,reserved::text,(cap-spent-reserved)::text AS available,to_char(window_start AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS window_start_exact,to_char(window_end AT TIME ZONE 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS window_end_exact FROM agent_budget_accounts WHERE organization_id=$1 AND scope_key LIKE $2 AND window_start<=clock_timestamp() AND window_end>clock_timestamp() ORDER BY scope_key,window_start DESC`,[this.actor.organizationId,'binding:%:sends'])).rows;
-  const accounts=bindings.map(b=>{const digest=bindingDigest(b),a=balances.find(a=>a.scope_key==='binding:'+digest+':sends');return {channel:b.channel as 'email'|'whatsapp'|'linkedin',bindingId:b.id as string,bindingDigest:digest,label:[b.channel,b.platform,b.service_account_id].join(' · '),budget:a?{id:a.id as string,revision:a.revision as number,cap:a.cap as string,spent:a.spent as string,reserved:a.reserved as string,available:a.available as string,windowStart:a.window_start_exact as string,windowEnd:a.window_end_exact as string}:null};});
+  const accounts=bindings.map(b=>{const digest=bindingDigest(b),a=balances.find(a=>a.scope_key==='binding:'+digest+':sends');return {channel:b.channel as 'email'|'whatsapp'|'linkedin',bindingId:b.id as string,bindingDigest:digest,label:[b.channel,b.platform,b.service_account_id].join(' · '),isDefault:defaults.some(d=>d.channel===b.channel&&d.connectionId===b.service_connection_id&&d.accountId===b.service_account_id&&d.generation===b.generation),eligibleForNewWork:b.eligible_for_new_work===true,budget:a?{id:a.id as string,revision:a.revision as number,cap:a.cap as string,spent:a.spent as string,reserved:a.reserved as string,available:a.available as string,windowStart:a.window_start_exact as string,windowEnd:a.window_end_exact as string}:null};});
   const policy=row?{revision:row.revision as number,channelOrder:row.channel_order as Array<'email'|'whatsapp'|'linkedin'>,delaySeconds:row.delay_seconds as number,bindings:row.bindings as Array<{channel:'email'|'whatsapp'|'linkedin';bindingId:string;bindingDigest:string}>,acceleratedSimulation:row.accelerated_simulation as boolean}:null;
   const canConfigureBudgets=(await c.query("SELECT 1 FROM member WHERE organization_id=$1 AND user_id=$2 AND role IN('owner','admin')",[this.actor.organizationId,this.actor.userId])).rowCount===1;
   return {mandateId,policy,accounts,canConfigureBudgets};
  }
- async channelPolicy(threadId:string){return this.nativeTransaction(async c=>{const t=await this.thread(c,threadId);return this.policyProjection(c,t.mandate_id,t.id);});}
+ async channelPolicy(threadId:string){const defaults=await readManagedDefaults(this.actor);return this.nativeTransaction(async c=>{const t=await this.thread(c,threadId);return this.policyProjection(c,t.mandate_id,t.id,defaults);});}
+ /** The prepared recipient run is the source of demo routing defaults, never
+  * whichever test account happens to appear first or be globally selected. */
+ async demoOutreachAccounts(threadId:string){return this.nativeTransaction(async c=>{
+  const t=await this.thread(c,threadId);
+  const runs=(await c.query(`SELECT DISTINCT run.id,run.senders FROM public.agent_demo_runs run
+   JOIN public.agent_demo_contact_mappings mapping ON mapping.demo_run_id=run.id AND mapping.organization_id=run.organization_id AND mapping.created_by=run.owner_user_id
+   JOIN public.agent_mandate_execution_modes mode ON mode.mandate_id=mapping.mandate_id AND mode.organization_id=mapping.organization_id AND mode.demo_id=mapping.demo_id
+   WHERE mapping.mandate_id=$1 AND mapping.organization_id=$2 AND mapping.created_by=$3 AND mode.mode='demo' AND mode.created_by=$3`,[t.mandate_id,t.organization_id,t.owner_user_id])).rows;
+  if(runs.length!==1)throw Error('One saved demo recipient run is required');
+  return z.array(z.object({channel:z.enum(['email','whatsapp','linkedin']),bindingId:uuid,bindingDigest:z.string().regex(/^[a-f0-9]{64}$/)})).length(3).parse(runs[0].senders);
+ });}
+ /** Read-only timing exception. Final SQL admission independently rechecks the
+  * same exact local run; this supplies no approval or provider authority. */
+ async testingSendWindowExempt(threadId:string,routeId:string){
+  uuid.parse(routeId);return this.nativeTransaction(async c=>{
+   const t=await this.thread(c,threadId);
+   if((await c.query("SELECT to_regprocedure('public.agent_gui_testing_send_window_exempt(uuid)') IS NOT NULL AS installed")).rows[0]?.installed!==true)return false;
+   const rows=(await c.query('SELECT public.agent_gui_testing_send_window_exempt(r.id) AS exempt FROM public.agent_conversation_channels r WHERE r.thread_id=$1 AND r.id=$2 AND r.organization_id=$3 AND r.owner_user_id=$4',[t.id,routeId,this.actor.organizationId,this.actor.userId])).rows;
+   return rows.length===1&&rows[0].exempt===true;
+  });
+ }
  async channelPolicyForMandate(mandateId:string){
-  uuid.parse(mandateId);return this.nativeTransaction(async c=>{
+  uuid.parse(mandateId);const defaults=await readManagedDefaults(this.actor);return this.nativeTransaction(async c=>{
    const mandate=(await c.query('SELECT id FROM mandates WHERE id=$1 AND organization_id=$2',[mandateId,this.actor.organizationId])).rows[0];if(!mandate)throw Error('Mandate not found');
    const t=(await c.query('SELECT id FROM agent_threads WHERE mandate_id=$1 AND organization_id=$2 AND owner_user_id=$3',[mandateId,this.actor.organizationId,this.actor.userId])).rows[0];
-   return this.policyProjection(c,mandateId,t?.id);
+   return this.policyProjection(c,mandateId,t?.id,defaults);
   });
  }
  async saveChannelPolicy(threadId:string,key:string,raw:unknown){
   const input=agentChannelPolicyInputSchema.parse(raw);
   return this.command(threadId,key,'channel.policy',input,async(c,t)=>{
    const saved=(await c.query('SELECT public.agent_save_channel_policy($1::uuid,$2::integer,$3::jsonb,$4::integer,$5::jsonb,$6::boolean) AS policy',[t.id,input.expectedRevision,JSON.stringify(input.channelOrder),input.delaySeconds,JSON.stringify(input.bindings),input.acceleratedSimulation])).rows[0].policy;
+   // Saving invalidates the old message context. Wake only current agent-owned
+   // conversations so the ordinary history/decision path can prepare fresh
+   // review proposals; never move deferred approvals or reuse their authority.
+   const conversations=(await c.query(`SELECT v.id,v.epoch,v.reminder_generation FROM agent_conversations v
+    JOIN agent_responsibilities r ON r.id=v.responsibility_id AND r.thread_id=v.thread_id
+    JOIN mandates m ON m.id=v.mandate_id AND m.organization_id=v.organization_id
+    WHERE v.thread_id=$1 AND v.organization_id=$2 AND v.owner_user_id=$3
+    AND v.driver_kind='agent' AND v.phase='active' AND v.pending_driver IS NULL
+    AND v.engagement NOT IN('stopped','handoff') AND r.state IN('ready','waiting') AND r.mandate_revision=m.xmin::text
+    AND NOT public.agent_mandate_person_has_unresolved_sends(v.mandate_id,v.contact_id,NULL::uuid)
+    AND NOT EXISTS(SELECT 1 FROM agent_handoffs h WHERE h.conversation_id=v.id AND h.state NOT IN('dismissed','meeting_confirmed'))
+    ORDER BY v.id`,[t.id,t.organization_id,t.owner_user_id])).rows;
+   for(const person of conversations)await this.emit(c,t,'channel-policy:'+saved.revision+':reassess:'+person.id,'conversation.reassess',{conversationId:person.id,epoch:Number(person.epoch),reminderGeneration:person.reminder_generation});
    return {id:t.id,revision:saved.revision as number,status:'channel_policy_saved'};
   });
  }
@@ -138,7 +173,7 @@ export class AgentChannelStore extends AgentChatStore{
   uuid.parse(routeId);return this.nativeTransaction(async c=>{
    const t=await this.lockThread(c,threadId),person=await this.lockConversation(c,t,conversationId);
    const route=(await c.query('SELECT * FROM agent_conversation_channels WHERE id=$1 AND conversation_id=$2 AND thread_id=$3',[routeId,person.id,t.id])).rows[0];if(!route)throw Error('Original owned channel route unavailable');
-   const now=(await c.query('SELECT clock_timestamp() AS instant')).rows[0].instant.toISOString();let next:NativeHistory;
+   const now=(await c.query(`SELECT ${this.businessSql()} AS instant`)).rows[0].instant.toISOString();let next:NativeHistory;
    try{
     const input=nativeHistorySchema.parse(raw);if(input.source!=='communications')throw Error('Recorded provider history required');
     const messages=input.messages.map(message=>{
@@ -178,7 +213,7 @@ export class AgentChannelStore extends AgentChatStore{
   let delivery:NativeAgentDelivery={status:'unknown'};
   if(outcome.status==='submitted'){
    if(!('message'in outcome.receipt))throw Error('Original message receipt required');const receipt=outcome.receipt;
-   if(!receipt.submittedAt||!Number.isFinite(Date.parse(receipt.submittedAt))||Date.parse(receipt.submittedAt)>Date.now()||!receipt.message.id||receipt.message.id.length>300||receipt.recipient.kind!==route.recipient.kind||receipt.recipient.value!==route.recipient.value)throw Error('Exact original channel recipient and timestamp required');
+   if(!receipt.submittedAt||!Number.isFinite(Date.parse(receipt.submittedAt))||Date.parse(receipt.submittedAt)>this.businessNow()||!receipt.message.id||receipt.message.id.length>300||receipt.recipient.kind!==route.recipient.kind||receipt.recipient.value!==route.recipient.value)throw Error('Exact original channel recipient and timestamp required');
    const b=(await c.query('SELECT * FROM communication_bindings WHERE id=$1 AND organization_id=$2 AND owner_user_id=$3',[route.bindingId,t.organization_id,t.owner_user_id])).rows[0];if(!b)throw Error('Original recorded account unavailable');
    const binding:ConnectionBinding={applicationId:b.application_id,tenantId:b.organization_id,ownerId:b.owner_user_id,connectionId:b.service_connection_id,accountId:b.service_account_id,generation:b.generation,channel:b.channel,platform:b.platform,backend:b.backend};assertSameBinding(binding,receipt.message.binding);
    const intent=(await c.query("SELECT i.id FROM communication_dispatch_intents i JOIN communication_dispatch_permits p ON p.intent_id=i.id WHERE i.organization_id=$1 AND i.owner_user_id=$2 AND i.source_kind='agent' AND i.source_id=$3 AND i.binding_id=$4 ORDER BY i.created_at,i.id LIMIT 1",[t.organization_id,t.owner_user_id,op.id,route.bindingId])).rows[0];if(!intent)throw Error('Original admitted routed intent required');
@@ -196,7 +231,7 @@ export class AgentChannelStore extends AgentChatStore{
    phase=CASE WHEN driver_kind='agent' AND phase='active' AND NOT $2 THEN 'held' ELSE phase END,
    pause_reason=CASE WHEN driver_kind<>'agent' OR phase IN('paused','quiescing','complete') OR pause_reason IS NOT NULL AND pause_reason NOT IN('provider_receipt_pending_history','provider_outcome_unknown','channel_history_pending') THEN pause_reason WHEN $2 THEN 'provider_receipt_pending_history' ELSE 'provider_outcome_unknown' END,updated_at=clock_timestamp() WHERE id=$1 RETURNING revision`,[row.id,delivery.status==='submitted'])).rows[0];
   await this.invalidateNativeReviews(c,t,row.id);
-  await this.emit(c,t,delivery.status==='submitted'?'provider-history:'+op.id:'provider-reconcile:'+op.id,delivery.status==='submitted'?'conversation.history_changed':route.channel+'.reconcile',delivery.status==='submitted'?{conversationId:row.id}:{operationId:op.id},new Date(Date.now()+(delivery.status==='submitted'?2000:30000)).toISOString());
+  await this.emitOperational(c,t,delivery.status==='submitted'?'provider-history:'+op.id:'provider-reconcile:'+op.id,delivery.status==='submitted'?'conversation.history_changed':route.channel+'.reconcile',delivery.status==='submitted'?{conversationId:row.id}:{operationId:op.id},new Date(Date.now()+(delivery.status==='submitted'?2000:30000)).toISOString());
   await this.controlNotice(c,t,'provider-outcome:'+op.id+':'+changed.revision,delivery.status==='submitted'?'The original '+route.channel+' message submission was confirmed. All recorded channel histories must be checked before another action.':'The original '+route.channel+' outcome is uncertain. Automation remains held and its budget reserved; no new send was attempted.',{operationId:op.id,conversationId:row.id,routeId:route.id,channel:route.channel,...delivery});
   return delivery;
  }
@@ -217,23 +252,23 @@ export class AgentChannelStore extends AgentChatStore{
  }
  protected override async assertConversationReviewHistory(c:PoolClient,t:AgentThread,row:Record<string,unknown>){
   const routes=await this.channelRows(c,t,String(row.id));if(!routes.length)return super.assertConversationReviewHistory(c,t,row);
-  const now=(await c.query('SELECT clock_timestamp() AS instant')).rows[0].instant as Date,observed=row.history_observed_at as Date|null,policy=(await c.query('SELECT channel_order,bindings FROM agent_channel_policies WHERE thread_id=$1',[t.id])).rows[0];
+  const now=(await c.query(`SELECT ${this.businessSql()} AS instant`)).rows[0].instant as Date,observed=row.history_observed_at as Date|null,policy=(await c.query('SELECT channel_order,bindings FROM agent_channel_policies WHERE thread_id=$1',[t.id])).rows[0];
   if(!row.history_complete||row.history_source!=='communications'||!observed||observed>now||now.getTime()-observed.getTime()>300000||!policy||routes.length!==policy.channel_order.length||routes.some(r=>!policy.channel_order.includes(r.channel)||!policy.bindings.some((b:{channel:string;bindingId:string;bindingDigest:string})=>b.channel===r.channel&&b.bindingId===r.bindingId&&b.bindingDigest===r.bindingDigest)||!r.historyComplete||!r.historyObservedAt||Date.parse(r.historyObservedAt)>now.getTime()||Date.parse(r.historyObservedAt)<now.getTime()-300000))throw Error('Refresh every recorded channel history before reassessment');
   if((row.history as NativeHistory['messages']).some(m=>m.direction==='inbound'&&explicitAgentOptOut(m.text)))throw Error('An opted-out person cannot be reassessed');
   const bindings=(await c.query('SELECT * FROM communication_bindings WHERE id=ANY($1::uuid[]) AND organization_id=$2 AND owner_user_id=$3',[routes.map(r=>r.bindingId),t.organization_id,t.owner_user_id])).rows;
   if(routes.some(r=>{const b=bindings.find(b=>b.id===r.bindingId);return !b||b.backend!=='unipile'||b.authority!=='service'||bindingDigest(b)!==r.bindingDigest;}))throw Error('Original recorded channel account changed');
-  const allowed=(await c.query("SELECT NOT public.agent_person_has_unresolved_sends($1::uuid,NULL::uuid) AND NOT public.agent_legacy_sequence_occupied($1::uuid) AND NOT EXISTS(SELECT 1 FROM agent_conversation_channels r WHERE r.conversation_id=$2 AND (r.identity_source->>'revision' IS DISTINCT FROM (SELECT xmin::text FROM contacts WHERE id=$1))) AND NOT EXISTS(SELECT 1 FROM contacts x WHERE 'contact:'||x.id::text=ANY(public.agent_person_keys($3,$1::uuid)) AND (x.fictionalised OR coalesce(x.personal_data->>'doNotContact','false')<>'false')) AND NOT EXISTS(SELECT 1 FROM suppressions s JOIN agent_conversation_channels r ON r.conversation_id=$2 WHERE s.organization_id=$3 AND (lower(s.address)=lower(r.recipient_value) OR r.channel='email' AND lower(s.domain)=split_part(r.recipient_value,'@',2))) AS allowed",[row.contact_id,row.id,t.organization_id])).rows[0]?.allowed;
+  const allowed=(await c.query("SELECT NOT public.agent_mandate_person_has_unresolved_sends((SELECT mandate_id FROM agent_conversations WHERE id=$2),$1::uuid,NULL::uuid) AND NOT public.agent_mandate_legacy_sequence_occupied((SELECT mandate_id FROM agent_conversations WHERE id=$2),$1::uuid) AND NOT EXISTS(SELECT 1 FROM agent_conversation_channels r WHERE r.conversation_id=$2 AND (r.identity_source->>'revision' IS DISTINCT FROM (SELECT xmin::text FROM contacts WHERE id=$1))) AND NOT EXISTS(SELECT 1 FROM contacts x WHERE 'contact:'||x.id::text=ANY(public.agent_person_keys($3,$1::uuid)) AND (x.fictionalised OR coalesce(x.personal_data->>'doNotContact','false')<>'false')) AND NOT EXISTS(SELECT 1 FROM suppressions s JOIN agent_conversation_channels r ON r.conversation_id=$2 WHERE s.organization_id=$3 AND (lower(s.address)=lower(r.recipient_value) OR r.channel='email' AND lower(s.domain)=split_part(r.recipient_value,'@',2))) AS allowed",[row.contact_id,row.id,t.organization_id])).rows[0]?.allowed;
   if(allowed!==true)throw Error('Current person, original accounts and unresolved outcomes must be clear');
  }
  protected override async assertRoutedResumeHistory(c:PoolClient,t:AgentThread,row:Record<string,unknown>,record:Record<string,unknown>){
   const proof=record as {id:string;input:Record<string,unknown>;conversation_id:string;result:{delivery:{status:string;providerMessageId?:string;effect?:string;providerOperationId?:string}}},route=await this.nativeOperationRoute(c,t,proof);if(!route)throw Error('Original recorded route required');
-  const routes=await this.channelRows(c,t,String(row.id)),policy=(await c.query('SELECT channel_order FROM agent_channel_policies WHERE thread_id=$1',[t.id])).rows[0],now=(await c.query('SELECT clock_timestamp() AS instant')).rows[0].instant as Date;
+  const routes=await this.channelRows(c,t,String(row.id)),policy=(await c.query('SELECT channel_order FROM agent_channel_policies WHERE thread_id=$1',[t.id])).rows[0],now=(await c.query(`SELECT ${this.businessSql()} AS instant`)).rows[0].instant as Date;
   if(!policy||routes.length!==policy.channel_order.length||routes.some(r=>!r.historyComplete||!r.historyObservedAt||Date.parse(r.historyObservedAt)>now.getTime()||Date.parse(r.historyObservedAt)<now.getTime()-300000))throw Error('Verify every recorded channel history before resuming');
   if(record.name==='linkedin.invitation'||proof.result.delivery.effect==='invitation')await this.assertInvitationResumeHistory(c,t,row,record);
   else if(proof.result.delivery.status==='submitted'&&!routes.some(r=>r.id===route.id&&r.history.some(raw=>{const m=raw as NativeHistory['messages'][number];return m.direction==='outbound'&&m.providerMessageId===proof.result.delivery.providerMessageId&&m.routeId===route.id&&m.bindingDigest===route.bindingDigest;})))throw Error('Verify the original routed provider message before resuming');
   const bindings=(await c.query('SELECT * FROM communication_bindings WHERE id=ANY($1::uuid[]) AND organization_id=$2 AND owner_user_id=$3',[routes.map(r=>r.bindingId),t.organization_id,t.owner_user_id])).rows;
   if(routes.some(r=>{const b=bindings.find(b=>b.id===r.bindingId);return !b||bindingDigest(b)!==r.bindingDigest;}))throw Error('Original recorded channel account changed');
-  const allowed=(await c.query("SELECT NOT public.agent_person_has_unresolved_sends($1::uuid,NULL::uuid) AND NOT public.agent_legacy_sequence_occupied($1::uuid) AND NOT EXISTS(SELECT 1 FROM agent_conversation_channels r WHERE r.conversation_id=$2 AND (r.identity_source->>'revision' IS DISTINCT FROM (SELECT xmin::text FROM contacts WHERE id=$1))) AND NOT EXISTS(SELECT 1 FROM contacts x WHERE 'contact:'||x.id::text=ANY(public.agent_person_keys($3,$1::uuid)) AND (x.fictionalised OR coalesce(x.personal_data->>'doNotContact','false')<>'false')) AND NOT EXISTS(SELECT 1 FROM suppressions s JOIN agent_conversation_channels r ON r.conversation_id=$2 WHERE s.organization_id=$3 AND (lower(s.address)=lower(r.recipient_value) OR r.channel='email' AND lower(s.domain)=split_part(r.recipient_value,'@',2))) AS allowed",[row.contact_id,row.id,t.organization_id])).rows[0]?.allowed;
+  const allowed=(await c.query("SELECT NOT public.agent_mandate_person_has_unresolved_sends((SELECT mandate_id FROM agent_conversations WHERE id=$2),$1::uuid,NULL::uuid) AND NOT public.agent_mandate_legacy_sequence_occupied((SELECT mandate_id FROM agent_conversations WHERE id=$2),$1::uuid) AND NOT EXISTS(SELECT 1 FROM agent_conversation_channels r WHERE r.conversation_id=$2 AND (r.identity_source->>'revision' IS DISTINCT FROM (SELECT xmin::text FROM contacts WHERE id=$1))) AND NOT EXISTS(SELECT 1 FROM contacts x WHERE 'contact:'||x.id::text=ANY(public.agent_person_keys($3,$1::uuid)) AND (x.fictionalised OR coalesce(x.personal_data->>'doNotContact','false')<>'false')) AND NOT EXISTS(SELECT 1 FROM suppressions s JOIN agent_conversation_channels r ON r.conversation_id=$2 WHERE s.organization_id=$3 AND (lower(s.address)=lower(r.recipient_value) OR r.channel='email' AND lower(s.domain)=split_part(r.recipient_value,'@',2))) AS allowed",[row.contact_id,row.id,t.organization_id])).rows[0]?.allowed;
   if(allowed!==true)throw Error('Current person, original accounts and unresolved outcomes must be clear');
   await c.query("UPDATE agent_authority_grants g SET revoked_at=clock_timestamp(),revision=revision+1 WHERE g.thread_id=$1 AND g.revoked_at IS NULL AND EXISTS(SELECT 1 FROM agent_conversation_channels r WHERE r.conversation_id=$2 AND (g.route_ids ? r.id::text OR g.recipient_keys ? (r.channel||':'||r.recipient_value)))",[t.id,row.id]);
  }

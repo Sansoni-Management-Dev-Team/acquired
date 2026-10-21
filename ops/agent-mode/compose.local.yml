@@ -91,6 +91,28 @@ services:
       app:
         condition: service_started
     restart: unless-stopped
+  reader:
+    image: acquire-agent-reader:dev
+    platform: linux/amd64
+    build:
+      context: ../../cloudflare/crawl4ai
+    container_name: project-acquire-agent-reader
+    network_mode: "service:network"
+    environment:
+      CRAWL4AI_PORT: "18084"
+      CRAWL4AI_CONCURRENCY: "5"
+    volumes:
+      - ../../cloudflare/crawl4ai/server.py:/app/server.py:ro
+    shm_size: "1gb"
+    depends_on:
+      network:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18084/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
   research:
     <<: *base
     image: node:22.12.0

@@ -14,9 +14,13 @@ export function researchPlan(brief: AcquisitionBrief) {
   };
 }
 export type AgentResearchJob = { id?: string; status: string; updatedAt?: Date | string; message?: string; pages?: number; modelCalls?: number };
-export function agentSnapshot(mandate: MandateView, jobs: AgentResearchJob[]) {
+export type InitialMandateResearchView={requestId:string;status:string;jobId?:string;source?:'cached'|'live';candidates?:number;companies?:number;people?:number;blocker?:{code:string;message:string}};
+export function agentSnapshot(mandate: MandateView, jobs: AgentResearchJob[],initialResearch?:InitialMandateResearchView) {
+  const fixtureName = /^Test mandate (?:[a-fA-F0-9]{8}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$/.test(mandate.brief.name);
+  const subsectors = mandate.brief.criteria.find(c => c.key === 'subsectors')?.value.trim();
   return {
-    mandate: { id: mandate.id, name: mandate.brief.name, description: mandate.brief.naturalLanguage },
+    ...(initialResearch?{initialResearch}:{}),
+    mandate: { id: mandate.id, name: mandate.brief.name, ...(fixtureName && subsectors ? { displayName: subsectors } : {}), description: mandate.brief.naturalLanguage },
     scope: 'research-only' as const,
     research: {
       total: jobs.length,
@@ -34,4 +38,6 @@ export function agentSnapshot(mandate: MandateView, jobs: AgentResearchJob[]) {
   };
 }
 export type AgentSnapshot = ReturnType<typeof agentSnapshot>;
-export const agentQuestions = ['Show mandate', 'Show research status', 'Explain boundaries'] as const;
+
+/** Human contact reviews stay small; further groups require another explicit review. */
+export const agentContactReviewBatchSize = 5;

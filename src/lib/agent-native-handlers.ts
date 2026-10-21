@@ -1,4 +1,9 @@
 import {isAgentNativeDispatchOperation} from '@/domain/agent-operation-classifications';
+import{AgentPreBeginSendWindowError}from'./agent-pre-begin-send-window-error';
+import{AgentPreBeginSendBudgetError}from'./agent-pre-begin-send-budget-error';
+import{observeDispatchStage,withDispatchObservation}from'../../communications/packages/core/src/dispatch-diagnostic';
+import {businessNow} from '../../communications/packages/core/src/business-clock';
+import {assertAgentBusinessTimeScope,type AgentBusinessTimeContext,type AgentBusinessTimeScope} from './agent-business-time';
 import {isHistoryRefreshBusyError} from '../../communications/packages/core/src/history-refresh-busy';
 import {AgentPreBeginHistoryError} from './agent-pre-begin-history-error';
 import{ReplyProcessingPendingError}from'../../communications/packages/core/src/history-pending';
@@ -11,7 +16,13 @@ import {reassessAgentConversation,AgentDecisionReviewError,type AgentConversatio
 import {createNativeModelDecision} from './agent-model-decision';
 const uuid=z.string().uuid();
 const reassessment=z.object({conversationId:uuid,epoch:z.number().int().positive(),reminderGeneration:z.number().int().positive()}).strict();
-export function createNativeAgentHandlers(options:{store:AgentModelStore & {proposeNativeMessage?:(threadId:string,key:string,input:unknown,authority?:AgentExecutionFence)=>Promise<unknown>};decide?:(input:{threadId:string;requestKey:string;authority:AgentExecutionFence})=>(context:AgentConversationContext)=>Promise<unknown>;chatProposal?:AgentEventHandler;supervise?:AgentEventHandler;researchApproved?:AgentEventHandler;sequenceApproved?:AgentEventHandler;targetApproved?:AgentEventHandler;peopleApproved?:AgentEventHandler;peopleDispatch?:AgentEventHandler;researchCompleted?:AgentEventHandler;reconcileProvider?:(threadId:string,operationId:string,authority:AgentExecutionFence)=>Promise<{known:boolean}>;researchDispatch?:AgentEventHandler;handoffReminder?:AgentEventHandler;dispatchProvider?:(threadId:string,operationId:string,authority:AgentExecutionFence,delegation?:{id:string;revision:number})=>Promise<void>;channelDue?:(threadId:string,payload:unknown)=>Promise<{conversationId:string;epoch:number;reminderGeneration:number}|null>;refreshProviderHistory?:(threadId:string,conversationId:string)=>Promise<void>}){
+export function createNativeAgentHandlers(options:{store:AgentModelStore & {proposeNativeMessage?:(threadId:string,key:string,input:unknown,authority?:AgentExecutionFence)=>Promise<unknown>};businessTime?:{context:AgentBusinessTimeContext;scope:AgentBusinessTimeScope};decide?:(input:{threadId:string;requestKey:string;authority:AgentExecutionFence})=>(context:AgentConversationContext)=>Promise<unknown>;chatProposal?:AgentEventHandler;supervise?:AgentEventHandler;researchApproved?:AgentEventHandler;sequenceApproved?:AgentEventHandler;targetApproved?:AgentEventHandler;peopleApproved?:AgentEventHandler;fieldsApproved?:AgentEventHandler;fieldsDispatch?:AgentEventHandler;peopleDispatch?:AgentEventHandler;researchCompleted?:AgentEventHandler;reconcileProvider?:(threadId:string,operationId:string,authority:AgentExecutionFence)=>Promise<{known:boolean}>;researchDispatch?:AgentEventHandler;handoffReminder?:AgentEventHandler;dispatchProvider?:(threadId:string,operationId:string,authority:AgentExecutionFence,delegation?:{id:string;revision:number})=>Promise<void>;channelDue?:(threadId:string,payload:unknown)=>Promise<{conversationId:string;epoch:number;reminderGeneration:number}|null>;refreshProviderHistory?:(threadId:string,conversationId:string)=>Promise<void>}){
+ const businessClock=(()=>{const time=options.businessTime;if(!time)return undefined;assertAgentBusinessTimeScope(time.context,time.scope);return time.context;})();
+ const now=()=>new Date(businessNow(businessClock)).toISOString();
+ const sendWindowWait=(error:AgentPreBeginSendWindowError):AgentEventOutcome=>{
+  if(error.businessContext&&error.businessContext!==businessClock)throw error;
+  return {kind:'defer',...(error.businessContext?{timeBasis:'business'as const}:{}),wakeAt:error.wakeAt,reason:error.message};
+ };
  const pendingHistory=()=>({kind:'defer'as const,wakeAt:new Date(Date.now()+30000).toISOString(),reason:'Waiting for verified reply processing and application acknowledgement before reading conversation history.'});
  const store=options.store,handlers:Record<string,AgentEventHandler>={};
  const fence=(value:Parameters<AgentEventHandler>[0]):AgentExecutionFence=>({runId:value.runId,eventId:value.event.id,leaseOwner:value.event.lease_owner,fence:value.event.fence});
@@ -38,8 +49,9 @@ export function createNativeAgentHandlers(options:{store:AgentModelStore & {prop
   }
   context=await store.nativeDecisionContext(threadId,trigger.conversationId);
   if(await store.pendingNativeEmail(threadId,trigger.conversationId,context.contextRevision))return {kind:'complete'};
-  const decide=options.decide?.({threadId,requestKey,authority})??createNativeModelDecision({store,threadId,requestKey,authority});
-  const outcome=await reassessAgentConversation({load:async()=>context,decide,now:()=>new Date().toISOString(),commit:async(current,decision,key)=>{
+  const decide=options.decide?.({threadId,requestKey,authority})??createNativeModelDecision({store,threadId,requestKey,authority,now});
+  const outcome=await reassessAgentConversation({load:async()=>context,decide,now,commit:async(current,decision,key)=>{
+   return withDispatchObservation({decisionAction:decision.action},()=>observeDispatchStage('native.decision',async()=>{
    await input.assertCurrent();
    const expected={conversationId:current.conversationId,revision:current.revision,contextRevision:current.contextRevision};
    if(decision.action==='draft'){
@@ -51,6 +63,7 @@ export function createNativeAgentHandlers(options:{store:AgentModelStore & {prop
    if(decision.action==='handoff')return store.handoffConversation(threadId,key,{...expected,reason:decision.reason,summary:decision.summary},authority);
    if(decision.action==='stop')return store.stopNativeConversation(threadId,key,{...expected,reason:decision.reason},authority);
    throw new Error('Unsupported execution action');
+   }));
   }},{...trigger,requestKey}).catch(error=>{if(error instanceof AgentDecisionReviewError)return {kind:'review' as const,message:error.message};throw error;});
   if(outcome.kind==='review')await store.holdNativeConversation(threadId,requestKey+':hold',{conversationId:context.conversationId,revision:context.revision,contextRevision:context.contextRevision,reason:outcome.message},authority);
   return outcome;
@@ -75,11 +88,14 @@ export function createNativeAgentHandlers(options:{store:AgentModelStore & {prop
   const targets=await store.reviewDispatchTargets(input.event.thread_id,reviewBatchId);
   if(targets.length&&targets.every(target=>['sequence.prepare','sequence.publish','sequence.enrol'].includes(target.name)))return options.sequenceApproved?options.sequenceApproved(input):{kind:'review',message:'Sequence draft saving is waiting for its exact reviewed execution adapter.'};
   if(targets.length&&targets.every(target=>target.name==='target.select'))return options.targetApproved?options.targetApproved(input):{kind:'review',message:'Contact allocation is waiting for its recorded execution adapter.'};
+  if(targets.length&&targets.every(target=>target.name==='research.fields'))return options.fieldsApproved?options.fieldsApproved(input):{kind:'review',message:'Public fields are waiting for their separately reviewed execution adapter.'};
   if(targets.length&&targets.every(target=>target.name==='research.people'))return options.peopleApproved?options.peopleApproved(input):{kind:'review',message:'People enrichment is waiting for its separately reviewed execution adapter.'};
   if(targets.length&&targets.every(target=>target.name==='research.start'))return options.researchApproved?options.researchApproved(input):{kind:'review',message:'Research approval is waiting for its recorded execution adapter.'};
   if(targets.some(target=>!isAgentNativeDispatchOperation(target.name)||!['local_sink','communications'].includes(target.delivery_mode)||target.delivery_mode==='local_sink'&&!target.name.startsWith('email.')||target.delivery_mode==='communications'&&!options.dispatchProvider))return {kind:'review',message:'This approved work requires its recorded execution adapter. No account or delivery mode was changed.'};
   let dispatched=false;
-  for(const target of targets){await input.assertCurrent();if(target.delivery_mode==='local_sink')await store.deliverApprovedLocalEmail(input.event.thread_id,target.id,fence(input));else try{await options.dispatchProvider!(input.event.thread_id,target.id,fence(input));}catch(error){
+  for(const target of targets){await input.assertCurrent();try{if(target.delivery_mode==='local_sink')await store.deliverApprovedLocalEmail(input.event.thread_id,target.id,fence(input));else await options.dispatchProvider!(input.event.thread_id,target.id,fence(input));}catch(error){
+   if(!dispatched&&error instanceof AgentPreBeginSendBudgetError&&error.threadId===input.event.thread_id&&error.operationId===target.id&&error.conversationId===target.conversationId)return {kind:'review',message:error.message};
+   if(!dispatched&&error instanceof AgentPreBeginSendWindowError&&error.threadId===input.event.thread_id&&error.operationId===target.id&&error.conversationId===target.conversationId)return sendWindowWait(error);
    if(!dispatched&&error instanceof AgentPreBeginHistoryError&&error.threadId===input.event.thread_id&&error.operationId===target.id&&error.conversationId===target.conversationId)return historyFailure(input,error.conversationId,error.historyError);
    throw error;
   }dispatched=true;}
@@ -87,6 +103,8 @@ export function createNativeAgentHandlers(options:{store:AgentModelStore & {prop
  };
  handlers['chat.plan_requested']=options.chatProposal??(async()=>({kind:'review',message:'The saved chat proposal needs its current-context review adapter.'}));
  handlers['mandate.supervise']=options.supervise??(async()=>({kind:'review',message:'Mandate supervision needs its research and qualification tools before it can allocate conversations.'}));
+ handlers['fields.dispatch']=options.fieldsDispatch??(async()=>({kind:'review',message:'Approved public fields need their recorded execution adapter.'}));
+ handlers['fields.proposed']=async()=>({kind:'complete'});
  handlers['people.dispatch']=options.peopleDispatch??(async()=>({kind:'review',message:'Approved people enrichment is waiting for its recorded execution adapter.'}));
  handlers['research.completed']=options.researchCompleted??(async()=>({kind:'review',message:'Research finished. Review saved company evidence and contacts before outreach.'}));
  handlers['research.dispatch']=options.researchDispatch??(async()=>({kind:'review',message:'Approved research is waiting for its budgeted execution adapter.'}));
@@ -103,6 +121,8 @@ export function createNativeAgentHandlers(options:{store:AgentModelStore & {prop
   await input.assertCurrent();
   if(target.deliveryMode==='local_sink')await store.deliverDelegatedLocalEmail(input.event.thread_id,target.id,target.grant,fence(input));
   else if(options.dispatchProvider)try{await options.dispatchProvider(input.event.thread_id,target.id,fence(input),target.grant);}catch(error){
+   if(error instanceof AgentPreBeginSendBudgetError&&error.threadId===input.event.thread_id&&error.operationId===target.id&&error.conversationId===target.conversationId)return {kind:'review',message:error.message};
+   if(error instanceof AgentPreBeginSendWindowError&&error.threadId===input.event.thread_id&&error.operationId===target.id&&error.conversationId===target.conversationId)return sendWindowWait(error);
    if(error instanceof AgentPreBeginHistoryError&&error.threadId===input.event.thread_id&&error.operationId===target.id&&error.conversationId===target.conversationId)return historyFailure(input,error.conversationId,error.historyError);
    throw error;
   }
@@ -112,5 +132,6 @@ export function createNativeAgentHandlers(options:{store:AgentModelStore & {prop
  for(const channel of ['whatsapp','linkedin']){handlers[channel+'.proposed']=handlers['email.proposed'];handlers[channel+'.reconcile']=handlers['email.reconcile'];}
  const acknowledge:AgentEventHandler=async()=>({kind:'complete'});
  for(const kind of ['research.proposed','research.provider_accounted','sequence.draft_proposed','sequence.draft_saved','sequence.publication_proposed','sequence.published','sequence.enrolment_proposed','sequence.enrolled','people.proposed','target.proposed','target.allocated','authority.changed','human.handoff_updated','ownership.changed','control.changed','model.accounted','email.simulated','linkedin.invitation_proposed','human.handoff_required','review.rejected','guidance.proposed','guidance.edited','guidance.approved','guidance.rejected'])handlers[kind]=acknowledge;
+ for(const [eventKind,handler]of Object.entries(handlers))handlers[eventKind]=input=>withDispatchObservation(input.event.payload as Parameters<typeof withDispatchObservation>[0],()=>withDispatchObservation({eventKind,eventId:input.event.id,threadId:input.event.thread_id,mandateId:input.event.mandate_id,runId:input.runId,attempt:input.event.attempts},()=>observeDispatchStage('native.handler',()=>handler(input))));
  return handlers;
 }

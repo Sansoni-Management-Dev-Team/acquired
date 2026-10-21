@@ -1,5 +1,7 @@
 import {beforeEach,afterEach,expect,it,vi} from 'vitest';
 const mock=vi.hoisted(()=>({scope:vi.fn(),messages:vi.fn(),reviews:vi.fn(),guidance:vi.fn()}));
+vi.mock('@/lib/agent-runtime',()=>({nativeAgentEnabled:()=>false,agentPool:vi.fn()}));
+vi.mock('@/lib/agent-initial-research',()=>({readInitialMandateResearch:vi.fn()}));
 vi.mock('@/lib/agent-request-scope',()=>({agentRequestScope:mock.scope,agentResponseHeaders:{'Cache-Control':'private, no-store'},agentRequestFailure:()=>Response.json({error:'Unavailable'},{status:409})}));
 import {GET} from './route';
 const context={params:Promise.resolve({id:'mandate'})},request=new Request('https://app.test/api/mandates/mandate/agent/activity');
@@ -8,3 +10,8 @@ it('reads only the authenticated stored thread and serves no-store human notific
 it('does not create threads or run models while polling an empty conversation',async()=>{mock.scope.mockResolvedValue({thread:undefined,store:{}});const result=await GET(request,context);expect(await result.json()).toMatchObject({conversation:{messages:[]},batches:[],guidance:[]});expect(mock.messages).not.toHaveBeenCalled();});
 it('preserves scope denial without reading saved data',async()=>{mock.scope.mockResolvedValue(Response.json({error:'Sign in'},{status:401}));expect((await GET(request,context)).status).toBe(401);expect(mock.messages).not.toHaveBeenCalled();});
 it('polls the full pending queue even when newer approved history fills the default page',async()=>{mock.reviews.mockImplementation(async(_thread,options)=>options?.pendingOnly?[{id:'older-pending',state:'pending'}]:[{id:'new-approved',state:'approved'}]);const result=await GET(request,context);expect((await result.json()).batches).toEqual([{id:'older-pending',state:'pending'}]);expect(mock.reviews).toHaveBeenCalledWith('owned-thread',{pendingOnly:true});});
+it('polls only the narrow saved display marker without exposing internal route proof',async()=>{
+ const id='00000000-0000-4000-8000-000000000001',text='You reviewed a person’s exact channel and account. Provider identity and full history must still be verified before outreach.';
+ mock.messages.mockResolvedValue([{id:'notice',role:'assistant',request_key:'channel-route:'+id,content:{text,details:{routeId:id,conversationId:id,bindingId:id,channel:'whatsapp',policyRevision:1,recipient:'PRIVATE_RECIPIENT'}}}]);
+ const body=await(await GET(request,context)).json();expect(body.conversation.messages).toEqual([{id:'notice',role:'assistant',content:text,noticeKind:'contact_channel_reviewed'}]);expect(JSON.stringify(body)).not.toMatch(/PRIVATE|request_key|details|bindingId|routeId/);
+});

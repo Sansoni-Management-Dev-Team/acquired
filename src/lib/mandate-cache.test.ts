@@ -148,3 +148,12 @@ describe("mandate cache", () => {
     expect(store.getState().session?.scope).toBe("other-workspace");
   });
 });
+
+it('remembers an explicit mandate selection through refresh/reload, scoped to the validated session',async()=>{
+ const{store,storage,request}=setup();await store.getState().refresh();expect(store.getState().entry?.selectedMandateId).toBeUndefined();store.getState().selectMandate(mandate.id);await store.getState().refresh(true);expect(store.getState().entry?.selectedMandateId).toBe(mandate.id);
+ const reloaded=createMandateCache(storage,request);await reloaded.persist.rehydrate();await reloaded.getState().validateSession();expect(reloaded.getState().entry?.selectedMandateId).toBe(mandate.id);
+ request.mockResolvedValueOnce(Response.json({scope:'other-workspace',expiresAt:Date.now()+3600000}));await reloaded.getState().validateSession(true);expect(reloaded.getState().entry).toBeNull();
+});
+it('never guesses a selection and clears a deleted mandate after a successful list refresh',async()=>{
+ const{store,request}=setup();await store.getState().refresh();store.getState().selectMandate('not-owned');expect(store.getState().entry?.selectedMandateId).toBeUndefined();store.getState().selectMandate(mandate.id);request.mockResolvedValueOnce(Response.json({scope,mandates:[]}));await store.getState().refresh(true);expect(store.getState().entry?.selectedMandateId).toBeUndefined();
+});

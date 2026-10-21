@@ -1,4 +1,5 @@
-import {agentStore,durableAgentEnabled,savedAgentConversation,answerSavedAgentConversation,AgentTurnError} from '@/lib/agent-runtime';
+import {agentStore,agentPool,nativeAgentEnabled,durableAgentEnabled,savedAgentConversation,answerSavedAgentConversation,AgentTurnError} from '@/lib/agent-runtime';
+import {readInitialMandateResearch} from '@/lib/agent-initial-research';
 import { z } from 'zod';
 import { auth } from '@/lib/auth';
 import { acquireCommands } from '@/lib/acquire-commands';
@@ -27,7 +28,9 @@ async function snapshot(request: Request, context: Context) {
   try {
     const result = await acquireCommands.execute({ organizationId: org, userId: session.user.id }, { name: 'research.status', input: { mandateId: id } });
     if (result.name !== 'research.status') throw new Error('Unexpected command result');
-    return { data: result.value, actor: { organizationId: org, userId: session.user.id } };
+    const actor={organizationId:org,userId:session.user.id};
+    const initialResearch=nativeAgentEnabled()?await readInitialMandateResearch(agentPool(),actor,id):undefined;
+    return { data: {...result.value,...(initialResearch?{initialResearch}:{})}, actor };
   } catch (cause) {
     if (cause instanceof AcquireCommandError) return error(cause.message, cause.status);
     throw cause;

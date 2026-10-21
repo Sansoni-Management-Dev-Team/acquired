@@ -1,0 +1,63 @@
+# Additive second provider lane. Include alongside the saved primary profile;
+# never replace its service, bindings, ports, environment or volumes.
+services:
+  demo-network:
+    image: node:22.12.0
+    container_name: project-acquire-agent-demo-network
+    profiles: ["demo"]
+    command: ["node", "-e", "setInterval(() => {}, 2147483647)"]
+    ports:
+      - "127.0.0.1:5892:5891"
+    restart: unless-stopped
+  communications-demo:
+    image: acquire-agent-mode:dev
+    container_name: project-acquire-agent-communications-demo
+    profiles: ["demo"]
+    working_dir: /workspace
+    network_mode: "service:demo-network"
+    volumes:
+      - ../..:/workspace:ro
+      - agent-node-modules:/workspace/node_modules
+    command: ["node", "/workspace/.local-data/communications/service-build/service.cjs", "--serve"]
+    env_file:
+      - ../../.local-data/agent-mode-orbstack/communications-demo-service.env
+    environment:
+      AGENT_NATIVE_EXECUTION_ENABLED: "false"
+    depends_on:
+      app:
+        condition: service_started
+    restart: unless-stopped
+  simulator-demo-bridge:
+    image: acquire-agent-mode:dev
+    container_name: project-acquire-agent-simulator-demo-bridge
+    profiles: ["demo"]
+    working_dir: /workspace
+    network_mode: "service:demo-network"
+    volumes:
+      - ../..:/workspace:ro
+    command: ["node", "/workspace/ops/agent-mode/simulator-transports.mjs"]
+    environment:
+      AGENT_MODE_COMMUNICATIONS_MODE: simulator
+      AGENT_MODE_COMMUNICATIONS_PROFILE: demos
+      NODE_ENV: development
+    depends_on:
+      communications-demo:
+        condition: service_started
+    restart: unless-stopped
+  app-demo-relay:
+    image: acquire-agent-mode:dev
+    container_name: project-acquire-agent-app-demo-relay
+    profiles: ["demo"]
+    working_dir: /workspace
+    network_mode: "service:network"
+    volumes:
+      - ../..:/workspace:ro
+    command: ["node", "/workspace/ops/agent-mode/demo-app-transports.mjs"]
+    environment:
+      AGENT_DEMO_COMMUNICATIONS_ENABLED: "true"
+      AGENT_MODE_COMMUNICATIONS_MODE: simulator
+      NODE_ENV: development
+    depends_on:
+      simulator-demo-bridge:
+        condition: service_started
+    restart: unless-stopped

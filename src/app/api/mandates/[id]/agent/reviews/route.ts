@@ -8,7 +8,7 @@ export async function GET(request:Request,context:Context){
   return Response.json({batches},{headers});
  }catch(cause){return failure(cause);}
 }
-const decisionSchema=z.object({action:z.literal('decide'),batchId:z.string().uuid(),revision:z.number().int().positive(),items:z.array(reviewItemSchema).min(1).max(50),decision:z.enum(['approved','rejected'])}).strict();
+const decisionSchema=z.object({action:z.literal('decide'),batchId:z.string().uuid(),revision:z.number().int().positive(),items:z.array(reviewItemSchema).min(1).max(50),decision:z.enum(['approved','rejected']),approvalSource:z.literal('automatic_demo').optional()}).strict().refine(value=>!value.approvalSource||value.decision==='approved');
 const editSchema=z.object({action:z.literal('edit'),batchId:z.string().uuid(),operationId:z.string().uuid(),revision:z.number().int().positive(),body:z.string().trim().min(1).max(6000)}).strict();
 const requestSchema=z.discriminatedUnion('action',[decisionSchema,editSchema]);
 export async function POST(request:Request,context:Context){
@@ -21,7 +21,7 @@ export async function POST(request:Request,context:Context){
   if(!data.thread)return error('Review not found.',404);
   const value=parsed.data;
   const batch=value.action==='decide'
-   ?await data.store.decideReviewBatch(data.thread.id,value.batchId,value.revision,value.items,value.decision)
+   ?await data.store.decideReviewBatch(data.thread.id,value.batchId,value.revision,value.items,value.decision,...(value.approvalSource?[value.approvalSource] as const:[]))
    :await data.store.editEmailReview(data.thread.id,value.batchId,value.operationId,value.revision,value.body);
   return Response.json({batch},{headers});
  }catch(cause){return failure(cause);}

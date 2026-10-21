@@ -1,3 +1,4 @@
+import {companyProfileDisposition,type CompanyProfileOutcome} from './company-profile-outcome';
 import type {WebSearchResult} from './cloudflare-search';
 import {directorySource,serviceBusinessDomain} from './discovery-sources';
 import {firmableDomain} from './firmable-company-pipeline';
@@ -17,8 +18,8 @@ export async function matchWebFirmableCompany(row:WebCompany,enrich:(identifier:
  if(firmableDomain(raw.website||raw.fqdn)!==row.domain)throw Error('Firmable profile domain mismatch');
  return raw;
 }
-export async function runWebFirmablePipeline(deps:{checkpoint:<T>(name:string,fn:()=>Promise<T>)=>Promise<T>;now:()=>number;control:()=>Promise<boolean>;plan:()=>Promise<WebQuery[]>;search:(query:WebQuery,index:number)=>Promise<{rows:WebCompany[];ok:boolean}>;profile:(row:WebCompany)=>Promise<{ok:boolean;matched?:boolean}>;finish:(result:Record<string,unknown>)=>Promise<unknown>},options:{deadline:number;maxCompanies:number;concurrency:number}){
- const plan=await deps.checkpoint('e-plan',deps.plan),companies:WebCompany[]=[];const domains=new Set<string>();let searchFailed=0,searches=0,saved=0,matched=0,failed=0,stopReason='exhausted';
+export async function runWebFirmablePipeline(deps:{checkpoint:<T>(name:string,fn:(firmableAttempt?:number)=>Promise<T>)=>Promise<T>;now:()=>number;control:()=>Promise<boolean>;plan:()=>Promise<WebQuery[]>;search:(query:WebQuery,index:number)=>Promise<{rows:WebCompany[];ok:boolean}>;profile:(row:WebCompany,firmableAttempt?:number)=>Promise<CompanyProfileOutcome>;finish:(result:Record<string,unknown>)=>Promise<unknown>},options:{deadline:number;maxCompanies:number;concurrency:number}){
+ const plan=await deps.checkpoint('e-plan',deps.plan),companies:WebCompany[]=[];const domains=new Set<string>();let searchFailed=0,searches=0,saved=0,matched=0,identityReviewRequired=0,skipped=0,failed=0,stopReason='exhausted';
  const running=async()=>{if(deps.now()>=options.deadline){stopReason='deadline';return false;}if(!await deps.control()){stopReason='cancelled';return false;}return true;};
  for(const [index,query]of plan.entries()){
   if(!await running())break;
@@ -27,9 +28,9 @@ export async function runWebFirmablePipeline(deps:{checkpoint:<T>(name:string,fn
   if(companies.length>=options.maxCompanies){stopReason='candidate_limit';break;}
  }
  for(let i=0;i<companies.length;i+=options.concurrency){if(!await running())break;
-  const results=await Promise.all(companies.slice(i,i+options.concurrency).map(row=>deps.checkpoint(`e-company-${row.domain}`,()=>deps.profile(row))));
-  for(const r of results){if(r.ok){saved++;if(r.matched)matched++;}else failed++;}
+  const results=await Promise.all(companies.slice(i,i+options.concurrency).map(row=>deps.checkpoint(`e-company-${row.domain}`,attempt=>attempt?deps.profile(row,attempt):deps.profile(row))));
+  for(const r of results){const disposition=companyProfileDisposition(r);if(disposition==='saved'){saved++;if(r.matched)matched++;}else if(disposition==='review')identityReviewRequired++;else if(disposition==='skipped')skipped++;else failed++;}
  }
- const result={candidates:companies.length,searches,searchFailed,saved,matched,unmatched:saved-matched,failed,unprocessed:companies.length-saved-failed,stopReason};
+ const result={...(identityReviewRequired?{identityReviewRequired}:{}),...(skipped?{skipped}:{}),candidates:companies.length,searches,searchFailed,saved,matched,unmatched:saved-matched,failed,unprocessed:companies.length-saved-failed-identityReviewRequired-skipped,stopReason};
  await deps.checkpoint('e-finish',()=>deps.finish(result));return result;
 }

@@ -1,8 +1,8 @@
-import type { PoolClient } from "pg";
-import type { AgentThread } from "./agent-store";
+import type {PoolClient} from 'pg';
+import type {AgentThread} from './agent-store';
 
-/** The existing root operation shape shared explicitly across feature validators.
- * Each feature retains its own schema validation and ordered virtual calls. */
+/** Shared shape for the ordered feature validators, independent of the store
+ * inheritance chain. Each feature still validates its own saved input schema. */
 export type AgentReviewContextOperation = {
   name: string;
   input?: {
@@ -12,24 +12,20 @@ export type AgentReviewContextOperation = {
   };
 };
 
-/** Read within the caller's existing review transaction before feature checks.
- * No transaction, authority or proposal is created here. */
+/** Read inside the caller's review transaction before research-specific checks.
+ * This function neither acquires authority nor writes or opens a transaction. */
 export async function checkAgentResearchMandateReviewContext(
-  c: PoolClient,
-  t: AgentThread,
-  op: AgentReviewContextOperation,
+  client: PoolClient,
+  thread: AgentThread,
+  operation: AgentReviewContextOperation,
 ) {
-  if (
-    op.name === "research.start" &&
-    op.input?.nativeResearchPlanVersion === 1
-  ) {
-    const mandate = (
-      await c.query(
-        "SELECT xmin::text AS revision FROM mandates WHERE id=$1 AND organization_id=$2",
-        [t.mandate_id, t.organization_id],
-      )
-    ).rows[0];
-    if (mandate?.revision !== op.input.mandateRevision)
-      throw new Error("Mandate changed; review the current research plan");
+  if (operation.name === 'research.start' && operation.input?.nativeResearchPlanVersion === 1) {
+    const mandate = (await client.query(
+      'SELECT xmin::text AS revision FROM mandates WHERE id=$1 AND organization_id=$2',
+      [thread.mandate_id, thread.organization_id],
+    )).rows[0];
+    if (mandate?.revision !== operation.input.mandateRevision) {
+      throw new Error('Mandate changed; review the current research plan');
+    }
   }
 }

@@ -2,12 +2,16 @@ import {z} from 'zod';
 import type {Pool} from 'pg';
 import {briefSchema,briefToMandate} from '@/domain/acquisition';
 import {agentActorSchema,agentRecordDigest,type AgentActor} from '@/db/agent-store';
-export const nativeMandateCreateSchema=z.object({requestId:z.string().uuid(),brief:briefSchema}).strict();
+import type {CachedDemoResearchSelection} from './cached-demo-research';
+import {buildDemoBuyerProfile} from './agent-demo-buyer-profile';
+// Only creation chooses the execution mode. Brief text, labels, query strings
+// and subsequent review requests cannot change a saved mode.
+export const nativeMandateCreateSchema=z.object({requestId:z.string().uuid(),brief:briefSchema,executionMode:z.enum(['real','demo']).optional(),demoSourceMandateId:z.string().uuid().optional()}).strict().refine(value=>!value.demoSourceMandateId||value.executionMode==='demo','Saved demo data requires demo mode.');
 export class NativeMandateCreateError extends Error{constructor(message:string,readonly status:number){super(message);}}
 /** Idempotency lives in an existing immutable audit receipt. Its original row
  * revision is deliberately returned even if another human later edits the brief. */
-export async function createNativeAgentMandate(pool:Pool,rawActor:AgentActor,raw:unknown){
- const actor=agentActorSchema.parse(rawActor),input=nativeMandateCreateSchema.parse(raw),inputDigest=agentRecordDigest(input),c=await pool.connect();
+export async function createNativeAgentMandate(pool:Pool,rawActor:AgentActor,raw:unknown,options:{startResearch?:boolean;startOn?:'chat';cachedDemo?:CachedDemoResearchSelection;presentation?:'agent'|'workspace'}={}){
+ const actor=agentActorSchema.parse(rawActor),input=nativeMandateCreateSchema.parse(raw),inputDigest=agentRecordDigest(input),mode=input.executionMode??'real',c=await pool.connect();
  try{
   await c.query('BEGIN');
   // Creating a mandate is a policy write: take the policy writer fence before
@@ -22,12 +26,22 @@ export async function createNativeAgentMandate(pool:Pool,rawActor:AgentActor,raw
   if(receipt){
    const owned=(await c.query('SELECT id,created_by FROM mandates WHERE id=$1 AND organization_id=$2 FOR SHARE',[input.requestId,actor.organizationId])).rows[0];
    if(receipt.organization_id!==actor.organizationId||receipt.actor_id!==actor.userId||receipt.action!=='agent.mandate_created'||receipt.entity_type!=='mandate'||receipt.entity_id!==input.requestId||receipt.metadata?.inputDigest!==inputDigest||owned?.created_by!==actor.userId||!/^\d{1,30}$/.test(receipt.metadata?.creationRevision??''))throw new NativeMandateCreateError('This creation request conflicts with a saved request. Review the saved mandate.',409);
-   await c.query('COMMIT');return {id:input.requestId,revision:String(receipt.metadata.creationRevision),replayed:true};
+   const savedMode=(await c.query('SELECT mode,demo_id FROM agent_mandate_execution_modes WHERE mandate_id=$1 AND organization_id=$2',[input.requestId,actor.organizationId])).rows[0];
+   // Historical creations have no mode row and retain their real behavior.
+   // A newly recorded receipt must still have its immutable matching mode row.
+   if((savedMode?.mode??'real')!==mode||(mode==='demo'&&savedMode?.demo_id!==input.requestId)||(receipt.metadata.executionMode!==undefined&&(!savedMode||receipt.metadata.executionMode!==mode)))throw new NativeMandateCreateError('The saved execution mode could not be verified. No new mandate was created.',409);
+   await c.query('COMMIT');return {id:input.requestId,revision:String(receipt.metadata.creationRevision),executionMode:mode,replayed:true,...(receipt.metadata.initialResearch?{initialResearch:receipt.metadata.initialResearch}:{})};
   }
   if((await c.query('SELECT id FROM mandates WHERE id=$1',[input.requestId])).rowCount)throw new NativeMandateCreateError('This creation request conflicts with a saved request. Review the saved mandate.',409);
   const b=input.brief,row=(await c.query(`INSERT INTO mandates(id,organization_id,natural_language,filters,confirmation,provenance,created_by)
-   VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,xmin::text AS revision`,[input.requestId,actor.organizationId,b.naturalLanguage,JSON.stringify({...briefToMandate(b),brief:b}),b.name,JSON.stringify({source:'Reviewed native agent brief',inputDigest}),actor.userId])).rows[0];
-  await c.query("INSERT INTO audit_events(id,organization_id,actor_id,action,entity_type,entity_id,metadata) VALUES($1::uuid,$2,$3,'agent.mandate_created','mandate',$1::text,$4)",[input.requestId,actor.organizationId,actor.userId,JSON.stringify({inputDigest,creationRevision:row.revision})]);
-  await c.query('COMMIT');return {id:row.id as string,revision:row.revision as string,replayed:false};
+   VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,xmin::text AS revision`,[input.requestId,actor.organizationId,b.naturalLanguage,JSON.stringify({...briefToMandate(b),brief:b}),b.name,JSON.stringify({source:options.startResearch?'Submitted agent research brief':'Reviewed native agent brief',inputDigest,...(mode==='demo'?{demoBuyerProfile:buildDemoBuyerProfile(input.requestId,b)}:{})}),actor.userId])).rows[0];
+  await c.query('INSERT INTO agent_mandate_execution_modes(mandate_id,organization_id,created_by,mode,demo_id) VALUES($1,$2,$3,$4,$5)',[input.requestId,actor.organizationId,actor.userId,mode,mode==='demo'?input.requestId:null]);
+  // The immutable intent authorizes only the ordinary research action requested
+  // by this submission. It never marks inferred criteria confirmed or grants
+  // native provider, phone-reveal or communications authority.
+  if(options.cachedDemo&&(mode!=='demo'||input.demoSourceMandateId&&input.demoSourceMandateId!==options.cachedDemo.sourceMandateId))throw new NativeMandateCreateError('Saved demo source changed.',409);
+  const initialResearch=options.startResearch?{version:1 as const,requestId:input.requestId,creationRevision:row.revision as string,...(options.startOn?{startOn:options.startOn}:{}),...(options.cachedDemo?{source:'cached' as const,cachedDemo:{selection:options.cachedDemo},presentation:options.presentation??'agent'}:{})}:undefined;
+  await c.query("INSERT INTO audit_events(id,organization_id,actor_id,action,entity_type,entity_id,metadata) VALUES($1::uuid,$2,$3,'agent.mandate_created','mandate',$1::text,$4)",[input.requestId,actor.organizationId,actor.userId,JSON.stringify({inputDigest,creationRevision:row.revision,executionMode:mode,...(initialResearch?{initialResearch}:{})})]);
+  await c.query('COMMIT');return {id:row.id as string,revision:row.revision as string,executionMode:mode,replayed:false,...(initialResearch?{initialResearch}:{})};
  }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
 }

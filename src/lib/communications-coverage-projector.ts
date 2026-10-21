@@ -1,3 +1,4 @@
+import {businessSql,type BusinessClock} from '../../communications/packages/core/src/business-clock';
 import{ReplyProcessingPendingError}from'../../communications/packages/core/src/history-pending';
 import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
@@ -16,6 +17,7 @@ export interface HeldCoverageProjection {
     revalidate(): Promise<void>;
 }
 export interface AcquireCoverageProjectorOptions {
+    businessClock?:BusinessClock;
     pool: SqlPool;
     binding: ConnectionBinding;
     bindingId: string;
@@ -169,7 +171,7 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
                     assertSameBinding(binding, { applicationId: b.application_id, tenantId: b.organization_id, ownerId: b.owner_user_id, connectionId: b.service_connection_id, accountId: b.service_account_id, generation: b.generation, channel: b.channel, platform: b.platform, backend: b.backend } as ConnectionBinding);
                     if (b.id !== bindingId || b.authority !== 'service')
                         fail();
-                    const fresh = await tx.query("SELECT $1::timestamptz<=clock_timestamp() AND $2::timestamptz<=clock_timestamp() AND $1::timestamptz>=clock_timestamp()-interval '5 minutes' AND $2::timestamptz>=clock_timestamp()-interval '5 minutes' AS fresh", [coverage.through, coverage.observedAt]);
+                    const fresh = await tx.query(`SELECT $1::timestamptz<=${businessSql(input.businessClock)} AND $2::timestamptz<=${businessSql(input.businessClock)} AND $1::timestamptz>=${businessSql(input.businessClock)}-interval '5 minutes' AND $2::timestamptz>=${businessSql(input.businessClock)}-interval '5 minutes' AS fresh`, [coverage.through, coverage.observedAt]);
                     if (fresh.rows.length !== 1 || fresh.rows[0].fresh !== true)
                         fail();
                     const old = await tx.query('SELECT observed_service_revision::text AS revision FROM public.communication_consumer_checkpoints WHERE binding_id=$1 AND subscriber_id=$2 AND scope_digest=$3 FOR UPDATE', [bindingId, subscriber, proof.scopeDigest]);

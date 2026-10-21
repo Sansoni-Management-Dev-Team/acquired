@@ -17,3 +17,14 @@ it('hosted localhost redirect requires exact explicit HTTPS origin and rejects c
  expect(()=>assertManagementSetupResponse(value)).toThrow();expect(()=>assertManagementSetupResponse(value,{localSimulatorOrigin:origin})).not.toThrow();
  for(const localSimulatorOrigin of ['https://127.0.0.1:9999','http://127.0.0.1:5490','https://remote.example'])expect(()=>assertManagementSetupResponse(value,{localSimulatorOrigin})).toThrow();
 });
+
+it('accepts explicit active and retired lifecycle while retaining legacy read-only snapshots',()=>{
+ for(const active of [true,false])expect(()=>assertManagedConnection({...connection(),active,status:'disconnected',readiness:{status:'review',code:'reconnect'}},scope)).not.toThrow();
+ expect(()=>assertManagedConnection(connection(),scope)).not.toThrow();
+});
+it.each([undefined,null,'false',0])('rejects a malformed explicit lifecycle flag: %s',active=>{
+ expect(()=>assertManagedConnection({...connection(),active},scope)).toThrow();
+});
+it('a retired generation cannot claim send readiness',()=>{
+ expect(()=>assertManagedConnection({...connection(),active:false,status:'connected',readiness:{status:'ready'}},scope)).toThrow();
+});

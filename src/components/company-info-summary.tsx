@@ -28,15 +28,14 @@ export function CompanyInfoSummary({ member, financialScope = "company" }: { mem
   const hasData = hasHeadcount || hasRevenue || hasEbitda || known(industry) || known(location) || known(target.abn) || known(description) || founded != null || Boolean(company);
   return <section aria-labelledby="company-info-heading" className="space-y-5">
     <h3 id="company-info-heading" className="text-lg font-semibold">Company information</h3>
-    {Boolean(company?.rawResponse?.websiteResearch) && <p className="text-xs text-[var(--muted)]">Website evidence; company provider match unavailable.</p>}
-    {websiteResearch && ['failed','partial'].includes(websiteResearch.status || '') && <p className="text-xs text-[var(--muted)]">{websiteResearch.status==='failed'?'Website research failed; the discovered company is retained for review.':'Website research is partial; retrieved evidence is retained and some details require another read.'}</p>}
+    {websiteResearch && ['failed','partial'].includes(websiteResearch.status || '') && <p className="text-xs text-[var(--muted)]">Some company details are not available yet.</p>}
     {!target.abn && abnVerification && <p className="text-xs text-[var(--muted)]">{abnVerification.status==='ambiguous'?'ABN requires review: multiple legal entities have supporting evidence.':abnVerification.operationalStatus==='partial'?'ABN verification incomplete: some identity evidence could not be retrieved.':'ABN unverified: no supported company-to-registry identity link.'}</p>}
     {target.sourceData?.backgroundResearch && <details className="rounded-[10px] border border-[var(--border)] p-3 text-xs">
       <summary>Public web enrichment evidence</summary>
       <ul className="mt-2 space-y-2">{Object.entries(target.sourceData.backgroundResearch.fields).map(([field,state])=><li key={field}>
-        <span>{field.replaceAll('_',' ')}: {state?.status}</span>
+        <span className="font-medium">{field.charAt(0).toUpperCase() + field.slice(1).replaceAll('_',' ')}</span>
         {state?.observations.map((fact,index)=><p key={index}><a className="underline" href={fact.sourceUrl} target="_blank" rel="noreferrer">Source page</a> · {fact.capturedAt.slice(0,10)} · {fact.quote}{fact.association?` · Related domain: ${fact.association.domain} (${fact.association.basis.replaceAll('_',' ')})`:''}</p>)}
-        {state?.missingReason&&<p>{state.missingReason}</p>}
+        {!state?.observations.length && <p className="text-[var(--muted)]">Not available yet.</p>}
       </li>)}</ul>
     </details>}
     {!hasData ? <p className="rounded-[14px] bg-[var(--panel)] p-5 text-sm text-[var(--muted)]">No company details found yet.</p> : <>

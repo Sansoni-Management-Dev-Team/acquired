@@ -36,3 +36,8 @@ it('reports stale state as conflict without leaking SQL or claiming a send',asyn
  expect(response.status).toBe(409);expect(await response.text()).not.toContain('secret');
 });
 it('serves pending review work rather than a recent history page that can hide older approvals',async()=>{mocks.list.mockImplementation(async(_thread,options)=>options?.pendingOnly?[{id:'older-pending',state:'pending'}]:[{id:'new-approved',state:'approved'}]);const response=await GET(new Request('http://localhost'),context);expect(response.status).toBe(200);expect((await response.json()).batches).toEqual([{id:'older-pending',state:'pending'}]);expect(mocks.list).toHaveBeenCalledWith('owned-thread',{pendingOnly:true});expect(response.headers.get('Cache-Control')).toContain('no-store');});
+it('records automatic demo approval attribution without changing the exact review manifest',async()=>{
+ expect((await POST(request({...input,approvalSource:'automatic_demo'}),context)).status).toBe(200);
+ expect(mocks.decide).toHaveBeenCalledWith('owned-thread',batchId,1,[item],'approved','automatic_demo');
+ expect((await POST(request({...input,approvalSource:'anything'}),context)).status).toBe(400);
+});

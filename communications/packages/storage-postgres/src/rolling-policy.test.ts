@@ -12,3 +12,13 @@ it.each([{ policy_valid: false }, { rolling_ready: 'true' }, { spacing_ready: fa
 it('optional absence preserves caller calendar-policy responsibility without SQL or a permissive provider permit', async () => { const f = fixture(); expect(await checkRollingDispatchPolicy(f.client, 'physical', {})).toEqual({ allowed: true }); expect(f.query).not.toHaveBeenCalled(); });
 it('policy accessors are rejected before evaluation or SQL', async () => { const f = fixture(), read = vi.fn(() => 50), policy = Object.defineProperty({}, 'rollingDay', { get: read, enumerable: true }); await expect(checkRollingDispatchPolicy(f.client, 'physical', policy)).rejects.toThrow('Dispatch journal unavailable'); expect(read).not.toHaveBeenCalled(); expect(f.query).not.toHaveBeenCalled(); });
 it('SQL proof accepts actual charged terminal states without pretending the virtual completed state exists', async () => { const f = fixture(); await checkRollingDispatchPolicy(f.client, 'physical', { rollingDay: 50, minimumSpacingSeconds: 60 }); const sql = f.query.mock.calls[0][0]; expect(sql).toContain("state IN('dispatching','unknown','submitted','blocked','rejected','skipped')"); expect(sql).not.toContain("'completed'"); });
+
+it('uses explicitly selected business admission coordinates while unresolved work still blocks',async()=>{
+ const f=fixture({unresolved:true});expect(await checkRollingDispatchPolicy(f.client,'physical',{rollingDay:50,minimumSpacingSeconds:60},{now:()=>Date.parse(at)})).toMatchObject({allowed:false,outcome:{code:'unresolved_send'}});
+ expect(f.query.mock.calls[0][0]).toContain('SELECT public.local_simulator_business_now() AS now');expect(f.query.mock.calls[0][0]).toContain('a.business_admitted_at');
+});
+
+it('never substitutes real audit anchors for missing business admission evidence',async()=>{
+ const f=fixture({policy_valid:false});await expect(checkRollingDispatchPolicy(f.client,'physical',{rollingDay:50},{now:()=>Date.parse(at)})).rejects.toThrow();
+ const sql=f.query.mock.calls[0][0];expect(sql).toContain('a.business_admitted_at AS created_at');expect(sql).toContain('admission_id IS NULL');expect(sql).not.toContain('coalesce(a.business_admitted_at');
+});

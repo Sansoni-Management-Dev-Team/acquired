@@ -1,3 +1,5 @@
+import {localSyncReceiptKey,parseLocalSyncEventProof} from '../../core/src/local-sync-event';
+import {isDeepStrictEqual} from 'node:util';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { types } from 'node:util';
 import { assertSameBinding, type ConnectionBinding } from '../../contracts/src';
@@ -101,18 +103,18 @@ export function createPostgresReplyBarrier(options: ReplyBarrierOptions): Postgr
         return previous;
     }
     function capture(input: unknown): WebhookCapture {
-        const raw = record(input, ['binding', 'key', 'rawBody', 'receivedAt']), b = boundBinding(raw.binding);
+        const raw = record(input, ['binding', 'key', 'rawBody', 'receivedAt'],['localSync']), b = boundBinding(raw.binding);
         assertSameBinding(binding, b);
         if (!hex(raw.key) || !timestamp(raw.receivedAt) || !types.isUint8Array(raw.rawBody) || types.isProxy(raw.rawBody) || ![Uint8Array.prototype, Buffer.prototype].includes(Object.getPrototypeOf(raw.rawBody)))
             fail();
         const byteLength = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), 'byteLength')!.get!.call(raw.rawBody) as number;
         if (byteLength < 1 || byteLength > 1048576 || Reflect.ownKeys(raw.rawBody).some(k => typeof k !== 'string' || !/^(0|[1-9]\d*)$/.test(k)))
             fail();
-        const body = new Uint8Array(Buffer.from(raw.rawBody));
-        if (raw.key !== hash(['communications.webhook.receipt.v1', scope, createHash('sha256').update(body).digest('hex')]))
+        const body = new Uint8Array(Buffer.from(raw.rawBody)),localSync=raw.localSync===undefined?undefined:parseLocalSyncEventProof(raw.localSync);
+        if (raw.key !== localSyncReceiptKey(b,body,localSync))
             fail();
         return {
-            binding: b, key: raw.key, rawBody: body, receivedAt: raw.receivedAt
+            binding: b, key: raw.key, rawBody: body, receivedAt: raw.receivedAt,...(localSync?{localSync}:{})
         };
     }
     function scopeRow(row: Record<string, unknown>) {
@@ -155,7 +157,7 @@ export function createPostgresReplyBarrier(options: ReplyBarrierOptions): Postgr
                 const decoded = capture(decode({
                     binding: structuredClone(binding), key: original.key
                 }, envelope));
-                if (decoded.key !== original.key || decoded.receivedAt !== original.receivedAt || !Buffer.from(decoded.rawBody).equals(Buffer.from(original.rawBody)))
+                if (!isDeepStrictEqual(decoded.localSync,original.localSync)||decoded.key !== original.key || decoded.receivedAt !== original.receivedAt || !Buffer.from(decoded.rawBody).equals(Buffer.from(original.rawBody)))
                     fail();
                 const proof = digest({
                     binding: structuredClone(binding), key: original.key

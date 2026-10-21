@@ -1,3 +1,4 @@
+import {businessNow,type BusinessClock} from '../../core/src/business-clock';
 import {createHash} from 'node:crypto';
 import { types } from 'node:util';
 import { performance } from 'node:perf_hooks';
@@ -20,6 +21,7 @@ export interface VerifiedV1EmailOriginal {
     conversation?: ProviderReference;
 }
 export interface UnipileV1EmailAdapterOptions {
+    businessClock?:BusinessClock;
     connection: ConnectionRecord;
     providerAccountId: string;
     sourceId: string;
@@ -135,6 +137,7 @@ export interface UnipileV1EmailAdapter extends MessagingAdapter {
 /** Raw v1 transport composition only. Durable admission/journal/quota authority is mandatory
  * outside this adapter. Provider idempotency is memory-only; this adapter never retries a POST. */
 export function createUnipileV1EmailAdapter(options: UnipileV1EmailAdapterOptions): UnipileV1EmailAdapter {
+    let businessClock:BusinessClock|undefined;
     let connection: ConnectionRecord, providerAccountId: string, sourceId: string, ownerAddresses: string[], timeoutMs: number;
     let getAccount: UnipileV1EmailPort['getAccount'], getEmail: UnipileV1EmailPort['getEmail'], sendEmail: UnipileV1EmailPort['sendEmail'];
     let verifyOwner: UnipileV1EmailAdapterOptions['verifyOwner'], verifyOriginal: UnipileV1EmailAdapterOptions['verifyOriginal'];
@@ -143,13 +146,14 @@ export function createUnipileV1EmailAdapter(options: UnipileV1EmailAdapterOption
         if (!options || types.isProxy(options) || ![Object.prototype, null].includes(Object.getPrototypeOf(options)))
             throw new Error();
         const fields = Object.getOwnPropertyDescriptors(options);
-        if (Reflect.ownKeys(fields).some(k => typeof k !== 'string' || !['connection', 'providerAccountId', 'sourceId', 'ownerAddresses', 'transport', 'timeoutMs', 'verifyOwner', 'verifyOriginal'].includes(k) || !('value' in fields[k])))
+        if (Reflect.ownKeys(fields).some(k => typeof k !== 'string' || !['connection', 'providerAccountId', 'sourceId', 'ownerAddresses', 'transport', 'timeoutMs', 'verifyOwner', 'verifyOriginal', 'businessClock'].includes(k) || !('value' in fields[k])))
             throw new Error();
         connection = copied(options.connection);
         providerAccountId = options.providerAccountId;
         sourceId = options.sourceId;
         ownerAddresses = copied(options.ownerAddresses) as string[];
         timeoutMs = options.timeoutMs ?? 15000;
+        businessClock=options.businessClock;if(businessClock)businessNow(businessClock);
         assertSameBinding(connection.binding, connection.binding);
         if (connection.binding.channel !== 'email' || connection.binding.backend !== 'unipile' || !['gmail', 'outlook', 'imap'].includes(connection.binding.platform) || !id(providerAccountId) || !id(sourceId) || (connection.providerAccountId !== undefined && connection.providerAccountId !== providerAccountId) || !ownerAddresses.length || ownerAddresses.length > 100 || ownerAddresses.some(a => !email(a)) || new Set(ownerAddresses).size !== ownerAddresses.length || !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 60000)
             throw new Error();
@@ -313,7 +317,7 @@ export function createUnipileV1EmailAdapter(options: UnipileV1EmailAdapterOption
                     const expected=input.message.replyParent,result=copied(await budget.call(()=>getEmail(providerAccountId,expected.message.id,{signal:budget.signal})));
                     if(result.kind!=='success')return readFailure(result);
                     const mail=result.data;
-                    if(result.status!==200||!record(mail)||mail.object!=='Email'||mail.kind!=='2_full'||typeof mail.role!=='string'||['draft','drafts'].includes(mail.role.toLowerCase())||mail.id!==expected.message.id||mail.account_id!==providerAccountId||mail.type!=={gmail:'GOOGLE_OAUTH',outlook:'OUTLOOK',imap:'MAIL'}[binding.platform as 'gmail'|'outlook'|'imap']||!timestamp(mail.date)||Date.parse(mail.date)>Date.now()||typeof mail.body!=='string'||typeof mail.subject!=='string'||!Array.isArray(mail.headers)||!mail.headers.length||!record(mail.from_attendee)||mail.from_attendee.identifier_type!=='EMAIL_ADDRESS'||!email(mail.from_attendee.identifier)||!Array.isArray(mail.to_attendees)||!Array.isArray(mail.cc_attendees)||!Array.isArray(mail.bcc_attendees))return {status:'review',code:'protocol'};
+                    if(result.status!==200||!record(mail)||mail.object!=='Email'||mail.kind!=='2_full'||typeof mail.role!=='string'||['draft','drafts'].includes(mail.role.toLowerCase())||mail.id!==expected.message.id||mail.account_id!==providerAccountId||mail.type!=={gmail:'GOOGLE_OAUTH',outlook:'OUTLOOK',imap:'MAIL'}[binding.platform as 'gmail'|'outlook'|'imap']||!timestamp(mail.date)||Date.parse(mail.date)>businessNow(businessClock)||typeof mail.body!=='string'||typeof mail.subject!=='string'||!Array.isArray(mail.headers)||!mail.headers.length||!record(mail.from_attendee)||mail.from_attendee.identifier_type!=='EMAIL_ADDRESS'||!email(mail.from_attendee.identifier)||!Array.isArray(mail.to_attendees)||!Array.isArray(mail.cc_attendees)||!Array.isArray(mail.bcc_attendees))return {status:'review',code:'protocol'};
                     const from=(mail.from_attendee.identifier as string).toLowerCase(),recipients=[...mail.to_attendees,...mail.cc_attendees,...mail.bcc_attendees];
                     if(!recipients.length||recipients.length>1000||!recipients.every(p=>record(p)&&p.identifier_type==='EMAIL_ADDRESS'&&email(p.identifier)))return {status:'review',code:'protocol'};
                     const addresses=recipients.map(p=>(p.identifier as string).toLowerCase()),peer=input.message.recipient.value;

@@ -1,6 +1,7 @@
 import {z} from 'zod';
 import {agentRecordDigest as digest} from '@/db/agent-store';
-export const nativeResearchAttemptSchema=z.object({researchOperationId:z.string().uuid(),researchJobId:z.string().uuid(),targetId:z.string().uuid().optional(),provider:z.enum(['search','page','ai','firmable']),requestDigest:z.string().regex(/^[a-f0-9]{64}$/)}).strict();
+export const nativeResearchRequestClassSchema=z.enum(['company_search','company_profile','auth','people_search','person_profile','phone_reveal','unsupported']);
+export const nativeResearchAttemptSchema=z.object({researchOperationId:z.string().uuid(),researchJobId:z.string().uuid(),targetId:z.string().uuid().optional(),provider:z.enum(['search','page','ai','firmable']),requestClass:nativeResearchRequestClassSchema.optional(),requestDigest:z.string().regex(/^[a-f0-9]{64}$/)}).strict();
 export const nativeResearchProviderReceiptSchema=z.object({actualCostMicroUsd:z.string().regex(/^(0|[1-9]\d{0,11})$/).nullable(),costBasis:z.enum(['observed_provider_usage','configured_rate_estimate','unknown']),response:z.json().optional(),reason:z.enum(['request_outcome_unknown','response_invalid']).optional()}).strict().refine(v=>(v.actualCostMicroUsd===null)===(v.costBasis==='unknown'),'Unknown cost must remain unknown');
 export interface NativeResearchRequestPort{
  beginNativeResearchAttempt(threadId:string,key:string,input:unknown):Promise<{kind:'started';operationId:string;fence:string}|{kind:'cached';response:unknown}>;

@@ -37,6 +37,68 @@ class ReaderPolicyTests(unittest.TestCase):
         self.assertNotIn("example.com", str(event))
         self.assertNotIn("private", str(event))
 
+    def test_transport_classification_is_trace_only_and_never_echoes_a_raw_error(self):
+        handler = reader.Handler.__new__(reader.Handler)
+        handler.headers = {"x-request-id": "request-1234", "x-research-job-id": "job-12345678"}
+        handler.crawl_started = reader.time.monotonic()
+        handler.transport_failure = "connection_refused"
+        handler.wfile = io.BytesIO()
+        handler.send_response = lambda _: None
+        handler.send_header = lambda *_: None
+        handler.end_headers = lambda: None
+        with patch("builtins.print") as log:
+            handler.send_json(502, {"error": "Page read failed", "category": "page_unavailable"})
+        event = reader.json.loads(log.call_args.args[0].split(" ", 1)[1])
+        self.assertEqual(event.get("transportFailure"), "connection_refused")
+        body = reader.json.loads(handler.wfile.getvalue())
+        self.assertEqual(body["category"], "page_unavailable")
+        self.assertNotIn("transportFailure", body)
+        self.assertNotIn("transportFailure", body["reader"])
+
+    def test_classifies_only_bounded_transport_reasons_without_echoing_input(self):
+        for error, expected in [
+            (ConnectionRefusedError(111, "PRIVATE endpoint"), "connection_refused"),
+            (reader.socket.gaierror(-3, "PRIVATE resolver"), "dns_resolution_failed"),
+            (TimeoutError("PRIVATE URL"), "timeout"),
+            ("Page.goto net::ERR_NAME_NOT_RESOLVED PRIVATE", "dns_resolution_failed"),
+            ("Page.goto net::ERR_CONNECTION_TIMED_OUT PRIVATE", "timeout"),
+            ("Page.goto net::ERR_CONNECTION_RESET PRIVATE", "connection_reset"),
+            ("Page.goto net::ERR_CERT_AUTHORITY_INVALID PRIVATE", "tls_verification_failed"),
+            ("PRIVATE unrelated failure", None),
+        ]:
+            with self.subTest(expected=expected):
+                self.assertEqual(reader.classify_transport_failure(error), expected)
+
+    def test_post_logs_refusal_without_changing_failed_read_body_status_or_cooldown(self):
+        handler = reader.Handler.__new__(reader.Handler)
+        payload = reader.json.dumps({"url": "https://example.com/?token=PRIVATE"}).encode()
+        handler.path = "/crawl"
+        handler.headers = {"Content-Length": str(len(payload)), "x-request-id": "request-1234", "x-research-job-id": "job-12345678"}
+        handler.rfile, handler.wfile = io.BytesIO(payload), io.BytesIO()
+        handler.connection = SimpleNamespace(settimeout=lambda _: None)
+        status = []
+        handler.send_response = status.append
+        handler.send_header = lambda *_: None
+        handler.end_headers = lambda: None
+        error = reader.ReadError("page_unavailable", transport_failure="connection_refused")
+        def submitted(coroutine, _):
+            coroutine.close()
+            def result(timeout):
+                raise error
+            return SimpleNamespace(result=result, cancel=lambda: None)
+        with patch.object(reader, "service_secret", ""), patch.object(reader, "public_url", return_value=True), patch.object(reader.asyncio, "run_coroutine_threadsafe", side_effect=submitted), patch("builtins.print") as log:
+            handler.do_POST()
+        self.assertEqual(status, [502])
+        body = reader.json.loads(handler.wfile.getvalue())
+        self.assertEqual(body["error"], "Page read failed")
+        self.assertEqual(body["category"], "page_unavailable")
+        self.assertNotIn("transportFailure", body["reader"])
+        response = reader.json.loads(log.call_args.args[0].split(" ", 1)[1])
+        self.assertEqual(response["transportFailure"], "connection_refused")
+        self.assertNotIn("PRIVATE", str(log.call_args_list))
+        self.assertNotIn("example.com", str(log.call_args_list))
+        self.assertNotIn("example.com", reader.active_domains)
+
     def test_capacity_diagnostics_and_release(self):
         with patch.object(reader, "busy", reader.threading.BoundedSemaphore(2)), patch.object(reader, "CONCURRENCY", 2), patch.object(reader, "active_reads", 0):
             self.assertTrue(reader.acquire_slot())
@@ -69,6 +131,13 @@ class ReaderPolicyTests(unittest.TestCase):
     def test_allows_public_https(self):
         with patch.object(reader.socket, "getaddrinfo", return_value=[(None, None, None, None, ("8.8.8.8", 443))]):
             self.assertTrue(reader.public_url("https://example.com"))
+
+    def test_dns_failure_is_distinguishable_without_allowing_the_destination(self):
+        diagnostics = {}
+        with patch.object(reader.socket, "getaddrinfo", side_effect=reader.socket.gaierror(-3, "private resolver details")):
+            self.assertFalse(reader.public_url("https://example.com", diagnostics))
+        self.assertEqual(diagnostics, {"urlValidationReason": "dns_resolution_failed", "dnsErrorCode": -3})
+        self.assertNotIn("private", str(diagnostics))
 
     def test_domain_admission_and_cooldown(self):
         reader.domains.clear()
@@ -125,6 +194,18 @@ class ReaderPoolTests(unittest.IsolatedAsyncioTestCase):
             arun=AsyncMock(return_value=SimpleNamespace(success=True, status_code=200, url="https://example.com/", markdown=SimpleNamespace(raw_markdown="Company manufactures precision instruments."))),
             close=AsyncMock(), crawler_strategy=SimpleNamespace(kill_session=AsyncMock()))
         self.fake_module = SimpleNamespace(CrawlerRunConfig=lambda **kw: SimpleNamespace(**kw), CacheMode=SimpleNamespace(BYPASS="bypass"))
+
+    async def test_retains_only_connection_refused_classification_for_a_failed_crawl(self):
+        self.crawler.arun.return_value = SimpleNamespace(success=False, status_code=None, markdown=None,
+            error_message="Page.goto: net::ERR_CONNECTION_REFUSED at https://private.example/?token=PRIVATE&email=person@example.invalid")
+        with patch.dict(sys.modules, {"crawl4ai": self.fake_module}), patch.object(reader, "create_crawler", AsyncMock(return_value=self.crawler)):
+            with self.assertRaises(reader.ReadError) as caught:
+                await reader.read_page("https://private.example/")
+        self.assertEqual(caught.exception.status, 502)
+        self.assertEqual(caught.exception.category, "page_unavailable")
+        self.assertEqual(getattr(caught.exception, "transport_failure", None), "connection_refused")
+        self.assertNotIn("PRIVATE", str(caught.exception))
+        self.assertNotIn("private.example", str(caught.exception))
 
     async def test_reuses_browsers_and_cleans_unique_sessions(self):
         with patch.dict(sys.modules, {"crawl4ai": self.fake_module}), patch.object(reader, "CONCURRENCY", 1), patch.object(reader, "create_crawler", AsyncMock(return_value=self.crawler)) as create, patch.object(reader, "public_url", return_value=True):

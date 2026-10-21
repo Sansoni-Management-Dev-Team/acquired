@@ -1,5 +1,5 @@
-import type {AgentReviewContextOperation} from './agent-review-context';
 import {checkAgentSequenceDraftReviewContext} from './agent-sequence-review-context';
+import type {AgentReviewContextOperation} from './agent-review-context';
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
 import type {PoolClient} from 'pg';
@@ -15,10 +15,8 @@ const inputSchema=z.object({name:z.string().trim().min(1).max(100),definition:ca
 type SequencePlan={nativeSequenceDraftVersion:1;mandateRevision:string;responsibilityId:string;responsibilityRevision:number;sequenceId:string;mode:'create'|'update';baseRevision:string|null;name:string;definition:z.infer<typeof campaignDraftDefinition>;contextRevision:string;body:string;generationGuidance?:AgentGuidanceSnapshot};
 export class AgentSequenceStore extends AgentPeopleStore{
  protected async checkReviewContext(c:PoolClient,t:AgentThread,op:AgentReviewContextOperation){
-  await super.checkReviewContext(c,t,op);
-  if(op.name!=='sequence.prepare'||op.input?.nativeSequenceDraftVersion!==1)return;
-  const plan=op.input as SequencePlan;
-  await checkAgentSequenceDraftReviewContext(c,t,plan);
+  await super.checkReviewContext(c,t,op);if(op.name!=='sequence.prepare'||op.input?.nativeSequenceDraftVersion!==1)return;
+  await checkAgentSequenceDraftReviewContext(c,t,op.input as SequencePlan);
  }
  async sequenceDrafts(threadId:string){return this.nativeTransaction(async c=>{const t=await this.thread(c,threadId);return(await c.query('SELECT id,name,draft,published_version,xmin::text AS revision FROM campaign_sequences WHERE organization_id=$1 AND owner_user_id=$2 AND mandate_id=$3 ORDER BY updated_at DESC LIMIT 100',[t.organization_id,t.owner_user_id,t.mandate_id])).rows;});}
  async proposeSequenceDraft(threadId:string,key:string,raw:unknown,authority?:AgentExecutionFence,generation?:{guidanceSnapshot:unknown}){

@@ -41,3 +41,21 @@ it('drains a retained original integration generation before current history wit
 });
 it('does not consume or acknowledge retained work if original binding registration is unavailable',async()=>{const f=fixture();f.list.mockResolvedValue([]);const service=await createAcquireCommunicationsService({...f.configured,host:{...f.configured.host,pendingReplyBindings:vi.fn(async()=>[binding]),recordPendingReplyBinding:vi.fn(async()=>{throw Error('Original scope unavailable');})}}as never);await service.tick();expect(f.consumePending).not.toHaveBeenCalled();expect(f.history).not.toHaveBeenCalled();});
 it('bounds retained binding consumption per tick even when a host fixture returns an oversized list',async()=>{const f=fixture();f.list.mockResolvedValue([]);const recordPendingReplyBinding=vi.fn(async()=> 'original'),service=await createAcquireCommunicationsService({...f.configured,host:{...f.configured.host,pendingReplyBindings:vi.fn(async()=>Array.from({length:50},(_,i)=>({...binding,connectionId:'original-'+i}))),recordPendingReplyBinding}}as never);await service.tick();expect(recordPendingReplyBinding).toHaveBeenCalledTimes(20);expect(f.consumePending).toHaveBeenCalledTimes(20);expect(f.history).not.toHaveBeenCalled();});
+
+it('advances history policy time while retaining real refresh cooldown and operational abort bounds',async()=>{
+ const f=fixture();let business=now+86400000*5;const configured={...f.configured,businessScope:scope,options:{businessClock:{now:()=>business}}};
+ const service=await createAcquireCommunicationsService(configured as never);await service.tick([scope]);
+ expect(f.refresh).toHaveBeenCalledWith(expect.objectContaining({since:new Date(business-300000).toISOString()}),{signal:expect.any(AbortSignal)});
+ business+=86400000*2;await service.tick([scope]);expect(f.refresh).toHaveBeenCalledOnce();
+ vi.spyOn(Date,'now').mockReturnValue(now+60001);await service.tick([scope]);expect(f.refresh).toHaveBeenCalledTimes(2);expect(f.refresh).toHaveBeenLastCalledWith(expect.objectContaining({since:new Date(business-300000).toISOString()}),{signal:expect.any(AbortSignal)});
+});
+
+it('explicit subjects avoid discovery and still renew each selected original subject before listing work',async()=>{
+ const f=fixture(),service=await createAcquireCommunicationsService(f.configured as never);await service.tick([scope]);
+ expect(f.configured.host.currentSubjects).not.toHaveBeenCalled();expect(f.renewScope).toHaveBeenCalledWith(scope);expect(f.list).toHaveBeenCalledWith(scope);
+});
+it.each(['foreign','missing-array','missing-bound-scope'] as const)('selected clock tick rejects %s before authorization, discovery or provider work',async variant=>{
+ const f=fixture(),configured={...f.configured,options:{businessClock:{now:()=>now}},...(variant==='missing-bound-scope'?{}:{businessScope:scope})},service=await createAcquireCommunicationsService(configured as never);
+ await expect(variant==='missing-array'?service.tick():service.tick([{...scope,...(variant==='foreign'?{ownerId:'foreign'}:{})}])).rejects.toThrow('Exact business clock subject required');
+ expect(f.configured.host.currentSubjects).not.toHaveBeenCalled();expect(f.renewScope).not.toHaveBeenCalled();expect(f.list).not.toHaveBeenCalled();expect(f.history).not.toHaveBeenCalled();
+});

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-// Persisted digests retain the exact existing canonical/hash implementations.
+// Persisted agent digests intentionally retain their existing JSON semantics.
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonical);
   if (value && typeof value === "object")

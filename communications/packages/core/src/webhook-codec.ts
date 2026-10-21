@@ -1,3 +1,4 @@
+import {parseLocalSyncEventProof,localSyncReceiptKey} from './local-sync-event';
 import { createCipheriv, createDecipheriv, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { types } from 'node:util';
 import { assertSameBinding, type ConnectionBinding } from '../../contracts/src';
@@ -71,14 +72,14 @@ function validDate(value: unknown): value is string {
     (zone === 'Z' || (Number(zone.slice(1,3)) <= 23 && Number(zone.slice(4,6)) <= 59)) && Number.isFinite(Date.parse(value));
 }
 function capture(input: unknown, max: number): WebhookCapture {
-  const raw = record(input,['binding','key','rawBody','receivedAt']);
+  const raw = record(input,['binding','key','rawBody','receivedAt'],['localSync']);
   const validated = scope({ binding: raw.binding, key: raw.key });
   if (!validDate(raw.receivedAt)) fail();
-  return { ...validated, rawBody: new Uint8Array(bytes(raw.rawBody,max)), receivedAt: raw.receivedAt };
+  const body=new Uint8Array(bytes(raw.rawBody,max)),localSync=raw.localSync===undefined?undefined:parseLocalSyncEventProof(raw.localSync);if(localSync&&localSyncReceiptKey(validated.binding,body,localSync)!==validated.key)fail();return { ...validated, rawBody:body, receivedAt:raw.receivedAt,...(localSync?{localSync}:{}) };
 }
 function captureJson(input: WebhookCapture): string {
   // Fixed field order and exact known types define the sole canonical plaintext representation.
-  return JSON.stringify({ binding: input.binding, key: input.key, rawBody: Buffer.from(input.rawBody).toString('base64'), receivedAt: input.receivedAt });
+  return JSON.stringify({ binding: input.binding, key: input.key, rawBody: Buffer.from(input.rawBody).toString('base64'), receivedAt: input.receivedAt,...(input.localSync?{localSync:input.localSync}:{}) });
 }
 function base64(input: unknown, max: number, length?: number, allowEmpty = false): Buffer {
   if (typeof input !== 'string' || (!allowEmpty && !input.length) || input.length > Math.ceil(max / 3) * 4 || input.length % 4 !== 0 || (input !== '' && !/^[A-Za-z0-9+/]+={0,2}$/.test(input))) fail();
@@ -141,7 +142,7 @@ export class WebhookCodec {
       decipher.setAAD(aad); decipher.setAuthTag(tag);
       const plaintext = Buffer.concat([decipher.update(ciphertext),decipher.final()]);
       const text = new TextDecoder('utf-8',{ fatal: true, ignoreBOM: true }).decode(plaintext);
-      const decoded = record(JSON.parse(text),['binding','key','rawBody','receivedAt']);
+      const decoded = record(JSON.parse(text),['binding','key','rawBody','receivedAt'],['localSync']);
       const result = capture({ ...decoded, rawBody: base64(decoded.rawBody,this.#max,undefined,true) },this.#max);
       assertSameBinding(external.binding,result.binding);
       if (result.key !== external.key || captureJson(result) !== text) fail();

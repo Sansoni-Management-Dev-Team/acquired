@@ -1,365 +1,463 @@
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it } from "vitest";
-import {
-  AgentNativeProposalDetails,
-  nativeProposalReviewable,
-} from "./agent-native-proposal-details";
+import { nativeProposalReviewable } from "./agent-native-proposal-details";
 
 const id = "00000000-0000-4000-8000-000000000001";
-const contact = {
-  contactId: id,
-  targetId: id,
-  name: "Synthetic owner",
-  recipient: "owner@example.com",
-  fit: [],
-};
-const draft = {
-  nativeSequenceDraftVersion: 1,
-  sequenceId: id,
-  mode: "create",
-  baseRevision: null,
-  name: "Reviewed draft",
-  definition: {
-    schemaVersion: 1,
-    steps: [
+const wait = { id, kind: "wait", title: "Wait", days: 1 };
+function draft() {
+  return {
+    nativeSequenceDraftVersion: 1,
+    sequenceId: id,
+    name: "Saved draft",
+    mode: "create",
+    baseRevision: null,
+    definition: { schemaVersion: 1, steps: [wait] },
+  };
+}
+function fieldPlan() {
+  return {
+    nativeFieldsPlanVersion: 1,
+    config: { requestId: "saved-job" },
+    execution: {
+      pipeline: "public-fields-v1",
+      peopleResearch: false,
+      ai: false,
+    },
+    providerPolicy: {
+      version: 1,
+      requestCeilingMicroUsd: "1000000",
+      perCompany: { search: 12, page: 64 },
+      maxAttempts: { search: 60, page: 320, ai: 0, firmable: 0 },
+    },
+    selected: [
       {
-        id,
-        kind: "email",
-        title: "Introduction",
-        subject: "Hello",
-        body: "Would you consider a conversation?",
+        targetId: "target",
+        childJobId: "child",
+        sourceRevision: "revision",
+        name: "Company",
+        domain: "company.example",
+        verifyAbn: true,
+        fields: [] as string[],
       },
     ],
-  },
-};
-const research = {
-  nativeResearchPlanVersion: 1,
-  config: {
-    requestId: "saved-job",
-    researchScope: "Veterinary laboratories",
-    geography: "NSW",
-    targetBusinesses: 20,
-  },
-  execution: {
-    pipeline: "firmable-company-v1",
-    peopleResearch: false,
-    backgroundResearch: false,
-  },
-  providerPolicy: {
-    requestCeilingMicroUsd: "1000000",
-    maxAttempts: { firmable: 20 },
-  },
-};
-const people = {
-  nativePeoplePlanVersion: 1,
-  includePhones: false,
-  maxContactsPerCompany: 2,
-  config: { requestId: "people-job" },
-  providerPolicy: { requestCeilingMicroUsd: "1000000" },
-  selected: [
-    {
-      targetId: id,
-      name: "Synthetic company",
-      firmableId: "recorded-company",
-      sourceRevision: "1",
-    },
-  ],
-};
+  };
+}
+function targetPlan() {
+  return {
+    nativeTargetSelectionVersion: 1,
+    delivery: { mode: "channels", policyRevision: 1 },
+    selected: [
+      {
+        contactId: "contact",
+        targetId: "target",
+        name: "Person",
+        fit: [],
+        channels: [
+          {
+            channel: "whatsapp",
+            bindingId: id,
+            bindingDigest: "a".repeat(64),
+            recipient: { kind: "phone", value: "+61400000000" },
+            identityProof: { kind: "recorded_contact", revision: "1" },
+          },
+        ],
+      },
+    ],
+  };
+}
+function freeze<T>(value: T): T {
+  if (value && typeof value === "object") {
+    for (const child of Object.values(value)) freeze(child);
+    Object.freeze(value);
+  }
+  return value;
+}
 
-it("preserves invitation review boundaries without changing the saved input", () => {
+it("preserves the existing permissive fallback for names outside the specialized review branches", () => {
+  for (const name of [
+    "email.initial",
+    "future.operation",
+    "",
+    "linkedin.manual_link",
+  ]) {
+    expect(
+      nativeProposalReviewable(name, freeze({ arbitrary: ["unchanged"] })),
+    ).toBe(true);
+  }
+});
+
+it("bounds reviewed invitation notes by raw UTF-16 length and requires the exact human-review metadata", () => {
   const input = {
-    routeId: id,
+    routeId: id.toUpperCase(),
     subject: "",
     requiresHumanReview: true,
-    body: "A reviewed connection note",
+    body: "😀".repeat(150),
   };
-  const before = structuredClone(input);
-  expect(nativeProposalReviewable("linkedin.invitation", input)).toBe(true);
-  for (const invalid of [
-    { ...input, routeId: "unrecorded" },
+  expect(nativeProposalReviewable("linkedin.invitation", freeze(input))).toBe(
+    true,
+  );
+  for (const changed of [
+    { ...input, body: "😀".repeat(151) },
+    { ...input, body: "  " },
+    { ...input, subject: "Subject" },
     { ...input, requiresHumanReview: false },
-    { ...input, subject: "Unexpected subject" },
-    { ...input, body: " " },
-    { ...input, body: "x".repeat(301) },
-  ])
-    expect(nativeProposalReviewable("linkedin.invitation", invalid)).toBe(
+    { ...input, routeId: "not-a-route" },
+  ]) {
+    expect(nativeProposalReviewable("linkedin.invitation", changed)).toBe(
       false,
     );
+  }
+});
+
+it("keeps ordinary social-message review separate from the invitation note limit and HIL flag", () => {
+  for (const name of [
+    "whatsapp.initial",
+    "whatsapp.reply",
+    "linkedin.follow_up",
+  ]) {
+    expect(
+      nativeProposalReviewable(name, {
+        routeId: id,
+        subject: "",
+        body: "x".repeat(10001),
+      }),
+    ).toBe(true);
+    expect(
+      nativeProposalReviewable(name, { routeId: id, subject: "", body: "   " }),
+    ).toBe(false);
+    expect(
+      nativeProposalReviewable(name, {
+        routeId: id,
+        subject: null,
+        body: "Reply",
+      }),
+    ).toBe(false);
+  }
+});
+
+it("preserves raw draft-name bounds and create/update revision distinctions", () => {
+  const input = draft();
+  expect(
+    nativeProposalReviewable("sequence.prepare", {
+      ...input,
+      name: "x".repeat(120),
+    }),
+  ).toBe(true);
+  expect(
+    nativeProposalReviewable("sequence.prepare", {
+      ...input,
+      name: "x".repeat(121),
+    }),
+  ).toBe(false);
+  expect(
+    nativeProposalReviewable("sequence.prepare", { ...input, name: "  " }),
+  ).toBe(false);
+  expect(
+    nativeProposalReviewable("sequence.prepare", {
+      ...input,
+      mode: "update",
+      baseRevision: "0000000000",
+    }),
+  ).toBe(true);
+  for (const baseRevision of ["12345678901", "-1", "", 1, null]) {
+    expect(
+      nativeProposalReviewable("sequence.prepare", {
+        ...input,
+        mode: "update",
+        baseRevision,
+      }),
+    ).toBe(false);
+  }
+  expect(
+    nativeProposalReviewable("sequence.prepare", {
+      ...input,
+      baseRevision: "1",
+    }),
+  ).toBe(false);
+});
+
+it("allows incomplete builder layouts while requiring at least one draft node and leaving the saved input untouched", () => {
+  const input = draft();
+  Object.assign(input.definition, {
+    disconnectedConnections: [{ source: id, target: "end" }],
+  });
+  const before = structuredClone(input);
+  expect(nativeProposalReviewable("sequence.prepare", freeze(input))).toBe(
+    true,
+  );
   expect(input).toEqual(before);
-});
-
-it("requires an exact recorded route and nonempty social message for each supported stage", () => {
-  for (const channel of ["whatsapp", "linkedin"])
-    for (const stage of ["initial", "reply", "follow_up"]) {
-      const name = `${channel}.${stage}`,
-        input = { routeId: id, subject: "", body: "Reviewed message" };
-      expect(nativeProposalReviewable(name, input)).toBe(true);
-      for (const invalid of [
-        { ...input, routeId: "" },
-        { ...input, subject: "Subject" },
-        { ...input, body: "\n " },
-      ])
-        expect(nativeProposalReviewable(name, invalid)).toBe(false);
-    }
-});
-
-it("renders the recorded company-only research scope and keeps its version-one review contract", () => {
-  expect(nativeProposalReviewable("research.start", research)).toBe(true);
-  const html = renderToStaticMarkup(
-    createElement(AgentNativeProposalDetails, {
-      name: "research.start",
-      input: research,
+  expect(
+    nativeProposalReviewable("sequence.prepare", {
+      ...input,
+      definition: { schemaVersion: 1, steps: [] },
     }),
+  ).toBe(false);
+  expect(
+    nativeProposalReviewable("sequence.prepare", {
+      ...input,
+      definition: { ...input.definition, unexpected: true },
+    }),
+  ).toBe(false);
+});
+
+it("keeps legacy publication review structural rather than introducing new numeric or identifier validation", () => {
+  const input = {
+    nativeSequencePublicationVersion: 1,
+    sequenceId: " ",
+    versionId: " ",
+    draftRevision: " ",
+    publishedVersion: NaN,
+    runtime: "legacy",
+    definition: { schemaVersion: 1, legacyExtra: true },
+  };
+  expect(nativeProposalReviewable("sequence.publish", freeze(input))).toBe(
+    true,
   );
-  for (const value of [
-    "Veterinary laboratories",
-    "NSW",
-    "20 companies",
-    "saved-job",
-    "does not approve",
-    "Company research only",
-  ])
-    expect(html).toContain(value);
-  for (const invalid of [
-    { ...research, nativeResearchPlanVersion: 2 },
-    { ...research, config: { ...research.config, requestId: "" } },
-    { ...research, execution: { ...research.execution, peopleResearch: true } },
-    {
-      ...research,
-      execution: { ...research.execution, backgroundResearch: true },
-    },
-    {
-      ...research,
-      providerPolicy: {
-        ...research.providerPolicy,
-        requestCeilingMicroUsd: "0",
+  expect(
+    nativeProposalReviewable("sequence.publish", {
+      ...input,
+      runtime: "other",
+    }),
+  ).toBe(false);
+  expect(
+    nativeProposalReviewable("sequence.publish", { ...input, definition: [] }),
+  ).toBe(false);
+  expect(
+    nativeProposalReviewable("sequence.publish", {
+      ...input,
+      publishedVersion: "1",
+    }),
+  ).toBe(false);
+});
+
+it("retains legacy enrolment number and repeated-selection behavior without relaxing required selected fields", () => {
+  const selected = {
+    contactId: "contact",
+    enrolmentId: "enrolment",
+    recipient: "recipient",
+    sourceRevision: "revision",
+  };
+  const input = {
+    nativeSequenceEnrolmentVersion: 1,
+    sequenceId: "sequence",
+    versionId: "version",
+    bindingId: "binding",
+    bindingDigest: "digest",
+    version: Infinity,
+    runtime: "n8n",
+    selected: [selected, selected],
+  };
+  expect(nativeProposalReviewable("sequence.enrol", freeze(input))).toBe(true);
+  expect(
+    nativeProposalReviewable("sequence.enrol", {
+      ...input,
+      selected: [{ ...selected, sourceRevision: "" }],
+    }),
+  ).toBe(false);
+  expect(
+    nativeProposalReviewable("sequence.enrol", { ...input, selected: [] }),
+  ).toBe(false);
+});
+
+it("accepts ABN-only field checks, bounds selected companies and rejects unsupported field scope", () => {
+  const input = fieldPlan();
+  const before = structuredClone(input);
+  expect(nativeProposalReviewable("research.fields", freeze(input))).toBe(true);
+  expect(input).toEqual(before);
+  expect(
+    nativeProposalReviewable("research.fields", {
+      ...input,
+      selected: Array(5).fill(input.selected[0]),
+    }),
+  ).toBe(true);
+  expect(
+    nativeProposalReviewable("research.fields", {
+      ...input,
+      selected: Array(6).fill(input.selected[0]),
+    }),
+  ).toBe(false);
+  expect(
+    nativeProposalReviewable("research.fields", {
+      ...input,
+      selected: [{ ...input.selected[0], verifyAbn: false }],
+    }),
+  ).toBe(false);
+  expect(
+    nativeProposalReviewable("research.fields", {
+      ...input,
+      selected: [{ ...input.selected[0], fields: ["team_members"] }],
+    }),
+  ).toBe(false);
+  expect(
+    nativeProposalReviewable("research.fields", {
+      ...input,
+      execution: { ...input.execution, ai: true },
+    }),
+  ).toBe(false);
+});
+
+it("retains the legacy people-plan number check while preserving explicit phone exclusion", () => {
+  const input = {
+    nativePeoplePlanVersion: 1,
+    includePhones: false,
+    maxContactsPerCompany: NaN,
+    config: { requestId: "job" },
+    providerPolicy: { requestCeilingMicroUsd: "1000000" },
+    selected: [
+      {
+        targetId: "target",
+        name: "Company",
+        firmableId: "provider",
+        sourceRevision: "revision",
       },
-    },
-  ])
-    expect(nativeProposalReviewable("research.start", invalid)).toBe(false);
-});
-
-it("keeps reviewed people enrichment limited to recorded companies and email-only scope", () => {
-  expect(nativeProposalReviewable("research.people", people)).toBe(true);
-  const html = renderToStaticMarkup(
-    createElement(AgentNativeProposalDetails, {
-      name: "research.people",
-      input: people,
+    ],
+  };
+  expect(nativeProposalReviewable("research.people", freeze(input))).toBe(true);
+  expect(
+    nativeProposalReviewable("research.people", {
+      ...input,
+      includePhones: true,
     }),
-  );
-  for (const value of [
-    "Synthetic company",
-    "recorded-company",
-    "Phone enrichment is off",
-    "does not approve outreach",
-  ])
-    expect(html).toContain(value);
-  for (const invalid of [
-    { ...people, nativePeoplePlanVersion: 2 },
-    { ...people, includePhones: true },
-    { ...people, selected: [] },
-    { ...people, selected: [{ ...people.selected[0], sourceRevision: "" }] },
-  ])
-    expect(nativeProposalReviewable("research.people", invalid)).toBe(false);
+  ).toBe(false);
+  expect(
+    nativeProposalReviewable("research.people", {
+      ...input,
+      maxContactsPerCompany: "3",
+    }),
+  ).toBe(false);
+  expect(
+    nativeProposalReviewable("research.people", {
+      ...input,
+      selected: [{ ...input.selected[0], firmableId: "" }],
+    }),
+  ).toBe(false);
 });
 
-it("keeps manual-contact qualification explicitly unconfirmed in local simulation review", () => {
-  const manual = {
-    ...contact,
+it("requires exact multichannel recipients, unique routes and a positive integer policy revision", () => {
+  const input = targetPlan(),
+    person = input.selected[0],
+    route = person.channels[0];
+  const before = structuredClone(input);
+  expect(nativeProposalReviewable("target.select", freeze(input))).toBe(true);
+  expect(input).toEqual(before);
+  for (const policyRevision of [0, -1, 1.5, "1"]) {
+    expect(
+      nativeProposalReviewable("target.select", {
+        ...input,
+        delivery: { ...input.delivery, policyRevision },
+      }),
+    ).toBe(false);
+  }
+  for (const channels of [
+    [route, route],
+    [{ ...route, bindingDigest: "A".repeat(64) }],
+    [{ ...route, recipient: { kind: "phone", value: "0400000000" } }],
+    [{ ...route, identityProof: { ...route.identityProof, revision: "0" } }],
+  ]) {
+    expect(
+      nativeProposalReviewable("target.select", {
+        ...input,
+        selected: [{ ...person, channels }],
+      }),
+    ).toBe(false);
+  }
+  // The historical presentation check uses a 36-character hex/hyphen pattern, not UUID parsing.
+  expect(
+    nativeProposalReviewable("target.select", {
+      ...input,
+      selected: [
+        { ...person, channels: [{ ...route, bindingId: "-".repeat(36) }] },
+      ],
+    }),
+  ).toBe(true);
+});
+
+it("keeps manual-contact qualification distinct from company-backed selection in legacy delivery modes", () => {
+  const person = {
+    contactId: "manual",
     sourceKind: "manual_contact",
     targetId: null,
     qualificationConfirmed: false,
+    name: "Person",
+    recipient: "saved-recipient",
+    fit: [],
   };
   const input = {
     nativeTargetSelectionVersion: 1,
     delivery: { mode: "local_sink" },
-    selected: [manual],
+    selected: [person],
   };
-  expect(nativeProposalReviewable("target.select", input)).toBe(true);
-  const html = renderToStaticMarkup(
-    createElement(AgentNativeProposalDetails, {
-      name: "target.select",
-      input: input,
-    }),
-  );
-  expect(html).toContain("Local simulation");
-  expect(html).toContain("Operator-entered contact");
-  expect(html).toContain("Qualification is not confirmed");
+  expect(nativeProposalReviewable("target.select", freeze(input))).toBe(true);
   expect(
     nativeProposalReviewable("target.select", {
       ...input,
-      selected: [{ ...manual, qualificationConfirmed: true }],
+      selected: [{ ...person, qualificationConfirmed: true }],
     }),
   ).toBe(false);
   expect(
     nativeProposalReviewable("target.select", {
       ...input,
-      selected: [{ ...manual, targetId: id }],
+      selected: [{ ...person, targetId: "company" }],
     }),
   ).toBe(false);
-});
-
-it("requires the recorded communication account and a complete selected-contact scope", () => {
-  const input = {
-    nativeTargetSelectionVersion: 1,
-    delivery: {
-      mode: "communications",
-      bindingId: id,
-      bindingDigest: "a".repeat(64),
-    },
-    selected: [contact],
-  };
-  expect(nativeProposalReviewable("target.select", input)).toBe(true);
-  for (const invalid of [
-    { ...input, delivery: { mode: "communications", bindingId: id } },
-    { ...input, selected: [] },
-    { ...input, selected: [{ ...contact, recipient: "" }] },
-    { ...input, selected: [{ ...contact, targetId: "" }] },
-  ])
-    expect(nativeProposalReviewable("target.select", invalid)).toBe(false);
-});
-
-const route = {
-  channel: "email",
-  bindingId: id,
-  bindingDigest: "a".repeat(64),
-  recipient: { kind: "email", value: "owner@example.com" },
-  identityProof: { kind: "recorded_contact", revision: "1" },
-};
-it("requires a recorded policy revision and exact canonical identities for channel selection", () => {
-  const input = {
-    nativeTargetSelectionVersion: 1,
-    delivery: { mode: "channels", policyRevision: 1 },
-    selected: [{ ...contact, channels: [route] }],
-  };
-  expect(nativeProposalReviewable("target.select", input)).toBe(true);
   expect(
     nativeProposalReviewable("target.select", {
       ...input,
-      delivery: { ...input.delivery, policyRevision: 0 },
+      delivery: { mode: "communications" },
     }),
   ).toBe(false);
-  for (const invalidRoute of [
-    { ...route, bindingDigest: "missing" },
-    { ...route, recipient: { kind: "email", value: "Owner@Example.com" } },
-    { ...route, identityProof: { kind: "recorded_contact", revision: "0" } },
-  ])
-    expect(
-      nativeProposalReviewable("target.select", {
-        ...input,
-        selected: [{ ...contact, channels: [invalidRoute] }],
-      }),
-    ).toBe(false);
-});
-
-it("rejects duplicated or empty channel routes rather than implying a reviewed destination", () => {
-  const input = {
-    nativeTargetSelectionVersion: 1,
-    delivery: { mode: "channels", policyRevision: 1 },
-    selected: [{ ...contact, channels: [route] }],
-  };
-  for (const channels of [[], [route, route], [route, route, route, route]])
-    expect(
-      nativeProposalReviewable("target.select", {
-        ...input,
-        selected: [{ ...contact, channels }],
-      }),
-    ).toBe(false);
-});
-
-it("renders both new and revised saved sequence drafts without granting execution", () => {
-  expect(nativeProposalReviewable("sequence.prepare", draft)).toBe(true);
-  const update = { ...draft, mode: "update", baseRevision: "12" };
-  expect(nativeProposalReviewable("sequence.prepare", update)).toBe(true);
-  const html = renderToStaticMarkup(
-    createElement(AgentNativeProposalDetails, {
-      name: "sequence.prepare",
-      input: update,
-    }),
-  );
-  for (const value of [
-    "Reviewed draft",
-    "Update draft revision 12",
-    "Introduction",
-    "Would you consider a conversation?",
-    "does not publish",
-    "draft only",
-  ])
-    expect(html).toContain(value);
-  for (const invalid of [
-    { ...draft, sequenceId: "" },
-    { ...draft, name: "" },
-    { ...draft, name: "x".repeat(121) },
-    { ...draft, mode: "update", baseRevision: null },
-    { ...draft, definition: { schemaVersion: 1, steps: [] } },
-  ])
-    expect(nativeProposalReviewable("sequence.prepare", invalid)).toBe(false);
-});
-
-it("requires the frozen publication handle and recorded original runtime", () => {
-  const input = {
-    nativeSequencePublicationVersion: 1,
-    sequenceId: id,
-    versionId: id,
-    draftRevision: "12",
-    publishedVersion: 1,
-    runtime: "n8n",
-    definition: { schemaVersion: 1 },
-  };
-  expect(nativeProposalReviewable("sequence.publish", input)).toBe(true);
-  for (const invalid of [
-    { ...input, nativeSequencePublicationVersion: 2 },
-    { ...input, versionId: "" },
-    { ...input, runtime: "unrecorded" },
-    { ...input, definition: {} },
-  ])
-    expect(nativeProposalReviewable("sequence.publish", invalid)).toBe(false);
-});
-
-it("requires exact enrolment identities and saved source revisions before review", () => {
-  const input = {
-    nativeSequenceEnrolmentVersion: 1,
-    sequenceId: id,
-    versionId: id,
-    bindingId: id,
-    bindingDigest: "a".repeat(64),
-    version: 1,
-    runtime: "legacy",
-    selected: [
-      {
-        contactId: id,
-        enrolmentId: id,
-        recipient: "owner@example.com",
-        sourceRevision: "12",
+  expect(
+    nativeProposalReviewable("target.select", {
+      ...input,
+      delivery: {
+        mode: "communications",
+        bindingId: "binding",
+        bindingDigest: "digest",
       },
-    ],
-  };
-  expect(nativeProposalReviewable("sequence.enrol", input)).toBe(true);
-  const html = renderToStaticMarkup(
-    createElement(AgentNativeProposalDetails, {
-      name: "sequence.enrol",
-      input: input,
     }),
-  );
-  expect(html).toContain("starts held");
-  expect(html).toContain("No send");
-  for (const invalid of [
-    { ...input, bindingDigest: "" },
-    { ...input, selected: [] },
-    { ...input, selected: [{ ...input.selected[0], sourceRevision: "" }] },
-  ])
-    expect(nativeProposalReviewable("sequence.enrol", invalid)).toBe(false);
+  ).toBe(true);
 });
 
-it("leaves operations outside this renderer to their own review boundary", () => {
-  expect(nativeProposalReviewable("email.reply", {})).toBe(true);
+it("preserves legacy company research limits without imposing the newer V4/V5 budget shape", () => {
+  const input = {
+    nativeResearchPlanVersion: 1,
+    config: {
+      requestId: "job",
+      researchScope: "Company",
+      geography: "AU",
+      targetBusinesses: 20,
+    },
+    execution: {
+      productionPipeline: "firmable-v1",
+      pipeline: "firmable-company-v1",
+      peopleResearch: false,
+      backgroundResearch: false,
+    },
+    providerPolicy: {
+      version: 1,
+      requestCeilingMicroUsd: "1000000",
+      maxAttempts: { firmable: 60, search: 6, page: 5, ai: 5 },
+    },
+  };
+  expect(nativeProposalReviewable("research.start", freeze(input))).toBe(true);
   expect(
-    renderToStaticMarkup(
-      createElement(AgentNativeProposalDetails, {
-        name: "email.reply",
-        input: {},
-      }),
-    ),
-  ).toBe("");
+    nativeProposalReviewable("research.start", {
+      ...input,
+      providerPolicy: {
+        ...input.providerPolicy,
+        maxAttempts: { ...input.providerPolicy.maxAttempts, firmable: 61 },
+      },
+    }),
+  ).toBe(false);
+  expect(
+    nativeProposalReviewable("research.start", {
+      ...input,
+      execution: { ...input.execution, backgroundResearch: true },
+    }),
+  ).toBe(false);
+  expect(
+    nativeProposalReviewable("research.start", {
+      ...input,
+      config: { ...input.config, companyDiscoveryPolicy: undefined },
+    }),
+  ).toBe(false);
 });

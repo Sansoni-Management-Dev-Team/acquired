@@ -1,3 +1,4 @@
+import {businessSql,type BusinessClock} from '../../core/src/business-clock';
 import{reportDispatchDiagnostic,type DispatchDiagnosticPort}from'../../core/src/dispatch-diagnostic';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { isDeepStrictEqual, types } from 'node:util';
@@ -25,6 +26,7 @@ export interface CanonicalRecipientDigest {
     digest(recipient: CanonicalIdentity, keyVersion: string): string;
 }
 export interface PostgresDispatchJournalOptions {
+    businessClock?:BusinessClock;
     diagnostic?:DispatchDiagnosticPort;
     pool: SqlPool;
     binding: ConnectionBinding;
@@ -144,7 +146,7 @@ export interface PostgresDispatchJournal extends DispatchJournalPort {
 export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJournalOptions): PostgresDispatchJournal {
     let options: PostgresDispatchJournalOptions;
     try {
-        options = record(inputOptions, ['pool', 'binding', 'integrationId', 'providerConfigurationReference', 'providerApiVersion', 'authority', 'leaseOwnerToken', 'codec', 'recipientDigest'], ['claimSeconds', 'leaseSeconds', 'transactionTimeoutMs', 'statementTimeoutMs', 'lockTimeoutMs', 'verifyReconciliation', 'reconciliationTimeoutMs', 'admission','diagnostic']) as unknown as PostgresDispatchJournalOptions;
+        options = record(inputOptions, ['pool', 'binding', 'integrationId', 'providerConfigurationReference', 'providerApiVersion', 'authority', 'leaseOwnerToken', 'codec', 'recipientDigest'], ['claimSeconds', 'leaseSeconds', 'transactionTimeoutMs', 'statementTimeoutMs', 'lockTimeoutMs', 'verifyReconciliation', 'reconciliationTimeoutMs', 'admission','diagnostic','businessClock']) as unknown as PostgresDispatchJournalOptions;
     }
     catch {
         throw Error('Invalid dispatch journal configuration');
@@ -747,16 +749,16 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
                             finally {
                                 active = false;
                             }
-                            const coverage = await c.query(`SELECT count(*)::integer=1 AS ready FROM communications.event_cursors x JOIN communications.connections c ON c.id=x.connection_id WHERE x.application_id=$1 AND x.tenant_id=$2 AND x.owner_id=$3 AND x.connection_id=$4 AND x.generation=$5 AND x.account_id=$6 AND x.scope_digest=$7 AND c.active AND c.status='connected' AND c.current_generation=x.generation AND c.account_id=x.account_id AND x.complete AND x.initial_sync_complete AND NOT x.invalidated AND x.coverage_from<=$8::timestamptz AND x.coverage_through>=$8::timestamptz AND x.coverage_through>=clock_timestamp()-($9::double precision*interval '1 second') AND x.coverage_through<=x.observed_at AND x.observed_at<=clock_timestamp() AND x.observed_at>=clock_timestamp()-($9::double precision*interval '1 second')`, [b.applicationId, b.tenantId, b.ownerId, b.connectionId, b.generation, b.accountId, scope.scopeDigest, scope.requiredSince, admission!.coverageMaxAgeSeconds]);
+                            const coverage = await c.query(`SELECT count(*)::integer=1 AS ready FROM communications.event_cursors x JOIN communications.connections c ON c.id=x.connection_id WHERE x.application_id=$1 AND x.tenant_id=$2 AND x.owner_id=$3 AND x.connection_id=$4 AND x.generation=$5 AND x.account_id=$6 AND x.scope_digest=$7 AND c.active AND c.status='connected' AND c.current_generation=x.generation AND c.account_id=x.account_id AND x.complete AND x.initial_sync_complete AND NOT x.invalidated AND x.coverage_from<=$8::timestamptz AND x.coverage_through>=$8::timestamptz AND x.coverage_through>=${businessSql(options.businessClock)}-($9::double precision*interval '1 second') AND x.coverage_through<=x.observed_at AND x.observed_at<=${businessSql(options.businessClock)} AND x.observed_at>=${businessSql(options.businessClock)}-($9::double precision*interval '1 second')`, [b.applicationId, b.tenantId, b.ownerId, b.connectionId, b.generation, b.accountId, scope.scopeDigest, scope.requiredSince, admission!.coverageMaxAgeSeconds]);
                             if (coverage.rows.length !== 1 || coverage.rows[0].ready !== true)
                                 fail();
                         }
-                        const rolling = await checkRollingDispatchPolicy(c, fixed.accountId, { rollingDay: admission!.quota.account.rollingDay, minimumSpacingSeconds: admission!.quota.account.minimumSpacingSeconds });
+                        const rolling = await checkRollingDispatchPolicy(c, fixed.accountId, { rollingDay: admission!.quota.account.rollingDay, minimumSpacingSeconds: admission!.quota.account.minimumSpacingSeconds }, options.businessClock);
                         if (!rolling.allowed) {
                             rollingBlocked = rolling.outcome;
                             fail();
                         }
-                        if (!await reserveDispatchQuotas(c, fixed.accountId, fixed.applicationId, admission!.quota)) {
+                        if (!await reserveDispatchQuotas(c, fixed.accountId, fixed.applicationId, admission!.quota, options.businessClock)) {
                             quotaBlocked = true;
                             fail();
                         }
@@ -764,7 +766,7 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
                         if (!await grant(c) || !await generation(c, true))
                             fail();
                         const admissionId = randomUUID();
-                        await c.query('INSERT INTO communications.dispatch_admissions(id,journal_id,application_id,tenant_id,owner_id,connection_id,generation,account_id,operation_key,payload_digest,permit_id,intent_digest,claim_token,fencing_token,lease_owner_token,service_revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::bigint,$15,$16::bigint)', [admissionId, found.id, ...scopes, fixed.connectionId, fixed.generation, fixed.accountId, current.snapshot.key, current.snapshot.payloadDigest, permit.permitId, permit.intentDigest, m.token, found.fencing_token, worker, revision]);
+                        await c.query(`INSERT INTO communications.dispatch_admissions(id,journal_id,application_id,tenant_id,owner_id,connection_id,generation,account_id,operation_key,payload_digest,permit_id,intent_digest,claim_token,fencing_token,lease_owner_token,service_revision${options.businessClock?',business_admitted_at':''}) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::bigint,$15,$16::bigint${options.businessClock?','+businessSql(options.businessClock):''})`, [admissionId, found.id, ...scopes, fixed.connectionId, fixed.generation, fixed.accountId, current.snapshot.key, current.snapshot.payloadDigest, permit.permitId, permit.intentDigest, m.token, found.fencing_token, worker, revision]);
                         const changed = await c.query(`UPDATE communications.operation_journal SET state='dispatching',quota_reserved=true,updated_at=clock_timestamp() WHERE id=$1 AND state='claimed' AND claim_token=$2 AND claim_until>clock_timestamp() AND NOT quota_reserved AND EXISTS(SELECT 1 FROM communications.account_leases l WHERE l.account_id=communications.operation_journal.account_id AND l.owner_token=$3 AND l.fencing_token=communications.operation_journal.fencing_token AND l.expires_at>clock_timestamp()) RETURNING ${columns}`, [found.id, m.token, worker]);
                         if (changed.rows.length !== 1 || !await grant(c))
                             fail();

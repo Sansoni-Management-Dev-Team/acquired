@@ -21,7 +21,7 @@ export const agentConversationContextSchema=z.object({
  historyComplete:z.boolean(),historyObservedAt:z.string().datetime({offset:true}).nullable(),goal:z.string().min(1).max(100000),history:z.array(nativeHistoryMessageSchema).max(200),
  sources:z.array(z.object({id:z.string().min(1).max(300),text:z.string().min(1).max(12000),publicDisclosureApproved:z.literal(true).optional()}).strict()).max(100),
  guidance:z.array(z.object({id:z.string().uuid(),revision:z.number().int().positive(),text:z.string().max(2000)}).strict()).max(5),
- channels:z.array(z.object({id:z.string().uuid(),channel:z.enum(['email','whatsapp','linkedin']),historyComplete:z.boolean(),historyObservedAt:z.string().datetime({offset:true}).nullable(),readiness:z.enum(['ready','waiting','review']),nextAllowedAt:z.string().datetime({offset:true}).nullable(),allowedActions:z.array(z.enum(['initial','reply','follow_up','invitation'])).max(4).optional(),relationship:agentChannelRelationshipSchema.optional()}).strict()).max(3).refine(routes=>new Set(routes.map(r=>r.id)).size===routes.length&&new Set(routes.map(r=>r.channel)).size===routes.length,'Unique recorded channel routes required').optional(),
+ channels:z.array(z.object({id:z.string().uuid(),channel:z.enum(['email','whatsapp','linkedin']),historyComplete:z.boolean(),historyObservedAt:z.string().datetime({offset:true}).nullable(),readiness:z.enum(['ready','waiting','review']),nextAllowedAt:z.string().datetime({offset:true}).nullable(),unansweredInboundHistoryId:z.string().min(1).max(300).optional(),allowedActions:z.array(z.enum(['initial','reply','follow_up','invitation'])).max(4).optional(),relationship:agentChannelRelationshipSchema.optional()}).strict()).max(3).refine(routes=>new Set(routes.map(r=>r.id)).size===routes.length&&new Set(routes.map(r=>r.channel)).size===routes.length,'Unique recorded channel routes required').optional(),
 }).strict();
 export type AgentConversationContext=z.infer<typeof agentConversationContextSchema>;
 export interface AgentConversationEnginePort{
@@ -77,12 +77,18 @@ export async function reassessAgentConversation(port:AgentConversationEnginePort
    if(!latestInbound)throw new AgentDecisionReviewError('A reply requires an inbound message');
    // Simultaneous verified incoming messages may offer more than one route.
    // Select only this route's newest candidate at the person's maximum time.
-   const replyInbound=selected?routeHistory.filter(m=>m.direction==='inbound'&&Date.parse(m.at)===Date.parse(latestInbound.at)).sort(newestFirst)[0]:latestInbound;
+   const candidates=(selected?routeHistory:context.history).filter(m=>m.direction==='inbound'&&Date.parse(m.at)===Date.parse(latestInbound.at));
+   // This optional ID comes only from the protected SQL projection. It resolves
+   // equal-time history using original submitted operations, never message-ID order.
+   const provenId=selected?.unansweredInboundHistoryId;
+   const replyInbound=provenId?candidates.find(m=>m.id===provenId):candidates.length===1?candidates[0]:undefined;
+   if(provenId&&!replyInbound)throw new AgentDecisionReviewError('Protected reply candidate differs from the current latest route history');
+   if(candidates.length>1&&!provenId)throw new AgentDecisionReviewError('Ambiguous latest reply candidates require human review');
    if(!replyInbound)throw new AgentDecisionReviewError('A reply must use a latest inbound channel');
    const latestOutbound=context.history.filter(m=>m.direction==='outbound').sort(newestFirst)[0];
    // Model decisions remain accounted and recorded; never turn an already
    // answered inbound into another send proposal, including after a retry.
-   if(latestOutbound&&Date.parse(latestOutbound.at)>=Date.parse(replyInbound.at)){
+   if(latestOutbound&&(Date.parse(latestOutbound.at)>Date.parse(replyInbound.at)||Date.parse(latestOutbound.at)===Date.parse(replyInbound.at)&&!provenId)){
     await port.commit(context,{action:'wait',reminder:{wakeAt:new Date(instant+86400000).toISOString(),timeZone:'UTC',reason:'The latest inbound has already been answered. Wait for a new reply before drafting another response.'},sourceIds:[latestOutbound.id]},event.requestKey+':await-reply');
     return {kind:'complete'};
    }

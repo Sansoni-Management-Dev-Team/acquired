@@ -5,13 +5,16 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { localWorkerConfig } from './dev-config.mjs';
+import {buildAgentModeResearchEnvironment,agentModeFirmableCredentialsPath} from './agent-mode-research-env.mjs';
 import { agentDatabaseConfig } from './agent-mode-local-database.mjs';
 import { buildAgentCommunicationsEnvironment } from './agent-mode-communications-env.mjs';
 import { serializeAgentEnvironment } from './agent-mode-env-file.mjs';
 import {agentModeLauncherServices} from './agent-mode-launcher-services.mjs';
 import {assertAgentModeRestartIdle} from './agent-mode-restart-guard.mjs';
-import {assertAgentModeNamespaceActivation} from './agent-mode-namespace-activation.mjs';
+import {assertAgentModeNamespaceActivation,stopAgentModeLegacyNamespace} from './agent-mode-namespace-activation.mjs';
 import { buildAgentWorkerEnvironment } from './agent-mode-worker-env.mjs';
+import {agentModeDemoLaunch} from './agent-mode-demo-launcher.mjs';
+import {activateAgentModeDemos} from './agent-mode-demo-activation.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const directory = resolve(root, '.local-data/agent-mode-orbstack');
@@ -24,6 +27,41 @@ const generatedTypes = resolve(directory, 'next-env.d.ts');
 if (!existsSync(generatedTypes)) writeFileSync(generatedTypes, readFileSync(resolve(root, 'next-env.d.ts')));
 const runtimePath = resolve(directory, 'runtime.env');
 const previous = existsSync(runtimePath) ? parseEnv(readFileSync(runtimePath, 'utf8')) : {};
+const profilePath=resolve(directory,'communications-profile');
+const demoSettingsPath=resolve(directory,'communications.simulator-demos.private.env');
+const readDemoSettings=()=>existsSync(demoSettingsPath)?parseEnv(readFileSync(demoSettingsPath,'utf8')):null;
+if(process.argv.includes('--activate-demos')){
+  if(process.argv.some(arg=>['--restart-app','--leave-worker-stopped'].includes(arg)))throw Error('Additive demo activation is a separate controlled transition');
+  const savedProfile=existsSync(profilePath)?readFileSync(profilePath,'utf8').trim():null;
+  if(!['mailbox','simulator','simulator25','simulator50','multichannel'].includes(savedProfile)||process.env.AGENT_MODE_COMMUNICATIONS_PROFILE&&process.env.AGENT_MODE_COMMUNICATIONS_PROFILE!==savedProfile)throw Error('Additive activation must retain the saved primary communications profile');
+  if(!existsSync(resolve(root,'.local-data/communications/service-build/service.cjs')))throw Error('Build the communications service before demo activation');
+  const lane=agentModeDemoLaunch({application:previous,previous,settings:readDemoSettings(),activate:true});
+  const composeFile=resolve(root,'ops/agent-mode/compose.local.yml');
+  const primaryOverlay=savedProfile==='mailbox'?[]:['-f',resolve(root,savedProfile==='multichannel'?'ops/agent-mode/compose.multichannel.yml':savedProfile==='simulator50'?'ops/agent-mode/compose.simulator50.yml':savedProfile==='simulator25'?'ops/agent-mode/compose.simulator25.yml':'ops/agent-mode/compose.simulator.yml')];
+  activateAgentModeDemos({composeFile,
+    compose:['--context','orbstack','compose','-f',composeFile,...primaryOverlay,'-f',resolve(root,'ops/agent-mode/compose.demos.yml'),'--profile','mailbox-setup','--profile','demo'],
+    runDocker:args=>spawnSync('docker',args,{cwd:root,encoding:'utf8',timeout:65000}),
+    observeIdle:()=>{
+      const result=spawnSync('docker',['--context','orbstack','exec','project-acquire-agent-mode','node','--input-type=module','-e',`
+        import{Pool}from'pg';const pool=new Pool({connectionString:process.env.DATABASE_URL});try{
+          const {rows:[identity]}=await pool.query("SELECT current_database() AS database,shobj_description(oid,'pg_database') AS marker FROM pg_database WHERE datname=current_database()");
+          const {rows:[ops]}=await pool.query("SELECT count(*)::int AS n FROM agent_operations WHERE state='running'");
+          const {rows:[runs]}=await pool.query("SELECT count(*)::int AS n FROM agent_runs WHERE state='running' AND (lease_until IS NULL OR lease_until>clock_timestamp())");
+          const {rows:[journals]}=await pool.query("SELECT count(*)::int AS n FROM communications.operation_journal WHERE state IN('claimed','dispatching')");
+          console.log(JSON.stringify({...identity,runningOperations:ops.n,runningRuns:runs.n,runningJournals:journals.n}));
+        }finally{await pool.end();}
+      `],{cwd:root,encoding:'utf8',timeout:15000});
+      if(result.status!==0)throw Error('Cannot verify additive activation idleness; native worker remains stopped');
+      try{return JSON.parse(result.stdout);}catch{throw Error('Additive activation state unavailable; native worker remains stopped');}
+    },
+    writeConfiguration:()=>{
+      writeFileSync(runtimePath,serializeAgentEnvironment(lane.application),{mode:0o600});
+      writeFileSync(resolve(directory,'communications-demo-service.env'),serializeAgentEnvironment(lane.service),{mode:0o600});
+    },
+  });
+  console.log('Dedicated demo runtime ready. Primary communications and research were preserved. Contact preparation and sending retain their separate application policy.');
+  process.exit(0);
+}
 const keys = ['OPENAI_API_KEY', 'OPENROUTER_API_KEY', 'OPENROUTER_BASE_URL', 'ABN_LOOKUP_GUID'];
 const research = Object.fromEntries(keys.filter(key => original[key]).map(key => [key, original[key]]));
 const origin = process.env.AGENT_MODE_ORIGIN || 'http://acquire-agent.orb.local';
@@ -51,7 +89,6 @@ const baseRuntime = {
   NEXT_TELEMETRY_DISABLED: '1',
 };
 // A saved explicit selection keeps ordinary restarts on their current profile.
-const profilePath=resolve(directory,'communications-profile');
 const chosen=process.env.AGENT_MODE_COMMUNICATIONS_PROFILE||(existsSync(profilePath)?readFileSync(profilePath,'utf8').trim():'mailbox');
 if(!['mailbox','simulator','simulator25','simulator50','multichannel'].includes(chosen))throw Error('Choose mailbox, simulator, simulator25, simulator50 or multichannel communications profile');
 const simulated=chosen!=='mailbox';
@@ -62,22 +99,27 @@ const communicationsPath=resolve(directory,chosen==='multichannel'?'communicatio
 if(simulated&&!existsSync(communicationsPath))throw Error('Prepare the dedicated simulator profile first');
 const communications=buildAgentCommunicationsEnvironment(baseRuntime,existsSync(communicationsPath)?parseEnv(readFileSync(communicationsPath,'utf8')):{});
 const workerOverrides=Object.fromEntries(['AGENT_NATIVE_EXECUTION_ENABLED','AGENT_WORKER_MANDATE_ID','AGENT_MODE_SIMULATOR_TEST_POLICY','AGENT_WORKER_SCOPE_MODE','AGENT_WORKER_RUNTIME_ID'].filter(key=>process.env[key]!==undefined).map(key=>[key,process.env[key]]));
-const runtime=buildAgentWorkerEnvironment(communications.application,previous,workerOverrides,chosen);
+let runtime=buildAgentWorkerEnvironment(communications.application,previous,workerOverrides,chosen);
 const workerControls=Object.fromEntries(['AGENT_NATIVE_EXECUTION_ENABLED','AGENT_WORKER_MANDATE_ID','AGENT_WORKER_REQUIRE_MANDATE_SCOPE','AGENT_MODE_SIMULATOR_TEST_POLICY','AGENT_WORKER_SCOPE_MODE','AGENT_WORKER_RUNTIME_ID'].filter(key=>runtime[key]!==undefined).map(key=>[key,runtime[key]]));
-writeFileSync(profilePath,chosen+'\n',{mode:0o600});
-const worker = {
+let worker = {
   ...research, SERVICE_SECRET: serviceSecret, RESEARCH_AI_PRIMARY_ROUTE: 'free', RESEARCH_AI_PROVIDER: 'openai', OPENAI_RESEARCH_MODEL: 'gpt-6-luna', OPENAI_RESEARCH_FALLBACK_MODEL: 'gpt-5.6-luna',
-  // Use the existing reader-based search path; shared OpenSERP currently times out.
-  LOCAL_CRAWL4AI_URL: 'http://127.0.0.1:18083',
+  // Same reader implementation, isolated with this worktree and its diagnostics.
+  LOCAL_CRAWL4AI_URL: 'http://127.0.0.1:18084', LOCAL_SEARCH_URL: 'http://127.0.0.1:7000',
 };
+// Real discovery/enrichment uses the same local Firmable account service as
+// ordinary development. Explicitly reviewed hybrid F is the fresh-run default;
+// existing jobs keep their saved pipelineDesign. Never import live mailboxes.
+const firmablePath=agentModeFirmableCredentialsPath(root,source,process.env.AGENT_MODE_FIRMABLE_CREDENTIALS);
+const firmableCredentials=existsSync(firmablePath)?JSON.parse(readFileSync(firmablePath,'utf8')):null;
+const configuredResearch=buildAgentModeResearchEnvironment(runtime,worker,firmableCredentials,{design:process.env.AGENT_MODE_RESEARCH_DESIGN||original.RESEARCH_PIPELINE_DESIGN||previous.RESEARCH_PIPELINE_DESIGN||'F',firmableMode:process.env.AGENT_MODE_FIRMABLE_MODE||previous.LOCAL_FIRMABLE_MODE||'live'});
+runtime=configuredResearch.app;worker=configuredResearch.worker;
+const demoLane=agentModeDemoLaunch({application:runtime,previous,settings:previous.AGENT_MODE_ENABLE_DEMOS==='true'?readDemoSettings():null});
+runtime=demoLane.application;
 function envFile(path, values) { writeFileSync(path, serializeAgentEnvironment(values), { mode: 0o600 }); }
-envFile(runtimePath, runtime);
-if(communications.enabled)envFile(resolve(directory,'communications-service.env'),{...communications.service,...workerControls,AGENT_NATIVE_EXECUTION_ENABLED:'false'});
-envFile(resolve(directory, 'worker.env'), worker);
 const base = JSON.parse(readFileSync(resolve(root, 'cloudflare/research/wrangler.jsonc'), 'utf8'));
-writeFileSync(resolve(directory, 'wrangler.json'), JSON.stringify(localWorkerConfig(base, 'http://127.0.0.1:3000', '/workspace/cloudflare/research/index.ts', 'development'), null, 2));
+const localWrangler=localWorkerConfig(base, 'http://127.0.0.1:3000', '/workspace/cloudflare/research/index.ts', 'development');
 console.log('Starting Agent mode on OrbStack with its isolated local database; no schema commands are run.');
-const compose=['--context','orbstack','compose','-f',resolve(root,'ops/agent-mode/compose.local.yml'),...(simulated?['-f',resolve(root,chosen==='multichannel'?'ops/agent-mode/compose.multichannel.yml':chosen==='simulator50'?'ops/agent-mode/compose.simulator50.yml':chosen==='simulator25'?'ops/agent-mode/compose.simulator25.yml':'ops/agent-mode/compose.simulator.yml')]:[]),...(communications.enabled?['--profile','mailbox-setup']:[])];
+const compose=['--context','orbstack','compose','-f',resolve(root,'ops/agent-mode/compose.local.yml'),...(simulated?['-f',resolve(root,chosen==='multichannel'?'ops/agent-mode/compose.multichannel.yml':chosen==='simulator50'?'ops/agent-mode/compose.simulator50.yml':chosen==='simulator25'?'ops/agent-mode/compose.simulator25.yml':'ops/agent-mode/compose.simulator.yml')]:[]),...(demoLane.enabled?['-f',resolve(root,'ops/agent-mode/compose.demos.yml'),'--profile','demo']:[]),...(runtime.AGENT_TESTING_COMMUNICATIONS_ENABLED==='true'?['-f',resolve(root,'ops/agent-mode/compose.testing.yml'),'--profile','testing-cli']:[]),...(communications.enabled?['--profile','mailbox-setup']:[])];
 if(communications.enabled&&!existsSync(resolve(root,'.local-data/communications/service-build/service.cjs')))throw Error('Build the communications service before connection setup');
 const leaveWorkerStopped=process.argv.includes('--leave-worker-stopped');
 const restartApp=process.argv.includes('--restart-app');
@@ -90,6 +132,9 @@ const launchServices=agentModeLauncherServices({workerStopped:leaveWorkerStopped
 if(launchServices.stopWorkerBeforeUp){
   const stop=spawnSync('docker',['--context','orbstack','stop','project-acquire-agent-worker'],{cwd:root,stdio:'inherit'});
   if(stop.status!==0)throw Error('Could not stop the exact native worker before app restart');
+}
+let observation;
+if(restartApp||leaveWorkerStopped){
   const idle=spawnSync('docker',['--context','orbstack','exec','project-acquire-agent-mode','node','--input-type=module','-e',`
     import{Pool}from'pg';const pool=new Pool({connectionString:process.env.DATABASE_URL});try{
       const {rows:[identity]}=await pool.query("SELECT current_database() AS database,shobj_description(oid,'pg_database') AS marker FROM pg_database WHERE datname=current_database()");
@@ -99,9 +144,18 @@ if(launchServices.stopWorkerBeforeUp){
     }finally{await pool.end();}
   `],{cwd:root,encoding:'utf8',timeout:15000});
   if(idle.status!==0)throw Error('Could not verify restart idleness; native worker remains stopped.');
-  let observation;try{observation=JSON.parse(idle.stdout);}catch{throw Error('Restart state unavailable; native worker remains stopped.');}
+  try{observation=JSON.parse(idle.stdout);}catch{throw Error('Restart state unavailable; native worker remains stopped.');}
   assertAgentModeRestartIdle(observation);
+  stopAgentModeLegacyNamespace({composeFile:resolve(root,'ops/agent-mode/compose.local.yml'),controlled:true,idleObservation:observation,runDocker:args=>spawnSync('docker',args,{cwd:root,encoding:'utf8',timeout:15000})});
 }
+// Mounted Worker config can hot-reload. Write only after ownership and idle
+// checks, releasing the legacy app's ports before activating the new owner.
+writeFileSync(profilePath,chosen+'\n',{mode:0o600});
+envFile(runtimePath, runtime);
+if(communications.enabled)envFile(resolve(directory,'communications-service.env'),{...communications.service,...workerControls,AGENT_NATIVE_EXECUTION_ENABLED:'false'});
+if(demoLane.enabled)envFile(resolve(directory,'communications-demo-service.env'),demoLane.service);
+envFile(resolve(directory, 'worker.env'), worker);
+writeFileSync(resolve(directory, 'wrangler.json'), JSON.stringify(localWrangler, null, 2));
 const result = spawnSync('docker', [...compose, 'up', '-d', '--build',...launchServices.up], { cwd: root, stdio: 'inherit' });
 if (result.status !== 0) process.exit(result.status || 1);
 if(restartApp){
@@ -111,7 +165,7 @@ if(restartApp){
 // All app processes share an independent inert namespace owner. Unexpected app
 // restarts preserve loopback. An explicit launcher update still rebinds these
 // processes for profile/image changes (including a replaced namespace owner).
-const rebind = spawnSync('docker', [...compose, 'up', '-d', '--no-deps', '--force-recreate', ...launchServices.rebind], { cwd: root, stdio: 'inherit' });
+const rebind = spawnSync('docker', [...compose, 'up', '-d', '--no-deps', '--force-recreate', ...launchServices.rebind,...(demoLane.enabled?['app-demo-relay']:[]),...(runtime.AGENT_TESTING_COMMUNICATIONS_ENABLED==='true'?['app-testing-relay']:[])], { cwd: root, stdio: 'inherit' });
 if (rebind.status !== 0) process.exit(rebind.status || 1);
 if(communications.enabled){
   const ready=spawnSync('docker',['--context','orbstack','exec','project-acquire-agent-mode','node','--input-type=module','-e',`

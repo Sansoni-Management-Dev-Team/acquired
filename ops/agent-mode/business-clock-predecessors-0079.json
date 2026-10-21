@@ -1,0 +1,379 @@
+{
+  "database": {
+    "database": "acquire_agent_mode",
+    "marker": "acquire-agent-mode-local-only",
+    "system": "7697400069962248225"
+  },
+  "migrations": [
+    {
+      "name": "0001-agent-state.sql",
+      "sha256": "28e41e4795f32a6aeff1f0a6c61c50a77befe0a75e4696250f713cdb6fad774c"
+    },
+    {
+      "name": "0002-agent-scope-fences.sql",
+      "sha256": "302860b755d59ef1bac29276e4aa3037ee3520d9dcf5ced43e3250a770d06d55"
+    },
+    {
+      "name": "0003-agent-history-retention.sql",
+      "sha256": "fda42e77451836fb471d9614e87ea8519718b10a48dfd34d062624c66b72c9bc"
+    },
+    {
+      "name": "0004-agent-conversation-turns.sql",
+      "sha256": "f2775028fb97d146d8bc21b844e436a69f208d0b6e562acdddb6615abd2b324c"
+    },
+    {
+      "name": "0005-agent-review-state.sql",
+      "sha256": "785b6a8320b1c77d89f5ee70f0e5c0de1b95a0c6082466e73525890150ffa4c5"
+    },
+    {
+      "name": "0006-agent-execution-control.sql",
+      "sha256": "94cd62c03a9fa8e99d4cdba415a7a48ae7459fb7b3653200194cc59eb9b25bdd"
+    },
+    {
+      "name": "0007-agent-public-context.sql",
+      "sha256": "2706ad0d1281c204ee4b182168be5656a603f0d029669f5d25bca18bf6f37808"
+    },
+    {
+      "name": "0008-agent-ownership-reconciliation.sql",
+      "sha256": "f2ea79316a3b91134cf6bece20fea94184a0b7ea504be7f2a84bf241042d463a"
+    },
+    {
+      "name": "0009-agent-sequence-handover.sql",
+      "sha256": "1126a588a64729cabfe02f90398d40ca062f25ec3c2a9d8803bf9596b597e787"
+    },
+    {
+      "name": "0010-agent-local-member-fence.sql",
+      "sha256": "a6311fb80c219b4ee400adb1028f43401473dfdffa7c561dbb3c83bb510a7d16"
+    },
+    {
+      "name": "0011-agent-handoff-controls.sql",
+      "sha256": "b7935af0319af55c8ebb0cde0fe2ef86f1b7e9b4e16bf9cd353d57082578a058"
+    },
+    {
+      "name": "0012-agent-delegation-policy.sql",
+      "sha256": "03bb2d6410bbf7db97da696af09a4dfc701a2d87f0f342625bd8dd030b3dcf89"
+    },
+    {
+      "name": "0013-agent-communications-source.sql",
+      "sha256": "c54392d18932b103dbe46358e476734fabe5c991de1fad3ef4441481a8bfea71"
+    },
+    {
+      "name": "0014-agent-handoff-integrity.sql",
+      "sha256": "e11e5c467cde8b052407583338067413248bf12d88a25cb8ddde0db886d13e83"
+    },
+    {
+      "name": "0015-agent-research-launch.sql",
+      "sha256": "a165e5eb19f514b4a26b2553dc9de1cf001c102bee4dfff8dd6236face4b4803"
+    },
+    {
+      "name": "0016-agent-handoff-reminders.sql",
+      "sha256": "23e9925b623085200b1207c75337e46c98f5228431caadc3c9f91ec34e221d1a"
+    },
+    {
+      "name": "0017-agent-history-account-guard.sql",
+      "sha256": "531ec385ed55645661c20dd009c909a1995ea57a4fcb3e3a7183f3515b01c539"
+    },
+    {
+      "name": "0018-agent-firmable-execution.sql",
+      "sha256": "d31e4ae294ecde776dc382c78fefdb04100c14167acd2f60f0183851da157644"
+    },
+    {
+      "name": "0019-agent-email-reply-parent.sql",
+      "sha256": "f89fc9da00338f256286860deaf627a16e1aa88718979e1817ff6731df44dcfa"
+    },
+    {
+      "name": "0020-agent-target-selection.sql",
+      "sha256": "cb703dad1dd751aac5c270609be4c83e318a13f163bd61ebb12ea118902aa0e3"
+    },
+    {
+      "name": "0021-agent-research-counts.sql",
+      "sha256": "2a7e09f7ce9e0bdfe76c916fa7538b7e1c01aa724b315d59f79f7abeb2277d7f"
+    },
+    {
+      "name": "0022-agent-incoming-email-events.sql",
+      "sha256": "56cfd47cb1682e8f0925e318f73df3dd96a1acd2b14d0c5a1a313851bc89c886"
+    },
+    {
+      "name": "0023-agent-people-phase.sql",
+      "sha256": "874e92dfbbb0fe867776b1e4c472322d525a22ab38cefcdcee72c52bc9787a2b"
+    },
+    {
+      "name": "0024-agent-incoming-conversation-dedup.sql",
+      "sha256": "2925b6233efed46e9329217b41f4197882733423c17ef2d9f2d55ff39710b83f"
+    },
+    {
+      "name": "0025-agent-canonical-alias-performance.sql",
+      "sha256": "2862539956965663e99c38ee9be4a27fb95ad3c2d00c16d6499e1ef283f73706"
+    },
+    {
+      "name": "0026-agent-sequence-drafts.sql",
+      "sha256": "b6cf3e64474bbfa870db5cece201d2e688457f1a536d91050ee0f23c9977b744"
+    },
+    {
+      "name": "0027-agent-sequence-publication.sql",
+      "sha256": "5af0d501bb6dfbb0bbda5dd53184058628e35f6c76e392d4dd511782ce84caa6"
+    },
+    {
+      "name": "0028-agent-no-submission-reconciliation.sql",
+      "sha256": "e3016b18329f79b312ebfc1873af1598429e6bae39578168f685c04bff4c7251"
+    },
+    {
+      "name": "0030-agent-sequence-enrolment.sql",
+      "sha256": "38ab9aed40110daf7c3b2f595b05ca087e5342a20819edba478911928ed1cc6d"
+    },
+    {
+      "name": "0031-agent-safe-event-eligibility.sql",
+      "sha256": "8a2a570819e870632295e32220dc23fc4bcbeab8c318c77b02b5085289a38eab"
+    },
+    {
+      "name": "0032-agent-sequence-audit.sql",
+      "sha256": "9d5e9e2f6c86d31745c20148566574545b5ac4cd9eccf221ac2c4d4c7522a2c0"
+    },
+    {
+      "name": "0033-agent-company-guidance-evidence.sql",
+      "sha256": "2c680aafd13f57d17b03d718ce09ad294a643705de32a42163e8987f2861654c"
+    },
+    {
+      "name": "0034-agent-delivery-failure-events.sql",
+      "sha256": "45fcf4d15b77d9cf218d992855d526bd4544d86fbfa49c1f360c72443d187aaf"
+    },
+    {
+      "name": "0035-agent-manual-feedback-source.sql",
+      "sha256": "3ea3b3f12332d70b6f55b342797df2dd9481455a91650a40333de8b1266253bc"
+    },
+    {
+      "name": "0036-agent-isolated-communications-storage.sql",
+      "sha256": "e048fa042abbfaa4f800424a4e5a62d02263a2c1928a21f18682740010f47e32"
+    },
+    {
+      "name": "0037-agent-worker-mandate-scope.sql",
+      "sha256": "2dfa316fc1aa61e7b404eb48dfe001120b9266872048eeaf66828f74441f3dc6"
+    },
+    {
+      "name": "0038-agent-simulator-sending-policy.sql",
+      "sha256": "f34f7d5ddbf23551430e1988db6de78461e25631eeeb90fa03238aa8d3ff4bc1"
+    },
+    {
+      "name": "0039-agent-isolated-pilot-policy.sql",
+      "sha256": "57f6cbded5f63c0b2c0eb4ee6eb2325915378b1585870c66a862cf171a1288b4"
+    },
+    {
+      "name": "0040-agent-receipt-association-wake.sql",
+      "sha256": "d6bb0c9b99fc003fb9cbe93662a29926d6d756c6e281c254caaa37a95443fac9"
+    },
+    {
+      "name": "0041-agent-fifty-pilot-policy.sql",
+      "sha256": "51cca6595f46512e620b7fbc62772f031a14903b61afab0069049023219d7027"
+    },
+    {
+      "name": "0042-agent-person-channels.sql",
+      "sha256": "ab684dfb9588e0dadcad446ff63db912ca66bc0de811039bb11ef7e7c989bb97"
+    },
+    {
+      "name": "0043-agent-runtime-registry.sql",
+      "sha256": "0ba55832446ea4969c49071ffe9521bcbc769f3bd42bed5c2b3a2934a5bb54e3"
+    },
+    {
+      "name": "0044-agent-manual-contact-targets.sql",
+      "sha256": "492c4e28442bd4736c059b2e899968d43c1abb4bf1c9d1ca7d55955d931855ab"
+    },
+    {
+      "name": "0045-agent-channel-target-allocation.sql",
+      "sha256": "a9ef4fadbd7b4d2f1c357ce901b2c8a3b4fce98ddaf02ce956c8551735dd58ab"
+    },
+    {
+      "name": "0046-agent-channel-no-submission.sql",
+      "sha256": "05b2c9f860475ee3b88b8b3c8ade4f91e8901d5a03928c833dad40aa637bf178"
+    },
+    {
+      "name": "0047-agent-linkedin-invitations.sql",
+      "sha256": "10fc4476084d0e08f05bed0020c8de21c98002361988eb0fb549d8a4d59d4688"
+    },
+    {
+      "name": "0048-agent-channel-incoming.sql",
+      "sha256": "52535af4d79224c81df23ad2d6f82e976a59d5d3e5982fa61b453226cdec37c6"
+    },
+    {
+      "name": "0049-agent-channel-due-events.sql",
+      "sha256": "024dc4372b54570fa0bf5f503cc1c5e8692470f61f5296200de795a0bb2a41e3"
+    },
+    {
+      "name": "0050-agent-channel-allocation-review-alias.sql",
+      "sha256": "b1c43fe18539f9937b33fcd47794836e22f00e8a64653f568cbf40899dcf4ac1"
+    },
+    {
+      "name": "0051-agent-sequence-channel-handover.sql",
+      "sha256": "b89b3970bbfa9eefaed1540074e4cde490d90e284681e7e812fea0d4d083eeba"
+    },
+    {
+      "name": "0052-agent-unrelated-review-ingress.sql",
+      "sha256": "b94721440a609bcd8c82cff698626afdff9cb4f95b838ebb13392ad756c2b983"
+    },
+    {
+      "name": "0053-agent-channel-reply-grants.sql",
+      "sha256": "0f4dabe38118f8e7eb553416e7d736c693bd9e032817c9e79d5d82f4595c7063"
+    },
+    {
+      "name": "0054-agent-review-dependency-recovery.sql",
+      "sha256": "73dfb6203033278173996c070568f58959bc120ef5c5fe3429661ad56c2a6d45"
+    },
+    {
+      "name": "0055-agent-untracked-outbound-review.sql",
+      "sha256": "6c7887751641739a99d822d61a50e80c29ac58a6cfc9c96d2505d6daf2446d0d"
+    },
+    {
+      "name": "0056-agent-untracked-review-recovery.sql",
+      "sha256": "10c0ef06b5aac24e368bd71d8dfcf070e15479e8984dfa8eaa826c66080d8fa1"
+    },
+    {
+      "name": "0057-agent-untracked-capture-timestamps.sql",
+      "sha256": "b1d6edc09ea8da803b4c822c44ae4da8b268cc3791aab636857f34d1c2518b12"
+    },
+    {
+      "name": "0058-agent-untracked-review-authority-locks.sql",
+      "sha256": "46f34bf38948993752df18f5260dfe6ebf69e33ddee1ebb65ce8c7058e0b7ced"
+    },
+    {
+      "name": "0059-agent-invitation-exact-admission.sql",
+      "sha256": "4fb1843f99103687e9d3adf07841c5616aa23557f4251da4120ff1569d831814"
+    },
+    {
+      "name": "0060-agent-simultaneous-reply-routes.sql",
+      "sha256": "bf253a5dd9edb08462e34f12625c7dfc1451de7d3d566b231bf1a5a897172074"
+    },
+    {
+      "name": "0061-agent-routed-email-receipt-wake.sql",
+      "sha256": "c7179ed9c38c8cada494742297e632f6641e463b3ecbe161f04e9179f05a12c2"
+    },
+    {
+      "name": "0062-agent-warm-reply-continuity.sql",
+      "sha256": "cb7aa733b77c87d61c47db59b881b17fdbcc3f18a939593b74155e9a8126f9a1"
+    },
+    {
+      "name": "0063-agent-verified-unread-history-refresh.sql",
+      "sha256": "736e14b876ba638c55109cb9b78f4e84b393af2531f88254c6b9a0cc24cdcb31"
+    },
+    {
+      "name": "0064-agent-whatsapp-canonical-source-ingress.sql",
+      "sha256": "2d857e80e235e4b186d280be3fe6cb494df5dbb8517cb9c70a331287e40bee5f"
+    },
+    {
+      "name": "0065-agent-mandate-execution-mode.sql",
+      "sha256": "4576884bd34de7c51b98fba9b8af33914e24462a461bea4c342441e7a3a1669b"
+    },
+    {
+      "name": "0066-agent-demo-contact-projections.sql",
+      "sha256": "7b28f98b914ea2d38a684bad72f9c5c454587c7f905387f2067b737c53f3e046"
+    },
+    {
+      "name": "0067-agent-hybrid-native-research.sql",
+      "sha256": "d5765cec86cbc8d147654c8c4a59e0f2452e12e4fe8a319da64cb33c07d61236"
+    },
+    {
+      "name": "0068-agent-demo-manual-outreach-fence.sql",
+      "sha256": "7fe74002974a5b607bfd3c9c321941b99cf706b78c68b9705059ceaa97993fb7"
+    },
+    {
+      "name": "0069-agent-public-fields-research.sql",
+      "sha256": "8dd26bf0f14e6993512d1c2061eb9520f76c23b99255ef62b15fd15486a9aa11"
+    },
+    {
+      "name": "0070-agent-mandate-execution-context.sql",
+      "sha256": "c561c147222ee5aad16673fd0154b97bec59f41822a9fb26cd67c874f7d213e7"
+    },
+    {
+      "name": "0071-agent-research-phase-budgets.sql",
+      "sha256": "a64b5988895a3d0a9951075ee16a8b8e49d0b970156b3e7cd2bcfc10d7fd7be6"
+    },
+    {
+      "name": "0072-agent-demo-original-effect-identity.sql",
+      "sha256": "5f956023f9b66dfe66982e4a549dbad6967efe3084658dd28e389d8707c9e008"
+    },
+    {
+      "name": "0074-company-canonical-identity.sql",
+      "sha256": "dd960a4c0641662d2253e151a84b06bb6937bc20bed53ce0997806a160822809"
+    },
+    {
+      "name": "0075-agent-company-membership-projection.sql",
+      "sha256": "03eec37a7f3524d0e62503347b9231bb0d072ce4324b9b9a99737b975ac8c2db"
+    },
+    {
+      "name": "0076-company-sync-observations.sql",
+      "sha256": "c1ee4647651b1869b3428eb6e93e76082348fe307b9a69b305aafe719d4e72e6"
+    },
+    {
+      "name": "0077-agent-fields-current-company-source.sql",
+      "sha256": "4cfc553c10604955077574ebd310b997f4680d63a27800191d364a790b0802de"
+    },
+    {
+      "name": "0078-agent-readable-company-control-context.sql",
+      "sha256": "148bcc8d8a9b8a338f13708aa63c06974ea0918bd2674f3da41e712b716ad19a"
+    },
+    {
+      "name": "0079-agent-identity-batches.sql",
+      "sha256": "25a032919ce69e32a8f74d286a896e92f1324923084ea767b7a791715e838161"
+    }
+  ],
+  "functions": [
+    {
+      "schema": "public",
+      "name": "agent_control_handoff",
+      "signature": "agent_control_handoff(uuid,uuid,jsonb,text)",
+      "definition": "CREATE OR REPLACE FUNCTION public.agent_control_handoff(p_mandate uuid, p_key uuid, p_input jsonb, p_digest text)\n RETURNS jsonb\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'public'\nAS $function$\nDECLARE org text:=current_setting('app.acquire_org',true);actor text:=current_setting('app.acquire_user',true);\n task public.agent_handoffs%ROWTYPE;conv public.agent_conversations%ROWTYPE;prior public.agent_operations%ROWTYPE;op uuid;new_revision integer;action text:=p_input->>'action';next_state text;receipt jsonb;notice jsonb;proof jsonb;request text:='handoff:'||actor||':'||p_key::text;\nBEGIN\n PERFORM public.agent_assert_control_scope();\n IF p_digest!~'^[a-f0-9]{64}$' OR octet_length(p_input::text)>6000 THEN RAISE EXCEPTION 'Invalid task command'; END IF;\n SELECT * INTO task FROM public.agent_handoffs h WHERE h.id=(p_input->>'taskId')::uuid AND h.organization_id=org AND h.mandate_id=p_mandate AND (h.owner_user_id=actor OR h.assignee_user_id=actor);\n IF task.id IS NULL OR NOT EXISTS(SELECT 1 FROM public.member WHERE organization_id=org AND user_id=task.owner_user_id) THEN RAISE EXCEPTION 'Task unavailable'; END IF;\n -- Same lock order as ordinary owner commands; serialises owner and assignee.\n PERFORM 1 FROM public.agent_threads WHERE id=task.thread_id FOR UPDATE;\n SELECT * INTO task FROM public.agent_handoffs WHERE id=task.id FOR UPDATE;\n IF actor<>task.owner_user_id AND actor<>task.assignee_user_id THEN RAISE EXCEPTION 'Task assignment changed'; END IF;\n SELECT * INTO prior FROM public.agent_operations WHERE thread_id=task.thread_id AND request_key=request;\n IF prior.id IS NOT NULL THEN\n  IF prior.input_digest<>p_digest OR prior.input IS DISTINCT FROM p_input OR prior.state<>'complete' THEN RAISE EXCEPTION 'Task command key reused'; END IF;\n  RETURN prior.result;\n END IF;\n SELECT * INTO conv FROM public.agent_conversations WHERE id=task.conversation_id FOR UPDATE;\n IF task.revision<>(p_input->>'revision')::integer OR public.agent_handoff_context(task.id) IS DISTINCT FROM p_input->>'contextRevision' THEN RAISE EXCEPTION 'Task or conversation changed'; END IF;\n IF task.state IN('dismissed','meeting_confirmed') THEN RAISE EXCEPTION 'Task already closed'; END IF;\n IF jsonb_array_length(coalesce(task.human_evidence->'events','[]'::jsonb))>=100 OR octet_length(task.human_evidence::text)+octet_length(p_input::text)>58000 THEN RAISE EXCEPTION 'Task evidence limit reached; manual review required'; END IF;\n next_state:=task.state;\n IF action='acknowledge' THEN\n  IF task.state<>'pending' THEN RAISE EXCEPTION 'Task is not pending'; END IF;next_state:='acknowledged';\n ELSIF action='reassign' THEN\n  IF actor<>task.owner_user_id OR coalesce(length(p_input->>'assigneeUserId'),0) NOT BETWEEN 1 AND 200 OR NOT EXISTS(SELECT 1 FROM public.member WHERE organization_id=org AND user_id=p_input->>'assigneeUserId') THEN RAISE EXCEPTION 'Current member assignment requires owner'; END IF;\n  IF task.assignee_user_id=p_input->>'assigneeUserId' THEN RAISE EXCEPTION 'Task already assigned'; END IF;\n ELSIF action='remind' THEN\n  IF jsonb_typeof(p_input->'reminder')<>'object' OR coalesce(length(trim(p_input->'reminder'->>'reason')),0) NOT BETWEEN 1 AND 2000\n   OR (p_input->'reminder'->>'wakeAt') IS NULL OR (p_input->'reminder'->>'wakeAt')::timestamptz<=clock_timestamp()\n   OR (p_input->'reminder'->>'wakeAt')::timestamptz>clock_timestamp()+interval '30 days'\n   OR NOT EXISTS(SELECT 1 FROM pg_catalog.pg_timezone_names WHERE name=p_input->'reminder'->>'timeZone') THEN RAISE EXCEPTION 'Bounded internal reminder required'; END IF;\n ELSIF action='dismiss' THEN\n  IF coalesce(length(trim(p_input->>'reason')),0) NOT BETWEEN 5 AND 2000 THEN RAISE EXCEPTION 'Dismissal reason required'; END IF;next_state:='dismissed';\n ELSIF action IN('link_sent','meeting_confirmed') THEN\n  proof:=p_input->'evidence';\n  IF jsonb_typeof(proof)<>'object' OR coalesce(length(trim(proof->>'note')),0) NOT BETWEEN 5 AND 2000 OR coalesce(length(trim(proof->>'externalReference')),0) NOT BETWEEN 3 AND 1000 OR (proof->>'occurredAt') IS NULL OR (proof->>'occurredAt')::timestamptz>clock_timestamp()+interval '1 minute' THEN RAISE EXCEPTION 'Past external evidence required'; END IF;\n  IF action='link_sent' AND (task.state NOT IN('pending','acknowledged') OR conv.driver_kind<>'human' OR conv.phase<>'paused' OR conv.engagement<>'handoff') THEN RAISE EXCEPTION 'Booking-link record unavailable for current conversation'; END IF;\n  IF action='meeting_confirmed' AND task.state<>'link_sent' THEN RAISE EXCEPTION 'Link sent is not a confirmed meeting'; END IF;\n  next_state:=action;\n ELSE RAISE EXCEPTION 'Invalid task action';END IF;\n INSERT INTO public.agent_operations(thread_id,organization_id,mandate_id,owner_user_id,request_key,name,input,input_digest,state)\n VALUES(task.thread_id,org,p_mandate,task.owner_user_id,request,'human.handoff.'||action,p_input,p_digest,'running') RETURNING id INTO op;\n proof:=jsonb_build_object('action',action,'actorId',actor,'recordedAt',clock_timestamp(),'evidence',p_input->'evidence','reason',p_input->'reason','previousAssignee',task.assignee_user_id,'reminder',p_input->'reminder');\n UPDATE public.agent_handoffs SET state=next_state,assignee_user_id=CASE WHEN action='reassign' THEN p_input->>'assigneeUserId' ELSE assignee_user_id END,\n  revision=revision+1,human_evidence=jsonb_set(human_evidence,'{events}',coalesce(human_evidence->'events','[]'::jsonb)||jsonb_build_array(proof)),updated_at=clock_timestamp()\n WHERE id=task.id RETURNING revision INTO new_revision;\n receipt:=jsonb_build_object('id',task.id,'revision',new_revision,'status',next_state);\n UPDATE public.agent_operations SET state='complete',result=receipt,updated_at=clock_timestamp() WHERE id=op;\n INSERT INTO public.audit_events(organization_id,actor_id,action,entity_type,entity_id,metadata)\n VALUES(org,actor,'agent.handoff.'||action,'agent_handoff',task.id::text,jsonb_build_object('revision',new_revision,'commandId',op,'previousState',task.state,'state',next_state));\n notice:=jsonb_build_object('text',CASE action WHEN 'acknowledge' THEN 'The human handoff was acknowledged.' WHEN 'reassign' THEN 'The human handoff was reassigned.' WHEN 'remind' THEN 'An internal human-task reminder was saved. Automation remains paused.' WHEN 'dismiss' THEN 'The human handoff was dismissed. Automation remains paused.' WHEN 'link_sent' THEN 'A human recorded sending the booking link externally. This does not confirm a meeting. Automation remains paused.' ELSE 'A human recorded a confirmed meeting with external evidence. Automation remains paused.' END,'details',receipt||jsonb_build_object('actorId',actor));\n INSERT INTO public.agent_messages(thread_id,organization_id,mandate_id,owner_user_id,request_key,role,content,content_digest)\n VALUES(task.thread_id,org,p_mandate,task.owner_user_id,'handoff-notice:'||op,'assistant',notice,encode(sha256(convert_to(jsonb_build_object('role','assistant','content',notice)::text,'UTF8')),'hex'));\n INSERT INTO public.agent_events(thread_id,organization_id,mandate_id,owner_user_id,event_key,kind,payload,payload_digest)\n VALUES(task.thread_id,org,p_mandate,task.owner_user_id,'handoff-control:'||op,'human.handoff_updated',receipt,encode(sha256(convert_to(receipt::text,'UTF8')),'hex'));\n IF action='remind' THEN\n  proof:=jsonb_build_object('taskId',task.id,'revision',new_revision,'assigneeUserId',task.assignee_user_id,'reminder',p_input->'reminder');\n  INSERT INTO public.agent_events(thread_id,organization_id,mandate_id,owner_user_id,event_key,kind,payload,payload_digest,available_at)\n  VALUES(task.thread_id,org,p_mandate,task.owner_user_id,'handoff-reminder:'||op,'human.handoff_reminder',proof,encode(sha256(convert_to(proof::text,'UTF8')),'hex'),(p_input->'reminder'->>'wakeAt')::timestamptz);\n END IF;\n RETURN receipt;\nEND $function$\n",
+      "body": "\nDECLARE org text:=current_setting('app.acquire_org',true);actor text:=current_setting('app.acquire_user',true);\n task public.agent_handoffs%ROWTYPE;conv public.agent_conversations%ROWTYPE;prior public.agent_operations%ROWTYPE;op uuid;new_revision integer;action text:=p_input->>'action';next_state text;receipt jsonb;notice jsonb;proof jsonb;request text:='handoff:'||actor||':'||p_key::text;\nBEGIN\n PERFORM public.agent_assert_control_scope();\n IF p_digest!~'^[a-f0-9]{64}$' OR octet_length(p_input::text)>6000 THEN RAISE EXCEPTION 'Invalid task command'; END IF;\n SELECT * INTO task FROM public.agent_handoffs h WHERE h.id=(p_input->>'taskId')::uuid AND h.organization_id=org AND h.mandate_id=p_mandate AND (h.owner_user_id=actor OR h.assignee_user_id=actor);\n IF task.id IS NULL OR NOT EXISTS(SELECT 1 FROM public.member WHERE organization_id=org AND user_id=task.owner_user_id) THEN RAISE EXCEPTION 'Task unavailable'; END IF;\n -- Same lock order as ordinary owner commands; serialises owner and assignee.\n PERFORM 1 FROM public.agent_threads WHERE id=task.thread_id FOR UPDATE;\n SELECT * INTO task FROM public.agent_handoffs WHERE id=task.id FOR UPDATE;\n IF actor<>task.owner_user_id AND actor<>task.assignee_user_id THEN RAISE EXCEPTION 'Task assignment changed'; END IF;\n SELECT * INTO prior FROM public.agent_operations WHERE thread_id=task.thread_id AND request_key=request;\n IF prior.id IS NOT NULL THEN\n  IF prior.input_digest<>p_digest OR prior.input IS DISTINCT FROM p_input OR prior.state<>'complete' THEN RAISE EXCEPTION 'Task command key reused'; END IF;\n  RETURN prior.result;\n END IF;\n SELECT * INTO conv FROM public.agent_conversations WHERE id=task.conversation_id FOR UPDATE;\n IF task.revision<>(p_input->>'revision')::integer OR public.agent_handoff_context(task.id) IS DISTINCT FROM p_input->>'contextRevision' THEN RAISE EXCEPTION 'Task or conversation changed'; END IF;\n IF task.state IN('dismissed','meeting_confirmed') THEN RAISE EXCEPTION 'Task already closed'; END IF;\n IF jsonb_array_length(coalesce(task.human_evidence->'events','[]'::jsonb))>=100 OR octet_length(task.human_evidence::text)+octet_length(p_input::text)>58000 THEN RAISE EXCEPTION 'Task evidence limit reached; manual review required'; END IF;\n next_state:=task.state;\n IF action='acknowledge' THEN\n  IF task.state<>'pending' THEN RAISE EXCEPTION 'Task is not pending'; END IF;next_state:='acknowledged';\n ELSIF action='reassign' THEN\n  IF actor<>task.owner_user_id OR coalesce(length(p_input->>'assigneeUserId'),0) NOT BETWEEN 1 AND 200 OR NOT EXISTS(SELECT 1 FROM public.member WHERE organization_id=org AND user_id=p_input->>'assigneeUserId') THEN RAISE EXCEPTION 'Current member assignment requires owner'; END IF;\n  IF task.assignee_user_id=p_input->>'assigneeUserId' THEN RAISE EXCEPTION 'Task already assigned'; END IF;\n ELSIF action='remind' THEN\n  IF jsonb_typeof(p_input->'reminder')<>'object' OR coalesce(length(trim(p_input->'reminder'->>'reason')),0) NOT BETWEEN 1 AND 2000\n   OR (p_input->'reminder'->>'wakeAt') IS NULL OR (p_input->'reminder'->>'wakeAt')::timestamptz<=clock_timestamp()\n   OR (p_input->'reminder'->>'wakeAt')::timestamptz>clock_timestamp()+interval '30 days'\n   OR NOT EXISTS(SELECT 1 FROM pg_catalog.pg_timezone_names WHERE name=p_input->'reminder'->>'timeZone') THEN RAISE EXCEPTION 'Bounded internal reminder required'; END IF;\n ELSIF action='dismiss' THEN\n  IF coalesce(length(trim(p_input->>'reason')),0) NOT BETWEEN 5 AND 2000 THEN RAISE EXCEPTION 'Dismissal reason required'; END IF;next_state:='dismissed';\n ELSIF action IN('link_sent','meeting_confirmed') THEN\n  proof:=p_input->'evidence';\n  IF jsonb_typeof(proof)<>'object' OR coalesce(length(trim(proof->>'note')),0) NOT BETWEEN 5 AND 2000 OR coalesce(length(trim(proof->>'externalReference')),0) NOT BETWEEN 3 AND 1000 OR (proof->>'occurredAt') IS NULL OR (proof->>'occurredAt')::timestamptz>clock_timestamp()+interval '1 minute' THEN RAISE EXCEPTION 'Past external evidence required'; END IF;\n  IF action='link_sent' AND (task.state NOT IN('pending','acknowledged') OR conv.driver_kind<>'human' OR conv.phase<>'paused' OR conv.engagement<>'handoff') THEN RAISE EXCEPTION 'Booking-link record unavailable for current conversation'; END IF;\n  IF action='meeting_confirmed' AND task.state<>'link_sent' THEN RAISE EXCEPTION 'Link sent is not a confirmed meeting'; END IF;\n  next_state:=action;\n ELSE RAISE EXCEPTION 'Invalid task action';END IF;\n INSERT INTO public.agent_operations(thread_id,organization_id,mandate_id,owner_user_id,request_key,name,input,input_digest,state)\n VALUES(task.thread_id,org,p_mandate,task.owner_user_id,request,'human.handoff.'||action,p_input,p_digest,'running') RETURNING id INTO op;\n proof:=jsonb_build_object('action',action,'actorId',actor,'recordedAt',clock_timestamp(),'evidence',p_input->'evidence','reason',p_input->'reason','previousAssignee',task.assignee_user_id,'reminder',p_input->'reminder');\n UPDATE public.agent_handoffs SET state=next_state,assignee_user_id=CASE WHEN action='reassign' THEN p_input->>'assigneeUserId' ELSE assignee_user_id END,\n  revision=revision+1,human_evidence=jsonb_set(human_evidence,'{events}',coalesce(human_evidence->'events','[]'::jsonb)||jsonb_build_array(proof)),updated_at=clock_timestamp()\n WHERE id=task.id RETURNING revision INTO new_revision;\n receipt:=jsonb_build_object('id',task.id,'revision',new_revision,'status',next_state);\n UPDATE public.agent_operations SET state='complete',result=receipt,updated_at=clock_timestamp() WHERE id=op;\n INSERT INTO public.audit_events(organization_id,actor_id,action,entity_type,entity_id,metadata)\n VALUES(org,actor,'agent.handoff.'||action,'agent_handoff',task.id::text,jsonb_build_object('revision',new_revision,'commandId',op,'previousState',task.state,'state',next_state));\n notice:=jsonb_build_object('text',CASE action WHEN 'acknowledge' THEN 'The human handoff was acknowledged.' WHEN 'reassign' THEN 'The human handoff was reassigned.' WHEN 'remind' THEN 'An internal human-task reminder was saved. Automation remains paused.' WHEN 'dismiss' THEN 'The human handoff was dismissed. Automation remains paused.' WHEN 'link_sent' THEN 'A human recorded sending the booking link externally. This does not confirm a meeting. Automation remains paused.' ELSE 'A human recorded a confirmed meeting with external evidence. Automation remains paused.' END,'details',receipt||jsonb_build_object('actorId',actor));\n INSERT INTO public.agent_messages(thread_id,organization_id,mandate_id,owner_user_id,request_key,role,content,content_digest)\n VALUES(task.thread_id,org,p_mandate,task.owner_user_id,'handoff-notice:'||op,'assistant',notice,encode(sha256(convert_to(jsonb_build_object('role','assistant','content',notice)::text,'UTF8')),'hex'));\n INSERT INTO public.agent_events(thread_id,organization_id,mandate_id,owner_user_id,event_key,kind,payload,payload_digest)\n VALUES(task.thread_id,org,p_mandate,task.owner_user_id,'handoff-control:'||op,'human.handoff_updated',receipt,encode(sha256(convert_to(receipt::text,'UTF8')),'hex'));\n IF action='remind' THEN\n  proof:=jsonb_build_object('taskId',task.id,'revision',new_revision,'assigneeUserId',task.assignee_user_id,'reminder',p_input->'reminder');\n  INSERT INTO public.agent_events(thread_id,organization_id,mandate_id,owner_user_id,event_key,kind,payload,payload_digest,available_at)\n  VALUES(task.thread_id,org,p_mandate,task.owner_user_id,'handoff-reminder:'||op,'human.handoff_reminder',proof,encode(sha256(convert_to(proof::text,'UTF8')),'hex'),(p_input->'reminder'->>'wakeAt')::timestamptz);\n END IF;\n RETURN receipt;\nEND ",
+      "body_hash": "a605792b22780549f0243017b2bc29c9a8ec04221ba2dfa14ed46a9a80f14800",
+      "owner": "project_acquire",
+      "acl": "{project_acquire=X/project_acquire,acquire_agent_user=X/project_acquire}",
+      "security_definer": true,
+      "volatility": "v",
+      "config": [
+        "search_path=pg_catalog, public"
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "agent_registered_worker_scopes",
+      "signature": "agent_registered_worker_scopes(integer,text)",
+      "definition": "CREATE OR REPLACE FUNCTION public.agent_registered_worker_scopes(p_max integer, p_runtime_id text)\n RETURNS TABLE(organization_id text, owner_user_id text, mandate_id uuid, thread_id uuid, responsibility_id uuid, responsibility_revision integer)\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'public'\nAS $function$\nBEGIN\n IF current_setting('role',true)<>'acquire_agent_worker' OR p_max IS NULL OR p_max NOT BETWEEN 1 AND 100 OR p_runtime_id IS NULL OR p_runtime_id!~'^[a-z][a-z0-9-]{2,99}$' OR p_runtime_id IS DISTINCT FROM current_setting('app.acquire_runtime_id',true) THEN RAISE EXCEPTION 'Configured registered worker runtime required';END IF;\n RETURN QUERY SELECT g.organization_id,g.owner_user_id,g.mandate_id,g.thread_id,g.responsibility_id,g.responsibility_revision\n FROM public.agent_runtime_registrations g JOIN public.agent_responsibilities r ON r.id=g.responsibility_id AND r.thread_id=g.thread_id\n JOIN public.member m ON m.organization_id=g.organization_id AND m.user_id=g.owner_user_id\n JOIN public.agent_events e ON e.thread_id=g.thread_id AND e.organization_id=g.organization_id AND e.owner_user_id=g.owner_user_id AND e.mandate_id=g.mandate_id\n WHERE g.runtime_id=p_runtime_id AND g.responsibility_revision=r.revision AND public.agent_event_eligible(e.thread_id,e.kind)\n AND e.available_at<=clock_timestamp() AND (e.state='pending' OR e.state='leased' AND e.lease_until<=clock_timestamp())\n AND NOT EXISTS(SELECT 1 FROM public.agent_runs run WHERE run.thread_id=g.thread_id AND run.state='running' AND (run.lease_until IS NULL OR run.lease_until>clock_timestamp()))\n GROUP BY g.organization_id,g.owner_user_id,g.mandate_id,g.thread_id,g.responsibility_id,g.responsibility_revision\n ORDER BY min(e.available_at),g.organization_id,g.owner_user_id,g.mandate_id LIMIT p_max;\nEND $function$\n",
+      "body": "\nBEGIN\n IF current_setting('role',true)<>'acquire_agent_worker' OR p_max IS NULL OR p_max NOT BETWEEN 1 AND 100 OR p_runtime_id IS NULL OR p_runtime_id!~'^[a-z][a-z0-9-]{2,99}$' OR p_runtime_id IS DISTINCT FROM current_setting('app.acquire_runtime_id',true) THEN RAISE EXCEPTION 'Configured registered worker runtime required';END IF;\n RETURN QUERY SELECT g.organization_id,g.owner_user_id,g.mandate_id,g.thread_id,g.responsibility_id,g.responsibility_revision\n FROM public.agent_runtime_registrations g JOIN public.agent_responsibilities r ON r.id=g.responsibility_id AND r.thread_id=g.thread_id\n JOIN public.member m ON m.organization_id=g.organization_id AND m.user_id=g.owner_user_id\n JOIN public.agent_events e ON e.thread_id=g.thread_id AND e.organization_id=g.organization_id AND e.owner_user_id=g.owner_user_id AND e.mandate_id=g.mandate_id\n WHERE g.runtime_id=p_runtime_id AND g.responsibility_revision=r.revision AND public.agent_event_eligible(e.thread_id,e.kind)\n AND e.available_at<=clock_timestamp() AND (e.state='pending' OR e.state='leased' AND e.lease_until<=clock_timestamp())\n AND NOT EXISTS(SELECT 1 FROM public.agent_runs run WHERE run.thread_id=g.thread_id AND run.state='running' AND (run.lease_until IS NULL OR run.lease_until>clock_timestamp()))\n GROUP BY g.organization_id,g.owner_user_id,g.mandate_id,g.thread_id,g.responsibility_id,g.responsibility_revision\n ORDER BY min(e.available_at),g.organization_id,g.owner_user_id,g.mandate_id LIMIT p_max;\nEND ",
+      "body_hash": "4135367ed77d7c0841d48933d384e287abdabca35151be6a1308a51cadd3af4a",
+      "owner": "project_acquire",
+      "acl": "{project_acquire=X/project_acquire,acquire_agent_worker=X/project_acquire}",
+      "security_definer": true,
+      "volatility": "v",
+      "config": [
+        "search_path=pg_catalog, public"
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "agent_worker_scopes",
+      "signature": "agent_worker_scopes(integer)",
+      "definition": "CREATE OR REPLACE FUNCTION public.agent_worker_scopes(maximum integer)\n RETURNS TABLE(organization_id text, owner_user_id text)\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'public'\nAS $function$\nBEGIN\n IF current_setting('role',true)<>'acquire_agent_worker' OR maximum NOT BETWEEN 1 AND 100 THEN RAISE EXCEPTION 'Authenticated agent worker scope required'; END IF;\n RETURN QUERY SELECT r.organization_id,r.owner_user_id FROM public.agent_responsibilities r\n JOIN public.member m ON m.organization_id=r.organization_id AND m.user_id=r.owner_user_id\n JOIN public.agent_events e ON e.thread_id=r.thread_id AND e.organization_id=r.organization_id AND e.owner_user_id=r.owner_user_id\n WHERE public.agent_event_eligible(e.thread_id,e.kind) AND e.available_at<=clock_timestamp()\n AND (e.state='pending' OR e.state='leased' AND e.lease_until<=clock_timestamp())\n AND NOT EXISTS(SELECT 1 FROM public.agent_runs run WHERE run.thread_id=r.thread_id AND run.state='running' AND (run.lease_until IS NULL OR run.lease_until>clock_timestamp()))\n GROUP BY r.organization_id,r.owner_user_id ORDER BY min(e.available_at),r.organization_id,r.owner_user_id LIMIT maximum;\nEND $function$\n",
+      "body": "\nBEGIN\n IF current_setting('role',true)<>'acquire_agent_worker' OR maximum NOT BETWEEN 1 AND 100 THEN RAISE EXCEPTION 'Authenticated agent worker scope required'; END IF;\n RETURN QUERY SELECT r.organization_id,r.owner_user_id FROM public.agent_responsibilities r\n JOIN public.member m ON m.organization_id=r.organization_id AND m.user_id=r.owner_user_id\n JOIN public.agent_events e ON e.thread_id=r.thread_id AND e.organization_id=r.organization_id AND e.owner_user_id=r.owner_user_id\n WHERE public.agent_event_eligible(e.thread_id,e.kind) AND e.available_at<=clock_timestamp()\n AND (e.state='pending' OR e.state='leased' AND e.lease_until<=clock_timestamp())\n AND NOT EXISTS(SELECT 1 FROM public.agent_runs run WHERE run.thread_id=r.thread_id AND run.state='running' AND (run.lease_until IS NULL OR run.lease_until>clock_timestamp()))\n GROUP BY r.organization_id,r.owner_user_id ORDER BY min(e.available_at),r.organization_id,r.owner_user_id LIMIT maximum;\nEND ",
+      "body_hash": "52b7053342740fd8bf607f4d09abce85fb579a5bf0a8cfe98a77ee241e78e350",
+      "owner": "project_acquire",
+      "acl": "{project_acquire=X/project_acquire,acquire_agent_worker=X/project_acquire}",
+      "security_definer": true,
+      "volatility": "v",
+      "config": [
+        "search_path=pg_catalog, public"
+      ]
+    },
+    {
+      "schema": "public",
+      "name": "agent_worker_scopes_for_mandate",
+      "signature": "agent_worker_scopes_for_mandate(integer,uuid)",
+      "definition": "CREATE OR REPLACE FUNCTION public.agent_worker_scopes_for_mandate(maximum integer, selected_mandate uuid)\n RETURNS TABLE(organization_id text, owner_user_id text)\n LANGUAGE plpgsql\n SECURITY DEFINER\n SET search_path TO 'pg_catalog', 'public'\nAS $function$\nBEGIN\n IF current_setting('role',true)<>'acquire_agent_worker' OR maximum IS NULL OR maximum NOT BETWEEN 1 AND 10 OR selected_mandate IS NULL THEN RAISE EXCEPTION 'Exact authenticated native mandate scope required'; END IF;\n RETURN QUERY SELECT r.organization_id,r.owner_user_id FROM public.agent_responsibilities r\n JOIN public.member m ON m.organization_id=r.organization_id AND m.user_id=r.owner_user_id\n JOIN public.agent_events e ON e.thread_id=r.thread_id AND e.organization_id=r.organization_id AND e.owner_user_id=r.owner_user_id\n WHERE r.mandate_id=selected_mandate AND e.mandate_id=selected_mandate\n AND public.agent_event_eligible(e.thread_id,e.kind) AND e.available_at<=clock_timestamp()\n AND (e.state='pending' OR e.state='leased' AND e.lease_until<=clock_timestamp())\n AND NOT EXISTS(SELECT 1 FROM public.agent_runs run WHERE run.thread_id=r.thread_id AND run.state='running' AND (run.lease_until IS NULL OR run.lease_until>clock_timestamp()))\n GROUP BY r.organization_id,r.owner_user_id ORDER BY min(e.available_at),r.organization_id,r.owner_user_id LIMIT maximum;\nEND $function$\n",
+      "body": "\nBEGIN\n IF current_setting('role',true)<>'acquire_agent_worker' OR maximum IS NULL OR maximum NOT BETWEEN 1 AND 10 OR selected_mandate IS NULL THEN RAISE EXCEPTION 'Exact authenticated native mandate scope required'; END IF;\n RETURN QUERY SELECT r.organization_id,r.owner_user_id FROM public.agent_responsibilities r\n JOIN public.member m ON m.organization_id=r.organization_id AND m.user_id=r.owner_user_id\n JOIN public.agent_events e ON e.thread_id=r.thread_id AND e.organization_id=r.organization_id AND e.owner_user_id=r.owner_user_id\n WHERE r.mandate_id=selected_mandate AND e.mandate_id=selected_mandate\n AND public.agent_event_eligible(e.thread_id,e.kind) AND e.available_at<=clock_timestamp()\n AND (e.state='pending' OR e.state='leased' AND e.lease_until<=clock_timestamp())\n AND NOT EXISTS(SELECT 1 FROM public.agent_runs run WHERE run.thread_id=r.thread_id AND run.state='running' AND (run.lease_until IS NULL OR run.lease_until>clock_timestamp()))\n GROUP BY r.organization_id,r.owner_user_id ORDER BY min(e.available_at),r.organization_id,r.owner_user_id LIMIT maximum;\nEND ",
+      "body_hash": "7564a4013ed2c274d4625844fe38971c3a49f138092f8dfb6a8593a6a954fdb3",
+      "owner": "project_acquire",
+      "acl": "{project_acquire=X/project_acquire,acquire_agent_worker=X/project_acquire}",
+      "security_definer": true,
+      "volatility": "v",
+      "config": [
+        "search_path=pg_catalog, public"
+      ]
+    }
+  ]
+}

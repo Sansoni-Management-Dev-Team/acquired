@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import {buildAllDiscoveredCompanyPolicy} from '@/domain/research-discovery-policy';
+import {emptyBrief} from '@/domain/acquisition';
+import { afterEach,beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   session: vi.fn(),
   enabled: vi.fn(),
@@ -89,7 +91,38 @@ beforeEach(() => {
   mocks.sources.mockReturnValue(["https://directory.example.org/"]);
   mocks.concurrentResearchReady.mockResolvedValue(true);
 });
+afterEach(()=>vi.unstubAllEnvs());
 describe("research API isolation and dispatch", () => {
+  it('publishes incremental discovery counts without raw source pages or starting any work', async () => {
+    const now = new Date();
+    const root = { id: jobId, status: 'extracting', createdAt: now, updatedAt: now, config: {
+      pipelineDesign: 'hybrid-firmable-v1',
+      firmableSearchPages: { '0': { totalCompany: 9000, records: [{ id: 'f1', website: 'https://one.example' }] } },
+      webSearchPages: { '0': { ok: true, rows: [{ domain: 'one.example' }, { domain: 'two.example' }] } },
+    } };
+    mocks.list.mockResolvedValue([root]); mocks.targetEvidence.mockResolvedValue([]); mocks.findings.mockResolvedValue([]);
+    const data = await (await GET(new Request('https://app.example.com'), context)).json();
+    expect(data.jobs[0].discovery).toEqual({ candidates: 2, firmablePages: 1, webQueries: 1, webFailures: 0 });
+    expect(data.jobs[0].config).not.toHaveProperty('firmableSearchPages');
+    expect(data.jobs[0].config).not.toHaveProperty('webSearchPages');
+    expect(root.config.firmableSearchPages['0'].records).toHaveLength(1);
+    expect(mocks.worker).not.toHaveBeenCalled(); expect(mocks.schedule).not.toHaveBeenCalled();
+  });
+  it('uses shared all-discovered basic People research for a fresh normal AU20 root and preserves custom caps',async()=>{
+    vi.stubEnv('RESEARCH_PIPELINE_DESIGN','hybrid-firmable-v1');vi.stubEnv('LOCAL_DEVELOPMENT','true');
+    const brief=emptyBrief();Object.assign(brief.criteria.find(c=>c.key==='headcount')!,{state:'specified',value:'30–80',confirmed:false});mocks.mandate.mockResolvedValue({id,brief});
+    await POST(request({...body,workflow:'business',mode:'automatic',targetBusinesses:20}),context);
+    expect(mocks.create).toHaveBeenLastCalledWith(jobId,id,'user-a',expect.objectContaining({findPeople:false,includeCompanyPeople:true,includePhones:false,budget:expect.objectContaining({maxMinutes:15}),companyDiscoveryPolicy:expect.objectContaining({version:5,maxProfiledCompanies:800,profileSelection:expect.objectContaining({strategy:'all_discovered',companyOnly:false}),automaticPeople:{version:1,maxCompanies:800,maxSearchPagesPerCompany:1,searchPageSize:50,maxContactsPerCompany:3,includePhones:false}})}));
+    mocks.create.mockClear();await POST(request({...body,workflow:'business',mode:'automatic',targetBusinesses:40}),context);
+    expect(mocks.create.mock.calls[0][3]).not.toHaveProperty('companyDiscoveryPolicy');
+    mocks.create.mockClear();await POST(request({...body,workflow:'business',mode:'automatic',targetBusinesses:20,geography:'New Zealand'}),context);
+    expect(mocks.create.mock.calls[0][3]).not.toHaveProperty('companyDiscoveryPolicy');
+  });
+  it('stamps the canonical company policy on new normal Firmable roots, ignoring browser overrides',async()=>{
+    vi.stubEnv('RESEARCH_PIPELINE_DESIGN','hybrid-firmable-v1');vi.stubEnv('LOCAL_DEVELOPMENT','true');
+    expect((await POST(request({...body,workflow:'business',mode:'automatic',targetBusinesses:20,companyIdentityPolicyVersion:999,companyDiscoveryQueryPolicyVersion:999}),context)).status).toBe(202);
+    expect(mocks.create).toHaveBeenCalledWith(jobId,id,'user-a',expect.objectContaining({pipelineDesign:'hybrid-firmable-v1',companyIdentityPolicyVersion:1,companyDiscoveryQueryPolicyVersion:1}));
+  });
   it("returns run timings and pending deep work without transferring raw spans", async () => {
     const now = new Date();
     const span = { id: crypto.randomUUID(), step: 'extract-1', segment: 'extraction', startedAt: now.toISOString(), finishedAt: new Date(now.getTime() + 1000).toISOString(), elapsedMs: 1000, outcome: 'succeeded' };
@@ -228,15 +261,15 @@ it('snapshots server-controlled performance flags on new runs', async () => {
   expect(response.status).toBe(202);
   expect(mocks.create.mock.calls[0][3].performanceFlags).toEqual({ telemetryBatching: true, progressCoalescing: true, schedulerCoalescing: true });
 });
-it('deduplicates automatic recovery by run', async () => {
+it('reads root and child state without scheduling recovery', async () => {
   const now = new Date();
   const root = { id: jobId, status: 'crawling', createdAt: now, updatedAt: now, config: { mode: 'automatic', automaticDeadline: now.getTime() + 60000 } };
   const child = { ...root, id: crypto.randomUUID(), config: { mode: 'automatic', researchRunId: jobId, discoveryCandidate: true } };
   mocks.list.mockResolvedValue([child, root]);
   mocks.targetEvidence.mockResolvedValue([]); mocks.findings.mockResolvedValue([]);
   expect((await GET(new Request('https://app.example.com'), context)).status).toBe(200);
-  expect(mocks.schedule).toHaveBeenCalledTimes(1);
-  expect(mocks.schedule).toHaveBeenCalledWith('org-a', jobId, { recovery: true });
+  expect(mocks.schedule).not.toHaveBeenCalled();
+  expect(mocks.list).toHaveBeenCalledTimes(1);
 });
 
 it('retains disabled or absent flags when continuing an existing run', async () => {
@@ -253,23 +286,23 @@ it('reuses the review snapshot when scheduling recovery is throttled', async () 
   expect((await GET(new Request('https://app.example.com'), context)).status).toBe(200);
   expect(mocks.list).toHaveBeenCalledTimes(1);
 });
-it('refreshes the review snapshot after a scheduling pass', async () => {
+it('returns one saved snapshot regardless of worker scheduling availability', async () => {
   const now = new Date();
   mocks.list.mockResolvedValue([{ id: jobId, status: 'crawling', createdAt: now, updatedAt: now, config: { mode: 'automatic', automaticDeadline: now.getTime() + 60000 } }]);
   mocks.targetEvidence.mockResolvedValue([]); mocks.findings.mockResolvedValue([]);
   mocks.schedule.mockResolvedValue(true);
   expect((await GET(new Request('https://app.example.com'), context)).status).toBe(200);
-  expect(mocks.list).toHaveBeenCalledTimes(2);
+  expect(mocks.list).toHaveBeenCalledTimes(1);
 });
 
-it('refreshes after recovering a stopped worker even when scheduling is throttled', async () => {
+it('does not recover stopped work from a polling request', async () => {
   const now = new Date();
   mocks.list.mockResolvedValue([{ id: jobId, status: 'crawling', revision: 1, pages: 0, createdAt: now, updatedAt: new Date(now.getTime() - 100000), config: { mode: 'automatic', automaticDeadline: now.getTime() + 60000 } }]);
   mocks.targetEvidence.mockResolvedValue([]); mocks.findings.mockResolvedValue([]);
   mocks.schedule.mockResolvedValue(false); mocks.worker.mockResolvedValue({ status: 'complete' });
   expect((await GET(new Request('https://app.example.com'), context)).status).toBe(200);
-  expect(mocks.recoverStopped).toHaveBeenCalledWith(jobId, 1, 0);
-  expect(mocks.list).toHaveBeenCalledTimes(2);
+  expect(mocks.recoverStopped).not.toHaveBeenCalled();
+  expect(mocks.list).toHaveBeenCalledTimes(1);
 });
 
 it('uses compact timing summaries while review jobs contain no raw span maps', async () => {
@@ -289,12 +322,47 @@ it.each(['partial','complete'])('skips idle recovery for a durably settled %s pa
  expect((await GET(new Request('https://app.example.com'),context)).status).toBe(200);
  expect(mocks.schedule).not.toHaveBeenCalled();expect(mocks.list).toHaveBeenCalledTimes(1);
 });
-it.each(['queued','crawling'])('recovers %s children despite a stale settled root marker',async status=>{
+it.each(['queued','crawling'])('reports %s children despite a stale settled root marker',async status=>{
  const now=new Date();const root={id:jobId,status:'partial',createdAt:now,updatedAt:now,config:{mode:'automatic',parallelBusinessResearch:true,parallelResearchSettled:true,parallelResearchPendingTasks:0,automaticDeadline:now.getTime()+60000}};
  mocks.list.mockResolvedValue([root,{...root,id:'child',status,config:{mode:'automatic',researchRunId:jobId,researchTask:'website'}}]);mocks.targetEvidence.mockResolvedValue([]);mocks.findings.mockResolvedValue([]);mocks.schedule.mockResolvedValue(false);
- await GET(new Request('https://app.example.com'),context);expect(mocks.schedule).toHaveBeenCalledTimes(1);
+ await GET(new Request('https://app.example.com'),context);expect(mocks.schedule).not.toHaveBeenCalled();
 });
-it('does not skip recovery while the durable parallel task count is pending',async()=>{
+it('leaves pending durable tasks for the worker',async()=>{
  const now=new Date();mocks.list.mockResolvedValue([{id:jobId,status:'partial',createdAt:now,updatedAt:now,config:{mode:'automatic',parallelBusinessResearch:true,parallelResearchSettled:true,parallelResearchPendingTasks:2,automaticDeadline:now.getTime()+60000}}]);mocks.targetEvidence.mockResolvedValue([]);mocks.findings.mockResolvedValue([]);
- await GET(new Request('https://app.example.com'),context);expect(mocks.schedule).toHaveBeenCalledTimes(1);
+ await GET(new Request('https://app.example.com'),context);expect(mocks.schedule).not.toHaveBeenCalled();
+});
+
+
+it('reads an active saved run without claiming, dispatching or recovering work', async () => {
+ const now=new Date();
+ const root={id:jobId,status:'crawling',revision:1,pages:0,createdAt:now,updatedAt:new Date(now.getTime()-100000),config:{mode:'automatic',automaticDeadline:now.getTime()+60000}};
+ mocks.list.mockResolvedValue([root]);mocks.targetEvidence.mockResolvedValue([]);mocks.findings.mockResolvedValue([]);mocks.resultCounts.mockResolvedValue([]);
+ mocks.worker.mockResolvedValue({status:'complete'});mocks.schedule.mockResolvedValue(true);
+ const response=await GET(new Request('https://app.example.com'),context);
+ expect(response.status).toBe(200);
+ expect((await response.json()).jobs[0].status).toBe('crawling');
+ expect(mocks.worker).not.toHaveBeenCalled();expect(mocks.schedule).not.toHaveBeenCalled();expect(mocks.recoverStopped).not.toHaveBeenCalled();expect(mocks.list).toHaveBeenCalledTimes(1);
+});
+
+it('cannot inject remaining-company authority through an ordinary research request',async()=>{const response=await POST(request({...body,companyContinuation:{version:1,sourceRootId:id,sourceDigest:'a'.repeat(64),candidateKeys:['firmable:f1']}}),context);expect(response.status).toBe(400);expect(mocks.create).not.toHaveBeenCalled();expect(mocks.worker).not.toHaveBeenCalled();});
+
+it.each(['firmable-v1','web-firmable-v1'])('starts fresh %s with non-phone shared People and no AI People loop',async pipeline=>{
+ vi.stubEnv('RESEARCH_PIPELINE_DESIGN',pipeline);vi.stubEnv('LOCAL_DEVELOPMENT','true');
+ expect((await POST(request({...body,workflow:'business',mode:'automatic',targetBusinesses:20,companyOnly:true,includePhones:true,findPeople:true,peopleBudget:{maxCompanies:20,maxPages:12}}),context)).status).toBe(202);
+ expect(mocks.create.mock.calls[0][3]).toMatchObject({pipelineDesign:pipeline,includeCompanyPeople:true,includePhones:false,findPeople:false});expect(mocks.create.mock.calls[0][3]).not.toHaveProperty('companyOnly');
+});
+it('keeps historical Firmable continuation People/phone flags and policy instead of assigning fresh V5 scope',async()=>{
+ vi.stubEnv('RESEARCH_PIPELINE_DESIGN','hybrid-firmable-v1');vi.stubEnv('LOCAL_DEVELOPMENT','true');
+ const saved={...body,workflow:'business',mode:'automatic',pipelineDesign:'hybrid-firmable-v1',includeCompanyPeople:false,includePhones:false,findPeople:false,automaticDeadline:Date.now()+60000,runtime:{remaining:['https://remaining.example.com/'],visited:[],attempts:[]}};
+ mocks.get.mockResolvedValue({mandateId:id,status:'partial',seeds:[],config:saved});mocks.findings.mockResolvedValue([]);
+ expect((await POST(request({...body,continueFrom:jobId,findPeople:true,workflow:'business',peopleBudget:{maxCompanies:20,maxPages:12},includeCompanyPeople:true,includePhones:true}),context)).status).toBe(202);
+ const next=mocks.create.mock.calls[0][3];expect(next).toMatchObject({pipelineDesign:'hybrid-firmable-v1',includeCompanyPeople:false,includePhones:false,findPeople:false});expect(next.companyDiscoveryPolicy).toBeUndefined();
+});
+
+it('retains the exact saved V4 company-only policy on normal continuation',async()=>{
+ vi.stubEnv('RESEARCH_PIPELINE_DESIGN','hybrid-firmable-v1');vi.stubEnv('LOCAL_DEVELOPMENT','true');
+ const policy=buildAllDiscoveredCompanyPolicy();
+ mocks.get.mockResolvedValue({mandateId:id,status:'partial',seeds:[],config:{...body,workflow:'business',mode:'automatic',pipelineDesign:'hybrid-firmable-v1',targetBusinesses:20,companyDiscoveryPolicy:policy,includeCompanyPeople:false,includePhones:false,findPeople:false,companyOnly:true,runtime:{remaining:['https://remaining.example.com/'],visited:[],attempts:[]}}});mocks.findings.mockResolvedValue([]);
+ expect((await POST(request({...body,continueFrom:jobId,includeCompanyPeople:true,includePhones:true}),context)).status).toBe(202);
+ expect(mocks.create.mock.calls[0][3]).toMatchObject({companyDiscoveryPolicy:policy,companyOnly:true,includeCompanyPeople:false,includePhones:false,findPeople:false});
 });

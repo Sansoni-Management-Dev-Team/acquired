@@ -51,3 +51,10 @@ it('rejects an obsolete proposal before attempting its mutation',async()=>{
  await expect(createAcquireCommands(deps).execute(actor,{name:'mandate.update',input:{mandateId:id,brief:emptyBrief(),expectedRevision:'122'}})).rejects.toThrow('changed');
  expect(deps.updateMandate).not.toHaveBeenCalled();
 });
+it('preserves typed postcommit refresh-needed metadata alongside the confirmed saved brief revision',async()=>{const companyProjectionRefresh={status:'refresh_needed',message:'Saved changes are confirmed; company evidence needs refresh'};deps.updateMandate.mockResolvedValue({id,brief:emptyBrief(),revision:'124',createdAt:'2026-10-17T00:00:00Z',companyProjectionRefresh});const result=await createAcquireCommands(deps).execute(actor,{name:'mandate.update',input:{mandateId:id,brief:emptyBrief(),expectedRevision:'123'}});expect(result).toMatchObject({name:'mandate.update',status:'completed',value:{revision:'124',companyProjectionRefresh}});});
+it('reconciles exact saved identities through the shared write action without accepting a caller-selected target',async()=>{
+ const reconcileCompanyIdentities=vi.fn().mockResolvedValue({resolved:3}),commands=createAcquireCommands({...deps,reconcileCompanyIdentities});
+ expect(await commands.execute(actor,{name:'company.identity.reconcile',input:{mandateId:id}})).toEqual({name:'company.identity.reconcile',status:'completed',value:{resolved:3}});
+ expect(reconcileCompanyIdentities).toHaveBeenCalledWith(actor,id);
+ await expect(commands.execute(actor,{name:'company.identity.reconcile',input:{mandateId:id,selectedTargetId:id}})).rejects.toThrow();
+});

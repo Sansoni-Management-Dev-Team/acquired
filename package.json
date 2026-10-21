@@ -10,6 +10,8 @@
     "db:local:stop": "docker compose -f compose.local.yml stop postgres",
     "db:local:status": "docker compose -f compose.local.yml ps postgres",
     "db:local:logs": "docker compose -f compose.local.yml logs -f postgres",
+    "firmable:reconnect:local": "node scripts/reconnect-agent-mode-firmable.mjs",
+    "agent:logs": "node scripts/tail-agent-mode-mandate.mjs",
     "scrape:manufacturers": "node scripts/scrape-manufacturing-directories.mjs",
     "discover:manufacturers": "node scripts/discover-manufacturers-web.mjs",
     "build:manufacturing-index": "node scripts/build-manufacturing-search-index.mjs",

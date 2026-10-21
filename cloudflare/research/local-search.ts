@@ -1,6 +1,8 @@
+import {safeResearchTrace,type ResearchTraceContext} from '../../src/domain/research-trace-context';
 import { publicResearchUrl } from "../../src/domain/research";
 import { canonicalSearchUrl, type WebSearchResult } from "../../src/domain/cloudflare-search";
 import { providerJsonRequest } from "../../src/adapters/observability/provider-request";
+import {providerFailure} from '../../src/domain/research-provider-error';
 
 // Local development searches through an OpenSERP container on OrbStack. Its
 // DuckDuckGo results carry full snippets, unlike the HTML endpoint we render.
@@ -31,8 +33,9 @@ export function normaliseLocalSearch(payload: unknown): WebSearchResult[] {
   return [...results.values()].slice(0, 12);
 }
 
-export async function localSearch(env: LocalSearchEnv, query: string, context: { jobId?: string; requestId?: string; start?: number; engine?: "google" } = {}, fetcher: typeof fetch = fetch): Promise<WebSearchResult[] | null> {
+export async function localSearch(env: LocalSearchEnv, query: string, context: ResearchTraceContext & { start?: number; engine?: "google" } = {}, fetcher: typeof fetch = fetch): Promise<WebSearchResult[] | null> {
   if (!localSearchEndpoint(env)) return null;
+  const trace=safeResearchTrace(context);
   // DuckDuckGo first; when its headless session times out, Google answers the same query more slowly.
   let lastError: unknown;
   for (const engine of context.engine === "google" ? ["google", "duckduckgo"] : ["duckduckgo", "google"]) {
@@ -41,11 +44,16 @@ export async function localSearch(env: LocalSearchEnv, query: string, context: {
     url.searchParams.set("limit", "10");
     if (context.start) url.searchParams.set("start", String(context.start));
     try {
-      const { response, data } = await providerJsonRequest<unknown>(fetcher, url.href, { method: "GET", signal: AbortSignal.timeout(45000) }, { provider: "local-openserp", operation: `web_search_${engine}`, jobId: context.jobId, requestId: context.requestId });
+      const { response, data } = await providerJsonRequest<unknown>(fetcher, url.href, { method: "GET", signal: AbortSignal.timeout(45000) }, { ...trace, provider: "local-openserp", operation: `web_search_${engine}` });
       if (!response.ok) throw new Error(`Local search unavailable (${response.status})`);
       const results = normaliseLocalSearch(data);
       if (results.length) return results;
-    } catch (error) { lastError = error; }
+    } catch (error) {
+      // Native authority applies to the whole logical search, not just this
+      // backend. A refused/uncertain request cannot authorize a fallback key.
+      if(['native_budget_admission_required','native_provider_reconciliation_required','native_budget_not_configured','native_search_upstream_not_allowed'].includes(providerFailure(error).category))throw error;
+      lastError = error;
+    }
   }
   throw lastError instanceof Error ? lastError : new Error("Local search unavailable");
 }

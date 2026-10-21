@@ -19,9 +19,12 @@ const pendingSetupKey='acquire.pending-channel-setup';
 type PendingSetup={channel:string;before:string[];startedAt:number};
 const connectionKey=(c:ManagedConnection)=>`${c.binding.connectionId}:${c.binding.generation}`;
 function connectionPending(c:ManagedConnection) {
+ if(c.active!==true)return false;
  return c.status==='connecting'||c.status==='syncing'||c.status==='connected'&&c.readiness.status==='waiting'&&c.readiness.code==='incomplete';
 }
 function connectionStatus(c:ManagedConnection) {
+ if(c.active===false)return 'Retired connection';
+ if(c.active!==true)return 'Connection status unavailable';
  if(c.status==='disconnected')return 'Disconnected';if(c.status==='failed')return 'Connection failed';
  if(c.status==='verification_required'||c.readiness.status==='review'&&c.readiness.code==='reconnect')return 'Reconnect required';
  if(c.status==='connecting')return 'Connecting';
@@ -95,6 +98,7 @@ export function ChannelConnections({initialSnapshot,setupReturned=false,localSim
   finally{inFlight.current=false;if(mounted.current)setBusy(false);}
  },[refresh,snapshot.connections,localSimulatorOrigin]);
  function disconnect(c:ManagedConnection) {
+  if(c.active!==true)return;
   if(!window.confirm(`Disconnect ${c.label}? Existing work will pause until its connection is resolved.`))return;
   const identity=JSON.stringify(c.binding);let key=retirementKeys.current.get(identity);if(!key){key=randomUuid();retirementKeys.current.set(identity,key);}
   void manage({action:'disconnect',binding:c.binding,key});
@@ -108,12 +112,12 @@ export function ChannelConnections({initialSnapshot,setupReturned=false,localSim
    <div className="flex flex-wrap items-center gap-3"><div className="flex size-10 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--panel)]"><Icon size={20} aria-hidden="true"/></div><h3 className="flex-1 font-semibold">{name}</h3>{!snapshot.available&&<span className="rounded-full border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted)]">Setup unavailable</span>}</div>
    <p className="mt-3 text-sm text-[var(--muted)]">{description}</p>
    {snapshot.connections.filter(c=>c.binding.channel===channel).map(c=><div key={c.binding.connectionId} aria-busy={connectionPending(c)} className="mt-4 border-t border-[var(--border)] pt-3">
-    <p className="break-words text-sm font-medium">{c.label}</p><p className="mt-1 flex items-center gap-2 text-sm text-[var(--muted)]">{connectionPending(c)&&<LoaderCircle size={16} role="img" aria-label={`${name} connection pending`} className="animate-spin motion-reduce:animate-none"/>}{connectionStatus(c)}{c.isDefault?' · Default for new work':''}</p>
+    <p className="break-words text-sm font-medium">{c.label}</p><p className="mt-1 flex items-center gap-2 text-sm text-[var(--muted)]">{connectionPending(c)&&<LoaderCircle size={16} role="img" aria-label={`${name} connection pending`} className="animate-spin motion-reduce:animate-none"/>}{connectionStatus(c)}{c.active===true&&c.isDefault?' · Default for new work':''}</p>
     <div className="mt-3 flex flex-wrap gap-3 text-sm">
      <button disabled={busy} type="button" onClick={()=>void manage({action:'status',binding:c.binding})} className="underline disabled:opacity-50">Check status</button>
-     {!c.isDefault&&c.status!=='disconnected'&&<button disabled={busy} type="button" onClick={()=>void manage({action:'default',binding:c.binding})} className="underline disabled:opacity-50">Use for new work</button>}
-     {(c.status==='disconnected'||c.status==='failed'||c.status==='verification_required')&&<button disabled={busy} type="button" onClick={()=>void manage({action:'setup',channel,platform:c.binding.platform,reconnectBinding:c.binding})} className="underline disabled:opacity-50">Reconnect</button>}
-     {c.status!=='disconnected'&&<button disabled={busy} type="button" onClick={()=>disconnect(c)} className="underline disabled:opacity-50">Disconnect</button>}
+     {c.active===true&&!c.isDefault&&c.status!=='disconnected'&&<button disabled={busy} type="button" onClick={()=>void manage({action:'default',binding:c.binding})} className="underline disabled:opacity-50">Use for new work</button>}
+     {c.active===true&&(c.status==='disconnected'||c.status==='failed'||c.status==='verification_required')&&<button disabled={busy} type="button" onClick={()=>void manage({action:'setup',channel,platform:c.binding.platform,reconnectBinding:c.binding})} className="underline disabled:opacity-50">Reconnect</button>}
+     {c.active===true&&c.status!=='disconnected'&&<button disabled={busy} type="button" onClick={()=>disconnect(c)} className="underline disabled:opacity-50">Disconnect</button>}
     </div>
    </div>)}
    {channel==='email'&&snapshot.available&&<label className="mt-4 block text-sm">Email provider<select aria-label="Email provider" value={emailPlatform} disabled={busy} onChange={e=>setEmailPlatform(e.target.value as Platform)} className="ml-3 rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2"><option value="gmail">Gmail</option><option value="outlook">Outlook</option><option value="imap" disabled>IMAP unavailable</option></select></label>}

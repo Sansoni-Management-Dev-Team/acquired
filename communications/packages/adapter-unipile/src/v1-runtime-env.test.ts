@@ -32,3 +32,15 @@ it('constructs themultichannel runtime using only its matching5790/5791 pair',()
  const f=readConfiguredUnipileV1Environment(local,pool);expect(f.options.localSimulatorOrigin).toBe(local.UNIPILE_API_URL);expect(()=>createConfiguredUnipileV1Runtime(f.options)).not.toThrow();
  for(const patch of [{COMMUNICATIONS_REDIRECT_ORIGIN:'https://127.0.0.1:5591'},{COMMUNICATIONS_SETUP_NOTIFY_URL:'https://127.0.0.1:5491/v1/setup/notify'},{UNIPILE_API_URL:'https://127.0.0.1:5590'},{NODE_ENV:'production'},{AGENT_MODE_COMMUNICATIONS_MODE:'connect-only'}])expect(()=>readConfiguredUnipileV1Environment({...local,...patch},pool)).toThrow();
 });
+it('accepts only exact dedicated demo provider/callback/integration tuple',()=>{
+ const local={...env,NODE_ENV:'development',AGENT_MODE_COMMUNICATIONS_MODE:'simulator',UNIPILE_API_URL:'https://127.0.0.1:5890',COMMUNICATIONS_LOCAL_SIMULATOR_ORIGIN:'https://127.0.0.1:5890',COMMUNICATIONS_INTEGRATION_ID:'sim-agent-real-research-demos',COMMUNICATIONS_PROVIDER_CONFIGURATION_REFERENCE:'sim-agent-real-research-demos-v1',COMMUNICATIONS_REDIRECT_ORIGIN:'https://127.0.0.1:5891',COMMUNICATIONS_SETUP_NOTIFY_URL:'https://127.0.0.1:5891/v1/setup/notify',DATABASE_URL:'postgresql://project_acquire:fixture@postgres:5432/acquire_agent_mode',COMMUNICATIONS_DATABASE_URL:'postgresql://project_acquire:fixture@postgres:5432/acquire_agent_mode'};
+ expect(()=>createConfiguredUnipileV1Runtime(readConfiguredUnipileV1Environment(local,pool).options)).not.toThrow();
+ for(const patch of[{COMMUNICATIONS_REDIRECT_ORIGIN:'https://127.0.0.1:5791'},{COMMUNICATIONS_INTEGRATION_ID:'sim-other'},{COMMUNICATIONS_PROVIDER_CONFIGURATION_REFERENCE:'sim-other-v1'},{NODE_ENV:'production'}])expect(()=>readConfiguredUnipileV1Environment({...local,...patch},pool)).toThrow();
+});
+
+it('accepts only a fresh deep profile on its dedicated local provider and callback pair',()=>{
+ const integration='sim-agent-deep-completion-20261018';
+ const local={...env,NODE_ENV:'development',AGENT_MODE_COMMUNICATIONS_MODE:'simulator',UNIPILE_API_URL:'https://127.0.0.1:5990',COMMUNICATIONS_LOCAL_SIMULATOR_ORIGIN:'https://127.0.0.1:5990',COMMUNICATIONS_INTEGRATION_ID:integration,COMMUNICATIONS_PROVIDER_CONFIGURATION_REFERENCE:integration+'-v1',COMMUNICATIONS_REDIRECT_ORIGIN:'https://127.0.0.1:5991',COMMUNICATIONS_SETUP_NOTIFY_URL:'https://127.0.0.1:5991/v1/setup/notify',DATABASE_URL:'postgresql://fixture@127.0.0.1:5437/acquire_agent_mode',COMMUNICATIONS_DATABASE_URL:'postgresql://fixture@127.0.0.1:5437/acquire_agent_mode'};
+ expect(readConfiguredUnipileV1Environment(local,pool).options.localSimulatorOrigin).toBe(local.UNIPILE_API_URL);
+ for(const patch of [{COMMUNICATIONS_INTEGRATION_ID:'sim-agent-multichannel-20261017'},{COMMUNICATIONS_PROVIDER_CONFIGURATION_REFERENCE:'sim-other-v1'},{COMMUNICATIONS_REDIRECT_ORIGIN:'https://127.0.0.1:5791'},{COMMUNICATIONS_SETUP_NOTIFY_URL:'https://127.0.0.1:5791/v1/setup/notify'},{COMMUNICATIONS_DATABASE_URL:'postgresql://fixture@127.0.0.1:5549/sim_acquire'},{NODE_ENV:'production'}])expect(()=>readConfiguredUnipileV1Environment({...local,...patch},pool)).toThrow('Invalid communications environment');
+});

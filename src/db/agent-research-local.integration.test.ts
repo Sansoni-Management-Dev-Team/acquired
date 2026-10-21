@@ -1,4 +1,4 @@
-import {beforeAll,afterAll,describe,it,expect,vi} from 'vitest';
+import {beforeAll,beforeEach,afterAll,describe,it,expect,vi} from 'vitest';
 import {drizzle} from 'drizzle-orm/node-postgres';
 import * as schema from './schema';
 import {FirmableAccount} from '../../cloudflare/research/firmable/account';
@@ -8,9 +8,13 @@ import {runFirmableCompanyPipeline} from '@/domain/firmable-company-pipeline';
 import {briefToMandate} from '@/domain/acquisition';
 const fixtureDb=vi.hoisted(()=>({value:undefined as unknown}));
 vi.mock('@/db/client',()=>({requireDb:()=>fixtureDb.value}));
+vi.mock('server-only',()=>({}));
 import {Pool} from 'pg';
 import {randomUUID} from 'node:crypto';
 import {AgentResearchStore} from './agent-research-store';
+import {AgentPeopleStore} from './agent-people-store';
+import {createMandateContact} from '@/lib/campaign-service';
+import {reuseCachedMandateTargets} from '@/lib/agent-people-supervisor';
 import {emptyBrief} from '@/domain/acquisition';
 import {agentOutboxFailurePool} from '@/test/agent-pg-fault';
 import {createResearchSupervisor} from '@/lib/agent-research-supervisor';
@@ -23,7 +27,8 @@ const org=randomUUID(),user=randomUUID(),mandate=randomUUID(),actor={organizatio
 let store:AgentResearchStore,thread:string,launchedOperation:string,launchedJob:string;
 function fixtureBrief(){const b=emptyBrief();for(const [key,value]of [['subsectors','Commercial refrigeration'],['geography','QLD']])Object.assign(b.criteria.find(c=>c.key===key)!,{value,state:'specified',confirmed:true});return b;}
 describe.runIf(enabled)('reviewed native research supervision on isolated PostgreSQL',()=>{
- beforeAll(async()=>{
+ beforeEach(()=>vi.stubEnv('RESEARCH_PIPELINE_DESIGN','firmable-v1'));
+ beforeAll(async()=>{vi.stubEnv('RESEARCH_PIPELINE_DESIGN','firmable-v1');
   expect((await pool.query("SELECT current_database() AS name,shobj_description(oid,'pg_database') AS marker FROM pg_database WHERE datname=current_database()")).rows[0]).toEqual({name:'acquire_agent_mode',marker:'acquire-agent-mode-local-only'});
   const c=await pool.connect();try{await c.query('BEGIN');await c.query("SET LOCAL session_replication_role='replica'");
    await c.query('INSERT INTO "user"(id,name,email) VALUES($1,$1,$2)',[user,user+'@example.invalid']);await c.query('INSERT INTO organization(id,name,slug) VALUES($1,$1,$1)',[org]);
@@ -31,7 +36,7 @@ describe.runIf(enabled)('reviewed native research supervision on isolated Postgr
    await c.query("INSERT INTO mandates(id,organization_id,natural_language,filters,provenance,created_by) VALUES($1,$2,'Synthetic research test',$3,'{}',$4)",[mandate,org,JSON.stringify({...briefToMandate(fixtureBrief()),brief:fixtureBrief()}),user]);await c.query('COMMIT');
   }finally{c.release();}fixtureDb.value=drizzle(pool,{schema});store=new AgentResearchStore(pool,actor);thread=(await store.openThread(mandate)).id;
  });
- afterAll(async()=>{const c=await pool.connect();try{await c.query('BEGIN');await c.query("SET LOCAL session_replication_role='replica'");for(const table of ['agent_budget_reservations','agent_budget_accounts','agent_review_batches','agent_authority_grants','agent_operations','agent_conversations','agent_responsibilities','agent_runs','agent_events','agent_messages','agent_threads','research_jobs','contacts','targets','mandates','member','audit_events','communication_send_gates'])await c.query(`DELETE FROM ${table} WHERE organization_id=$1`,[org]);await c.query("DELETE FROM firmable_companies f WHERE id=$1 AND name='Synthetic refrigeration' AND NOT EXISTS(SELECT 1 FROM targets t WHERE t.firmable_company_id=f.id)",[fixtureFirmableId]);await c.query('DELETE FROM organization WHERE id=$1',[org]);await c.query('DELETE FROM "user" WHERE id=$1',[user]);await c.query('COMMIT');}finally{c.release();}await pool.end();});
+ afterAll(async()=>{const c=await pool.connect();try{await c.query('BEGIN');await c.query("SET LOCAL session_replication_role='replica'");for(const table of ['agent_research_phase_allocations','agent_research_phase_budgets','agent_budget_reservations','agent_budget_accounts','agent_review_batches','agent_authority_grants','agent_operations','agent_conversations','agent_responsibilities','agent_runs','agent_events','agent_messages','agent_threads','research_jobs','contacts','targets','mandates','member','audit_events','communication_send_gates'])await c.query(`DELETE FROM ${table} WHERE organization_id=$1`,[org]);await c.query("DELETE FROM firmable_companies f WHERE id=$1 AND name='Synthetic refrigeration' AND NOT EXISTS(SELECT 1 FROM targets t WHERE t.firmable_company_id=f.id)",[fixtureFirmableId]);await c.query('DELETE FROM organization WHERE id=$1',[org]);await c.query('DELETE FROM "user" WHERE id=$1',[user]);await c.query('COMMIT');}finally{c.release();}await pool.end();vi.unstubAllEnvs();});
  async function start(){const state=await store.executionState(thread);await store.controlResponsibility(thread,randomUUID(),{action:'start',expectedRevision:state.responsibility?.revision??0,mandateRevision:state.mandateRevision});const s=await store.researchSupervisionContext(thread),r=s.responsibility!;return {responsibilityId:r.id,responsibilityRevision:r.revision,mandateRevision:s.mandateRevision};}
  it('persists one stable job handle, exact review, notice and outbox atomically across requests',async()=>{
   const scope=await start(),a=await store.proposeResearchPlan(thread,randomUUID(),scope),b=await store.proposeResearchPlan(thread,randomUUID(),scope);expect(b.id).toBe(a.id);
@@ -74,9 +79,9 @@ describe.runIf(enabled)('reviewed native research supervision on isolated Postgr
   const scope=await start(),p=await store.proposeResearchPlan(thread,randomUUID(),scope),b=(await store.listReviewBatches(thread)).find(b=>b.id===p.reviewBatchId)!;
   await store.decideReviewBatch(thread,b.id,b.revision,b.manifest,'approved');
   const first=await store.persistApprovedResearchLaunch(thread,p.id),again=await store.persistApprovedResearchLaunch(thread,p.id);expect(again).toEqual(first);launchedOperation=p.id;launchedJob=first.jobId;
-  expect(first).toMatchObject({status:'queued',dispatchReady:false,blockedReason:'provider_budget_required'});
+  expect(first).toMatchObject({status:'queued',dispatchReady:false,blockedReason:'phase_funding_required'});
   const rows=(await pool.query('SELECT id,config,message FROM research_jobs WHERE organization_id=$1',[org])).rows;expect(rows).toHaveLength(1);expect(rows[0].config.nativeAgent).toMatchObject({version:1,operationId:p.id,providerAdmission:'required'});
-  expect((await pool.query("SELECT count(*)::int AS n FROM agent_events WHERE thread_id=$1 AND event_key=$2",[thread,'research-dispatch:'+p.id])).rows[0].n).toBe(1);
+  expect((await pool.query("SELECT count(*)::int AS n FROM agent_events WHERE thread_id=$1 AND event_key=$2",[thread,'research-dispatch:'+p.id])).rows[0].n).toBe(0);
   const input=b.operations[0].input,second=await store.proposeOperation(thread,randomUUID(),'research.start',{...input,config:{...input.config,requestId:randomUUID()}}),item={operationId:second.id,revision:second.revision,digest:second.input_digest,contextRevision:input.contextRevision},batch=await store.createReviewBatch(thread,randomUUID(),[item]);await store.decideReviewBatch(thread,batch.id,batch.revision,batch.manifest,'approved');
   await expect(store.persistApprovedResearchLaunch(thread,second.id)).rejects.toThrow(/already active/);
   const collision=await pool.connect();try{await collision.query('BEGIN');await collision.query("SET LOCAL session_replication_role='replica'");await collision.query("INSERT INTO research_jobs(id,organization_id,mandate_id,created_by,status,config) VALUES($1,$2,$3,$4,'cancelled','{}')",[second.input.config.requestId,org,mandate,user]);await collision.query('COMMIT');}finally{collision.release();}
@@ -88,7 +93,7 @@ describe.runIf(enabled)('reviewed native research supervision on isolated Postgr
   const request={researchOperationId:launchedOperation,researchJobId:launchedJob,provider:'search',requestDigest:'a'.repeat(64)};
   await expect(store.beginNativeResearchAttempt(thread,randomUUID(),request)).rejects.toThrow(/Configure/);
   const windowStart=new Date();windowStart.setUTCHours(0,0,0,0);
-  for(const unit of ['calls','usd_micro'])for(const scope of ['organization','user:'+user,'mandate:'+mandate])await store.configureBudget({scopeKey:scope+':'+unit,unit,windowStart:windowStart.toISOString(),windowEnd:new Date(windowStart.getTime()+86400000).toISOString(),cap:unit==='calls'?'20':'10000000',expectedRevision:0});
+  for(const unit of ['calls','usd_micro'])for(const scope of ['organization','user:'+user,'mandate:'+mandate])await store.configureBudget({scopeKey:scope+':'+unit,unit,windowStart:windowStart.toISOString(),windowEnd:new Date(windowStart.getTime()+86400000).toISOString(),cap:unit==='calls'?'100':'100000000',expectedRevision:0});
   expect(await store.persistApprovedResearchLaunch(thread,launchedOperation)).toMatchObject({dispatchReady:true});
   const key=randomUUID(),first=await store.beginNativeResearchAttempt(thread,key,request);if(first.kind!=='started')throw new Error('Expected a physical attempt reservation');
   await expect(store.beginNativeResearchAttempt(thread,key,request)).rejects.toThrow(/running|uncertain/);
@@ -98,7 +103,7 @@ describe.runIf(enabled)('reviewed native research supervision on isolated Postgr
   const unknownKey=randomUUID(),unknown=await store.beginNativeResearchAttempt(thread,unknownKey,request);if(unknown.kind!=='started')throw new Error('Expected a physical attempt reservation');
   await store.finishNativeResearchAttempt(thread,unknown.operationId,unknown.fence,{actualCostMicroUsd:null,costBasis:'unknown',reason:'request_outcome_unknown'});
   await expect(store.beginNativeResearchAttempt(thread,unknownKey,request)).rejects.toThrow(/uncertain/);
-  expect((await store.listBudgetAccounts()).filter(a=>a.unit==='usd_micro').every(a=>a.spent==='250'&&a.reserved==='1000000')).toBe(true);
+  expect((await store.listBudgetAccounts()).filter(a=>a.unit==='usd_micro').every(a=>a.spent==='250'&&a.reserved==='75000000')).toBe(true);
   for(let n=0;n<4;n++){const next=await store.beginNativeResearchAttempt(thread,randomUUID(),request);if(next.kind!=='started')throw new Error('Expected a physical attempt');await store.finishNativeResearchAttempt(thread,next.operationId,next.fence,{actualCostMicroUsd:'0',costBasis:'configured_rate_estimate',response:{rows:[]}});}
   await expect(store.beginNativeResearchAttempt(thread,randomUUID(),request)).rejects.toThrow(/attempt limit/);
  });
@@ -145,4 +150,28 @@ describe.runIf(enabled)('reviewed native research supervision on isolated Postgr
  it('legacy research proposals cannot become an executable native plan',async()=>{
   const op=await store.proposeOperation(thread,randomUUID(),'research.start',{contextRevision:'legacy',body:'Old generic proposal'}),item={operationId:op.id,revision:op.revision,digest:op.input_digest,contextRevision:'legacy'},batch=await store.createReviewBatch(thread,randomUUID(),[item]);await store.decideReviewBatch(thread,batch.id,1,[item],'approved');await expect(store.approvedResearchPlan(thread,op.id)).rejects.toThrow();
  });
+ it('reviews a fresh unconfirmed GUI brief precisely with empty real caches and no account, provider or model effect',async()=>{
+  const freshMandate=randomUUID(),b=emptyBrief();for(const[key,value]of[['subsectors','Industrial electrical services'],['geography','QLD']])Object.assign(b.criteria.find(c=>c.key===key)!,{state:'specified',value,origin:'assumed',confirmed:false});
+  const c=await pool.connect();try{await c.query('BEGIN');await c.query("SET LOCAL session_replication_role='replica'");await c.query("INSERT INTO mandates(id,organization_id,natural_language,filters,provenance,created_by)VALUES($1,$2,'Unconfirmed synthetic GUI brief',$3,'{}',$4)",[freshMandate,org,JSON.stringify({...briefToMandate(b),brief:b}),user]);await c.query('COMMIT');}finally{c.release();}
+  const worker=new AgentPeopleStore(pool,actor),freshThread=(await worker.openThread(freshMandate)).id,state=await worker.executionState(freshThread);await worker.controlResponsibility(freshThread,randomUUID(),{action:'start',expectedRevision:0,mandateRevision:state.mandateRevision});
+  const handlers={'mandate.supervise':createResearchSupervisor(worker,{reuseCached:reuseCachedMandateTargets(worker)}),'control.changed':async()=>({kind:'complete' as const})};
+  await runAgentEvent({store:worker,mandateId:freshMandate,workerId:randomUUID(),handlers});
+  const notices=(await pool.query("SELECT content->>'text' text FROM agent_messages WHERE thread_id=$1 AND role='assistant' ORDER BY sequence",[freshThread])).rows.map(r=>r.text).join(' ');
+  expect(notices).toContain('Confirm the saved research brief before company discovery.');expect(notices).toContain('geography');expect(notices).toContain('subsectors');expect((await worker.researchSupervisionContext(freshThread)).researchReadiness.briefPath).toBe('/mandates/'+freshMandate);expect(notices).not.toContain('provider outcome may need reconciliation');
+  expect((await worker.researchSupervisionContext(freshThread)).researchReadiness.issues).toHaveLength(2);
+  expect((await pool.query("SELECT count(*)::int n FROM agent_operations WHERE thread_id=$1 AND name IN('research.plan','research.start','research.provider','conversation.decide')",[freshThread])).rows[0].n).toBe(0);
+  expect((await pool.query('SELECT count(*)::int n FROM research_jobs WHERE mandate_id=$1',[freshMandate])).rows[0].n).toBe(0);expect((await pool.query('SELECT count(*)::int n FROM agent_runtime_registrations WHERE mandate_id=$1',[freshMandate])).rows[0].n).toBe(0);
+ });
+
+ it('reuses a normally created manual contact despite unconfirmed research scope, without choosing an account or inventing qualification',async()=>{
+  const freshMandate=randomUUID(),b=emptyBrief();for(const[key,value]of[['subsectors','Industrial electrical services'],['geography','QLD']])Object.assign(b.criteria.find(c=>c.key===key)!,{state:'specified',value,origin:'assumed',confirmed:false});
+  const c=await pool.connect();try{await c.query('BEGIN');await c.query("SET LOCAL session_replication_role='replica'");await c.query("INSERT INTO mandates(id,organization_id,natural_language,filters,provenance,created_by)VALUES($1,$2,'Unconfirmed synthetic manual GUI brief',$3,'{}',$4)",[freshMandate,org,JSON.stringify({...briefToMandate(b),brief:b}),user]);await c.query('COMMIT');}finally{c.release();}
+  const shared=globalThis as typeof globalThis&{acquireCampaignPool?:Pool},prior=shared.acquireCampaignPool;shared.acquireCampaignPool=pool;let person;try{person=await createMandateContact(actor,freshMandate,{fullName:'[SIMULATED] Manual test owner',company:'[SIMULATED] Operator supplied company',email:randomUUID()+'@example.invalid',jobTitle:'Owner'});}finally{shared.acquireCampaignPool=prior;}
+  const worker=new AgentPeopleStore(pool,actor),freshThread=(await worker.openThread(freshMandate)).id,state=await worker.executionState(freshThread);await worker.controlResponsibility(freshThread,randomUUID(),{action:'start',expectedRevision:0,mandateRevision:state.mandateRevision});
+  const context=await worker.targetSelectionContext(freshThread);expect(context.candidates.find(x=>x.contactId===person.id)).toMatchObject({targetId:null,target:null,sourceKind:'manual_contact',findings:[],assessment:null,blockedReasons:[]});
+  await runAgentEvent({store:worker,mandateId:freshMandate,workerId:randomUUID(),handlers:{'mandate.supervise':createResearchSupervisor(worker,{reuseCached:reuseCachedMandateTargets(worker)}),'control.changed':async()=>({kind:'complete' as const})}});
+  const notices=(await pool.query("SELECT content->>'text' text FROM agent_messages WHERE thread_id=$1 AND role='assistant' ORDER BY sequence",[freshThread])).rows.map(r=>r.text).join(' ');expect(notices).toContain('cached email contacts');expect(notices).not.toContain('Confirm the saved research brief before company discovery.');
+  expect((await worker.researchSupervisionContext(freshThread)).researchReadiness.issues).toHaveLength(2);expect((await pool.query("SELECT count(*)::int n FROM agent_operations WHERE thread_id=$1 AND name IN('research.start','research.provider','conversation.decide','target.select','email.initial')",[freshThread])).rows[0].n).toBe(0);expect((await pool.query('SELECT count(*)::int n FROM agent_conversations WHERE thread_id=$1',[freshThread])).rows[0].n).toBe(0);expect((await pool.query('SELECT count(*)::int n FROM communication_dispatch_intents WHERE organization_id=$1',[org])).rows[0].n).toBe(0);
+ });
+
 });

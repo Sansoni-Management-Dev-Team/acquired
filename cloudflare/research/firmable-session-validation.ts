@@ -1,4 +1,5 @@
-export interface FirmableSessionEnv {
+import {firmableOutageResponse,type FirmableLocalOutageEnv} from './firmable/local-outage';
+export interface FirmableSessionEnv extends FirmableLocalOutageEnv {
   FIRMABLE_CLIENT_COOKIE?: string;
   FIRMABLE_SESSION_ID?: string;
   FIRMABLE_ORGANIZATION_ID?: string;
@@ -43,6 +44,7 @@ async function upstreamJson(fetcher: typeof fetch, phase: string, url: string, i
 
 export async function validateFirmableSession(env: FirmableSessionEnv, fetcher: typeof fetch = fetch): Promise<Response> {
   const headers = { "Cache-Control": "no-store" };
+  const paused=firmableOutageResponse(env,'/validate');if(paused)return Response.json(paused.body,{status:paused.status,headers});
   if (!env.FIRMABLE_CLIENT_COOKIE || !/^sess_[A-Za-z0-9]+$/.test(env.FIRMABLE_SESSION_ID || "")
     || !/^org_[A-Za-z0-9]+$/.test(env.FIRMABLE_ORGANIZATION_ID || "")
     || /[\r\n;]/.test(env.FIRMABLE_CLIENT_COOKIE)) {

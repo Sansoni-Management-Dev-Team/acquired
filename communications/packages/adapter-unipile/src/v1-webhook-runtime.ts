@@ -1,9 +1,12 @@
+import {localSyncReceiptKey} from '../../core/src/local-sync-event';
+import type {BusinessClock} from '../../core/src/business-clock';
 import { assertSameBinding, assertOperationMatches, type ConnectionBinding, type OperationSnapshot } from '../../contracts/src';
 import type { ReplyIngress, ClaimedWebhook, ReplyNormalization, WebhookCapturePort } from '../../core/src/reply-ingress';
 import type { NormalizedWebhookPort } from '../../core/src/webhook-events';
 import type { ProviderWebhookSpool } from '../../storage-postgres/src/provider-webhook-spool';
 export type EmailSentAssociationWake={snapshot:OperationSnapshot;evidenceDigest:string};
 export interface ConfiguredV1WebhookRuntimeOptions {
+    businessClock?:BusinessClock;
     onEmailSentAssociation?:(proof:EmailSentAssociationWake)=>Promise<void>;
     spool: ProviderWebhookSpool;
     authenticate(headers: readonly string[]): boolean;
@@ -31,12 +34,10 @@ export interface ConfiguredV1WebhookRuntime {
     }>;
     blocked(binding: ConnectionBinding): Promise<boolean>;
 }
-import { createHash } from 'node:crypto';
 import { types } from 'node:util';
 import { createWebhookEventProcessor } from '../../core/src/webhook-events';
 import { plain, portMethod } from './v1-read-guard';
 function fail(): never { throw Error('Configured webhook runtime unavailable'); }
-const hash = (v: unknown) => createHash('sha256').update(JSON.stringify(v)).digest('hex');
 function binding(v: ConnectionBinding) { if (!plain(v) || Object.keys(v).sort().join(',') !== 'accountId,applicationId,backend,channel,connectionId,generation,ownerId,platform,tenantId')
     fail(); const b = structuredClone(v); assertSameBinding(b, b); if (b.backend !== 'unipile')
     fail(); return b; }
@@ -125,7 +126,7 @@ export function createConfiguredUnipileV1WebhookRuntime(options: ConfiguredV1Web
                     return { status: completed.key === key && completed.committed === true ? 'processed' : 'retry' };
                 }
                 const source = await history(b), normalize = portMethod<typeof source.normalizeWebhook>(source, 'normalizeWebhook');
-                const processor = createWebhookEventProcessor({ binding: b, journal: { claim: async () => ({ kind: 'claimed', record: original }), finish: input => finish(input) }, normalize: (raw, requested) => normalize(raw, requested) });
+                const processor = createWebhookEventProcessor({ businessClock:options.businessClock, binding: b, journal: { claim: async () => ({ kind: 'claimed', record: original }), finish: input => finish(input) }, normalize: (raw, requested) => normalize(raw, requested) });
                 return processor.process(key);
             }
             catch {
@@ -147,8 +148,8 @@ export function createConfiguredUnipileV1WebhookRuntime(options: ConfiguredV1Web
                     await defer(original);
                     return { status: 'waiting' };
                 }
-                const b = binding(original.binding), key = hash(['communications.webhook.receipt.v1', [b.applicationId, b.tenantId, b.ownerId, b.connectionId, b.accountId, b.generation, b.channel, b.platform, b.backend], createHash('sha256').update(original.rawBody).digest('hex')]), port = await journal(b), save = portMethod<WebhookCapturePort['capture']>(port, 'capture');
-                const result = await save({ binding: b, key, rawBody: Buffer.from(original.rawBody), receivedAt: original.receivedAt });
+                const b = binding(original.binding), key = localSyncReceiptKey(b,original.rawBody,original.localSync), port = await journal(b), save = portMethod<WebhookCapturePort['capture']>(port, 'capture');
+                const result = await save({ binding: b, key, rawBody: Buffer.from(original.rawBody), receivedAt: original.receivedAt,...(original.localSync?{localSync:original.localSync}:{}) });
                 assertSameBinding(b, result.binding);
                 if (result.key !== key || !['accepted', 'duplicate'].includes(result.status))
                     fail();

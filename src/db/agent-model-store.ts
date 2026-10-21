@@ -29,7 +29,7 @@ export class AgentModelStore extends AgentOutreachStore{
    }
    const row=await this.lockConversation(c,t,input.conversationId);
    if(row.context_revision!==input.contextRevision||row.phase!=='active'||row.driver_kind!=='agent'||!row.history_complete)throw new Error('Conversation changed or is unavailable');
-   const eligible=(await c.query("SELECT $1::timestamptz<=clock_timestamp() AND $1::timestamptz>clock_timestamp()-interval '5 minutes' AND EXISTS(SELECT 1 FROM agent_responsibilities WHERE id=$2 AND state IN('ready','waiting')) AS allowed",[row.history_observed_at,row.responsibility_id])).rows[0]?.allowed;
+   const eligible=(await c.query(`SELECT $1::timestamptz<=${this.businessSql()} AND $1::timestamptz>${this.businessSql()}-interval '5 minutes' AND EXISTS(SELECT 1 FROM agent_responsibilities WHERE id=$2 AND state IN('ready','waiting')) AS allowed`,[row.history_observed_at,row.responsibility_id])).rows[0]?.allowed;
    if(eligible!==true)throw new Error('Refresh history and supervision before the model call');
    const op=(await c.query(`INSERT INTO agent_operations(thread_id,organization_id,mandate_id,owner_user_id,request_key,name,input,input_digest,conversation_id,state,lease_until)
     VALUES($1,$2,$3,$4,$5,'conversation.decide',$6,$7,$8,'running',clock_timestamp()+interval '60 seconds') RETURNING *`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,request,JSON.stringify(input),hash,row.id])).rows[0];

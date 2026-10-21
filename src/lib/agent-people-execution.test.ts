@@ -1,4 +1,5 @@
 import {beforeEach,it,expect,vi} from 'vitest';
+vi.mock('server-only',()=>({}));
 const m=vi.hoisted(()=>({plan:vi.fn(),candidates:vi.fn(),outcome:vi.fn(),needsReview:vi.fn(),save:vi.fn(),finish:vi.fn(),client:vi.fn(),search:vi.fn(),profile:vi.fn(),select:vi.fn(),insert:vi.fn(),update:vi.fn(),guard:vi.fn(),rows:[] as unknown[][]}));
 vi.mock('./agent-runtime',()=>({agentStore:()=>({nativePeoplePlan:m.plan,recordPeopleCandidates:m.candidates,peopleProfileOutcome:m.outcome,peopleIdentityNeedsReview:m.needsReview,savePeopleProfile:m.save,finishNativeResearchJob:m.finish})}));
 vi.mock('./agent-research-firmable',()=>({createNativeFirmableTransport:m.client}));
@@ -14,3 +15,17 @@ it('does not repeat an already recorded profile outcome or previously finished c
 it('one company failure does not stop a different reviewed company and partial results are persisted honestly',async()=>{m.plan.mockResolvedValue({selected:[company,{targetId:'f4c4967a-9ee0-4a7a-a83e-e5594d69064f',firmableId:'f2'}],maxContactsPerCompany:3});m.rows=[[],[{config:{}}],[],[{config:{}}],[{status:'partial'}],[{status:'complete'}]];m.search.mockRejectedValueOnce(new Error('One company blocked'));m.finish.mockResolvedValue({status:'partial',contacts:3});const result=await executeNativePeopleResearch(job);expect(result).toMatchObject({savedCompanies:1,failedCompanies:1,status:'partial'});expect(m.client).toHaveBeenCalledTimes(2);expect(m.profile).toHaveBeenCalledTimes(3);});
 
 it('does not buy a profile again when its cached identity or prior relationship needs review',async()=>{m.needsReview.mockResolvedValue(true);m.rows=[[],[{config:{}}],[{status:'partial'}]];await executeNativePeopleResearch(job);expect(m.profile).not.toHaveBeenCalled();expect(m.save).not.toHaveBeenCalled();});
+
+it('retains native partial outcomes and still attempts other reviewed profiles after one failure',async()=>{
+ m.profile.mockRejectedValueOnce(new Error('Profile failed'));
+ m.rows=[[],[{config:{}}],[{status:'partial'}]];
+ m.finish.mockResolvedValue({status:'partial',contacts:2});
+ const result=await executeNativePeopleResearch(job);
+ expect(m.profile).toHaveBeenCalledTimes(3);expect(m.save).toHaveBeenCalledTimes(2);
+ expect(result).toMatchObject({failedCompanies:1,status:'partial'});
+});
+it('uses the saved reviewed candidate list on retry instead of searching and selecting again',async()=>{
+ m.rows=[[],[{config:{nativePeopleCandidates:{[company.targetId]:['fp9']}}}],[{status:'complete'}]];
+ await executeNativePeopleResearch(job);
+ expect(m.search).not.toHaveBeenCalled();expect(m.profile).toHaveBeenCalledWith({id:'fp9'},{includePhones:false});
+});

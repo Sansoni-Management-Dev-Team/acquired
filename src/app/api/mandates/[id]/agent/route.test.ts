@@ -6,6 +6,8 @@ vi.mock('@/db/acquisition-repository',()=>({AcquisitionRepository:class{construc
 vi.mock('@/db/research-repository',()=>({ResearchRepository:class{constructor(org:string){mocks.org(org)}listReview=mocks.jobs}}));
 vi.mock('@/lib/agent-conversation',()=>({answerAgentQuestion:mocks.answer}));
 vi.mock('@/lib/organization-access',()=>({assertOrganizationActor:vi.fn().mockResolvedValue(undefined)}));
+vi.mock('@/lib/communications-bindings',()=>({readManagedDefaults:vi.fn()}));
+vi.mock('@/lib/agent-initial-research',()=>({readInitialMandateResearch:vi.fn()}));
 vi.mock('@/lib/agent-runtime',async importOriginal=>{const actual=await importOriginal<typeof import('@/lib/agent-runtime')>();return {...actual,agentStore:mocks.store,savedAgentConversation:mocks.saved,answerSavedAgentConversation:mocks.answerSaved};});
 import { GET, POST, DELETE } from './route';
 afterEach(()=>vi.unstubAllEnvs());

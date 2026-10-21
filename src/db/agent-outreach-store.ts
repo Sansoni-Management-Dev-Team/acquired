@@ -6,7 +6,13 @@ import type {AgentThread} from './agent-store';
 import type {AgentExecutionFence} from './agent-execution-store';
 import {AgentLifecycleStore} from './agent-lifecycle-store';
 import {agentRecordDigest as digest} from './agent-store';
+import {resolveDemoBuyerProfile} from '@/lib/agent-demo-buyer-profile';
+import {AgentPreBeginSendBudgetError} from '@/lib/agent-pre-begin-send-budget-error';
+import {publicBuyerProfile} from '@/domain/buyer-profile';
+import {agentReplyCausalitySchema} from '@/domain/agent-reply-causality';
 import {agentConversationContextSchema} from '@/lib/agent-conversation-engine';
+import {targetRecordToRankedTarget} from './target-record-mapper';
+import type {CompanyProjectionTargetRecord} from '@/domain/company-membership-projection';
 import {selectAgentGuidance} from '@/domain/agent-guidance';
 import {nativeEmailDraftSchema,nativeOutboundDraftSchema} from '@/domain/agent-execution';
 import {authorityGrantSchema} from '@/domain/agent-authority';
@@ -14,6 +20,18 @@ import {assertSameBinding,type ConnectionBinding,type DeliveryOutcome} from '../
 const uuid=z.string().uuid();
 const proposalSchema=z.object({conversationId:uuid,revision:z.number().int().positive(),contextRevision:z.string().regex(/^[a-f0-9]{64}$/),draft:nativeEmailDraftSchema}).strict();
 export type NativeAgentDelivery={status:'submitted';providerMessageId:string;submittedAt:string;intentId:string}|{status:'submitted';effect:'invitation';providerOperationId:string;submittedAt:string;intentId:string}|{status:'unknown'};
+const companyProjectionSchema=z.object({target:z.object({id:uuid,organizationId:z.string(),companyName:z.string(),domain:z.string(),firmableCompanyId:z.string().nullable().optional(),firmographics:z.record(z.string(),z.unknown())}).passthrough(),screening:z.record(z.string(),z.unknown()),blockedReasons:z.array(z.string()),observation:z.object({id:uuid,digest:z.string().regex(/^[a-f0-9]{64}$/)}),digest:z.string().regex(/^[a-f0-9]{64}$/)});
+/** A bounded factual view, not raw provider JSON or another buyer's workflow. */
+function nativeCompanyEvidence(raw:unknown,expectedTarget:string,organizationId:string){
+ const p=companyProjectionSchema.parse(raw);
+ if(p.target.id!==expectedTarget||p.target.organizationId!==organizationId)throw Error('Company projection identity differs from the owned contact');
+ const target=targetRecordToRankedTarget(p.target as unknown as CompanyProjectionTargetRecord,[]);
+ const compact=(field:{value:unknown;missingReason?:string;provenance:Record<string,unknown>})=>({value:typeof field.value==='string'?field.value.slice(0,1200):field.value,...(typeof field.value==='string'&&field.value.length>1200?{valueIsExcerpt:true}:{}),...(field.missingReason?{missingReason:field.missingReason.slice(0,300)}:{}),provenance:{source:String(field.provenance.source??'').slice(0,200),capturedAt:field.provenance.capturedAt,scope:field.provenance.scope,basis:field.provenance.basis}});
+ const description=target.sourceData?.firmable?.description;
+ const result={id:target.id,domain:target.domain,firmableId:p.target.firmableCompanyId??null,...(description?{descriptionExcerpt:description.slice(0,3000),descriptionIsExcerpt:description.length>3000}:{}),sector:compact(target.sector),state:target.state,headcount:compact(target.headcount),...(target.headcountBand?{headcountBand:compact(target.headcountBand)}:{}),revenue:compact(target.revenue),ebitda:compact(target.ebitda),establishedYear:compact(target.establishedYear),screening:p.screening,blockedReasons:p.blockedReasons,observation:p.observation,projectionDigest:p.digest};
+ if(JSON.stringify(result).length>10500)throw Error('Current company evidence exceeds the bounded model context');
+ return{companyName:p.target.companyName,companySource:'accepted_mandate_observation',company:result};
+}
 /** Native proposals share the existing review ledger. The local sink below is
  * an explicit simulation, not a communications-service/provider submission. */
 export class AgentOutreachStore extends AgentLifecycleStore{
@@ -39,7 +57,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
    if(outcome.status==='submitted'){
     if(!('message'in outcome.receipt))throw new Error('Verified original email receipt required');
     const receipt=outcome.receipt,at=receipt.submittedAt;
-    if(!at||!Number.isFinite(Date.parse(at))||Date.parse(at)>Date.now()||!receipt.message.id||receipt.message.id.length>300||receipt.recipient.kind!=='email'||receipt.recipient.value!==row.recipient_email)throw new Error('Verified original recipient and timestamp required');
+    if(!at||!Number.isFinite(Date.parse(at))||Date.parse(at)>this.businessNow()||!receipt.message.id||receipt.message.id.length>300||receipt.recipient.kind!=='email'||receipt.recipient.value!==row.recipient_email)throw new Error('Verified original recipient and timestamp required');
     const b=(await c.query('SELECT * FROM communication_bindings WHERE id=$1 AND organization_id=$2 AND owner_user_id=$3',[row.binding_id,t.organization_id,t.owner_user_id])).rows[0];
     if(!b)throw new Error('Original recorded account unavailable');
     const binding:ConnectionBinding={applicationId:b.application_id,tenantId:b.organization_id,ownerId:b.owner_user_id,connectionId:b.service_connection_id,accountId:b.service_account_id,generation:b.generation,channel:b.channel,platform:b.platform,backend:b.backend};assertSameBinding(binding,receipt.message.binding);
@@ -56,8 +74,8 @@ export class AgentOutreachStore extends AgentLifecycleStore{
     phase=CASE WHEN $2 THEN phase WHEN driver_kind='agent' THEN 'held' ELSE phase END,
     pause_reason=CASE WHEN driver_kind<>'agent' OR phase IN('paused','quiescing','complete') OR pause_reason IS NOT NULL AND pause_reason NOT IN('provider_receipt_pending_history','provider_outcome_unknown','channel_history_pending') THEN pause_reason WHEN $2 THEN 'provider_receipt_pending_history' ELSE 'provider_outcome_unknown' END,updated_at=now() WHERE id=$1 RETURNING revision`,[row.id,delivery.status==='submitted'])).rows[0];
    await this.invalidateNativeReviews(c,t,row.id);
-   if(delivery.status==='submitted')await this.emit(c,t,'provider-history:'+op.id,'conversation.history_changed',{conversationId:row.id},new Date(Date.now()+2000).toISOString());
-   else await this.emit(c,t,'provider-reconcile:'+op.id,'email.reconcile',{operationId:op.id},new Date(Date.now()+30000).toISOString());
+   if(delivery.status==='submitted')await this.emitOperational(c,t,'provider-history:'+op.id,'conversation.history_changed',{conversationId:row.id},new Date(Date.now()+2000).toISOString());
+   else await this.emitOperational(c,t,'provider-reconcile:'+op.id,'email.reconcile',{operationId:op.id},new Date(Date.now()+30000).toISOString());
    await this.controlNotice(c,t,'provider-outcome:'+op.id+':'+changed.revision,delivery.status==='submitted'?'The communications service confirmed the original email submission. I will verify the updated conversation history before further work.':'The original provider outcome is uncertain. Automation is held and its send budget remains reserved; no new send was attempted.',{operationId:op.id,conversationId:row.id,...delivery});
    return delivery;
   });
@@ -175,7 +193,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
   return this.nativeTransaction(async c=>{
    const t=await this.lockThread(c,threadId),row=await this.lockConversation(c,t,conversationId);
    if(row.delivery_mode!=='local_sink'||row.history_source!=='local_fixture'||!row.history_complete)throw new Error('Verified local history required; provider coverage cannot be replaced by a fixture');
-   await c.query('UPDATE agent_conversations SET history_observed_at=clock_timestamp(),updated_at=now() WHERE id=$1',[row.id]);
+   await c.query(`UPDATE agent_conversations SET history_observed_at=${this.businessSql()},updated_at=now() WHERE id=$1`,[row.id]);
   });
  }
  async pendingNativeEmail(threadId:string,conversationId:string,contextRevision:string){
@@ -184,11 +202,27 @@ export class AgentOutreachStore extends AgentLifecycleStore{
    return !!(await c.query(`SELECT id FROM agent_operations WHERE thread_id=$1 AND conversation_id=$2 AND name IN(${agentChannelMessageSqlNames}) AND input->>'contextRevision'=$3 AND state IN('proposed','approved','running','uncertain') AND (state<>'proposed' OR EXISTS(SELECT 1 FROM agent_review_batches b WHERE b.thread_id=$1 AND b.state='pending' AND b.manifest @> jsonb_build_array(jsonb_build_object('operationId',agent_operations.id)))) LIMIT 1`,[t.id,conversationId,contextRevision])).rowCount;
   });
  }
+ protected async publicConversationFacts(c:PoolClient,t:AgentThread,conversationId:string){
+  const facts=(await c.query('SELECT agent_public_conversation_facts($1::uuid) AS facts',[conversationId])).rows[0].facts;
+  // A server-stamped fictional buyer is scoped to this exact saved demo. Real
+  // mandates continue to use the protected organisation disclosure projection.
+  const scenario=(await c.query(`/* demo-buyer-profile-context */ SELECT m.id,m.provenance,mode.mode AS execution_mode,mode.demo_id
+   FROM mandates m JOIN agent_mandate_execution_modes mode ON mode.mandate_id=m.id AND mode.organization_id=m.organization_id
+   WHERE m.id=$1 AND m.organization_id=$2 AND mode.mode='demo' AND mode.demo_id=m.id`,[t.mandate_id,t.organization_id])).rows[0];
+  const profile=scenario?resolveDemoBuyerProfile({executionMode:scenario.execution_mode,demoId:scenario.demo_id,mandateId:t.mandate_id,provenance:scenario.provenance}):null;
+  return profile?{...facts,buyerProfile:publicBuyerProfile(profile)}:facts;
+ }
  async nativeDecisionContext(threadId:string,conversationId:string){
   return this.nativeTransaction(async c=>{
    const t=await this.thread(c,threadId),row=await this.lockConversation(c,t,conversationId);
-   const facts=(await c.query('SELECT agent_public_conversation_facts($1::uuid) AS facts',[row.id])).rows[0].facts;
-   const sources:Array<{id:string;text:string;publicDisclosureApproved?:true}>=[{id:'mandate:'+t.mandate_id,text:facts.goal as string},{id:'contact:'+row.contact_id,text:JSON.stringify({name:facts.contactName,companyName:facts.companyName,...(facts.companySource?{companySource:facts.companySource}:{})})}];
+   const facts=await this.publicConversationFacts(c,t,row.id);
+   let companyEvidence:ReturnType<typeof nativeCompanyEvidence>|undefined;
+   const projectionInstalled=(await c.query("SELECT to_regprocedure('public.agent_company_membership_projection(uuid,uuid)') IS NOT NULL AS installed")).rows[0]?.installed===true;
+   if(projectionInstalled){
+    const protectedCompany=(await c.query('SELECT p.target_id,public.agent_company_membership_projection($1::uuid,p.target_id) AS projection FROM contacts p WHERE p.id=$2 AND p.organization_id=$3 AND p.target_id IS NOT NULL',[t.mandate_id,row.contact_id,t.organization_id])).rows[0];
+    if(protectedCompany?.projection!==undefined&&protectedCompany.projection!==null)companyEvidence=nativeCompanyEvidence(protectedCompany.projection,protectedCompany.target_id,t.organization_id);
+   }
+   const sources:Array<{id:string;text:string;publicDisclosureApproved?:true}>=[{id:'mandate:'+t.mandate_id,text:facts.goal as string},{id:'contact:'+row.contact_id,text:JSON.stringify({name:facts.contactName,companyName:facts.companyName,...(facts.companySource?{companySource:facts.companySource}:{}),...companyEvidence})}];
    // The protected public-facts function emits this allow-listed profile only
    // after saved organisation publicProfileApproved=true. Never infer approval
    // from a caller's source ID, mandate text or a lead's assertion.
@@ -214,9 +248,14 @@ export class AgentOutreachStore extends AgentLifecycleStore{
    if((await c.query('SELECT public.agent_channel_proposal_permitted($1::uuid,$2) AS allowed',[route.id,stage])).rows[0]?.allowed!==true)throw Error('Reviewed route is waiting, cancelled or does not match the conversation stage');
    const guidance=(await c.query("SELECT id FROM agent_operations WHERE thread_id=$1 AND name='guidance.memory' AND state='approved'",[t.id])).rows;
    const sources=new Set(['mandate:'+t.mandate_id,'contact:'+row.contact_id,...guidance.map(g=>g.id),...row.history.map((m:{id:string})=>m.id)]);
-   const facts=(await c.query('SELECT agent_public_conversation_facts($1::uuid) AS facts',[row.id])).rows[0].facts;if(facts.buyerProfile)sources.add('buyer-profile');
+   const facts=await this.publicConversationFacts(c,t,row.id);if(facts.buyerProfile)sources.add('buyer-profile');
    if(draft.sourceIds.some(id=>!sources.has(id)))throw Error('Unknown proposal evidence');
-   const name=channel+'.'+stage,value={...draft,...(options?.forceHumanReview?{requiresHumanReview:true}:{}),recipientKey:channel+':'+route.recipient_value,contextRevision:row.context_revision,bindingDigest:route.binding_digest,identityRevision:route.identity_revision,policyRevision:route.policy_revision,historyRevision:row.history_revision,routeHistoryRevision:route.history_revision,ownerRevision:row.revision,epoch:Number(row.epoch)},hash=digest({name,input:value});
+   let replyCausality;
+   if(stage==='reply'){
+    replyCausality=agentReplyCausalitySchema.parse((await c.query('SELECT public.agent_channel_reply_causality($1::uuid) AS causality',[route.id])).rows[0]?.causality);
+    if(replyCausality.historyRevision!==row.history_revision||replyCausality.routeHistoryRevision!==route.history_revision)throw Error('Captured reply history changed; reassess before drafting');
+   }
+   const name=channel+'.'+stage,value={...draft,...(replyCausality?{replyCausality}:{}),...(options?.forceHumanReview?{requiresHumanReview:true}:{}),recipientKey:channel+':'+route.recipient_value,contextRevision:row.context_revision,bindingDigest:route.binding_digest,identityRevision:route.identity_revision,policyRevision:route.policy_revision,historyRevision:row.history_revision,routeHistoryRevision:route.history_revision,ownerRevision:row.revision,epoch:Number(row.epoch)},hash=digest({name,input:value});
    const op=(await c.query(`INSERT INTO agent_operations(thread_id,organization_id,mandate_id,owner_user_id,request_key,name,input,input_digest,conversation_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,'native-message:'+commandId,name,JSON.stringify(value),hash,row.id])).rows[0];
    const manifest=[{operationId:op.id,revision:op.revision,digest:hash,contextRevision:row.context_revision}];
    const batch=(await c.query(`INSERT INTO agent_review_batches(thread_id,organization_id,mandate_id,owner_user_id,request_key,manifest,manifest_digest) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,'native-review:'+commandId,JSON.stringify(manifest),digest(manifest)])).rows[0];
@@ -232,11 +271,11 @@ export class AgentOutreachStore extends AgentLifecycleStore{
    const row=await this.lockConversation(c,t,input.conversationId),draft=input.draft;
    if(row.revision!==input.revision||row.context_revision!==input.contextRevision)throw new Error('Conversation changed; reassess before drafting');
    if(row.driver_kind!=='agent'||row.phase!=='active'||!row.history_complete||['handoff','stopped'].includes(row.engagement))throw new Error('An active verified agent conversation is required');
-   const available=(await c.query("SELECT $1::timestamptz<=clock_timestamp() AND $1::timestamptz>clock_timestamp()-interval '5 minutes' AND EXISTS(SELECT 1 FROM agent_responsibilities WHERE id=$2 AND state IN('ready','waiting')) AS allowed",[row.history_observed_at,row.responsibility_id])).rows[0]?.allowed;
+   const available=(await c.query(`SELECT $1::timestamptz<=${this.businessSql()} AND $1::timestamptz>${this.businessSql()}-interval '5 minutes' AND EXISTS(SELECT 1 FROM agent_responsibilities WHERE id=$2 AND state IN('ready','waiting')) AS allowed`,[row.history_observed_at,row.responsibility_id])).rows[0]?.allowed;
    if(available!==true)throw new Error('Refresh history and supervision before drafting');
    if(draft.kind==='initial_email'&&row.history.length||draft.kind==='reply_email'&&!row.history.some((m:{direction:string})=>m.direction==='inbound')||draft.kind==='follow_up_email'&&!row.history.some((m:{direction:string})=>m.direction==='outbound'))throw new Error('Draft kind differs from the conversation history');
    const guidance=(await c.query("SELECT id FROM agent_operations WHERE thread_id=$1 AND name='guidance.memory' AND state='approved'",[t.id])).rows;
-   const facts=(await c.query('SELECT agent_public_conversation_facts($1::uuid) AS facts',[row.id])).rows[0].facts;
+   const facts=await this.publicConversationFacts(c,t,row.id);
    const sources=new Set(['mandate:'+t.mandate_id,'contact:'+row.contact_id,...guidance.map(g=>g.id),...row.history.map((m:{id:string})=>m.id)]);
    if(facts.buyerProfile)sources.add('buyer-profile');
    if(draft.sourceIds.some(id=>!sources.has(id)))throw new Error('Unknown proposal evidence');
@@ -270,7 +309,12 @@ export class AgentOutreachStore extends AgentLifecycleStore{
    if(route)scopeKeys.push('binding:'+route.bindingDigest+':sends');
    const accounts=(await c.query("SELECT DISTINCT ON(scope_key) id,scope_key FROM agent_budget_accounts WHERE organization_id=$1 AND unit='sends' AND scope_key=ANY($2::text[]) AND window_start<=clock_timestamp() AND window_end>clock_timestamp() ORDER BY scope_key,window_start DESC,id",[t.organization_id,scopeKeys])).rows;
    if(accounts.length!==scopeKeys.length)throw new Error('Configure current organisation, user and mandate sending limits before delivery');
-   await c.query('SELECT agent_reserve_budget($1::uuid,$2::jsonb)',[op.id,JSON.stringify(accounts.map(a=>({accountId:a.id,amount:'1'})))]);
+   try{await c.query('SELECT agent_reserve_budget($1::uuid,$2::jsonb)',[op.id,JSON.stringify(accounts.map(a=>({accountId:a.id,amount:'1'})))]);}catch(error){
+    // Translate only this kernel's fixed refusal. Other database failures and
+    // post-admission exceptions retain their original uncertain-outcome path.
+    if(error instanceof Error&&'code'in error&&error.code==='P0001'&&error.message==='Shared budget exhausted or expired')throw new AgentPreBeginSendBudgetError(t.id,row.id,op.id);
+    throw error;
+   }
    await c.query(`INSERT INTO agent_authority_uses(operation_id,conversation_id,organization_id,mandate_id,owner_user_id,thread_id,review_batch_id,grant_id,grant_revision,operation_revision,operation_fence,operation_digest,context_revision,binding_digest,state)
     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,'reserved')`,[op.id,row.id,t.organization_id,t.mandate_id,t.owner_user_id,t.id,batch?.id??null,delegation?.id??null,delegation?.revision??null,op.revision,running.fence,op.input_digest,row.context_revision,route?.bindingDigest??row.binding_digest]);
    return {row,running,accounts};
@@ -286,7 +330,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
    if(op.state!=='running')({row,running}=await this.prepareNativeEmailAuthority(c,t,op,delegation,route));
    if(authority)await c.query("UPDATE agent_operations o SET lease_until=LEAST(o.lease_until,r.created_at+interval '45 seconds',r.lease_until) FROM agent_runs r WHERE o.id=$1 AND r.id=$2",[op.id,authority.runId]);
    if((await c.query('SELECT agent_operation_authorised($1::uuid) AS allowed',[op.id])).rows[0]?.allowed!==true)throw Error('Current native channel authority or policy unavailable');
-   await this.emit(c,t,'provider-reconcile:'+op.id,route.channel+'.reconcile',{operationId:op.id},new Date(Date.now()+30000).toISOString());
+   await this.emitOperational(c,t,'provider-reconcile:'+op.id,route.channel+'.reconcile',{operationId:op.id},new Date(Date.now()+30000).toISOString());
    return {operationId:op.id as string,conversationId:row.id as string,routeId:route.id,epoch:Number(row.epoch),fence:String(running.fence),bindingId:route.bindingId,recipient:route.recipient,channel:route.channel,subject:op.input.subject as string,body:op.input.body as string};
   });
  }
@@ -332,7 +376,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
    if(op.state!=='running')({row,running}=await this.prepareNativeEmailAuthority(c,t,op,delegation));
    if(authority)await c.query("UPDATE agent_operations o SET lease_until=LEAST(o.lease_until,r.created_at+interval '45 seconds',r.lease_until) FROM agent_runs r WHERE o.id=$1 AND r.id=$2",[op.id,authority.runId]);
    if((await c.query('SELECT agent_operation_authorised($1::uuid) AS allowed',[op.id])).rows[0]?.allowed!==true)throw new Error('Current native sending authority or policy unavailable');
-   await this.emit(c,t,'provider-reconcile:'+op.id,'email.reconcile',{operationId:op.id},new Date(Date.now()+30000).toISOString());
+   await this.emitOperational(c,t,'provider-reconcile:'+op.id,'email.reconcile',{operationId:op.id},new Date(Date.now()+30000).toISOString());
    return {operationId:op.id as string,conversationId:row.id as string,epoch:Number(row.epoch),fence:String(running.fence),bindingId:row.binding_id as string,recipient:row.recipient_email as string,subject:op.input.subject as string,body:op.input.body as string,contextRevision:row.context_revision as string,inputDigest:op.input_digest as string};
   });
  }
@@ -361,7 +405,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
    await c.query("UPDATE agent_operations SET state='complete',result=$2,lease_until=NULL,updated_at=now() WHERE id=$1",[op.id,JSON.stringify({delivery:result})]);
    const history=[...row.history,{id:'local:'+receipt.message_id,direction:'outbound',subject:receipt.subject,text:receipt.body,at:receipt.simulated_at.toISOString()}];
    if(history.length>200)throw new Error('Conversation history limit reached; human review required');
-   const current=(await c.query('UPDATE agent_conversations SET history=$2,history_revision=$3,history_observed_at=clock_timestamp(),revision=revision+1,epoch=epoch+1,reminder_generation=reminder_generation+1,next_wakeup_at=NULL,updated_at=now() WHERE id=$1 RETURNING epoch::text,reminder_generation',[row.id,JSON.stringify(history),digest(history)])).rows[0];
+   const current=(await c.query(`UPDATE agent_conversations SET history=$2,history_revision=$3,history_observed_at=${this.businessSql()},revision=revision+1,epoch=epoch+1,reminder_generation=reminder_generation+1,next_wakeup_at=NULL,updated_at=now() WHERE id=$1 RETURNING epoch::text,reminder_generation`,[row.id,JSON.stringify(history),digest(history)])).rows[0];
    await this.invalidateNativeReviews(c,t,row.id);
    await this.emit(c,t,'post-delivery:'+op.id,'conversation.reassess',{conversationId:row.id,epoch:Number(current.epoch),reminderGeneration:current.reminder_generation});
    await this.controlNotice(c,t,'local-delivery:'+op.id,'The approved email was delivered to the local test sink. No provider email was sent.',{conversationId:row.id,...result});

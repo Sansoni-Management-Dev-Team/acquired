@@ -1,59 +1,18 @@
 {
-  "roots": [
-    "src",
-    "cloudflare",
-    "communications",
-    "scripts",
-    "testing"
-  ],
+  "roots": ["src", "cloudflare", "communications", "scripts", "testing"],
   "entries": [
-    {
-      "path": "cloudflare/research/index.ts",
-      "reason": "Worker main in cloudflare/research/wrangler.jsonc"
-    },
-    {
-      "path": "cloudflare/crawl4ai/index.ts",
-      "reason": "Worker main in cloudflare/crawl4ai/wrangler.jsonc"
-    },
-    {
-      "path": "cloudflare/research/e2e/worker.ts",
-      "reason": "Synthetic worker entry selected by scripts/test-research-e2e.mjs"
-    },
-    {
-      "path": "cloudflare/research/vitest.config.mts",
-      "reason": "test:workflows package script config entry"
-    },
-    {
-      "path": "cloudflare/research/coordinator-vitest.config.mts",
-      "reason": "test:coordinator package script config entry"
-    },
-    {
-      "path": "cloudflare/research/field-search-rca.config.mts",
-      "reason": "Config passed by scripts/diagnose-field-search.mjs"
-    },
-    {
-      "path": "communications/src/index.ts",
-      "reason": "Reusable communications package public entry"
-    },
-    {
-      "path": "communications/services/api/src/server.ts",
-      "reason": "Standalone communications HTTP service process"
-    },
-    {
-      "path": "communications/services/api/src/fixture-entry.ts",
-      "reason": "Compiled fixture process used by scripts/test-communications-orbstack.mjs and service README"
-    },
-    {
-      "path": "communications/packages/contracts/src/index.ts",
-      "reason": "Reusable contracts package public entry"
-    },
-    {
-      "path": "communications/packages/sdk/src/index.ts",
-      "reason": "Reusable SDK package public entry"
-    },
-    {
-      "path": "communications/packages/adapter-unipile/src/index.ts",
-      "reason": "Reusable adapter package public entry"
-    }
+    { "path": "cloudflare/research/index.ts", "reason": "Worker main in cloudflare/research/wrangler.jsonc" },
+    { "path": "cloudflare/crawl4ai/index.ts", "reason": "Worker main in cloudflare/crawl4ai/wrangler.jsonc" },
+    { "path": "cloudflare/research/e2e/worker.ts", "reason": "Synthetic worker entry selected by scripts/test-research-e2e.mjs" },
+    { "path": "cloudflare/research/vitest.config.mts", "reason": "test:workflows package script config entry" },
+    { "path": "cloudflare/research/coordinator-vitest.config.mts", "reason": "test:coordinator package script config entry" },
+    { "path": "cloudflare/research/field-search-rca.config.mts", "reason": "Config passed by scripts/diagnose-field-search.mjs" },
+    { "path": "communications/src/index.ts", "reason": "Reusable communications package public entry" },
+    { "path": "communications/services/api/src/server.ts", "reason": "Standalone communications HTTP service process" },
+    { "path": "communications/services/api/src/fixture-entry.ts", "reason": "Compiled fixture process used by scripts/test-communications-orbstack.mjs and service README" },
+    { "path": "communications/packages/contracts/src/index.ts", "reason": "Reusable contracts package public entry" },
+    { "path": "communications/packages/sdk/src/index.ts", "reason": "Reusable SDK package public entry" },
+    { "path": "communications/packages/adapter-unipile/src/index.ts", "reason": "Reusable adapter package public entry" },
+    { "path": "src/lib/agent-demo-account-bootstrap.ts", "reason": "Private demo-bootstrap.private.ts and gui-testing-bootstrap.private.ts operator consumers; see docs/agent-cleanup-retained-entrypoints.md" }
   ]
 }

@@ -56,9 +56,9 @@ async function scheduledClient(client: PoolClient): Promise<PoolClient> {
   });
 }
 
-export async function withCampaignDb<T>(actor: CampaignActor, callback: (client: PoolClient) => Promise<T>): Promise<T> {
+export async function withCampaignDb<T>(actor: CampaignActor, callback: (client: PoolClient) => Promise<T>, options?:{pool?:Pick<Pool,'connect'>}): Promise<T> {
   assertCampaignWorkRemaining();
-  const client = await pool().connect();
+  const client = await (options?.pool??pool()).connect();
   try {
     await client.query("BEGIN");
     const scoped = await scheduledClient(client);

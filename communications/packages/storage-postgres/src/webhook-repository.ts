@@ -1,3 +1,6 @@
+import {localSyncReceiptKey} from '../../core/src/local-sync-event';
+import {isDeepStrictEqual} from 'node:util';
+import {businessNow,type BusinessClock} from '../../core/src/business-clock';
 import {emailBounceSemantics} from '../../core/src/email-bounce';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { assertSameBinding, type ConnectionBinding } from '../../contracts/src';
@@ -28,6 +31,7 @@ export interface WebhookReplyBarrierPort {
   review(client: SqlClient, input: { eventId: string; code: 'protocol' | 'account_changed' | 'identity_pending' }): Promise<void>;
 }
 export interface PostgresWebhookRepositoryOptions {
+  businessClock?:BusinessClock;
   pool: SqlPool;
   binding: ConnectionBinding;
   integrationId: string;
@@ -62,12 +66,7 @@ function validDate(value: unknown): value is string {
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
 }
-function scopedReceiptKey(capture: WebhookCapture) {
-  const b = capture.binding;
-  return createHash('sha256').update(JSON.stringify(['communications.webhook.receipt.v1',
-    [b.applicationId,b.tenantId,b.ownerId,b.connectionId,b.accountId,b.generation,b.channel,b.platform,b.backend],
-    createHash('sha256').update(capture.rawBody).digest('hex')])).digest('hex');
-}
+function scopedReceiptKey(capture:WebhookCapture){return localSyncReceiptKey(capture.binding,capture.rawBody,capture.localSync);}
 function validateCapture(binding: ConnectionBinding, value: WebhookCapture) {
   exactBinding(binding, value.binding);
   if (!hex(value.key) || !validDate(value.receivedAt) || !(value.rawBody instanceof Uint8Array) ||
@@ -353,7 +352,7 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
               (!['pending','processing'].includes(String(existingState)) || existing.rows[0].alive !== true)) fail();
           const expectedDigest = digest({ binding: structuredClone(binding), key: captured.key }, Uint8Array.from(captured.rawBody), String(existing.rows[0].key_version));
           if (!hex(expectedDigest) || expectedDigest !== existing.rows[0].payload_digest ||
-              !Buffer.from(original.rawBody).equals(Buffer.from(captured.rawBody))) fail();
+              !isDeepStrictEqual(original.localSync,captured.localSync)||!Buffer.from(original.rawBody).equals(Buffer.from(captured.rawBody))) fail();
           status = 'duplicate';
         } else return fail();
         if (fenced) await routeReply!(fenceClient, structuredClone(originalCapture));
@@ -372,10 +371,10 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
           if (Object.keys(outcome).some(key => !['kind','reason'].includes(key)) || typeof outcome.reason !== 'string' || !/^[a-z][a-z0-9_]{0,79}$/.test(outcome.reason)) fail();
         } else if (outcome.kind === 'review') {
           if (Object.keys(outcome).some(key => !['kind','code'].includes(key)) || !['protocol','account_changed','identity_pending'].includes(outcome.code)) fail();
-          sealedEvent(record.key,{ outcome, fingerprint: reviewFingerprint(record.key,outcome.code), receivedAt: record.receivedAt });
+          sealedEvent(record.key,{ outcome, fingerprint: reviewFingerprint(record.key,outcome.code), receivedAt:record.receivedAt });
         } else if (outcome.kind === 'event') {
           semanticEvent(outcome);
-          sealedEvent(outcome.eventKey,{ outcome, fingerprint: outcome.fingerprint, receivedAt: record.receivedAt });
+          sealedEvent(outcome.eventKey,{ outcome, fingerprint: outcome.fingerprint, receivedAt: options.businessClock?new Date(businessNow(options.businessClock)).toISOString():record.receivedAt });
         } else return fail();
       } catch { return fail(); }
       const rejected = () => ({ binding: structuredClone(binding), key: record.key, committed: false });
@@ -389,13 +388,13 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
           await client.query('ROLLBACK'); return rejected();
         }
         const original = openRow(record.key,selected.rows[0]);
-        if (original.receivedAt !== record.receivedAt || !Buffer.from(original.rawBody).equals(Buffer.from(record.rawBody))) fail();
+        if (!isDeepStrictEqual(original.localSync,record.localSync)||original.receivedAt !== record.receivedAt || !Buffer.from(original.rawBody).equals(Buffer.from(record.rawBody))) fail();
         if (fenced) await routeReply!(fenceClient, structuredClone(original));
         let eventResult: { id: string; conflict: boolean } | undefined;
         let reviewCode: 'protocol' | 'account_changed' | 'identity_pending' | undefined;
         if (outcome.kind === 'event') {
           eventResult = await persistEvent(client,record.key,outcome.eventKey,outcome.event.type==='email_change'?'email_bounce/v1':'reply_message/v1',{
-            outcome,fingerprint:outcome.fingerprint,receivedAt:record.receivedAt,
+            outcome,fingerprint:outcome.fingerprint,receivedAt:options.businessClock?new Date(businessNow(options.businessClock)).toISOString():record.receivedAt,
           });
           if (eventResult.conflict) reviewCode = 'protocol';
         } else if (outcome.kind === 'review') reviewCode = outcome.code;

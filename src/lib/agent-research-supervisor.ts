@@ -1,3 +1,5 @@
+import {AgentReadinessUnavailableError} from '@/db/agent-read-budget';
+import {AGENT_RESEARCH_BRIEF_REVIEW_PREFIX} from '@/domain/agent-research-notice';
 import {researchWorker} from './research-service';
 import {z} from 'zod';
 import type {AgentResearchStore} from '@/db/agent-research-store';
@@ -5,13 +7,16 @@ import type {AgentEventHandler} from './agent-event-worker';
 const trigger=z.object({responsibilityId:z.string().uuid(),revision:z.number().int().positive()}).strict();
 /** Browser-independent handler; planning makes no provider requests. The store
  * repeats all scope/version/fence checks in its atomic proposal transaction. */
-export function createResearchSupervisor(store:Pick<AgentResearchStore,'researchSupervisionContext'|'proposeResearchPlan'>,options?:{reuseCached?:(input:Parameters<AgentEventHandler>[0])=>Promise<boolean>}):AgentEventHandler{
+export function createResearchSupervisor(store:Pick<AgentResearchStore,'researchSupervisionContext'|'proposeResearchPlan'>,options?:{initialResearch?:(input:Parameters<AgentEventHandler>[0])=>Promise<boolean>;reuseCached?:(input:Parameters<AgentEventHandler>[0])=>Promise<boolean>}):AgentEventHandler{
  return async input=>{
   const expected=trigger.parse(input.event.payload),current=await store.researchSupervisionContext(input.event.thread_id),r=current.responsibility;
   if(!r||r.id!==expected.responsibilityId||r.revision!==expected.revision||!['ready','waiting'].includes(r.state))return {kind:'complete'};
   if(r.mandateRevision!==current.mandateRevision)return {kind:'review',message:'The mandate changed. Review and resume supervision against the current saved brief.'};
   await input.assertCurrent();
-  if(options?.reuseCached&&await options.reuseCached(input))return {kind:'complete'};
+  if(options?.initialResearch&&await options.initialResearch(input))return {kind:'complete'};
+  if(options?.reuseCached){try{if(await options.reuseCached(input))return {kind:'complete'};}catch(error){if(error instanceof AgentReadinessUnavailableError)return {kind:'review',message:error.message};throw error;}}
+  if(current.researchEngine?.kind==='blocked')return {kind:'review',message:current.researchEngine.message};
+  if(current.researchReadiness?.issues.length)return {kind:'review',message:AGENT_RESEARCH_BRIEF_REVIEW_PREFIX+' '+current.researchReadiness.issues.join(' ')};
   await store.proposeResearchPlan(input.event.thread_id,'research-supervision:'+r.id+':'+r.revision,{responsibilityId:r.id,responsibilityRevision:r.revision,mandateRevision:current.mandateRevision},{runId:input.runId,eventId:input.event.id,leaseOwner:input.event.lease_owner,fence:input.event.fence});
   return {kind:'complete'};
  };

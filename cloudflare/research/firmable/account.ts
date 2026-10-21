@@ -1,3 +1,5 @@
+import {firmableOutageResponse} from './local-outage';
+import {safeResearchTrace,safeResearchFailure,type ResearchTraceContext} from '../../../src/domain/research-trace-context';
 import {withoutFirmablePersonPhones} from '../../../src/domain/firmable-person-privacy';
 import {nativeFirmableBudgetFetch,type NativeFirmableContext,type NativeFirmableBudgetEnv} from '../native-firmable-budget';
 import type { FirmableSessionEnv } from '../firmable-session-validation';
@@ -5,39 +7,66 @@ import { seal, unseal, validCredentials, type Credentials } from './credentials'
 import { domain, normalize, ServiceError, upstream, type RecordData } from './transport';
 import { expandCompanyProfile } from './company';
 export interface FirmableServiceEnv extends FirmableSessionEnv,NativeFirmableBudgetEnv { FIRMABLE_SERVICE_SECRET?: string; FIRMABLE_CREDENTIAL_KEY?: string; FIRMABLE_SESSION_TOKEN?: string }
-export type ServiceInput = { path: string; method: string; query: Record<string, string>; body?: RecordData; nativeResearch?: NativeFirmableContext };
+export type ServiceInput = { path: string; method: string; query: Record<string, string>; body?: RecordData; nativeResearch?: NativeFirmableContext; traceContext?: ResearchTraceContext };
 type AccountStorage={get<T=unknown>(key:string):Promise<T|undefined>;put(key:string,value:unknown):Promise<void>};
-type State = { credentials?: Awaited<ReturnType<typeof seal>>; reconnectRequired?: boolean; cooldownUntil?: number; nextRequestAt?: number };
+type State = { credentials?: Awaited<ReturnType<typeof seal>>; reconnectRequired?: boolean; cooldownUntil?: number; nextRequestAt?: number; requestSpacingMs?: number };
+// The optional browser JWT is a renewal hint, never authentication authority.
+// Expired/foreign hints can make Clerk reject an otherwise valid cookie renewal.
+function freshRenewalHint(credentials:Credentials):string|undefined {
+  if(!credentials.sessionToken)return;
+  try {
+    const encoded=credentials.sessionToken.split('.')[1].replaceAll('-','+').replaceAll('_','/');
+    const claims=JSON.parse(atob(encoded.padEnd(Math.ceil(encoded.length/4)*4,'=')));
+    if(claims?.sid===credentials.sessionId&&claims?.o?.id===credentials.organizationId&&typeof claims.exp==='number'&&Number.isFinite(claims.exp)&&claims.exp*1000>Date.now()+10_000)return credentials.sessionToken;
+  }catch{ /* Cookie-only renewal remains subject to strict upstream verification. */ }
+}
 export class FirmableAccount {
   private queue: Promise<unknown> = Promise.resolve();
   private pending = 0;
   private token?: { jwt: string; expiresAt: number };
   constructor(private storage: AccountStorage, private env: FirmableServiceEnv, private fetcher: typeof fetch = fetch) {}
   async handle(input: ServiceInput) {
-    if (this.pending >= 10) return { status: 429, body: { category: 'service_busy' }, retryAfter: 10 };
-    this.pending++;
-    const result = this.queue.then(() => this.execute(input)).catch(error => ({ status: error instanceof ServiceError ? error.status : 502,
-      body: { error: error instanceof ServiceError ? error.category : 'service_unavailable', category: error instanceof ServiceError ? error.category : 'service_unavailable' },
-      retryAfter: error instanceof ServiceError ? Math.ceil(error.retryAfter / 1000) : 0 }));
+    const started=Date.now(),trace=safeResearchTrace(input.traceContext);
+    const log=(event:string,fields:Record<string,unknown>={})=>console.info('firmable-account',JSON.stringify({module:'firmable.account',event,timestamp:new Date().toISOString(),...trace,...fields,elapsedMs:Date.now()-started}));
+    const paused=firmableOutageResponse(this.env,input.path);
+    if(paused){log('request_paused',{category:paused.body.category,httpStatus:paused.status});return paused;}
+    log('request_started',{operation:['/status','/reconnect','/company','/company/search','/people','/people/search','/people/phones'].includes(input.path)?input.path:'unsupported',method:['GET','POST'].includes(input.method)?input.method:'unsupported'});
+    if (this.pending >= 10) {log('queue_rejected',{pending:this.pending,httpStatus:429,category:'service_busy'});log('request_failed',{httpStatus:429,category:'service_busy'});log('request_finished',{outcome:'failed',httpStatus:429,category:'service_busy'});return { status: 429, body: { category: 'service_busy' }, retryAfter: 10 };}
+    this.pending++;log('queue_entered',{pending:this.pending});
+    const result = this.queue.then(() => {log('queue_started',{queueWaitMs:Date.now()-started});return this.execute(input,log);}).catch(error => {
+      log('request_failed',{...safeResearchFailure(error),httpStatus:error instanceof ServiceError?error.status:502,category:error instanceof ServiceError?error.category:'service_unavailable'});
+      return { status: error instanceof ServiceError ? error.status : 502,
+        body: { error: error instanceof ServiceError ? error.category : 'service_unavailable', category: error instanceof ServiceError ? error.category : 'service_unavailable' },
+        retryAfter: error instanceof ServiceError ? Math.ceil(error.retryAfter / 1000) : 0 };
+    });
     this.queue = result;
-    try { return await result; } finally { this.pending--; }
+    try {const response=await result;log('request_finished',{outcome:response.status<400?'succeeded':'failed',httpStatus:response.status});return response;} finally { this.pending--; }
   }
-  private async execute(input: ServiceInput): Promise<{ status: number; body: RecordData; retryAfter?: number }> {
+  private async execute(input: ServiceInput,log:(event:string,fields?:Record<string,unknown>)=>void): Promise<{ status: number; body: RecordData; retryAfter?: number }> {
     const fetcher=input.nativeResearch?nativeFirmableBudgetFetch(this.env,input.nativeResearch,this.fetcher,this.fetcher):this.fetcher;
     const state = await this.storage.get<State>('firmable:state') || {};
     const save = () => this.storage.put('firmable:state', state);
+    const spacing=()=>typeof state.requestSpacingMs==='number'&&Number.isFinite(state.requestSpacingMs)&&state.requestSpacingMs>=1000?Math.min(30000,state.requestSpacingMs):1000;
+    const recordCooldown=async(error:ServiceError)=>{
+      // Only an authenticated upstream rate-limit response changes persisted pacing.
+      if(error.status!==429||error.category!=='rate_limited')return;
+      state.requestSpacingMs=Math.min(30000,spacing()*2);
+      state.cooldownUntil=Math.max(state.cooldownUntil||0,Date.now()+error.retryAfter);
+      state.nextRequestAt=Math.max(state.nextRequestAt||0,state.cooldownUntil+state.requestSpacingMs);
+      log('cooldown_started',{retryAfterMs:error.retryAfter,requestSpacingMs:state.requestSpacingMs});await save();
+    };
     if (input.path === '/status') return { status: 200, body: { configured: Boolean(this.env.FIRMABLE_CREDENTIAL_KEY && (state.credentials || this.env.FIRMABLE_CLIENT_COOKIE)), reconnectRequired: Boolean(state.reconnectRequired), cooldownUntil: state.cooldownUntil || null, tokenExpiresAt: this.token?.expiresAt || null } };
     if (input.path === '/reconnect') {
       const credentials = input.body as unknown as Credentials;
       if (!credentials || !validCredentials(credentials)) throw new ServiceError(400, 'invalid_credentials');
       if (this.env.FIRMABLE_ORGANIZATION_ID && credentials.organizationId !== this.env.FIRMABLE_ORGANIZATION_ID) throw new ServiceError(400, 'unexpected_organization');
-      await this.renew(credentials, state,fetcher);
+      await this.renew(credentials, state,fetcher,log);
       state.credentials = await seal(credentials, this.env.FIRMABLE_CREDENTIAL_KEY || '');
       state.reconnectRequired = false;
       await save();
       return { status: 200, body: { connected: true } };
     }
-    if (state.cooldownUntil && state.cooldownUntil > Date.now()) throw new ServiceError(429, 'rate_limited', state.cooldownUntil - Date.now());
+    if (state.cooldownUntil && state.cooldownUntil > Date.now()) {log('cooldown_active',{retryAfterMs:state.cooldownUntil-Date.now(),requestSpacingMs:spacing()});throw new ServiceError(429, 'rate_limited', state.cooldownUntil - Date.now());}
     if (state.reconnectRequired) throw new ServiceError(401, 'reconnect_required');
     if (!this.env.FIRMABLE_CREDENTIAL_KEY) throw new ServiceError(503, 'not_configured');
     const credentials = state.credentials ? await unseal(state.credentials, this.env.FIRMABLE_CREDENTIAL_KEY) : {
@@ -45,15 +74,18 @@ export class FirmableAccount {
     if (!validCredentials(credentials)) throw new ServiceError(503, 'not_configured');
     const request = async (path: string, body?: RecordData): Promise<RecordData> => {
       const delay = Math.max(0, (state.nextRequestAt || 0) - Date.now());
-      if (delay) await new Promise(resolve => setTimeout(resolve, delay));
+      if (delay) {log('pacing_wait',{delayMs:delay,requestSpacingMs:spacing()});await new Promise(resolve => setTimeout(resolve, delay));}
       for (let attempt = 0; attempt < 2; attempt++) {
         try {
-          if (!this.token || this.token.expiresAt - 10_000 <= Date.now()) { await this.renew(credentials, state,fetcher); await save(); }
-          state.nextRequestAt = Date.now() + 1000;
+          if (!this.token || this.token.expiresAt - 10_000 <= Date.now()) { await this.renew(credentials, state,fetcher,log); await save(); }
+          state.nextRequestAt = Date.now() + spacing();
           await save();
-          return (await upstream(fetcher, `https://api.firmable.com/internal${path}`, { method: body ? 'POST' : 'GET',
-            headers: { Authorization: `Bearer ${this.token!.jwt}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) })).data;
+          const attemptStarted=Date.now();log('upstream_attempt_started',{attempt:attempt+1,operation:path.startsWith('/company/')?'company_profile':path.startsWith('/people/')?'people_profile':path==='/people'?'people_search':'company_search'});
+          const result=await upstream(fetcher, `https://api.firmable.com/internal${path}`, { method: body ? 'POST' : 'GET',
+            headers: { Authorization: `Bearer ${this.token!.jwt}`, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) });
+          log('upstream_attempt_finished',{attempt:attempt+1,outcome:'complete',durationMs:Date.now()-attemptStarted});return result.data;
         } catch (error) {
+          log('upstream_attempt_failed',{attempt:attempt+1,...safeResearchFailure(error),httpStatus:error instanceof ServiceError?error.status:502,category:error instanceof ServiceError?error.category:'service_unavailable'});
           if (error instanceof ServiceError && error.category === 'upstream_authentication' && attempt === 0) { this.token = undefined; continue; }
           throw error;
         }
@@ -101,7 +133,7 @@ export class FirmableAccount {
           } catch (error) {
             // A summary failure must not discard a successfully retrieved company.
             data.people_summary = {status:'failed', country, category:error instanceof ServiceError ? error.category : 'service_unavailable', retrieved_at:new Date().toISOString()};
-            if (error instanceof ServiceError && error.status === 429) { state.cooldownUntil = Date.now() + error.retryAfter; await save(); }
+            if (error instanceof ServiceError && error.status === 429) await recordCooldown(error);
             if (error instanceof ServiceError && [401,403].includes(error.status)) { state.reconnectRequired = true; await save(); }
           }
         }
@@ -131,15 +163,18 @@ export class FirmableAccount {
       } else throw new ServiceError(404, 'not_found');
       return { status: 200, body: data };
     } catch (error) {
-      if (error instanceof ServiceError && error.status === 429) { state.cooldownUntil = Date.now() + error.retryAfter; await save(); }
+      if (error instanceof ServiceError && error.status === 429) await recordCooldown(error);
       if (error instanceof ServiceError && [401, 403].includes(error.status)) { state.reconnectRequired = true; this.token = undefined; await save(); throw new ServiceError(401, 'reconnect_required'); }
       throw error;
     }
   }
-  private async renew(credentials: Credentials, state: State,fetcher:typeof fetch=this.fetcher) {
+  private async renew(credentials: Credentials, state: State,fetcher:typeof fetch=this.fetcher,log:(event:string,fields?:Record<string,unknown>)=>void=()=>{}) {
+    const started=Date.now();log('renewal_started');
+    try{
+    const hint=freshRenewalHint(credentials);
     const result = await upstream(fetcher, `https://clerk.firmable.com/v1/client/sessions/${credentials.sessionId}/tokens?__clerk_api_version=2026-05-12&_clerk_js_version=6.36.0`, {
       method: 'POST', headers: { Cookie: `__client=${credentials.cookie}`, Origin: 'https://app.firmable.com', Referer: 'https://app.firmable.com/', 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({ organization_id: credentials.organizationId, tab_state: 'visible', ...(credentials.sessionToken?{token:credentials.sessionToken}:{}) }).toString() });
+      body: new URLSearchParams({ organization_id: credentials.organizationId, tab_state: 'visible', ...(hint?{token:hint}:{}) }).toString() });
     const jwt = result.data.jwt;
     if (typeof jwt !== 'string') throw new ServiceError(502, 'invalid_token_response');
     let claims: RecordData;
@@ -155,5 +190,7 @@ export class FirmableAccount {
     credentials.sessionToken=jwt;
     state.credentials=await seal(credentials,this.env.FIRMABLE_CREDENTIAL_KEY||'');
     this.token = { jwt, expiresAt: claims.exp * 1000 };
+    log('renewal_finished',{outcome:'complete',durationMs:Date.now()-started,rotatedCookie:Boolean(rotated)});
+    }catch(error){log('renewal_failed',{...safeResearchFailure(error),durationMs:Date.now()-started});throw error;}
   }
 }

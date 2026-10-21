@@ -1,3 +1,4 @@
+import {businessNow,type BusinessClock} from '../../core/src/business-clock';
 import {HistoryRefreshBusyError} from '../../core/src/history-refresh-busy';
 import {readUnipileAgentEmailHistory} from './v1-agent-email-history';
 import {readUnipileAgentSocialHistory} from './v1-agent-social-history';
@@ -24,6 +25,7 @@ import type { HistoryCheckpointCodec } from '../../storage-postgres/src/history-
 import type { SqlPool, WebhookEventRepositoryCodec, WebhookRepositoryCodec } from '../../storage-postgres/src/webhook-repository';
 import { plain, opaque, unavailable, portMethod } from './v1-read-guard';
 export interface ConfiguredHistoryOptions {
+    businessClock?:BusinessClock;
     binding: ConnectionBinding;
     runtime: ConfiguredUnipileV1Runtime;
     pool: SqlPool;
@@ -65,7 +67,7 @@ export async function createConfiguredUnipileV1History(options: ConfiguredHistor
     if (journal.integrationId !== integration || journal.providerConfigurationReference !== configuration)
         unavailable();
     const isRecordedOutbound = createJournalOutboundVerifier({ binding: b, integrationId: integration, providerConfigurationReference: configuration, providerAccountDigests: providerDigests, codec: journal.codec, recipientDigest: journal.recipientDigest });
-    const repository = createPostgresHistoryCheckpoints({ pool, binding: b, record, integrationId: integration, providerConfigurationReference: configuration, subscriberId: subscriber, codec, eventCodec, captureCodec, expectedSyncProduct: expectedProduct, scopeKeyVersion, isRecordedOutbound }), aliases = createPostgresHistoryAliases({ pool, record, codec, product });
+    const repository = createPostgresHistoryCheckpoints({ businessClock:options.businessClock, pool, binding: b, record, integrationId: integration, providerConfigurationReference: configuration, subscriberId: subscriber, codec, eventCodec, captureCodec, expectedSyncProduct: expectedProduct, scopeKeyVersion, isRecordedOutbound }), aliases = createPostgresHistoryAliases({ pool, record, codec, product });
     const currentDb = async (requested: ConnectionBinding, signal: AbortSignal) => {
         if (signal.aborted)
             return null;
@@ -117,12 +119,12 @@ export async function createConfiguredUnipileV1History(options: ConfiguredHistor
         const time = b.channel === 'email' && plain(raw) ? raw.date : plain(raw) ? raw.timestamp : null;
         if (typeof time !== 'string')
             return { kind: 'review' as const, code: 'protocol' as const };
-        const enricher = createUnipileV1ReplyEnricher({ binding: b, providerAccountId: record.providerAccountId, sourceId: record.sourceId, eventsFrom: time, transport:readTransport, verifyOwner: input => verifyOwner(input.signal), resolveAlias, ...(b.channel === 'email' ? { channel: 'email' as const, ownerAddresses: addresses, ...(allFolders ? { historyAllFolders: true as const } : {}) } : { channel: b.channel, ownerProviderId: ownerProvider, product: product as 'whatsapp' | 'classic' | 'sales_navigator' | 'recruiter' }) });
+        const enricher = createUnipileV1ReplyEnricher({ now:()=>businessNow(options.businessClock), binding: b, providerAccountId: record.providerAccountId, sourceId: record.sourceId, eventsFrom: time, transport:readTransport, verifyOwner: input => verifyOwner(input.signal), resolveAlias, ...(b.channel === 'email' ? { channel: 'email' as const, ownerAddresses: addresses, ...(allFolders ? { historyAllFolders: true as const } : {}) } : { channel: b.channel, ownerProviderId: ownerProvider, product: product as 'whatsapp' | 'classic' | 'sales_navigator' | 'recruiter' }) });
         return enricher.normalize(raw, binding);
     };
     const normalize = normalizer(true), normalizeWebhook = normalizer(false);
-    const outbound = createUnipileV1HistoryOutboundNormalizer({ record, transport, ownerAddresses: addresses, ownerProviderId: ownerProvider, product, resolveAlias }), source = createUnipileV1HistorySource({ record, transport: historyTransport, resolveCurrent: current, initialSync: (_record, signal) => repository.initialSync(signal), normalize, normalizeOutbound: (raw, binding, signal) => outbound.normalize(raw, binding, signal), availableFrom, ...(b.channel !== 'email' ? { eventAccountInfo: { ownerProviderId: ownerProvider, product } } : {}) }), worker = createHistoryBackfillWorker({ source, repository });
-    const relationships = b.channel === 'linkedin' ? createUnipileV1LinkedinRelationships({ record, transport: profiles, resolveCurrent: current, submitInvitation: async (input, signal) => {
+    const outbound = createUnipileV1HistoryOutboundNormalizer({ record, transport, ownerAddresses: addresses, ownerProviderId: ownerProvider, product, resolveAlias }), source = createUnipileV1HistorySource({ now:()=>businessNow(options.businessClock), record, transport: historyTransport, resolveCurrent: current, initialSync: (_record, signal) => repository.initialSync(signal), normalize, normalizeOutbound: (raw, binding, signal) => outbound.normalize(raw, binding, signal), availableFrom, ...(b.channel !== 'email' ? { eventAccountInfo: { ownerProviderId: ownerProvider, product } } : {}) }), worker = createHistoryBackfillWorker({ source, repository });
+    const relationships = b.channel === 'linkedin' ? createUnipileV1LinkedinRelationships({ now:()=>businessNow(options.businessClock),record, transport: profiles, resolveCurrent: current, submitInvitation: async (input, signal) => {
             if (!send)
                 return { status: 'review', code: 'delivery_disabled' };
             if (signal.aborted)
@@ -131,7 +133,7 @@ export async function createConfiguredUnipileV1History(options: ConfiguredHistor
         } }) : null;
     return { repository, source, relationships, normalizeWebhook,
         async readAgentConversation(input:{recipient:string|CanonicalIdentity;since:string;signal?:AbortSignal}){
-            const common={source:{record,transport:historyTransport,resolveCurrent:current,initialSync:(_record:RecordedLifecycleConnection,signal:AbortSignal)=>repository.initialSync(signal),availableFrom,...(b.channel!=='email'?{eventAccountInfo:{ownerProviderId:ownerProvider,product}}:{})},transport,since:input.since,signal:input.signal,async readAndCommit(observedSource:ReturnType<typeof createUnipileV1HistorySource>,query:EventQuery){
+            const common={source:{now:()=>businessNow(options.businessClock),record,transport:historyTransport,resolveCurrent:current,initialSync:(_record:RecordedLifecycleConnection,signal:AbortSignal)=>repository.initialSync(signal),availableFrom,...(b.channel!=='email'?{eventAccountInfo:{ownerProviderId:ownerProvider,product}}:{})},transport,since:input.since,signal:input.signal,async readAndCommit(observedSource:ReturnType<typeof createUnipileV1HistorySource>,query:EventQuery){
                 let captured:EventPage|undefined;
                 const backfill=createHistoryBackfillWorker({repository,source:{async read(q,request){captured=await observedSource.read(q,request);return captured;}}});
                 const committed=await backfill.refresh(query,{signal:input.signal});

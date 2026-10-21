@@ -37,8 +37,11 @@ export interface AccountRuntimeRepositoryOptions {
     integrationId: string;
     providerConfigurationReference: string;
     timeoutMs?: number;
+    /** Exact trusted hosted-setup callback origin, not the browser app origin. */
+    setupRedirectOrigin?: string;
 }
 export interface AccountRuntimeRepository {
+    verifyLocalSyncEpoch(client:SqlClient,nonce:string,providerAccountId:string):Promise<ConnectionBinding>;
     preflight(): Promise<boolean>;
     authorizeSignedScope(scope: AccessScope, input: {
         expiresAt: string;
@@ -90,9 +93,11 @@ function object(value: unknown, required: string[], optional: string[] = []): Re
 }
 const hash = (v: string) => createHash('sha256').update(v).digest('hex');
 export function createPostgresAccountRuntime(options: AccountRuntimeRepositoryOptions): AccountRuntimeRepository {
-    let application: string, integration: string, configuration: string, timeout: number, pool: SqlPool, vault: Pick<AccountRuntimeVault, 'open' | 'seal' | 'journal' | 'keyVersion' | 'identityKeyVersion' | 'physicalIdentityDigest' | 'providerAccountDigest' | 'versions' | 'trackingDigest'>;
+    let setupRedirectOrigin:string|undefined, application: string, integration: string, configuration: string, timeout: number, pool: SqlPool, vault: Pick<AccountRuntimeVault, 'open' | 'seal' | 'journal' | 'keyVersion' | 'identityKeyVersion' | 'physicalIdentityDigest' | 'providerAccountDigest' | 'versions' | 'trackingDigest'>;
     try {
-        const o = object(options, ['pool', 'vault', 'applicationId', 'integrationId', 'providerConfigurationReference'], ['timeoutMs']);
+        const o = object(options, ['pool', 'vault', 'applicationId', 'integrationId', 'providerConfigurationReference'], ['timeoutMs','setupRedirectOrigin']);
+        setupRedirectOrigin=o.setupRedirectOrigin as string|undefined;
+        if(setupRedirectOrigin!==undefined){const u=new URL(setupRedirectOrigin);if(u.protocol!=='https:'||u.origin!==setupRedirectOrigin||u.username||u.password)fail();}
         application = o.applicationId as string;
         integration = o.integrationId as string;
         configuration = o.providerConfigurationReference as string;
@@ -179,18 +184,30 @@ export function createPostgresAccountRuntime(options: AccountRuntimeRepositoryOp
     async function tenant(c: SqlClient, s: AccessScope) { await c.query('SELECT communications.lock_reply_barrier($1,$2)', [s.applicationId, s.tenantId]); }
     function setupRow(row: Record<string, unknown>, digest: string): SetupStateRoute {
         const s = scope({ applicationId: row.application_id, tenantId: row.tenant_id, ownerId: row.owner_id });
-        if (row.backend !== 'unipile' || typeof row.expires_at !== 'string' && !(row.expires_at instanceof Date))
+        if (row.backend !== 'unipile' || setupRedirectOrigin!==undefined&&row.redirect_origin!==setupRedirectOrigin || typeof row.expires_at !== 'string' && !(row.expires_at instanceof Date))
             fail();
         const channel = row.channel as Channel, platform = row.platform as Platform, connectionId = row.reconnect_connection_id === null ? `auth-${hash(JSON.stringify(['communications.auth.connection.v1', digest, ...values(s), channel, platform, 'unipile']))}` : row.reconnect_connection_id as string;
         return { scope: s, channel, platform, expiresAt: new Date(row.expires_at as string).toISOString(), binding: { ...s, connectionId, accountId: `pending-${digest}`, generation: row.reconnect_generation === null ? 1 : Number(row.reconnect_generation) + 1, channel, platform, backend: 'unipile' }, reconnect: row.reconnect_connection_id !== null };
     }
     async function setup(c: SqlClient, nonce: string, lock = false) {
-        const r = await c.query('SELECT state_digest,application_id,tenant_id,owner_id,channel,platform,backend,reconnect_connection_id,reconnect_generation,expires_at,(expires_at>clock_timestamp()) AS alive FROM communications.auth_states WHERE state_digest=$1 ' + (lock ? 'FOR UPDATE' : 'FOR SHARE'), [hash(nonce)]);
+        const r = await c.query('SELECT state_digest,application_id,tenant_id,owner_id,channel,platform,backend,redirect_origin,reconnect_connection_id,reconnect_generation,expires_at,(expires_at>clock_timestamp()) AS alive FROM communications.auth_states WHERE state_digest=$1 AND ($2::text IS NULL OR redirect_origin=$2) ' + (lock ? 'FOR UPDATE' : 'FOR SHARE'), [hash(nonce),setupRedirectOrigin??null]);
         if (r.rows.length > 1)
             fail();
         return r.rows[0];
     }
     return {
+        async verifyLocalSyncEpoch(c,nonce,providerAccountId){
+            if(!/^[A-Za-z0-9_-]{43}$/.test(nonce)||!id(providerAccountId,2048))fail();
+            const digest=hash(nonce),rows=await c.query(`SELECT a.*,n.encrypted_notification,n.key_version,n.payload_digest,n.processed_at FROM communications.auth_states a JOIN communications.setup_notification_inbox n USING(state_digest) WHERE a.state_digest=$1 AND ($2::text IS NULL OR a.redirect_origin=$2)`,[digest,setupRedirectOrigin??null]);
+            if(rows.rows.length!==1)fail();const row=rows.rows[0];if(row.state_digest!==digest||row.consumed_at===null||row.consumed_at===undefined||row.processed_at===null||row.processed_at===undefined)fail();
+            const route=setupRow(row,digest);if(route.channel==='email'||route.binding.applicationId!==application)fail();
+            const notification=object(vault.open(route.binding,'notification',{encrypted:row.encrypted_notification as string,keyVersion:row.key_version as string,digest:row.payload_digest as string}),['nonce','capability','payload']),payload=object(notification.payload,['name','account_id','status']);
+            if(notification.nonce!==nonce||payload.name!==nonce||payload.account_id!==providerAccountId||payload.status!==(route.reconnect?'RECONNECTED':'CREATION_SUCCESS'))fail();
+            await tenant(c,route.scope);
+            const current=await c.query(`SELECT c.account_id,g.provider_account_digest,g.provider_account_key_version FROM communications.connections c JOIN communications.connection_generations g ON g.connection_id=c.id AND g.generation=c.current_generation JOIN communications.physical_accounts p ON p.id=g.account_id WHERE c.id=$1 AND c.current_generation=$2 AND c.application_id=$3 AND c.tenant_id=$4 AND c.owner_id=$5 AND c.active AND g.channel=$6 AND g.platform=$7 AND g.backend='unipile' AND g.integration_id=$8 AND g.provider_configuration_reference=$9 AND g.provider_api_version='v1' AND g.authority='service' AND p.verified_at<=clock_timestamp() FOR SHARE OF c,g,p`,[route.binding.connectionId,route.binding.generation,...values(route.scope),route.channel,route.platform,integration,configuration]);
+            if(current.rows.length!==1||!id(current.rows[0].account_id)||current.rows[0].provider_account_digest!==vault.providerAccountDigest(providerAccountId,current.rows[0].provider_account_key_version as string))fail();
+            return {...route.binding,accountId:current.rows[0].account_id as string};
+        },
         async preflight() {
             try {
                 return await tx(undefined, async (c) => { const rows = await c.query("SELECT to_regclass('communications.account_runtime_metadata') IS NOT NULL AND to_regclass('communications.connection_defaults') IS NOT NULL AND to_regclass('communications.setup_notification_inbox') IS NOT NULL AND to_regclass('communications.connection_retirements') IS NOT NULL AND to_regclass('communications.email_tracking_associations') IS NOT NULL AND to_regclass('communications.provider_webhook_spool') IS NOT NULL AS ready"); return rows.rows.length === 1 && rows.rows[0].ready === true; });
@@ -237,7 +254,7 @@ export function createPostgresAccountRuntime(options: AccountRuntimeRepositoryOp
                 return 'captured';
             });
         },
-        async pendingSetup(input) { const s = scope(input); return tx(s, async (c) => { const r = await c.query(`SELECT a.state_digest,a.application_id,a.tenant_id,a.owner_id,a.channel,a.platform,a.backend,a.reconnect_connection_id,a.reconnect_generation,a.expires_at,n.encrypted_notification,n.key_version,n.payload_digest FROM communications.setup_notification_inbox n JOIN communications.auth_states a ON a.state_digest=n.state_digest WHERE a.application_id=$1 AND a.tenant_id=$2 AND a.owner_id=$3 AND n.processed_at IS NULL AND a.expires_at>clock_timestamp() ORDER BY n.created_at LIMIT 5`, values(s)); return r.rows.map(row => vault.open(setupRow(row, row.state_digest as string).binding, 'notification', { encrypted: row.encrypted_notification as string, keyVersion: row.key_version as string, digest: row.payload_digest as string }) as SetupNotification); }); },
+        async pendingSetup(input) { const s = scope(input); return tx(s, async (c) => { const r = await c.query(`SELECT a.state_digest,a.application_id,a.tenant_id,a.owner_id,a.channel,a.platform,a.backend,a.redirect_origin,a.reconnect_connection_id,a.reconnect_generation,a.expires_at,n.encrypted_notification,n.key_version,n.payload_digest FROM communications.setup_notification_inbox n JOIN communications.auth_states a ON a.state_digest=n.state_digest WHERE a.application_id=$1 AND a.tenant_id=$2 AND a.owner_id=$3 AND n.processed_at IS NULL AND a.expires_at>clock_timestamp() AND ($4::text IS NULL OR a.redirect_origin=$4) ORDER BY n.created_at LIMIT 5`, [...values(s),setupRedirectOrigin??null]); return r.rows.map(row => vault.open(setupRow(row, row.state_digest as string).binding, 'notification', { encrypted: row.encrypted_notification as string, keyVersion: row.key_version as string, digest: row.payload_digest as string }) as SetupNotification); }); },
         async finishSetup(nonce) { await tx(undefined, async (c) => { await c.query('UPDATE communications.setup_notification_inbox SET processed_at=clock_timestamp() WHERE state_digest=$1 AND processed_at IS NULL AND EXISTS(SELECT 1 FROM communications.auth_states a WHERE a.state_digest=communications.setup_notification_inbox.state_digest AND a.consumed_at IS NOT NULL)', [hash(nonce)]); }); },
         async bindVerified(c, state, input) {
             const owner = parseVerifiedV1Owner(input), s = scope(state.scope);
@@ -258,6 +275,14 @@ export function createPostgresAccountRuntime(options: AccountRuntimeRepositoryOp
             const unresolved = await c.query("SELECT 1 FROM communications.connection_retirements WHERE account_id=$1 AND state<>'disconnected' LIMIT 1", [accountId]);
             if (unresolved.rows.length)
                 fail();
+            if (state.reconnectBinding) {
+                // The generation guard invalidates prior cursors at advancement.
+                // Retire their complete flag first so deferred history validation
+                // cannot mistake retired coverage for current authorization. Keep
+                // encrypted evidence and any existing lease/token unchanged; old
+                // readers still fail the original current-generation fence.
+                await c.query('UPDATE communications.event_cursors SET complete=false,initial_sync_complete=false,invalidated=true WHERE connection_id=$1 AND application_id=$2 AND tenant_id=$3 AND owner_id=$4 AND account_id=$5 AND generation=$6', [state.reconnectBinding.connectionId, ...values(s), accountId, state.reconnectBinding.generation]);
+            }
             if (!physical.rows.length)
                 await c.query('INSERT INTO communications.physical_accounts(id,channel,identity_namespace,identity_digest,identity_key_version,verified_at) VALUES($1,$2,$3,$4,$5,clock_timestamp())', [accountId, state.channel, owner.physicalOwner.namespace, physicalDigest, vault.identityKeyVersion]);
             const b: ConnectionBinding = { ...s, connectionId: state.expectedConnectionId, accountId, generation: state.expectedGeneration, channel: state.channel, platform: state.platform, backend: 'unipile' };

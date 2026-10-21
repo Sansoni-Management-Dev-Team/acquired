@@ -1,7 +1,7 @@
 import { createServer, connect } from 'node:net';
 // Fixed local-service relays only; no request can choose another destination.
 // They listen only inside the app's shared network namespace.
-for (const port of [18083]) {
+for (const port of [18083, 7000]) {
   createServer(socket => {
     const upstream = connect({ host: 'host.docker.internal', port });
     socket.setTimeout(120000, () => socket.destroy());

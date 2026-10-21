@@ -18,6 +18,7 @@ import {
 import type { PipelineTimings } from './research-timing-panel';
 import { ResearchRunOutcome } from "./research-run-outcome";
 import type { AcquisitionBrief } from "@/domain/acquisition";
+import type { CompanyDiscoveryProgress } from "@/domain/company-discovery-progress";
 import { candidateStatus } from "@/domain/target-candidates";
 const button =
   "min-h-12 rounded-md border border-[var(--border)] px-4 py-2 text-sm disabled:opacity-40";
@@ -30,6 +31,7 @@ export type ResearchJob = {
   createdAt: string;
   updatedAt?: string;
   config: ResearchConfig;
+  discovery?: CompanyDiscoveryProgress;
   seeds: string[];
 };
 export function candidatesArrivedForRun(jobs: ResearchJob[], startedJobId: string) {

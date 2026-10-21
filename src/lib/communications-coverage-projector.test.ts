@@ -85,3 +85,8 @@ it('a failed bootstrap rollback never retries even with a serialization code',as
  const f=fixture(),old=f.sql.getMockImplementation()!,connect=vi.spyOn(f.options.pool,'connect');f.sql.mockImplementation(async text=>{if(text.startsWith('SELECT public.communications_lock_send_gate'))throw Object.assign(Error('serialization'),{code:'40001'});if(text==='ROLLBACK')throw Error('Unconfirmed rollback');return old(text);});
  await expect(createAcquireCoverageProjector(f.options).project(query)).rejects.toThrow('Coverage projection unavailable');expect(connect).toHaveBeenCalledOnce();expect(f.calls.some(s=>s.startsWith('INSERT INTO'))).toBe(false);
 });
+
+it('uses selected business freshness without changing real monitor audit timestamps',async()=>{
+ const f=fixture();await createAcquireCoverageProjector({...f.options,businessClock:{now:()=>Date.parse(coverage.observedAt)}}).project(query);
+ const fresh=f.calls.find(q=>q.includes('AS fresh'))!;expect(fresh).toContain('public.local_simulator_business_now()');expect(fresh).not.toContain('clock_timestamp()');expect(f.calls.find(q=>q.startsWith('INSERT INTO public.communication_reply_monitors'))).toContain('clock_timestamp()');
+});

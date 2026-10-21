@@ -1,4 +1,5 @@
-import {agentStore,durableAgentEnabled,savedAgentConversation} from '@/lib/agent-runtime';
+import {agentStore,agentPool,nativeAgentEnabled,durableAgentEnabled,savedAgentConversation} from '@/lib/agent-runtime';
+import {readInitialMandateResearch} from '@/lib/agent-initial-research';
 import { notFound } from 'next/navigation';
 import { z } from 'zod';
 import { acquisitionSession } from '@/lib/acquisition-session';
@@ -19,7 +20,8 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
   const [mandates, jobs] = await Promise.all([repo.listMandates(), new ResearchRepository(organizationId).listReview(id)]);
   const store=durableAgentEnabled()?agentStore({organizationId,userId:session.user.id}):undefined;
   const conversation=store?await savedAgentConversation(store,id):undefined;
+  const initialResearch=nativeAgentEnabled()?await readInitialMandateResearch(agentPool(),{organizationId,userId:session.user.id},id):undefined;
   const learningEnabled=!!store&&process.env.AGENT_GUIDANCE_ENABLED==='true';
   const guidance=learningEnabled&&conversation?.threadId?await store!.listGuidance(conversation.threadId):[];
-  return <><MandateNavigation mandates={mandates} selected={id} tab="brief" /><AgentWorkspace key={id} initial={agentSnapshot(mandate, jobs)} conversation={conversation} learningEnabled={learningEnabled} initialGuidance={guidance} /></>;
+  return <><MandateNavigation mandates={mandates} selected={id} tab="agent" /><AgentWorkspace key={id} initial={agentSnapshot(mandate, jobs,initialResearch)} conversation={conversation} learningEnabled={learningEnabled} initialGuidance={guidance} /></>;
 }

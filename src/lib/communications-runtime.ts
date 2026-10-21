@@ -1,3 +1,4 @@
+import {businessNow} from '../../communications/packages/core/src/business-clock';
 import {isHistoryRefreshBusyError} from '../../communications/packages/core/src/history-refresh-busy';
 import 'server-only';
 import{AccountRuntimeVault}from'../../communications/packages/storage-postgres/src/account-vault';
@@ -22,6 +23,7 @@ import {createPostgresOutboxRepository} from '../../communications/packages/stor
 import {runtimeTransaction} from '../../communications/packages/storage-postgres/src/runtime-sql';
 import {createConfiguredUnipileV1History} from '../../communications/packages/adapter-unipile/src/v1-history-runtime';
 import {assertSameBinding,type CanonicalIdentity,type AccessScope,type ConnectionBinding,type ConnectionRecord,type EventQuery,type MessagingAdapter} from '../../communications/packages/contracts/src';
+import{communicationsExecutionContextLoader}from'./communications-execution-context';
 import {createAcquireSendAdmission} from './campaign-send-admission';
 import {createCommunicationReplyDeliveryWorker} from './communications-reply-delivery';
 import {createRecordedReplyIdentityResolver} from './communications-reply-identity';
@@ -85,22 +87,22 @@ export function createAcquireCommunicationsRuntime(options:AcquireCommunications
  }
  async function history(b:ConnectionBinding){
   const k=identity(b),saved=histories.get(k);if(saved)return saved;
-  const result=await createConfiguredUnipileV1History({binding:b,runtime,pool:service.pool,provider:service.provider,integrationId:service.integrationId,providerConfigurationReference:service.providerConfigurationReference,subscriberId,codec:historyCodec,eventCodec,captureCodec,...(b.channel==='linkedin'?{expectedSyncProduct:'classic'}:{}),async dispatchInvitation(input,signal){if(signal.aborted)throw Error('Invitation cancelled');return (await channel(b)).adapter.submit(input);}});
+  const result=await createConfiguredUnipileV1History({businessClock:service.businessClock,binding:b,runtime,pool:service.pool,provider:service.provider,integrationId:service.integrationId,providerConfigurationReference:service.providerConfigurationReference,subscriberId,codec:historyCodec,eventCodec,captureCodec,...(b.channel==='linkedin'?{expectedSyncProduct:'classic'}:{}),async dispatchInvitation(input,signal){if(signal.aborted)throw Error('Invitation cancelled');return (await channel(b)).adapter.submit(input);}});
   histories.set(k,result);return result;
  }
  async function compose(b:ConnectionBinding){
   const binding=structuredClone(b),bindingId=await localBinding(binding),original=await runtime.store.resolve(binding,false),lookupOnly=!original?.active,ports=await runtime.dispatchOptions(binding,{historical:true});
-  const admission=createAcquireSendAdmission({diagnostic:options.diagnostic,pool:applicationPool,binding,bindingId,codec:appCodec,
+  const admission=createAcquireSendAdmission({businessClock:service.businessClock,diagnostic:options.diagnostic,pool:applicationPool,binding,bindingId,codec:appCodec,loadExecutionContext:communicationsExecutionContextLoader({organizationId:binding.tenantId,userId:binding.ownerId}),
    async verifyServiceAdmission(receipt,signal){return !signal.aborted&&isDeepStrictEqual(await journal.readAdmission(receipt.snapshot),receipt)&&!signal.aborted;},
    async proveNoSubmission(snapshot,signal){return signal.aborted?null:journal.proveNoSubmission(snapshot);}
   });
-  const journal:ReturnType<typeof createPostgresDispatchJournal>=createPostgresDispatchJournal({...ports,diagnostic:options.diagnostic,pool:service.pool,binding,leaseOwnerToken:randomUUID(),admission:{application:admission,quota,coverage:{async assertCoverage(client,input){
+  const journal:ReturnType<typeof createPostgresDispatchJournal>=createPostgresDispatchJournal({...ports,businessClock:service.businessClock,diagnostic:options.diagnostic,pool:service.pool,binding,leaseOwnerToken:randomUUID(),admission:{application:admission,quota,coverage:{async assertCoverage(client,input){
    const source=histories.get(identity(input.binding));if(!source)throw Error('History authority unavailable');await source.repository.assertCoverage(client,input);
   }}}});
   const raw=await runtime.providerFactory(binding,{lookupOnly}),coordinator=createDispatchCoordinator(binding,raw,journal,{diagnostic:options.diagnostic,recoverUnknownEmail:(record,signal)=>runtime.recoverUnknownEmail(record,signal)});
   const adapter:MessagingAdapter={
    async ready(requested){assertSameBinding(binding,requested);const active=await runtime.store.resolve(binding);if(!active||!active.active||active.status!=='connected')return {status:'review',code:'reconnect'};
-    const proof=await (await history(binding)).repository.coverage({binding,scope:'account',since:new Date(Date.now()-300000).toISOString(),cursor:null,refresh:true});
+    const proof=await (await history(binding)).repository.coverage({binding,scope:'account',since:new Date(businessNow(service.businessClock)-300000).toISOString(),cursor:null,refresh:true});
     return proof?.complete&&proof.initialSyncComplete&&!proof.invalidated?coordinator.ready(binding):{status:'waiting',code:'incomplete'};
    },
    async submit(input){assertSameBinding(binding,input.snapshot.binding);
@@ -115,6 +117,7 @@ export function createAcquireCommunicationsRuntime(options:AcquireCommunications
  }
  function channel(b:ConnectionBinding){const k=identity(b);let saved=channels.get(k);if(!saved){saved=compose(b).catch(error=>{channels.delete(k);throw error;});channels.set(k,saved);}return saved;}
  const serverDependencies:CommunicationsServerDependencies={
+  ...(service.businessClock?{businessClock:service.businessClock}:{}),
   ...(service.localSimulatorOrigin?{localSimulatorOrigin:service.localSimulatorOrigin}:{}),
   authorize(request){const h=request.headers.authorization;return auth.verify(typeof h==='string'?h:undefined);},connections:{get:connection},management:runtime,
   async resolveAdapter(record){return (await channel(record.binding)).adapter;},
@@ -169,7 +172,7 @@ export function createAcquireCommunicationsRuntime(options:AcquireCommunications
   });
   assertSameBinding(b,result.binding);
   const {bindingId}=await consumePending(b,100);
-  const projector=createAcquireCoverageProjector({pool:applicationPool,binding:b,bindingId,subscriberId,codec:appCodec,withCoverage:source.repository.withCoverage.bind(source.repository)});
+  const projector=createAcquireCoverageProjector({businessClock:service.businessClock,pool:applicationPool,binding:b,bindingId,subscriberId,codec:appCodec,withCoverage:source.repository.withCoverage.bind(source.repository)});
   await projector.project({binding:b,scope:'account',since:'1970-01-01T00:00:00.000Z',cursor:null,refresh:true});
   await appRead(scope,async()=>undefined);await runtime.store.requireGrant(scope);
   if(signal?.aborted)throw Error('Recorded channel history unavailable');return {...result,scopeDigest:source.repository.scopeDigest('account')};
@@ -191,7 +194,7 @@ export function createAcquireCommunicationsRuntime(options:AcquireCommunications
   }
   let revision:string|undefined;
   for(const {item,source}of sources){
-   const projector=createAcquireCoverageProjector({pool:applicationPool,binding:item.binding,bindingId:item.bindingId,subscriberId,codec:appCodec,
+   const projector=createAcquireCoverageProjector({businessClock:service.businessClock,pool:applicationPool,binding:item.binding,bindingId:item.bindingId,subscriberId,codec:appCodec,
     withCoverage:(query,work,options)=>source.repository.withCoverage(query,async proof=>{
      if(signal?.aborted||revision!==undefined&&proof.serviceRevision!==revision)throw Error('Original channel coverage changed during revalidation');
      revision=proof.serviceRevision;return work(proof);
@@ -204,7 +207,7 @@ export function createAcquireCommunicationsRuntime(options:AcquireCommunications
  return {drainRetainedOutbound:retainedOutbound.drain.bind(retainedOutbound),untrackedOutboundReview:retainedOutbound.proof.bind(retainedOutbound),serverDependencies,admission:async(b:ConnectionBinding)=>(await channel(b)).admission,history,consumePending,pendingReplyBindings,recordPendingReplyBinding,readAgentChannelConversation,revalidateAgentChannelCoverage,
   async renewScope(scope:AccessScope){try{return await auth.verify('Bearer '+auth.issue(scope))!==null;}catch{return false;}},
   async currentSubjects(limit=100){if(!Number.isSafeInteger(limit)||limit<1||limit>1000)throw Error('Invalid subject bound');return runtimeTransaction(service.pool,5000,async c=>{const rows=await c.query<{application_id:string;tenant_id:string;owner_id:string}>(`SELECT application_id,tenant_id,owner_id FROM (SELECT application_id,tenant_id,owner_id FROM communications.connections WHERE application_id=$1 AND backend='unipile' AND active UNION SELECT e.application_id,e.tenant_id,e.owner_id FROM communications.event_outbox o JOIN communications.events e ON e.id=o.event_id AND e.application_id=o.application_id AND e.tenant_id=o.tenant_id AND e.owner_id=o.owner_id JOIN communications.connection_generations g ON g.connection_id=e.connection_id AND g.generation=e.generation AND g.account_id=e.account_id AND g.application_id=e.application_id AND g.tenant_id=e.tenant_id AND g.owner_id=e.owner_id WHERE o.application_id=$1 AND o.subscriber_id=$3 AND o.state IN('pending','delivering') AND g.authority='service' AND g.backend='unipile') subjects ORDER BY tenant_id,owner_id LIMIT $2`,[applicationId,limit,subscriberId]);return rows.rows.map(r=>({applicationId:r.application_id,tenantId:r.tenant_id,ownerId:r.owner_id}));});},
-  createWebhooks(){return runtime.createWebhookRuntime({captureCodec,onEmailSentAssociation:async proof=>{if(!proof.snapshot.key.startsWith('acquire:agent:'))return;const b=proof.snapshot.binding,bindingId=await localBinding(b);await appRead(b,async c=>{await lockAcquireSendGate(c,b.tenantId,{required:true});await queueAgentReceiptAssociation(c,bindingId,proof);});},journal:async(binding:ConnectionBinding)=>createPostgresWebhookRepository({pool:service.pool,binding,integrationId:service.integrationId,providerConfigurationReference:service.providerConfigurationReference,subscriberId,codec:captureCodec,eventCodec,replyBarrier:createPostgresReplyBarrier({binding,integrationId:service.integrationId,codec:captureCodec,eventCodec})}),history});},
+  createWebhooks(){return runtime.createWebhookRuntime({captureCodec,onEmailSentAssociation:async proof=>{if(!proof.snapshot.key.startsWith('acquire:agent:'))return;const b=proof.snapshot.binding,bindingId=await localBinding(b);await appRead(b,async c=>{await lockAcquireSendGate(c,b.tenantId,{required:true});await queueAgentReceiptAssociation(c,bindingId,proof);});},journal:async(binding:ConnectionBinding)=>createPostgresWebhookRepository({businessClock:service.businessClock,pool:service.pool,binding,integrationId:service.integrationId,providerConfigurationReference:service.providerConfigurationReference,subscriberId,codec:captureCodec,eventCodec,replyBarrier:createPostgresReplyBarrier({binding,integrationId:service.integrationId,codec:captureCodec,eventCodec})}),history});},
   /** Private service/body read. All-thread account scan starts at epoch; a
    * provider/history bound that cannot cover it must request human review.
    * Bodies stay out of generic event/outbox payloads and application SQL. */
@@ -217,7 +220,7 @@ export function createAcquireCommunicationsRuntime(options:AcquireCommunications
    const b=structuredClone(query.binding),scope={applicationId:b.applicationId,tenantId:b.tenantId,ownerId:b.ownerId};
    await appRead(scope,async()=>undefined);await runtime.store.requireGrant(scope);const source=await history(b),result=await source.refresh(query);
    const {bindingId,deliveries}=await consumePending(b,maxDeliveries);
-   const projector=createAcquireCoverageProjector({pool:applicationPool,binding:b,bindingId,subscriberId,codec:appCodec,withCoverage:source.repository.withCoverage.bind(source.repository)});
+   const projector=createAcquireCoverageProjector({businessClock:service.businessClock,pool:applicationPool,binding:b,bindingId,subscriberId,codec:appCodec,withCoverage:source.repository.withCoverage.bind(source.repository)});
    await projector.project(query);
    return {result,deliveries};
   }

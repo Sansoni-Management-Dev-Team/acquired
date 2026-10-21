@@ -1,13 +1,15 @@
 import {beforeEach,it,expect,vi} from 'vitest';
+import {ZodError} from 'zod';
 vi.mock('server-only',()=>({}));
-const f=vi.hoisted(()=>({query:vi.fn(),status:vi.fn(),admission:vi.fn(),refresh:vi.fn(),read:vi.fn(),recover:vi.fn(),dispatch:vi.fn(),saveIdentity:vi.fn(),settle:vi.fn(),policy:vi.fn(),catchup:vi.fn()}));
+const f=vi.hoisted(()=>({query:vi.fn(),status:vi.fn(),admission:vi.fn(),refresh:vi.fn(),read:vi.fn(),recover:vi.fn(),dispatch:vi.fn(),saveIdentity:vi.fn(),settle:vi.fn(),policy:vi.fn(),catchup:vi.fn(),deliveryFactory:vi.fn(),capture:vi.fn()}));
 vi.mock('@/db/campaign-client',()=>({withCampaignDb:async(_actor:unknown,work:(c:unknown)=>unknown)=>work({query:f.query})}));
 vi.mock('./agent-simulator-test-policy',()=>({localSimulatorTestPolicy:f.policy}));
-vi.mock('./campaign-reply-store',()=>({saveReplyIdentity:f.saveIdentity}));
+vi.mock('./agent-recorded-reply-identity',()=>({registerNativeReplyIdentity:(actor:unknown,input:{identity:unknown})=>f.saveIdentity(actor,input.identity)}));
 vi.mock('./communications-client',()=>({actorCommunicationsClient:async()=>({connectionStatus:f.status})}));
-vi.mock('./communications-configuration',()=>({configuredAcquireCommunications:()=>({host:{admission:f.admission,refreshAndConsume:f.refresh,readAgentConversation:f.read,readAgentChannelConversation:f.read,revalidateAgentChannelCoverage:f.catchup}})}));
+vi.mock('./communications-configuration',()=>({configuredAcquireCommunicationsForBinding:async()=>({host:{admission:f.admission,refreshAndConsume:f.refresh,readAgentConversation:f.read,readAgentChannelConversation:f.read,revalidateAgentChannelCoverage:f.catchup}})}));
 vi.mock('./agent-communications-no-submission',()=>({settleAgentNoSubmission:f.settle}));
-vi.mock('./agent-communications-delivery',()=>({createAgentCommunicationsDelivery:()=>({recover:f.recover,dispatch:f.dispatch})}));
+vi.mock('./agent-communications-delivery',()=>({createAgentCommunicationsDelivery:(ports:unknown)=>{f.deliveryFactory(ports);return {recover:f.recover,dispatch:f.dispatch};}}));
+vi.mock('./communications-submission-projection',()=>({captureOriginalSubmission:f.capture}));
 import {configuredAgentCommunications} from './agent-communications-configured';
 import {recordedAgentBindingDigest} from '@/db/agent-execution-store';
 const operation='10000000-0000-4000-8000-000000000001',conversation='10000000-0000-4000-8000-000000000002';
@@ -109,6 +111,65 @@ it('never wraps or retries a failure after native begin or inside the delivery p
  const later=fixture(),deliveryError=Error('Private provider outcome uncertainty');f.dispatch.mockRejectedValueOnce(deliveryError);await expect(later.service.dispatch('thread',conversation,operation)).rejects.toBe(deliveryError);expect(later.store.beginNativeCommunicationsEmail).toHaveBeenCalledOnce();
 });
 
+it.each(['sql','schema'] as const)('observes a WhatsApp %s source failure after native begin without exposing its error or starting delivery',async kind=>{
+ const x=fixture(),account={...binding,id:'40000000-0000-4000-8000-000000000001',channel:'whatsapp',platform:'whatsapp'},route={id:'50000000-0000-4000-8000-000000000001',conversationId:conversation,channel:'whatsapp',bindingId:account.id,bindingDigest:recordedAgentBindingDigest(account),recipient:{kind:'phone',value:'+999558427011936'}},cause=kind==='sql'?Object.assign(Error('PRIVATE source SQL and message body'),{code:'42501'}):new ZodError([{code:'custom',path:['PRIVATE source field'],message:'PRIVATE body'}]);
+ const store={...x.store,channelRoutes:vi.fn(async()=>[route]),ingestChannelHistory:vi.fn(),channelDispatchRecord:vi.fn(async()=>({conversation:{...x.row,id:conversation},operation:{input:{routeId:route.id}},route,submitted:false,notSubmitted:false})),beginNativeCommunicationsMessage:vi.fn(async()=>({operationId:operation,conversationId:conversation,routeId:route.id,epoch:3,fence:'1',bindingId:account.id,recipient:route.recipient,channel:'whatsapp',subject:'',body:'Reviewed WhatsApp body'}))};
+ f.query.mockImplementation(async(sql:string)=>{if(sql.includes('agent_channel_communications_source'))throw cause;return{rows:[account]};});
+ f.read.mockImplementation(async selected=>({binding:selected,source:'communications',complete:true,observedAt:'2026-10-17T00:00:00.000Z',messages:[],scopeDigest:'a'.repeat(64)}));
+ vi.stubEnv('AGENT_VERBOSE_LOGGING','true');const logs=vi.spyOn(console,'info').mockImplementation(()=>{});
+ try{await expect(configuredAgentCommunications(actor,store as never).dispatch('thread',conversation,operation)).rejects.toBe(cause);
+  expect(store.beginNativeCommunicationsMessage).toHaveBeenCalledOnce();expect(f.dispatch).not.toHaveBeenCalled();
+  const observations=logs.mock.calls.filter(([prefix])=>prefix==='agent-pipeline').map(([,json])=>JSON.parse(json as string));
+  expect(observations).toContainEqual(expect.objectContaining({stage:'dispatch.source',outcome:'error',...(kind==='sql'?{sqlState:'42501'}:{errorClass:'ZodError'})}));
+  expect(JSON.stringify(logs.mock.calls)).not.toContain('PRIVATE');expect(JSON.stringify(logs.mock.calls)).not.toContain('Reviewed WhatsApp body');
+ }finally{logs.mockRestore();vi.unstubAllEnvs();}
+});
+
 it('cannot label a history read as pre-begin when fresh persisted safety proof is false, missing or unavailable',async()=>{
  for(const variant of ['running','uncertain','prior_intent','authority','send_reservation','missing','unavailable']){const f0=fixture(),cause=Error('Original private history read failure');f.read.mockRejectedValueOnce(cause);if(variant==='missing')delete (f0.store as Partial<typeof f0.store>).preBeginHistoryRetryProof;else if(variant==='unavailable')f0.store.preBeginHistoryRetryProof.mockRejectedValueOnce(Error('Proof query unavailable'));else f0.store.preBeginHistoryRetryProof.mockResolvedValueOnce(false);await expect(f0.service.dispatch('thread',conversation,operation)).rejects.toBe(cause);expect(f0.store.beginNativeCommunicationsEmail).not.toHaveBeenCalled();}
 });
+
+it.each(['message','invitation'] as const)('wires exact original native %s capture independently of current history',async(effect)=>{const x=fixture();await x.service.dispatch('thread',conversation,operation);const ports=f.deliveryFactory.mock.calls[0][0];const receipt={submittedAt:'2026-10-17T00:00:00Z',...(effect==='message'?{message:{id:'provider-message'}}:{operation:{id:'provider-action'}})};await ports.recordSubmitted(operation,{status:'submitted',receipt});expect(f.capture).toHaveBeenCalledWith(actor,{bindingId:binding.id,binding:expect.objectContaining({accountId:binding.service_account_id,generation:binding.generation}),sourceKind:'agent',sourceId:operation},{effect,providerReference:effect==='message'?'provider-message':'provider-action',submittedAt:receipt.submittedAt});});
+it('uses only per-operation scoped communications ports and passes the same business clock into original delivery',async()=>{const{createAgentBusinessTimeContext}=await import('./agent-business-time'),scope={runId:'native-clock-proof',...actor},context=createAgentBusinessTimeContext(scope,{now:()=>Date.parse('2030-01-07T00:00:00.000Z')}),x=fixture(),read=vi.fn(async()=>({source:'communications',complete:true,observedAt:'2030-01-07T00:00:00.000Z',messages:[],scopeDigest:'a'.repeat(64)})),status=vi.fn(async()=>({status:'connected'})),actorClient=vi.fn(async()=>({connectionStatus:status})),host={admission:vi.fn(async()=>({})),readAgentConversation:read},applicationPool={connect:vi.fn()};f.query.mockImplementation(async(sql:string)=>sql.includes('AS coherent')?{rows:[{coherent:true}]}:{rows:[binding]});const service=configuredAgentCommunications(actor,x.store as never,{businessTime:{context,scope},host:host as never,actorClient:actorClient as never,applicationPool:applicationPool as never,applicationCodec:{} as never});await service.refresh('thread',conversation);expect(read).toHaveBeenCalledOnce();expect(f.read).not.toHaveBeenCalled();expect(actorClient).toHaveBeenCalledWith(actor);expect(f.deliveryFactory).toHaveBeenCalledWith(expect.objectContaining({businessClock:context}));expect(f.query.mock.calls.some(([sql])=>sql.includes('AS coherent'))).toBe(true);});
+it('refuses incomplete or foreign clocked ports before native communications work',async()=>{const{createAgentBusinessTimeContext}=await import('./agent-business-time'),scope={runId:'native-clock-proof',...actor},context=createAgentBusinessTimeContext(scope,{now:()=>Date.now()}),x=fixture();expect(()=>configuredAgentCommunications(actor,x.store as never,{businessTime:{context,scope}})).toThrow('Scoped native communications ports unavailable');expect(()=>configuredAgentCommunications({...actor,userId:'other'},x.store as never,{businessTime:{context,scope}})).toThrow('Agent business time scope unavailable');expect(f.query).not.toHaveBeenCalled();});
+it('waits before native begin on Sunday using current routed policy and an exact no-effect proof',async()=>{
+ const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse('2026-10-18T10:00:00.000Z'));
+ try{const x=fixture();Object.assign(x.row,{id:conversation});const route={id:'route',conversationId:conversation,channel:'email',bindingId:binding.id,bindingDigest:recordedAgentBindingDigest(binding),recipient:{kind:'email',value:x.row.recipient_email}},store={...x.store,channelPolicy:vi.fn(async()=>({policy:{acceleratedSimulation:false}})),channelDispatchRecord:vi.fn(async()=>({conversation:x.row,operation:{input:{routeId:'route'}},route,submitted:false,notSubmitted:false})),beginNativeCommunicationsMessage:vi.fn(async()=>{throw Error('Current native channel authority or policy unavailable');})};
+ await expect(configuredAgentCommunications(actor,store as never).dispatch('thread',conversation,operation)).rejects.toMatchObject({name:'AgentPreBeginSendWindowError',threadId:'thread',conversationId:conversation,operationId:operation,wakeAt:'2026-10-18T22:00:00.000Z'});
+ expect(store.preBeginHistoryRetryProof).toHaveBeenCalledWith('thread',operation,conversation);expect(store.beginNativeCommunicationsMessage).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+ }finally{clock.mockRestore();}
+});
+function windowStore(){const x=fixture();Object.assign(x.row,{id:conversation});const route={id:'route',conversationId:conversation,channel:'email',bindingId:binding.id,bindingDigest:recordedAgentBindingDigest(binding),recipient:{kind:'email',value:x.row.recipient_email}};return {...x.store,channelPolicy:vi.fn(async()=>({policy:{acceleratedSimulation:false}})),channelDispatchRecord:vi.fn(async()=>({conversation:x.row,operation:{input:{routeId:'route'}},route,submitted:false,notSubmitted:false})),beginNativeCommunicationsMessage:vi.fn(async()=>{throw Error('Final admission sentinel');})};}
+it('skips only the preliminary business-hours wait when the exact local test route has a database exemption',async()=>{
+ const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse('2026-10-18T10:00:00Z'));
+ try{const store={...windowStore(),testingSendWindowExempt:vi.fn(async()=>true)};
+  await expect(configuredAgentCommunications(actor,store as never).dispatch('thread',conversation,operation)).rejects.toThrow('Final admission sentinel');
+  expect(store.testingSendWindowExempt).toHaveBeenCalledExactlyOnceWith('thread','route');
+  expect(store.beginNativeCommunicationsMessage).toHaveBeenCalledOnce();expect(f.dispatch).not.toHaveBeenCalled();
+ }finally{clock.mockRestore();}
+});
+it('keeps normal hours for a refused exemption and never sends when its proof fails',async()=>{
+ const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse('2026-10-18T10:00:00Z'));
+ try{for(const value of [false,'true',undefined]){const store={...windowStore(),testingSendWindowExempt:vi.fn(async()=>value)};
+  await expect(configuredAgentCommunications(actor,store as never).dispatch('thread',conversation,operation)).rejects.toMatchObject({name:'AgentPreBeginSendWindowError'});
+  expect(store.beginNativeCommunicationsMessage).not.toHaveBeenCalled();}
+  const cause=Error('Database proof unavailable'),store={...windowStore(),testingSendWindowExempt:vi.fn(async()=>{throw cause;})};
+  await expect(configuredAgentCommunications(actor,store as never).dispatch('thread',conversation,operation)).rejects.toBe(cause);expect(store.beginNativeCommunicationsMessage).not.toHaveBeenCalled();
+ }finally{clock.mockRestore();}
+});
+it('never consults the local timing exception before recovery and history or when ordinary timing does not require it',async()=>{
+ const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse('2026-10-18T10:00:00Z'));
+ try{for(const mode of ['original','history','no-proof','accelerated','open'] as const){
+  clock.mockReturnValue(Date.parse(mode==='open'?'2026-10-19T00:00:00Z':'2026-10-18T10:00:00Z'));
+  const store={...windowStore(),testingSendWindowExempt:vi.fn(async()=>true)};
+  if(mode==='original')f.recover.mockResolvedValueOnce({found:true,outcome:{status:'unknown'}});
+  if(mode==='history')f.read.mockResolvedValueOnce({complete:false,messages:[]});
+  if(mode==='no-proof')store.preBeginHistoryRetryProof.mockResolvedValueOnce(false);
+  if(mode==='accelerated')store.channelPolicy.mockResolvedValueOnce({policy:{acceleratedSimulation:true}});
+  const work=configuredAgentCommunications(actor,store as never).dispatch('thread',conversation,operation);
+  if(mode==='original')await expect(work).resolves.toEqual({status:'unknown'});else await expect(work).rejects.toThrow();
+  expect(store.testingSendWindowExempt).not.toHaveBeenCalled();
+ }}finally{clock.mockRestore();}
+});
+it('does not turn unavailable/no-effect proof, accelerated policy or original recovery into a sending-window wait',async()=>{const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse('2026-10-18T10:00:00Z'));try{for(const mode of['no-proof','missing-proof','accelerated','original']as const){const store=windowStore();if(mode==='no-proof')store.preBeginHistoryRetryProof.mockResolvedValue(false);if(mode==='missing-proof')delete (store as Partial<typeof store>).preBeginHistoryRetryProof;if(mode==='accelerated')store.channelPolicy.mockResolvedValue({policy:{acceleratedSimulation:true}});if(mode==='original'){f.recover.mockResolvedValueOnce({found:true,outcome:{status:'unknown'}});expect(await configuredAgentCommunications(actor,store as never).dispatch('thread',conversation,operation)).toEqual({status:'unknown'});expect(store.channelPolicy).not.toHaveBeenCalled();}else await expect(configuredAgentCommunications(actor,store as never).dispatch('thread',conversation,operation)).rejects.toThrow('Final admission sentinel');}}finally{clock.mockRestore();}});
+it('keeps a selected business sending window at its actual calendar instant',async()=>{const{createAgentBusinessTimeContext}=await import('./agent-business-time'),scope={runId:'native-clock-proof',...actor},context=createAgentBusinessTimeContext(scope,{now:()=>Date.parse('2030-01-06T10:00:00.000Z')}),clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse('2026-10-19T10:00:00.000Z'));try{const store=windowStore();f.query.mockImplementation(async(sql:string)=>sql.includes('AS coherent')?{rows:[{coherent:true}]}:{rows:[binding]});const service=configuredAgentCommunications(actor,store as never,{businessTime:{context,scope},host:{admission:f.admission,readAgentConversation:f.read}as never,actorClient:vi.fn(async()=>({connectionStatus:f.status}))as never,applicationPool:{connect:vi.fn()}as never,applicationCodec:{}as never});await expect(service.dispatch('thread',conversation,operation)).rejects.toMatchObject({name:'AgentPreBeginSendWindowError',wakeAt:'2030-01-06T22:00:00.000Z',businessContext:context});expect(store.beginNativeCommunicationsMessage).not.toHaveBeenCalled();}finally{clock.mockRestore();}});

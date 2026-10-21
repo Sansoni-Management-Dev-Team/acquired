@@ -27,7 +27,7 @@ export function MandateFitCells({ brief, member, mandateId }: { brief: Acquisiti
 export function MandateFitSummaryCells({ fit, mandateId }: { fit: ReturnType<typeof reviewMandateFit>; mandateId?: string }) {
   const groups = fitGroups.map(group => ({ ...group, rows: fit.rows.filter(row => row.status === group.status) })).filter(group => group.rows.length);
   return <>
-    <td className="min-w-24 p-3"><p className="font-semibold tabular-nums">{fit.eligibility.status === "excluded" ? "Excluded" : fit.score !== null ? `${fit.score}%` : "Not assessed"}</p>{!fit.rows.length && <p className="mt-1 text-xs text-[var(--muted)]">Criteria need review</p>}</td>
+    <td className="min-w-24 p-3"><p className="font-semibold tabular-nums">{fit.eligibility.status === "excluded" ? "Excluded" : fit.score !== null ? `${fit.score}%` : "Not assessed"}</p>{fit.eligibility.status !== "excluded" && fit.score !== null && fit.provisional && <p className="mt-1 text-xs text-[var(--muted)]">Provisional · {fit.completeness}% of criteria assessed</p>}{!fit.rows.length && <p className="mt-1 text-xs text-[var(--muted)]">Criteria need review</p>}</td>
     <td className="min-w-72 max-w-96 p-3">
       <DetailTooltip content={<div className="space-y-4 leading-relaxed">
         <p className="font-semibold">Why this company fits</p>

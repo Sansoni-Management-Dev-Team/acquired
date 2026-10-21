@@ -1,3 +1,4 @@
+import{businessNow,type BusinessClock}from'../../core/src/business-clock';
 import {
   COMMUNICATIONS_CONTRACT_VERSION,
   type ConnectionBinding, type DeliveryOutcome, type MessageSubmission,
@@ -7,6 +8,8 @@ import { assertManagedConnection, assertManagementBinding, assertManagementSnaps
 import { isDeliveryOutcome, isReadiness } from "./validation";
 
 export interface CommunicationsClientConfig {
+  /** Trusted observation clock only; hosted auth expiry and transport stay real. */
+  businessClock?:BusinessClock;
   baseUrl: string;
   contractVersion: "1";
   apiKey: string;
@@ -63,6 +66,7 @@ export class CommunicationsClient {
   #timeout: number;
   #maxBytes: number;
   #localSimulatorOrigin?: string;
+  #businessClock?:BusinessClock;
   constructor(config: CommunicationsClientConfig) {
     let url: URL;
     try { url = new URL(config.baseUrl); } catch { throw new Error("Invalid communications client configuration"); }
@@ -75,6 +79,7 @@ export class CommunicationsClient {
         !Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 1_048_576) {
       throw new Error("Invalid communications client configuration");
     }
+    this.#businessClock=config.businessClock;
     this.#baseUrl = url; this.#key = config.apiKey; this.#fetch = config.fetch ?? globalThis.fetch;
     this.#timeout = timeout; this.#maxBytes = maxBytes;
     if(config.localSimulatorOrigin!==undefined){
@@ -153,7 +158,7 @@ export class CommunicationsClient {
   async inspectRelationship(binding:ConnectionBinding,profile:CanonicalIdentity):Promise<{status:RelationshipStatus;canMessage:boolean|null;observedAt:string}> {
     assertManagementBinding(binding,binding);if(binding.channel!=='linkedin'||profile.kind!=='linkedin_profile')throw new CommunicationsClientError('invalid_request');
     const data=await this.#request('/v1/relationships/inspect',{binding:structuredClone(binding),profile:structuredClone(profile),refresh:true});
-    if(!object(data)||Object.keys(data).sort().join(',')!=='canMessage,observedAt,status'||!['connected','invitation_pending','not_connected','unknown'].includes(String(data.status))||!(data.canMessage===null||typeof data.canMessage==='boolean')||typeof data.observedAt!=='string'||!Number.isFinite(Date.parse(data.observedAt))||Date.parse(data.observedAt)>Date.now())throw new CommunicationsClientError('protocol');
+    if(!object(data)||Object.keys(data).sort().join(',')!=='canMessage,observedAt,status'||!['connected','invitation_pending','not_connected','unknown'].includes(String(data.status))||!(data.canMessage===null||typeof data.canMessage==='boolean')||typeof data.observedAt!=='string'||!Number.isFinite(Date.parse(data.observedAt))||Date.parse(data.observedAt)>businessNow(this.#businessClock))throw new CommunicationsClientError('protocol');
     return data as {status:RelationshipStatus;canMessage:boolean|null;observedAt:string};
   }
   async #request(path: string, body?: unknown): Promise<unknown> {

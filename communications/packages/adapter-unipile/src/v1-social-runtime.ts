@@ -1,3 +1,4 @@
+import {businessNow,type BusinessClock} from '../../core/src/business-clock';
 import { types, isDeepStrictEqual } from 'node:util';
 import { assertSameBinding, ContractError, type MessagingAdapter, type ReceiptLookup, type SubmissionReceipt, type DeliveryOutcome, type CanonicalIdentity, type OperationSnapshot, type ProviderReference } from '../../contracts/src';
 import type { UnipileV1TransportConfig } from './v1-http';
@@ -12,6 +13,7 @@ import { UnipileV1RelationshipsHttp } from './v1-relationships-http';
 import {projectHistoryPeer} from './v1-history-peer';
 import { plain, opaque, boundedRead, portMethod } from './v1-read-guard';
 export interface V1SocialRuntimeOptions {
+    businessClock?:BusinessClock;
     connection: RuntimeConnection;
     store: AccountRuntimeRepository;
     provider: UnipileV1TransportConfig;
@@ -125,7 +127,7 @@ export function createV1SocialRuntime(options: V1SocialRuntimeOptions): Messagin
         if (selves.length !== 1 || peers.length !== 1 || selves[0].provider_id !== selfId || peers[0].provider_id !== peerId || selves[0].id === peers[0].id)
             fail();
     }
-    const relationships = b.channel === 'linkedin' ? createUnipileV1LinkedinRelationships({ record: { binding: b, providerAccountId: o.providerAccountId, sourceId: o.sourceId, ownerIdentity: o.providerOwner }, transport: profiles, resolveCurrent: async (_binding, signal) => {
+    const relationships = b.channel === 'linkedin' ? createUnipileV1LinkedinRelationships({ now:()=>businessNow(options.businessClock),record: { binding: b, providerAccountId: o.providerAccountId, sourceId: o.sourceId, ownerIdentity: o.providerOwner }, transport: profiles, resolveCurrent: async (_binding, signal) => {
             try {
                 await authority(signal, () => {
                     if (signal.aborted)
@@ -163,7 +165,7 @@ export function createV1SocialRuntime(options: V1SocialRuntimeOptions): Messagin
         if (response.kind !== 'success' || response.status !== 200)
             return null;
         const found = normalizeV1MessageLookup(response.data, { lookup, providerAccountId: o.providerAccountId, conversation: receipt.conversation, recipient: receipt.recipient });
-        return found.status === 'submitted' && 'message' in found.receipt && found.receipt.submittedAt && Date.parse(found.receipt.submittedAt) <= Date.now() ? found : null;
+        return found.status === 'submitted' && 'message' in found.receipt && found.receipt.submittedAt && Date.parse(found.receipt.submittedAt) <= businessNow(options.businessClock) ? found : null;
     }
     return {
         async ready(requested) {

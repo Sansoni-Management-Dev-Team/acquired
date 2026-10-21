@@ -1,3 +1,4 @@
+import {businessSql,type BusinessClock} from '../../core/src/business-clock';
 import { types } from 'node:util';
 import type { SqlClient } from './webhook-repository';
 import type { ConnectionBinding, CanonicalIdentity } from '../../contracts/src';
@@ -25,7 +26,7 @@ export interface DispatchQuotaPolicy {
 }
 /** Caller owns tenant/account/grant/lease transaction. Partial limits roll back together.
  * New approved quota rollup trigger additionally enforces application limits across accounts. */
-export async function reserveDispatchQuotas(client: SqlClient, accountId: string, applicationId: string, inputPolicy: DispatchQuotaPolicy): Promise<boolean> {
+export async function reserveDispatchQuotas(client: SqlClient, accountId: string, applicationId: string, inputPolicy: DispatchQuotaPolicy, businessClock?:BusinessClock): Promise<boolean> {
     let policy: DispatchQuotaPolicy;
     try {
         policy = structuredClone(inputPolicy);
@@ -42,7 +43,7 @@ export async function reserveDispatchQuotas(client: SqlClient, accountId: string
     try {
         await client.query("SELECT pg_advisory_xact_lock(hashtextextended('communications.application-quota.v1:'||$1,0))", [applicationId]);
         for (const charge of charges) {
-            const r = await client.query(`INSERT INTO communications.quota_buckets(account_id,bucket_kind,application_id,window_kind,window_start,used,limit_value) VALUES($1,$2,$3,$4,date_trunc($4::text,clock_timestamp()),1,$5) ON CONFLICT(account_id,bucket_kind,application_id,window_kind,window_start) DO UPDATE SET used=communications.quota_buckets.used+1 WHERE communications.quota_buckets.limit_value=$5 AND communications.quota_buckets.used<communications.quota_buckets.limit_value RETURNING used`, [accountId, charge.kind, charge.kind === 'account' ? '' : applicationId, charge.window, charge.limit]);
+            const r = await client.query(`INSERT INTO communications.quota_buckets(account_id,bucket_kind,application_id,window_kind,window_start,used,limit_value) VALUES($1,$2,$3,$4,date_trunc($4::text,${businessSql(businessClock)}),1,$5) ON CONFLICT(account_id,bucket_kind,application_id,window_kind,window_start) DO UPDATE SET used=communications.quota_buckets.used+1 WHERE communications.quota_buckets.limit_value=$5 AND communications.quota_buckets.used<communications.quota_buckets.limit_value RETURNING used`, [accountId, charge.kind, charge.kind === 'account' ? '' : applicationId, charge.window, charge.limit]);
             if (r.rows.length !== 1) {
                 await client.query('ROLLBACK TO SAVEPOINT communication_admission_quota');
                 await client.query('RELEASE SAVEPOINT communication_admission_quota');

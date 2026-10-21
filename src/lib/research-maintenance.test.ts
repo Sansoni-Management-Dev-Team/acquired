@@ -21,3 +21,42 @@ it('preserves deferred browser dispatch and never treats an unavailable status e
  expect(mock.background).not.toHaveBeenCalled();expect(mock.recover).not.toHaveBeenCalled();expect(tasks).toHaveLength(1);
  await tasks[0]();expect(mock.background).toHaveBeenCalledOnce();
 });
+it.each(['errored','terminated','complete'])('reconciles a stopped worker once with its original revision/pages (%s)',async status=>{
+ mock.worker.mockResolvedValue({status});
+ expect(await maintainMandateResearch('org','mandate',[job({revision:7,pages:3,updatedAt:new Date(Date.now()-120000)})],{recoverStopped:mock.recover})).toBe(true);
+ expect(mock.recover).toHaveBeenCalledExactlyOnceWith('root',7,3);
+});
+it('does not stop a running worker from a transient status read, and recovers only an explicitly recovered stalled worker',async()=>{
+ const stalled=job({updatedAt:new Date(Date.now()-660000)});
+ mock.worker.mockResolvedValueOnce({status:'waiting'}).mockResolvedValueOnce({recovered:false});
+ await maintainMandateResearch('org','mandate',[stalled],{recoverStopped:mock.recover});expect(mock.recover).not.toHaveBeenCalled();
+ mock.worker.mockResolvedValueOnce({status:'running'}).mockResolvedValueOnce({recovered:true});
+ await maintainMandateResearch('org','mandate',[stalled],{recoverStopped:mock.recover});expect(mock.recover).toHaveBeenCalledExactlyOnceWith('root',1,0);
+});
+it.each([undefined,'root'])('recovers both legacy and self-referencing automatic roots (%s)',async researchRunId=>{
+ await maintainMandateResearch('org','mandate',[job({config:{mode:'automatic',researchRunId,automaticDeadline:Date.now()+60000}})],{recoverStopped:mock.recover});
+ expect(mock.schedule).toHaveBeenCalledExactlyOnceWith('org','root',{recovery:true});
+});
+it('does not reschedule a settled parallel run or independently schedule its children',async()=>{
+ await maintainMandateResearch('org','mandate',[job({status:'partial',config:{mode:'automatic',researchRunId:'root',automaticDeadline:Date.now()+60000,parallelBusinessResearch:true,parallelResearchSettled:true,parallelResearchPendingTasks:0}}),job({id:'child',status:'complete',config:{mode:'automatic',researchRunId:'root'}})],{recoverStopped:mock.recover});
+ expect(mock.schedule).not.toHaveBeenCalled();expect(mock.recover).not.toHaveBeenCalled();
+});
+it.each(['failed','cancelled'])('never revives or queues People for a %s parent, including late active children',async status=>{
+ await maintainMandateResearch('org','mandate',[job({status,config:{mode:'automatic',researchRunId:'root',automaticDeadline:Date.now()+60000,includeCompanyPeople:true}}),job({id:'child',config:{mode:'automatic',researchRunId:'root'}})],{recoverStopped:mock.recover});
+ expect(mock.schedule).not.toHaveBeenCalled();expect(mock.people).not.toHaveBeenCalled();
+});
+it.each([undefined,'root'])('continues unfinished People for an already complete legacy/current parent (%s)',async researchRunId=>{
+ const parent=job({status:'complete',config:{mode:'automatic',researchRunId,includeCompanyPeople:true,companyPeopleProgress:{settled:false}}});
+ await maintainMandateResearch('org','mandate',[parent],{recoverStopped:mock.recover});
+ expect(mock.people).toHaveBeenCalledExactlyOnceWith(parent);
+});
+it('does not dispatch or recover native reviewed work inside a mixed ordinary mandate',async()=>{
+ const config={mode:'automatic',researchRunId:'native',includeCompanyPeople:true,automaticDeadline:Date.now()+60000,nativeAgent:{operationId:'exact-reviewed-operation'}};
+ await maintainMandateResearch('org','mandate',[job({id:'native',updatedAt:new Date(Date.now()-660000),config}),job({id:'native-complete',status:'complete',config:{...config,researchRunId:'native-complete'}}),job({id:'native-fields',config:{companyBackgroundResearch:{},nativeAgent:config.nativeAgent}})],{recoverStopped:mock.recover});
+ expect(mock.worker).not.toHaveBeenCalled();expect(mock.background).not.toHaveBeenCalled();expect(mock.schedule).not.toHaveBeenCalled();expect(mock.people).not.toHaveBeenCalled();expect(mock.recover).not.toHaveBeenCalled();
+});
+it('does not reschedule an automatic root it just recovered as stopped using a stale snapshot',async()=>{
+ mock.worker.mockResolvedValue({status:'complete'});
+ await maintainMandateResearch('org','mandate',[job({updatedAt:new Date(Date.now()-120000),config:{mode:'automatic',researchRunId:'root',automaticDeadline:Date.now()+60000}})],{recoverStopped:mock.recover});
+ expect(mock.recover).toHaveBeenCalledOnce();expect(mock.schedule).not.toHaveBeenCalled();
+});

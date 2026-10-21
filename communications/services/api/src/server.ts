@@ -1,3 +1,4 @@
+import{businessNow,type BusinessClock}from'../../../packages/core/src/business-clock';
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import {
   COMMUNICATIONS_CONTRACT_VERSION, ContractError, assertSubmissionReceiptMatches, assertSameBinding,
@@ -12,6 +13,8 @@ import { assertManagedConnection, assertManagementSnapshot, assertManagementBind
 import { parseBinding } from './schema';
 
 export interface CommunicationsServerDependencies {
+  /** Trusted observation clock only; authentication and request deadlines stay real. */
+  businessClock?:BusinessClock;
   /** Authenticate independently of body claims; returning null rejects the caller. */
   authorize(request: IncomingMessage): Promise<AccessScope | null>;
   /** Exact immutable generation only. Historical generations must be disconnected/read-only. */
@@ -79,7 +82,7 @@ export function createCommunicationsServer(dependencies: CommunicationsServerDep
     throw new Error("Invalid communications server configuration");
   }
   const server = createServer((request, response) => {
-    void (async () => {
+    return (async () => {
       if (request.method === "GET" && request.url === "/health") {
         respond(response, 200, { contractVersion: COMMUNICATIONS_CONTRACT_VERSION }); return;
       }
@@ -102,7 +105,7 @@ export function createCommunicationsServer(dependencies: CommunicationsServerDep
         if(!dependencies.inspectRelationship)throw new HttpError(409,'unsupported');
         const saved=await dependencies.connections.get(scope,binding.connectionId,binding.generation),connection=resolveRecordedConnection(scope,binding,saved?[saved]:[]);
         const result=await dependencies.inspectRelationship(connection,scope,{profile,refresh:true});
-        if(!result||Object.keys(result).sort().join(',')!=='canMessage,observedAt,status'||!['connected','invitation_pending','not_connected','unknown'].includes(result.status)||!(result.canMessage===null||typeof result.canMessage==='boolean')||!Number.isFinite(Date.parse(result.observedAt))||Date.parse(result.observedAt)>Date.now())throw Error('Invalid relationship response');
+        if(!result||Object.keys(result).sort().join(',')!=='canMessage,observedAt,status'||!['connected','invitation_pending','not_connected','unknown'].includes(result.status)||!(result.canMessage===null||typeof result.canMessage==='boolean')||!Number.isFinite(Date.parse(result.observedAt))||Date.parse(result.observedAt)>businessNow(dependencies.businessClock))throw Error('Invalid relationship response');
         respond(response,200,result);return;
       }
       if (managementPath) {

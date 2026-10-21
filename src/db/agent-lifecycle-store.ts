@@ -23,7 +23,7 @@ export class AgentLifecycleStore extends AgentExecutionStore{
  }
  protected async ingestNativeHistory(c:PoolClient,t:AgentThread,conversationId:string,raw:unknown,options?:{allowPendingChannelHistory:boolean}){
    const old=await this.lockConversation(c,t,conversationId);
-   const now=(await c.query('SELECT clock_timestamp() AS instant')).rows[0].instant.toISOString();
+   const now=(await c.query(`SELECT ${this.businessSql()} AS instant`)).rows[0].instant.toISOString();
    const previous:NativeHistory|undefined=old.history_source==='unavailable'?undefined:{source:old.history_source,observedAt:old.history_observed_at.toISOString(),complete:old.history_complete,messages:old.history};
    const delivery=nativeHistorySchema.safeParse(raw);
    if(delivery.success&&delivery.data.deliveryFailures?.length){
@@ -53,8 +53,13 @@ export class AgentLifecycleStore extends AgentExecutionStore{
     if(submitted.some(item=>typeof item.message_id!=='string'||!next.messages.some(message=>(message.providerMessageId??message.id)===item.message_id&&message.direction==='outbound'&&(!item.route_id||message.routeId===item.route_id&&message.bindingDigest===item.binding_digest)))){
      // Provider submission may precede history visibility. Keep the saved
      // conversation incomplete until the original receipt is reflected.
-     await c.query("UPDATE agent_conversations SET history_complete=false,pause_reason=CASE WHEN driver_kind='agent' AND phase='active' THEN 'provider_receipt_pending_history' ELSE pause_reason END,updated_at=now() WHERE id=$1",[old.id]);
-     return {id:old.id as string,revision:old.revision as number,status:'provider_history_pending',historyAccepted:true};
+     const pauseReason=old.driver_kind==='agent'&&old.phase==='active'?'provider_receipt_pending_history':old.pause_reason??null;
+     const semantic=old.history_complete!==false||(old.pause_reason??null)!==pauseReason;
+     const pending=(await c.query(`UPDATE agent_conversations SET history_complete=false,pause_reason=$2,
+      revision=revision+$3,epoch=epoch+CASE WHEN $3=1 THEN 1 ELSE 0 END,
+      reminder_generation=reminder_generation+CASE WHEN $3=1 THEN 1 ELSE 0 END,next_wakeup_at=CASE WHEN $3=1 THEN NULL ELSE next_wakeup_at END,updated_at=now() WHERE id=$1 RETURNING revision`,[old.id,pauseReason,semantic?1:0])).rows[0];
+     if(semantic)await this.invalidateNativeReviews(c,t,old.id);
+     return {id:old.id as string,revision:pending.revision as number,status:'provider_history_pending',historyAccepted:true};
     }
    }
    const historyRevision=digest(next.messages),changed=old.history_revision!==historyRevision||old.history_complete!==next.complete||old.history_source!==next.source;
@@ -71,7 +76,7 @@ export class AgentLifecycleStore extends AgentExecutionStore{
      AND NOT EXISTS(SELECT 1 FROM agent_handoffs WHERE conversation_id=$1 AND state<>'dismissed')
      AND NOT EXISTS(SELECT 1 FROM campaign_reply_holds h WHERE h.organization_id=$5 AND agent_person_keys($5,h.contact_id)&&agent_person_keys($5,$4::uuid) AND (h.reason<>'reply_received' OR $7::timestamptz IS NULL OR h.received_at>$7::timestamptz))
      AND NOT EXISTS(SELECT 1 FROM campaign_contact_holds WHERE organization_id=$5 AND lower(email)=$6 AND (reason<>'reply_received' OR $7::timestamptz IS NULL))
-     AND NOT agent_person_has_unresolved_sends($4::uuid,NULL::uuid) AS allowed`,[old.id,t.id,old.responsibility_id,old.contact_id,t.organization_id,old.recipient_email,next.messages.filter(m=>m.direction==='inbound').at(-1)?.at??null])).rows[0]?.allowed===true;
+     AND NOT public.agent_mandate_person_has_unresolved_sends((SELECT mandate_id FROM agent_conversations WHERE id=$1),$4::uuid,NULL::uuid) AS allowed`,[old.id,t.id,old.responsibility_id,old.contact_id,t.organization_id,old.recipient_email,next.messages.filter(m=>m.direction==='inbound').at(-1)?.at??null])).rows[0]?.allowed===true;
     const installed=(await c.query("SELECT to_regclass('public.agent_conversation_channels') IS NOT NULL AS installed")).rows[0]?.installed===true;
     const routes=installed?(await c.query('SELECT binding_id,history_complete,history_observed_at FROM agent_conversation_channels WHERE conversation_id=$1',[old.id])).rows:[];
     const covered=new Set([old.binding_id,...routes.filter(r=>r.history_complete&&r.history_observed_at&&Date.parse(r.history_observed_at)<=Date.parse(now)&&Date.parse(r.history_observed_at)>=Date.parse(now)-300000).map(r=>r.binding_id)]);
@@ -79,13 +84,16 @@ export class AgentLifecycleStore extends AgentExecutionStore{
    }
    const status=optedOut?'complete':!next.complete?(options?.allowPendingChannelHistory?old.phase:'held'):transportResumed?'active':old.phase;
    const engagement=nextAgentEngagement(old.engagement,next.messages);
-   const semantic=changed||old.phase!==status||old.engagement!==engagement;
+   // Project every persisted state change before deciding the revision fence.
+   // Observation-only refreshes must not invalidate approval or reminder state.
+   const pauseReason=optedOut?'opt_out':transportResumed?null:old.pause_reason==='delivery_failure'?old.pause_reason:!next.complete&&options?.allowPendingChannelHistory&&old.driver_kind==='agent'&&old.phase==='active'?'channel_history_pending':!next.complete&&!options?.allowPendingChannelHistory?'history_incomplete':next.complete&&old.pause_reason==='channel_history_pending'?null:old.pause_reason??null;
+   const pendingDriver=optedOut||!next.complete&&!options?.allowPendingChannelHistory?null:old.pending_driver??null;
+   const semantic=changed||old.phase!==status||old.engagement!==engagement||(old.pause_reason??null)!==pauseReason||(old.pending_driver??null)!==pendingDriver;
    const row=(await c.query(`UPDATE agent_conversations SET history=$2,history_revision=$3,history_complete=$4,history_source=$5,history_observed_at=$6,
-    engagement=$7,phase=$8,pause_reason=CASE WHEN $9 THEN 'opt_out' WHEN $11 THEN NULL WHEN pause_reason='delivery_failure' THEN pause_reason WHEN NOT $4 AND $12 AND driver_kind='agent' AND phase='active' THEN 'channel_history_pending' WHEN NOT $4 AND NOT $12 THEN 'history_incomplete' WHEN $4 AND pause_reason='channel_history_pending' THEN NULL ELSE pause_reason END,
-    pending_driver=CASE WHEN $9 OR NOT $4 AND NOT $12 THEN NULL ELSE pending_driver END,
+    engagement=$7,phase=$8,pause_reason=$9,pending_driver=$11::jsonb,
     revision=revision+$10,epoch=epoch+CASE WHEN $10=1 THEN 1 ELSE 0 END,
     reminder_generation=reminder_generation+CASE WHEN $10=1 THEN 1 ELSE 0 END,next_wakeup_at=CASE WHEN $10=1 THEN NULL ELSE next_wakeup_at END,updated_at=now()
-    WHERE id=$1 RETURNING *`,[old.id,JSON.stringify(next.messages),historyRevision,next.complete,next.source,next.observedAt,engagement,status,optedOut,semantic?1:0,transportResumed,options?.allowPendingChannelHistory??false])).rows[0];
+    WHERE id=$1 RETURNING *`,[old.id,JSON.stringify(next.messages),historyRevision,next.complete,next.source,next.observedAt,engagement,status,pauseReason,semantic?1:0,pendingDriver===null?null:JSON.stringify(pendingDriver)])).rows[0];
    if(semantic)await this.invalidateNativeReviews(c,t,old.id);
    if(transportResumed)await this.controlNotice(c,t,'provider-history-resumed:'+old.id+':'+row.revision,'The original submission is reconciled and its complete history is verified. The transport-only hold is cleared; future messages still require their own approval.',{conversationId:old.id,reason:'provider_receipt_pending_history'});
    if(optedOut){
@@ -94,7 +102,7 @@ export class AgentLifecycleStore extends AgentExecutionStore{
     // claims fence this identity; the trusted provider ingress also owns its
     // existing organisation suppression/hold materialisation.
     if(old.engagement!=='stopped')await this.controlNotice(c,t,'opt-out:'+old.id+':'+row.revision,'The lead asked not to be contacted. This conversation is stopped and no reply was drafted.',{conversationId:old.id});
-   }else if(changed&&row.phase==='active'&&row.driver_kind==='agent'&&row.history_complete)await this.emit(c,t,'history:'+old.id+':'+row.revision,'conversation.reassess',{conversationId:old.id,epoch:Number(row.epoch),reminderGeneration:row.reminder_generation});
+   }else if(semantic&&row.phase==='active'&&row.driver_kind==='agent'&&(row.history_complete||options?.allowPendingChannelHistory&&pauseReason==='channel_history_pending'))await this.emit(c,t,'history:'+old.id+':'+row.revision,'conversation.reassess',{conversationId:old.id,epoch:Number(row.epoch),reminderGeneration:row.reminder_generation});
    return {id:old.id as string,revision:row.revision as number,status:row.phase as string,historyAccepted:true};
  }
  async scheduleConversation(threadId:string,key:string,raw:unknown,authority?:AgentExecutionFence){
@@ -104,7 +112,7 @@ export class AgentLifecycleStore extends AgentExecutionStore{
    if(row.revision!==input.revision||row.context_revision!==input.contextRevision)throw new Error('Conversation changed; reassess before scheduling');
    if(row.phase!=='active'||row.driver_kind!=='agent'||['handoff','stopped'].includes(row.engagement))throw new Error('Agent does not own an active conversation');
    if(!(await c.query("SELECT 1 FROM agent_responsibilities WHERE id=$1 AND state IN('ready','waiting')",[row.responsibility_id])).rowCount)throw new Error('Agent supervision is paused');
-   const now=(await c.query('SELECT clock_timestamp() AS instant')).rows[0].instant.toISOString(),reminder=validateAgentWakeup(input.reminder,now);
+   const now=(await c.query(`SELECT ${this.businessSql()} AS instant`)).rows[0].instant.toISOString(),reminder=validateAgentWakeup(input.reminder,now);
    const current=(await c.query('UPDATE agent_conversations SET next_wakeup_at=$2,time_zone=$3,wakeup_reason=$4,reminder_generation=reminder_generation+1,revision=revision+1,updated_at=now() WHERE id=$1 RETURNING *',[row.id,reminder.wakeAt,reminder.timeZone,reminder.reason])).rows[0];
    await this.emit(c,t,'reminder:'+row.id+':'+current.reminder_generation,'conversation.reminder',{conversationId:row.id,epoch:Number(current.epoch),reminderGeneration:current.reminder_generation},reminder.wakeAt);
    await this.controlNotice(c,t,'reminder-notice:'+commandId,'I will reassess this conversation at the saved time. This reminder does not approve an email.',{conversationId:row.id,...reminder});

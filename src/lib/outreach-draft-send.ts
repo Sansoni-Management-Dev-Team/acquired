@@ -4,6 +4,7 @@ import type {DeliveryOutcome} from '@/domain/channel-delivery';
 import {deliveryProvider} from '@/lib/channels/delivery-registry';
 import {refreshConfiguredDraft} from './communications-configured-monitor';
 import {outreachEmail} from '@/domain/outreach-contact';
+import{projectSubmittedDraft}from'./communications-submission-projection';
 import {ReplyCheckReview} from './campaign-reply-status';
 /** Approval and send are separate actions. Dispatch persists its original intent before
  * provider I/O; an uncertain result is recovered against that same recorded intent. */
@@ -21,8 +22,5 @@ export async function sendSavedOutreachDraft(actor:CampaignActor,id:string):Prom
  if(recovered?.status==='submitted')result=recovered;else{const recipient=outreachEmail(saved.personal_data?.email);if(!recipient)throw new ReplyCheckReview('protocol','email');await refreshConfiguredDraft(actor,id);result=await provider.submit({...lookup,recipient,text:saved.body,subject:saved.subject,messageId:`<acquire-draft-${id}@outreach.project-acquire.invalid>`});}
  if(result.status!=='submitted')return result;
  if(!result.sentAt||!Number.isFinite(Date.parse(result.sentAt))||Date.parse(result.sentAt)>Date.now())return {status:'unknown'};
- try{return await withCampaignDb(actor,async c=>{
-  const updated=await c.query(`UPDATE public.messages SET state='sent',provider_message_id=$4,provider_thread_id=$5,sent_at=$6::timestamptz,updated_at=clock_timestamp() WHERE id=$1 AND organization_id=$2 AND EXISTS(SELECT 1 FROM public.outreach_draft_bindings w WHERE w.message_id=messages.id AND w.organization_id=$2 AND w.owner_user_id=$3) AND subject=$7 AND body=$8 AND state IN('approved','sent') AND (provider_message_id IS NULL OR provider_message_id=$4) RETURNING id`,[id,actor.organizationId,actor.userId,result.id,result.threadId??null,result.sentAt,saved.subject,saved.body]);
-  if(updated.rows.length!==1)throw Error('Receipt materialization unavailable');return result;
- });}catch{return {status:'unknown'};}
+ try{const projected=await projectSubmittedDraft(actor,id,{id:result.id,sentAt:result.sentAt});return projected.materialization==='materialized'?result:{status:'review',code:'protocol'};}catch{return {status:'unknown'};}
 }

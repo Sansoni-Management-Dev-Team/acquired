@@ -7,6 +7,8 @@ export interface ManagedConnection {
   capabilities: Capabilities;
   readiness: Readiness;
   isDefault: boolean;
+  /** Always emitted by current services; absent on older v1 servers means unknown/read-only. */
+  active?: boolean;
 }
 export interface ConnectionManagementSnapshot { available: boolean; connections: ManagedConnection[]; checkedAt: string }
 export interface ConnectionSetupRequest { channel: Channel; platform: Platform; reconnectBinding?: ConnectionBinding }
@@ -29,7 +31,8 @@ function object(value: unknown, required: string[], optional: string[] = []): Re
 function timestamp(value: unknown) { if (typeof value !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value) || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString() !== value) invalid(); }
 function booleans(value: unknown, fields: string[]) { const o = object(value, fields); if (fields.some(k => typeof o[k] !== 'boolean')) invalid(); }
 export function assertManagedConnection(value: unknown, scope?: AccessScope): asserts value is ManagedConnection {
-  const o = object(value, ['binding', 'label', 'status', 'capabilities', 'readiness', 'isDefault']);
+  const o = object(value, ['binding', 'label', 'status', 'capabilities', 'readiness', 'isDefault'], ['active']);
+  if(Object.hasOwn(o,'active')&&typeof o.active!=='boolean')invalid();
   object(o.binding, ['applicationId', 'tenantId', 'ownerId', 'connectionId', 'accountId', 'generation', 'channel', 'platform', 'backend']);
   const b = o.binding as ConnectionBinding; assertManagementBinding(b, scope ?? b);
   if (typeof o.label !== 'string' || !o.label.trim() || o.label.length > 200 || /[\u0000-\u001f\u007f]/.test(o.label) || typeof o.isDefault !== 'boolean' || !['connecting', 'connected', 'syncing', 'verification_required', 'disconnected', 'failed'].includes(String(o.status))) invalid();
@@ -38,7 +41,7 @@ export function assertManagedConnection(value: unknown, scope?: AccessScope): as
   if (c.email !== undefined) { if (b.channel !== 'email') invalid(); booleans(c.email, ['drafts', 'threading', 'rfcMessageId']); }
   if (c.linkedin !== undefined) { if (b.channel !== 'linkedin') invalid(); booleans(c.linkedin, ['resolveProfile', 'relationships', 'invitations']); }
   const r = object(o.readiness, ['status'], ['code', 'retryAt']);
-  if (r.status === 'ready') { if (r.code !== undefined || r.retryAt !== undefined || o.status !== 'connected') invalid(); }
+  if (r.status === 'ready') { if (o.active===false || r.code !== undefined || r.retryAt !== undefined || o.status !== 'connected') invalid(); }
   else if (r.status === 'waiting') { if (!['incomplete', 'stale', 'busy', 'timeout', 'rate_limited', 'unavailable', 'identity_pending'].includes(String(r.code))) invalid(); if (r.retryAt !== undefined) timestamp(r.retryAt); }
   else if (r.status === 'review') { if (!['reconnect', 'account_changed', 'protocol', 'unexpected', 'delivery_disabled', 'unresolved_send', 'unsupported', 'forbidden', 'operation_conflict'].includes(String(r.code)) || r.retryAt !== undefined) invalid(); }
   else invalid();

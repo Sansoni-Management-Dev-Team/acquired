@@ -18,3 +18,20 @@ it('HTTP auth retries have distinct attempt keys and network uncertainty is reta
  await fetcher('https://api.firmable.com/internal/company/f1');await expect(fetcher('https://api.firmable.com/internal/company/f1')).rejects.toThrow('Network lost');expect(keys).toHaveLength(2);expect(keys[0]).not.toBe(keys[1]);expect(physical).toHaveBeenCalledTimes(2);
  const receipt=JSON.parse(String(callback.mock.calls.at(-1)?.[1]?.body));expect(receipt.outcome).toEqual({actualCostMicroUsd:null,costBasis:'unknown',reason:'request_outcome_unknown'});
 });
+it.each([
+ ['https://api.firmable.com/internal/company/f123',undefined,'company_profile'],
+ ['https://api.firmable.com/internal/records/v2',{method:'POST',body:JSON.stringify({category:'company'})},'company_search'],
+ ['https://api.firmable.com/internal/records/v2',{method:'POST',body:JSON.stringify({category:'people'})},'unsupported'],
+ ['https://clerk.firmable.com/v1/client/sessions/sess_test/tokens',{method:'POST'},'auth'],
+ ['https://api.firmable.com/internal/people',{method:'POST'},'people_search'],
+ ['https://api.firmable.com/internal/people/fp123',undefined,'person_profile'],
+ ['https://api.firmable.com/internal/people/fp123/phones/show',undefined,'phone_reveal'],
+ ['https://api.firmable.com/internal/company/f123',{method:'POST'},'unsupported'],
+] as const)('derives %s request authority from the actual validated upstream request',async(url,init,requestClass)=>{
+ const bodies:Record<string,unknown>[]=[],callback=vi.fn(async(_url:RequestInfo|URL,options?:RequestInit)=>{const p=JSON.parse(String(options?.body));bodies.push(p);return Response.json(p.action==='native-provider-begin'?{kind:'started',operationId:'attempt',fence:'1'}:{ok:true});});
+ await nativeFirmableBudgetFetch(env,context,vi.fn(async()=>Response.json({})),callback)(url,init);expect(bodies[0].requestClass).toBe(requestClass);
+});
+it('never reaches a paid upstream when the current company-only parent denies its derived class',async()=>{
+ const physical=vi.fn(),callback=vi.fn(async(_url:RequestInfo|URL,init?:RequestInit)=>{const p=JSON.parse(String(init?.body));return Response.json({allowed:['auth','company_search','company_profile'].includes(p.requestClass)},{status:['auth','company_search','company_profile'].includes(p.requestClass)?200:409});});
+ await expect(nativeFirmableBudgetFetch(env,context,physical,callback)('https://api.firmable.com/internal/people/fp123')).rejects.toThrow('native_budget_admission_required');expect(physical).not.toHaveBeenCalled();
+});

@@ -1,3 +1,6 @@
+import {businessSql,type BusinessClock} from '../../communications/packages/core/src/business-clock';
+import {mandateExecutionContextSchema,type MandateExecutionContext} from '../domain/mandate-execution-context';
+import{assertNewEffectPermitted}from'./mandate-execution-policy';
 import {agentTransactionRuntimeContext} from './agent-runtime-context';
 import {reportDispatchDiagnostic,type DispatchDiagnosticPort,type DispatchDiagnosticStage} from '../../communications/packages/core/src/dispatch-diagnostic';
 import { createHash, randomUUID } from 'node:crypto';
@@ -36,6 +39,8 @@ export interface AcquireCoverageScope {
     scopeDigest: string;
 }
 export interface AcquireSendAdmissionOptions {
+    businessClock?:BusinessClock;
+    loadExecutionContext?(tx:Pick<SqlClient,'query'>,source:AcquireIntentSource):Promise<MandateExecutionContext>;
     diagnostic?:DispatchDiagnosticPort;
     pool: SqlPool;
     binding: ConnectionBinding;
@@ -75,6 +80,36 @@ export interface AcquireSendAdmission extends HeldApplicationAdmission {
         message: MessageSubmission['message'];
         coverageScopes: AcquireCoverageScope[];
     }): Promise<PreparedAcquireIntent>;
+}
+/** Diagnostic data is computed in the same read as the authoritative count.
+ * Allowlist scalar metadata only; logging can never alter admission or retries. */
+function logCoverageBlocked(raw: unknown, intentId: unknown, expectedScopes: number, requiredServiceRevision: string, maxAgeSeconds: number) {
+    if (!(process.env.AGENT_VERBOSE_LOGGING === 'true' || process.env.AGENT_VERBOSE_LOGGING !== 'false' && process.env.NODE_ENV === 'development')) return;
+    try {
+        const own = (value: unknown, key: string): unknown => {
+            if (!value || typeof value !== 'object' || types.isProxy(value)) return undefined;
+            const descriptor = Object.getOwnPropertyDescriptor(value, key);
+            return descriptor && 'value' in descriptor ? descriptor.value : undefined;
+        };
+        const data = own(raw, 'coverage_diagnostics'), predicates: Record<string, boolean | number | string | null> = {};
+        for (const key of ['allComplete', 'allInitialSync', 'anyInvalidated', 'allCoverRequiredSince', 'allCoverageFresh', 'allObservedFresh', 'allTimestampsOrdered', 'allRevisionsCurrent']) {
+            const value = own(data, key); predicates[key] = typeof value === 'boolean' ? value : null;
+        }
+        for (const key of ['scopeRows', 'monitorRows', 'checkpointRows', 'oldestCoverageAgeSeconds', 'oldestObservedAgeSeconds']) {
+            const value = own(data, key); predicates[key] = typeof value === 'number' && Number.isFinite(value) ? Math.max(-31536000, Math.min(31536000, value)) : null;
+        }
+        for (const key of ['minCheckpointRevision', 'maxCheckpointRevision']) {
+            const value = own(data, key); predicates[key] = typeof value === 'string' && /^(0|[1-9]\d{0,18})$/.test(value) ? value : null;
+        }
+        const matched = own(raw, 'matched_scope_rows');
+        console.info('communications-admission', JSON.stringify({
+            event: 'coverage_blocked', module: 'communications.application_admission',
+            ...(typeof intentId === 'string' && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(intentId) ? { intentId } : {}),
+            expectedScopes, matchedScopeRows: typeof matched === 'number' && Number.isSafeInteger(matched) && matched >= 0 && matched <= 10000 ? matched : null,
+            requiredServiceRevision: /^(0|[1-9]\d{0,18})$/.test(requiredServiceRevision) ? requiredServiceRevision : null,
+            maxAgeSeconds, predicates,
+        }));
+    } catch { /* Diagnostic sinks and malformed metadata never change the outcome. */ }
 }
 function fail(): never { throw Error('Send authority unavailable'); }
 const id = (v: unknown, max = 200): v is string => typeof v === 'string' && v.length > 0 && v.length <= max && v === v.trim() && !/[\u0000-\u001f\u007f]/.test(v);
@@ -143,7 +178,7 @@ export const acquireSourceDigest = (v: unknown) => createHash('sha256').update(J
 const timestamp = (v: unknown) => v instanceof Date ? Date.prototype.toISOString.call(v) : typeof v === 'string' && Number.isFinite(Date.parse(v)) ? new Date(v).toISOString() : fail();
 export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOptions): AcquireSendAdmission {
     let diagnostic:DispatchDiagnosticPort|undefined;
-    let binding: ConnectionBinding, bindingId: string, connect: SqlPool['connect'], encode: AcquireSendAdmissionOptions['codec']['encode'], decode: AcquireSendAdmissionOptions['codec']['decode'], digest: AcquireSendAdmissionOptions['codec']['digest'], verify: AcquireSendAdmissionOptions['verifyServiceAdmission'], keyVersion: string, timeout: number, maxAge: number, prove: AcquireSendAdmissionOptions['proveNoSubmission'];
+    let binding: ConnectionBinding, bindingId: string, connect: SqlPool['connect'], encode: AcquireSendAdmissionOptions['codec']['encode'], decode: AcquireSendAdmissionOptions['codec']['decode'], digest: AcquireSendAdmissionOptions['codec']['digest'], verify: AcquireSendAdmissionOptions['verifyServiceAdmission'], keyVersion: string, timeout: number, maxAge: number, prove: AcquireSendAdmissionOptions['proveNoSubmission'],loadContext:AcquireSendAdmissionOptions['loadExecutionContext'];
     try {
         const o = plain(inputOptions);
         if(o.diagnostic!==undefined&&(typeof o.diagnostic!=='function'||types.isProxy(o.diagnostic)))fail();
@@ -165,6 +200,8 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
         decode = Function.prototype.bind.call(d, codec);
         digest = Function.prototype.bind.call(h, codec);
         verify = Function.prototype.bind.call(v as AcquireSendAdmissionOptions['verifyServiceAdmission'], inputOptions);
+        const loader=o.loadExecutionContext;if(loader!==undefined&&(typeof loader!=='function'||types.isProxy(loader)))fail();
+        loadContext=loader===undefined?undefined:Function.prototype.bind.call(loader as NonNullable<AcquireSendAdmissionOptions['loadExecutionContext']>,inputOptions);
         const retry = o.proveNoSubmission;
         if (retry !== undefined && typeof retry !== 'function')
             fail();
@@ -271,6 +308,10 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
                     fail();
             };
             await member();
+            // The immutable owned account is the last read-only bootstrap fence.
+            // A 40001 here is retryable only after confirmed rollback, before any
+            // intent/source/context read or externally observable effect.
+            await recordedBinding(tx);
             bootstrapComplete=true;
             return { tx, revision, member, call, async commit() {
                     committing = true;
@@ -338,7 +379,7 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
             assertSameBinding(binding, value);
         return value;
     }
-    async function sourceState(tx: Session['tx'], source: AcquireIntentSource, message: MessageSubmission['message'], render: boolean) {
+    async function sourceStateWithoutExecutionContext(tx: Session['tx'], source: AcquireIntentSource, message: MessageSubmission['message'], render: boolean) {
         let r: Record<string, unknown>, sourceValue: unknown, requiredSince: string, channels: string[];
         if(source.kind==='agent'){
             const kind=await readAgentCommunicationsSourceKind(tx,source,bindingId);
@@ -370,7 +411,7 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
             return {recipients:{email:{kind:'email' as const,value:proof.recipient},whatsapp:{kind:'phone' as const,value:null},linkedin:{kind:'linkedin_profile' as const,value:null}},contactId:proof.contactId,requiredSince:proof.requiredSince,sourceDigest:acquireSourceDigest({source,proof}),channels:['email'],coverageBindingIds:[bindingId],address:proof.recipient,driverAllowed:true};
         }
         if (source.kind === 'campaign') {
-            const selected = await tx.query(`SELECT a.id AS attempt_id,a.state AS attempt_state,e.id AS enrolment_id,e.version_id,e.contact_id,e.step_index,e.runtime,e.state,(e.next_step_at<=clock_timestamp()) AS due,e.started_at,e.initial_conversation_reviewed,e.communication_initial_reviewed_at,(e.communication_initial_reviewed_at>=e.started_at AND e.communication_initial_reviewed_at<=clock_timestamp()) AS review_time_valid,v.definition,c.display_name,COALESCE(t.company_name,c.personal_data->>'companyName','') AS company_name,c.fictionalised,c.personal_data,e.recipient_email,e.recipient_phone,e.recipient_linkedin,EXISTS(SELECT 1 FROM public.campaign_channel_bindings cb WHERE cb.enrolment_id=e.id AND cb.organization_id=e.organization_id AND cb.owner_user_id=e.owner_user_id AND cb.channel=$6 AND cb.binding_id=$5) AS bound,EXISTS(SELECT 1 FROM public.campaign_contact_assignments ca WHERE ca.organization_id=e.organization_id AND ca.contact_id=e.contact_id AND ca.owner_user_id=e.owner_user_id) AS assigned FROM public.campaign_send_attempts a JOIN public.campaign_enrolments e ON e.id=a.enrolment_id JOIN public.campaign_sequence_versions v ON v.id=e.version_id JOIN public.contacts c ON c.id=e.contact_id LEFT JOIN public.targets t ON t.id=c.target_id WHERE a.id=$1 AND e.id=$2 AND e.organization_id=$3 AND e.owner_user_id=$4 FOR UPDATE OF a,e`, [source.attemptId, source.enrolmentId, ...scope, bindingId, binding.channel]);
+            const selected = await tx.query(`SELECT a.id AS attempt_id,a.state AS attempt_state,e.id AS enrolment_id,e.version_id,e.mandate_id,e.contact_id,e.step_index,e.runtime,e.state,(e.next_step_at<=${businessSql(inputOptions.businessClock)}) AS due,e.started_at,e.initial_conversation_reviewed,e.communication_initial_reviewed_at,(e.communication_initial_reviewed_at>=e.started_at AND e.communication_initial_reviewed_at<=${businessSql(inputOptions.businessClock)}) AS review_time_valid,v.definition,c.display_name,COALESCE(t.company_name,c.personal_data->>'companyName','') AS company_name,c.fictionalised,c.personal_data,e.recipient_email,e.recipient_phone,e.recipient_linkedin,EXISTS(SELECT 1 FROM public.campaign_channel_bindings cb WHERE cb.enrolment_id=e.id AND cb.organization_id=e.organization_id AND cb.owner_user_id=e.owner_user_id AND cb.channel=$6 AND cb.binding_id=$5) AS bound,EXISTS(SELECT 1 FROM public.campaign_contact_assignments ca WHERE ca.organization_id=e.organization_id AND ca.contact_id=e.contact_id AND ca.owner_user_id=e.owner_user_id) AS assigned FROM public.campaign_send_attempts a JOIN public.campaign_enrolments e ON e.id=a.enrolment_id JOIN public.campaign_sequence_versions v ON v.id=e.version_id JOIN public.contacts c ON c.id=e.contact_id LEFT JOIN public.targets t ON t.id=c.target_id WHERE a.id=$1 AND e.id=$2 AND e.organization_id=$3 AND e.owner_user_id=$4 FOR UPDATE OF a,e`, [source.attemptId, source.enrolmentId, ...scope, bindingId, binding.channel]);
             if (selected.rows.length !== 1)
                 fail();
             r = selected.rows[0];
@@ -389,7 +430,7 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
             }
         }
         else {
-            const selected = await tx.query(`SELECT m.id,m.state,m.subject,m.body,m.updated_at,m.approved_by,m.approved_at,e.contact_id,e.state AS enrolment_state,c.personal_data,c.fictionalised,c.display_name FROM public.messages m JOIN public.sequence_enrolments e ON e.id=m.enrolment_id JOIN public.contacts c ON c.id=e.contact_id JOIN public.outreach_draft_bindings b ON b.message_id=m.id WHERE m.id=$1 AND m.organization_id=$2 AND b.owner_user_id=$3 AND b.binding_id=$4 FOR UPDATE OF m`, [source.messageId, ...scope, bindingId]);
+            const selected = await tx.query(`SELECT m.id,m.state,m.subject,m.body,m.updated_at,m.approved_by,m.approved_at,e.mandate_id,e.contact_id,e.state AS enrolment_state,c.personal_data,c.fictionalised,c.display_name FROM public.messages m JOIN public.sequence_enrolments e ON e.id=m.enrolment_id JOIN public.contacts c ON c.id=e.contact_id JOIN public.outreach_draft_bindings b ON b.message_id=m.id WHERE m.id=$1 AND m.organization_id=$2 AND b.owner_user_id=$3 AND b.binding_id=$4 FOR UPDATE OF m`, [source.messageId, ...scope, bindingId]);
             if (selected.rows.length !== 1)
                 fail();
             r = selected.rows[0];
@@ -399,6 +440,10 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
             requiredSince = timestamp(r.approved_at);
             channels = ['email'];
         }
+        // Explicit immutable enrolment origin, never the shared contact's
+        // original mandate. This fences both preparation and final admission,
+        // while getPreparedIntent/receipt reconciliation keep original lookup.
+        await tx.query('SELECT public.agent_assert_manual_mandate_outreach_mode($1)', [r.mandate_id ?? null]);
         if (r.fictionalised !== false || !id(r.contact_id))
             fail();
         const data = plain(r.personal_data);
@@ -409,10 +454,20 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
             fail();
         const recipients = { email: { kind: 'email' as const, value: outreachEmail(data.email) }, whatsapp: { kind: 'phone' as const, value: contactPhone(data.phone) }, linkedin: { kind: 'linkedin_profile' as const, value: contactLinkedin(data.linkedinUrl || data.linkedin || data.linkedin_url) } };
         const driverAllowed=await agentDriverAllowed(tx,{organizationId:binding.tenantId,userId:binding.ownerId},{contactId:r.contact_id as string,address:outreachEmail(data.email),kind:source.kind,sourceRef:source.kind==='campaign'?source.enrolmentId:source.messageId});
-        return { recipients, contactId: r.contact_id, requiredSince, sourceDigest: acquireSourceDigest(sourceValue), channels, address: outreachEmail(data.email),driverAllowed };
+        return { recipients, contactId: r.contact_id, requiredSince, sourceDigest: acquireSourceDigest(sourceValue), legacyNullOrigin:r.mandate_id===null, channels, address: outreachEmail(data.email),driverAllowed };
     }
     // The held organization gate serializes policy/intent writers; append-only intent rows
     // need SELECT only, without a FOR SHARE lock that would require UPDATE privilege.
+    async function sourceState(tx:Session['tx'],source:AcquireIntentSource,message:MessageSubmission['message'],render:boolean){
+        const state=await sourceStateWithoutExecutionContext(tx,source,message,render);
+        if(!loadContext||'legacyNullOrigin'in state&&state.legacyNullOrigin)return {...state,executionContext:null};
+        const context=mandateExecutionContextSchema.parse(await loadContext(tx,source));
+        const {manifestDigest,...preimage}=context;if(acquireSourceDigest(preimage)!==manifestDigest)fail();
+        const sourceId=source.kind==='agent'?source.operationId:source.kind==='campaign'?source.attemptId:source.messageId;
+        if(context.origin.kind!==source.kind||context.origin.sourceId!==sourceId||context.contact.sourceId!==state.contactId||source.kind!=='agent'&&context.mode==='demo')fail();
+        assertNewEffectPermitted(context,{bindingId,bindingDigest:acquireSourceDigest(binding),generation:binding.generation,channel:binding.channel,recipient:message.recipient.value});
+        return {...state,executionContext:context};
+    }
     async function stored(tx: Session['tx'], key: string) {
         const r = await tx.query('SELECT * FROM public.communication_dispatch_intents WHERE organization_id=$1 AND owner_user_id=$2 AND operation_key=$3', [...scope, key]);
         if (r.rows.length > 1)
@@ -427,7 +482,7 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
         if (envelope.keyVersion !== row.intent_key_version)
             fail();
         const value = plain(decode(snapshot, 'context', envelope));
-        if (value.domain !== 'acquire.dispatch-intent.v1' || Object.keys(value).some(k => !['domain', 'submission', 'source', 'coverageScopes', 'contactId', 'requiredSince', 'sourceDigest'].includes(k)))
+        if (!['acquire.dispatch-intent.v1','acquire.dispatch-intent.v2'].includes(value.domain as string) || Object.keys(value).some(k => !['domain', 'submission', 'source', 'coverageScopes', 'contactId', 'requiredSince', 'sourceDigest','executionContext'].includes(k)) || value.domain==='acquire.dispatch-intent.v1'&&value.executionContext!==undefined || value.domain==='acquire.dispatch-intent.v2'&&value.executionContext===undefined)
             fail();
         if (digest(snapshot, 'context', value, row.intent_key_version) !== row.intent_digest)
             fail();
@@ -438,13 +493,15 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
         assertOperationMatches(snapshot, submission.snapshot);
         if (messageDigest(snapshot.operation, submission.message) !== snapshot.payloadDigest)
             fail();
-        return { snapshot, source: value.source as AcquireIntentSource, submission: structuredClone(submission), coverageScopes: value.coverageScopes as AcquireCoverageScope[], contactId: value.contactId as string, requiredSince: value.requiredSince as string, sourceDigest: value.sourceDigest as string };
+        const executionContext=value.domain==='acquire.dispatch-intent.v2'?mandateExecutionContextSchema.parse(value.executionContext):null;
+        if(executionContext?(row.execution_mandate_id!==executionContext.origin.mandateId||row.execution_context_digest!==executionContext.manifestDigest||row.execution_mode!==executionContext.mode):(row.execution_mandate_id!=null||row.execution_context_digest!=null||row.execution_mode!=null))fail();
+        return { executionContext,snapshot, source: value.source as AcquireIntentSource, submission: structuredClone(submission), coverageScopes: value.coverageScopes as AcquireCoverageScope[], contactId: value.contactId as string, requiredSince: value.requiredSince as string, sourceDigest: value.sourceDigest as string };
     }
     async function policy(s: Session, row: Record<string, unknown>, value: ReturnType<typeof opened>, serviceRevision: string) {
         if (process.env.COMMUNICATIONS_RUNTIME_ENABLED === 'true' && process.env.CAMPAIGN_REPLY_MONITOR_MODE !== 'enforce')
             return { status: 'review', code: 'forbidden' } as const;
         if (value.source.kind === 'campaign') {
-            const time = await s.tx.query('SELECT clock_timestamp() AS admission_now');
+            const time = await s.tx.query(`SELECT ${businessSql(inputOptions.businessClock)} AS admission_now`);
             if (time.rows.length !== 1)
                 fail();
             const observed = new Date(timestamp(time.rows[0].admission_now));
@@ -452,14 +509,31 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
                 return { status: 'waiting', code: 'busy', retryAt: nextAllowedCampaignSend(observed).toISOString() } as const;
         }
         const state = await sourceState(s.tx, value.source, value.submission.message, false);
-        if (state.sourceDigest !== value.sourceDigest || state.contactId !== value.contactId){reportDispatchDiagnostic(diagnostic,'application.source','blocked');
+        if (state.sourceDigest !== value.sourceDigest || state.contactId !== value.contactId || value.executionContext&&!isDeepStrictEqual(value.executionContext,state.executionContext)){reportDispatchDiagnostic(diagnostic,'application.source','blocked');
             fail();}
         if(!state.driverAllowed)return {status:'review',code:'forbidden'} as const;
         const clear = value.source.kind==='agent'?{rows:[{clear:true}]}:await s.tx.query('SELECT public.communications_admission_person_clear($1,$2,$3,$4) AS clear', [...scope, state.contactId, state.address]);
         if (clear.rows.length !== 1 || clear.rows[0].clear !== true)
             return { status: 'review', code: 'forbidden' } as const;
-        const covered = await s.tx.query(`SELECT count(*)::integer=$5::integer AS ready FROM public.communication_reply_monitors m JOIN public.communication_consumer_checkpoints p ON p.binding_id=m.binding_id AND p.scope_digest=m.scope_digest WHERE m.organization_id=$1 AND m.owner_user_id=$2 AND (m.binding_id::text,m.scope_digest) IN(SELECT x->>'bindingId',x->>'scopeDigest' FROM jsonb_array_elements($3::jsonb)x) AND m.complete AND m.initial_sync_complete AND NOT m.invalidated AND m.coverage_from<=$4::timestamptz AND m.coverage_through>=$4::timestamptz AND m.coverage_through>=clock_timestamp()-($6::double precision*interval '1 second') AND m.coverage_through<=m.observed_at AND m.observed_at<=clock_timestamp() AND m.observed_at>=clock_timestamp()-($6::double precision*interval '1 second') AND p.observed_service_revision>=$7::bigint`, [...scope, JSON.stringify(value.coverageScopes), value.requiredSince, value.coverageScopes.length, maxAge, serviceRevision]);
+        const covered = await s.tx.query(`SELECT count(*)::integer=$5::integer AS ready, count(*)::integer AS matched_scope_rows,
+        (SELECT jsonb_build_object(
+            'scopeRows', count(*)::integer, 'monitorRows', count(dm.binding_id)::integer, 'checkpointRows', count(dp.binding_id)::integer,
+            'allComplete', bool_and(dm.complete IS TRUE), 'allInitialSync', bool_and(dm.initial_sync_complete IS TRUE),
+            'anyInvalidated', bool_or(dm.invalidated IS TRUE),
+            'allCoverRequiredSince', bool_and(coalesce(dm.coverage_from<=$4::timestamptz AND dm.coverage_through>=$4::timestamptz,false)),
+            'allCoverageFresh', bool_and(coalesce(dm.coverage_through>=${businessSql(inputOptions.businessClock)}-($6::double precision*interval '1 second'),false)),
+            'allObservedFresh', bool_and(coalesce(dm.observed_at>=${businessSql(inputOptions.businessClock)}-($6::double precision*interval '1 second'),false)),
+            'allTimestampsOrdered', bool_and(coalesce(dm.coverage_through<=dm.observed_at AND dm.observed_at<=${businessSql(inputOptions.businessClock)},false)),
+            'allRevisionsCurrent', bool_and(coalesce(dp.observed_service_revision>=$7::bigint,false)),
+            'minCheckpointRevision', min(dp.observed_service_revision)::text, 'maxCheckpointRevision', max(dp.observed_service_revision)::text,
+            'oldestCoverageAgeSeconds', max(extract(epoch FROM (${businessSql(inputOptions.businessClock)}-dm.coverage_through)))::double precision,
+            'oldestObservedAgeSeconds', max(extract(epoch FROM (${businessSql(inputOptions.businessClock)}-dm.observed_at)))::double precision
+        ) FROM jsonb_array_elements($3::jsonb) requested(scope)
+          LEFT JOIN public.communication_reply_monitors dm ON dm.organization_id=$1 AND dm.owner_user_id=$2 AND dm.binding_id::text=requested.scope->>'bindingId' AND dm.scope_digest=requested.scope->>'scopeDigest'
+          LEFT JOIN public.communication_consumer_checkpoints dp ON dp.binding_id=dm.binding_id AND dp.scope_digest=dm.scope_digest) AS coverage_diagnostics
+        FROM public.communication_reply_monitors m JOIN public.communication_consumer_checkpoints p ON p.binding_id=m.binding_id AND p.scope_digest=m.scope_digest WHERE m.organization_id=$1 AND m.owner_user_id=$2 AND (m.binding_id::text,m.scope_digest) IN(SELECT x->>'bindingId',x->>'scopeDigest' FROM jsonb_array_elements($3::jsonb)x) AND m.complete AND m.initial_sync_complete AND NOT m.invalidated AND m.coverage_from<=$4::timestamptz AND m.coverage_through>=$4::timestamptz AND m.coverage_through>=${businessSql(inputOptions.businessClock)}-($6::double precision*interval '1 second') AND m.coverage_through<=m.observed_at AND m.observed_at<=${businessSql(inputOptions.businessClock)} AND m.observed_at>=${businessSql(inputOptions.businessClock)}-($6::double precision*interval '1 second') AND p.observed_service_revision>=$7::bigint`, [...scope, JSON.stringify(value.coverageScopes), value.requiredSince, value.coverageScopes.length, maxAge, serviceRevision]);
         if (covered.rows.length !== 1 || covered.rows[0].ready !== true){reportDispatchDiagnostic(diagnostic,'application.coverage','blocked');
+            logCoverageBlocked(covered.rows.length === 1 ? covered.rows[0] : undefined, row.id, value.coverageScopes.length, serviceRevision, maxAge);
             return { status: 'waiting', code: 'incomplete' } as const;}
         const used = await s.tx.query('SELECT id FROM public.communication_dispatch_permits WHERE intent_id=$1', [row.id]);
         if (used.rows.length)
@@ -470,7 +544,7 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
             const snapshot = capture(input);
             assertSameBinding(binding, snapshot.binding);
             s = await session();
-            await recordedBinding(s.tx);
+
             const row = await stored(s.tx, snapshot.key);
             if (!row)
                 fail();
@@ -503,7 +577,7 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
                 if (!['campaign', 'draft', 'agent'].includes(captured.sourceKind) || !id(captured.sourceId))
                     fail();
                 s = await session();
-                await recordedBinding(s.tx);
+
                 const rows = await s.tx.query('SELECT * FROM public.communication_dispatch_intents WHERE organization_id=$1 AND owner_user_id=$2 AND source_kind=$3 AND source_id=$4 ORDER BY epoch DESC LIMIT 1', [...scope, captured.sourceKind, captured.sourceId]);
                 if (rows.rows.length > 1)
                     fail();
@@ -531,13 +605,13 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
             const timer=setTimeout(()=>{controller.abort();rejectStopped(Error('Send authority unavailable'));},timeout);
             try{
                 const snapshot=capture(input);assertSameBinding(binding,snapshot.binding);
-                s=await session(controller.signal,deadline);await recordedBinding(s.tx);const original=await stored(s.tx,snapshot.key),value=opened(original);assertOperationMatches(snapshot,value.snapshot);
+                s=await session(controller.signal,deadline);const original=await stored(s.tx,snapshot.key),value=opened(original);assertOperationMatches(snapshot,value.snapshot);
                 const validateProof=(raw:unknown)=>{const proof=plain(raw);assertOperationMatches(snapshot,proof.snapshot as MessageSubmission['snapshot']);const outcome=plain(proof.outcome);if(!['waiting','review','rejected','skipped'].includes(outcome.status as string)||!id(proof.journalId)||!hex(proof.evidenceDigest)||!id(proof.keyVersion,64))fail();return proof;};
                 const readResolution=async()=>{const rows=await s!.tx.query('SELECT * FROM public.communication_intent_resolutions WHERE intent_id=$1',[original.id]);if(rows.rows.length>1)fail();const row=rows.rows[0];if(!row)return null;if(typeof row.encrypted_proof!=='string'||!id(row.proof_key_version,64)||!hex(row.proof_digest))fail();const envelope=JSON.parse(row.encrypted_proof);if(envelope.keyVersion!==row.proof_key_version)fail();const disposition=plain(decode(snapshot,'context',envelope));if(disposition.domain!=='acquire.no-submission.v1'||Object.keys(disposition).some(k=>!['domain','proof'].includes(k))||digest(snapshot,'context',disposition,row.proof_key_version)!==row.proof_digest)fail();validateProof(disposition.proof);return {intentId:original.id as string,operationKey:snapshot.key,proofDigest:row.proof_digest as string};};
                 let existing=await readResolution();if(existing){await s.member();await s.commit();return existing;}
                 await s.commit();s=undefined;if(!prove)return null;
                 const pending=Promise.resolve().then(()=>prove!(structuredClone(snapshot),controller.signal));void pending.catch(()=>{});const proof=await Promise.race([pending,stopped]);if(!proof)return null;validateProof(proof);
-                s=await session(controller.signal,deadline);await recordedBinding(s.tx);const latest=await stored(s.tx,snapshot.key);if(latest.id!==original.id)fail();opened(latest);existing=await readResolution();if(existing){await s.member();await s.commit();return existing;}
+                s=await session(controller.signal,deadline);const latest=await stored(s.tx,snapshot.key);if(latest.id!==original.id)fail();opened(latest);existing=await readResolution();if(existing){await s.member();await s.commit();return existing;}
                 const disposition=seal(snapshot,{domain:'acquire.no-submission.v1',proof:capture(proof)});await s.tx.query('INSERT INTO public.communication_intent_resolutions(intent_id,encrypted_proof,proof_key_version,proof_digest) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING',[original.id,disposition.json,disposition.version,disposition.digest]);
                 // Read back and authenticate the immutable winning proof, including
                 // a concurrent resolution. Never invent a second operation key.
@@ -556,7 +630,7 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
                     fail();
                 const source = captured.source, sourceId = source.kind === 'campaign' ? source.attemptId : source.kind==='agent'?source.operationId:source.messageId;
                 s = await session(controller.signal, deadline);
-                await recordedBinding(s.tx);
+
                 const observedRows = await s.tx.query('SELECT * FROM public.communication_dispatch_intents WHERE organization_id=$1 AND owner_user_id=$2 AND source_kind=$3 AND source_id=$4 ORDER BY epoch DESC LIMIT 1', [...scope, source.kind, sourceId]);
                 const observed = observedRows.rows[0], observedValue = observed ? opened(observed) : null;
                 await s.commit();
@@ -576,12 +650,12 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
                     }
                 }
                 s = await session(controller.signal, deadline);
-                await recordedBinding(s.tx);
+
                 const latestRows = await s.tx.query('SELECT * FROM public.communication_dispatch_intents WHERE organization_id=$1 AND owner_user_id=$2 AND source_kind=$3 AND source_id=$4 ORDER BY epoch DESC LIMIT 1', [...scope, source.kind, sourceId]), existing = latestRows.rows[0];
                 if (existing && (!proof || existing.id !== observed?.id)) {
                     const value = opened(existing);
                     const current = await sourceState(s.tx, value.source, value.submission.message, false);
-                    if (!current.driverAllowed || current.sourceDigest !== value.sourceDigest || !isDeepStrictEqual(captured.message.recipient, value.submission.message.recipient))
+                    if (!current.driverAllowed || value.executionContext&&!isDeepStrictEqual(value.executionContext,current.executionContext) || current.sourceDigest !== value.sourceDigest || !isDeepStrictEqual(captured.message.recipient, value.submission.message.recipient))
                         fail();
                     await s.member();
                     await s.commit();
@@ -610,8 +684,8 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
                     const disposition = seal(observedValue.snapshot, { domain: 'acquire.no-submission.v1', proof });
                     await s.tx.query('INSERT INTO public.communication_intent_resolutions(intent_id,encrypted_proof,proof_key_version,proof_digest) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING', [existing.id, disposition.json, disposition.version, disposition.digest]);
                 }
-                const value = { domain: 'acquire.dispatch-intent.v1', submission, source, coverageScopes: captured.coverageScopes, contactId: state.contactId, requiredSince: state.requiredSince, sourceDigest: state.sourceDigest }, encrypted = seal(submission.snapshot, value), intentId = randomUUID();
-                const inserted = await s.tx.query('INSERT INTO public.communication_dispatch_intents(id,organization_id,owner_user_id,binding_id,source_kind,source_id,epoch,contact_id,operation_key,operation,payload_digest,intent_digest,encrypted_intent,intent_key_version,source_digest,required_since,coverage_scopes,predecessor_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18) RETURNING *', [intentId, ...scope, bindingId, source.kind, sourceId, epoch, state.contactId, key, operation, submission.snapshot.payloadDigest, encrypted.digest, encrypted.json, encrypted.version, state.sourceDigest, state.requiredSince, JSON.stringify(captured.coverageScopes), existing?.id ?? null]);
+                const value = { domain: state.executionContext?'acquire.dispatch-intent.v2':'acquire.dispatch-intent.v1', submission, source, coverageScopes: captured.coverageScopes, contactId: state.contactId, requiredSince: state.requiredSince, sourceDigest: state.sourceDigest,...(state.executionContext?{executionContext:state.executionContext}:{}) }, encrypted = seal(submission.snapshot, value), intentId = randomUUID();
+                const inserted = await s.tx.query('INSERT INTO public.communication_dispatch_intents(id,organization_id,owner_user_id,binding_id,source_kind,source_id,epoch,contact_id,operation_key,operation,payload_digest,intent_digest,encrypted_intent,intent_key_version,source_digest,required_since,coverage_scopes,predecessor_id'+(state.executionContext?',execution_mandate_id,execution_context_digest,execution_mode':'')+') VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18'+(state.executionContext?',$19,$20,$21':'')+') RETURNING *', [intentId, ...scope, bindingId, source.kind, sourceId, epoch, state.contactId, key, operation, submission.snapshot.payloadDigest, encrypted.digest, encrypted.json, encrypted.version, state.sourceDigest, state.requiredSince, JSON.stringify(captured.coverageScopes), existing?.id ?? null,...(state.executionContext?[state.executionContext.origin.mandateId,state.executionContext.manifestDigest,state.executionContext.mode]:[])]);
                 if (inserted.rows.length !== 1)
                     fail();
                 opened(inserted.rows[0]);
@@ -641,7 +715,7 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
                 if (captured.record.state !== 'claimed' || !id(captured.claimToken) || !/^\d+$/.test(captured.serviceRevision))
                     fail();
                 s = await session(signal);
-                await recordedBinding(s.tx);
+
                 const row = await stored(s.tx, captured.record.snapshot.key);
                 if (!row)
                     fail();

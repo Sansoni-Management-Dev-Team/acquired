@@ -1,19 +1,21 @@
+import { companyDiscoveryPolicySchema } from "./research-discovery-policy";
+import { hybridCompanyContinuationSchema } from "./hybrid-company-continuation";
 import {
   agentPersonChannelRecipientSchema,
   agentChannelIdentityProofSchema,
-} from "@/domain/agent-person-channel";
-import { campaignDraftDefinition } from "@/domain/campaign";
+} from "./agent-person-channel";
+import { campaignDraftDefinition } from "./campaign";
 
+/** Presentation review checks only. Approval and dispatch retain their own
+ * server-owned authorization, scope, history and admission validation. */
 function record(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
 }
-
 function text(value: unknown) {
   return typeof value === "string" ? value : "";
 }
-
 export function sequenceDraftForReview(input: Record<string, unknown>) {
   if (
     input.nativeSequenceDraftVersion !== 1 ||
@@ -41,7 +43,6 @@ export function sequenceDraftForReview(input: Record<string, unknown>) {
     return null;
   return parsed.data;
 }
-
 export function nativeProposalReviewable(
   name: string,
   input: Record<string, unknown>,
@@ -104,20 +105,150 @@ export function nativeProposalReviewable(
   if (name === "research.start") {
     const config = record(input.config),
       execution = record(input.execution),
-      policy = record(input.providerPolicy);
+      policy = record(input.providerPolicy),
+      attempts = record(policy.maxAttempts);
+    const firmable =
+        execution.productionPipeline === "firmable-v1" &&
+        execution.pipeline === "firmable-company-v1",
+      hybrid =
+        execution.productionPipeline === "hybrid-firmable-v1" &&
+        execution.pipeline === "hybrid-company-v1";
+    if (
+      Object.hasOwn(config, "companyDiscoveryPolicy") &&
+      (!hybrid ||
+        !companyDiscoveryPolicySchema.safeParse(config.companyDiscoveryPolicy)
+          .success)
+    )
+      return false;
+    if (record(config.companyDiscoveryPolicy).version === 5) {
+      const pricing = record(policy.requestCeilingsMicroUsd);
+      return (
+        input.nativeResearchPlanVersion === 1 &&
+        Boolean(
+          text(config.requestId) &&
+            text(config.researchScope) &&
+            text(config.geography),
+        ) &&
+        config.targetBusinesses === 20 &&
+        hybrid &&
+        execution.peopleResearch === true &&
+        execution.backgroundResearch === false &&
+        config.companyIdentityPolicyVersion === 1 &&
+        !Object.hasOwn(config, "companyOnly") &&
+        !Object.hasOwn(config, "companyContinuation") &&
+        config.includeCompanyPeople === true &&
+        config.includePhones === false &&
+        config.findPeople === false &&
+        record(config.budget).maxMinutes === 15 &&
+        policy.version === 3 &&
+        policy.callAdmission === "per_request" &&
+        policy.usdAdmission === "company_phase_people_per_request" &&
+        policy.pricingBasis === "configured_company_plus_metered_people" &&
+        policy.requestCeilingMicroUsd === "1000000" &&
+        policy.firmableCompanyRequestCeilingMicroUsd === "0" &&
+        ["firmable", "search", "page", "ai"].every(
+          (provider) => pricing[provider] === "1000000",
+        ) &&
+        attempts.firmable === 24024 &&
+        attempts.search === 6 &&
+        attempts.page === 5 &&
+        attempts.ai === 0
+      );
+    }
+    const all = record(config.companyDiscoveryPolicy).version === 4;
+    if (
+      Object.hasOwn(config, "companyContinuation") &&
+      (!all ||
+        !hybrid ||
+        !hybridCompanyContinuationSchema.safeParse(config.companyContinuation)
+          .success)
+    )
+      return false;
+    const pricing = record(policy.requestCeilingsMicroUsd),
+      configured =
+        policy.version === 2 &&
+        policy.callAdmission === "per_request" &&
+        policy.companyOnly === true &&
+        policy.pricingBasis === "configured_company_only_incremental" &&
+        pricing.firmable === "0" &&
+        pricing.search === "1000000" &&
+        pricing.page === "1000000" &&
+        pricing.ai === "1000000" &&
+        config.companyIdentityPolicyVersion === 1 &&
+        config.companyOnly === true &&
+        config.includeCompanyPeople === false &&
+        config.includePhones === false &&
+        config.findPeople === false &&
+        record(config.budget).maxMinutes === 15;
     return (
       input.nativeResearchPlanVersion === 1 &&
       Boolean(
         text(config.requestId) &&
           text(config.researchScope) &&
-          text(config.geography) &&
-          typeof config.targetBusinesses === "number" &&
-          execution.pipeline === "firmable-company-v1" &&
-          execution.peopleResearch === false &&
-          execution.backgroundResearch === false &&
-          policy.requestCeilingMicroUsd === "1000000" &&
-          typeof record(policy.maxAttempts).firmable === "number",
-      )
+          text(config.geography),
+      ) &&
+      config.targetBusinesses === 20 &&
+      (firmable || hybrid) &&
+      execution.peopleResearch === false &&
+      execution.backgroundResearch === false &&
+      policy.requestCeilingMicroUsd === "1000000" &&
+      attempts.search === 6 &&
+      attempts.page === 5 &&
+      attempts.ai === (hybrid ? 0 : 5) &&
+      (all
+        ? hybrid && configured && attempts.firmable === 24024
+        : policy.version === 1 && attempts.firmable === 60)
+    );
+  }
+  if (name === "research.fields") {
+    const execution = record(input.execution),
+      policy = record(input.providerPolicy),
+      attempts = record(policy.maxAttempts),
+      perCompany = record(policy.perCompany),
+      allowed = [
+        "description",
+        "company_emails",
+        "company_phones",
+        "year_founded",
+        "acn",
+        "website_address",
+        "employee_count",
+        "revenue",
+        "accreditations",
+      ];
+    return (
+      input.nativeFieldsPlanVersion === 1 &&
+      Boolean(text(record(input.config).requestId)) &&
+      execution.pipeline === "public-fields-v1" &&
+      execution.peopleResearch === false &&
+      execution.ai === false &&
+      policy.version === 1 &&
+      policy.requestCeilingMicroUsd === "1000000" &&
+      perCompany.search === 12 &&
+      perCompany.page === 64 &&
+      attempts.search === 60 &&
+      attempts.page === 320 &&
+      attempts.ai === 0 &&
+      attempts.firmable === 0 &&
+      Array.isArray(input.selected) &&
+      input.selected.length > 0 &&
+      input.selected.length <= 5 &&
+      input.selected.every((raw) => {
+        const c = record(raw);
+        return (
+          Boolean(
+            text(c.targetId) &&
+              text(c.childJobId) &&
+              text(c.sourceRevision) &&
+              text(c.name) &&
+              text(c.domain),
+          ) &&
+          typeof c.verifyAbn === "boolean" &&
+          Array.isArray(c.fields) &&
+          (c.fields.length > 0 || c.verifyAbn) &&
+          c.fields.every((f) => allowed.includes(text(f)))
+        );
+      })
     );
   }
   if (name === "research.people") {

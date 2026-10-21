@@ -15,20 +15,21 @@ function fixture(change:Partial<ConnectionSetupOptions>={}){
 }
 function deferred<T>(){let resolve!:(value:T)=>void;const promise=new Promise<T>(done=>{resolve=done;});return {promise,resolve};}
 describe('provider-neutral hosted setup lifecycle',()=>{
- it.each(['state','provider','notification'])('handles blocked/rejected %s callback in native Node without late authority or unhandled rejection',mode=>{
+ it.each(['state','provider','notification','before_provider'])('handles blocked/rejected %s callback in native Node without late authority or unhandled rejection',mode=>{
   const script=String.raw`
-   const fs=require('node:fs'),ts=require('typescript');
+   const fs=require('node:fs'),ts=require('typescript'),{performance}=require('node:perf_hooks');
+   const realNow=performance.now.bind(performance);let fixtureNow=0;Object.defineProperty(performance,'now',{value:()=>fixtureNow,configurable:true});
    require.extensions['.ts']=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,file);
    const {createConnectionSetupCoordinator}=require(process.argv[2]),mode=process.argv[1];let posts=0;
-   const delayedRejection=()=>{const end=performance.now()+20;while(performance.now()<end){}return Promise.reject(Error('Synthetic blocked callback failure'));};
+   const delayedRejection=()=>{const end=realNow()+20;while(realNow()<end){}fixtureNow+=20;return Promise.reject(Error('Synthetic blocked callback failure'));};
    const coordinator=createConnectionSetupCoordinator({scope:{applicationId:'app',tenantId:'tenant',ownerId:'owner'},channel:'whatsapp',platform:'whatsapp',backend:'unipile',redirectOrigin:'https://app.example.test',successPath:'/success',failurePath:'/failure',notifyUrl:'https://service.example.test/notification',timeoutMs:5,
-    states:{issue(){if(mode==='state')return delayedRejection();return Promise.resolve({nonce:'A'.repeat(43),expiresAt:new Date(Date.now()+60000).toISOString(),expectedConnectionId:'connection',expectedGeneration:1});},complete(){return delayedRejection();}},
+    states:{issue(){if(mode==='state')return delayedRejection();if(mode==='before_provider')fixtureNow=20;return Promise.resolve({nonce:'A'.repeat(43),expiresAt:new Date(Date.now()+60000).toISOString(),expectedConnectionId:'connection',expectedGeneration:1});},complete(){return delayedRejection();}},
     hostedAuth:{createLink(){posts++;return delayedRejection();}},resolveReconnect:async()=>{throw Error('Unexpected reconnect');}});
    const pending=mode==='notification'?coordinator.complete({nonce:'A'.repeat(43),notification:{}}):coordinator.begin();
    pending.then(result=>setTimeout(()=>process.stdout.write(JSON.stringify({status:result.status,posts})),20));
   `;
   const result=spawnSync(process.execPath,['--unhandled-rejections=strict','-e',script,mode,fileURLToPath(new URL('./connection-setup.ts',import.meta.url))],{encoding:'utf8',timeout:3000});
-  expect(result.status).toBe(0);expect(JSON.parse(result.stdout)).toEqual({status:mode==='state'?'unavailable':'unknown',posts:mode==='provider'?1:0});
+  expect(result.status).toBe(0);expect(JSON.parse(result.stdout)).toEqual({status:['state','before_provider'].includes(mode)?'unavailable':'unknown',posts:mode==='provider'?1:0});
  });
  it.each([['email','gmail'],['email','outlook'],['email','imap'],['whatsapp','whatsapp'],['linkedin','linkedin']] as const)('issues durable %s/%s setup before one provider call',async(channel,platform)=>{
   const f=fixture({channel,platform});expect(await f.coordinator().begin()).toMatchObject({status:'redirect',action:{type:'redirect',url:'https://account.example.test/setup'}});expect(f.issue).toHaveBeenCalledOnce();expect(f.createLink).toHaveBeenCalledOnce();expect(f.issue.mock.invocationCallOrder[0]).toBeLessThan(f.createLink.mock.invocationCallOrder[0]);

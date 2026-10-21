@@ -2,6 +2,14 @@
 
 This worktree adds goal-driven conversations alongside the original sequence UI. The original UI retains its n8n sequence runtime; the native conversation driver does not require n8n. Never let both drivers advance the same contact. Driver changes require an explicit reconciled handover, including outstanding sends and approvals.
 
+## Current integration status — 19 October 2026
+
+Use [the current plan](61-agent-parallel-build-handoff.md#current-remaining-plan--19-october-2026) before following the historical verification counts below. Local migration history has advanced beyond0035;0087 and [0088](62-agent-continuation-reader-review.md) are applied and locally verified (62 continuation cases, zero skips). Actual continuation GUI/provider acceptance remains pending. Compare the full current registry and applied hashes; do not infer production schema parity or authorization from a local migration receipt.
+
+The current isolated profile has active native supervision and dedicated simulator adapters. Firmable is explicitly paused with `LOCAL_FIRMABLE_MODE=disabled`; saved research remains available. Provider contract fixtures are test-only and never become genuine People evidence or a production transport. Keep Firmable/Clerk endpoints untouched during the outage. The normal n8n compiler/editor and ownership handover remain supported, but this local runtime has n8n disabled; source and database handover checks do not prove actual n8n runtime execution.
+
+Before release, review a production-specific schema/configuration manifest, roles/grants, background worker and webhook routing, flags, channel-account generations and rollback/drain procedure. The local runner targets only marked5437 and must not be repointed at production. Verify owned real-channel UAT and the fresh V4/GUI plus50-lead acceptance gates in the current guide. Production deployment and live sending require separate authorization.
+
 ## Evidence and boundaries
 
 Implemented code is not evidence of live provider delivery or a production release. Local unit tests use scripted/provider-shaped fixtures; PostgreSQL integration tests exercise the isolated database. The paid held-out evaluation is separately opt-in and records actual model receipts. It does not send email. No live communications account or production deployment is verified by that evaluation.
@@ -34,7 +42,7 @@ node scripts/start-agent-mode-orbstack.mjs --restart-app
 
 This regenerates private local environment files and starts containers; it runs no schema commands. It preserves the previous `AGENT_NATIVE_EXECUTION_ENABLED` value, so review that setting deliberately. By default it forces `COMMUNICATIONS_RUNTIME_ENABLED=false`, disables campaign n8n in this isolated preview, and clears live messaging connector settings. An explicit worktree-private connection-only configuration can now enable mailbox setup while retaining zero send quotas and forcing native execution off; see [owned-mailbox setup](51-agent-owned-mailbox-setup.md). This local isolation does not remove original UI/n8n support from the product.
 
-Research, transports and agent workers share the app network namespace. Use the launcher to rebind them after app recreation; restarting the app alone can leave otherwise running dependants attached to its previous namespace.
+The current app, research, transports and native worker share a separate stable network-namespace owner. App recreation preserves that namespace. Use the existing launcher ownership/idleness/readiness guards for deliberate profile changes; do not recreate the namespace owner or alter main/shared services as an ordinary app restart. Historical profiles that used the app as namespace owner require their recorded controlled transition.
 
 ```sh
 docker --context orbstack compose -f ops/agent-mode/compose.local.yml ps
@@ -76,7 +84,7 @@ The evaluation rubric checks declared claims, private/injection canaries, action
 
 ## Release prerequisites
 
-Before enabling real communications, separately approve the account/environment and complete owned-account UAT: full available history across recorded accounts; inbound-first verified parent threading; original receipt replay and uncertain outcomes; opt-outs and human takeover; new inbound wakeups with browser closed; expired/current approvals; delegated scope/counter bounds; account membership changes; budgets; sending windows; process interruption and drain recovery. Verify the intended environment/schema against its recorded approvals and execute all dependent PostgreSQL cases there; the isolated local schema through0035 already passed its complete184-case suite.
+Before enabling real communications, separately approve the account/environment and complete owned-account UAT: full available history across recorded accounts; inbound-first verified parent threading; original receipt replay and uncertain outcomes; opt-outs and human takeover; new inbound wakeups with browser closed; expired/current approvals; delegated scope/counter bounds; account membership changes; budgets; sending windows; process interruption and drain recovery. Verify the intended environment/schema against its recorded approvals and execute all dependent PostgreSQL cases there; the historical local schema through0035 passed184 cases, but current required migrations and feature-specific evidence must be checked against docs61 and the actual applied ledger.
 
 Production deployment, live accounts, live-send enablement, mailbox UAT and broader model-quality sign-off are separate release steps. Keep their status distinct from implemented and locally verified work.
 

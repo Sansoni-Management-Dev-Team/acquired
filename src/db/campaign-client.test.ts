@@ -80,3 +80,10 @@ it("bounds scheduled statements and rolls back database cancellation as deferred
   expect(mock.query).toHaveBeenLastCalledWith("ROLLBACK"); expect(mock.release).toHaveBeenCalledOnce();
 });
 it('propagates only trusted validated registered runtime context before the held source callback',async()=>{const {localContextEnv}=await import('../lib/agent-runtime-context.test-fixture');for(const[k,v]of Object.entries(localContextEnv))vi.stubEnv(k,v);await withCampaignDb({organizationId:'org',userId:'owner'},async()=>{expect(mock.query).toHaveBeenCalledWith("SELECT set_config('app.acquire_runtime_id',$1,true),set_config('app.acquire_channel_simulation',$2,true)",['agent-multichannel-20261017','true']);});});
+
+it.each([true,false])('uses an explicit scoped driver and retains real membership refusal (member=%s)',async allowed=>{
+ member=allowed;const connect=vi.fn(async()=>({query:mock.query,release:mock.release})),callback=vi.fn(async()=>42);
+ const result=withCampaignDb({organizationId:'org',userId:'owner'},callback,{pool:{connect} as never});
+ if(allowed)expect(await result).toBe(42);else await expect(result).rejects.toThrow('Campaign owner is no longer');
+ expect(connect).toHaveBeenCalledOnce();expect(mock.connect).not.toHaveBeenCalled();expect(mock.query).toHaveBeenCalledWith('SET LOCAL ROLE acquire_campaign_user');expect(callback).toHaveBeenCalledTimes(allowed?1:0);
+});

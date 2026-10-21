@@ -1,3 +1,4 @@
+import type {BusinessClock} from './business-clock';
 import type { ConnectionBinding, CommunicationEvent } from '../../contracts/src';
 import { createReplyProcessor, type ClaimedWebhook, type ReplyNormalization, type WebhookClaim } from './reply-ingress';
 
@@ -14,6 +15,7 @@ export interface NormalizedWebhookPort {
   finish(input: { record: ClaimedWebhook; outcome: NormalizedWebhookOutcome }): Promise<{ binding: ConnectionBinding; key: string; committed: boolean }>;
 }
 export interface WebhookEventProcessorOptions {
+  businessClock?:BusinessClock;
   binding: ConnectionBinding;
   journal: NormalizedWebhookPort;
   normalize(raw: unknown, binding: ConnectionBinding): Promise<ReplyNormalization>;
@@ -24,7 +26,7 @@ export function createWebhookEventProcessor(options: WebhookEventProcessorOption
   const finish=options.journal.finish.bind(options.journal);
   // Reuse the strict claim, UTF-8, event, semantic-key and fingerprint validation.
   // An empty resolver deliberately contains no application policy or person IDs.
-  const processor=createReplyProcessor({binding:options.binding,normalize:options.normalize.bind(options),resolve:async()=>[],journal:{claim:options.journal.claim.bind(options.journal),async finish(input){
+  const processor=createReplyProcessor({businessClock:options.businessClock,binding:options.binding,normalize:options.normalize.bind(options),resolve:async()=>[],journal:{claim:options.journal.claim.bind(options.journal),async finish(input){
     let outcome:NormalizedWebhookOutcome;
     if(input.decision.action==='review')outcome={kind:'review',code:input.decision.code};
     else if(input.event && input.eventKey && input.eventFingerprint)outcome={kind:'event',event:input.event,eventKey:input.eventKey,fingerprint:input.eventFingerprint};

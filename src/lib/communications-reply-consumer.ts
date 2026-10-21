@@ -30,6 +30,8 @@ export interface VerifiedCampaignReplyIdentity {
     sender: CanonicalIdentity;
     identity: string;
     identityAuthority?: 'canonical_service';
+    /** Server-derived immutable recorded-person namespace; never a delivery field. */
+    identityScope?: {kind:'demo';id:string};
 }
 export interface VerifiedUnrelatedCampaignReply {
     kind: 'unrelated';
@@ -478,22 +480,34 @@ export function createCommunicationReplyConsumer(options: CommunicationReplyCons
                         }
                     }
                     else {
-                        if (!proof || !exact(proof, ['actor', 'binding', 'sender', 'identity', ...(proof.identityAuthority === undefined ? [] : ['identityAuthority'])]) || !exact(proof.actor, ['organizationId', 'userId']) || proof.actor.organizationId !== actor.organizationId || proof.actor.userId !== actor.userId || !same(binding, proof.binding) ||
+                        if (!proof || !exact(proof, ['actor', 'binding', 'sender', 'identity', ...(proof.identityAuthority === undefined ? [] : ['identityAuthority']),...(proof.identityScope===undefined?[]:['identityScope'])]) || !exact(proof.actor, ['organizationId', 'userId']) || proof.actor.organizationId !== actor.organizationId || proof.actor.userId !== actor.userId || !same(binding, proof.binding) ||
                             !canonicalSender(binding, proof.sender) || proof.sender.kind !== event.sender.kind || proof.sender.value !== event.sender.value || !mapped || mapped !== proof.identity ||
                             (binding.channel !== 'linkedin' && mapped !== replyIdentity(binding.channel, event.sender.value)) || (binding.channel === 'linkedin' && mapped?.startsWith('https:') && (proof.identityAuthority !== 'canonical_service' || mapped !== event.sender.value)) || (proof.identityAuthority !== undefined && proof.identityAuthority !== 'canonical_service')) {
                             decision = 'review';
                             reviewCode = 'identity_pending';
                         }
                         else {
-                            await enter(client, 'acquire_campaign_worker');
-                            // Existing policy uses this client's query protocol; no separate pool/transaction is opened.
-                            const applied = await applyCampaignReply(client as unknown as PoolClient, actor, binding.channel, accountIdentity, { id: delivery.sourceKey, fromIdentity: mapped, receivedAt: occurredAt }, 'service');
-                            await enter(client, 'acquire_campaign_user');
-                            if (!['stop', 'ignore', 'review'].includes(applied))
-                                fail();
-                            decision = applied;
-                            if (decision === 'review')
-                                reviewCode = 'identity_pending';
+                            if(proof.identityScope!==undefined){
+                                // Authentication proves the message, not its person namespace.
+                                // Recheck the exact immutable route/map in this held owner TX.
+                                const scope=proof.identityScope;
+                                if(!exact(scope,['kind','id'])||scope.kind!=='demo'||!uuid(scope.id)){
+                                    decision='review';reviewCode='identity_pending';
+                                }else{
+                                    const row=(await client.query<{context:{registered:boolean;scope:unknown}}>('SELECT public.agent_recorded_reply_execution_scope($1::uuid,$2::text,$3::text) AS context',[bindingId,event.sender.kind,event.sender.value])).rows;
+                                    const current=row.length===1?row[0].context:null;
+                                    if(!current||current.registered!==true||!exact(current.scope,['kind','id'])||(current.scope as {kind:unknown;id:unknown}).kind!=='demo'||(current.scope as {id:unknown}).id!==scope.id){decision='review';reviewCode='identity_pending';}
+                                    else decision='stop'; // native scoped wake below; no global aliases/holds
+                                }
+                            }else{
+                                await enter(client, 'acquire_campaign_worker');
+                                // Organization identities preserve the existing global campaign policy.
+                                const applied = await applyCampaignReply(client as unknown as PoolClient, actor, binding.channel, accountIdentity, { id: delivery.sourceKey, fromIdentity: mapped, receivedAt: occurredAt }, 'service');
+                                await enter(client, 'acquire_campaign_user');
+                                if (!['stop', 'ignore', 'review'].includes(applied))fail();
+                                decision = applied;
+                                if (decision === 'review')reviewCode = 'identity_pending';
+                            }
                         }
                     }
                 }

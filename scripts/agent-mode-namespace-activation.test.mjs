@@ -5,7 +5,7 @@ test('actual launcher refuses stale existing topology before any compose or stop
  const root=await realpath(await mkdtemp(join(tmpdir(),'agent-namespace-activation-')));
  try{
   for(const part of ['scripts','bin','cloudflare/research','ops/agent-mode'])await mkdir(join(root,part),{recursive:true});
-  for(const name of ['start-agent-mode-orbstack.mjs','dev-config.mjs','agent-mode-local-database.mjs','agent-mode-communications-env.mjs','agent-mode-env-file.mjs','agent-mode-launcher-services.mjs','agent-mode-restart-guard.mjs','agent-mode-worker-env.mjs','agent-mode-namespace-activation.mjs']){
+  for(const name of ['start-agent-mode-orbstack.mjs','dev-config.mjs','agent-mode-local-database.mjs','agent-mode-communications-env.mjs','agent-mode-env-file.mjs','agent-mode-launcher-services.mjs','agent-mode-restart-guard.mjs','agent-mode-worker-env.mjs','agent-mode-namespace-activation.mjs','agent-mode-research-env.mjs','agent-mode-demo-launcher.mjs','agent-mode-testing-launcher.mjs','agent-mode-demo-communications-env.mjs','agent-mode-demo-activation.mjs']){
    const source=new URL('./'+name,import.meta.url);if(existsSync(source))await copyFile(source,join(root,'scripts',name));
   }
   await writeFile(join(root,'next-env.d.ts'),'// disposable fixture\n');await writeFile(join(root,'cloudflare/research/wrangler.jsonc'),'{}');await writeFile(join(root,'fixture.env'),'');
@@ -13,6 +13,7 @@ test('actual launcher refuses stale existing topology before any compose or stop
   const result=spawnSync(process.execPath,[join(root,'scripts/start-agent-mode-orbstack.mjs')],{cwd:root,env:{PATH:join(root,'bin'),HOME:root,FAKE_ROOT:root,DOCKER_CALL_LOG:join(root,'calls.jsonl'),AGENT_MODE_LOCAL_ENV:join(root,'fixture.env')},encoding:'utf8',timeout:10000});
   const calls=(await readFile(join(root,'calls.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);
   assert.notEqual(result.status,0,'ordinary startup must refuse old app-owned namespace');assert.match(result.stderr,/--restart-app.*--leave-worker-stopped/);assert.ok(calls.length>=2);assert.ok(calls.every(args=>args.includes('inspect')),'no compose/up/stop/exec before topology refusal');
+  for(const file of ['runtime.env','worker.env','wrangler.json','communications-profile'])assert.equal(existsSync(join(root,'.local-data/agent-mode-orbstack',file)),false,'refused startup must not hot-reload mounted configuration');
  }finally{await rm(root,{recursive:true,force:true});}
 });
 const composeFile='/isolated/fixes/ops/agent-mode/compose.local.yml',appId='a'.repeat(64),networkId='b'.repeat(64);
@@ -20,7 +21,7 @@ function record(service,patch={}){return {id:service==='app'?appId:networkId,nam
 function adapter({app=record('app'),network=record('network'),appNamespace='net:[123]',ownerNamespace='net:[123]',failure}={}){const calls=[];const runDocker=args=>{calls.push(args);if(failure)return failure;if(args.includes('inspect')){const name=args.at(-1),value=name==='project-acquire-agent-mode'?app:network;return value?{status:0,stdout:JSON.stringify(value),stderr:''}:{status:1,stdout:'',stderr:'Error: No such object: '+name};}return {status:0,stdout:args[3]===appId?appNamespace:ownerNamespace,stderr:''};};return {calls,runDocker};}
 test('fresh app startup admits exact app absence with an absent or same-worktree owner',()=>{for(const network of [null,record('network')]){const f=adapter({app:null,network});assert.deepEqual(assertAgentModeNamespaceActivation({composeFile,runDocker:f.runDocker}),{fresh:true,controlled:false});assert.equal(f.calls.length,2);}});
 test('accepts all three exact Docker missing-container forms without trusting a wrong name or unknown error',()=>{
- const forms=[name=>'Error: No such object: '+name,name=>'Error response from daemon: No such container: '+name,name=>'Error: No such container: '+name];
+ const forms=[name=>'Error: No such object: '+name,name=>'Error response from daemon: No such container: '+name,name=>'Error: No such container: '+name,name=>'error: no such object: '+name];
  for(const controlled of [false,true])for(const form of forms){const runDocker=args=>({status:1,stdout:'',stderr:form(args.at(-1))});assert.deepEqual(assertAgentModeNamespaceActivation({composeFile,controlled,runDocker}),{fresh:true,controlled});}
  for(const message of ['Error: No such container: foreign','Error: No such container: project-acquire-agent-network','Error: No such container: project-acquire-agent-mode extra','private unknown daemon error'])assert.throws(()=>assertAgentModeNamespaceActivation({composeFile,runDocker:()=>({status:1,stdout:'',stderr:message})}),/exact worktree-owned/);
 });
@@ -35,4 +36,9 @@ test('controlled paths bypass topology only and never adopt foreign worktree con
 test('Docker failures, malformed output and namespace read errors never become fresh startup or expose raw errors',()=>{
  for(const failure of [{status:1,stdout:'',stderr:'private-daemon-token-sentinel'},{status:1,stdout:'',stderr:'Error: No such object: foreign'},{status:0,stdout:'private-invalid-json-sentinel',stderr:''},{status:null,error:Error('private-spawn-sentinel')}]){const f=adapter({failure});assert.throws(()=>assertAgentModeNamespaceActivation({composeFile,runDocker:f.runDocker}),error=>/exact worktree-owned/.test(error.message)&&!error.message.includes('private'));}
  const f=adapter();assert.throws(()=>assertAgentModeNamespaceActivation({composeFile,runDocker:args=>args.includes('exec')?{status:1,stdout:'',stderr:'private-error'}:f.runDocker(args)}),/--restart-app/);
+});
+
+test('preserves ownership admission with the additive fixed testing relay overlay',()=>{
+ const app=record('app');app.labels['com.docker.compose.project.config_files']+=','+composeFile.replace('compose.local.yml','compose.testing.yml');
+ const f=adapter({app});assert.deepEqual(assertAgentModeNamespaceActivation({composeFile,runDocker:f.runDocker}),{fresh:false,controlled:false});
 });

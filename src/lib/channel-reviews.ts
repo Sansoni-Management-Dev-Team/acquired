@@ -7,7 +7,7 @@ import{resolveChannelReviewSchema,type ChannelReviewItem}from'../domain/channel-
 import type{ConnectionBinding}from'../../communications/packages/contracts/src';
 import type{UntrackedOutboundProof}from'./communications-retained-outbound';
 type OutboundProof=(actor:CampaignActor,binding:ConnectionBinding,eventId:string)=>Promise<UntrackedOutboundProof|null>;
-const defaultOutboundProof:OutboundProof=async(actor,binding,eventId)=>{try{const{configuredAcquireCommunications}=await import('./communications-configuration');return await configuredAcquireCommunications().host.untrackedOutboundReview({applicationId:binding.applicationId,tenantId:actor.organizationId,ownerId:actor.userId},binding,eventId);}catch{return null;}};
+const defaultOutboundProof:OutboundProof=async(actor,binding,eventId)=>{try{const{configuredAcquireCommunicationsForBinding}=await import('./communications-configuration');return await (await configuredAcquireCommunicationsForBinding(actor,binding)).host.untrackedOutboundReview({applicationId:binding.applicationId,tenantId:actor.organizationId,ownerId:actor.userId},binding,eventId);}catch{return null;}};
 function recordedBinding(r:Record<string,unknown>):ConnectionBinding{return{applicationId:r.application_id,tenantId:r.organization_id,ownerId:r.owner_user_id,connectionId:r.service_connection_id,accountId:r.service_account_id,generation:r.generation,channel:r.channel,platform:r.platform,backend:r.backend}as ConnectionBinding;}
 type Transaction=<T>(actor:CampaignActor,fn:(c:PoolClient)=>Promise<T>)=>Promise<T>;
 const action='communications.reply_review_resolved';

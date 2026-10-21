@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import type { Pool, PoolClient } from "pg";
 import { AgentStore, agentRecordDigest, type AgentThread } from "./agent-store";
+import type { AgentReviewContextOperation } from "./agent-review-context";
 import type { AgentReviewItem } from "@/domain/agent-authority";
 
 const id = "10000000-0000-4000-8000-000000000001",
@@ -26,6 +27,7 @@ type Options = {
   prior?: Record<string, unknown>;
   batch?: Record<string, unknown> | null;
   operations?: Record<string, unknown>[];
+  mode?: string;
   member?: boolean;
   featureError?: boolean;
   contextRevision?: string;
@@ -77,6 +79,10 @@ function fixture(options: Options = {}) {
     ) {
       trace.push("prior review");
       return { rows: options.prior ? [options.prior] : [] };
+    }
+    if (sql.startsWith("SELECT mode FROM agent_mandate_execution_modes")) {
+      trace.push("demo mode");
+      return { rows: [{ mode: options.mode ?? "demo" }] };
     }
     if (
       sql ===
@@ -150,14 +156,7 @@ function fixture(options: Options = {}) {
     protected override async checkReviewContext(
       c: PoolClient,
       t: AgentThread,
-      operation: {
-        name: string;
-        input?: {
-          nativeResearchPlanVersion?: unknown;
-          mandateRevision?: unknown;
-          [key: string]: unknown;
-        };
-      },
+      operation: AgentReviewContextOperation,
     ) {
       trace.push("feature context");
       if (options.featureError) throw Error("Feature context changed");
@@ -292,6 +291,7 @@ it("leaves every decision write after exact operation, virtual feature and curre
     id,
     "owner",
     "review:" + id + ":approved",
+    "user",
     JSON.stringify(content),
     agentRecordDigest({ role: "user", content }),
   ]);
@@ -378,13 +378,79 @@ it.each([
     expect(f.trace.slice(-2)).toEqual(["ROLLBACK", "release"]);
   },
 );
+it("keeps demo attribution gated before batch lookup and records automatic approvals with assistant audit", async () => {
+  const bad = fixture({ mode: "real" });
+  await expect(
+    bad.store.decideReviewBatch(
+      id,
+      id,
+      1,
+      manifest,
+      "approved",
+      "automatic_demo",
+    ),
+  ).rejects.toThrow("approved demo");
+  expect(bad.trace).toEqual([...prefix, "demo mode", "ROLLBACK", "release"]);
+  expect(bad.writes).toHaveLength(0);
+  const rejected = fixture();
+  await expect(
+    rejected.store.decideReviewBatch(
+      id,
+      id,
+      1,
+      manifest,
+      "rejected",
+      "automatic_demo",
+    ),
+  ).rejects.toThrow("approved demo");
+  expect(rejected.writes).toHaveLength(0);
+  const f = fixture();
+  await f.store.decideReviewBatch(
+    id,
+    id,
+    1,
+    manifest,
+    "approved",
+    "automatic_demo",
+  );
+  expect(f.trace).toEqual([
+    ...prefix,
+    "demo mode",
+    "batch lock",
+    "operation locks",
+    "feature context",
+    "conversation context",
+    "write 1",
+    "write 2",
+    "write 3",
+    "write 4",
+    "COMMIT",
+    "release",
+  ]);
+  const event = JSON.parse(String(f.writes[2][1]?.[6])),
+    message = JSON.parse(String(f.writes[3][1]?.[6]));
+  expect(event).toEqual({
+    reviewBatchId: id,
+    decision: "approved",
+    items: manifest,
+    approvalSource: "automatic_demo",
+  });
+  expect(f.writes[3][1]?.[5]).toBe("assistant");
+  expect(message).toEqual({
+    text: "Automatically approved these demo items. I’ll check that everything is ready before continuing.",
+    ...event,
+  });
+  expect(f.writes[3][1]?.[7]).toBe(
+    agentRecordDigest({ role: "assistant", content: message }),
+  );
+});
 it("records human rejection through the same four writes with rejected event and unchanged user attribution", async () => {
   const f = fixture();
   await f.store.decideReviewBatch(id, id, 1, manifest, "rejected");
   expect(f.writes[0][1]).toEqual([[id], "rejected"]);
   expect(f.writes[2][1]?.[5]).toBe("review.rejected");
-  expect(f.writes[3][0]).toContain("VALUES($1,$2,$3,$4,$5,'user',$6,$7)");
-  expect(JSON.parse(String(f.writes[3][1]?.[5])).text).toBe(
+  expect(f.writes[3][1]?.[5]).toBe("user");
+  expect(JSON.parse(String(f.writes[3][1]?.[6])).text).toBe(
     "You rejected the displayed proposals.",
   );
 });

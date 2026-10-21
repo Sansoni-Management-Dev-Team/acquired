@@ -7,8 +7,8 @@ import {pathToFileURL} from 'node:url';
 export function simulatorBridgeAddress(env){
  if(env.AGENT_MODE_COMMUNICATIONS_MODE!=='simulator'||env.NODE_ENV==='production')throw Error('Simulator profile required');
  const profile=env.AGENT_MODE_COMMUNICATIONS_PROFILE??'simulator';
- if(!['simulator','simulator25','simulator50','multichannel'].includes(profile))throw Error('Unknown simulator profile');
- return profile==='multichannel'?{providerPort:5790,callbackPort:5791,servicePort:5461}:profile==='simulator50'?{providerPort:5690,callbackPort:5691,servicePort:5461}:profile==='simulator25'?{providerPort:5590,callbackPort:5591,servicePort:5461}:{providerPort:5490,callbackPort:5491,servicePort:5461};
+ if(!['simulator','simulator25','simulator50','multichannel','demos'].includes(profile))throw Error('Unknown simulator profile');
+ return profile==='demos'?{providerPort:5890,callbackPort:5891,servicePort:5463,hostProviderPort:5893}:profile==='multichannel'?{providerPort:5790,callbackPort:5791,servicePort:5461}:profile==='simulator50'?{providerPort:5690,callbackPort:5691,servicePort:5461}:profile==='simulator25'?{providerPort:5590,callbackPort:5591,servicePort:5461}:{providerPort:5490,callbackPort:5491,servicePort:5461};
 }
 /** Fixed loopback service, bounded complete bodies, no redirects/retries. The
  * service retains authentication, original receipts and webhook validation. */
@@ -42,11 +42,11 @@ export function createSimulatorGateway({tls,servicePort=5461,maxBodyBytes=104857
  return server;
 }
 export async function startSimulatorTransports(env=process.env){
- const {providerPort,callbackPort,servicePort}=simulatorBridgeAddress(env),directory='/workspace/.local-data/agent-mode-orbstack/simulator-tls';
+ const {providerPort,callbackPort,servicePort,hostProviderPort=providerPort}=simulatorBridgeAddress(env),directory='/workspace/.local-data/agent-mode-orbstack/simulator-tls';
  const tls={key:await readFile(directory+'/localhost.key'),cert:await readFile(directory+'/localhost.crt')};
  const sockets=new Set();
  const relay=tcpServer(socket=>{
-  const upstream=connect({host:'host.docker.internal',port:providerPort});sockets.add(socket);sockets.add(upstream);
+  const upstream=connect({host:'host.docker.internal',port:hostProviderPort});sockets.add(socket);sockets.add(upstream);
   for(const [a,b] of [[socket,upstream],[upstream,socket]]){a.setTimeout(30000,()=>a.destroy());a.on('error',()=>b.destroy());a.on('close',()=>{sockets.delete(a);b.destroy();});}socket.pipe(upstream).pipe(socket);
  });
  const gateway=createSimulatorGateway({tls,servicePort});

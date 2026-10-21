@@ -1,0 +1,453 @@
+[
+  {
+    "signature": "communications.guard_dispatch_admission()",
+    "schema": "communications",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire,communications_control=X/project_acquire}",
+    "predecessorDefinitionSha256": "c7f7095fa92c9d4d2ad51d72c1bd7447c9d70b3da70c459320b8df5d8eaf177a",
+    "predecessorBodySha256": "7ebe4a819f111d988a6379ab74250d4d521b408b6689293d48f6cb92b928b334",
+    "replacementBodySha256": "37ab2b0a73dd927268cecc9679e5a0e7f89b52eef186fd2e29ce9aa6db8097fb",
+    "replacements": [
+      {
+        "before": "BEGIN",
+        "after": "BEGIN\n PERFORM public.local_simulator_assert_business_scope(NEW.tenant_id,NEW.owner_id);\n",
+        "count": 1
+      },
+      {
+        "before": " RETURN NEW;",
+        "after": " IF nullif(current_setting('acquire.simulator_business_run',true),'') IS NULL THEN\n  IF NEW.business_admitted_at IS NOT NULL THEN RAISE EXCEPTION 'Unscoped business admission';END IF;\n ELSE\n  PERFORM public.local_simulator_assert_business_scope(NEW.tenant_id,NEW.owner_id);\n  IF NEW.business_admitted_at IS DISTINCT FROM public.local_simulator_business_now() THEN RAISE EXCEPTION 'Exact scoped business admission required';END IF;\n END IF;\n RETURN NEW;",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "communications.history_coverage_commit_guard()",
+    "schema": "communications",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire,communications_control=X/project_acquire}",
+    "predecessorDefinitionSha256": "9fcedcaa58707838f74a5bb3ba4507735b55d676c5b395f7daff91dd3934e87c",
+    "predecessorBodySha256": "82498c95b730a065c085140053aaa74ec550dacdd2a0f088d7ff32c580fcb50e",
+    "replacementBodySha256": "787f7fe36cbfe23b14aee4d0f8372f90fe9d0f82f57f9625132a7aae693120ed",
+    "replacements": [
+      {
+        "before": " IF NEW.complete THEN",
+        "after": " IF NEW.complete THEN\n PERFORM public.local_simulator_assert_business_scope(NEW.tenant_id,NEW.owner_id);\n",
+        "count": 1
+      },
+      {
+        "before": "NEW.coverage_through>clock_timestamp() OR NEW.observed_at>clock_timestamp()",
+        "after": "NEW.coverage_through>public.local_simulator_business_now() OR NEW.observed_at>public.local_simulator_business_now()",
+        "count": 1
+      },
+      {
+        "before": "date_trunc('milliseconds',h.started_at)=NEW.coverage_through AND h.finished_at IS NOT NULL\n    AND h.finished_at>=NEW.observed_at",
+        "after": "date_trunc('milliseconds',CASE WHEN nullif(current_setting('acquire.simulator_business_run',true),'') IS NULL THEN h.started_at ELSE h.business_started_at END)=NEW.coverage_through AND h.finished_at IS NOT NULL\n    AND (nullif(current_setting('acquire.simulator_business_run',true),'') IS NULL AND h.business_started_at IS NULL AND h.finished_at>=NEW.observed_at\n      OR nullif(current_setting('acquire.simulator_business_run',true),'') IS NOT NULL AND h.business_started_at IS NOT NULL AND h.business_finished_at>=NEW.observed_at)",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "communications.protect_history_initial_sync()",
+    "schema": "communications",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire,communications_control=X/project_acquire}",
+    "predecessorDefinitionSha256": "0458e6a4ce9516e7a4885d23705c551b4874551a1816c5b9caabeb10ec288e15",
+    "predecessorBodySha256": "59e7b19341d15878d4489c56c8cf8d63c366bf726e0bca09244dd26a124d88e6",
+    "replacementBodySha256": "f956c948fc046c16fc5fa9038e1b278b4893139977eb189b4155dbc4aed3ac06",
+    "replacements": [
+      {
+        "before": "BEGIN",
+        "after": "BEGIN\n PERFORM public.local_simulator_assert_business_scope(NEW.tenant_id,NEW.owner_id);\n",
+        "count": 1
+      },
+      {
+        "before": " RETURN NEW;",
+        "after": " IF nullif(current_setting('acquire.simulator_business_run',true),'') IS NULL THEN\n  IF NEW.business_completed_at IS NOT NULL THEN RAISE EXCEPTION 'Unscoped business sync completion';END IF;\n ELSE\n  PERFORM public.local_simulator_assert_business_scope(NEW.tenant_id,NEW.owner_id);\n  IF NEW.business_completed_at IS DISTINCT FROM public.local_simulator_business_now() THEN RAISE EXCEPTION 'Exact scoped business sync completion required';END IF;\n END IF;\n RETURN NEW;",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "communications.protect_history_refresh()",
+    "schema": "communications",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire,communications_control=X/project_acquire}",
+    "predecessorDefinitionSha256": "8fbb0176b17658610bdf9ea9fc28c9715f1138dc3b7ef5e559d4b2425dd12e4e",
+    "predecessorBodySha256": "55e4e95f09b09cb76357427890fc998769106e3e19be798b70f0f31eef10f174",
+    "replacementBodySha256": "c82864a6ffa5560490a6ea651da8bf8fc44e675e385332a490c2d8c15409cc5c",
+    "replacements": [
+      {
+        "before": "BEGIN",
+        "after": "BEGIN\n PERFORM public.local_simulator_assert_business_scope(NEW.tenant_id,NEW.owner_id);\n",
+        "count": 1
+      },
+      {
+        "before": " RETURN NEW;",
+        "after": " IF nullif(current_setting('acquire.simulator_business_run',true),'') IS NULL THEN\n  IF NEW.business_started_at IS NOT NULL OR NEW.business_finished_at IS NOT NULL THEN RAISE EXCEPTION 'Unscoped business history refresh';END IF;\n ELSE\n  PERFORM public.local_simulator_assert_business_scope(NEW.tenant_id,NEW.owner_id);\n  IF NEW.business_started_at IS NULL OR NEW.business_started_at>public.local_simulator_business_now()\n   OR (TG_OP='INSERT' OR NEW.token_hash<>OLD.token_hash) AND (NEW.business_started_at IS DISTINCT FROM public.local_simulator_business_now() OR NEW.business_finished_at IS NOT NULL)\n   OR (NEW.finished_at IS NULL) IS DISTINCT FROM (NEW.business_finished_at IS NULL)\n   OR NEW.business_finished_at IS NOT NULL AND (NEW.business_finished_at<NEW.business_started_at OR NEW.business_finished_at IS DISTINCT FROM public.local_simulator_business_now())\n   OR TG_OP='UPDATE' AND NEW.token_hash=OLD.token_hash AND NEW.business_started_at IS DISTINCT FROM OLD.business_started_at\n   OR TG_OP='UPDATE' AND NEW.token_hash=OLD.token_hash AND OLD.business_finished_at IS NOT NULL AND NEW.business_finished_at IS DISTINCT FROM OLD.business_finished_at THEN\n   RAISE EXCEPTION 'Original coherent business history anchors required';END IF;\n END IF;\n RETURN NEW;",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "agent_adopt_sequence_channels(uuid,jsonb)",
+    "schema": "public",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire,acquire_agent_user=X/project_acquire}",
+    "predecessorDefinitionSha256": "c2036f5b24634a3650b7fe6d9e50621136a07c6051af559ce5b4bc0a5f992691",
+    "predecessorBodySha256": "5db365be6ee2293b7bee000533b11a43b61be6424a842f7be3d84a73d57b163c",
+    "replacementBodySha256": "394cac4bd2c54a7fdc564d87e3a120af58c9294ae84be3c020b7b11b6327ca7c",
+    "replacements": [
+      {
+        "before": "clock_timestamp()+(SELECT delay_seconds",
+        "after": "public.local_simulator_business_now()+(SELECT delay_seconds",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "agent_channel_communications_change(jsonb)",
+    "schema": "public",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire,acquire_campaign_user=X/project_acquire}",
+    "predecessorDefinitionSha256": "e01a83b70e2600355564881928386d978147ccc75fb17859e974359b46705359",
+    "predecessorBodySha256": "9a6b61e91c60b8be2176c6b251b1169809736e7dd9d422a0f559294990c7d271",
+    "replacementBodySha256": "91b1fa0507790e995fdc23a1d0f59834ade493ae10df7b0a3d5d19730c0888fb",
+    "replacements": [
+      {
+        "before": "occurred>clock_timestamp()+interval '1 minute'",
+        "after": "occurred>public.local_simulator_business_now()+interval '1 minute'",
+        "count": 1
+      },
+      {
+        "before": "(frame->>6)::timestamptz>clock_timestamp()+interval '1 minute'",
+        "after": "(frame->>6)::timestamptz>public.local_simulator_business_now()+interval '1 minute'",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "agent_channel_due_reassessment(uuid,uuid,integer,timestamp with time zone)",
+    "schema": "public",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire,acquire_agent_user=X/project_acquire}",
+    "predecessorDefinitionSha256": "e45be0e4d83c4070b9f5652280c1af10b7ffaa5a69b9c25db1e6eb5b742abe12",
+    "predecessorBodySha256": "a117a1228884e30311d370f73ee45e34585ee934f43e378f5ed515a8439a00da",
+    "replacementBodySha256": "2436f7047a7cd94ea536ff4462ffd6d65ea68a3206299d1f2448b9cd235f2106",
+    "replacements": [
+      {
+        "before": "r.next_allowed_at>clock_timestamp()",
+        "after": "r.next_allowed_at>public.local_simulator_business_now()",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "agent_channel_operation_before_invitations(uuid)",
+    "schema": "public",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire}",
+    "predecessorDefinitionSha256": "197e55cd0d74a5352f918e1444b032c82440525d360cbf0538af87f26cd386db",
+    "predecessorBodySha256": "1be01e86e00ae044007dc98cb0b673924c00e837bc14639bfc55fafa3c4889b6",
+    "replacementBodySha256": "91c2e8395526c3f5d2327b52fe88d1ad8c789904f3468178b295a02a9b8f053a",
+    "replacements": [
+      {
+        "before": "public.agent_email_window_open(clock_timestamp())",
+        "after": "public.agent_email_window_open(public.local_simulator_business_now())",
+        "count": 1
+      },
+      {
+        "before": "(latest_in->>'at')::timestamptz>clock_timestamp()",
+        "after": "(latest_in->>'at')::timestamptz>public.local_simulator_business_now()",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "agent_channel_proposal_before_invitations(uuid,text)",
+    "schema": "public",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire}",
+    "predecessorDefinitionSha256": "f7cc79703987285e3d57707959648d793d25eea3a95a2d2d81e6a19263a85f90",
+    "predecessorBodySha256": "fbee9ef95f4cbdde493b26a8c2a59ed685dc5edef23fd02e43a866e59464b5f1",
+    "replacementBodySha256": "05c6bdbbb349a59ba49b7e64fe5f5671f1a4cb68224c98de57ec8d820a10763a",
+    "replacements": [
+      {
+        "before": "x.history_observed_at>clock_timestamp()",
+        "after": "x.history_observed_at>public.local_simulator_business_now()",
+        "count": 1
+      },
+      {
+        "before": "x.history_observed_at<clock_timestamp()",
+        "after": "x.history_observed_at<public.local_simulator_business_now()",
+        "count": 1
+      },
+      {
+        "before": "r.next_allowed_at<=clock_timestamp()",
+        "after": "r.next_allowed_at<=public.local_simulator_business_now()",
+        "count": 1
+      },
+      {
+        "before": "r.next_allowed_at>clock_timestamp()",
+        "after": "r.next_allowed_at>public.local_simulator_business_now()",
+        "count": 1
+      },
+      {
+        "before": "clock_timestamp()<last_sent.updated_at",
+        "after": "public.local_simulator_business_now()<last_sent.updated_at",
+        "count": 1
+      },
+      {
+        "before": "greatest((o.result->'delivery'->>'submittedAt')::timestamptz,o.updated_at)",
+        "after": "public.local_simulator_operation_business_anchor(o)",
+        "count": 1
+      },
+      {
+        "before": "ORDER BY o.updated_at DESC,o.id DESC LIMIT 1",
+        "after": "ORDER BY CASE WHEN nullif(current_setting('acquire.simulator_business_run',true),'') IS NULL THEN o.updated_at ELSE public.local_simulator_operation_business_anchor(o) END DESC,o.id DESC LIMIT 1",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "agent_channel_proposal_permitted_before_history_quiet(uuid,text)",
+    "schema": "public",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire}",
+    "predecessorDefinitionSha256": "190559ec09a6efe4a10767405c5a51a806259123a460100aefccf2976389602c",
+    "predecessorBodySha256": "9b031bf80bf213ddd0fd4043fdcaf8fe23b5b71adafcfa2b827397b7890fedfa",
+    "replacementBodySha256": "b618fc1cd648951130733ee5d12347dba05b7db78b8516f7471582688a5b4779",
+    "replacements": [
+      {
+        "before": "relationship.observed_at>clock_timestamp()",
+        "after": "relationship.observed_at>public.local_simulator_business_now()",
+        "count": 1
+      },
+      {
+        "before": "relationship.observed_at<clock_timestamp()",
+        "after": "relationship.observed_at<public.local_simulator_business_now()",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "agent_channel_record_submission(uuid)",
+    "schema": "public",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire,acquire_agent_user=X/project_acquire}",
+    "predecessorDefinitionSha256": "696b790af3d588496ab2763ec92b97408ae97248730b9edf8f94894649be85ab",
+    "predecessorBodySha256": "ab91be5105cc07a9716bea58d2989e88ed731e517aca389bf80ef3b061dd9160",
+    "replacementBodySha256": "0e516ea3bb0fdecbbd8f7ca98495652485b64aff14774f83fa611cdee14fc11a",
+    "replacements": [
+      {
+        "before": "greatest((o.result->'delivery'->>'submittedAt')::timestamptz,o.updated_at)",
+        "after": "public.local_simulator_operation_business_anchor(o)",
+        "count": 1
+      },
+      {
+        "before": "anchor>clock_timestamp()",
+        "after": "anchor>public.local_simulator_business_now()",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "agent_communications_bounce(uuid,text,text,text,text,text,timestamp with time zone,text)",
+    "schema": "public",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire,acquire_campaign_user=X/project_acquire}",
+    "predecessorDefinitionSha256": "001b57ed7a91329fb95be24b9d5ba45c78f3a9c89c1be1ce917c701e8502768f",
+    "predecessorBodySha256": "dba6f229bb18f7d8de21d736b1e735b2120336a668de125fdce8e3f6a90b3cfb",
+    "replacementBodySha256": "58597eb63ebfc9ad5fb2fb1f6674e9e51107d9eaa9b6523493dbd53fae7fd675",
+    "replacements": [
+      {
+        "before": "p_occurred>clock_timestamp()+interval '1 minute'",
+        "after": "p_occurred>public.local_simulator_business_now()+interval '1 minute'",
+        "count": 1
+      },
+      {
+        "before": "(frame->>6)::timestamptz>clock_timestamp()+interval '1 minute'",
+        "after": "(frame->>6)::timestamptz>public.local_simulator_business_now()+interval '1 minute'",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "agent_communications_change(uuid,text,text,text,text,text,timestamp with time zone,boolean)",
+    "schema": "public",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire,acquire_campaign_user=X/project_acquire}",
+    "predecessorDefinitionSha256": "80fc10e28ff02d93e3cf3a2186dda12cc0858156989a21c9ae52ba688b85a051",
+    "predecessorBodySha256": "3f8a2994cedc342a5836ce5172e3e179fa14a106b7591a61b440038fd1328988",
+    "replacementBodySha256": "8e335f5be8ae3e4375365d761a06fe1281a508d0fcb1dae59ffc7b5798bcfead",
+    "replacements": [
+      {
+        "before": "p_occurred>clock_timestamp()+interval '1 minute'",
+        "after": "p_occurred>public.local_simulator_business_now()+interval '1 minute'",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "agent_ingest_channel_relationship(uuid,text,text,text,boolean,timestamp with time zone)",
+    "schema": "public",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire,acquire_agent_user=X/project_acquire}",
+    "predecessorDefinitionSha256": "0cc748d6d9bd7b27ec2917061b6f60a13e89c9d72f27c1d6abdb44114f51c5fb",
+    "predecessorBodySha256": "16733496d8084cf7dddd9175571ff7349db0e66843304a1d485940a9a34cf60a",
+    "replacementBodySha256": "b75ffc1d28ed1b6ca74f4d193b0db03ef971620ee9d1698e4c722113cbb5bdcc",
+    "replacements": [
+      {
+        "before": "p_observed_at>clock_timestamp()",
+        "after": "p_observed_at>public.local_simulator_business_now()",
+        "count": 1
+      },
+      {
+        "before": "p_observed_at<clock_timestamp()",
+        "after": "p_observed_at<public.local_simulator_business_now()",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "agent_invitation_before_company_projection(uuid)",
+    "schema": "public",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire}",
+    "predecessorDefinitionSha256": "1561e6d90842aa1cf0db0a6d105e4bbfd8c8a39f91be01e965cc3c450fd5d3c4",
+    "predecessorBodySha256": "34a79bbe6915b29d2f10d798d73e4785747ad851c82852a1e1cdfebbf0014a1c",
+    "replacementBodySha256": "9245fdd68921fdf1b21eec4e5a2560ff7d8b6be42b9ec1095c49dd1cb06316cf",
+    "replacements": [
+      {
+        "before": "public.agent_email_window_open(clock_timestamp())",
+        "after": "public.agent_email_window_open(public.local_simulator_business_now())",
+        "count": 1
+      },
+      {
+        "before": "(latest_in->>'at')::timestamptz>clock_timestamp()",
+        "after": "(latest_in->>'at')::timestamptz>public.local_simulator_business_now()",
+        "count": 1
+      },
+      {
+        "before": "relationship.observed_at<=clock_timestamp()",
+        "after": "relationship.observed_at<=public.local_simulator_business_now()",
+        "count": 1
+      },
+      {
+        "before": "relationship.observed_at>=clock_timestamp()",
+        "after": "relationship.observed_at>=public.local_simulator_business_now()",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "agent_lock_member()",
+    "schema": "public",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire,acquire_agent_user=X/project_acquire}",
+    "predecessorDefinitionSha256": "a4242d36be35013c74a913813ad8dc9e43f39f31f58d2c194fde4c55016e7ce9",
+    "predecessorBodySha256": "a8cecec0756277408ec7a85d98da3bf3863fa0526a8559096cdbb4193d866bd5",
+    "replacementBodySha256": "222353b79ca70270a219ec833117d5207543ab9b5292deb328a2d0ec2927d679",
+    "replacements": [
+      {
+        "before": "BEGIN",
+        "after": "BEGIN\n PERFORM public.local_simulator_business_now();",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "agent_native_sending_policy(uuid)",
+    "schema": "public",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire}",
+    "predecessorDefinitionSha256": "80dbdaed4e6a1f6c22002be0b37e83242f5d6169e4118a4e89d46d715f63b07e",
+    "predecessorBodySha256": "5a61a6a226740fbe3646e14600e2f7d1bbffe92dd2e7024cb7f5b6da23345a8b",
+    "replacementBodySha256": "72d367e5aed878e1e7919e121bcc7cd4164f518e8cc7d9c6756810dd19f25a93",
+    "replacements": [
+      {
+        "before": "public.agent_email_window_open(clock_timestamp())",
+        "after": "public.agent_email_window_open(public.local_simulator_business_now())",
+        "count": 1
+      },
+      {
+        "before": "outbound_at<=clock_timestamp()-interval '24 hours'",
+        "after": "outbound_at<=public.local_simulator_business_now()-interval '24 hours'",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "agent_operation_authorised_before_sending_policy(uuid)",
+    "schema": "public",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire}",
+    "predecessorDefinitionSha256": "3bba66cc6d6cb434320e49a16e93954453f9f33ccbcecc3919f9f628c98a7556",
+    "predecessorBodySha256": "3d8fce35d916ee6ccf4cb944cb9b96e6d55198b53b0267eec40f31ca5c0d8086",
+    "replacementBodySha256": "3e0bb9c0efad14386a579f22d74832104d7b8de0c11f5d165e264990154a06f3",
+    "replacements": [
+      {
+        "before": "conversation.history_observed_at>clock_timestamp()",
+        "after": "conversation.history_observed_at>public.local_simulator_business_now()",
+        "count": 1
+      },
+      {
+        "before": "conversation.history_observed_at<clock_timestamp()",
+        "after": "conversation.history_observed_at<public.local_simulator_business_now()",
+        "count": 1
+      },
+      {
+        "before": "latest_inbound>clock_timestamp()",
+        "after": "latest_inbound>public.local_simulator_business_now()",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "agent_record_invitation_outcome(uuid,jsonb)",
+    "schema": "public",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire,acquire_agent_user=X/project_acquire}",
+    "predecessorDefinitionSha256": "c8f4d537b0e2d27092d821dccb67fe7edf19473cf0d3f3f4f1fc7b7e088b76d8",
+    "predecessorBodySha256": "7870afa16c4647d8c2480004b31142be7a0649e0564974abc3c27b41ad9ff862",
+    "replacementBodySha256": "4fa974e2609d095bf1c1a90623c3455b557c1d93505db691b6b915a9a629d3df",
+    "replacements": [
+      {
+        "before": "(p_delivery->>'submittedAt')::timestamptz>clock_timestamp()",
+        "after": "(p_delivery->>'submittedAt')::timestamptz>public.local_simulator_business_now()",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "agent_register_channel(uuid,uuid,integer,text,uuid,text,text,text,jsonb)",
+    "schema": "public",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire,acquire_agent_user=X/project_acquire}",
+    "predecessorDefinitionSha256": "7a6b5dce87d38e83db037ee0a48fb41a537384e632f160b1c8b7bae6c9f82aae",
+    "predecessorBodySha256": "8ed2dd58fde5df74c31dc7900539bc8a74ab772f4f878fdf556b652f61bb6b79",
+    "replacementBodySha256": "bb93abb01d2f0fe9507fd1149ac7eef518b4bebe0884cb2c653f70675655b166",
+    "replacements": [
+      {
+        "before": "clock_timestamp()+((array_position",
+        "after": "public.local_simulator_business_now()+((array_position",
+        "count": 1
+      }
+    ]
+  },
+  {
+    "signature": "agent_save_channel_history(uuid,integer,jsonb,timestamp with time zone,boolean)",
+    "schema": "public",
+    "owner": "project_acquire",
+    "acl": "{project_acquire=X/project_acquire,acquire_agent_user=X/project_acquire}",
+    "predecessorDefinitionSha256": "11b88e109efb3db695d74be95319678280097e92925b2ae1b66bc7ea48467959",
+    "predecessorBodySha256": "ead9adaa873da5175a6d4dadba3e13b036c67d8045858d1b86befd03426bf4d5",
+    "replacementBodySha256": "47c803f200a3b2758d0f63bfe23941cd6d7844a63a402080eec1092d6b813c08",
+    "replacements": [
+      {
+        "before": "p_observed>clock_timestamp()",
+        "after": "p_observed>public.local_simulator_business_now()",
+        "count": 1
+      }
+    ]
+  }
+]

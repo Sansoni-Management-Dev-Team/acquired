@@ -1,10 +1,10 @@
+import {providerRetryDelay} from '../../../src/domain/research-provider-error';
 export type RecordData = Record<string, unknown>;
 export class ServiceError extends Error {
   constructor(readonly status: number, readonly category: string, readonly retryAfter = 0) { super(category); }
 }
 export function retryDelay(value: string | null, now = Date.now()) {
-  const seconds = value && /^\d+(\.\d+)?$/.test(value) ? Number(value) : NaN;
-  return Math.max(1000, Number.isFinite(seconds) ? seconds * 1000 : value && Number.isFinite(Date.parse(value)) ? Date.parse(value) - now : 30_000);
+  return providerRetryDelay(value, now);
 }
 export async function upstream(fetcher: typeof fetch, url: string, init: RequestInit) {
   let response: Response;

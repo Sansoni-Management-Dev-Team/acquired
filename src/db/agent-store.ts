@@ -1,7 +1,12 @@
+import {loadAgentReviewPeople} from './agent-review-people';
+import {insertAgentReviewBatch,persistAgentReviewDecision} from './agent-review-ledger';
+import {agentRecordDigest as digest} from '@/lib/agent-record-digest';
 import {checkAgentResearchMandateReviewContext,type AgentReviewContextOperation} from './agent-review-context';
 import {isAgentReviewableOperation,isAgentEditableMessageOperation} from '@/domain/agent-operation-classifications';
-import {agentRecordDigest as digest} from '@/lib/agent-record-digest';
-import {insertAgentReviewBatch,persistAgentReviewDecision} from './agent-review-ledger';
+import{installAgentBusinessTimeSql}from'@/lib/agent-business-time-sql';
+import {businessNow,businessSql} from '../../communications/packages/core/src/business-clock';
+import {assertAgentBusinessTimeScope,type AgentBusinessTimeContext,type AgentBusinessTimeScope} from '@/lib/agent-business-time';
+import {installAgentReadBudget,type AgentTransactionPreset} from './agent-read-budget';
 import type { Pool, PoolClient } from 'pg';
 import { z } from 'zod';
 import {agentTransactionRuntimeContext} from '@/lib/agent-runtime-context';
@@ -21,20 +26,50 @@ function json(value: unknown) {
 export type AgentThread = { id: string; organization_id: string; mandate_id: string; owner_user_id: string; revision: number };
 export type AgentEvent = { id: string; thread_id: string; mandate_id?:string; kind: string; payload: unknown; lease_owner: string; fence: string; attempts: number };
 
+export type AgentStoreOptions={businessTime?:{context:AgentBusinessTimeContext;scope:AgentBusinessTimeScope}};
+
 /** Server-owned scope. This class does not accept credentials, execute tools or send. */
 export class AgentStore {
   protected actor: AgentActor;
-  constructor(private pool: Pick<Pool, 'connect'>, actor: AgentActor) { this.actor = agentActorSchema.parse(actor); }
-  protected async transaction<T>(work: (client: PoolClient) => Promise<T>) {
+  protected readonly businessTime?:AgentBusinessTimeContext;
+  constructor(private pool: Pick<Pool, 'connect'>, actor: AgentActor, options:AgentStoreOptions={}) {
+    this.actor = agentActorSchema.parse(actor);
+    const time=options.businessTime;
+    if(time){
+      if(time.scope.organizationId!==this.actor.organizationId||time.scope.userId!==this.actor.userId)throw Error('Agent business time scope unavailable');
+      assertAgentBusinessTimeScope(time.context,time.scope);this.businessTime=time.context;
+    }
+  }
+  protected businessNow(){return businessNow(this.businessTime);}
+  protected businessSql(){return businessSql(this.businessTime);}
+  /** The caller must first verify the exact persisted original delivery proof. */
+  protected reconciliationBusinessAnchor(proof:Record<string,unknown>):Date{
+    if(!this.businessTime)return proof.updated_at as Date;
+    const completion=proof.business_completed_at;
+    const delivery=proof.result&&typeof proof.result==='object'&&'delivery'in proof.result?proof.result.delivery:undefined;
+    const submitted=delivery&&typeof delivery==='object'&&'status'in delivery&&delivery.status==='submitted'&&'submittedAt'in delivery?delivery.submittedAt:undefined;
+    const raw=completion??submitted;
+    const instant=raw instanceof Date?raw.getTime():typeof raw==='string'?Date.parse(raw):NaN;
+    if(!Number.isFinite(instant)||instant>this.businessNow())throw Error('Business reconciliation anchor unavailable');
+    return new Date(instant);
+  }
+  protected async transaction<T>(work: (client: PoolClient) => Promise<T>,preset?:AgentTransactionPreset) {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
+      if(preset!==undefined)await installAgentReadBudget(client,preset);
       await client.query('SET LOCAL ROLE acquire_agent_user');
       const role = (await client.query('SELECT current_user AS name,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user')).rows[0];
       if (role.name !== 'acquire_agent_user' || role.rolsuper || role.rolbypassrls) throw new Error('Agent role must enforce RLS');
       await client.query("SELECT set_config('app.acquire_org',$1,true),set_config('app.acquire_user',$2,true)", [this.actor.organizationId,this.actor.userId]);
       const runtime=agentTransactionRuntimeContext();
       if(runtime.runtimeId)await client.query("SELECT set_config('app.acquire_runtime_id',$1,true),set_config('app.acquire_channel_simulation',$2,true)",[runtime.runtimeId,runtime.channelSimulation?'true':'false']);
+      if(this.businessTime)await installAgentBusinessTimeSql(client,{context:this.businessTime,scope:this.businessTime.scope},this.actor);
+      if(!this.businessTime&&runtime.runtimeId){
+        const installed=(await client.query("SELECT to_regprocedure('public.local_simulator_business_now()') IS NOT NULL AS installed")).rows[0]?.installed;
+        if(typeof installed!=='boolean')throw Error('Agent business clock availability is unknown');
+        if(installed)await client.query('SELECT public.local_simulator_business_now()');
+      }
       // Optional until the separately approved native-control migration exists.
       // Once installed, use the shared gate BEFORE taking membership/row locks.
       const gate=(await client.query("SELECT to_regprocedure('public.agent_lock_send_gate()') IS NOT NULL AS installed")).rows[0];
@@ -74,7 +109,70 @@ export class AgentStore {
   async messages(threadId: string, limit=100) {
     return this.transaction(async c => {
       await this.thread(c,threadId); z.number().int().min(1).max(200).parse(limit);
-      return (await c.query('SELECT id,role,content,sequence,created_at FROM (SELECT * FROM agent_messages WHERE thread_id=$1 ORDER BY sequence DESC LIMIT $2) recent ORDER BY sequence',[threadId,limit])).rows;
+      const rows=(await c.query(`SELECT recent.id,recent.role,recent.content,recent.request_key,recent.sequence,recent.created_at,
+        person.display_name AS lead_name,v.id AS lead_conversation_id,
+        (SELECT jsonb_build_object('text',left(h->>'text',500),'channel',coalesce(h->>'channel','email'),'at',h->>'at')
+          FROM jsonb_array_elements(v.history) h WHERE h->>'direction'='inbound'
+          AND h->>'at' ~ '^\\d{4}-\\d{2}-\\d{2}T' AND (h->>'at')::timestamptz<=recent.created_at
+          ORDER BY (h->>'at')::timestamptz DESC,h->>'id' DESC LIMIT 1) AS lead_reply
+        FROM (SELECT * FROM agent_messages WHERE thread_id=$1 ORDER BY sequence DESC LIMIT $2) recent
+        LEFT JOIN LATERAL (
+          SELECT o.conversation_id FROM agent_operations o
+          WHERE recent.content->'details'->>'conversationId' IS NULL
+            AND recent.request_key ~ '^no-submission:[a-fA-F0-9-]{36}$'
+            AND recent.request_key='no-submission:'||o.id::text
+            AND o.id=CASE WHEN recent.content->>'operationId' ~ '^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$' THEN (recent.content->>'operationId')::uuid END
+            AND o.thread_id=recent.thread_id AND o.organization_id=recent.organization_id
+            AND o.mandate_id=recent.mandate_id AND o.owner_user_id=recent.owner_user_id
+          UNION ALL
+          SELECT h.conversation_id FROM agent_handoffs h
+          WHERE recent.content->'details'->>'conversationId' IS NULL
+            AND h.id=CASE
+              WHEN recent.request_key ~ '^task-reminder:[a-fA-F0-9-]{36}$' AND recent.content->'details'->>'taskId' ~ '^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$' THEN (recent.content->'details'->>'taskId')::uuid
+              WHEN recent.request_key ~ '^handoff-notice:[a-fA-F0-9-]{36}$' AND recent.content->'details'->>'id' ~ '^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$' THEN (recent.content->'details'->>'id')::uuid
+            END
+            AND h.thread_id=recent.thread_id AND h.organization_id=recent.organization_id
+            AND h.mandate_id=recent.mandate_id AND h.owner_user_id=recent.owner_user_id
+          UNION ALL
+          SELECT COALESCE(CASE WHEN e.payload->>'conversationId' ~ '^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$' THEN (e.payload->>'conversationId')::uuid END,reconcile_operation.conversation_id,review_operation.conversation_id) AS conversation_id
+          FROM agent_events e
+          LEFT JOIN LATERAL (
+            SELECT reconcile_operation.conversation_id FROM agent_operations reconcile_operation
+            WHERE e.kind IN('email.reconcile','whatsapp.reconcile','linkedin.reconcile','email.proposed','whatsapp.proposed','linkedin.proposed')
+              AND reconcile_operation.id=CASE WHEN e.payload->>'operationId' ~ '^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$' THEN (e.payload->>'operationId')::uuid END
+              AND reconcile_operation.thread_id=e.thread_id AND reconcile_operation.organization_id=e.organization_id
+              AND reconcile_operation.mandate_id=e.mandate_id AND reconcile_operation.owner_user_id=e.owner_user_id
+            LIMIT 1
+          ) reconcile_operation ON true
+          LEFT JOIN LATERAL (
+            SELECT CASE WHEN count(DISTINCT o.conversation_id)=1 THEN min(o.conversation_id::text)::uuid END AS conversation_id
+            FROM agent_review_batches b JOIN agent_operations o ON o.thread_id=b.thread_id
+              AND o.id IN(SELECT (item->>'operationId')::uuid FROM jsonb_array_elements(b.manifest) item)
+            WHERE e.kind='review.approved' AND b.id=CASE WHEN e.payload->>'reviewBatchId' ~ '^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$' THEN (e.payload->>'reviewBatchId')::uuid END
+              AND b.thread_id=e.thread_id AND b.organization_id=e.organization_id AND b.mandate_id=e.mandate_id AND b.owner_user_id=e.owner_user_id
+              AND o.organization_id=e.organization_id AND o.mandate_id=e.mandate_id AND o.owner_user_id=e.owner_user_id
+          ) review_operation ON true
+          WHERE recent.content->'details'->>'conversationId' IS NULL
+            AND recent.request_key ~ '^event-review:[a-fA-F0-9-]{36}:[1-9][0-9]*$'
+            AND split_part(recent.request_key,':',2)=e.id::text
+            AND e.id=CASE WHEN recent.content->>'triggerEventId' ~ '^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$' THEN (recent.content->>'triggerEventId')::uuid END
+            AND e.kind IN('conversation.reassess','conversation.history_changed','conversation.reminder','channel.due','email.reconcile','whatsapp.reconcile','linkedin.reconcile','review.approved','email.proposed','whatsapp.proposed','linkedin.proposed')
+            AND e.thread_id=recent.thread_id AND e.organization_id=recent.organization_id
+            AND e.mandate_id=recent.mandate_id AND e.owner_user_id=recent.owner_user_id
+          LIMIT 1
+        ) source ON true
+        LEFT JOIN agent_conversations v ON v.id=COALESCE(
+          CASE WHEN recent.content->'details'->>'conversationId' ~ '^[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}$' THEN (recent.content->'details'->>'conversationId')::uuid END,
+          source.conversation_id)
+          AND v.thread_id=recent.thread_id AND v.organization_id=recent.organization_id
+          AND v.mandate_id=recent.mandate_id AND v.owner_user_id=recent.owner_user_id
+        LEFT JOIN contacts person ON person.id=v.contact_id AND person.organization_id=v.organization_id
+        ORDER BY recent.sequence`,[threadId,limit])).rows;
+      // Resolve company labels once per owned person, rather than once per log record.
+      const ids=[...new Set(rows.map(row=>row.lead_conversation_id).filter(Boolean))];
+      const companies=ids.length?(await c.query("SELECT id,public.agent_public_conversation_facts(id)->>'companyName' AS name FROM unnest($1::uuid[]) AS id",[ids])).rows:[];
+      const names=new Map(companies.map(company=>[company.id,company.name]));
+      return rows.map(row=>({...row,...(names.has(row.lead_conversation_id)?{lead_company:names.get(row.lead_conversation_id)}:{})}));
     });
   }
   async proposeOperation(threadId: string, requestKey: string, name: string, input: unknown) {
@@ -103,7 +201,7 @@ export class AgentStore {
   async claimEvent(workerId: string, leaseMs=30_000,mandateId?:string): Promise<AgentEvent|undefined> {
     uuid.parse(workerId);z.number().int().min(100).max(60_000).parse(leaseMs);if(mandateId!==undefined)uuid.parse(mandateId);
     return this.transaction(async c => {const eligible=await this.eventEligibilityPredicate(c);return (await c.query<AgentEvent>(`WITH due AS (
-      SELECT id FROM agent_events e WHERE ${eligible} AND available_at<=clock_timestamp() AND (state='pending' OR (state='leased' AND lease_until<=clock_timestamp()))
+      SELECT id FROM agent_events e WHERE ${eligible} AND available_at<=${this.businessSql()}${this.businessTime?" AND (e.operational_not_before_at IS NULL OR e.operational_not_before_at<=clock_timestamp())":''} AND (state='pending' OR (state='leased' AND lease_until<=clock_timestamp()))
       AND ($3::uuid IS NULL OR e.mandate_id=$3::uuid)
       AND NOT EXISTS(SELECT 1 FROM agent_runs r WHERE r.thread_id=e.thread_id AND r.state='running' AND (r.lease_until IS NULL OR r.lease_until>clock_timestamp()))
       -- Receipt lookup can clear the physical-account barrier for queued sends.
@@ -131,7 +229,7 @@ export class AgentStore {
     return this.transaction(async c=>{
       const t=await this.thread(c,threadId);
       await c.query(`INSERT INTO agent_events(thread_id,organization_id,mandate_id,owner_user_id,event_key,kind,payload,payload_digest,available_at)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9::timestamptz,clock_timestamp())) ON CONFLICT(thread_id,event_key) DO NOTHING`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,request,name,JSON.stringify(value),hash,date]);
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9::timestamptz,${this.businessSql()})) ON CONFLICT(thread_id,event_key) DO NOTHING`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,request,name,JSON.stringify(value),hash,date]);
       const row=(await c.query('SELECT * FROM agent_events WHERE thread_id=$1 AND event_key=$2',[t.id,request])).rows[0];
       if(row.kind!==name||row.payload_digest!==hash)throw new Error('Event key reused with different work');return row;
     });
@@ -163,12 +261,13 @@ export class AgentStore {
   }
   async deferEvent(event:AgentEvent,wakeAt:string){
     const identity=this.eventIdentity(event);z.string().datetime({offset:true}).parse(wakeAt);
-    return this.transaction(async c=>!!(await c.query(`UPDATE agent_events SET state='pending',available_at=$5::timestamptz,lease_owner=NULL,lease_until=NULL
+    return this.transaction(async c=>!!(await c.query(`UPDATE agent_events SET state='pending',${this.businessTime?'operational_not_before_at':'available_at'}=$5::timestamptz,lease_owner=NULL,lease_until=NULL
       WHERE id=$1 AND thread_id=$2 AND lease_owner=$3 AND fence=$4::bigint AND state='leased' AND lease_until>clock_timestamp()
       AND $5::timestamptz>clock_timestamp() AND $5::timestamptz<=clock_timestamp()+interval '30 days' RETURNING id`,[...identity,wakeAt])).rowCount);
   }
   async finishEventRun(runId:string,event:AgentEvent,raw:AgentEventOutcome){
     uuid.parse(runId);const identity=this.eventIdentity(event),outcome=agentEventOutcomeSchema.parse(raw);
+    if(outcome.kind==='defer'&&outcome.timeBasis==='business'&&!this.businessTime)throw Error('Selected business clock required');
     return this.transaction(async c=>{
       const t=await this.lockThread(c,event.thread_id);
       const current=(await c.query(`SELECT r.id FROM agent_runs r JOIN agent_events e ON e.id=r.trigger_event_id
@@ -176,9 +275,15 @@ export class AgentStore {
        AND r.id=$5 AND r.state='running' AND r.lease_owner=e.lease_owner AND r.fence=e.fence AND r.lease_until>clock_timestamp() FOR UPDATE OF e,r`,[...identity,runId])).rows[0];
       if(!current)return false;
       if(outcome.kind==='defer'){
-        const due=(await c.query("SELECT $1::timestamptz>clock_timestamp() AND $1::timestamptz<=clock_timestamp()+interval '30 days' AS allowed",[outcome.wakeAt])).rows[0];
+        const business=outcome.timeBasis==='business',basis=business?this.businessSql():'clock_timestamp()';
+        const due=(await c.query(`SELECT $1::timestamptz>${basis} AND $1::timestamptz<=${basis}+interval '30 days' AS allowed`,[outcome.wakeAt])).rows[0];
         if(!due.allowed)throw new Error('Reassessment is outside the allowed horizon');
-        await c.query("UPDATE agent_events SET state='pending',available_at=$2::timestamptz,lease_owner=NULL,lease_until=NULL WHERE id=$1",[event.id,outcome.wakeAt]);
+        if(business){
+          // The current event/run is already locked and its lease is real. Only
+          // a spent operational hold may be removed; a new real retry wins.
+          const rescheduled=await c.query("UPDATE agent_events SET state='pending',available_at=$2::timestamptz,operational_not_before_at=NULL,lease_owner=NULL,lease_until=NULL WHERE id=$1 AND (operational_not_before_at IS NULL OR operational_not_before_at<=clock_timestamp()) RETURNING id",[event.id,outcome.wakeAt]);
+          if(!rescheduled.rowCount)throw Error('Operational retry hold changed');
+        }else await c.query(`UPDATE agent_events SET state='pending',${this.businessTime?'operational_not_before_at':'available_at'}=$2::timestamptz,lease_owner=NULL,lease_until=NULL WHERE id=$1`,[event.id,outcome.wakeAt]);
       }else await c.query("UPDATE agent_events SET state='done',lease_owner=NULL,lease_until=NULL WHERE id=$1",[event.id]);
       await c.query('UPDATE agent_runs SET state=$2,stop_reason=$3,updated_at=now() WHERE id=$1',[runId,outcome.kind==='complete'?'complete':outcome.kind==='defer'?'waiting':'failed',outcome.kind==='defer'?outcome.reason:outcome.kind==='review'?(outcome.stopReason??'human_review_required'):null]);
       if(outcome.kind==='review'){
@@ -217,6 +322,7 @@ export class AgentStore {
       return insertAgentReviewBatch(c,t,request,manifest);
     });
   }
+  protected async reviewBudgetProjection(_c:PoolClient,_t:AgentThread,_op:{id:string;name:string;input:unknown}):Promise<unknown>{void _c;void _t;void _op;return undefined;}
   async listReviewBatches(threadId:string,options:{pendingOnly?:boolean}={}){
     const filter=z.object({pendingOnly:z.boolean().optional()}).strict().parse(options);
     return this.transaction(async c=>{
@@ -224,18 +330,39 @@ export class AgentStore {
       const batches=(await c.query("SELECT * FROM agent_review_batches WHERE thread_id=$1 AND ($2::boolean=false OR state='pending') ORDER BY created_at DESC,id LIMIT 50",[t.id,filter.pendingOnly===true])).rows;
       for(const batch of batches){
         const manifest=assertExactReviewBatch(batch.manifest,batch.manifest);
-        batch.operations=(await c.query('SELECT o.id,o.name,o.input,o.input_digest,o.revision,o.state,o.conversation_id,CASE WHEN current_conversation.id IS NOT NULL THEN public.agent_context_revision(current_conversation.id) ELSE NULL END AS current_context_revision FROM agent_operations o LEFT JOIN agent_conversations current_conversation ON current_conversation.id=o.conversation_id AND current_conversation.thread_id=o.thread_id AND current_conversation.organization_id=o.organization_id AND current_conversation.owner_user_id=o.owner_user_id WHERE o.thread_id=$1 AND o.id=ANY($2::uuid[]) ORDER BY o.id',[t.id,manifest.map(item=>item.operationId)])).rows;
+        batch.operations=(await c.query('SELECT o.id,o.name,o.input,o.input_digest,o.revision,o.state,o.conversation_id,review_person.display_name AS lead_name,review_person.role AS lead_role,CASE WHEN current_conversation.id IS NOT NULL THEN public.agent_public_conversation_facts(current_conversation.id)->>\'companyName\' ELSE NULL END AS lead_company,CASE WHEN current_conversation.id IS NOT NULL THEN public.agent_context_revision(current_conversation.id) ELSE NULL END AS current_context_revision FROM agent_operations o LEFT JOIN agent_conversations current_conversation ON current_conversation.id=o.conversation_id AND current_conversation.thread_id=o.thread_id AND current_conversation.organization_id=o.organization_id AND current_conversation.owner_user_id=o.owner_user_id LEFT JOIN contacts review_person ON review_person.id=current_conversation.contact_id AND review_person.organization_id=current_conversation.organization_id WHERE o.thread_id=$1 AND o.id=ANY($2::uuid[]) ORDER BY o.id',[t.id,manifest.map(item=>item.operationId)])).rows;
         let contextStale=false;
-        for(const op of batch.operations){if(op.conversation_id&&op.current_context_revision!==op.input?.contextRevision)contextStale=true;delete op.current_context_revision;delete op.conversation_id;try{await this.checkReviewContext(c,t,op);}catch{contextStale=true;}}
+        for(const op of batch.operations){
+          if(op.conversation_id&&op.current_context_revision!==op.input?.contextRevision)contextStale=true;
+          if(op.current_context_revision){op.conversationId=op.conversation_id;if(op.lead_name)op.leadName=op.lead_name;if(op.lead_role)op.leadRole=op.lead_role;if(op.lead_company)op.leadCompany=op.lead_company;}
+          delete op.lead_name;delete op.lead_role;delete op.lead_company;delete op.current_context_revision;delete op.conversation_id;
+          // A database guard may reject an old proposal. Keep that proposal
+          // visibly stale without leaving the surrounding read transaction
+          // aborted and hiding the other reviews. Approval guards still fail
+          // the entire decision transaction in currentReviewOperations.
+          await c.query('SAVEPOINT review_context_check');
+          try{await this.checkReviewContext(c,t,op);}
+          catch{await c.query('ROLLBACK TO SAVEPOINT review_context_check');contextStale=true;}
+          await c.query('RELEASE SAVEPOINT review_context_check');
+          const funding=await this.reviewBudgetProjection(c,t,op);if(funding!==undefined)op.funding=funding;
+        }
         batch.stale=contextStale||batch.operations.length!==manifest.length||manifest.some(item=>!batch.operations.some((op:{id:string;revision:number;input_digest:string;input:{contextRevision?:string}})=>op.id===item.operationId&&op.revision===item.revision&&op.input_digest===item.digest&&op.input.contextRevision===item.contextRevision));
       }
+      const selectedIds=batches.flatMap(batch=>batch.operations.flatMap((op:{name:string;input?:{selected?:{contactId?:unknown}[]}})=>op.name==='target.select'&&Array.isArray(op.input?.selected)?op.input.selected.flatMap(person=>typeof person.contactId==='string'?[person.contactId]:[]):[]));
+      const people=await loadAgentReviewPeople(c,t,selectedIds);
+      for(const batch of batches)for(const op of batch.operations)if(op.name==='target.select'&&Array.isArray(op.input?.selected))op.people=people.filter(person=>op.input.selected.some((selected:{contactId:string})=>selected.contactId===person.id));
       return batches;
     });
   }
-  async decideReviewBatch(threadId:string,batchId:string,revision:number,presented:unknown,decision:'approved'|'rejected'){
+  async decideReviewBatch(threadId:string,batchId:string,revision:number,presented:unknown,decision:'approved'|'rejected',approvalSource?:'automatic_demo'){
     uuid.parse(batchId);z.number().int().positive().parse(revision);z.enum(['approved','rejected']).parse(decision);
     return this.transaction(async c=>{
       const t=await this.lockThread(c,threadId);
+      if(approvalSource!==undefined){
+        z.literal('automatic_demo').parse(approvalSource);
+        const mode=(await c.query('SELECT mode FROM agent_mandate_execution_modes WHERE mandate_id=$1 AND organization_id=$2',[t.mandate_id,t.organization_id])).rows[0]?.mode;
+        if(mode!=='demo'||decision!=='approved')throw new Error('Automatic demo attribution requires an approved demo review');
+      }
       const batch=(await c.query('SELECT * FROM agent_review_batches WHERE id=$1 AND thread_id=$2 FOR UPDATE',[batchId,t.id])).rows[0];
       if(!batch)throw new Error('Review batch not found');
       const manifest=assertExactReviewBatch(batch.manifest,presented);
@@ -243,7 +370,7 @@ export class AgentStore {
       if(batch.state===decision)return batch;
       if(batch.state!=='pending')throw new Error('Review batch was already decided or invalidated');
       await this.currentReviewOperations(c,t,manifest);
-      return persistAgentReviewDecision(c,t,this.actor.userId,{batchId:batch.id,manifest,decision});
+      return persistAgentReviewDecision(c,t,this.actor.userId,{batchId:batch.id,manifest,decision,approvalSource});
     });
   }
   async editProposedOperation(threadId:string,operationId:string,revision:number,input:unknown){

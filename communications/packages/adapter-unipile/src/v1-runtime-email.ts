@@ -1,3 +1,4 @@
+import {businessNow,type BusinessClock} from '../../core/src/business-clock';
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import type { ConnectionBinding, MessagingAdapter, MessageReceipt, CanonicalIdentity } from '../../contracts/src';
@@ -12,7 +13,7 @@ import type { UncertainDispatchRecord } from '../../core/src/dispatch';
 import type { DeliveryOutcome } from '../../contracts/src';
 import type { EmailTrackingRepository } from '../../storage-postgres/src/email-tracking';
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-const date = (v: unknown): v is string => typeof v === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(v) && Number.isFinite(Date.parse(v)) && new Date(v).toISOString() === v && Date.parse(v) <= Date.now();
+const date = (v: unknown,now:number): v is string => typeof v === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(v) && Number.isFinite(Date.parse(v)) && new Date(v).toISOString() === v && Date.parse(v) <= now;
 /** Read the retained association first, then verify that exact receipt through the
  * original-account adapter. This does not reconcile, send or search by content. */
 export async function recoverTrackedEmailOutcome(input: {
@@ -32,6 +33,7 @@ export async function recoverTrackedEmailOutcome(input: {
     return !input.signal.aborted && isDeepStrictEqual(outcome, expected) ? expected : null;
 }
 export function verifyRuntimeSentEmail(input: {
+    businessClock?:BusinessClock;
     binding: ConnectionBinding;
     ownerAddresses: string[];
     providerAccountId: string;
@@ -41,7 +43,7 @@ export function verifyRuntimeSentEmail(input: {
     conversationId?: string;
 }): VerifiedEmailSentAssociation | null {
     const r = input.raw, e = input.evidence, b = input.binding;
-    if (!object(r) || r.object !== 'Email' || r.kind !== '2_full' || r.id !== e.emailId || r.account_id !== input.providerAccountId || e.providerAccountId !== input.providerAccountId || r.type !== { gmail: 'GOOGLE_OAUTH', outlook: 'OUTLOOK', imap: 'MAIL' }[b.platform as 'gmail' | 'outlook' | 'imap'] || r.role !== 'sent' || r.message_id !== e.rfcMessageId || r.date !== e.occurredAt || !date(r.date) || !/^<[^<>@\s]+@[^<>@\s]+>$/.test(e.rfcMessageId) || e.recipient !== input.recipient || !object(r.from_attendee) || !input.ownerAddresses.includes(r.from_attendee.identifier as string) || !Array.isArray(r.to_attendees) || r.to_attendees.length !== 1 || !object(r.to_attendees[0]) || r.to_attendees[0].identifier !== input.recipient || ['cc_attendees', 'bcc_attendees'].some(k => r[k] !== undefined && (!Array.isArray(r[k]) || r[k].length)) || !Array.isArray(r.headers) || input.conversationId !== undefined && r.thread_id !== input.conversationId)
+    if (!object(r) || r.object !== 'Email' || r.kind !== '2_full' || r.id !== e.emailId || r.account_id !== input.providerAccountId || e.providerAccountId !== input.providerAccountId || r.type !== { gmail: 'GOOGLE_OAUTH', outlook: 'OUTLOOK', imap: 'MAIL' }[b.platform as 'gmail' | 'outlook' | 'imap'] || r.role !== 'sent' || r.message_id !== e.rfcMessageId || r.date !== e.occurredAt || !date(r.date,businessNow(input.businessClock)) || !/^<[^<>@\s]+@[^<>@\s]+>$/.test(e.rfcMessageId) || e.recipient !== input.recipient || !object(r.from_attendee) || !input.ownerAddresses.includes(r.from_attendee.identifier as string) || !Array.isArray(r.to_attendees) || r.to_attendees.length !== 1 || !object(r.to_attendees[0]) || r.to_attendees[0].identifier !== input.recipient || ['cc_attendees', 'bcc_attendees'].some(k => r[k] !== undefined && (!Array.isArray(r[k]) || r[k].length)) || !Array.isArray(r.headers) || input.conversationId !== undefined && r.thread_id !== input.conversationId)
         return null;
     const headers = r.headers.filter(h => object(h) && typeof h.name === 'string' && h.name.toLowerCase() === 'message-id');
     if (headers.length !== 1 || headers[0].value !== e.rfcMessageId)
@@ -50,6 +52,7 @@ export function verifyRuntimeSentEmail(input: {
     return { receipt, rfcMessageId: e.rfcMessageId, evidenceDigest: createHash('sha256').update(JSON.stringify(['communications.verified-email.v1', b, input.providerAccountId, e, input.recipient, input.conversationId ?? null, r.id, r.message_id, r.date, r.from_attendee, r.to_attendees, r.headers, r.thread_id ?? null])).digest('hex') };
 }
 export interface RuntimeEmailOptions {
+    businessClock?:BusinessClock;
     pool: SqlPool;
     connection: RuntimeConnection;
     store: AccountRuntimeRepository;
@@ -85,7 +88,7 @@ export function createRuntimeEmail(options: RuntimeEmailOptions): {
             const result = await transport.getEmail(owner.providerAccountId, input.evidence.emailId, { signal });
             if (result.kind !== 'success' || result.status !== 200)
                 return null;
-            const proof = verifyRuntimeSentEmail({ binding: b, ownerAddresses: addresses, providerAccountId: owner.providerAccountId, raw: result.data, evidence: input.evidence, recipient: input.recipient, ...(input.conversationId ? { conversationId: input.conversationId } : {}) });
+            const proof = verifyRuntimeSentEmail({ businessClock:options.businessClock, binding: b, ownerAddresses: addresses, providerAccountId: owner.providerAccountId, raw: result.data, evidence: input.evidence, recipient: input.recipient, ...(input.conversationId ? { conversationId: input.conversationId } : {}) });
             await store.requireGrant({ ...accessScope });
             return proof;
         } });
@@ -122,6 +125,6 @@ export function createRuntimeEmail(options: RuntimeEmailOptions): {
             return null;
         return { providerAccountId: owner.providerAccountId, recipient: input.recipient, message, rfcMessageId: rfc, ...(conversation ? { conversation } : {}) };
     }
-    const raw = createUnipileV1EmailAdapter({ connection: { binding: b, status: connection.status, capabilities: owner.capabilities, providerAccountId: owner.providerAccountId }, providerAccountId: owner.providerAccountId, sourceId: owner.sourceId, ownerAddresses: addresses, transport, verifyOwner: input => ownership(input.signal), verifyOriginal: original });
+    const raw = createUnipileV1EmailAdapter({ ...(options.businessClock?{businessClock:options.businessClock}:{}),connection: { binding: b, status: connection.status, capabilities: owner.capabilities, providerAccountId: owner.providerAccountId }, providerAccountId: owner.providerAccountId, sourceId: owner.sourceId, ownerAddresses: addresses, transport, verifyOwner: input => ownership(input.signal), verifyOriginal: original });
     return { provider: createTrackedEmailSubmission({ producer: raw, tracking }), tracking };
 }

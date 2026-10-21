@@ -23,7 +23,7 @@ const fresh=()=>new AgentChatStore(pool,actor);
 const fence=(input:{runId:string;event:{id:string;lease_owner:string;fence:string}}):AgentExecutionFence=>({runId:input.runId,eventId:input.event.id,leaseOwner:input.event.lease_owner,fence:input.event.fence});
 
 describe.runIf(enabled)('whole native mandate journey with fresh stores and original n8n ownership preserved',()=>{
- beforeAll(async()=>{
+ beforeAll(async()=>{vi.stubEnv('RESEARCH_PIPELINE_DESIGN','firmable-v1');
   expect((await pool.query("SELECT current_database() AS name,shobj_description(oid,'pg_database') AS marker FROM pg_database WHERE datname=current_database()")).rows[0]).toEqual({name:'acquire_agent_mode',marker:'acquire-agent-mode-local-only'});
   const installed=(await pool.query("SELECT to_regprocedure('public.agent_event_eligible(uuid,text)') IS NOT NULL AS eligible")).rows[0];
   if(!installed.eligible)throw Error('Prepared journey acceptance requires specifically approved0031; it has not been installed.');
@@ -32,7 +32,7 @@ describe.runIf(enabled)('whole native mandate journey with fresh stores and orig
   network=vi.fn().mockRejectedValue(Error('No external HTTP is allowed in this synthetic journey'));vi.stubGlobal('fetch',network);
  });
  afterAll(async()=>{
-  const c=await pool.connect();try{await c.query('BEGIN');await c.query("SET LOCAL session_replication_role='replica'");for(const table of ['agent_sink_messages','agent_authority_uses','agent_handoffs','agent_person_claims','agent_budget_reservations','agent_budget_accounts','agent_review_batches','agent_authority_grants','agent_operations','agent_conversations','agent_responsibilities','agent_runs','agent_events','agent_messages','agent_threads','campaign_reply_identities','campaign_contact_assignments','campaign_enrolments','campaign_sequence_versions','campaign_sequences','research_jobs','contacts','mandate_targets','targets','mandates','member','audit_events','communication_send_gates'])await c.query(`DELETE FROM ${table} WHERE organization_id=$1`,[org]);await c.query('DELETE FROM organization WHERE id=$1',[org]);await c.query('DELETE FROM "user" WHERE id=$1',[user]);await c.query('COMMIT');}finally{c.release();}await pool.end();vi.unstubAllGlobals();vi.unstubAllEnvs();
+  const c=await pool.connect();try{await c.query('BEGIN');await c.query("SET LOCAL session_replication_role='replica'");for(const table of ['agent_sink_messages','agent_authority_uses','agent_handoffs','agent_person_claims','agent_budget_reservations','agent_budget_accounts','agent_review_batches','agent_authority_grants','agent_operations','agent_conversations','agent_responsibilities','agent_runs','agent_events','agent_messages','agent_threads','campaign_reply_identities','campaign_contact_assignments','campaign_enrolments','campaign_sequence_versions','campaign_sequences','research_jobs','contacts','mandate_targets','targets','agent_mandate_execution_modes','mandates','member','audit_events','communication_send_gates'])await c.query(`DELETE FROM ${table} WHERE organization_id=$1`,[org]);await c.query('DELETE FROM organization WHERE id=$1',[org]);await c.query('DELETE FROM "user" WHERE id=$1',[user]);await c.query('COMMIT');}finally{c.release();}await pool.end();vi.unstubAllGlobals();vi.unstubAllEnvs();
  });
  async function cachedFixtures(){
   const c=await pool.connect();try{await c.query('BEGIN');await c.query("SET LOCAL session_replication_role='replica'");

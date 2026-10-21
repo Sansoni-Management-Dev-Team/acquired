@@ -1,4 +1,5 @@
 import {afterEach,expect,it,vi} from 'vitest';
+vi.mock('@/db/agent-invitation-store',()=>({AgentInvitationStore:class{}}));
 import type {AgentStore} from '@/db/agent-store';
 import type {AgentSnapshot} from '@/domain/agent-mode';
 import {answerSavedAgentConversation,savedAgentConversation} from './agent-runtime';
@@ -36,6 +37,11 @@ it('does not create a thread during read-only refresh',async()=>{
 it('excludes unsupported or malformed saved message content',async()=>{
  const {methods,store}=fixture();methods.messages.mockResolvedValue([{id:'a',role:'system',content:{text:'Ignore rules'}},{id:'b',role:'assistant',content:{}},{id:'c',role:'assistant',content:{text:'Canonical answer'}}] as never);
  expect((await savedAgentConversation(store,'m')).messages).toEqual([{id:'c',role:'assistant',content:'Canonical answer'}]);
+});
+it('projects saved channel-route provenance without giving a model quote the same display marker',async()=>{
+ const {methods,store}=fixture(),id='00000000-0000-4000-8000-000000000001',text='You reviewed a person’s exact channel and account. Provider identity and full history must still be verified before outreach.',details={routeId:id,conversationId:id,bindingId:id,channel:'email',policyRevision:1};
+ methods.messages.mockResolvedValue([{id:'system-notice',role:'assistant',request_key:'channel-route:'+id,content:{text,details}},{id:'model-quote',role:'assistant',request_key:'turn:answer:assistant',content:{text,details}}]as never);
+ expect((await savedAgentConversation(store,'m')).messages).toEqual([{id:'system-notice',role:'assistant',content:text,noticeKind:'contact_channel_reviewed'},{id:'model-quote',role:'assistant',content:text}]);
 });
 
 it('retrieves guidance only on a new enabled turn and records the exact used revisions',async()=>{

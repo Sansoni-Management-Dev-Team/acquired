@@ -1,3 +1,4 @@
+import {agentContactReviewBatchSize} from '@/domain/agent-mode';
 import {agentPersonChannelRecipientSchema,agentChannelIdentityProofSchema,type AgentPersonChannelRecipient} from '@/domain/agent-person-channel';
 import type {AgentGuidanceSnapshot} from './agent-guidance-snapshot';
 import {assessCompanyGuidance} from './agent-qualification-guidance';
@@ -36,7 +37,7 @@ export function buildAgentTargetSelection(context:AgentTargetContext,delivery:Ag
    if(ranked.scores.band==='excluded')reasons.push('excluded_by_mandate_review');
    fitRows=fit.rows.map(row=>({key:row.key,status:row.status,reason:row.reason.slice(0,160),sources:row.sources.filter(source=>source.length<=300).slice(0,1)}));
   }
-  if(reasons.length||selected.length>=5){excluded.push({contactId:candidate.contactId,reasons:reasons.length?reasons:['batch_limit'],...(guidanceAssessment?{guidanceAssessment}:{})});continue;}
+  if(reasons.length||selected.length>=agentContactReviewBatchSize){excluded.push({contactId:candidate.contactId,reasons:reasons.length?reasons:['batch_limit'],...(guidanceAssessment?{guidanceAssessment}:{})});continue;}
   emails.add(email);for(const key of candidate.identityKeys??[])identities.add(key);selected.push({contactId:candidate.contactId,targetId:candidate.targetId,...(manual?{sourceKind:'manual_contact' as const}:{}),name:candidate.name.trim()?candidate.name.slice(0,200):'Contact name not verified',recipient:email,...(delivery.mode==='channels'?{channels:candidate.channels}:{}),sourceRevision:candidate.sourceRevision,qualificationConfirmed:manual?false:assessment.qualificationConfirmed,...(guidanceAssessment?{guidanceAssessment}:{}),fit:fitRows});
  }
  const source={mandateRevision:context.mandateRevision,responsibilityId:context.responsibilityId,responsibilityRevision:context.responsibilityRevision,delivery,selected,...(context.guidance?{guidance:context.guidance}:{})};

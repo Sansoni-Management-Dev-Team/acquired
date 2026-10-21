@@ -1,6 +1,7 @@
 import {AgentRunLimitError} from '@/domain/agent-events';
 import {expect,it,vi} from 'vitest';
 import {runAgentEvent,type AgentEventWorkerPort} from './agent-event-worker';
+import {researchTraceContext} from './research-request-observability';
 const event={id:'event',thread_id:'thread',kind:'conversation.reassess',payload:{contextRevision:'v1'},lease_owner:'worker',fence:'1',attempts:1};
 function fixture(){
  const port={claimEvent:vi.fn().mockResolvedValue(event),beginEventRun:vi.fn().mockResolvedValue({kind:'started',runId:'run'}),eventRunCurrent:vi.fn().mockResolvedValue(true),finishEventRun:vi.fn().mockResolvedValue(true),deferEvent:vi.fn().mockResolvedValue(true)};
@@ -46,4 +47,24 @@ it('records an explicit bounded-run stop reason without exposing arbitrary excep
 it('claims a server-selected mandate only and refuses an unexpected returned mandate before a run starts',async()=>{
  const selected='00000000-0000-4000-8000-000000000037',f=fixture();f.mocks.claimEvent.mockResolvedValue({...event,mandate_id:selected});expect(await runAgentEvent({store:f.port,workerId:'worker',mandateId:selected,handlers:{'conversation.reassess':f.handler}})).toBe('complete');expect(f.mocks.claimEvent).toHaveBeenCalledWith('worker',60000,selected);
  const other=fixture();other.mocks.claimEvent.mockResolvedValue({...event,mandate_id:'00000000-0000-4000-8000-000000000038'});await expect(runAgentEvent({store:other.port,workerId:'worker',mandateId:selected,handlers:{'conversation.reassess':other.handler}})).rejects.toThrow('mandate scope');expect(other.mocks.beginEventRun).not.toHaveBeenCalled();expect(other.handler).not.toHaveBeenCalled();expect(other.mocks.finishEventRun).not.toHaveBeenCalled();
+});
+
+it('preserves an explicit business calendar defer through the fenced worker result',async()=>{
+ const f=fixture(),outcome={kind:'defer',timeBasis:'business',wakeAt:'2030-01-07T22:00:00.000Z',reason:'Next permitted sending window'};f.handler.mockResolvedValue(outcome);expect(await runAgentEvent({store:f.port,workerId:'worker',handlers:{'conversation.reassess':f.handler}})).toBe('defer');expect(f.mocks.finishEventRun).toHaveBeenCalledWith('run',event,outcome);
+});
+it('correlates concurrent events and inherited application trace by their own mandate and run without logging payloads',async()=>{
+ const log=vi.spyOn(console,'info').mockImplementation(()=>{});try{
+  const a=fixture(),b=fixture(),aEvent={...event,id:'event-A',thread_id:'thread-A',mandate_id:'mandate-A',payload:{secret:'PRIVATE CONTACT A'}},bEvent={...event,id:'event-B',thread_id:'thread-B',mandate_id:'mandate-B',payload:{secret:'PRIVATE CONTACT B'}};a.mocks.claimEvent.mockResolvedValue(aEvent);b.mocks.claimEvent.mockResolvedValue(bEvent);a.mocks.beginEventRun.mockResolvedValue({kind:'started',runId:'run-A'});b.mocks.beginEventRun.mockResolvedValue({kind:'started',runId:'run-B'});
+  let entered=0,release!:()=>void;const gate=new Promise<void>(resolve=>{release=resolve;}),observed:ReturnType<typeof researchTraceContext>[]=[];
+  const handler=async()=>{if(++entered===2)release();await gate;await Promise.resolve();observed.push(researchTraceContext());return{kind:'complete' as const};};
+  expect(await Promise.all([runAgentEvent({store:a.port,workerId:'worker-A',handlers:{'conversation.reassess':handler}}),runAgentEvent({store:b.port,workerId:'worker-B',handlers:{'conversation.reassess':handler}})])).toEqual(['complete','complete']);expect(observed).toEqual(expect.arrayContaining([{mandateId:'mandate-A',runId:'run-A'},{mandateId:'mandate-B',runId:'run-B'}]));
+  const logs=log.mock.calls.filter(([tag])=>tag==='agent-event-worker').map(([,value])=>JSON.parse(value));for(const suffix of['A','B']){const own=logs.filter(row=>row.eventId==='event-'+suffix);expect(own.map(row=>row.stage)).toEqual(['event_claimed','run_started','run_terminal']);expect(own.every(row=>row.mandateId==='mandate-'+suffix&&row.threadId==='thread-'+suffix&&row.eventKind==='conversation.reassess')).toBe(true);expect(own.at(-1)).toMatchObject({runId:'run-'+suffix,outcome:'complete',elapsedMs:expect.any(Number)});}expect(JSON.stringify(logs)).not.toMatch(/PRIVATE|CONTACT|payload|lease_owner|worker-A|worker-B/);expect(researchTraceContext()).not.toHaveProperty('mandateId');
+ }finally{log.mockRestore();}
+});
+it('logs only bounded review failure and lost-run diagnostics while preserving the original fenced outcome',async()=>{
+ const log=vi.spyOn(console,'info').mockImplementation(()=>{});try{
+  const f=fixture(),claimed={...event,mandate_id:'mandate-review',payload:{contact:'PRIVATE PERSON',key:'PRIVATE KEY'}};f.mocks.claimEvent.mockResolvedValue(claimed);f.handler.mockRejectedValue(Object.assign(Error('PRIVATE SQL and token'),{name:'PRIVATE ERROR',code:'40P01'}));f.mocks.finishEventRun.mockResolvedValue(false);
+  expect(await runAgentEvent({store:f.port,workerId:'private-worker-key',handlers:{'conversation.reassess':f.handler}})).toBe('lost');expect(f.mocks.finishEventRun).toHaveBeenCalledWith('run',claimed,expect.objectContaining({kind:'review'}));
+  const logs=log.mock.calls.filter(([tag])=>tag==='agent-event-worker').map(([,value])=>JSON.parse(value));expect(logs).toContainEqual(expect.objectContaining({stage:'review_failure',mandateId:'mandate-review',threadId:'thread',eventId:'event',runId:'run',errorName:'Error',databaseCode:'40P01'}));expect(logs.at(-1)).toMatchObject({stage:'run_lost',outcome:'lost',elapsedMs:expect.any(Number)});expect(JSON.stringify(logs)).not.toMatch(/PRIVATE|private-worker|payload|message|contact|fence|lease/);
+ }finally{log.mockRestore();}
 });

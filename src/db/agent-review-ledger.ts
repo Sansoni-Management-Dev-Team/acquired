@@ -7,11 +7,12 @@ export type AgentReviewDecisionPersistence = {
   batchId: string;
   manifest: AgentReviewItem[];
   decision: "approved" | "rejected";
+  approvalSource?: "automatic_demo";
 };
 
-/** Ledger writes only. The caller owns the transaction, thread/batch locks
- * and exact-manifest/current-operation validation. Dispatch still requires
- * fresh admission; this collaborator does not grant authority. */
+/** Ledger writes only. The caller owns the transaction, thread/batch locks,
+ * exact-manifest/current-operation validation and automatic-attribution gate.
+ * These writes record a review decision; dispatch still requires fresh admission. */
 export async function insertAgentReviewBatch(
   client: PoolClient,
   thread: AgentThread,
@@ -35,15 +36,15 @@ export async function insertAgentReviewBatch(
   ).rows[0];
 }
 
-/** Persist operation state, batch decision, outbox event and user message in
- * this order on the caller's same client; its transaction handles rollback. */
+/** Keep operation state, batch decision, outbox event and attributed message in
+ * this order on the caller's same client. Any failure must abort that transaction. */
 export async function persistAgentReviewDecision(
   client: PoolClient,
   thread: AgentThread,
   actorUserId: string,
   input: AgentReviewDecisionPersistence,
 ) {
-  const { batchId, manifest, decision } = input;
+  const { batchId, manifest, decision, approvalSource } = input;
   await client.query(
     "UPDATE agent_operations SET state=$2,updated_at=now() WHERE id=ANY($1::uuid[])",
     [manifest.map((item) => item.operationId), decision],
@@ -54,7 +55,12 @@ export async function persistAgentReviewDecision(
       [batchId, decision, actorUserId],
     )
   ).rows[0];
-  const payload = { reviewBatchId: batchId, decision, items: manifest };
+  const payload = {
+    reviewBatchId: batchId,
+    decision,
+    items: manifest,
+    ...(approvalSource ? { approvalSource } : {}),
+  };
   await client.query(
     `INSERT INTO agent_events(thread_id,organization_id,mandate_id,owner_user_id,event_key,kind,payload,payload_digest)
        VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
@@ -69,24 +75,27 @@ export async function persistAgentReviewDecision(
       digest(payload),
     ],
   );
+  const role = approvalSource ? "assistant" : "user";
   const content = {
-    text:
-      decision === "approved"
+    text: approvalSource
+      ? "Automatically approved these demo items. I’ll check that everything is ready before continuing."
+      : decision === "approved"
         ? "You approved the displayed proposals. Execution will recheck current permissions and conversation state."
         : "You rejected the displayed proposals.",
     ...payload,
   };
   await client.query(
     `INSERT INTO agent_messages(thread_id,organization_id,mandate_id,owner_user_id,request_key,role,content,content_digest)
-       VALUES($1,$2,$3,$4,$5,'user',$6,$7)`,
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,
     [
       thread.id,
       thread.organization_id,
       thread.mandate_id,
       thread.owner_user_id,
       "review:" + batchId + ":" + decision,
+      role,
       JSON.stringify(content),
-      digest({ role: "user", content }),
+      digest({ role, content }),
     ],
   );
   return updated;

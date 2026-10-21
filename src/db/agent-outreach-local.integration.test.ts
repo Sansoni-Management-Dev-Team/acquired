@@ -157,7 +157,7 @@ describe.runIf(enabled)('native email proposals and approved local sink',()=>{
    const before=(await store.messages(thread)).length,start=new Date();start.setUTCHours(0,0,0,0);start.setUTCDate(start.getUTCDate()+3);
    await expect(store.configureExecutionBudget(thread,randomUUID(),{scope:'organization',unit:'calls',windowStart:start.toISOString(),windowEnd:new Date(start.getTime()+86400000).toISOString(),cap:'999',expectedRevision:0})).rejects.toThrow();
    expect((await store.messages(thread)).length).toBe(before);
-   expect((await store.budgetSettings(mandate)).accounts.some(item=>item.window_start.toISOString()===start.toISOString())).toBe(false);
+   expect((await store.budgetSettings(mandate)).accounts.some(item=>new Date(item.window_start).toISOString()===start.toISOString())).toBe(false);
   }finally{await role('owner');client.release();}
  });
 
