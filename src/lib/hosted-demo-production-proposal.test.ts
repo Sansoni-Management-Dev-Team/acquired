@@ -4,7 +4,7 @@ import { expect, it } from 'vitest';
 
 const directory = new URL('../../ops/agent-mode/production-proposals/', import.meta.url);
 const read = (name: string) => readFileSync(new URL(name, directory), 'utf8');
-const native = read('001-native-agent-baseline-v2.proposed.sql');
+const native = read('001-native-agent-baseline-v3.proposed.sql');
 const hosted = read('002-hosted-demo-registration.proposed.sql');
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 function body(sql: string, name: string) {
@@ -16,9 +16,11 @@ function body(sql: string, name: string) {
 
 it('pins the exact reviewed artifacts and separates production from an empty isolated rehearsal', () => {
   const manifest = JSON.parse(read('approval-manifest.json'));
-  const correction = JSON.parse(read('001-native-agent-baseline-v2.review.json'));
+  const correction = JSON.parse(read('001-native-agent-baseline-v3.review.json'));
   expect(digest(native)).toBe(correction.sha256);
-  expect(native).toBe(read(correction.supersedes.file).replace('DEFAULT public.local_simulator_business_now()', 'DEFAULT public.agent_business_now()'));
+  let predecessor = read(correction.supersedes.file);
+  for (const key of correction.retainedExistingKeys) predecessor = predecessor.replace(`-- Name: user ${key.name}; Type: CONSTRAINT\nALTER TABLE ONLY public."user"\n    ADD CONSTRAINT ${key.name} ${key.definition};\n\n`, '');
+  expect(native.replace(" IF (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='public.\"user\"'::regclass AND conname='user_email_unique') IS DISTINCT FROM 'UNIQUE (email)'\n OR (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='public.\"user\"'::regclass AND conname='user_pkey') IS DISTINCT FROM 'PRIMARY KEY (id)'\n THEN RAISE EXCEPTION 'Reviewed existing user keys required';END IF;\n", '')).toBe(predecessor);
   for (const artifact of manifest.artifacts) expect(digest(read(artifact.file))).toBe(artifact.sha256);
   for (const sql of [native, hosted]) {
     expect(sql).toContain("target->>'environment'='production'");
@@ -66,4 +68,9 @@ it('adds only nullable execution context to old dispatch intents and preserves s
 it('uses only the production wall clock in table defaults', () => {
   expect(native).not.toMatch(/DEFAULT public\.local_simulator_business_now\(\)/);
   expect(native).toContain('available_at timestamp with time zone DEFAULT public.agent_business_now() NOT NULL');
+});
+
+it('preserves the existing user primary and email keys instead of trying to recreate them', () => {
+  expect(native.match(/ALTER TABLE ONLY public\."user"\s+ADD CONSTRAINT user_(?:email_unique|pkey)[\s\S]*?;/g) ?? []).toHaveLength(0);
+  expect(native).toContain('Reviewed existing user keys required');
 });
