@@ -2,9 +2,7 @@
 
 Tracking: [L0D499CD9-177](https://plane.mlai.au/mlai/browse/L0D499CD9-177/), AC01/AC02. Audited 21 October 2026 in `project-acquire-agent-mode`, branch `codex/agent-mode-exploration`, original HEAD `dc89e00` plus the existing dirty tree. This consolidates the named review candidates, their dispositions and current consumers. Test execution evidence and remaining acceptance belong to the dated progress entries; this inventory does not claim release or complete removal of all unused symbols.
 
-The tables below describe the reviewed **working tree**. Twelve independent cleanup commits now package the corresponding behavior from the committed branch base; see the [commit handoff](agent-cleanup-review-handoff.md). They preserve the base's 17-operation review family, version-1 research, human review attribution and original clocks. Richer operation, clock, causality and demo behavior in the working tree remains owned by the separate feature changes.
-
-The `nextTestMandate` removal and required conversation renderer are still feature-dependent: the committed Home page calls the cycling API, and its committed controls panel still uses the original layout as its only renderer. Their current working-tree cleanup must land with those caller changes. Compatibility tests/harness fixes and the new bootstrap operator exception likewise need the feature base. These are recorded explicitly rather than staged through whole-file copies.
+The tables below describe the original reviewed working-tree snapshot. Thirteen independent cleanup commits ending `37acbbb` package the corresponding older-base behavior; feature checkpoint `67b7c74` now integrates the richer feature versions and every previously dependent cleanup hunk. See the [final commit handoff](agent-cleanup-review-handoff.md) for exact verification and scope separation. No `nextTestMandate`, controls-renderer, bootstrap, compatibility-test or benchmark cleanup remains uncommitted. Four newer UI edits are separate work owned by the other thread.
 
 ## Removed or relocated named candidates
 
