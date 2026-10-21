@@ -36,6 +36,8 @@ All are POST JSON. The independently configured application credential uses `Aut
 | `/api/agent/hosted-demo/coverage` | Existing application coverage projector. The service retains its real coverage transaction until application commit; full original wire digest revalidation is mandatory. |
 | `/api/agent/hosted-demo/events` | Existing application reply consumer and exact durable receipt/ACK. The service retains the actual outbox lease; full original event wire digest revalidation is mandatory. |
 
+Behind the deployed HTTPS proxy, Next's request URL may name the internal listener. The runtime explicitly pins the existing production listen metadata and accepts that internal origin only with the independently configured public Host and HTTPS proxy protocol. Request and forwarded headers never choose the trusted public origin. All private credentials, run, audience and current membership checks still apply. Unknown public/listener origins refuse before data access.
+
 Provisioning phase permits only the membership `/access` probe. Authority, recipient, coverage and event callbacks are refused until active. Ordinary signed SDK account setup/list/status are available through the separately configured service. Provisioning cannot send.
 
 ## Setup and registration order

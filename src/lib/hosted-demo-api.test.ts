@@ -48,3 +48,21 @@ it('passes only original live held coverage and event proofs to application comm
  for(const patch of[{expiresAt:'2000-01-01T00:00:00.000Z'},{expiresAt:new Date(Date.now()+60000).toISOString()},{subscriberId:'primary-subscriber'},{coverage:{...coverage.coverage,binding:{...binding,ownerId:'foreign'}}}])expect((await handler(request('coverage',{...coverage,...patch}))).status).toBe(400);expect(projectCoverage).toHaveBeenCalledOnce();
  deliverEvents.mockResolvedValue({...ack,eventId:'2'});expect((await handler(request('events',event))).status).toBe(503);
 });
+
+it('accepts the explicit container listening origin only through the configured public proxy authority',async()=>{
+ const f=setup(),handler=createHostedDemoRequestHandler({descriptor,key,authorizeCurrent:f.authorizeCurrent,authority:{execute:f.execute},resolveRecipient:f.resolveRecipient,proxyListenOrigin:'https://0.0.0.0:3000'});
+ const proxied=(origin:string,patch:Record<string,string>={})=>new Request(origin+'/api/agent/hosted-demo/access',{method:'POST',headers:{...headers,host:new URL(d.applicationOrigin).host,'x-forwarded-proto':'https',...patch},body:JSON.stringify({version:1})});
+ expect((await handler(proxied('https://0.0.0.0:3000'))).status).toBe(200);
+ for(const [origin,patch] of [
+  ['https://foreign.example.invalid',{}],['https://0.0.0.0:3001',{}],['http://0.0.0.0:3000',{}],
+  ['https://0.0.0.0:3000',{host:'foreign.example.invalid'}],['https://0.0.0.0:3000',{'x-forwarded-proto':'http'}],
+  ['https://0.0.0.0:3000',{host:''}],['https://0.0.0.0:3000',{'x-forwarded-proto':''}],
+ ] as [string,Record<string,string>][]) expect((await handler(proxied(origin,patch))).status).toBe(404);
+ expect((await f.handler(proxied('https://0.0.0.0:3000'))).status).toBe(404);
+ expect((await handler(proxied('https://0.0.0.0:3000',{Authorization:'Bearer wrong'}))).status).toBe(403);
+ expect(f.authorizeCurrent).toHaveBeenCalledOnce();expect(f.execute).not.toHaveBeenCalled();expect(f.resolveRecipient).not.toHaveBeenCalled();
+});
+
+it('refuses an internal listener configuration that could admit another public authority',()=>{
+ const f=setup();for(const proxyListenOrigin of ['https://foreign.example.invalid','https://0.0.0.0','http://0.0.0.0:3000','https://0.0.0.0:3000/path','https://user:secret@0.0.0.0:3000'])expect(()=>createHostedDemoRequestHandler({descriptor,key,authorizeCurrent:f.authorizeCurrent,authority:{execute:f.execute},resolveRecipient:f.resolveRecipient,proxyListenOrigin})).toThrow();
+});

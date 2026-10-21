@@ -51,13 +51,14 @@ function createRuntime(env:Record<string,string|undefined>){
  const authority=createHostedDemoAuthorityRegistry({scope:descriptor.actor,admission});
  const subscriberId=env.AGENT_HOSTED_DEMO_SUBSCRIBER_ID??'acquire-hosted-demo-replies';if(!subscriberId||subscriberId.length>200||subscriberId!==subscriberId.trim()||/[\u0000-\u001f\u007f]/.test(subscriberId))fail();
  const bridge=createHostedDemoProofBridge({descriptor,pool,codec,subscriberId,localBinding,serviceRequest});
- const handler=createHostedDemoRequestHandler({descriptor,key:env.AGENT_HOSTED_DEMO_APP_AUTH_KEY!,subscriberId,authority,resolveRecipient:createHostedDemoRecipientResolver(descriptor,db),authorizeCurrent:createHostedDemoAccessProbe(descriptor,pool),projectCoverage:bridge.projectCoverage,deliverEvents:bridge.deliverEvents});
+ const proxyListenOrigin=env.NODE_ENV==='production'&&env.HOSTNAME==='0.0.0.0'&&/^[1-9][0-9]{0,4}$/.test(env.PORT??'')?new URL(descriptor.applicationOrigin).protocol+'//'+env.HOSTNAME+':'+env.PORT:undefined;
+ const handler=createHostedDemoRequestHandler({descriptor,proxyListenOrigin,key:env.AGENT_HOSTED_DEMO_APP_AUTH_KEY!,subscriberId,authority,resolveRecipient:createHostedDemoRecipientResolver(descriptor,db),authorizeCurrent:createHostedDemoAccessProbe(descriptor,pool),projectCoverage:bridge.projectCoverage,deliverEvents:bridge.deliverEvents});
  return{descriptor,handler,admission,serviceRequest,localBinding,subscriberId,applicationCodec:codec,applicationPool:pool,close:authority.close};
 }
 let configured:ReturnType<typeof createRuntime>|undefined,fingerprint:string|undefined;
 export function configuredHostedDemoRuntime(){
  if(process.env.AGENT_HOSTED_DEMO_COMMUNICATIONS_ENABLED!=='true')return fail();
- const hash=createHash('sha256').update(JSON.stringify([process.env.AGENT_HOSTED_DEMO_COMMUNICATIONS_DESCRIPTOR_JSON,process.env.AGENT_HOSTED_DEMO_APP_AUTH_KEY,process.env.AGENT_HOSTED_DEMO_SERVICE_AUTH_KEY,process.env.ACQUIRE_COMMUNICATIONS_KEYRING_JSON,process.env.ACQUIRE_COMMUNICATIONS_ACTIVE_KEY_VERSION,process.env.NODE_ENV,process.env.APP_URL,process.env.DATABASE_URL,process.env.COMMUNICATIONS_RUNTIME_ENABLED])).digest('hex');
+ const hash=createHash('sha256').update(JSON.stringify([process.env.AGENT_HOSTED_DEMO_COMMUNICATIONS_DESCRIPTOR_JSON,process.env.AGENT_HOSTED_DEMO_APP_AUTH_KEY,process.env.AGENT_HOSTED_DEMO_SERVICE_AUTH_KEY,process.env.ACQUIRE_COMMUNICATIONS_KEYRING_JSON,process.env.ACQUIRE_COMMUNICATIONS_ACTIVE_KEY_VERSION,process.env.NODE_ENV,process.env.APP_URL,process.env.DATABASE_URL,process.env.COMMUNICATIONS_RUNTIME_ENABLED,process.env.HOSTNAME,process.env.PORT])).digest('hex');
  if(configured){if(hash!==fingerprint)fail();return configured;}configured=createRuntime({...process.env});fingerprint=hash;return configured;
 }
 export async function hostedDemoRequest(request:Request){
