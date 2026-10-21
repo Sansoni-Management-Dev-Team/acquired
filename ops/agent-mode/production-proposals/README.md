@@ -4,6 +4,22 @@ All artifacts here are **proposals, unapplied on every database**. Creating a ne
 
 The production app was inspected inside its actual healthy container at source `a62ea79`. Its verified-TLS PostgreSQL17 database is Supabase `njasjqpztiteionfxxul`, database `postgres`, owner `postgres`, system identifier `7678071634733212629`. It has no native agent tables or agent roles. The configured hosted actor is a current organization owner; the organization has 76 mandates, 3,564 companies and 2,997 contacts. These are read-only observations, not exported person profiles.
 
+## Current replacement requiring specific approval
+
+Corrected `001-v2` was specifically approved, then rolled back in rehearsal because it redundantly re-added the already-existing `user_email_unique` and `user_pkey` constraints. **Do not apply original `001` or `001-v2`.**
+
+The current proposal is `001-native-agent-baseline-v3.proposed.sql`, SHA-256 `f3fd9ee8d7b47c5ffcb771f176ddb80fc018bf31de204b1bb8dfe4968b3fa81c`. It preserves those two existing keys, adds exact predecessor-definition checks for them, and retains the approved production real-time default. Its reviewed diff is relative to approved `001-v2`; all other bytes and all native function bodies remain unchanged. A complete parsed-statement comparison with the actual empty rehearsal catalog found only the two already-intended replacements (the dispatch source-kind check and policy-fence function), with no other relation, constraint, function, trigger or policy name collisions. This static catalog audit does not establish runtime/permission behaviour. Original `002` is unchanged and unattempted.
+
+`001-v3` requires fresh specific approval for rehearsal and production only after all rehearsal checks pass. Production schema remains unchanged. Existing native roles/tables from failed attempts were rolled back. Ordinary, separately authorized simulated account setup has saved three original connection bindings in the existing application schema; it did not register a run, approve/send outreach or install native schema.
+
+## Rehearsal corrections (22 October)
+
+The user approved the exact original package. The schema-only rehearsal bootstrap rolled back because its prerequisite roles omitted `supabase_admin`. The separately approved private `000-isolated-rehearsal-baseline-v2.proposed.sql` adds only that NOLOGIN/NOSUPERUSER/NOBYPASSRLS role and passed on the network-none rehearsal cluster, system identifier `7699248227334438947`.
+
+Original `001` then rolled back completely at the `agent_events.available_at` default because it still named the deliberately excluded local simulator clock. **Do not apply original `001`.** Its preserved bytes/hash are historical review evidence. The proposed replacement is `001-native-agent-baseline-v2.proposed.sql`, SHA-256 `2a712a1a93c609d5372debfae0925668b57f7366c27f5b4fd6749ae40190ebd2`. Its only change uses the existing production `agent_business_now()` real-time function for that default. The exact one-line diff and target/hash supplement are beside it. All function bodies, guards, permissions and production scope remain byte-identical. Original `002` is unchanged.
+
+The corrected `001` requires fresh specific approval for rehearsal and conditional production application. Production database remains unchanged, and `002` has not been attempted. Execute neither corrected file nor production work merely because this proposal was committed. After approval, continue with corrected `001` and unchanged `002` on the already bootstrapped empty rehearsal; verify actual PostgreSQL behaviour before production.
+
 ## Exact proposed operations
 
 1. Create a new disposable PostgreSQL17 container named `acquire-hosted-demo-rehearsal-postgres`, with database `acquire_hosted_demo_rehearsal`, no network, no published ports and temporary storage. Load **only the captured production schema**, with no production rows, using the private bootstrap below. Existing local databases remain untouched.

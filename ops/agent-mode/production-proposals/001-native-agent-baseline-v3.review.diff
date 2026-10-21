@@ -1,0 +1,27 @@
+--- 001-native-agent-baseline-v2.proposed.sql
++++ 001-native-agent-baseline-v3.proposed.sql
+@@ -36,6 +36,9 @@
+  OR (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='public.communication_dispatch_intents'::regclass AND conname='communication_dispatch_intents_source_kind_check') IS DISTINCT FROM 'CHECK ((source_kind = ANY (ARRAY[''campaign''::text, ''draft''::text])))'
+  OR EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='communication_dispatch_intents' AND column_name IN('execution_mandate_id','execution_context_digest','execution_mode'))
+  THEN RAISE EXCEPTION 'Production predecessor differs from reviewed inventory';END IF;
++ IF (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='public."user"'::regclass AND conname='user_email_unique') IS DISTINCT FROM 'UNIQUE (email)'
++ OR (SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid='public."user"'::regclass AND conname='user_pkey') IS DISTINCT FROM 'PRIMARY KEY (id)'
++ THEN RAISE EXCEPTION 'Reviewed existing user keys required';END IF;
+ END $target$;
+ CREATE ROLE acquire_agent_user NOLOGIN NOSUPERUSER NOBYPASSRLS;
+ CREATE ROLE acquire_agent_worker NOLOGIN NOSUPERUSER NOBYPASSRLS;
+@@ -5332,14 +5335,6 @@
+ -- Name: company_membership_projections company_membership_projections_pkey; Type: CONSTRAINT
+ ALTER TABLE ONLY public.company_membership_projections
+     ADD CONSTRAINT company_membership_projections_pkey PRIMARY KEY (organization_id, mandate_id, target_id);
+-
+--- Name: user user_email_unique; Type: CONSTRAINT
+-ALTER TABLE ONLY public."user"
+-    ADD CONSTRAINT user_email_unique UNIQUE (email);
+-
+--- Name: user user_pkey; Type: CONSTRAINT
+-ALTER TABLE ONLY public."user"
+-    ADD CONSTRAINT user_pkey PRIMARY KEY (id);
+ 
+ -- Name: agent_authority_scope_idx; Type: INDEX
+ CREATE INDEX agent_authority_scope_idx ON public.agent_authority_grants USING btree (thread_id) WHERE (revoked_at IS NULL);
