@@ -28,7 +28,11 @@ ops/app/**
 !ops/app/Dockerfile
 !ops/app/build.mjs
 !ops/app/runtime.mjs
+!ops/app/agent-background-worker.mjs
 !ops/app/campaign-readiness.mjs
+!ops/agent-mode
+ops/agent-mode/**
+!ops/agent-mode/native-worker.mjs
 !scripts
 scripts/**
 !scripts/campaign-rollout-readiness.mjs
