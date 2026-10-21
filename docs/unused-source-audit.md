@@ -1,0 +1,16 @@
+# Repeatable unused-source review
+
+Run `npm run audit:unused` from the repository root. The audit parses source syntax with the already-installed TypeScript compiler; it never imports application modules, executes operator scripts, contacts a service, or changes files. Its focused regression suite is `node --test scripts/audit-unused-source.test.mjs`, also discovered by `npm run test:node`.
+
+The JSON report separates modules unreachable from known entries (`candidates`), modules reachable only from tests (`testOnly`), stale explicit entry declarations (`missingEntries`), and computed imports/requires needing manual inspection (`dynamicReferences`, path and line only). A report is an inventory for review, not permission to delete. It exits successfully after reporting candidates; it is not a zero-unused-code CI gate.
+
+Entry rules deliberately cover several execution surfaces:
+
+- Next App Router file conventions and instrumentation/proxy hooks are automatic, including authorization fallbacks. Route groups and nested routes are supported.
+- Every non-test source file under `scripts/` and `testing/` is conservatively an entry. This retains operator and harness utilities even when a command invokes them outside the application import graph.
+- Worker mains, configuration/compiled fixture command entries, reusable communications package exports and ignored private operator dependencies are listed with reasons in `scripts/unused-source-entries.json`. Add or remove entries as those consumers change. Missing explicit paths are reported rather than silently accepted.
+- Test/spec/selftest files are separate test roots. Imports, re-exports, literal dynamic imports, CommonJS require calls and literal `new URL(..., import.meta.url)` references are followed. `@/` aliases resolve under `src/`; explicit JavaScript implementations remain visible when adjacent TypeScript declarations supply their types.
+
+Before removing a candidate, inspect its public and private consumers. Use `rg -n 'ModuleName|module-path' src cloudflare communications scripts testing ops docs`, then a focused private **filenames-only** search such as `rg -l --hidden 'module-path' .local-data/agent-mode-orbstack --glob '*.ts' --glob '*.mjs' --glob '*.cjs' --glob '!**/evidence/**'`. Inspect only relevant structural imports/calls; do not print credentials or whole private files. Confirm command/config/build references, saved fixtures and worker exports. Record retained exceptions with reasons in `scripts/unused-source-entries.json`, protect active behavior with characterization, then rerun the audit and affected tests.
+
+The audit does not detect unused exported symbols, unused parameters, string-built build entrypoints, reflection, data-driven module selection, shell/Python consumers, or private files. It intentionally includes type-only imports and treats all script/harness helpers as entries; those choices can retain code which a deeper manual review could remove. It excludes hidden, generated/dependency/vendor directories, symlinks and declarations. Extend the roots/entry configuration and fixture tests when a new execution convention is introduced. ESLint, fresh typecheck, consumer inspection and actual boundary tests remain independent checks.
