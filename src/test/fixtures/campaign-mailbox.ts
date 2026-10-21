@@ -1,6 +1,6 @@
 // Historical synthetic campaign fixture only; never imported by production.
 import "server-only";
-import type { Delivery, OutboundMessage } from "@/domain/email-message";
+import type { Delivery, OutboundMessage } from "./email-message";
 import { type GmailConnectionGrant } from "@/test/fixtures/gmail-connection";
 import { ReplyCheckReview } from "@/lib/campaign-reply-status";
 import { campaignReadSignal } from "@/lib/campaign-work-budget";

@@ -1,3 +1,5 @@
+import {durableAgentEnabled} from "@/lib/agent-runtime";
+import Link from "next/link";
 import { mandatePeopleHref } from "@/domain/mandate-navigation";
 import { notFound, redirect, permanentRedirect } from "next/navigation";
 import { z } from "zod";
@@ -29,8 +31,13 @@ async function MandateContent({ id, requested }: { id: string; requested: string
     const companies = await new CompanyListRepository(organizationId).load(id,defaultCompanyListQuery);
     if (!companies || 'unchanged' in companies) notFound();
     const initial = { mandate, memberships: [], coverage: [], valuations: [], buyerProfile: null, contacts: [], firmableRefreshes: [] };
-    return <MandateWorkspace key={`${id}:${tab}`} mandates={mandates} initial={initial} initialCompanies={companies} tab={tab} />;
+    return <><AgentEntry id={id} /><MandateWorkspace learningEnabled={process.env.AGENT_GUIDANCE_ENABLED==='true'&&process.env.AGENT_MODE_EXPLORATION_ENABLED==='true'&&durableAgentEnabled()} key={`${id}:${tab}`} mandates={mandates} initial={initial} initialCompanies={companies} tab={tab} /></>;
   }
   const initial = { mandate, memberships: [], coverage: [], valuations: [], buyerProfile: null, contacts: [], firmableRefreshes: [] };
-  return <MandateWorkspace key={`${id}:${tab}`} mandates={mandates} initial={initial} tab={tab} />;
+  return <><AgentEntry id={id} /><MandateWorkspace learningEnabled={process.env.AGENT_GUIDANCE_ENABLED==='true'&&process.env.AGENT_MODE_EXPLORATION_ENABLED==='true'&&durableAgentEnabled()} key={`${id}:${tab}`} mandates={mandates} initial={initial} tab={tab} /></>;
+}
+
+function AgentEntry({ id }: { id: string }) {
+  if (process.env.AGENT_MODE_EXPLORATION_ENABLED !== "true") return null;
+  return <div className="px-5 pt-4 sm:px-8"><Link href={`/mandates/${id}/agent`} className="text-sm text-[var(--muted)] underline underline-offset-4">Open agent workspace · research preview →</Link></div>;
 }

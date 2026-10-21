@@ -1,3 +1,4 @@
+import {emailBounceSemantics} from './email-bounce';
 import type { ConnectionBinding } from '../../contracts/src';
 import { parseEventPayload,type EventPayload } from './event-codec';
 import { assertSameBinding } from '../../contracts/src';
@@ -40,8 +41,10 @@ function delivery(v:unknown,expected:ConnectionBinding,subscriberId:string):Outb
   if(r.subscriberId!==subscriberId||!eventId(r.eventId)||!id(r.token)||!hex(r.sourceEventKey))fail();
   const p=parseEventPayload({binding:b,key:r.sourceEventKey},r.payload),scope=bindingFields.map(k=>b[k]);
   if(p.outcome.kind==='event'){
-    const e=p.outcome.event;if(r.sourceNamespace!=='reply_message/v1'||e.type!=='message')fail();
+    const e=p.outcome.event;if(e.type==='email_change'&&e.change==='bounce'){const semantic=emailBounceSemantics(b,e);if(r.sourceNamespace!=='email_bounce/v1'||r.sourceEventKey!==semantic.eventKey||p.fingerprint!==semantic.fingerprint)fail();}
+    else{if(r.sourceNamespace!=='reply_message/v1'||e.type!=='message')fail();
     if(r.sourceEventKey!==hash(['communications.reply.event.v1',scope,e.conversation?.id??null,e.reference.id])||p.fingerprint!==hash(['communications.reply.content.v1',scope,e.reference.id,e.conversation?.id??null,e.direction,e.sender.kind,e.sender.value,new Date(e.occurredAt).toISOString()]))fail();
+    }
   }else if(r.sourceNamespace!=='reply_review/v1'||p.fingerprint!==hash(['communications.reply.review.v1',scope,r.sourceEventKey,p.outcome.code]))fail();
   return {binding:b,subscriberId,eventId:r.eventId,sourceNamespace:r.sourceNamespace as string,sourceEventKey:r.sourceEventKey,payload:p,token:r.token};
 }

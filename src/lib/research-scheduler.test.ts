@@ -44,6 +44,16 @@ it('keeps the legacy path when its snapshotted flag is disabled', async () => {
  expect(m.request).not.toHaveBeenCalled();
  expect(m.discovery).toHaveBeenCalledWith('org','root');
 });
+it.each(['failed','cancelled'])('does not schedule a %s root after a recovery snapshot became stale',async status=>{
+ m.get.mockResolvedValue({id:'root',status,config:{performanceFlags:{schedulerCoalescing:true}}});
+ expect(await scheduleResearchRun('org','root',{recovery:true})).toBe(false);
+ expect(m.request).not.toHaveBeenCalled();expect(m.continuation).not.toHaveBeenCalled();expect(m.discovery).not.toHaveBeenCalled();
+});
+it.each(['failed','cancelled'])('does not let an active late child revive a freshly %s parent',async status=>{
+ m.get.mockResolvedValueOnce({id:'child',status:'discovering',config:{researchRunId:'root'}}).mockResolvedValueOnce({id:'root',status,config:{}});
+ expect(await scheduleResearchRun('org','child',{recovery:true})).toBe(false);
+ expect(m.request).not.toHaveBeenCalled();expect(m.continuation).not.toHaveBeenCalled();expect(m.discovery).not.toHaveBeenCalled();
+});
 
 it('parallel automatic runs cannot bypass a held scheduling lease',async()=>{
  m.get.mockResolvedValue({id:'root',config:{parallelBusinessResearch:true,performanceFlags:{schedulerCoalescing:true}}});

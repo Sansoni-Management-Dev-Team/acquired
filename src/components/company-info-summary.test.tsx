@@ -42,3 +42,25 @@ it("renders expanded persisted company facts independently of employee and conta
   for (const value of ["609047878", "info@example.com", "07 3608 7889", "11 - 50", "29 Lathe Street", "Virginia, QLD", "5416", "8711", "water treatment", "Available people profiles"]) expect(html).toContain(value);
   expect(html).toContain('>0</dd>');
 });
+it("keeps sourced web observations while presenting unavailable fields without retrieval diagnostics", () => {
+  const initial = member();
+  initial.target.sourceData = { ...initial.target.sourceData, backgroundResearch: {
+    version: 1, jobId: "background-job", updatedAt: "2026-10-19T00:00:00Z", attempts: [], registryContactsSaved: 0,
+    fields: {
+      team_members: { status: "failed", observations: [], missingReason: "Field remains unresolved: native_budget_admission_required; reader HTTP 502" },
+      description: { status: "partial", missingReason: "Provider read failed after retry", observations: [{
+        field: "description", value: "Commercial refrigeration", quote: "We service commercial refrigeration systems.", sourceUrl: "https://company.example/services", capturedAt: "2026-10-18T00:00:00Z", evidenceType: "published", reader: "public-reader"
+      }] }
+    }
+  } };
+  const html = renderToStaticMarkup(<CompanyInfoSummary member={initial} />);
+  for (const value of ["Team members", "Not available yet.", "We service commercial refrigeration systems.", 'href="https://company.example/services"', "2026-10-18"]) expect(html).toContain(value);
+  for (const removed of ["failed", "partial", "missingReason", "Field remains unresolved", "native_budget", "502", "Provider read"]) expect(html).not.toContain(removed);
+});
+it.each(["failed", "partial"])("presents %s website research as unavailable details without workflow errors", status => {
+  const initial = member();
+  initial.target.sourceData = { firmable: { firmableId: "f1", industries: [], states: [], locations: [], keywords: [], rawResponse: { websiteResearch: { status } } } };
+  const html = renderToStaticMarkup(<CompanyInfoSummary member={initial} />);
+  expect(html).toContain("Some company details are not available yet.");
+  for (const removed of ["Website research failed", "Website research is partial", "another read", "provider match unavailable"]) expect(html).not.toContain(removed);
+});

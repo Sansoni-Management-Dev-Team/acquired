@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseMandate } from "@/domain/mandate";
+import { parseMandate } from "@/test/fixtures/legacy-mandate-parser";
 import { isManufacturingMandate, ManufacturingDirectoryClient, searchManufacturingBusinesses, type DirectoryBusiness } from "./manufacturing-directory-client";
 
 const businesses: DirectoryBusiness[] = [

@@ -6,6 +6,21 @@ import { companyPipelineState, researchRoot } from './company-pipeline-state';
 import { CompanyPipelineProgress } from './company-pipeline-progress';
 const root = { id: 'root', status: 'partial', createdAt: '2026-10-04T05:16:19Z', updatedAt: '2026-10-04T05:19:21Z', message: 'Company retrieval completed with operational gaps', config: { pipelineDesign: 'hybrid-firmable-v1', parallelResearchSettled: true } } as ResearchJob;
 const company = { ...root, id: 'child', status: 'complete', config: { researchTask: 'company', researchRunId: 'root', targetId: 'saved' } } as ResearchJob;
+it('shows persisted discovery before any company profile finishes without claiming enrichment or saved results', () => {
+  const searching = { ...root, status: 'extracting', discovery: { candidates: 18, firmablePages: 0, webQueries: 3, webFailures: 1 }, config: { ...root.config, parallelResearchSettled: false } };
+  const html = renderToStaticMarkup(<CompanyPipelineProgress job={searching} jobs={[searching]} />);
+  expect(html).toContain('18 businesses found');
+  expect(html).toContain('18 found');
+  expect(html).toContain('0 companies researched');
+  expect(html).toContain('0 companies saved');
+});
+it('shows continuation selections as saved businesses selected rather than new discoveries', () => {
+  const continuation = { ...root, status: 'extracting', discovery: { candidates: 1, firmablePages: 0, webQueries: 0, webFailures: 0 }, config: { ...root.config, companyContinuation: { version: 1 as const, sourceRootId: 'old-root', sourceDigest: 'a'.repeat(64), candidateKeys: ['firmable:f1'] } } };
+  const html = renderToStaticMarkup(<CompanyPipelineProgress job={continuation} jobs={[continuation]} />);
+  expect(html).toContain('1 business selected');
+  expect(html).toContain('Saved businesses selected');
+  expect(html).not.toContain('businesses found');
+});
 it('selects the overall root even when completed children precede it', () => {
   expect(researchRoot([company, root])).toBe(root);
 });
@@ -23,6 +38,36 @@ it('renders partial completion honestly with saved counts, elapsed time and a re
 });
 it('does not mark the pipeline settled while any related job is active', () => {
   expect(companyPipelineState(root, [root, { ...company, status: 'reading' }]).settled).toBe(false);
+});
+it('stops foreground progress for a failed root without claiming unfinished company requests settled', () => {
+  const failed = { ...root, status: 'failed' as const, message: 'Firmable rate limit (HTTP 429); no company profile was saved.' };
+  const unfinished = { ...company, status: 'extracting' as const, config: { ...company.config, targetId: undefined } };
+  expect(companyPipelineState(failed, [failed, unfinished])).toMatchObject({ settled: false, active: 1, savedIds: [] });
+  const html = renderToStaticMarkup(<CompanyPipelineProgress job={failed} jobs={[failed, unfinished]} mandateId="mandate" />);
+  expect(html).toContain('Research failed');
+  expect(html).toContain(failed.message);
+  expect(html).toContain('1 company request is still recorded as in progress.');
+  expect(html).toContain('3m 2s elapsed');
+  expect(html).not.toContain('animate-spin');
+  expect(html).not.toContain('so far');
+  expect(html).not.toContain('RESEARCH COMPLETE');
+});
+it('keeps retained results available after cancellation without marking an unfinished child complete', () => {
+  const cancelled = { ...root, status: 'cancelled' as const, message: 'Research cancelled by you.' };
+  const unfinished = { ...company, id: 'unfinished', status: 'reading' as const };
+  expect(companyPipelineState(cancelled, [cancelled, company, unfinished]).settled).toBe(false);
+  const html = renderToStaticMarkup(<CompanyPipelineProgress job={cancelled} jobs={[cancelled, company, unfinished]} mandateId="mandate" />);
+  expect(html).toContain('Research cancelled');
+  expect(html).toContain(cancelled.message);
+  expect(html).toContain('1 company saved');
+  expect(html).toContain('/mandates/mandate?tab=targets');
+  expect(html).not.toContain('animate-spin');
+});
+it('continues foreground progress for partial roots while company work is still active', () => {
+  const html = renderToStaticMarkup(<CompanyPipelineProgress job={root} jobs={[root, { ...company, status: 'reading' }]} />);
+  expect(html).toContain('Finding businesses');
+  expect(html).toContain('animate-spin');
+  expect(html).toContain('so far');
 });
 it('counts persisted discovery page maps and search failures', () => {
   const config = { ...root.config, webSearchPages: { '0': { ok: true }, '1': { ok: false } }, firmableSearchPages: { '0': { records: [] } } };

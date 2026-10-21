@@ -1,9 +1,12 @@
+import type {LocalSyncEventProof} from './local-sync-event';
+import {businessNow,type BusinessClock} from './business-clock';
+import {emailBounceSemantics} from './email-bounce';
 import { createHash } from 'node:crypto';
 import { assertSameBinding, type CommunicationEvent, type ConnectionBinding, type AccessScope, type CanonicalIdentity } from "../../contracts/src";
 
 export type ReplyNormalization = {kind:"event";event:CommunicationEvent} | {kind:"ignore";reason:string} | {kind:"review";code:"protocol"|"account_changed"|"identity_pending"};
 export type WebhookIngressResult = {status:"accepted"|"duplicate"} | {status:"rejected";code:"unauthorized"|"invalid_request"|"too_large"|"forbidden"} | {status:"retry"};
-export interface WebhookCapture {binding:ConnectionBinding;key:string;rawBody:Uint8Array;receivedAt:string}
+export interface WebhookCapture {localSync?:LocalSyncEventProof;binding:ConnectionBinding;key:string;rawBody:Uint8Array;receivedAt:string}
 export interface WebhookCapturePort {
  /** REQUIRED durable encrypted receipt + scoped dedupe transaction; check current grants/generation.
   * Resolve only after commit. No in-memory fallback is supplied by the coordinator. */
@@ -25,7 +28,8 @@ export interface ReplyProcessorPort {
   * A review decision must also block affected reply coverage; terminal receipt is not readiness. */
  finish(input:{record:ClaimedWebhook;event?:CommunicationEvent;eventKey?:string;eventFingerprint?:string;decision:ReplyDecision}):Promise<{binding:ConnectionBinding;key:string;committed:boolean}>;
 }
-export interface ReplyProcessorOptions {binding:ConnectionBinding;journal:ReplyProcessorPort;normalize(raw:unknown,binding:ConnectionBinding):Promise<ReplyNormalization>;resolve(event:Extract<CommunicationEvent,{type:"message"}>):Promise<readonly ReplyMatch[]>}
+export interface ReplyProcessorOptions {
+  businessClock?:BusinessClock;binding:ConnectionBinding;journal:ReplyProcessorPort;normalize(raw:unknown,binding:ConnectionBinding):Promise<ReplyNormalization>;resolve(event:Extract<CommunicationEvent,{type:"message"}>):Promise<readonly ReplyMatch[]>}
 export type ReplyProcessResult = {status:"processed";decision:ReplyDecision} | {status:"duplicate"|"busy"|"retry"|"forbidden"};
 const object=(v:unknown):v is Record<string,unknown>=>v!==null && typeof v==='object' && !Array.isArray(v);
 const fields=(v:Record<string,unknown>,keys:readonly string[])=>Object.keys(v).every(k=>keys.includes(k));
@@ -60,6 +64,7 @@ const hash=(value:unknown)=>createHash('sha256').update(JSON.stringify(value)).d
 const scope=(b:ConnectionBinding)=>[b.applicationId,b.tenantId,b.ownerId,b.connectionId,b.accountId,b.generation,b.channel,b.platform,b.backend];
 const protocol=():ReplyDecision=>({action:'review',code:'protocol'});
 function validEvent(binding:ConnectionBinding,value:unknown,receivedAt:string):value is CommunicationEvent {
+  if(object(value)&&value.type==='email_change')return binding.channel==='email'&&fields(value,['type','reference','change','recipient','occurredAt'])&&value.change==='bounce'&&object(value.reference)&&fields(value.reference,['binding','id'])&&same(binding,value.reference.binding as ConnectionBinding)&&id(value.reference.id)&&identity(binding,value.recipient)&&date(value.occurredAt)&&Date.parse(value.occurredAt)<=Date.parse(receivedAt);
   if(!object(value) || value.type!=='message' || !object(value.reference) || !fields(value.reference,['binding','id']) || !same(binding,value.reference.binding as ConnectionBinding) || !id(value.reference.id) ||
     typeof value.direction!=='string' || !['inbound','outbound','self','group'].includes(value.direction) || !identity(binding,value.sender) || !date(value.occurredAt) || Date.parse(value.occurredAt)>Date.parse(receivedAt))return false;
   if(value.conversation!==undefined && (!object(value.conversation) || !fields(value.conversation,['binding','id']) || !same(binding,value.conversation.binding as ConnectionBinding) || !id(value.conversation.id)))return false;
@@ -119,10 +124,11 @@ export function createReplyProcessor(options:ReplyProcessorOptions):{process(key
         const result=structuredClone(await normalize(raw,structuredClone(binding)));
         if(result?.kind==='ignore' && code(result.reason))decision={action:'ignore',reason:result.reason};
         else if(result?.kind==='review' && reviewCodes.has(result.code))decision={action:'review',code:result.code};
-        else if(result?.kind!=='event' || !validEvent(binding,result.event,record.receivedAt))decision=protocol();
+        else if(result?.kind!=='event' || !validEvent(binding,result.event,options.businessClock?new Date(businessNow(options.businessClock)).toISOString():record.receivedAt))decision=protocol();
         else {
           event=structuredClone(result.event);
-          // validEvent currently restricts processing to normalized messages.
+          if(event.type==='email_change'&&event.change==='bounce'){const semantics=emailBounceSemantics(binding,event);eventKey=semantics.eventKey;eventFingerprint=semantics.fingerprint;decision={action:'ignore',reason:'delivery_failure'};}else{
+          // Resolve only genuine normalized messages.
           const message=event as Extract<CommunicationEvent,{type:'message'}>;
           eventKey=hash(['communications.reply.event.v1',scope(binding),message.conversation?.id??null,message.reference.id]);
           eventFingerprint=hash(['communications.reply.content.v1',scope(binding),message.reference.id,message.conversation?.id??null,message.direction,message.sender.kind,message.sender.value,new Date(message.occurredAt).toISOString()]);
@@ -137,6 +143,7 @@ export function createReplyProcessor(options:ReplyProcessorOptions):{process(key
               const people=[...new Set(matches.filter(m=>Date.parse(m.since)<=Date.parse(message.occurredAt)).map(m=>m.personId))];
               decision=people.length===1?{action:'stop',personId:people[0]}:people.length>1?{action:'review',code:'identity_pending'}:{action:'ignore',reason:'unmatched'};
             }
+          }
           }
         }
       }

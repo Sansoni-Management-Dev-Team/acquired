@@ -1,0 +1,18 @@
+import{EventEmitter}from'node:events';import type{Server}from'node:http';import{beforeEach,expect,it,vi}from'vitest';
+const f=vi.hoisted(()=>({create:vi.fn(),gateway:undefined as unknown as EventEmitter&{listen:ReturnType<typeof vi.fn>;close:ReturnType<typeof vi.fn>}}));
+vi.mock('node:https',()=>({createServer:f.create}));
+import{startCompletionListeners}from'./owned-listeners';
+const tls={key:Buffer.from('private-test-key'),cert:Buffer.from('test-cert')};
+beforeEach(()=>{vi.clearAllMocks();f.gateway=Object.assign(new EventEmitter(),{listen:vi.fn((_port:number,_host:string,done:()=>void)=>{done();}),close:vi.fn((done:()=>void)=>done())});f.create.mockReturnValue(f.gateway);});
+it('starts only exact owned loopback TLS endpoints and forwards to the actual service listener',async()=>{
+ const service={server:new EventEmitter()as Server},request={},response={},handle=vi.fn();service.server.on('request',handle);const provider={close:vi.fn(async()=>{})},startProvider=vi.fn(async()=>provider);
+ const owned=await startCompletionListeners({service,tls,startProvider});expect(startProvider).toHaveBeenCalledWith({host:'127.0.0.1',port:5990,tls});expect(f.create).toHaveBeenCalledWith(tls,expect.any(Function));expect(f.gateway.listen).toHaveBeenCalledWith(5991,'127.0.0.1',expect.any(Function));
+ f.create.mock.calls[0][1](request,response);expect(handle).toHaveBeenCalledWith(request,response);await owned.close();await owned.close();expect(provider.close).toHaveBeenCalledTimes(1);expect(f.gateway.close).toHaveBeenCalledTimes(1);
+});
+it('bind failure closes owned resources without closing a pre-existing listener or service',async()=>{
+ const conflict=Object.assign(Error('Occupied'),{code:'EADDRINUSE'}),service={server:Object.assign(new EventEmitter(),{close:vi.fn()})as unknown as Server},provider={close:vi.fn(async()=>{})};f.gateway.listen.mockImplementation(()=>{queueMicrotask(()=>f.gateway.emit('error',conflict));});
+ await expect(startCompletionListeners({service,tls,startProvider:async()=>provider})).rejects.toBe(conflict);expect(provider.close).toHaveBeenCalledOnce();expect(f.gateway.close).toHaveBeenCalledOnce();expect(service.server.close).not.toHaveBeenCalled();
+});
+it('provider failure prevents gateway creation',async()=>{const conflict=Error('Provider occupied');await expect(startCompletionListeners({service:{server:new EventEmitter()as Server},tls,startProvider:async()=>{throw conflict;}})).rejects.toBe(conflict);expect(f.create).not.toHaveBeenCalled();});
+it('refuses missing TLS material before starting a provider',async()=>{const startProvider=vi.fn();await expect(startCompletionListeners({service:{server:new EventEmitter()as Server},tls:{...tls,key:Buffer.alloc(0)},startProvider})).rejects.toThrow('Completion TLS unavailable');expect(startProvider).not.toHaveBeenCalled();});
+it('waits for an explicit network scheduling hook before forwarding the original request unchanged',async()=>{let resume!:()=>void;const pending=new Promise<void>(resolve=>{resume=resolve;}),beforeServiceRequest=vi.fn(async()=>pending),service={server:new EventEmitter()as Server},handle=vi.fn();service.server.on('request',handle);const owned=await startCompletionListeners({service,tls,startProvider:async()=>({close:async()=>{}}),beforeServiceRequest}),request={method:'POST',url:'/v1/submit?never-expose=this'},response={};const forwarded=f.create.mock.calls[0][1](request,response);await Promise.resolve();expect(beforeServiceRequest).toHaveBeenCalledWith({method:'POST',path:'/v1/submit'});expect(handle).not.toHaveBeenCalled();resume();await forwarded;expect(handle).toHaveBeenCalledWith(request,response);await owned.close();});

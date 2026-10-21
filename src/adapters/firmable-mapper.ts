@@ -73,7 +73,7 @@ function sourceData(place: GooglePlaceCandidate, firmable?: ReturnType<typeof fi
   };
 }
 
-function sectorEvidence(raw: Record<string, unknown>, place: GooglePlaceCandidate, mandate: Mandate, capturedAt: string, website?: string) {
+function sectorEvidence(raw: Record<string, unknown>, mandate: Mandate, capturedAt: string, website?: string) {
   const industries = strings(raw.industries);
   const exact = industries.find((industry) => mandate.sectors.some((sector) => {
     const left = industry.toLowerCase(); const right = sector.toLowerCase();
@@ -126,7 +126,7 @@ export function mapFirmableCompany(raw: Record<string, unknown>, place: GooglePl
     domain: stringValue(raw.fqdn) || domainFrom(website),
     suburb: location.suburb,
     state: location.state,
-    sector: sectorEvidence(raw, place, mandate, capturedAt, website),
+    sector: sectorEvidence(raw, mandate, capturedAt, website),
     revenue: mapFirmableRevenue(raw.revenue, capturedAt, stringValue(raw.revenue_currency)),
     ebitda: missing("Company data does not include EBITDA", COMPANY_DATA_SOURCE, capturedAt),
     headcount: headcount === undefined ? missing("Not provided by the company data service", COMPANY_DATA_SOURCE, capturedAt) : value(headcount, COMPANY_DATA_SOURCE, capturedAt, 75, website),

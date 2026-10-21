@@ -16,8 +16,12 @@ it('attributes the actual awaited timing write once without generating recursive
   });
   expect(query).toHaveBeenCalledTimes(1);
   const events=log.mock.calls.filter(([tag])=>tag==='research-db').map(([,body])=>JSON.parse(body));
-  expect(events).toHaveLength(1);
-  expect(events[0]).toMatchObject({ operation:'update',stage:'telemetry',action:'save-timings',organizationId:'org',tables:['research_jobs'],timingBasis:'application_database_round_trip' });
+  expect(events.map(event=>event.event)).toEqual(['query_started','query_finished']);
+  expect(events[0].queryId).toEqual(expect.any(String));
+  expect(events[1].queryId).toBe(events[0].queryId);
+  for(const event of events)expect(event).toMatchObject({ operation:'update',stage:'telemetry',action:'save-timings',organizationId:'org',tables:['research_jobs'] });
+  expect(events[1]).toMatchObject({outcome:'succeeded',timingBasis:'application_database_round_trip'});
+  expect(events[1].elapsedMs).toBeGreaterThanOrEqual(0);
   expect(log.mock.calls.some(([tag])=>tag==='research-pipeline')).toBe(false);
  } finally { log.mockRestore(); }
 });

@@ -1,0 +1,7 @@
+import {it,expect} from 'vitest';import {readFileSync} from 'node:fs';import {createHash} from 'node:crypto';
+const root=new URL('../../',import.meta.url),read=(path:string)=>readFileSync(new URL(path,root),'utf8'),hash=(text:string)=>createHash('sha256').update(text).digest('hex');
+it('preserves each reviewed service-only schema body exactly while replacing only isolated-target guards and outer transactions',()=>{
+ const manifest=JSON.parse(read('ops/agent-mode/service-schema-source-manifest.json')),sql=read('ops/agent-mode/migrations/'+manifest.migration);expect(manifest.sources).toHaveLength(8);
+ for(const row of manifest.sources){const original=read(row.source);expect(hash(original)).toBe(row.sourceSha256);const start=original.indexOf('DO $$'),match=/\nEND\s+\$\$;/.exec(original.slice(start));expect(match).not.toBeNull();const body=original.slice(start+match!.index+match![0].length).replace(/^COMMIT;\s*$/gm,'');expect(hash(body)).toBe(row.bodySha256);expect(sql).toContain(body);}
+ expect(sql).toContain("current_database()<>'acquire_agent_mode'");expect(sql).toContain('acquire-agent-mode-local-only');expect(sql).toContain("Service namespace and roles must be absent");expect(sql).not.toContain('communications_fixture');expect(sql).not.toMatch(/(?:DROP|ALTER)\s+(?:TABLE|SCHEMA)\s+public\./i);expect(sql).toContain('GRANT communications_control,communications_scoped TO project_acquire');
+});

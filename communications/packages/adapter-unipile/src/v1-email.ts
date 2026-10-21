@@ -1,3 +1,5 @@
+import {businessNow,type BusinessClock} from '../../core/src/business-clock';
+import {createHash} from 'node:crypto';
 import { types } from 'node:util';
 import { performance } from 'node:perf_hooks';
 import { assertSameBinding, ContractError, type ActionReceipt, type CanonicalIdentity, type Capabilities, type ConnectionBinding, type ConnectionRecord, type DeliveryOutcome, type MessagingAdapter, type OperationSnapshot, type ProviderReference, type Readiness } from '../../contracts/src';
@@ -19,6 +21,7 @@ export interface VerifiedV1EmailOriginal {
     conversation?: ProviderReference;
 }
 export interface UnipileV1EmailAdapterOptions {
+    businessClock?:BusinessClock;
     connection: ConnectionRecord;
     providerAccountId: string;
     sourceId: string;
@@ -134,6 +137,7 @@ export interface UnipileV1EmailAdapter extends MessagingAdapter {
 /** Raw v1 transport composition only. Durable admission/journal/quota authority is mandatory
  * outside this adapter. Provider idempotency is memory-only; this adapter never retries a POST. */
 export function createUnipileV1EmailAdapter(options: UnipileV1EmailAdapterOptions): UnipileV1EmailAdapter {
+    let businessClock:BusinessClock|undefined;
     let connection: ConnectionRecord, providerAccountId: string, sourceId: string, ownerAddresses: string[], timeoutMs: number;
     let getAccount: UnipileV1EmailPort['getAccount'], getEmail: UnipileV1EmailPort['getEmail'], sendEmail: UnipileV1EmailPort['sendEmail'];
     let verifyOwner: UnipileV1EmailAdapterOptions['verifyOwner'], verifyOriginal: UnipileV1EmailAdapterOptions['verifyOriginal'];
@@ -142,13 +146,14 @@ export function createUnipileV1EmailAdapter(options: UnipileV1EmailAdapterOption
         if (!options || types.isProxy(options) || ![Object.prototype, null].includes(Object.getPrototypeOf(options)))
             throw new Error();
         const fields = Object.getOwnPropertyDescriptors(options);
-        if (Reflect.ownKeys(fields).some(k => typeof k !== 'string' || !['connection', 'providerAccountId', 'sourceId', 'ownerAddresses', 'transport', 'timeoutMs', 'verifyOwner', 'verifyOriginal'].includes(k) || !('value' in fields[k])))
+        if (Reflect.ownKeys(fields).some(k => typeof k !== 'string' || !['connection', 'providerAccountId', 'sourceId', 'ownerAddresses', 'transport', 'timeoutMs', 'verifyOwner', 'verifyOriginal', 'businessClock'].includes(k) || !('value' in fields[k])))
             throw new Error();
         connection = copied(options.connection);
         providerAccountId = options.providerAccountId;
         sourceId = options.sourceId;
         ownerAddresses = copied(options.ownerAddresses) as string[];
         timeoutMs = options.timeoutMs ?? 15000;
+        businessClock=options.businessClock;if(businessClock)businessNow(businessClock);
         assertSameBinding(connection.binding, connection.binding);
         if (connection.binding.channel !== 'email' || connection.binding.backend !== 'unipile' || !['gmail', 'outlook', 'imap'].includes(connection.binding.platform) || !id(providerAccountId) || !id(sourceId) || (connection.providerAccountId !== undefined && connection.providerAccountId !== providerAccountId) || !ownerAddresses.length || ownerAddresses.length > 100 || ownerAddresses.some(a => !email(a)) || new Set(ownerAddresses).size !== ownerAddresses.length || !Number.isSafeInteger(timeoutMs) || timeoutMs <= 0 || timeoutMs > 60000)
             throw new Error();
@@ -282,10 +287,14 @@ export function createUnipileV1EmailAdapter(options: UnipileV1EmailAdapterOption
             if (!exact(input, ['snapshot', 'message']) || !record(input.message))
                 throw new ContractError('operation_conflict');
             snapshotValid(input.snapshot);
-            if (!recipientOK(input.message.recipient) || typeof input.message.text !== 'string' || input.message.text.length > 1000000 || !exact(input.message, ['recipient', 'text', 'subject', 'conversation', 'rfcMessageId', 'replyTo']) || messageDigest(input.snapshot.operation, input.message) !== input.snapshot.payloadDigest)
+            if (!recipientOK(input.message.recipient) || typeof input.message.text !== 'string' || input.message.text.length > 1000000 || !exact(input.message, ['recipient', 'text', 'subject', 'conversation', 'rfcMessageId', 'replyTo','replyParent']) || messageDigest(input.snapshot.operation, input.message) !== input.snapshot.payloadDigest)
                 throw new ContractError('operation_conflict');
             if (input.message.conversation)
                 referenceValid(input.message.conversation);
+            if(input.message.replyParent){
+                if(!exact(input.message.replyParent,['message','contentDigest'])||typeof input.message.replyParent.contentDigest!=='string'||!/^[a-f0-9]{64}$/.test(input.message.replyParent.contentDigest)||input.message.conversation)throw new ContractError('operation_conflict');
+                referenceValid(input.message.replyParent.message);
+            }
             if (input.message.rfcMessageId !== undefined || (input.message.subject !== undefined && (typeof input.message.subject !== 'string' || input.message.subject.length > 8192 || /[\r\n\u0000]/.test(input.message.subject))) || (input.message.replyTo !== undefined && !email(input.message.replyTo)))
                 return { status: 'review', code: 'unsupported' };
             return bounded<EmailAcknowledgementOutcome>(async (budget) => {
@@ -303,6 +312,21 @@ export function createUnipileV1EmailAdapter(options: UnipileV1EmailAdapterOption
                     if (result.status !== 200 || !mailValid(result.data, proof, false) || typeof result.data.subject !== 'string' || typeof input.message.subject !== 'string' || input.message.subject.replace(/^re:\s*/i, '') !== result.data.subject.replace(/^re:\s*/i, ''))
                         return { status: 'review', code: 'protocol' };
                     parent = proof.message.id;
+                }
+                if(input.message.replyParent){
+                    const expected=input.message.replyParent,result=copied(await budget.call(()=>getEmail(providerAccountId,expected.message.id,{signal:budget.signal})));
+                    if(result.kind!=='success')return readFailure(result);
+                    const mail=result.data;
+                    if(result.status!==200||!record(mail)||mail.object!=='Email'||mail.kind!=='2_full'||typeof mail.role!=='string'||['draft','drafts'].includes(mail.role.toLowerCase())||mail.id!==expected.message.id||mail.account_id!==providerAccountId||mail.type!=={gmail:'GOOGLE_OAUTH',outlook:'OUTLOOK',imap:'MAIL'}[binding.platform as 'gmail'|'outlook'|'imap']||!timestamp(mail.date)||Date.parse(mail.date)>businessNow(businessClock)||typeof mail.body!=='string'||typeof mail.subject!=='string'||!Array.isArray(mail.headers)||!mail.headers.length||!record(mail.from_attendee)||mail.from_attendee.identifier_type!=='EMAIL_ADDRESS'||!email(mail.from_attendee.identifier)||!Array.isArray(mail.to_attendees)||!Array.isArray(mail.cc_attendees)||!Array.isArray(mail.bcc_attendees))return {status:'review',code:'protocol'};
+                    const from=(mail.from_attendee.identifier as string).toLowerCase(),recipients=[...mail.to_attendees,...mail.cc_attendees,...mail.bcc_attendees];
+                    if(!recipients.length||recipients.length>1000||!recipients.every(p=>record(p)&&p.identifier_type==='EMAIL_ADDRESS'&&email(p.identifier)))return {status:'review',code:'protocol'};
+                    const addresses=recipients.map(p=>(p.identifier as string).toLowerCase()),peer=input.message.recipient.value;
+                    const inbound=from===peer&&addresses.some(a=>ownerAddresses.includes(a)),outbound=ownerAddresses.includes(from)&&addresses.includes(peer);
+                    if((!inbound&&!outbound)||addresses.some(a=>a!==peer&&!ownerAddresses.includes(a))||createHash('sha256').update(mail.subject+'\n'+mail.body).digest('hex')!==expected.contentDigest||typeof input.message.subject!=='string'||input.message.subject.replace(/^re:\s*/i,'')!==mail.subject.replace(/^re:\s*/i,''))return {status:'review',code:'protocol'};
+                    // Revalidate physical owner after the parent read, before the
+                    // held service coordinator permits its one provider write.
+                    const current=await owner(budget,true);if(current.status!=='ready')return current;
+                    parent=expected.message.id;
                 }
                 const payload: UnipileV1EmailPayload = { to: [{ identifier: input.message.recipient.value }], body: input.message.text, custom_headers: [{ name: 'Content-Type', value: 'text/plain; charset=utf-8' }], ...(input.message.subject !== undefined ? { subject: input.message.subject } : {}), ...(parent ? { reply_to: parent } : {}) };
                 if (input.message.replyTo)

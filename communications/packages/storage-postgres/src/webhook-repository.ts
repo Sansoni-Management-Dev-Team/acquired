@@ -1,3 +1,7 @@
+import {localSyncReceiptKey} from '../../core/src/local-sync-event';
+import {isDeepStrictEqual} from 'node:util';
+import {businessNow,type BusinessClock} from '../../core/src/business-clock';
+import {emailBounceSemantics} from '../../core/src/email-bounce';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { assertSameBinding, type ConnectionBinding } from '../../contracts/src';
 import type { WebhookCapture, WebhookCapturePort } from '../../core/src/reply-ingress';
@@ -27,6 +31,7 @@ export interface WebhookReplyBarrierPort {
   review(client: SqlClient, input: { eventId: string; code: 'protocol' | 'account_changed' | 'identity_pending' }): Promise<void>;
 }
 export interface PostgresWebhookRepositoryOptions {
+  businessClock?:BusinessClock;
   pool: SqlPool;
   binding: ConnectionBinding;
   integrationId: string;
@@ -61,12 +66,7 @@ function validDate(value: unknown): value is string {
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) && new Date(parsed).toISOString() === value;
 }
-function scopedReceiptKey(capture: WebhookCapture) {
-  const b = capture.binding;
-  return createHash('sha256').update(JSON.stringify(['communications.webhook.receipt.v1',
-    [b.applicationId,b.tenantId,b.ownerId,b.connectionId,b.accountId,b.generation,b.channel,b.platform,b.backend],
-    createHash('sha256').update(capture.rawBody).digest('hex')])).digest('hex');
-}
+function scopedReceiptKey(capture:WebhookCapture){return localSyncReceiptKey(capture.binding,capture.rawBody,capture.localSync);}
 function validateCapture(binding: ConnectionBinding, value: WebhookCapture) {
   exactBinding(binding, value.binding);
   if (!hex(value.key) || !validDate(value.receivedAt) || !(value.rawBody instanceof Uint8Array) ||
@@ -148,6 +148,7 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
   const eventScope = [binding.applicationId,binding.tenantId,binding.ownerId,binding.connectionId,binding.accountId,binding.generation,binding.channel,binding.platform,binding.backend];
   function semanticEvent(outcome: Extract<NormalizedWebhookOutcome, { kind: 'event' }>) {
     const event = outcome.event;
+    if(event?.type==='email_change'&&event.change==='bounce'){exactBinding(binding,event.reference.binding);const semantic=emailBounceSemantics(binding,event);if(outcome.eventKey!==semantic.eventKey||outcome.fingerprint!==semantic.fingerprint)fail();return semantic;}
     if (!event || event.type !== 'message') fail();
     exactBinding(binding, event.reference.binding);
     if (event.conversation) exactBinding(binding, event.conversation.binding);
@@ -180,9 +181,10 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
     if (!object(envelope) || envelope.keyVersion !== row.key_version) fail();
     const payload = structuredClone(decodeEvent({ binding: structuredClone(binding), key },envelope));
     if (!payload || !hex(payload.fingerprint) || !validDate(payload.receivedAt)) fail();
-    if (namespace === 'reply_message/v1') {
+    if (namespace === 'reply_message/v1'||namespace==='email_bounce/v1') {
       if (payload.outcome.kind !== 'event') fail();
       const semantic = semanticEvent(payload.outcome), event = payload.outcome.event;
+      if(namespace==='email_bounce/v1'){if(event.type!=='email_change'||event.change!=='bounce'||semantic.fingerprint!==payload.fingerprint||row.event_type!=='email_change'||row.direction!==null||new Date(row.occurred_at as string).toISOString()!==new Date(event.occurredAt).toISOString())fail();return payload;}
       if (event.type !== 'message' || semantic.fingerprint !== payload.fingerprint || row.event_type !== 'message' || row.direction !== event.direction ||
           new Date(row.occurred_at as string).toISOString() !== new Date(event.occurredAt).toISOString()) fail();
     } else if (payload.outcome.kind !== 'review' || payload.fingerprint !== reviewFingerprint(key,payload.outcome.code) ||
@@ -197,9 +199,9 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
   }
   async function persistEvent(client: SqlClient, receiptKey: string, key: string, namespace: string, payload: EventPayload) {
     const sealed = sealedEvent(key,payload), event = payload.outcome.kind === 'event' ? payload.outcome.event : undefined;
-    const eventType = event?.type === 'message' ? 'message' : 'account';
+    const eventType = event?.type === 'message' ? 'message' : event?.type==='email_change'?'email_change':'account';
     const direction = event?.type === 'message' ? event.direction : null;
-    const occurredAt = event?.type === 'message' ? event.occurredAt : payload.receivedAt;
+    const occurredAt = event?.type === 'message'||event?.type==='email_change' ? event.occurredAt : payload.receivedAt;
     const inserted = await client.query(`INSERT INTO communications.events
  (application_id,tenant_id,owner_id,connection_id,generation,account_id,source_namespace,source_event_key,event_type,direction,occurred_at,encrypted_event,key_version,webhook_inbox_id)
  VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
@@ -350,7 +352,7 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
               (!['pending','processing'].includes(String(existingState)) || existing.rows[0].alive !== true)) fail();
           const expectedDigest = digest({ binding: structuredClone(binding), key: captured.key }, Uint8Array.from(captured.rawBody), String(existing.rows[0].key_version));
           if (!hex(expectedDigest) || expectedDigest !== existing.rows[0].payload_digest ||
-              !Buffer.from(original.rawBody).equals(Buffer.from(captured.rawBody))) fail();
+              !isDeepStrictEqual(original.localSync,captured.localSync)||!Buffer.from(original.rawBody).equals(Buffer.from(captured.rawBody))) fail();
           status = 'duplicate';
         } else return fail();
         if (fenced) await routeReply!(fenceClient, structuredClone(originalCapture));
@@ -369,10 +371,10 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
           if (Object.keys(outcome).some(key => !['kind','reason'].includes(key)) || typeof outcome.reason !== 'string' || !/^[a-z][a-z0-9_]{0,79}$/.test(outcome.reason)) fail();
         } else if (outcome.kind === 'review') {
           if (Object.keys(outcome).some(key => !['kind','code'].includes(key)) || !['protocol','account_changed','identity_pending'].includes(outcome.code)) fail();
-          sealedEvent(record.key,{ outcome, fingerprint: reviewFingerprint(record.key,outcome.code), receivedAt: record.receivedAt });
+          sealedEvent(record.key,{ outcome, fingerprint: reviewFingerprint(record.key,outcome.code), receivedAt:record.receivedAt });
         } else if (outcome.kind === 'event') {
           semanticEvent(outcome);
-          sealedEvent(outcome.eventKey,{ outcome, fingerprint: outcome.fingerprint, receivedAt: record.receivedAt });
+          sealedEvent(outcome.eventKey,{ outcome, fingerprint: outcome.fingerprint, receivedAt: options.businessClock?new Date(businessNow(options.businessClock)).toISOString():record.receivedAt });
         } else return fail();
       } catch { return fail(); }
       const rejected = () => ({ binding: structuredClone(binding), key: record.key, committed: false });
@@ -386,13 +388,13 @@ export function createPostgresWebhookRepository(options: PostgresWebhookReposito
           await client.query('ROLLBACK'); return rejected();
         }
         const original = openRow(record.key,selected.rows[0]);
-        if (original.receivedAt !== record.receivedAt || !Buffer.from(original.rawBody).equals(Buffer.from(record.rawBody))) fail();
+        if (!isDeepStrictEqual(original.localSync,record.localSync)||original.receivedAt !== record.receivedAt || !Buffer.from(original.rawBody).equals(Buffer.from(record.rawBody))) fail();
         if (fenced) await routeReply!(fenceClient, structuredClone(original));
         let eventResult: { id: string; conflict: boolean } | undefined;
         let reviewCode: 'protocol' | 'account_changed' | 'identity_pending' | undefined;
         if (outcome.kind === 'event') {
-          eventResult = await persistEvent(client,record.key,outcome.eventKey,'reply_message/v1',{
-            outcome,fingerprint:outcome.fingerprint,receivedAt:record.receivedAt,
+          eventResult = await persistEvent(client,record.key,outcome.eventKey,outcome.event.type==='email_change'?'email_bounce/v1':'reply_message/v1',{
+            outcome,fingerprint:outcome.fingerprint,receivedAt:options.businessClock?new Date(businessNow(options.businessClock)).toISOString():record.receivedAt,
           });
           if (eventResult.conflict) reviewCode = 'protocol';
         } else if (outcome.kind === 'review') reviewCode = outcome.code;

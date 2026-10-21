@@ -1,0 +1,16 @@
+# Additive host CLI transport only. Existing provider/services remain running.
+services:
+  app-testing-relay:
+    image: acquire-agent-mode:dev
+    container_name: project-acquire-agent-app-testing-relay
+    profiles: ["testing-cli"]
+    working_dir: /workspace
+    network_mode: "service:network"
+    volumes:
+      - ../..:/workspace:ro
+    command: ["node", "/workspace/ops/agent-mode/testing-app-transports.mjs"]
+    environment:
+      AGENT_TESTING_COMMUNICATIONS_ENABLED: "true"
+      AGENT_MODE_COMMUNICATIONS_MODE: simulator
+      NODE_ENV: development
+    restart: unless-stopped

@@ -1,3 +1,4 @@
+import {companyProfileDisposition,type CompanyProfileOutcome} from './company-profile-outcome';
 import {firmableCompanyPayload} from './firmable-company-fields';
 import {abnChecksum as validAbn} from './abn-public-lookup.mjs';
 type Row=Record<string,unknown>;
@@ -25,22 +26,22 @@ export function normalizeFirmableProfile(raw:Row){
 }
 export function screenBand(band:{min:number;max:number|null}|null,requested:{min:number;max:number|null}|undefined){if(!requested)return 'supported';if(!band)return 'review';if(band.min>(requested.max??Infinity)||(band.max??Infinity)<requested.min)return 'excluded';return band.min>=requested.min&&(band.max??Infinity)<=(requested.max??Infinity)?'supported':'review';}
 export function deduplicateFirmableRows(rows:Row[]){const ids=new Set<string>(),domains=new Set<string>(),abns=new Set<string>();return rows.filter(r=>{const id=String(r.id||''),domain=firmableDomain(r.website||r.fqdn||''),abn=String((r.industry_codes as Row)?.abn||'').replace(/\D/g,'');if(!/^f\d+$/.test(id)||ids.has(id)||(domain&&domains.has(domain))||(validAbn(abn)&&abns.has(abn)))return false;ids.add(id);if(domain)domains.add(domain);if(validAbn(abn))abns.add(abn);return true;});}
-export async function runFirmableCompanyPipeline(deps:{checkpoint:<T>(name:string,fn:()=>Promise<T>)=>Promise<T>;search:(from:number,filters?:FirmableFilters)=>Promise<CompanySearchPage>;profile:(row:Row)=>Promise<{ok:boolean}>;finish:(result:Row)=>Promise<unknown>;now:()=>number},options:{deadline:number;maxCompanies:number;pageSize:number;concurrency:number}){
- let filters:FirmableFilters|undefined;const rows:Row[]=[];let saved=0,failed=0,stopReason='candidate_limit';
+export async function runFirmableCompanyPipeline(deps:{checkpoint:<T>(name:string,fn:(firmableAttempt?:number)=>Promise<T>)=>Promise<T>;search:(from:number,filters?:FirmableFilters,firmableAttempt?:number)=>Promise<CompanySearchPage>;profile:(row:Row,firmableAttempt?:number)=>Promise<CompanyProfileOutcome>;finish:(result:Row)=>Promise<unknown>;now:()=>number},options:{deadline:number;maxCompanies:number;pageSize:number;concurrency:number}){
+ let filters:FirmableFilters|undefined;const rows:Row[]=[];let saved=0,identityReviewRequired=0,skipped=0,failed=0,stopReason='candidate_limit';
  for(let from=0;rows.length<options.maxCompanies&&from<10000;from+=options.pageSize){
   if(deps.now()>=options.deadline){stopReason='deadline';break;}
-  const page=await deps.checkpoint(`d-search-${from}`,()=>deps.search(from,filters));filters??=page.predictedFilters;
+  const page=await deps.checkpoint(`d-search-${from}`,attempt=>attempt?deps.search(from,filters,attempt):deps.search(from,filters));filters??=page.predictedFilters;
   if(from===0&&!filters)throw Error('Firmable search did not return interpreted filters');
   const before=rows.length,next=deduplicateFirmableRows([...rows,...page.records]).slice(before,options.maxCompanies);rows.push(...next);
   for(let start=0;start<next.length;start+=options.concurrency){if(deps.now()>=options.deadline){stopReason='deadline';break;}
-   const results=await Promise.all(next.slice(start,start+options.concurrency).map(row=>deps.checkpoint(`d-company-${row.id}`,()=>deps.profile(row))));for(const r of results){if(r.ok)saved++;else failed++;}
+   const results=await Promise.all(next.slice(start,start+options.concurrency).map(row=>deps.checkpoint(`d-company-${row.id}`,attempt=>attempt?deps.profile(row,attempt):deps.profile(row))));for(const r of results){const disposition=companyProfileDisposition(r);if(disposition==='saved')saved++;else if(disposition==='review')identityReviewRequired++;else if(disposition==='skipped')skipped++;else failed++;}
   }
   if(stopReason==='deadline')break;
   if(!next.length&&page.records.length){stopReason='pagination_did_not_advance';break;}
   if(from+page.records.length>=page.totalCompany){stopReason='exhausted';break;}
   if(page.records.length<options.pageSize){stopReason='premature_short_page';break;}
  }
- const result={saved,failed,candidates:rows.length,stopReason};await deps.checkpoint('d-finish',()=>deps.finish(result));return result;
+ const result={...(identityReviewRequired?{identityReviewRequired}:{}),...(skipped?{skipped}:{}),saved,failed,candidates:rows.length,stopReason};await deps.checkpoint('d-finish',()=>deps.finish(result));return result;
 }
 
 export function originalRevenueRange(criteria:{key:string;value?:string}[]|undefined,fallback:{min:number;max:number|null}|undefined){const match=criteria?.find(c=>c.key==='revenue')?.value?.match(/(\d+)\D+(\d+)/);return match?{min:Number(match[1]),max:Number(match[2])}:fallback;}

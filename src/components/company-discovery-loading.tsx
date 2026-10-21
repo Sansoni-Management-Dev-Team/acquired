@@ -21,9 +21,18 @@ export function companyDiscoveryComplete(data: ResearchPanelData, startedJobId?:
 export function firstBatchCompanyIds(data: ResearchPanelData, startedJobId?: string) {
   const root = researchRoot(data.jobs, startedJobId);
   if (!root) return [];
-  if (isCompanyPipeline(root)) return companyPipelineState(root, [...data.jobs, ...(data.companyJobs || [])]).savedIds;
+  const jobs = [...data.jobs, ...(data.companyJobs || [])];
+  if (isCompanyPipeline(root)) return companyPipelineState(root, jobs).savedIds;
   const runId = root.config.researchRunId || root.id;
-  return [...new Set(data.jobs.filter(job => job.id === runId || job.config.researchRunId === runId || job.config.parentJobId === runId).flatMap(job => job.config.newBusinessIds || []))];
+  return [...new Set(jobs.filter(job => job.id === runId || job.config.researchRunId === runId || job.config.parentJobId === runId).flatMap(job => job.config.newBusinessIds || []))];
+}
+
+/** A stopped root may have persisted useful companies in parallel children.
+ * Opening those records is not a completion or qualification claim; outstanding
+ * enrichment and the saved failure remain visible in the normal workspace. */
+export function companyDiscoveryHasRetainedResults(data: ResearchPanelData, startedJobId?: string) {
+  const root = researchRoot(data.jobs, startedJobId);
+  return Boolean(root && ['failed', 'partial'].includes(root.status) && firstBatchCompanyIds(data, startedJobId).length);
 }
 
 export function CompanyDiscoveryLoading({ mandateId, startedJobId }: { mandateId: string; startedJobId?: string }) {
@@ -37,7 +46,7 @@ export function CompanyDiscoveryLoading({ mandateId, startedJobId }: { mandateId
     if (navigated.current) return;
     // Completion must leave the loading screen even when no new companies were
     // saved. The companies page loads its own results and empty state.
-    if (companyDiscoveryComplete(data, startedJobId)) {
+    if (companyDiscoveryComplete(data, startedJobId) || companyDiscoveryHasRetainedResults(data, startedJobId)) {
       navigated.current = true;
       router.push(targetsHref);
       return;

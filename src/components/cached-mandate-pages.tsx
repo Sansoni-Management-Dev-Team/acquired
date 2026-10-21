@@ -1,9 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import {useEffect} from "react";
+import {useRouter} from "next/navigation";
+import {useMandateCache} from "@/lib/mandate-cache";
+import { BrowserLocalTime } from "./browser-local-time";
 import { SidebarRegistration } from "./app-shell";
 import { HomeMandateCreate } from "./home-mandate-create";
-import { useCachedMandates } from "./use-cached-mandates";
+import { useCachedMandates,useSelectedMandate } from "./use-cached-mandates";
 import { mandateTabHref } from "@/domain/mandate-navigation";
 
 function CacheNotice({ loaded, error, retry }: { loaded: boolean; error: string; retry: () => void }) {
@@ -12,18 +16,21 @@ function CacheNotice({ loaded, error, retry }: { loaded: boolean; error: string;
   return null;
 }
 
-export function CachedMandateCreate() {
+export function CachedMandateCreate({ agentModeEnabled = false, nativeAgentEnabled = false }: { agentModeEnabled?: boolean; nativeAgentEnabled?: boolean } = {}) {
   const cache = useCachedMandates();
-  return <><SidebarRegistration value={{ mandates: cache.mandates.map(m => ({ id: m.id, name: m.brief.name })), tab: "brief" }} /><HomeMandateCreate mandates={cache.mandates} recentStatus={<CacheNotice {...cache} />} recentLoaded={cache.loaded} /></>;
+  return <><SidebarRegistration value={{ mandates: cache.mandates.map(m => ({ id: m.id, name: m.brief.name })), tab: "brief" }} /><HomeMandateCreate nativeAgentEnabled={nativeAgentEnabled} agentModeEnabled={agentModeEnabled} mandates={cache.mandates} recentStatus={<CacheNotice {...cache} />} recentLoaded={cache.loaded} /></>;
 }
 
 export function CachedMandatesPage() {
   const cache = useCachedMandates();
-  return <div className="space-y-6 p-5 sm:p-8"><SidebarRegistration value={{ mandates: cache.mandates.map(m => ({ id: m.id, name: m.brief.name })), tab: "brief" }} /><h1 className="text-3xl font-semibold">Acquisition mandates</h1><p className="text-[var(--muted)]">Keep each acquisition brief, target universe and pipeline separate.</p><Link className="inline-block rounded bg-[var(--accent)] px-4 py-2 text-[var(--on-accent)]" href="/">Create a mandate</Link><CacheNotice {...cache} /><div className="grid gap-4 md:grid-cols-2">{cache.mandates.map(m => <Link key={m.id} className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5 hover:border-[var(--accent)]" href={`/mandates/${m.id}`}><h2 className="text-lg font-semibold">{m.brief.name}</h2><p className="mt-3 text-sm text-[var(--muted)]">{m.brief.criteria.filter(c => c.state === "unknown").length} unanswered criteria · Open workspace</p></Link>)}</div>{cache.loaded && !cache.mandates.length && <p className="text-sm text-[var(--muted)]">Create your first mandate to review a brief and build its target universe.</p>}</div>;
+  return <div className="space-y-6 p-5 sm:p-8"><SidebarRegistration value={{ mandates: cache.mandates.map(m => ({ id: m.id, name: m.brief.name })), tab: "brief" }} /><h1 className="text-3xl font-semibold">Acquisition mandates</h1><p className="text-[var(--muted)]">Keep each acquisition brief, target universe and pipeline separate.</p><Link className="inline-block rounded bg-[var(--accent)] px-4 py-2 text-[var(--on-accent)]" href="/">Create a mandate</Link><CacheNotice {...cache} /><div className="grid gap-4 md:grid-cols-2">{cache.mandates.map(m => <Link key={m.id} className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5 hover:border-[var(--accent)]" onClick={()=>useMandateCache.getState().selectMandate(m.id)} href={`/mandates/${m.id}`}><h2 className="text-lg font-semibold">{m.brief.name}</h2><p className="mt-2 text-xs text-[var(--muted)]">Created <BrowserLocalTime value={m.createdAt} /></p><p className="mt-3 text-sm text-[var(--muted)]">{m.brief.criteria.filter(c => c.state === "unknown").length} unanswered criteria · Open workspace</p></Link>)}</div>{cache.loaded && !cache.mandates.length && <p className="text-sm text-[var(--muted)]">Create your first mandate to review a brief and build its target universe.</p>}</div>;
 }
 
 const sectionLabels = { brief: "Brief", targets: "Companies", people: "People", sequences: "Sequences" };
 export function MandatePicker({ section }: { section: keyof typeof sectionLabels }) {
-  const cache = useCachedMandates();
-  return <div className="mx-auto max-w-3xl space-y-6 p-5 sm:p-8"><h1 className="text-3xl font-semibold">{sectionLabels[section]}</h1><p className="text-[var(--muted)]">Choose a mandate to open {sectionLabels[section].toLowerCase()}.</p><Link href="/" className="inline-block rounded-lg bg-[var(--accent)] px-4 py-3 font-semibold text-[var(--on-accent)]">Create a new mandate</Link><CacheNotice {...cache} /><nav aria-label="Choose a mandate" className="grid gap-3">{cache.mandates.map(m => <Link key={m.id} href={mandateTabHref(m.id, section)} className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5 text-lg font-semibold hover:border-[var(--accent)]">{m.brief.name}</Link>)}</nav>{cache.loaded && !cache.mandates.length && <p className="text-[var(--muted)]">No mandates yet. Create a new mandate to get started.</p>}</div>;
+  const cache = useCachedMandates(),selected=useSelectedMandate(),router=useRouter();
+  useEffect(()=>{if(selected)router.replace(mandateTabHref(selected,section));},[selected,section,router]);
+  if(selected)return <p role="status" className="p-5 text-sm text-[var(--muted)]">Opening the selected mandate…</p>;
+  if(!cache.loaded)return <div className="p-5"><CacheNotice {...cache}/></div>;
+  return <div className="mx-auto max-w-3xl space-y-6 p-5 sm:p-8"><h1 className="text-3xl font-semibold">{sectionLabels[section]}</h1><p className="text-[var(--muted)]">Choose a mandate to open {sectionLabels[section].toLowerCase()}.</p><Link href="/" className="inline-block rounded-lg bg-[var(--accent)] px-4 py-3 font-semibold text-[var(--on-accent)]">Create a new mandate</Link><CacheNotice {...cache} /><nav aria-label="Choose a mandate" className="grid gap-3">{cache.mandates.map(m => <Link key={m.id} href={mandateTabHref(m.id, section)} onClick={()=>useMandateCache.getState().selectMandate(m.id)} className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5 text-lg font-semibold hover:border-[var(--accent)]">{m.brief.name}</Link>)}</nav>{cache.loaded && !cache.mandates.length && <p className="text-[var(--muted)]">No mandates yet. Create a new mandate to get started.</p>}</div>;
 }

@@ -2,8 +2,19 @@ import { afterEach, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ save: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('@/db/research-timing-repository', () => ({ saveResearchTimingSpans: mocks.save }));
 import { measureResearchSegment } from './research-segment-timing';
-import { observeResearchRequest, configureResearchTelemetry, observeResearchDatabase, researchRequestJson, researchJsonResponse } from './research-request-observability';
+import { observeResearchRequest, configureResearchTelemetry, observeResearchDatabase, researchRequestJson, researchJsonResponse, researchTraceContext, setResearchDatabaseContext, withResearchDatabaseContext } from './research-request-observability';
 afterEach(() => { vi.clearAllMocks(); vi.restoreAllMocks(); });
+it('isolates mandate/run/operation correlation across concurrent request and nested company work without exposing other database context', async () => {
+  vi.spyOn(console, 'info').mockImplementation(() => {});
+  await Promise.all(['a','b'].map(key=>observeResearchRequest(new Request('https://example.com/api/research/internal/job-'+key,{headers:{'x-request-id':'request-'+key}}),async()=>{
+    setResearchDatabaseContext({mandateId:'mandate-'+key,runId:'root-'+key,operationId:'operation-'+key,organizationId:'private-org'});
+    await Promise.resolve();
+    expect(researchTraceContext()).toEqual({jobId:'job-'+key,mandateId:'mandate-'+key,runId:'root-'+key,operationId:'operation-'+key,requestId:'request-'+key});
+    await withResearchDatabaseContext({jobId:'child-'+key},async()=>{await Promise.resolve();expect(researchTraceContext()).toMatchObject({jobId:'child-'+key,mandateId:'mandate-'+key,runId:'root-'+key});});
+    expect(researchTraceContext().jobId).toBe('job-'+key);
+    return Response.json({ok:true});
+  })));
+});
 it('batches server spans per request and correlates safe response timings', async () => {
   const log = vi.spyOn(console, 'info').mockImplementation(() => {});
   const response = await observeResearchRequest(new Request('https://example.com/?private=buyer', { headers: { 'x-request-id': 'request-1234' } }), async () => {
@@ -25,7 +36,7 @@ it('records database execution rather than builder creation, including failed st
   const db = observeResearchDatabase({ select: () => ({ from: () => builder }) });
   const response = await observeResearchRequest(new Request('https://example.com'), async () => {
     const query = db.select().from().where();
-    expect(log).not.toHaveBeenCalled();
+    expect(log.mock.calls.some(([tag])=>tag==='research-db')).toBe(false);
     await expect(query).rejects.toThrow('private SQL');
     return Response.json({ ok: true });
   });
@@ -67,9 +78,9 @@ it('counts returned rows for an egress baseline without logging record contents'
   await db.execute();
   return Response.json({ ok: true });
  });
- const query = log.mock.calls.find(([tag]) => tag === 'research-db');
+ const query = log.mock.calls.find(([tag,body]) => tag === 'research-db'&&JSON.parse(body).event==='query_finished');
  expect(JSON.parse(query![1]).rowsReturned).toBe(2);
- const request = log.mock.calls.find(([tag]) => tag === 'research-request');
+ const request = log.mock.calls.find(([tag,body]) => tag === 'research-request'&&JSON.parse(body).event==='request_finished');
  expect(JSON.parse(request![1]).databaseRowsReturned).toBe(2);
  expect(JSON.stringify(log.mock.calls)).not.toContain('private-row');
 });
@@ -89,7 +100,7 @@ it('measures consumed callback UTF-8 bytes once without logging content or writi
  expect(response.headers.get('content-type')).toBe('application/json');
  expect(response.headers.get('x-research-request-body-bytes')).toBe(String(Buffer.byteLength(body)));
  expect(response.headers.get('x-research-response-body-bytes')).toBe(String(Buffer.byteLength(JSON.stringify(data))));
- const metrics = JSON.parse(log.mock.calls.find(([tag]) => tag === 'research-request')![1]);
+ const metrics = JSON.parse(log.mock.calls.find(([tag,body]) => tag === 'research-request'&&JSON.parse(body).event==='request_finished')![1]);
  expect(metrics).toMatchObject({ requestBodyBytes: Buffer.byteLength(body), responseBodyBytes: Buffer.byteLength(JSON.stringify(data)), bodyByteMeasurement: 'application_utf8_body', databaseCalls: 0 });
  expect(mocks.save).not.toHaveBeenCalled();
  expect(JSON.stringify(log.mock.calls)).not.toContain('private café');
@@ -128,7 +139,7 @@ it('attributes concurrent stages independently and reports request byte totals w
  });
  const expected = Buffer.byteLength(JSON.stringify(rows));
  expect(response.headers.get('x-research-db-result-json-bytes')).toBe(String(expected * 2));
- const queries = log.mock.calls.filter(([tag])=>tag==='research-db').map(([,body])=>JSON.parse(body));
+ const queries = log.mock.calls.filter(([tag,body])=>tag==='research-db'&&JSON.parse(body).event==='query_finished').map(([,body])=>JSON.parse(body));
  expect(queries.map(query=>query.stage).sort()).toEqual(['coordination','persistence']);
  expect(queries.every(query=>query.jobId==='job-1' && query.runId==='root' && query.resultJsonBytes===expected)).toBe(true);
  expect(JSON.stringify(log.mock.calls)).not.toContain('hidden');
@@ -148,7 +159,7 @@ it('instruments transaction queries and retains query fingerprints for real Driz
   await database.execute(sql`select id from research_jobs`);
   return Response.json({ok:true});
  });
- const queries=log.mock.calls.filter(([tag])=>tag==='research-db').map(([,body])=>JSON.parse(body));
+ const queries=log.mock.calls.filter(([tag,body])=>tag==='research-db'&&JSON.parse(body).event==='query_finished').map(([,body])=>JSON.parse(body));
  expect(queries).toHaveLength(3);
  expect(queries[0]).toMatchObject({tables:['research_jobs'],queryFingerprint:expect.any(String)});
  expect(queries[2]).toMatchObject({tables:['research_jobs'],queryFingerprint:expect.any(String)});
@@ -157,6 +168,17 @@ it('reports unavailable byte measurements without failing successful queries',as
  const log=vi.spyOn(console,'info').mockImplementation(()=>{});
  const db=observeResearchDatabase({execute:async()=>({rows:[{value:BigInt(1)}]})});
  await observeResearchRequest(new Request('https://example.com'),async()=>{await db.execute();return Response.json({ok:true});});
- const request=log.mock.calls.find(([tag])=>tag==='research-request');
+ const request=log.mock.calls.find(([tag,body])=>tag==='research-request'&&JSON.parse(body).event==='request_finished');
  expect(JSON.parse(request![1])).toMatchObject({databaseByteMeasurementsUnavailable:1,databaseResultJsonBytes:0});
 });
+
+it('logs operation entry, safe failure and exit without changing the original exception',async()=>{
+ const {observeResearchOperation,withResearchDatabaseContext}=await import('./research-request-observability'),log=vi.spyOn(console,'info').mockImplementation(()=>{}),failure=Object.assign(new Error('PRIVATE SQL credentials body'),{code:'57014'});
+ await expect(withResearchDatabaseContext({jobId:'job-12345',stage:'persistence'},()=>observeResearchOperation('request-12345',async()=>{throw failure;}))).rejects.toBe(failure);
+ const events=log.mock.calls.filter(([tag])=>tag==='research-request').map(([,body])=>JSON.parse(body));expect(events.map(e=>e.event)).toEqual(['operation_started','operation_failed','operation_finished']);expect(events[1]).toMatchObject({module:'research.operation',outcome:'failed',errorName:'Error',databaseCode:'57014',jobId:'job-12345',requestId:'request-12345'});expect(JSON.stringify(events)).not.toContain('PRIVATE');
+});
+it('logs a database call before waiting and safe failure with the same query correlation',async()=>{
+ const log=vi.spyOn(console,'info').mockImplementation(()=>{}),failure=Object.assign(new Error('PRIVATE query and parameters'),{code:'40P01'}),db=observeResearchDatabase({execute:async()=>{expect(log.mock.calls.some(([tag,body])=>tag==='research-db'&&JSON.parse(body).event==='query_started')).toBe(true);throw failure;}});
+ await observeResearchRequest(new Request('https://example.com/api/research/internal/job-12345'),async()=>{await expect(db.execute()).rejects.toBe(failure);return Response.json({ok:true});});const events=log.mock.calls.filter(([tag])=>tag==='research-db').map(([,body])=>JSON.parse(body));expect(events.map(e=>e.event)).toEqual(['query_started','query_failed','query_finished']);expect(new Set(events.map(e=>e.queryId)).size).toBe(1);expect(events[1]).toMatchObject({databaseCode:'40P01',module:'research.database',outcome:'failed'});expect(JSON.stringify(events)).not.toContain('PRIVATE');
+});
+it('marks an error HTTP response as failed while retaining its status and response contract',async()=>{const log=vi.spyOn(console,'info').mockImplementation(()=>{});const response=await observeResearchRequest(new Request('https://example.com'),async()=>Response.json({private:'not logged'},{status:503}));expect(response.status).toBe(503);const events=log.mock.calls.filter(([tag])=>tag==='research-request').map(([,body])=>JSON.parse(body));expect(events.map(e=>e.event)).toEqual(['request_started','request_failed','request_finished']);expect(events.at(-1)).toMatchObject({module:'research.request',outcome:'failed',httpStatus:503});expect(JSON.stringify(events)).not.toContain('not logged');});

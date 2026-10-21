@@ -100,7 +100,8 @@ export function createSetupCallbackServer(options: SetupCallbackServerOptions): 
         throw Error('Invalid setup callback server configuration');
     }
     const server = createServer((req, res) => {
-        void (async () => {
+        let pending:Promise<unknown>|undefined;
+        return (async () => {
             let url: URL;
             try {
                 url = new URL(req.url ?? '', 'https://callback.invalid');
@@ -117,7 +118,7 @@ export function createSetupCallbackServer(options: SetupCallbackServerOptions): 
             let timer: ReturnType<typeof setTimeout> | undefined;
             const deadline = new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new CallbackFailure(503, 'retry')), captureTimeout); });
             try {
-                const pending = Promise.resolve().then(() => {
+                pending = Promise.resolve().then(() => {
                     if (performance.now() >= end)
                         throw new CallbackFailure(503, 'retry');
                     return capture({ rawBody, capability: caps[0] });
@@ -161,7 +162,7 @@ export function createSetupCallbackServer(options: SetupCallbackServerOptions): 
                 respond(res, error.status, error.code);
             else
                 respond(res, 503, 'retry');
-        });
+        }).finally(async()=>{await pending?.then(()=>undefined,()=>undefined);});
     });
     server.requestTimeout = 0;
     server.headersTimeout = 10000;

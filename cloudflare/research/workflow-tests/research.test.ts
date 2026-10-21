@@ -6,6 +6,7 @@ import type { ResearchConfig } from "../../../src/domain/research";
 import type { ResearchServices } from "../../../src/domain/research-runner";
 import { automaticContinuation } from "../../../src/domain/research-continuation";
 import { researchFetch } from "../local-policy";
+import {buildAllDiscoveredCompanyPolicy,buildCompanyDiscoveryPolicy,reviewedCompanyDiscoveryPolicy} from '../../../src/domain/research-discovery-policy';
 
 type Progress = Parameters<ResearchServices["progress"]>[0];
 const bindings = env as unknown as Parameters<typeof worker.fetch>[1];
@@ -454,6 +455,48 @@ it('routes a snapshotted D root without changing the Worker environment design',
 it('runs E web discovery with a browser reservation then company-only enrichment',async()=>{const t=replay();Object.assign(t.config,{mode:'automatic',workflow:'business',discover:true,pipelineDesign:'web-firmable-v1',researchRunId:t.id,automaticDeadline:Date.now()+600000});await using instance=await introspectWorkflowInstance(bindings.RESEARCH,t.id);await instance.modify(m=>m.disableSleeps());await bindings.RESEARCH.create({id:t.id,params:{jobId:t.id}});await instance.waitForStatus('complete');expect(t.callbacks).toContainEqual(expect.objectContaining({action:'e-search',browserReservation:`${t.id}:e-search-0-0`}));expect(t.callbacks.filter(c=>c.action==='e-company')).toHaveLength(1);expect(t.callbacks).toContainEqual(expect.objectContaining({action:'e-finish',result:expect.objectContaining({saved:1,matched:1,failed:0})}));expect(t.callbacks.some(c=>c.action==='d-search')).toBe(false);expect(t.timings.length).toBeGreaterThan(0);});
 
 it('runs F discovery branches and deduplicates their shared company in a real Workflow',async()=>{const t=replay();Object.assign(t.config,{mode:'automatic',workflow:'business',discover:true,pipelineDesign:'hybrid-firmable-v1',researchRunId:t.id,automaticDeadline:Date.now()+600000});await using instance=await introspectWorkflowInstance(bindings.RESEARCH,t.id);await instance.modify(m=>m.disableSleeps());await bindings.RESEARCH.create({id:t.id,params:{jobId:t.id}});await instance.waitForStatus('complete');expect(t.callbacks.filter(c=>c.action==='d-search')).toHaveLength(1);expect(t.callbacks.filter(c=>c.action==='e-search')).toHaveLength(1);expect(t.callbacks.filter(c=>['d-company','e-company'].includes(String(c.action)))).toHaveLength(1);expect(t.callbacks).toContainEqual(expect.objectContaining({action:'f-finish',result:expect.objectContaining({saved:1,failed:0,overlap:1,selection:[expect.objectContaining({sources:['firmable','web']})]})}));});
+it('loads server-verified continuation candidates in a fresh Workflow and performs profiling without discovery',async()=>{
+ const t=replay(),sourceRootId=crypto.randomUUID(),sourceDigest='a'.repeat(64),firmableRow={id:'f222',name:'Original no-website company'},webRow={domain:'continued.example.com',name:'Original web company',website:'https://continued.example.com',discovery:{url:'https://continued.example.com',title:'Original web company',snippet:'Synthetic company source'}};
+ Object.assign(t.config,{mode:'automatic',workflow:'business',discover:true,pipelineDesign:'hybrid-firmable-v1',researchRunId:t.id,automaticDeadline:Date.now()+600000,companyDiscoveryPolicy:buildAllDiscoveredCompanyPolicy(),nativeAgent:{version:1},companyContinuation:{version:1,sourceRootId,sourceDigest,candidateKeys:['firmable:f222','domain:continued.example.com']}});
+ const original=vi.mocked(globalThis.fetch).getMockImplementation()!;
+ vi.spyOn(globalThis,'fetch').mockImplementation(async(input,init)=>{const url=String(input instanceof Request?input.url:input);if(url.endsWith(`/api/research/internal/${t.id}`)&&init?.body){const p=JSON.parse(String(init.body));if(p.action==='f-continuation-plan'){t.callbacks.push(p);return Response.json({version:1,sourceRootId,sourceDigest,candidates:[{candidateKey:'firmable:f222',domain:'',sources:['firmable'],firmableRow},{candidateKey:'domain:continued.example.com',domain:'continued.example.com',sources:['web'],webRow}]});}}return original(input,init);});
+ await using instance=await introspectWorkflowInstance(bindings.RESEARCH,t.id);await instance.modify(m=>m.disableSleeps());await bindings.RESEARCH.create({id:t.id,params:{jobId:t.id}});await instance.waitForStatus('complete');
+ expect(t.callbacks.filter(c=>c.action==='f-continuation-plan')).toHaveLength(1);expect(t.callbacks.some(c=>['e-plan','d-search','e-search','provider-reserve'].includes(String(c.action)))).toBe(false);expect(t.callbacks.filter(c=>['d-company','e-company'].includes(String(c.action)))).toEqual([expect.objectContaining({action:'d-company',row:firmableRow,candidateKey:'firmable:f222',expectedDomain:'',sources:['firmable']}),expect.objectContaining({action:'e-company',row:webRow,candidateKey:'domain:continued.example.com',expectedDomain:'continued.example.com',sources:['web']})]);expect(t.callbacks).toContainEqual(expect.objectContaining({action:'f-finish',result:expect.objectContaining({saved:2,searches:0,continuation:{version:1,sourceRootId,sourceDigest}})}));
+ expect(JSON.parse(await instance.waitForStepResult({name:'f-continuation-plan'}) as string)).toMatchObject({sourceRootId,sourceDigest});expect(JSON.parse(await instance.waitForStepResult({name:'f-company-firmable:f222'}) as string)).toMatchObject({ok:true});expect(t.requests.some(url=>url.endsWith('/crawl'))).toBe(false);
+});
+it.each([2,3,4])('uses first-pass supplemental web queries only for V4, preserving V%s retry behavior',async version=>{
+ const t=replay();Object.assign(t.config,{mode:'automatic',workflow:'business',discover:true,pipelineDesign:'hybrid-firmable-v1',researchRunId:t.id,automaticDeadline:Date.now()+600000,companyDiscoveryPolicy:version===4?buildAllDiscoveredCompanyPolicy():version===3?buildCompanyDiscoveryPolicy():reviewedCompanyDiscoveryPolicy,...(version===2?{nativeAgent:{version:1}}:{})});
+ const original=vi.mocked(globalThis.fetch).getMockImplementation()!,searches:Record<string,unknown>[]=[];
+ vi.spyOn(globalThis,'fetch').mockImplementation(async(input,init)=>{const url=String(input instanceof Request?input.url:input);if(url.endsWith(`/api/research/internal/${t.id}`)&&init?.body){const p=JSON.parse(String(init.body));if(p.action==='e-plan')return Response.json([{query:'first query',page:1},{query:'second query',page:1}]);if(p.action==='e-search'){searches.push(p);return Response.json({rows:[],ok:false,category:'page_unavailable'});}}return original(input,init);});
+ await using instance=await introspectWorkflowInstance(bindings.RESEARCH,t.id);await instance.modify(m=>m.disableSleeps());await bindings.RESEARCH.create({id:t.id,params:{jobId:t.id}});await instance.waitForStatus('complete');
+ expect(searches.map(p=>p.browserReservation)).toEqual(version===4?[`${t.id}:f-search-0-0`,`${t.id}:f-search-1-0`]:[0,1].flatMap(index=>[0,1,2].map(attempt=>`${t.id}:f-search-${index}-${attempt}`)));expect(t.callbacks).toContainEqual(expect.objectContaining({action:'f-finish',result:expect.objectContaining({saved:1,searchFailed:2})}));
+});
+it('finishes V4 with honest web budget coverage after five reader admissions while retaining company saves',async()=>{
+ const t=replay();Object.assign(t.config,{mode:'automatic',workflow:'business',discover:true,pipelineDesign:'hybrid-firmable-v1',researchRunId:t.id,automaticDeadline:Date.now()+600000,companyDiscoveryPolicy:buildAllDiscoveredCompanyPolicy()});
+ const original=vi.mocked(globalThis.fetch).getMockImplementation()!,searches:Record<string,unknown>[]=[];let readerAdmissions=0;
+ vi.spyOn(globalThis,'fetch').mockImplementation(async(input,init)=>{const url=String(input instanceof Request?input.url:input);if(url.endsWith(`/api/research/internal/${t.id}`)&&init?.body){const p=JSON.parse(String(init.body));if(p.action==='e-plan')return Response.json(Array.from({length:6},(_,i)=>({query:`distinct query ${i}`,page:1})));if(p.action==='e-search'){searches.push(p);if(readerAdmissions===5)return Response.json({rows:[],ok:false,category:'native_budget_admission_required'});readerAdmissions++;return Response.json({rows:[],ok:true});}}return original(input,init);});
+ await using instance=await introspectWorkflowInstance(bindings.RESEARCH,t.id);await instance.modify(m=>m.disableSleeps());await bindings.RESEARCH.create({id:t.id,params:{jobId:t.id}});await instance.waitForStatus('complete');
+ expect(readerAdmissions).toBe(5);expect(searches).toHaveLength(6);expect(searches.every((p,i)=>p.browserReservation===`${t.id}:f-search-${i}-0`)).toBe(true);expect(t.callbacks).toContainEqual(expect.objectContaining({action:'f-finish',result:expect.objectContaining({saved:1,searchFailed:1,stopReason:'web_budget_limited',discoveryCoverage:expect.objectContaining({webQueries:{planned:6,attempted:6,unattempted:0,stopCategory:'native_budget_admission_required'}})})}));expect(t.callbacks.some(p=>p.action==='f-fail')).toBe(false);
+});
+
+it('waits for a known Firmable cooldown and resumes the same company with a distinct bounded attempt', async()=>{
+ const t=replay();Object.assign(t.config,{mode:'automatic',workflow:'business',discover:true,pipelineDesign:'hybrid-firmable-v1',researchRunId:t.id,automaticDeadline:Date.now()+600000});
+ const original=vi.mocked(globalThis.fetch).getMockImplementation()!,attempts:{attempt:unknown;at:number}[]=[];
+ vi.spyOn(globalThis,'fetch').mockImplementation(async(input,init)=>{
+  const url=String(input instanceof Request?input.url:input);
+  if(url.endsWith(`/api/research/internal/${t.id}`)&&init?.body){const p=JSON.parse(String(init.body));if(['d-company','e-company'].includes(p.action)){
+   attempts.push({attempt:p.firmableAttempt,at:Date.now()});
+   if(attempts.length===1)return Response.json({provider:'firmable',category:'rate_limited',retryAfterMs:1000},{status:429,headers:{'Retry-After':'1'}});
+  }}return original(input,init);
+ });
+ await using instance=await introspectWorkflowInstance(bindings.RESEARCH,t.id);
+ await bindings.RESEARCH.create({id:t.id,params:{jobId:t.id}});await instance.waitForStatus('complete');
+ expect(attempts.map(p=>p.attempt)).toEqual([undefined,1]);expect(attempts[1].at-attempts[0].at).toBeGreaterThanOrEqual(990);
+ const first=await instance.waitForStepResult({name:'f-company-instruments.example.com'});
+ expect(first).toBe('acquire:firmable-cooldown:v1:{"retryAfterMs":1000}');
+ expect(t.callbacks).toContainEqual(expect.objectContaining({action:'f-finish',result:expect.objectContaining({saved:1,failed:0})}));
+ expect(t.callbacks.some(p=>p.action==='f-fail')).toBe(false);
+});
 
 it.each(['web-firmable-v1', 'hybrid-firmable-v1'] as const)('waits durably for future search reservations in %s', async pipelineDesign => {
   const t = replay({ searchReservationDelayMs: 50 });

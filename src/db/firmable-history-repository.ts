@@ -152,8 +152,12 @@ export class FirmableHistoryRepository {
     if (existing?.firmableCompanyId === companyId && existing.companyStatus === companyStatus) return;
     const [company] = await this.database.update(firmableCompanies).set({ peopleGeneration: sql`${firmableCompanies.peopleGeneration} + 1`, updatedAt: new Date() }).where(eq(firmableCompanies.id, companyId)).returning({ generation: firmableCompanies.peopleGeneration });
     if (!company) throw new Error("Company data record not found");
-    const [run] = await this.database.update(firmableSyncRuns).set({ firmableCompanyId: companyId, companyStatus, generation: company.generation, updatedAt: new Date() }).where(and(eq(firmableSyncRuns.id, runId), inArray(firmableSyncRuns.status, ["queued", "running"]))).returning({ targetId: firmableSyncRuns.targetId });
-    if (run) await this.database.update(targets).set({ firmableCompanyId: companyId, updatedAt: new Date() }).where(eq(targets.id, run.targetId));
+    const [run] = await this.database.update(firmableSyncRuns).set({ firmableCompanyId: companyId, companyStatus, generation: company.generation, updatedAt: new Date() }).where(and(eq(firmableSyncRuns.id, runId), inArray(firmableSyncRuns.status, ["queued", "running"]))).returning({ targetId: firmableSyncRuns.targetId, organizationId: firmableSyncRuns.organizationId });
+    // Accepted canonical facts are immutable source history. A refresh response
+    // first records its genuine run/receipt; the shared sync observation port
+    // validates identity before appending current-mandate facts. Legacy targets
+    // with no accepted observation keep their existing enrichment path.
+    if (run) await this.database.update(targets).set({ firmableCompanyId: companyId, updatedAt: new Date() }).where(and(eq(targets.id, run.targetId),eq(targets.organizationId,run.organizationId),sql`NOT EXISTS(SELECT 1 FROM public.company_identity_accepted_observations accepted WHERE accepted.organization_id=${run.organizationId} AND accepted.target_id=${run.targetId}::uuid)`));
   }
 
   async successfulCompanyResponse(runId: string) {

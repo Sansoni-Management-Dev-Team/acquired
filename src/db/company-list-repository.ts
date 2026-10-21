@@ -20,6 +20,10 @@ export class CompanyListRepository {
     }).from(researchJobs).where(and(eq(researchJobs.organizationId, this.org), eq(researchJobs.mandateId, id))).orderBy(sql`${researchJobs.createdAt} DESC`);
     // Hash dependencies inside PostgreSQL: unchanged polls never transfer findings,
     // target profiles, contacts, or execution JSON. Hashes include deletions and edits.
+    const optionalSchema=await this.db.execute(sql`SELECT to_regclass('public.company_identity_accepted_observations') IS NOT NULL AS installed`);
+    const flags=(Array.isArray(optionalSchema)?optionalSchema:(optionalSchema as {rows:{installed:boolean}[]}).rows) as {installed:boolean}[];
+    if(flags.length!==1||typeof flags[0].installed!=='boolean')throw Error('Company observation availability could not be verified.');
+    const observationDependency=flags[0].installed?sql`UNION ALL SELECT 'accepted-observation', o.id::text, md5(o.input_digest || ':' || o.observed_at::text || ':' || o.created_at::text || ':' || o.target_id::text) FROM public.company_identity_accepted_observations o WHERE o.organization_id=${this.org} AND o.mandate_id=${id}::uuid AND o.target_id IN (SELECT id FROM linked)`:sql.empty();
     const result = await this.db.execute(sql`
       WITH linked AS (SELECT t.* FROM public.targets t JOIN public.mandate_targets m ON m.target_id=t.id AND m.organization_id=t.organization_id WHERE m.organization_id=${this.org} AND m.mandate_id=${id}),
       shared AS (SELECT DISTINCT f.id FROM public.firmable_companies f JOIN linked t ON f.id=t.firmable_company_id OR f.domain=lower(regexp_replace(t.domain, '^www[.]', '')) OR f.abn=regexp_replace(t.identifiers->>'abn', '[^0-9]', '', 'g')),
@@ -34,6 +38,7 @@ export class CompanyListRepository {
         UNION ALL SELECT 'people-responses', r.id::text, md5(to_jsonb(r)::text) FROM public.firmable_person_responses r WHERE r.firmable_person_id IN (SELECT firmable_person_id FROM public.firmable_company_people WHERE firmable_company_id IN (SELECT id FROM shared))
         UNION ALL SELECT 'company-people', r.firmable_company_id || ':' || r.firmable_person_id, md5(to_jsonb(r)::text) FROM public.firmable_company_people r WHERE r.firmable_company_id IN (SELECT id FROM shared)
         UNION ALL SELECT 'enrichment', r.id::text, md5(to_jsonb(r)::text) FROM public.firmable_sync_runs r WHERE r.organization_id=${this.org} AND r.target_id IN (SELECT id FROM linked)
+        ${observationDependency}
       ) SELECT md5(coalesce(string_agg(source || ':' || id || ':' || hash, ',' ORDER BY source,id),'')) AS revision FROM dependencies`);
     const rows = Array.isArray(result) ? result : (result as { rows: { revision: string }[] }).rows;
     const activeEnrichment = await this.db.execute(sql`SELECT r.id,r.target_id AS "targetId",t.company_name AS name,r.status,r.message,r.profiles_found AS "profilesFound",r.profiles_saved AS "profilesSaved",r.profiles_failed AS "profilesFailed" FROM public.firmable_sync_runs r JOIN public.mandate_targets m ON m.target_id=r.target_id AND m.organization_id=r.organization_id JOIN public.targets t ON t.id=m.target_id AND t.organization_id=m.organization_id WHERE m.organization_id=${this.org} AND m.mandate_id=${id} AND r.status IN ('queued','running') ORDER BY r.created_at DESC`);

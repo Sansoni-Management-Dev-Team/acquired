@@ -34,3 +34,9 @@ it('scopes the Firmable service credential and delegates only supported methods'
   expect((await worker.fetch(new Request('https://worker.example/search', { method: 'POST', headers }), env)).status).toBe(401);
   expect((await worker.fetch(new Request('https://worker.example/firmable/reconnect', { headers }), env)).status).toBe(405);
 });
+it('passes explicit diagnostic correlation separately from native research authority',async()=>{
+ const firmable=vi.fn(async(input:unknown)=>{void input;return {status:200,body:{id:'f123'}};});
+ const env={FIRMABLE_SERVICE_SECRET:'service',PROVIDER_COORDINATOR:{idFromName:()=> 'account',get:()=>({firmable})}} as unknown as Parameters<typeof worker.fetch>[1];
+ const result=await worker.fetch(new Request('https://worker.example/firmable/company?id=f123',{headers:{authorization:'Bearer service','x-acquire-research-job':'job-123','x-request-id':'request-123','x-acquire-research-call':'call-123'}}),env);
+ expect(result.status).toBe(200);expect(firmable.mock.calls[0][0]).toMatchObject({traceContext:{jobId:'job-123',requestId:'request-123',logicalCallId:'call-123'}});expect(firmable.mock.calls[0][0]).not.toHaveProperty('nativeResearch');
+});

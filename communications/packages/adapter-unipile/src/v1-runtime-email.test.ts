@@ -14,3 +14,10 @@ describe('concrete original sent-email verifier', () => {
         f.raw.date = new Date(Date.now() + 60000).toISOString(); expect(verifyRuntimeSentEmail(f)).toBeNull(); });
     it('requires original thread agreement', () => { expect(verifyRuntimeSentEmail({ ...fixture(), conversationId: 'different-thread' })).toBeNull(); });
 });
+
+it('accepts exact future-wall sent evidence only at or before explicitly selected business time',()=>{
+ const at=new Date(Date.now()+86400000*5).toISOString(),f=fixture();f.raw.date=at;f.evidence={...evidence,occurredAt:at};
+ expect(verifyRuntimeSentEmail(f)).toBeNull();
+ expect(verifyRuntimeSentEmail({...f,businessClock:{now:()=>Date.parse(at)}})).toMatchObject({receipt:{submittedAt:at}});
+ expect(verifyRuntimeSentEmail({...f,businessClock:{now:()=>Date.parse(at)-1}})).toBeNull();
+});

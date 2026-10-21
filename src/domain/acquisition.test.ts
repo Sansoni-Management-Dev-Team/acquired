@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { assessmentSchema, briefSchema, briefToMandate, criterion, emptyBrief, initialAssessment, searchReadiness, transitionErrors, worksheet, indicativeMultiple, type AcquisitionBrief, type CriterionEvidence } from "./acquisition";
-import { parseMandate } from "./mandate";
+import { parseMandate } from "@/test/fixtures/legacy-mandate-parser";
 import { publicBuyerProfile } from "./buyer-profile";
 import { rankTarget } from "./scoring";
 import { assessMembership } from "./mandate-assessment";

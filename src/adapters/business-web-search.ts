@@ -15,18 +15,29 @@ export function seedRelevant(result: WebSearchResult, terms: string[]) {
   return sectorLexicon(terms).some(stem => new RegExp(`\\b${stem.endsWith("y") ? stem.slice(0, -1) + "(?:y|ies)" : stem + "s?"}\\b`).test(text));
 }
 const placeName = (geography: string) => /^national$/i.test(geography) ? "Australia" : geography;
-const phraseQuery = (phrase: string, place: string) => [phrase, discoveryRole(phrase), place].filter(Boolean).join(" ");
+const australianRegions = new Set(discoveryRegions("National"));
+// A missing business role is not evidence that the buyer wants product suppliers.
+// Preserve explicit roles, but use a neutral company hint for acquisition searches.
+const phraseQuery = (phrase: string, place: string) => {
+  const role = discoveryRole(phrase);
+  return [phrase, role === "supplier" ? "companies" : role, place].filter(Boolean).join(" ");
+};
 export function supplierSearchQueries(terms: string[], geography: string) {
   return focusedDiscoveryPhrases(terms).map(phrase => phraseQuery(phrase, placeName(geography)));
 }
 export function expandedSupplierQueries(terms: string[], geography: string) {
   const phrases = focusedDiscoveryPhrases(terms);
-  const regions = discoveryRegions(geography);
+  const regions = discoveryRegions(geography).map(region => australianRegions.has(region) ? `${region}, Australia` : region);
   // Rotate regions across phrases; never spend the entire budget on the first subsector.
-  return regions.flatMap(region => phrases.map(phrase => `${phraseQuery(phrase, region)} companies`)).slice(0, 18);
+  return regions.flatMap(region => phrases.map(phrase => `${phraseQuery(phrase, region)}${discoveryRole(phrase) === "supplier" ? "" : " companies"}`)).slice(0, 18);
 }
 export type DiscoveryQuery = { query: string; page: number; engine?: "google" };
-export function discoveryQueryPlan(terms: string[], geography: string): DiscoveryQuery[] {
+export function discoveryQueryPlan(terms: string[], geography: string, policy?:{maxQueries:6;order:'subsector_round_robin'}): DiscoveryQuery[] {
+  if(policy){
+    const slices=terms.slice(0,6).map(term=>discoveryQueryPlan([term],geography)),queries:DiscoveryQuery[]=[],seen=new Set<string>();
+    for(let round=0;round<Math.max(0,...slices.map(s=>s.length))&&queries.length<policy.maxQueries;round++)for(const slice of slices){const query=slice[round];if(query&&!seen.has(query.query)&&queries.length<policy.maxQueries){seen.add(query.query);queries.push(query);}}
+    return queries;
+  }
   // The deployed DDG HTML reader supports first-page results only. Use distinct
   // phrases instead of silently requesting unsupported pages or another engine.
   return [...new Set([...supplierSearchQueries(terms, geography), ...expandedSupplierQueries(terms, geography)])]

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyStoredFirmableCompany, mapFirmableCompany, mapFirmableRevenue } from "./firmable-mapper";
-import { parseMandate } from "@/domain/mandate";
+import { parseMandate } from "@/test/fixtures/legacy-mandate-parser";
 
 describe("Firmable mapping", () => {
   it("preserves vendor revenue as a band, never an invented number", () => {

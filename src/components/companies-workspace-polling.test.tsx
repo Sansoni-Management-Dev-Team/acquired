@@ -47,3 +47,10 @@ it('checks compact revisions and runs recovery separately without fetching resea
   expect(fetcher.mock.calls[1]).toEqual(['/api/mandates/mandate/companies', expect.objectContaining({ method: 'POST' })]);
   expect(fetcher).toHaveBeenCalledTimes(2);
 });
+
+it('embeds the same saved companies without replacing navigation or running recovery',async()=>{
+ const fetcher=vi.fn();vi.stubGlobal('fetch',fetcher);
+ const initial:CompanyList={mandate:{id:'mandate',brief:emptyBrief(),createdAt:'2026-09-30'},revision:'saved',active:true,hasResearch:true,rows:[],total:0,page:1,pages:1};
+ const html=renderToStaticMarkup(<CompaniesWorkspace mandates={[]} initial={initial} embedded/>);
+ expect(html).not.toContain('Acquisition workspace');expect(mocks.poll.mock.calls[0][1].active).toBe(true);expect(mocks.poll.mock.calls[1][1]).toMatchObject({active:false,initial:false});await mocks.poll.mock.calls[1][0]();expect(fetcher).not.toHaveBeenCalled();
+});

@@ -39,6 +39,18 @@ export function readConfiguredUnipileV1Environment(env: Readonly<Record<string, 
         const ru = new URL(origin), nu = new URL(notify);
         if (ru.protocol !== 'https:' || ru.origin !== origin || nu.protocol !== 'https:' || nu.username || nu.password || nu.search || nu.hash)
             throw Error();
+        let localSimulatorOrigin:string|undefined;
+        if(d.COMMUNICATIONS_LOCAL_SIMULATOR_ORIGIN!==undefined){
+            localSimulatorOrigin=get('COMMUNICATIONS_LOCAL_SIMULATOR_ORIGIN');
+            if(d.NODE_ENV?.value!=='development'||d.AGENT_MODE_COMMUNICATIONS_MODE?.value!=='simulator'||!['https://127.0.0.1:5490','https://127.0.0.1:5590','https://127.0.0.1:5690','https://127.0.0.1:5790','https://127.0.0.1:5890','https://127.0.0.1:5990'].includes(localSimulatorOrigin)||api.origin!==localSimulatorOrigin||ru.origin!==(localSimulatorOrigin==='https://127.0.0.1:5990'?'https://127.0.0.1:5991':localSimulatorOrigin==='https://127.0.0.1:5890'?'https://127.0.0.1:5891':localSimulatorOrigin==='https://127.0.0.1:5790'?'https://127.0.0.1:5791':localSimulatorOrigin==='https://127.0.0.1:5690'?'https://127.0.0.1:5691':localSimulatorOrigin==='https://127.0.0.1:5590'?'https://127.0.0.1:5591':'https://127.0.0.1:5491')||nu.href!==ru.origin+'/v1/setup/notify'||!get('COMMUNICATIONS_INTEGRATION_ID').startsWith('sim-')||!get('COMMUNICATIONS_PROVIDER_CONFIGURATION_REFERENCE').startsWith('sim-'))throw Error();
+            if(localSimulatorOrigin==='https://127.0.0.1:5890'&&(get('COMMUNICATIONS_INTEGRATION_ID')!=='sim-agent-real-research-demos'||get('COMMUNICATIONS_PROVIDER_CONFIGURATION_REFERENCE')!=='sim-agent-real-research-demos-v1'))throw Error();
+            if(localSimulatorOrigin==='https://127.0.0.1:5990'&&(!/^sim-agent-deep-[a-z0-9][a-z0-9-]{0,36}$/.test(get('COMMUNICATIONS_INTEGRATION_ID'))||get('COMMUNICATIONS_PROVIDER_CONFIGURATION_REFERENCE')!==get('COMMUNICATIONS_INTEGRATION_ID')+'-v1'))throw Error();
+            for(const key of ['DATABASE_URL','COMMUNICATIONS_DATABASE_URL']){
+                const database=new URL(get(key));
+                const exactTarget=database.hostname==='postgres'&&database.port==='5432'||database.hostname==='127.0.0.1'&&database.port==='5437';
+                if(!['postgres:','postgresql:'].includes(database.protocol)||!exactTarget||database.pathname!=='/acquire_agent_mode'||database.search||database.hash)throw Error();
+            }
+        }
         const sourceIds: ConfiguredUnipileV1RuntimeOptions['sourceIds'] = {};
         for (const platform of ['gmail', 'outlook', 'linkedin', 'whatsapp'] as const) {
             const value = d[`COMMUNICATIONS_${platform.toUpperCase()}_SOURCE_ID`]?.value;
@@ -49,6 +61,7 @@ export function readConfiguredUnipileV1Environment(env: Readonly<Record<string, 
             }
         }
         const options: ConfiguredUnipileV1RuntimeOptions = { pool, provider: { apiVersion: 'v1', baseUrl: `${api.origin}/api/v1`, apiKey: get('UNIPILE_API_KEY'), timeoutMs: 5000 }, applicationId: get('COMMUNICATIONS_APPLICATION_ID'), integrationId: get('COMMUNICATIONS_INTEGRATION_ID'), providerConfigurationReference: get('COMMUNICATIONS_PROVIDER_CONFIGURATION_REFERENCE'), vault, callbackKey, webhookSecret: get('COMMUNICATIONS_WEBHOOK_SECRET'), redirectOrigin: origin, successPath: d.COMMUNICATIONS_SETUP_SUCCESS_PATH?.value ?? '/settings?setup=returned', failurePath: d.COMMUNICATIONS_SETUP_FAILURE_PATH?.value ?? '/settings?setup=failed', notifyUrl: notify, sourceIds };
+        if(localSimulatorOrigin)options.localSimulatorOrigin=localSimulatorOrigin;
         return { options, scopedAuthKey };
     }
     catch {

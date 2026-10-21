@@ -1,0 +1,1196 @@
+{
+  "version": 1,
+  "date": "2026-10-21",
+  "issue": "L0D499CD9-177",
+  "scope": "The original 28 testOnly module paths in the reviewed post-batch4 working-tree audit; classification is source/reference evidence, not executed live/DB acceptance. The separately committed branch baseline reports 23 test-only modules; concurrent feature modules remain outside that committed scope.",
+  "referenceMethod": "Static imports/re-exports and literal call/URL references, including mocks. Transitive test counts show reference reachability, not actual tests executed. Private code checked by filenames and structural imports only; historical evidence/source snapshots excluded.",
+  "items": [
+    {
+      "path": "cloudflare/research/firmable/testing/local-fixture.ts",
+      "directConsumers": [
+        {
+          "path": "cloudflare/research/firmable/testing/local-fixture.test.ts",
+          "line": 3,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "cloudflare/research/firmable/testing/local-fixture.test.ts"
+      ],
+      "classification": "offline_provider_fixture",
+      "reason": "Deterministic offline Firmable transport used by its direct fixture test; no upstream request is needed.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/adapters/ai/live-inference-checks.ts",
+      "directConsumers": [
+        {
+          "path": "src/adapters/ai/free-openrouter.live.test.ts",
+          "line": 1,
+          "kind": "import"
+        },
+        {
+          "path": "src/adapters/ai/free-provider.live.test.ts",
+          "line": 1,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/adapters/ai/free-openrouter.live.test.ts",
+        "src/adapters/ai/free-provider.live.test.ts"
+      ],
+      "classification": "explicit_live_test_harness",
+      "reason": "Shared fetch/usage assertions for the two explicitly gated live inference tests; retaining harness is not evidence those live tests ran.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/db/agent-campaign-coverage-test-support.ts",
+      "directConsumers": [
+        {
+          "path": "src/db/agent-campaign-context-local.integration.test.ts",
+          "line": 12,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/db/agent-campaign-context-local.integration.test.ts"
+      ],
+      "classification": "database_test_support",
+      "reason": "Encrypted checkpoint and coverage projection fixture for campaign-context integration acceptance.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/db/agent-communications-timing-test-support.ts",
+      "directConsumers": [
+        {
+          "path": "src/db/agent-communications-timing-local.integration.test.ts",
+          "line": 6,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/agent-communications-timing-test-support.test.ts",
+          "line": 2,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/db/agent-communications-timing-local.integration.test.ts",
+        "src/db/agent-communications-timing-test-support.test.ts"
+      ],
+      "classification": "database_test_support",
+      "reason": "Builds synthetic inbound sources and preserves uncertain timing-fixture evidence for timing integration/tests.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/db/agent-reply-causality-test-support.ts",
+      "directConsumers": [
+        {
+          "path": "src/db/agent-communications-timing-local.integration.test.ts",
+          "line": 1,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/db/agent-communications-timing-local.integration.test.ts"
+      ],
+      "classification": "database_test_support",
+      "reason": "Assertions for original reply causality through the timing integration path.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/db/agent-submission-business-time-test-support.ts",
+      "directConsumers": [
+        {
+          "path": "src/db/agent-communications-timing-local.integration.test.ts",
+          "line": 2,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/db/agent-communications-timing-local.integration.test.ts"
+      ],
+      "classification": "database_test_support",
+      "reason": "Business-clock SQL guard probes reuse genuine fixture receipts and rollback savepoint changes.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/db/communications-local-test-support.ts",
+      "directConsumers": [
+        {
+          "path": "src/db/communications-auth-state-local.integration.test.ts",
+          "line": 8,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/communications-connection-setup-local.integration.test.ts",
+          "line": 8,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/communications-dispatch-barrier-local.integration.test.ts",
+          "line": 9,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/communications-dispatch-journal-local.integration.test.ts",
+          "line": 10,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/communications-events-local.integration.test.ts",
+          "line": 8,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/communications-finish-review-local.integration.test.ts",
+          "line": 3,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/communications-outbox-local.integration.test.ts",
+          "line": 7,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/communications-reply-barrier-local.integration.test.ts",
+          "line": 8,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/communications-runtime-host-local.integration.test.ts",
+          "line": 4,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/communications-send-gate-local.integration.test.ts",
+          "line": 5,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/db/communications-auth-state-local.integration.test.ts",
+        "src/db/communications-connection-setup-local.integration.test.ts",
+        "src/db/communications-dispatch-barrier-local.integration.test.ts",
+        "src/db/communications-dispatch-journal-local.integration.test.ts",
+        "src/db/communications-events-local.integration.test.ts",
+        "src/db/communications-finish-review-local.integration.test.ts",
+        "src/db/communications-outbox-local.integration.test.ts",
+        "src/db/communications-reply-barrier-local.integration.test.ts",
+        "src/db/communications-runtime-host-local.integration.test.ts",
+        "src/db/communications-send-gate-local.integration.test.ts"
+      ],
+      "classification": "database_test_support",
+      "reason": "Shared isolated communications DML fixtures for ten direct integration consumers; schema bootstrap is excluded.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/db/communications-standalone-test-support.ts",
+      "directConsumers": [
+        {
+          "path": "src/db/communications-account-runtime-local.integration.test.ts",
+          "line": 3,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/communications-connection-retirement-local.integration.test.ts",
+          "line": 3,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/communications-email-tracking-local.integration.test.ts",
+          "line": 7,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/communications-history-local.integration.test.ts",
+          "line": 6,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/communications-rolling-policy-local.integration.test.ts",
+          "line": 3,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/communications-runtime-host-local.integration.test.ts",
+          "line": 5,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/communications-send-quota-local.integration.test.ts",
+          "line": 3,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/communications-standalone-test-support.test.ts",
+          "line": 2,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/db/communications-account-runtime-local.integration.test.ts",
+        "src/db/communications-connection-retirement-local.integration.test.ts",
+        "src/db/communications-email-tracking-local.integration.test.ts",
+        "src/db/communications-history-local.integration.test.ts",
+        "src/db/communications-rolling-policy-local.integration.test.ts",
+        "src/db/communications-runtime-host-local.integration.test.ts",
+        "src/db/communications-send-quota-local.integration.test.ts",
+        "src/db/communications-standalone-test-support.test.ts"
+      ],
+      "classification": "database_test_support",
+      "reason": "Inert standalone fixture construction; explicit isolated target/owned credential preflight for eight consumers.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/domain/test-mandates.ts",
+      "directConsumers": [
+        {
+          "path": "src/domain/test-mandates.test.ts",
+          "line": 2,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/domain/test-mandates.test.ts"
+      ],
+      "classification": "benchmark_catalogue",
+      "reason": "Thirty validated brief examples are also bundled from a string-built entry in scripts/research-design-matrix.mjs:16; syntax graph misses this real benchmark consumer. Obsolete nextTestMandate browser cycle removed separately.",
+      "disposition": "retain",
+      "additionalConsumers": [
+        {
+          "path": "scripts/research-design-matrix.mjs",
+          "line": 16,
+          "kind": "string_built_esbuild_entry"
+        }
+      ]
+    },
+    {
+      "path": "src/lib/agent-conversation-evaluation-cases.ts",
+      "directConsumers": [
+        {
+          "path": "src/db/agent-conversation-model-evaluation.local.test.ts",
+          "line": 12,
+          "kind": "import"
+        },
+        {
+          "path": "src/lib/agent-conversation-evaluation.test.ts",
+          "line": 4,
+          "kind": "import"
+        },
+        {
+          "path": "src/lib/agent-conversation-evaluation.ts",
+          "line": 2,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/db/agent-conversation-model-evaluation.local.test.ts",
+        "src/lib/agent-conversation-evaluation.test.ts"
+      ],
+      "classification": "evaluation_harness",
+      "reason": "Held-out native conversation examples and injection/disclosure canaries for two evaluation suites.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/lib/agent-conversation-evaluation.ts",
+      "directConsumers": [
+        {
+          "path": "src/db/agent-conversation-model-evaluation.local.test.ts",
+          "line": 11,
+          "kind": "import"
+        },
+        {
+          "path": "src/lib/agent-conversation-evaluation.test.ts",
+          "line": 2,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/db/agent-conversation-model-evaluation.local.test.ts",
+        "src/lib/agent-conversation-evaluation.test.ts"
+      ],
+      "classification": "evaluation_harness",
+      "reason": "Grades current native decisions and runs the held-out engine evaluation; deliberate test-only harness.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/lib/agent-runtime-context.test-fixture.ts",
+      "directConsumers": [
+        {
+          "path": "src/db/agent-campaign-context-local.integration.test.ts",
+          "line": 16,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/agent-demo-native-context-local.integration.test.ts",
+          "line": 8,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/campaign-client.test.ts",
+          "line": 82,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/agent-runtime-context.test.ts",
+          "line": 3,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/db/agent-campaign-context-local.integration.test.ts",
+        "src/db/agent-demo-native-context-local.integration.test.ts",
+        "src/db/campaign-client.test.ts",
+        "src/lib/agent-runtime-context.test.ts"
+      ],
+      "classification": "runtime_test_fixture",
+      "reason": "Shared synthetic runtime descriptor for scoped context/retirement integration and unit fixtures.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/test/agent-pg-fault.ts",
+      "directConsumers": [
+        {
+          "path": "src/db/agent-chat-local.integration.test.ts",
+          "line": 8,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/agent-event-local.integration.test.ts",
+          "line": 1,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/agent-research-local.integration.test.ts",
+          "line": 19,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/agent-review-local.integration.test.ts",
+          "line": 1,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/agent-sequence-local.integration.test.ts",
+          "line": 5,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/agent-store-local.integration.test.ts",
+          "line": 1,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/db/agent-chat-local.integration.test.ts",
+        "src/db/agent-event-local.integration.test.ts",
+        "src/db/agent-research-local.integration.test.ts",
+        "src/db/agent-review-local.integration.test.ts",
+        "src/db/agent-sequence-local.integration.test.ts",
+        "src/db/agent-store-local.integration.test.ts"
+      ],
+      "classification": "transaction_fault_fixture",
+      "reason": "Injects an outbox insert failure on the same genuine PostgreSQL transaction, preserving rollback characterization.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/test/campaign-delivery-fixture.ts",
+      "directConsumers": [
+        {
+          "path": "src/lib/campaign-reply-readiness.test.ts",
+          "line": 14,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-runtime-adversarial.test.ts",
+          "line": 7,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-whatsapp-runtime.test.ts",
+          "line": 7,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-worker-adversarial.test.ts",
+          "line": 6,
+          "kind": "literal_call_or_url"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/lib/campaign-reply-readiness.test.ts",
+        "src/lib/campaign-runtime-adversarial.test.ts",
+        "src/lib/campaign-whatsapp-runtime.test.ts",
+        "src/lib/campaign-worker-adversarial.test.ts"
+      ],
+      "classification": "historical_compatibility_fixture",
+      "reason": "Preserved synthetic campaign delivery composition for existing adversarial/readiness/WhatsApp tests.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/test/email-delivery-error.ts",
+      "directConsumers": [
+        {
+          "path": "src/lib/campaign-runtime-adversarial.test.ts",
+          "line": 171,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/test/email-delivery-fixture.ts",
+          "line": 3,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/lib/campaign-reply-readiness.test.ts",
+        "src/lib/campaign-runtime-adversarial.test.ts",
+        "src/lib/campaign-whatsapp-runtime.test.ts",
+        "src/lib/campaign-worker-adversarial.test.ts"
+      ],
+      "classification": "historical_compatibility_fixture",
+      "reason": "Shared synthetic email-delivery error contract, including adversarial outcome assertions.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/test/email-delivery-fixture.ts",
+      "directConsumers": [
+        {
+          "path": "src/test/campaign-delivery-fixture.ts",
+          "line": 6,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/lib/campaign-reply-readiness.test.ts",
+        "src/lib/campaign-runtime-adversarial.test.ts",
+        "src/lib/campaign-whatsapp-runtime.test.ts",
+        "src/lib/campaign-worker-adversarial.test.ts"
+      ],
+      "classification": "historical_compatibility_fixture",
+      "reason": "Synthetic email delivery provider composition used by campaign delivery tests.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/test/fixtures/campaign-mailbox.ts",
+      "directConsumers": [
+        {
+          "path": "src/db/campaign-optional-people.integration.test.ts",
+          "line": 10,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-enrolment-adversarial.test.ts",
+          "line": 7,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-linkedin-runtime.test.ts",
+          "line": 8,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-mailbox.test.ts",
+          "line": 5,
+          "kind": "import"
+        },
+        {
+          "path": "src/lib/campaign-reply-monitor.test.ts",
+          "line": 6,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-reply-readiness-configured.test.ts",
+          "line": 6,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-reply-readiness.test.ts",
+          "line": 30,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-reply-runtime.test.ts",
+          "line": 7,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-runtime-adversarial.test.ts",
+          "line": 13,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-service-splits.test.ts",
+          "line": 7,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-whatsapp-runtime.test.ts",
+          "line": 12,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-worker-adversarial.test.ts",
+          "line": 13,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/gmail-connection-retirement.test.ts",
+          "line": 4,
+          "kind": "import"
+        },
+        {
+          "path": "src/test/campaign-delivery-fixture.ts",
+          "line": 4,
+          "kind": "import"
+        },
+        {
+          "path": "src/test/email-delivery-fixture.ts",
+          "line": 4,
+          "kind": "import"
+        },
+        {
+          "path": "src/test/fixtures/email-reply-reader.ts",
+          "line": 4,
+          "kind": "import"
+        },
+        {
+          "path": "src/test/fixtures/legacy-campaign-reply-monitor.ts",
+          "line": 13,
+          "kind": "import"
+        },
+        {
+          "path": "src/test/fixtures/legacy-campaign-service.ts",
+          "line": 12,
+          "kind": "import"
+        },
+        {
+          "path": "src/test/fixtures/legacy-campaign-service.ts",
+          "line": 17,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/db/campaign-monitor-local.integration.test.ts",
+        "src/db/campaign-optional-people.integration.test.ts",
+        "src/db/campaign-scheduler-local.integration.test.ts",
+        "src/lib/campaign-enrolment-adversarial.test.ts",
+        "src/lib/campaign-linkedin-runtime.test.ts",
+        "src/lib/campaign-mailbox.test.ts",
+        "src/lib/campaign-reply-monitor.test.ts",
+        "src/lib/campaign-reply-readiness-configured.test.ts",
+        "src/lib/campaign-reply-readiness.test.ts",
+        "src/lib/campaign-reply-runtime.test.ts",
+        "src/lib/campaign-runtime-adversarial.test.ts",
+        "src/lib/campaign-service-splits.test.ts",
+        "src/lib/campaign-whatsapp-runtime.test.ts",
+        "src/lib/campaign-worker-adversarial.test.ts",
+        "src/lib/channels/email-reply-reader.test.ts",
+        "src/lib/gmail-connection-retirement.test.ts"
+      ],
+      "classification": "historical_compatibility_fixture",
+      "reason": "Dedicated local sink mailbox and no-live-Gmail-fallback guards; retained historical fixture, not a production connection method.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/test/fixtures/campaign-reply-collector.ts",
+      "directConsumers": [
+        {
+          "path": "src/lib/campaign-reply-collector.test.ts",
+          "line": 2,
+          "kind": "import"
+        },
+        {
+          "path": "src/test/fixtures/legacy-campaign-reply-monitor.ts",
+          "line": 11,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/db/campaign-monitor-local.integration.test.ts",
+        "src/db/campaign-scheduler-local.integration.test.ts",
+        "src/lib/campaign-reply-collector.test.ts",
+        "src/lib/campaign-reply-monitor.test.ts"
+      ],
+      "classification": "historical_compatibility_fixture",
+      "reason": "Retains deduplicated reply collection characterization for retired historical paths.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/test/fixtures/campaign-reply-providers.ts",
+      "directConsumers": [
+        {
+          "path": "src/db/campaign-monitor-local.integration.test.ts",
+          "line": 7,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/db/campaign-monitor-local.integration.test.ts",
+          "line": 8,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/campaign-optional-people.integration.test.ts",
+          "line": 13,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/db/campaign-scheduler-local.integration.test.ts",
+          "line": 7,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/db/campaign-scheduler-local.integration.test.ts",
+          "line": 8,
+          "kind": "import"
+        },
+        {
+          "path": "src/lib/campaign-provider-adversarial.test.ts",
+          "line": 5,
+          "kind": "import"
+        },
+        {
+          "path": "src/lib/campaign-provider-http.integration.test.ts",
+          "line": 7,
+          "kind": "import"
+        },
+        {
+          "path": "src/lib/campaign-reply-monitor.test.ts",
+          "line": 7,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-reply-providers.test.ts",
+          "line": 3,
+          "kind": "import"
+        },
+        {
+          "path": "src/lib/campaign-social-retirement.test.ts",
+          "line": 5,
+          "kind": "import"
+        },
+        {
+          "path": "src/test/fixtures/legacy-campaign-reply-monitor.ts",
+          "line": 12,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/db/campaign-monitor-local.integration.test.ts",
+        "src/db/campaign-optional-people.integration.test.ts",
+        "src/db/campaign-scheduler-local.integration.test.ts",
+        "src/lib/campaign-provider-adversarial.test.ts",
+        "src/lib/campaign-provider-http.integration.test.ts",
+        "src/lib/campaign-reply-monitor.test.ts",
+        "src/lib/campaign-reply-providers.test.ts",
+        "src/lib/campaign-social-retirement.test.ts"
+      ],
+      "classification": "historical_compatibility_fixture",
+      "reason": "Preserved synthetic reply-provider composition for local/adversarial/retirement tests.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/test/fixtures/campaign-whatsapp.ts",
+      "directConsumers": [
+        {
+          "path": "src/lib/campaign-configured-channels.test.ts",
+          "line": 3,
+          "kind": "import"
+        },
+        {
+          "path": "src/lib/campaign-provider-adversarial.test.ts",
+          "line": 4,
+          "kind": "import"
+        },
+        {
+          "path": "src/lib/campaign-provider-http.integration.test.ts",
+          "line": 6,
+          "kind": "import"
+        },
+        {
+          "path": "src/lib/campaign-reply-monitor.test.ts",
+          "line": 8,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-reply-readiness.test.ts",
+          "line": 27,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-reply-runtime.test.ts",
+          "line": 8,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-runtime-adversarial.test.ts",
+          "line": 17,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-social-retirement.test.ts",
+          "line": 3,
+          "kind": "import"
+        },
+        {
+          "path": "src/lib/campaign-whatsapp-runtime.test.ts",
+          "line": 13,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-whatsapp.test.ts",
+          "line": 3,
+          "kind": "import"
+        },
+        {
+          "path": "src/lib/campaign-worker-adversarial.test.ts",
+          "line": 14,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/test/fixtures/legacy-campaign-reply-monitor.ts",
+          "line": 8,
+          "kind": "import"
+        },
+        {
+          "path": "src/test/fixtures/legacy-campaign-service.ts",
+          "line": 14,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/db/campaign-monitor-local.integration.test.ts",
+        "src/db/campaign-scheduler-local.integration.test.ts",
+        "src/lib/campaign-configured-channels.test.ts",
+        "src/lib/campaign-enrolment-adversarial.test.ts",
+        "src/lib/campaign-provider-adversarial.test.ts",
+        "src/lib/campaign-provider-http.integration.test.ts",
+        "src/lib/campaign-reply-monitor.test.ts",
+        "src/lib/campaign-reply-readiness.test.ts",
+        "src/lib/campaign-reply-runtime.test.ts",
+        "src/lib/campaign-runtime-adversarial.test.ts",
+        "src/lib/campaign-social-retirement.test.ts",
+        "src/lib/campaign-whatsapp-runtime.test.ts",
+        "src/lib/campaign-whatsapp.test.ts",
+        "src/lib/campaign-worker-adversarial.test.ts"
+      ],
+      "classification": "historical_compatibility_fixture",
+      "reason": "Preserved historical WhatsApp fixture behavior and retirement regressions; no production backend restoration.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/test/fixtures/email-message.ts",
+      "directConsumers": [
+        {
+          "path": "src/test/fixtures/campaign-mailbox.ts",
+          "line": 3,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/db/campaign-monitor-local.integration.test.ts",
+        "src/db/campaign-optional-people.integration.test.ts",
+        "src/db/campaign-scheduler-local.integration.test.ts",
+        "src/lib/campaign-enrolment-adversarial.test.ts",
+        "src/lib/campaign-linkedin-runtime.test.ts",
+        "src/lib/campaign-mailbox.test.ts",
+        "src/lib/campaign-reply-monitor.test.ts",
+        "src/lib/campaign-reply-readiness-configured.test.ts",
+        "src/lib/campaign-reply-readiness.test.ts",
+        "src/lib/campaign-reply-runtime.test.ts",
+        "src/lib/campaign-runtime-adversarial.test.ts",
+        "src/lib/campaign-service-splits.test.ts",
+        "src/lib/campaign-whatsapp-runtime.test.ts",
+        "src/lib/campaign-worker-adversarial.test.ts",
+        "src/lib/channels/email-reply-reader.test.ts",
+        "src/lib/gmail-connection-retirement.test.ts"
+      ],
+      "classification": "historical_fixture_types",
+      "reason": "Two unchanged mailbox message/delivery type aliases relocated from production domain source; unused SavedDraft alias removed.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/test/fixtures/email-reply-reader.ts",
+      "directConsumers": [
+        {
+          "path": "src/lib/channels/email-reply-reader.test.ts",
+          "line": 3,
+          "kind": "import"
+        },
+        {
+          "path": "src/test/fixtures/legacy-campaign-reply-monitor.ts",
+          "line": 10,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/db/campaign-monitor-local.integration.test.ts",
+        "src/db/campaign-scheduler-local.integration.test.ts",
+        "src/lib/campaign-reply-monitor.test.ts",
+        "src/lib/channels/email-reply-reader.test.ts"
+      ],
+      "classification": "historical_compatibility_fixture",
+      "reason": "Synthetic email reply reader retained for reader/monitor regression tests.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/test/fixtures/gmail-connection.ts",
+      "directConsumers": [
+        {
+          "path": "src/app/api/mailbox/google/redirects.test.ts",
+          "line": 5,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/app/api/mailbox/google/retirement.test.ts",
+          "line": 6,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-enrolment-adversarial.test.ts",
+          "line": 6,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-linkedin-runtime.test.ts",
+          "line": 7,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-mailbox.test.ts",
+          "line": 4,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-reply-monitor.test.ts",
+          "line": 4,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-reply-readiness-configured.test.ts",
+          "line": 7,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-reply-readiness.test.ts",
+          "line": 12,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-runtime-adversarial.test.ts",
+          "line": 12,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-service-splits.test.ts",
+          "line": 6,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-whatsapp-runtime.test.ts",
+          "line": 11,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/gmail-connection-retirement.test.ts",
+          "line": 3,
+          "kind": "import"
+        },
+        {
+          "path": "src/test/fixtures/campaign-mailbox.ts",
+          "line": 4,
+          "kind": "import"
+        },
+        {
+          "path": "src/test/fixtures/legacy-campaign-reply-monitor.ts",
+          "line": 14,
+          "kind": "import"
+        },
+        {
+          "path": "src/test/fixtures/legacy-campaign-service.ts",
+          "line": 11,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/app/api/mailbox/google/redirects.test.ts",
+        "src/app/api/mailbox/google/retirement.test.ts",
+        "src/db/campaign-monitor-local.integration.test.ts",
+        "src/db/campaign-optional-people.integration.test.ts",
+        "src/db/campaign-scheduler-local.integration.test.ts",
+        "src/lib/campaign-enrolment-adversarial.test.ts",
+        "src/lib/campaign-linkedin-runtime.test.ts",
+        "src/lib/campaign-mailbox.test.ts",
+        "src/lib/campaign-reply-monitor.test.ts",
+        "src/lib/campaign-reply-readiness-configured.test.ts",
+        "src/lib/campaign-reply-readiness.test.ts",
+        "src/lib/campaign-reply-runtime.test.ts",
+        "src/lib/campaign-runtime-adversarial.test.ts",
+        "src/lib/campaign-service-splits.test.ts",
+        "src/lib/campaign-whatsapp-runtime.test.ts",
+        "src/lib/campaign-worker-adversarial.test.ts",
+        "src/lib/channels/email-reply-reader.test.ts",
+        "src/lib/gmail-connection-retirement.test.ts"
+      ],
+      "classification": "historical_compatibility_fixture",
+      "reason": "Historical grant/retirement fixture; tests protect refusal to reconstruct a live Gmail mailbox.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/test/fixtures/legacy-campaign-linkedin.ts",
+      "directConsumers": [
+        {
+          "path": "src/db/campaign-optional-people.integration.test.ts",
+          "line": 12,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-provider-adversarial.test.ts",
+          "line": 3,
+          "kind": "import"
+        },
+        {
+          "path": "src/lib/campaign-provider-http.integration.test.ts",
+          "line": 5,
+          "kind": "import"
+        },
+        {
+          "path": "src/lib/campaign-reply-monitor.test.ts",
+          "line": 9,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-reply-runtime.test.ts",
+          "line": 9,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-runtime-adversarial.test.ts",
+          "line": 15,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/lib/campaign-social-retirement.test.ts",
+          "line": 4,
+          "kind": "import"
+        },
+        {
+          "path": "src/test/campaign-delivery-fixture.ts",
+          "line": 5,
+          "kind": "import"
+        },
+        {
+          "path": "src/test/fixtures/legacy-campaign-reply-monitor.ts",
+          "line": 7,
+          "kind": "import"
+        },
+        {
+          "path": "src/test/fixtures/legacy-campaign-service.ts",
+          "line": 15,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/db/campaign-monitor-local.integration.test.ts",
+        "src/db/campaign-optional-people.integration.test.ts",
+        "src/db/campaign-scheduler-local.integration.test.ts",
+        "src/lib/campaign-enrolment-adversarial.test.ts",
+        "src/lib/campaign-provider-adversarial.test.ts",
+        "src/lib/campaign-provider-http.integration.test.ts",
+        "src/lib/campaign-reply-monitor.test.ts",
+        "src/lib/campaign-reply-readiness.test.ts",
+        "src/lib/campaign-reply-runtime.test.ts",
+        "src/lib/campaign-runtime-adversarial.test.ts",
+        "src/lib/campaign-social-retirement.test.ts",
+        "src/lib/campaign-whatsapp-runtime.test.ts",
+        "src/lib/campaign-worker-adversarial.test.ts"
+      ],
+      "classification": "historical_compatibility_fixture",
+      "reason": "Preserved synthetic legacy LinkedIn lifecycle fixture and explicit social retirement characterization.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/test/fixtures/legacy-campaign-reply-monitor.ts",
+      "directConsumers": [
+        {
+          "path": "src/db/campaign-monitor-local.integration.test.ts",
+          "line": 9,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/campaign-scheduler-local.integration.test.ts",
+          "line": 10,
+          "kind": "import"
+        },
+        {
+          "path": "src/lib/campaign-reply-monitor.test.ts",
+          "line": 11,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/db/campaign-monitor-local.integration.test.ts",
+        "src/db/campaign-scheduler-local.integration.test.ts",
+        "src/lib/campaign-reply-monitor.test.ts"
+      ],
+      "classification": "historical_compatibility_fixture",
+      "reason": "Preserved original monitor behavior in local/adversarial fixtures without production connection methods.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/test/fixtures/legacy-campaign-service.ts",
+      "directConsumers": [
+        {
+          "path": "src/lib/campaign-enrolment-adversarial.test.ts",
+          "line": 10,
+          "kind": "import"
+        },
+        {
+          "path": "src/lib/campaign-runtime-adversarial.test.ts",
+          "line": 20,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/lib/campaign-enrolment-adversarial.test.ts",
+        "src/lib/campaign-runtime-adversarial.test.ts"
+      ],
+      "classification": "historical_compatibility_fixture",
+      "reason": "Preserved campaign execution characterization for enrolment/runtime adversarial tests.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/test/fixtures/legacy-mandate-parser.ts",
+      "directConsumers": [
+        {
+          "path": "src/adapters/firmable-mapper.test.ts",
+          "line": 3,
+          "kind": "import"
+        },
+        {
+          "path": "src/adapters/live-target-search.test.ts",
+          "line": 5,
+          "kind": "import"
+        },
+        {
+          "path": "src/adapters/manufacturing-directory-client.test.ts",
+          "line": 2,
+          "kind": "import"
+        },
+        {
+          "path": "src/domain/acquisition.test.ts",
+          "line": 3,
+          "kind": "import"
+        },
+        {
+          "path": "src/test/fixtures/legacy-mandate-parser.test.ts",
+          "line": 2,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/adapters/firmable-mapper.test.ts",
+        "src/adapters/live-target-search.test.ts",
+        "src/adapters/manufacturing-directory-client.test.ts",
+        "src/domain/acquisition.test.ts",
+        "src/test/fixtures/legacy-mandate-parser.test.ts"
+      ],
+      "classification": "characterization_input_fixture",
+      "reason": "Unchanged old parser constructs existing adapter/acquisition inputs; parser has its own seven legacy assertions.",
+      "disposition": "retain"
+    },
+    {
+      "path": "src/test/fixtures/scoring-targets.ts",
+      "directConsumers": [
+        {
+          "path": "src/adapters/mandate-discovery.test.ts",
+          "line": 4,
+          "kind": "import"
+        },
+        {
+          "path": "src/app/workspace-routing.test.tsx",
+          "line": 6,
+          "kind": "import"
+        },
+        {
+          "path": "src/components/company-info-summary.test.tsx",
+          "line": 6,
+          "kind": "import"
+        },
+        {
+          "path": "src/components/mandate-fit-cells.test.tsx",
+          "line": 6,
+          "kind": "import"
+        },
+        {
+          "path": "src/components/mandate-workspace.test.tsx",
+          "line": 10,
+          "kind": "literal_call_or_url"
+        },
+        {
+          "path": "src/components/target-manual-feedback.test.tsx",
+          "line": 3,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/research-persistence-drivers.test.ts",
+          "line": 11,
+          "kind": "import"
+        },
+        {
+          "path": "src/db/research-target-persistence.test.ts",
+          "line": 7,
+          "kind": "import"
+        },
+        {
+          "path": "src/domain/acquisition.test.ts",
+          "line": 7,
+          "kind": "import"
+        },
+        {
+          "path": "src/domain/company-list.test.ts",
+          "line": 5,
+          "kind": "import"
+        },
+        {
+          "path": "src/domain/firmable-company-fields.test.ts",
+          "line": 4,
+          "kind": "import"
+        },
+        {
+          "path": "src/domain/mandate-fit.test.ts",
+          "line": 5,
+          "kind": "import"
+        },
+        {
+          "path": "src/domain/scoring.test.ts",
+          "line": 2,
+          "kind": "import"
+        },
+        {
+          "path": "src/lib/company-identity-boundary.integration.test.tsx",
+          "line": 8,
+          "kind": "import"
+        }
+      ],
+      "transitiveTestConsumers": [
+        "src/adapters/mandate-discovery.test.ts",
+        "src/app/workspace-routing.test.tsx",
+        "src/components/company-info-summary.test.tsx",
+        "src/components/mandate-fit-cells.test.tsx",
+        "src/components/mandate-workspace.test.tsx",
+        "src/components/target-manual-feedback.test.tsx",
+        "src/db/research-persistence-drivers.test.ts",
+        "src/db/research-target-persistence.test.ts",
+        "src/domain/acquisition.test.ts",
+        "src/domain/company-list.test.ts",
+        "src/domain/firmable-company-fields.test.ts",
+        "src/domain/mandate-fit.test.ts",
+        "src/domain/scoring.test.ts",
+        "src/lib/company-identity-boundary.integration.test.tsx"
+      ],
+      "classification": "shared_domain_fixture",
+      "reason": "Synthetic target/mandate observations reused across fourteen direct domain/UI/persistence test consumers.",
+      "disposition": "retain"
+    }
+  ]
+}

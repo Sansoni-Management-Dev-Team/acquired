@@ -1,0 +1,9 @@
+/* Section headings share one type style inside the settings drawer, including
+   headings supplied by reusable controls with different inherited defaults. */
+.drawer :is(summary, h3) {
+  font-family: var(--font-display), sans-serif;
+  font-size: 0.875rem;
+  font-weight: 500;
+  line-height: 1.25rem;
+  letter-spacing: normal;
+}

@@ -1,8 +1,14 @@
 import { defineConfig } from "vitest/config";
+import {discoverNodeTestFiles} from "./scripts/test-runner-files.mjs";
 
 export default defineConfig({
   resolve: {
-    alias: { "@": new URL("./src", import.meta.url).pathname },
+    alias: {
+      "@": new URL("./src", import.meta.url).pathname,
+      // Next resolves this marker internally. Node unit tests use the same
+      // empty server implementation; application/client build guards stay intact.
+      "server-only": new URL("./node_modules/next/dist/compiled/server-only/empty.js", import.meta.url).pathname,
+    },
   },
   test: {
     environment: "node",
@@ -14,14 +20,8 @@ export default defineConfig({
       ".local-data/**",
       "cloudflare/research/workflow-tests/**",
       "cloudflare/research/provider-coordinator.integration.test.ts",
-      // These use node:test and are run by test:node after Vitest.
-      "scripts/app-deploy-host.test.mjs",
-      "scripts/app-public-smoke.test.mjs",
-      "scripts/communications-standalone-lifecycle-runner.test.mjs",
-      "scripts/communications-deploy-host.test.mjs",
-      "scripts/communications-deploy-schema-preflight.test.mjs",
-      "scripts/communications-production-database.test.mjs",
-      "scripts/communications-production-package.test.mjs",
+      // Shared syntax-based discovery prevents Node suites from drifting out of test:node.
+      ...discoverNodeTestFiles(),
     ],
   },
 });

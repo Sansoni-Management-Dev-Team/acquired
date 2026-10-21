@@ -1,15 +1,15 @@
+import {providerRetryDelay} from '../../../src/domain/research-provider-error';
 export type RecordData = Record<string, unknown>;
 export class ServiceError extends Error {
   constructor(readonly status: number, readonly category: string, readonly retryAfter = 0) { super(category); }
 }
 export function retryDelay(value: string | null, now = Date.now()) {
-  const seconds = value && /^\d+(\.\d+)?$/.test(value) ? Number(value) : NaN;
-  return Math.max(1000, Number.isFinite(seconds) ? seconds * 1000 : value && Number.isFinite(Date.parse(value)) ? Date.parse(value) - now : 30_000);
+  return providerRetryDelay(value, now);
 }
 export async function upstream(fetcher: typeof fetch, url: string, init: RequestInit) {
   let response: Response;
   try { response = await fetcher(url, { ...init, redirect: 'manual', signal: AbortSignal.timeout(15_000) }); }
-  catch { throw new ServiceError(502, 'upstream_unavailable'); }
+  catch (error) { if(error instanceof ServiceError)throw error;throw new ServiceError(502, 'upstream_unavailable'); }
   if (!response.ok) {
     await response.body?.cancel();
     throw new ServiceError(response.status === 429 ? 429 : [401, 403, 404].includes(response.status) ? response.status : 502,

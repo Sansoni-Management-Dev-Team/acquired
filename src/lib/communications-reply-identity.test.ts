@@ -8,7 +8,7 @@ const binding: ConnectionBinding = { applicationId: 'acquire', tenantId: 'org', 
 const bindingId = '00000000-0000-4000-8000-000000000001';
 const sender = { kind: 'linkedin_profile' as const, value: 'https://www.linkedin.com/in/person/' };
 function fixture(rows: Record<string, unknown>[] = []) {
-    const query = vi.fn(async () => ({ rows, rowCount: rows.length }));
+    const query = vi.fn(async (_sql:string,_values?:unknown[]) => {void _sql;void _values;return { rows, rowCount: rows.length };});
     const client = { query, release: vi.fn() } as unknown as SqlClient;
     const row = { binding_id: bindingId, application_id: 'acquire', organization_id: 'org', owner_user_id: 'owner', service_connection_id: 'connection', service_account_id: 'account', generation: 1, channel: 'linkedin', platform: 'linkedin', backend: 'unipile', authority: 'service', identity: 'urn:li:fsd_profile:verifiedPerson', source_identity: sender.value };
     return { query, client, row, input: { actor, binding, sender } };
@@ -19,7 +19,7 @@ describe('recorded owner-scoped campaign identity bridge', () => {
         f.query.mockResolvedValue({ rows: [f.row], rowCount: 1 });
         const resolve = createRecordedReplyIdentityResolver({ actor, binding, bindingId });
         await expect(resolve(f.client, f.input)).resolves.toEqual({ ...f.input, identity: f.row.identity });
-        const [sql, values] = f.query.mock.calls[0] as unknown as [
+        const [sql, values] = f.query.mock.calls.find(args=>String(args[0]).includes('FROM public.campaign_reply_identities')) as unknown as [
             string,
             unknown[]
         ];
@@ -84,3 +84,6 @@ describe('recorded owner-scoped campaign identity bridge', () => {
 });
 
 it('accepts an explicitly recorded canonical service URL without inventing a legacy provider URN',async()=>{const f=fixture();f.query.mockResolvedValue({rows:[{...f.row,identity:sender.value}],rowCount:1});expect(await createRecordedReplyIdentityResolver({actor,binding,bindingId})(f.client,f.input)).toEqual({...f.input,identity:sender.value,identityAuthority:'canonical_service'});});
+
+it('resolves immutable demo route namespace without registering a global real-person alias',async()=>{const scope={kind:'demo',id:'11111111-1111-4111-8111-111111111111'},query=vi.fn(async(sql:string)=>({rows:sql.includes('to_regprocedure')?[{installed:true}]:sql.includes('agent_recorded_reply_execution_scope')?[{context:{registered:true,scope}}]:[],rowCount:1}));const resolve=createRecordedReplyIdentityResolver({actor,binding,bindingId});expect(await resolve({query,release:vi.fn()}as never,{actor,binding,sender:{kind:'linkedin_profile',value:'https://www.linkedin.com/in/mapped'}})).toEqual({actor,binding,sender:{kind:'linkedin_profile',value:'https://www.linkedin.com/in/mapped'},identity:'https://www.linkedin.com/in/mapped',identityAuthority:'canonical_service',identityScope:scope});expect(query.mock.calls.some(([sql])=>sql.includes('FROM public.campaign_reply_identities'))).toBe(false);});
+it('registered demo binding with missing or ambiguous route fails without falling back to global aliases',async()=>{const query=vi.fn(async(sql:string)=>({rows:sql.includes('to_regprocedure')?[{installed:true}]:sql.includes('agent_recorded_reply_execution_scope')?[{context:{registered:true,scope:null}}]:[{identity:'urn:li:fsd_profile:mustNotUse'}],rowCount:1}));expect(await createRecordedReplyIdentityResolver({actor,binding,bindingId})({query,release:vi.fn()}as never,{actor,binding,sender})).toBeNull();expect(query.mock.calls.some(([sql])=>sql.includes('FROM public.campaign_reply_identities'))).toBe(false);});

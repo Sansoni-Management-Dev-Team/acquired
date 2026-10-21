@@ -1,5 +1,9 @@
 "use client";
 
+import {AgentManualFeedbackForm} from "./agent-manual-feedback-form";
+import { randomUuid } from "@/lib/random-uuid";
+
+
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { dialogBackdrop } from "./dialog-backdrop";
@@ -13,8 +17,8 @@ const actionClass = "inline-flex min-h-12 items-center justify-center gap-2 roun
 const reviewTabs = [["review", "Overview"], ["contacts", "Contacts"]] as const;
 type ContactsData = { views: OutreachTargetView[]; peopleRun?: ContactRetrievalRun };
 
-export function CompanyReviewPanel({ mandate, initial: member, onClose, position }: {
-  mandate: MandateView; initial: MembershipView; onClose: () => void; position: string;
+export function CompanyReviewPanel({ mandate, initial: member, onClose, position, learningEnabled=false }: {
+  learningEnabled?:boolean; mandate: MandateView; initial: MembershipView; onClose: () => void; position: string;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const content = useRef<HTMLDivElement>(null);
@@ -53,7 +57,7 @@ export function CompanyReviewPanel({ mandate, initial: member, onClose, position
     if (starting) return;
     setStarting(true);
     setStartError("");
-    requestId.current ||= crypto.randomUUID();
+    requestId.current ||= randomUuid();
     try {
       const data = await jsonRequest(`/api/mandates/${mandate.id}`, { action: "load-people", targetIds: [targetId], requestId: requestId.current });
       const run: ContactRetrievalRun | undefined = data.refresh?.runs[0];
@@ -85,7 +89,7 @@ export function CompanyReviewPanel({ mandate, initial: member, onClose, position
         </nav>
       </header>
       <div ref={content} className="min-h-0 flex-1 overflow-y-auto px-5 py-6 sm:px-8">
-        <div id="company-panel-review" role="tabpanel" aria-labelledby="company-tab-review" hidden={tab !== "review"}><CompanyInfoSummary member={member} financialScope={mandate.brief.financialScope} /></div>
+        <div id="company-panel-review" role="tabpanel" aria-labelledby="company-tab-review" hidden={tab !== "review"}><CompanyInfoSummary member={member} financialScope={mandate.brief.financialScope} />{learningEnabled&&<div className="mt-5 border-t border-[var(--border)] pt-3"><p className="text-xs text-[var(--muted)]">Saved review · version {member.version}{member.assessment.reason?` · ${member.assessment.reason}`:""}</p><AgentManualFeedbackForm mandateId={mandate.id} source={{kind:"target_review",targetId:member.target.id,revision:member.version}} busy={false} defaultCategory="qualification" /></div>}</div>
         <div id="company-panel-contacts" role="tabpanel" aria-labelledby="company-tab-contacts" hidden={tab !== "contacts"}>
           <CompanyContactsTable contacts={savedContacts} availablePeopleCount={contacts?.views.find(t => t.id === targetId)?.availablePeopleCount ?? member.target.sourceData?.firmable?.availablePeopleCount} findings={member.researchFindings} loading={!contacts && !contactsError} error={contactsError || startError} run={contacts?.peopleRun} starting={starting} onLoadPeople={loadPeople} onRetry={contactsError ? () => { setContactsError(""); setRefreshKey(value => value + 1); } : loadPeople} />
         </div>

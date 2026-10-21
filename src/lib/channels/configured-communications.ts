@@ -3,12 +3,14 @@ import type {ReplyChannel} from '@/domain/campaign-replies';
 import type {CampaignDeliveryProvider} from './delivery-provider';
 import {createCommunicationsDeliveryProvider} from './communications-delivery';
 import {resolveRecordedApplicationConnection} from '@/lib/communications-bindings';
-import {configuredAcquireCommunications} from '@/lib/communications-configuration';
+import {configuredAcquireCommunicationsForBinding} from '@/lib/communications-configuration';
 import {actorCommunicationsClient} from '@/lib/communications-client';
 import {withCampaignDb} from '@/db/campaign-client';
 import {ReplyCheckReview,ReplyCheckPending} from '@/lib/campaign-reply-status';
 import type {DeliveryInput,DeliveryLookupInput} from './delivery-provider';
 import type {AcquireIntentSource} from '@/lib/campaign-send-admission';
+import{captureOriginalSubmission}from'@/lib/communications-submission-projection';
+import{assertSameBinding}from'../../../communications/packages/contracts/src';
 import type {MessageSubmission} from '../../../communications/packages/contracts/src';
 export function configuredCommunicationsProvider(channel:ReplyChannel):CampaignDeliveryProvider{
  async function authority(input:DeliveryLookupInput){
@@ -17,7 +19,7 @@ export function configuredCommunicationsProvider(channel:ReplyChannel):CampaignD
   if(!recorded)throw new ReplyCheckReview('account_changed',channel);
   // An authenticated read renews bounded service authority before local intent work.
   await (await actorCommunicationsClient(input.actor)).connectionStatus(recorded.binding);
-  return {...recorded,admission:await configuredAcquireCommunications().host.admission(recorded.binding)};
+  return {...recorded,admission:await (await configuredAcquireCommunicationsForBinding(input.actor,recorded.binding)).host.admission(recorded.binding)};
  }
  function source(input:DeliveryInput):AcquireIntentSource{
   if(input.draftId){if(channel!=='email'||!input.draftRevision)throw new ReplyCheckReview('protocol',channel);return {kind:'draft',messageId:input.draftId,revision:input.draftRevision};}
@@ -26,6 +28,7 @@ export function configuredCommunicationsProvider(channel:ReplyChannel):CampaignD
  }
  return createCommunicationsDeliveryProvider(channel,{
   client:actorCommunicationsClient,
+  async recordSubmitted(input,lookup,result){const recorded=await resolveRecordedApplicationConnection(input.actor,channel,input.enrolmentId?{enrolmentId:input.enrolmentId}:{draftId:input.draftId});if(!recorded)throw new ReplyCheckReview('account_changed',channel);assertSameBinding(recorded.binding,lookup.snapshot.binding);const sourceId=input.draftId??input.attemptId;if(!sourceId)throw new ReplyCheckReview('protocol',channel);const r=result.receipt;if(lookup.snapshot.operation!=='message'&&lookup.snapshot.operation!=='invitation')throw new ReplyCheckReview('protocol',channel);await captureOriginalSubmission(input.actor,{bindingId:recorded.bindingId,binding:lookup.snapshot.binding,sourceKind:input.draftId?'draft':'campaign',sourceId},{effect:lookup.snapshot.operation,providerReference:'message'in r?r.message.id:r.operation.id,submittedAt:r.submittedAt!});},
   async readiness(actor){const snapshot=await (await actorCommunicationsClient(actor)).connections({applicationId:'acquire',tenantId:actor.organizationId,ownerId:actor.userId});if(!snapshot.available)return {status:'waiting',code:'unavailable'};const selected=snapshot.connections.find(c=>c.binding.channel===channel&&c.isDefault);return selected?.readiness??{status:'review',code:'reconnect'};},
   async prepare(input){
    const capturedSource=source(input),a=await authority(input);if(a.recoveryOnly)throw new ReplyCheckReview('unresolved_send',channel);

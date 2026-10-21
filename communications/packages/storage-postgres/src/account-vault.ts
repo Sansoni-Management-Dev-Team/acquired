@@ -1,3 +1,4 @@
+import {parseLocalSyncEventProof,type LocalSyncEventProof} from '../../core/src/local-sync-event';
 import { createHash, createHmac, timingSafeEqual, createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { types } from 'node:util';
 import { assertSameBinding, type ConnectionBinding, type OperationSnapshot } from '../../contracts/src';
@@ -23,6 +24,7 @@ export interface ProviderReceiptScope {
     id: string;
 }
 export interface ProviderReceiptPayload {
+    localSync?:LocalSyncEventProof;
     providerAccountId: string;
     rawBody: Uint8Array;
     receivedAt: string;
@@ -161,23 +163,24 @@ export class AccountRuntimeVault {
     } if (!/^[a-f0-9]{64}$/.test(input.id))
         throw Error(); return { ...input }; }
     #providerPayload(input: ProviderReceiptPayload) { if (!input || types.isProxy(input))
-        throw Error(); const d = Object.getOwnPropertyDescriptors(input); if (Object.keys(d).sort().join(',') !== 'providerAccountId,rawBody,receivedAt' || Object.values(d).some(p => !('value' in p)))
+        throw Error(); const d = Object.getOwnPropertyDescriptors(input); if (!['providerAccountId,rawBody,receivedAt','localSync,providerAccountId,rawBody,receivedAt'].includes(Object.keys(d).sort().join(',')) || Object.values(d).some(p => !('value' in p)))
         throw Error(); for (const field of Object.values(d))
         if (types.isPromise(field.value)) {
             void Promise.prototype.then.call(field.value, undefined, () => { });
             throw Error();
         } if (typeof input.providerAccountId !== 'string' || !input.providerAccountId.length || input.providerAccountId.length > 2048 || input.providerAccountId !== input.providerAccountId.trim() || /[\u0000-\u001f\u007f]/.test(input.providerAccountId) || !types.isUint8Array(input.rawBody) || types.isProxy(input.rawBody) || input.rawBody.byteLength < 1 || input.rawBody.byteLength > 262144 || typeof input.receivedAt !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(input.receivedAt) || !Number.isFinite(Date.parse(input.receivedAt)) || new Date(input.receivedAt).toISOString() !== input.receivedAt)
-        throw Error(); return { providerAccountId: input.providerAccountId, rawBody: Buffer.from(input.rawBody).toString('base64'), receivedAt: input.receivedAt }; }
+        throw Error(); const localSync=input.localSync===undefined?undefined:parseLocalSyncEventProof(input.localSync);if(localSync&&localSync.bodyDigest!==createHash('sha256').update(input.rawBody).digest('hex'))throw Error();return { providerAccountId: input.providerAccountId, rawBody: Buffer.from(input.rawBody).toString('base64'), receivedAt: input.receivedAt,...(localSync?{localSync}:{}) }; }
     #providerAad(scope: ProviderReceiptScope, version: string) { if (!this.#keys.has(version))
         throw Error(); return Buffer.from(JSON.stringify(['communications.provider-webhook.v1', scope.integrationId, scope.providerConfigurationReference, scope.id, version])); }
     providerReceiptId(input: {
+        localSync?:LocalSyncEventProof;
         integrationId: string;
         providerConfigurationReference: string;
         providerAccountId: string;
         rawBody: Uint8Array;
     }): string { try {
-        const payload = this.#providerPayload({ providerAccountId: input.providerAccountId, rawBody: input.rawBody, receivedAt: '2000-01-01T00:00:00.000Z' }), scope = this.#providerScope({ integrationId: input.integrationId, providerConfigurationReference: input.providerConfigurationReference, id: '0'.repeat(64) });
-        return createHmac('sha256', this.#identity).update(JSON.stringify(['communications.provider-webhook.dedupe.v1', scope.integrationId, scope.providerConfigurationReference, payload.providerAccountId])).update(Buffer.from(input.rawBody)).digest('hex');
+        const payload = this.#providerPayload({ providerAccountId: input.providerAccountId, rawBody: input.rawBody, receivedAt: '2000-01-01T00:00:00.000Z',...(input.localSync===undefined?{}:{localSync:input.localSync}) }), scope = this.#providerScope({ integrationId: input.integrationId, providerConfigurationReference: input.providerConfigurationReference, id: '0'.repeat(64) });
+        return createHmac('sha256', this.#identity).update(JSON.stringify([payload.localSync?'communications.provider-webhook.dedupe.local-sync.v1':'communications.provider-webhook.dedupe.v1', scope.integrationId, scope.providerConfigurationReference, payload.providerAccountId,...(payload.localSync?[payload.localSync.eventId]:[])])).update(payload.localSync?Buffer.alloc(0):Buffer.from(input.rawBody)).digest('hex');
     }
     catch {
         throw Error('Invalid provider receipt');
@@ -209,10 +212,10 @@ export class AccountRuntimeVault {
         if (!timingSafeEqual(expected, Buffer.from(sealed.digest, 'hex')))
             throw Error();
         const payload = JSON.parse(new TextDecoder('utf8', { fatal: true }).decode(plain));
-        if (!payload || Object.keys(payload).sort().join(',') !== 'providerAccountId,rawBody,receivedAt')
+        if (!payload || !['providerAccountId,rawBody,receivedAt','localSync,providerAccountId,rawBody,receivedAt'].includes(Object.keys(payload).sort().join(',')))
             throw Error();
         const rawBody = decode(payload.rawBody);
-        const result = { providerAccountId: payload.providerAccountId, rawBody, receivedAt: payload.receivedAt };
+        const result = { providerAccountId: payload.providerAccountId, rawBody, receivedAt: payload.receivedAt,...(payload.localSync===undefined?{}:{localSync:parseLocalSyncEventProof(payload.localSync)}) };
         if (JSON.stringify(this.#providerPayload(result)) !== plain.toString('utf8'))
             throw Error();
         return result;

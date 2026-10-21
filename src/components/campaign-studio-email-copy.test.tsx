@@ -15,7 +15,7 @@ import { CampaignStudio, type StudioData } from './campaign-studio';
 beforeEach(()=>{opened.falseStates=0;});
 function confirmation(mailbox:StudioData['mailbox']){
  const definition={schemaVersion:1 as const,steps:[{id:'email',kind:'email' as const,title:'Introduction',subject:'Hello',body:'Hello'}]};
- const data:StudioData={mailbox,contacts:[],enrolments:[],sequences:[{id:'sequence',name:'Introduction',draft:definition,publishedDefinition:definition,publishedVersion:1,n8nWorkflowId:null,updatedAt:'2026-10-14T00:00:00.000Z'}]};
+ const data:StudioData={mailbox,contacts:[],enrolments:[],sequences:[{id:'sequence',name:'Introduction',draft:definition,publishedDefinition:definition,publishedVersion:1,n8nWorkflowId:null,draftRevision:'24',updatedAt:'2026-10-14T00:00:00.000Z'}]};
  const html=renderToStaticMarkup(<CampaignStudio mandateId="mandate" mandateName="Example" initialData={data}/>);
  expect(html).toContain('aria-label="Confirm automation"');
  return {html,button:html.match(/<button\b[^>]*>[\s\S]*?<\/button>/g)?.find(value=>value.includes('Confirm and start'))};

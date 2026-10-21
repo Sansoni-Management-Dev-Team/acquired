@@ -1,3 +1,4 @@
+import {classifyEmailDeliveryFailure} from './v1-email-delivery-failure';
 import { assertSameBinding } from '../../contracts/src';
 import type { CanonicalIdentity, CommunicationEvent, ConnectionBinding } from '../../contracts/src';
 
@@ -171,6 +172,8 @@ function emailEvent(raw: Record<string, unknown>, context: Extract<V1ReplyEventC
       unmatched.splice(index, 1);
     }
   }
+  const failure=classifyEmailDeliveryFailure(mail);
+  if(failure.kind==='bounce')return {kind:'event',event:{type:'email_change',change:'bounce',reference:{binding:sanitizedBinding(context.binding),id:raw.email_id},recipient:{kind:'email',value:failure.recipient},occurredAt:mail.date}};
   const system = headers.some(header =>
     (header.name === 'auto-submitted' && header.value !== 'no') ||
     (header.name === 'precedence' && ['bulk', 'list', 'junk'].includes(header.value)) ||

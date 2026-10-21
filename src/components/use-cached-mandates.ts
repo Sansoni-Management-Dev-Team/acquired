@@ -45,3 +45,9 @@ export function useCachedMandates() {
   return { mandates: cached?.mandates ?? emptyMandates, loaded: Boolean(cached), error, refreshing,
     retry: () => { void useMandateCache.getState().refresh(true); } };
 }
+
+/** Local navigation preference, visible only in the validated cached session. */
+export function useSelectedMandate(){
+ const session=useMandateCache(state=>state.session),entry=useMandateCache(state=>state.entry);
+ return session&&entry?.scope===session.scope?entry.selectedMandateId:undefined;
+}

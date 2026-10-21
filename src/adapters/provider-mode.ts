@@ -10,7 +10,7 @@ export function resolveTargetDataProviderMode(value: string | undefined): Target
   throw new Error('TARGET_DATA_PROVIDER must be explicitly set to "fixture" or "live"');
 }
 
-export function createTargetDataProvider(mode = resolveTargetDataProviderMode(process.env.TARGET_DATA_PROVIDER), firmableOptions: Pick<FirmableClientOptions, "onObservation"> = {}) {
+export function createTargetDataProvider(mode = resolveTargetDataProviderMode(process.env.TARGET_DATA_PROVIDER), firmableOptions: Pick<FirmableClientOptions, "onObservation" | "traceContext"> = {}) {
   const manufacturingDirectory = new ManufacturingDirectoryClient();
   if (mode === "fixture") return { mode, ...createFixtureProviderClients(firmableOptions), manufacturingDirectory: {
     search: (mandate: import("@/domain/models").Mandate, limit: number) => Promise.resolve(searchManufacturingBusinesses([

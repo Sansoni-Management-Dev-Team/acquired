@@ -9,6 +9,6 @@ export async function PUT(request: Request, context: RouteContext<"/api/campaign
   const { id } = await context.params;
   const parsed = saveCampaignRequest.safeParse(await request.json().catch(() => null));
   if (!z.uuid().safeParse(id).success || !parsed.success) return Response.json({ error: "Invalid sequence" }, { status: 400 });
-  try { return Response.json(await saveCampaign({ organizationId: session.session.activeOrganizationId, userId: session.user.id }, id, parsed.data.name, parsed.data.definition)); }
+  try { return Response.json(await saveCampaign({ organizationId: session.session.activeOrganizationId, userId: session.user.id }, id, parsed.data.name, parsed.data.definition,parsed.data.expectedRevision)); }
   catch (error) { return Response.json({ error: error instanceof Error ? error.message : "Save failed" }, { status: error instanceof CampaignError ? error.status : 500 }); }
 }

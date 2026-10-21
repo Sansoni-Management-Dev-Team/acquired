@@ -1,3 +1,6 @@
+import {isDeepStrictEqual} from 'node:util';
+import {businessSql,type BusinessClock} from '../../core/src/business-clock';
+import{assertHistoryRepliesProcessed}from'./history-pending';
 import { createHash, randomBytes } from 'node:crypto';
 import { types } from 'node:util';
 import { assertSameBinding, type ConnectionBinding, type EventQuery, type EventPage, type Coverage, type CanonicalIdentity } from '../../contracts/src';
@@ -11,6 +14,7 @@ import { parseHistoryOutbound } from '../../core/src/history-backfill';
 import { historyTransaction } from './history-transaction';
 import { parseLifecycleRecord, type RecordedLifecycleConnection } from '../../core/src/connection-lifecycle';
 export interface HistoryCheckpointOptions {
+    businessClock?:BusinessClock;
     pool: SqlPool;
     binding: ConnectionBinding;
     record: RecordedLifecycleConnection;
@@ -140,7 +144,7 @@ export function createPostgresHistoryCheckpoints(options: HistoryCheckpointOptio
                 const revision = await fence(c);
                 await authority(c);
                 const assertion = { binding: structuredClone(b), scopeDigest: scopeDigest(q.scope), requiredSince: q.since, maxAgeSeconds: 300, serviceRevision: revision };
-                const verify = async () => { check(); await repository.assertCoverage(c, structuredClone(assertion)); const gate = await c.query(`SELECT communications.assert_dispatch_reply_barrier($1,$2)::text AS revision`, bind.slice(0, 2)); check(); if (gate.rows.length !== 1 || gate.rows[0].revision !== revision)
+                const verify = async () => { check(); await repository.assertCoverage(c, structuredClone(assertion)); await assertHistoryRepliesProcessed(c,b.applicationId,b.tenantId); const gate = await c.query(`SELECT communications.assert_dispatch_reply_barrier($1,$2)::text AS revision`, bind.slice(0, 2)); check(); if (gate.rows.length !== 1 || gate.rows[0].revision !== revision)
                     fail(); };
                 await verify();
                 const row = await c.query(`SELECT coverage_from,coverage_through,observed_at FROM communications.event_cursors WHERE connection_id=$1 AND generation=$2 AND scope_digest=$3 FOR SHARE`, [b.connectionId, b.generation, assertion.scopeDigest]);
@@ -175,7 +179,7 @@ export function createPostgresHistoryCheckpoints(options: HistoryCheckpointOptio
             return tx(signal, async (c) => {
                 await fence(c);
                 await authority(c);
-                const selected = await c.query(`SELECT w.encrypted_payload,w.key_version,w.payload_digest,w.received_at,(w.state='processing' AND w.lease_token=$4 AND w.lease_until>clock_timestamp()) AS claim_valid,(w.expires_at>clock_timestamp()) AS alive
+                const selected = await c.query(`SELECT w.encrypted_payload,w.key_version,w.payload_digest,w.received_at${options.businessClock?', '+businessSql(options.businessClock)+' AS business_completed_at':''},(w.state='processing' AND w.lease_token=$4 AND w.lease_until>clock_timestamp()) AS claim_valid,(w.expires_at>clock_timestamp()) AS alive
     FROM communications.webhook_inbox w JOIN communications.webhook_receipt_routes r ON r.webhook_inbox_id=w.id
     WHERE w.id=$1 AND w.dedupe_key=$1 AND w.backend='unipile' AND w.integration_id=$2 AND r.connection_id=$3
      AND r.generation=$5 AND r.application_id=$6 AND r.tenant_id=$7 AND r.owner_id=$8 AND r.account_id=$9 FOR UPDATE OF w`, [claim.key, integration, b.connectionId, claim.token, b.generation, b.applicationId, b.tenantId, b.ownerId, b.accountId]);
@@ -189,7 +193,7 @@ export function createPostgresHistoryCheckpoints(options: HistoryCheckpointOptio
                     fail();
                 const original = decodeCapture({ binding: structuredClone(b), key: claim.key }, envelope);
                 assertSameBinding(b, original.binding);
-                if (original.key !== claim.key || original.receivedAt !== claim.receivedAt || !Buffer.from(original.rawBody).equals(Buffer.from(claim.rawBody)) || digestCapture({ binding: structuredClone(b), key: claim.key }, Uint8Array.from(original.rawBody), row.key_version) !== row.payload_digest)
+                if (!isDeepStrictEqual(original.localSync,claim.localSync)||original.key !== claim.key || original.receivedAt !== claim.receivedAt || !Buffer.from(original.rawBody).equals(Buffer.from(claim.rawBody)) || digestCapture({ binding: structuredClone(b), key: claim.key }, Uint8Array.from(original.rawBody), row.key_version) !== row.payload_digest)
                     fail();
                 const raw = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(original.rawBody));
                 if (!plain(raw) || !plain(raw.AccountStatus))
@@ -200,7 +204,7 @@ export function createPostgresHistoryCheckpoints(options: HistoryCheckpointOptio
                 // The retained capture authenticates ingress time; SQL owns receipt observation time.
                 // Copy its full-precision value in SQL to satisfy the immutable receipt fence.
                 const evidence: HistoryInitialSyncEvidence = { kind: 'provider_sync_success', record: structuredClone(record), completedAt: dbDate(row.received_at), evidenceId: claim.key }, sealed = seal(structuredClone(b), initialScope, evidence);
-                const inserted = await c.query(`INSERT INTO communications.history_initial_sync(application_id,tenant_id,owner_id,connection_id,generation,account_id,webhook_inbox_id,completed_at,encrypted_evidence,key_version,digest_key_version) SELECT $1,$2,$3,$4,$5,$6,$7,w.received_at,$8,$9,$10 FROM communications.webhook_inbox w WHERE w.id=$7 ON CONFLICT(connection_id,generation) DO NOTHING RETURNING webhook_inbox_id`, [...cursorValues('history-initial-sync').slice(0, 6), claim.key, JSON.stringify(sealed), sealed.keyVersion, keyVersion]);
+                const inserted = await c.query(`INSERT INTO communications.history_initial_sync(application_id,tenant_id,owner_id,connection_id,generation,account_id,webhook_inbox_id,completed_at,encrypted_evidence,key_version,digest_key_version${options.businessClock?',business_completed_at':''}) SELECT $1,$2,$3,$4,$5,$6,$7,w.received_at,$8,$9,$10${options.businessClock?','+businessSql(options.businessClock):''} FROM communications.webhook_inbox w WHERE w.id=$7 ON CONFLICT(connection_id,generation) DO NOTHING RETURNING webhook_inbox_id`, [...cursorValues('history-initial-sync').slice(0, 6), claim.key, JSON.stringify(sealed), sealed.keyVersion, keyVersion]);
                 if (inserted.rows.length === 0) {
                     const old = await c.query(`SELECT encrypted_evidence,key_version,digest_key_version,webhook_inbox_id,completed_at FROM communications.history_initial_sync WHERE connection_id=$1 AND generation=$2`, [b.connectionId, b.generation]);
                     if (old.rows.length !== 1)
@@ -233,7 +237,7 @@ export function createPostgresHistoryCheckpoints(options: HistoryCheckpointOptio
             return tx(signal, async (c) => {
                 await fence(c);
                 await authority(c);
-                const rows = await c.query(`SELECT encrypted_evidence,key_version,digest_key_version,webhook_inbox_id,completed_at,(completed_at<=clock_timestamp()) AS time_valid FROM communications.history_initial_sync WHERE connection_id=$1 AND generation=$2`, [b.connectionId, b.generation]);
+                const rows = await c.query(`SELECT encrypted_evidence,key_version,digest_key_version,webhook_inbox_id,completed_at${options.businessClock?',business_completed_at':''},(completed_at<=clock_timestamp()${options.businessClock?' AND business_completed_at<='+businessSql(options.businessClock):''}) AS time_valid FROM communications.history_initial_sync WHERE connection_id=$1 AND generation=$2`, [b.connectionId, b.generation]);
                 if (rows.rows.length === 0)
                     return null;
                 if (rows.rows.length !== 1)
@@ -252,7 +256,7 @@ export function createPostgresHistoryCheckpoints(options: HistoryCheckpointOptio
                 if (current.providerAccountId !== record.providerAccountId || current.sourceId !== record.sourceId || current.ownerIdentity.namespace !== record.ownerIdentity.namespace || current.ownerIdentity.value !== record.ownerIdentity.value)
                     fail();
                 await grant(c);
-                return { kind: 'provider_sync_success', record: current, completedAt: proof.completedAt as string, evidenceId: proof.evidenceId as string };
+                return { kind: 'provider_sync_success', record: current, completedAt: options.businessClock?dbDate(r.business_completed_at):proof.completedAt as string, evidenceId: proof.evidenceId as string };
             });
         },
         async assertCoverage(c, input) {
@@ -268,8 +272,8 @@ export function createPostgresHistoryCheckpoints(options: HistoryCheckpointOptio
                 if (await fence(c) !== wanted.serviceRevision)
                     fail();
                 await authority(c);
-                const rows = await c.query(`SELECT ec.encrypted_cursor,ec.cursor_key_version,ec.coverage_from,ec.coverage_through,ec.observed_at,ec.complete,ec.initial_sync_complete,ec.invalidated,h.digest_key_version,h.required_since,h.started_at,h.finished_at,h.capture_revision::text,h.finished_revision::text,
-    (ec.coverage_from<=$4::timestamptz AND ec.coverage_through>=$4::timestamptz AND ec.coverage_through<=clock_timestamp() AND ec.observed_at<=clock_timestamp() AND ec.coverage_through>=clock_timestamp()-make_interval(secs=>$5) AND ec.observed_at>=clock_timestamp()-make_interval(secs=>$5)) AS fresh
+                const rows = await c.query(`SELECT ec.encrypted_cursor,ec.cursor_key_version,ec.coverage_from,ec.coverage_through,ec.observed_at,ec.complete,ec.initial_sync_complete,ec.invalidated,h.digest_key_version,h.required_since,${options.businessClock?'h.business_started_at AS started_at,h.business_finished_at AS finished_at':'h.started_at,h.finished_at'},h.capture_revision::text,h.finished_revision::text,
+    (ec.coverage_from<=$4::timestamptz AND ec.coverage_through>=$4::timestamptz AND ec.coverage_through<=${businessSql(options.businessClock)} AND ec.observed_at<=${businessSql(options.businessClock)} AND ec.coverage_through>=${businessSql(options.businessClock)}-make_interval(secs=>$5) AND ec.observed_at>=${businessSql(options.businessClock)}-make_interval(secs=>$5)) AS fresh
     FROM communications.event_cursors ec JOIN communications.history_refreshes h ON h.connection_id=ec.connection_id AND h.generation=ec.generation AND h.scope_digest=ec.scope_digest
     WHERE ec.connection_id=$1 AND ec.generation=$2 AND ec.scope_digest=$3 AND ec.application_id=$6 AND ec.tenant_id=$7 AND ec.owner_id=$8 AND ec.account_id=$9 FOR SHARE OF ec,h`, [b.connectionId, b.generation, wanted.scopeDigest, wanted.requiredSince, wanted.maxAgeSeconds, b.applicationId, b.tenantId, b.ownerId, b.accountId]);
                 if (rows.rows.length !== 1)
@@ -319,7 +323,7 @@ export function createPostgresHistoryCheckpoints(options: HistoryCheckpointOptio
             return tx(signal, async (c) => {
                 const revision = await fence(c);
                 await authority(c);
-                const result = await c.query(`INSERT INTO communications.history_refreshes(application_id,tenant_id,owner_id,connection_id,generation,account_id,scope_digest,digest_key_version,token_hash,required_since,capture_revision,started_at,lease_until) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,clock_timestamp(),clock_timestamp()+interval '60 seconds') ON CONFLICT(connection_id,generation,scope_digest) DO UPDATE SET token_hash=EXCLUDED.token_hash,required_since=EXCLUDED.required_since,capture_revision=EXCLUDED.capture_revision,started_at=EXCLUDED.started_at,lease_until=EXCLUDED.lease_until,finished_at=NULL,finished_revision=NULL WHERE communications.history_refreshes.lease_until<=clock_timestamp() RETURNING started_at`, [...cursorValues(q.scope), keyVersion, tokenHash, q.since, revision]);
+                const result = await c.query(`INSERT INTO communications.history_refreshes(application_id,tenant_id,owner_id,connection_id,generation,account_id,scope_digest,digest_key_version,token_hash,required_since,capture_revision,started_at,lease_until${options.businessClock?',business_started_at':''}) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,clock_timestamp(),clock_timestamp()+interval '60 seconds'${options.businessClock?','+businessSql(options.businessClock):''}) ON CONFLICT(connection_id,generation,scope_digest) DO UPDATE SET token_hash=EXCLUDED.token_hash,required_since=EXCLUDED.required_since,capture_revision=EXCLUDED.capture_revision,started_at=EXCLUDED.started_at,lease_until=EXCLUDED.lease_until,finished_at=NULL,finished_revision=NULL${options.businessClock?',business_started_at=EXCLUDED.business_started_at,business_finished_at=NULL':''} WHERE communications.history_refreshes.lease_until<=clock_timestamp() RETURNING ${options.businessClock?'business_started_at AS started_at':'started_at'}`, [...cursorValues(q.scope), keyVersion, tokenHash, q.since, revision]);
                 if (result.rows.length === 0)
                     return null;
                 if (result.rows.length !== 1)
@@ -361,7 +365,7 @@ export function createPostgresHistoryCheckpoints(options: HistoryCheckpointOptio
             return tx(signal, async (c) => {
                 const revision = await fence(c);
                 await authority(c);
-                const refresh = await c.query(`SELECT token_hash,required_since,capture_revision::text,started_at,(lease_until>clock_timestamp()) AS alive,(clock_timestamp()>=$4::timestamptz) AS observed_valid FROM communications.history_refreshes WHERE connection_id=$1 AND generation=$2 AND scope_digest=$3 FOR UPDATE`, [b.connectionId, b.generation, scopeDigest(ticket.scope), coverage.observedAt]);
+                const refresh = await c.query(`SELECT token_hash,required_since,capture_revision::text,${options.businessClock?'business_started_at AS started_at':'started_at'},(lease_until>clock_timestamp()) AS alive,(${businessSql(options.businessClock)}>=$4::timestamptz) AS observed_valid FROM communications.history_refreshes WHERE connection_id=$1 AND generation=$2 AND scope_digest=$3 FOR UPDATE`, [b.connectionId, b.generation, scopeDigest(ticket.scope), coverage.observedAt]);
                 const r = refresh.rows[0];
                 if (refresh.rows.length !== 1 || r.token_hash !== hash(ticket.token) || dbDate(r.required_since) !== ticket.since || dbDate(r.started_at) !== ticket.startedAt || r.capture_revision !== ticket.revision || r.alive !== true || r.observed_valid !== true)
                     fail();
@@ -423,7 +427,7 @@ export function createPostgresHistoryCheckpoints(options: HistoryCheckpointOptio
                 const committedRevision = advanced.rows[0].revision;
                 const sealed = seal(structuredClone(b), scopeDigest(ticket.scope), { coverage: finalCoverage, provenance: { ...rawProvenance, outbound: (rawProvenance.outbound as HistoryOutboundObservation[]).map(o => ({ referenceId: o.reference.id, conversationId: o.conversation?.id ?? null, recipient: o.recipient, occurredAt: o.occurredAt })) }, scopeKeyVersion: keyVersion, captureRevision: ticket.revision, finishedRevision: committedRevision });
                 await c.query(`UPDATE communications.event_cursors SET encrypted_cursor=$4,cursor_key_version=$5,coverage_from=$6,coverage_through=$7,observed_at=$8,complete=$9,initial_sync_complete=$10,invalidated=$11 WHERE connection_id=$1 AND generation=$2 AND scope_digest=$3`, [b.connectionId, b.generation, scopeDigest(ticket.scope), JSON.stringify(sealed), sealed.keyVersion, coverage.from, coverage.through, coverage.observedAt, valid, coverage.initialSyncComplete, finalCoverage.invalidated]);
-                await c.query(`UPDATE communications.history_refreshes SET finished_at=clock_timestamp(),lease_until=clock_timestamp(),finished_revision=$4 WHERE connection_id=$1 AND generation=$2 AND scope_digest=$3`, [b.connectionId, b.generation, scopeDigest(ticket.scope), committedRevision]);
+                await c.query(`UPDATE communications.history_refreshes SET finished_at=clock_timestamp(),lease_until=clock_timestamp(),finished_revision=$4${options.businessClock?',business_finished_at='+businessSql(options.businessClock):''} WHERE connection_id=$1 AND generation=$2 AND scope_digest=$3`, [b.connectionId, b.generation, scopeDigest(ticket.scope), committedRevision]);
                 await grant(c);
                 return { committed: true, coverage: finalCoverage };
             });
@@ -435,7 +439,7 @@ export function createPostgresHistoryCheckpoints(options: HistoryCheckpointOptio
             return tx(signal, async (c) => {
                 await fence(c);
                 await authority(c);
-                const result = await c.query(`SELECT coverage_from,coverage_through,observed_at,complete,initial_sync_complete,invalidated,encrypted_cursor,cursor_key_version,(coverage_through<=clock_timestamp() AND observed_at<=clock_timestamp() AND coverage_through>=clock_timestamp()-interval '5 minutes' AND observed_at>=clock_timestamp()-interval '5 minutes') AS fresh FROM communications.event_cursors WHERE connection_id=$1 AND generation=$2 AND scope_digest=$3 FOR SHARE`, [b.connectionId, b.generation, scopeDigest(q.scope)]);
+                const result = await c.query(`SELECT coverage_from,coverage_through,observed_at,complete,initial_sync_complete,invalidated,encrypted_cursor,cursor_key_version,(coverage_through<=${businessSql(options.businessClock)} AND observed_at<=${businessSql(options.businessClock)} AND coverage_through>=${businessSql(options.businessClock)}-interval '5 minutes' AND observed_at>=${businessSql(options.businessClock)}-interval '5 minutes') AS fresh FROM communications.event_cursors WHERE connection_id=$1 AND generation=$2 AND scope_digest=$3 FOR SHARE`, [b.connectionId, b.generation, scopeDigest(q.scope)]);
                 if (result.rows.length === 0)
                     return null;
                 if (result.rows.length !== 1)

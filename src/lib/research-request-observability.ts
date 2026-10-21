@@ -1,13 +1,17 @@
+import {safeResearchFailure,safeResearchTrace} from '@/domain/research-trace-context';
 import { researchQueryIdentity, researchResultMetrics } from './research-egress-metrics';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import type { ResearchTimingSpan } from '@/domain/research-timing';
 
 type Batch = { jobId: string; organizationId: string; spans: Map<string, ResearchTimingSpan> };
-export type ResearchDatabaseContext = { jobId?: string; organizationId?: string; mandateId?: string; runId?: string; stage?: string; action?: string; route?: string };
+export type ResearchDatabaseContext = { jobId?: string; organizationId?: string; mandateId?: string; runId?: string; operationId?: string; stage?: string; action?: string; route?: string };
 const contexts = new AsyncLocalStorage<ResearchDatabaseContext>();
 export function withResearchDatabaseContext<T>(context: ResearchDatabaseContext, run: () => T): T { return contexts.run({ ...scopes.getStore()?.context, ...contexts.getStore(), ...context }, run); }
 export function setResearchDatabaseContext(context: ResearchDatabaseContext) { const scope = scopes.getStore(); if (scope) Object.assign(scope.context, context); }
 export function researchDatabaseContext() { return { ...scopes.getStore()?.context, ...contexts.getStore() }; }
+/** Diagnostic IDs inherited by shared application transports. Database context,
+ * organization details and authority never become provider payloads. */
+export function researchTraceContext() { return safeResearchTrace({ ...researchDatabaseContext(), requestId: researchRequestId() }); }
 function requestContext(request: Request): ResearchDatabaseContext {
   const path = new URL(request.url).pathname;
   const match = /^\/api\/(research|firmable)\/internal\/([a-zA-Z0-9_-]{1,100})(?:\/|$)/.exec(path);
@@ -69,21 +73,26 @@ export async function flushResearchTiming(): Promise<string[]> {
 export async function observeResearchOperation<T>(requestId: string, run: () => Promise<T>): Promise<T> {
   const scope: Scope = { requestBodyBytes: null, context: researchDatabaseContext(), databaseResultJsonBytes: 0, databaseByteMeasurementsUnavailable: 0, requestId, started: performance.now(), batching: true, batches: new Map(), databaseMs: 0, databaseCalls: 0, databaseRowsReturned: 0 };
   return scopes.run(scope, async () => {
+    console.info('research-request',JSON.stringify({event:'operation_started',module:'research.operation',timestamp:new Date().toISOString(),...scope.context,requestId}));
+    let outcome='succeeded',failure:ReturnType<typeof safeResearchFailure>|undefined;
     try { return await run(); }
+    catch(error){outcome='failed';failure=safeResearchFailure(error);console.info('research-request',JSON.stringify({event:'operation_failed',module:'research.operation',timestamp:new Date().toISOString(),...scope.context,requestId,outcome,...failure,elapsedMs:performance.now()-scope.started}));throw error;}
     finally {
       await flushResearchTiming();
-      console.info('research-request', JSON.stringify({ event: 'operation_finished', timestamp: new Date().toISOString(), ...scope.context, requestId, elapsedMs: performance.now() - scope.started, databaseRoundTripMs: scope.databaseMs, databaseCalls: scope.databaseCalls, databaseRowsReturned: scope.databaseRowsReturned, databaseResultJsonBytes: scope.databaseResultJsonBytes, databaseByteMeasurementsUnavailable: scope.databaseByteMeasurementsUnavailable, byteMeasurement: "utf8_json_returned_rows" }));
+      console.info('research-request', JSON.stringify({ event: 'operation_finished',module:'research.operation',outcome,...failure, timestamp: new Date().toISOString(), ...scope.context, requestId, elapsedMs: performance.now() - scope.started, databaseRoundTripMs: scope.databaseMs, databaseCalls: scope.databaseCalls, databaseRowsReturned: scope.databaseRowsReturned, databaseResultJsonBytes: scope.databaseResultJsonBytes, databaseByteMeasurementsUnavailable: scope.databaseByteMeasurementsUnavailable, byteMeasurement: "utf8_json_returned_rows" }));
     }
   });
 }
 export async function observeResearchRequest(request: Request, run: () => Promise<Response>): Promise<Response> {
   const scope: Scope = { requestBodyBytes: request.body ? null : 0, context: requestContext(request), databaseResultJsonBytes: 0, databaseByteMeasurementsUnavailable: 0, requestId: safeRequestId(request.headers.get('x-request-id')), started: performance.now(), batching: false, batches: new Map(), databaseMs: 0, databaseCalls: 0, databaseRowsReturned: 0 };
   return scopes.run(scope, async () => {
-    let response: Response | undefined;
-    try { response = await run(); }
+    let response: Response | undefined;let failure:ReturnType<typeof safeResearchFailure>|undefined;
+    console.info('research-request',JSON.stringify({event:'request_started',module:'research.request',timestamp:new Date().toISOString(),...scope.context,requestId:scope.requestId}));
+    try { response = await run();if(response.status>=400)console.info('research-request',JSON.stringify({event:'request_failed',module:'research.request',timestamp:new Date().toISOString(),...scope.context,requestId:scope.requestId,outcome:'failed',httpStatus:response.status,elapsedMs:performance.now()-scope.started})); }
+    catch(error){failure=safeResearchFailure(error);console.info('research-request',JSON.stringify({event:'request_failed',module:'research.request',timestamp:new Date().toISOString(),...scope.context,requestId:scope.requestId,outcome:'failed',...failure,elapsedMs:performance.now()-scope.started}));throw error;}
     finally {
       await flushResearchTiming();
-      console.info('research-request', JSON.stringify({ event: 'request_finished', timestamp: new Date().toISOString(), ...scope.context, requestId: scope.requestId, elapsedMs: performance.now() - scope.started, databaseRoundTripMs: scope.databaseMs, databaseCalls: scope.databaseCalls, databaseRowsReturned: scope.databaseRowsReturned, databaseResultJsonBytes: scope.databaseResultJsonBytes, databaseByteMeasurementsUnavailable: scope.databaseByteMeasurementsUnavailable, byteMeasurement: "utf8_json_returned_rows", requestBodyBytes: scope.requestBodyBytes, requestBodyMeasurement: scope.requestBodyBytes === null ? 'not_consumed' : 'consumed_body', responseBodyBytes: response ? responseBodySizes.get(response) ?? null : null, bodyByteMeasurement: 'application_utf8_body', httpStatus: response?.status || 500 }));
+      console.info('research-request', JSON.stringify({ event: 'request_finished',module:'research.request',outcome:!response||response.status>=400?'failed':'succeeded',...failure, timestamp: new Date().toISOString(), ...scope.context, requestId: scope.requestId, elapsedMs: performance.now() - scope.started, databaseRoundTripMs: scope.databaseMs, databaseCalls: scope.databaseCalls, databaseRowsReturned: scope.databaseRowsReturned, databaseResultJsonBytes: scope.databaseResultJsonBytes, databaseByteMeasurementsUnavailable: scope.databaseByteMeasurementsUnavailable, byteMeasurement: "utf8_json_returned_rows", requestBodyBytes: scope.requestBodyBytes, requestBodyMeasurement: scope.requestBodyBytes === null ? 'not_consumed' : 'consumed_body', responseBodyBytes: response ? responseBodySizes.get(response) ?? null : null, bodyByteMeasurement: 'application_utf8_body', httpStatus: response?.status || 500 }));
     }
     response.headers.set('x-request-id', scope.requestId);
     if (scope.requestBodyBytes !== null) response.headers.set('x-research-request-body-bytes', String(scope.requestBodyBytes));
@@ -101,19 +110,20 @@ export function observeResearchDatabase<T extends object>(database: T, driver: "
   const measure = async (operation: string, run: () => Promise<unknown>, query?: unknown) => {
     const scope = scopes.getStore();
     if (!scope) return run();
-    const start = performance.now(); const context = researchDatabaseContext(); const identity = researchQueryIdentity(query); let outcome = 'succeeded'; let metrics: ReturnType<typeof researchResultMetrics> | undefined;
+    const start = performance.now(); const context = researchDatabaseContext(); const identity = researchQueryIdentity(query),queryId=crypto.randomUUID(); let outcome = 'succeeded';let failure:ReturnType<typeof safeResearchFailure>|undefined;
+    console.info('research-db',JSON.stringify({event:'query_started',module:'research.database',timestamp:new Date().toISOString(),queryId,...context,...identity,driver,requestId:scope.requestId,operation})); let metrics: ReturnType<typeof researchResultMetrics> | undefined;
     try {
       const result = await run();
       metrics = researchResultMetrics(result);
       return result;
     }
-    catch (error) { outcome = 'failed'; throw error; }
+    catch (error) { outcome = 'failed';failure=safeResearchFailure(error);console.info('research-db',JSON.stringify({event:'query_failed',module:'research.database',timestamp:new Date().toISOString(),queryId,...context,...identity,driver,requestId:scope.requestId,operation,outcome,...failure,elapsedMs:performance.now()-start})); throw error; }
     finally {
       const elapsedMs = performance.now() - start;
       scope.databaseCalls++; scope.databaseMs += elapsedMs; scope.databaseRowsReturned += metrics?.rowsReturned || 0;
       scope.databaseResultJsonBytes += metrics?.resultJsonBytes || 0;
       if (metrics?.byteMeasurement === "unavailable") scope.databaseByteMeasurementsUnavailable++;
-      console.info('research-db', JSON.stringify({ event: 'query_finished', timestamp: new Date().toISOString(), queryId: crypto.randomUUID(), ...context, ...identity, driver, requestId: scope.requestId, operation, elapsedMs, outcome, ...metrics, timingBasis: 'application_database_round_trip' }));
+      console.info('research-db', JSON.stringify({ event: 'query_finished',module:'research.database',...failure, timestamp: new Date().toISOString(), queryId, ...context, ...identity, driver, requestId: scope.requestId, operation, elapsedMs, outcome, ...metrics, timingBasis: 'application_database_round_trip' }));
     }
   };
   const chain = (value: unknown, operation: string): unknown => {

@@ -58,7 +58,7 @@ it("projects live attempts using each enrolment's immutable published definition
   const { listCampaignStudio } = await import("./campaign-service");
   const query = vi.fn().mockResolvedValue({ rows: [] });
   vi.mocked(withCampaignDb).mockImplementation(async (_actor, callback) => callback({ query } as never));
-  mocks.rows.mockResolvedValueOnce([])
+  mocks.rows.mockResolvedValueOnce([{agent_managed:false}]).mockResolvedValueOnce([])
     .mockResolvedValueOnce([{ id: "enrolment", contact_id: "contact", version: 1, version_definition: definition, state: "active", step_index: 2, next_step_at: sentAt, started_at: sentAt, last_sent_at: sentAt, recipient_email: "alex@example.test", stop_reason: null }])
     .mockResolvedValueOnce([{ id: "contact", target_id: "target", display_name: "Alex", company_name: "Company", personal_data: { email: "alex@example.test" }, fictionalised: false }])
     .mockResolvedValueOnce([{ entity_id: "enrolment", action: "campaign.retry_scheduled", created_at: sentAt, metadata: { stepIndex: 2 } }])

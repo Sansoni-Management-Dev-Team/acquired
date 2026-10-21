@@ -1,8 +1,14 @@
 'use client';
+
+import {ChannelReviews} from './channel-reviews';
+
+import { randomUuid } from "@/lib/random-uuid";
+
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BriefcaseBusiness, LoaderCircle, Mail, MessageCircle } from 'lucide-react';
 import { assertManagementSnapshot, type ConnectionManagementSnapshot, type ManagedConnection } from '../../communications/packages/contracts/src/management';
 import type { Platform } from '../../communications/packages/contracts/src';
+import {hostedSetupRedirect} from '@/lib/communications-setup-redirect';
 const channels = [
  { channel:'email' as const,name:'Email',icon:Mail,description:'Connect an email account.' },
  { channel:'whatsapp' as const,name:'WhatsApp',icon:MessageCircle,description:'Connect your WhatsApp account.' },
@@ -13,17 +19,22 @@ const pendingSetupKey='acquire.pending-channel-setup';
 type PendingSetup={channel:string;before:string[];startedAt:number};
 const connectionKey=(c:ManagedConnection)=>`${c.binding.connectionId}:${c.binding.generation}`;
 function connectionPending(c:ManagedConnection) {
+ if(c.active!==true)return false;
  return c.status==='connecting'||c.status==='syncing'||c.status==='connected'&&c.readiness.status==='waiting'&&c.readiness.code==='incomplete';
 }
 function connectionStatus(c:ManagedConnection) {
+ if(c.active===false)return 'Retired connection';
+ if(c.active!==true)return 'Connection status unavailable';
  if(c.status==='disconnected')return 'Disconnected';if(c.status==='failed')return 'Connection failed';
  if(c.status==='verification_required'||c.readiness.status==='review'&&c.readiness.code==='reconnect')return 'Reconnect required';
  if(c.status==='connecting')return 'Connecting';
- if(c.status==='syncing'||c.readiness.status==='waiting'&&c.readiness.code==='incomplete')return 'Syncing';
+ if(c.status==='syncing')return 'Syncing';
+ if(c.status==='connected'&&c.readiness.status==='waiting'&&c.readiness.code==='incomplete')return 'Connected · Checking history';
+ if(c.status==='connected'&&c.readiness.status==='waiting'&&c.readiness.code==='unavailable')return 'Connected · History check unavailable';
  if(c.readiness.status==='ready')return 'Ready';
  if(c.readiness.status==='waiting')return 'Waiting for reply check';return 'Needs review';
 }
-export function ChannelConnections({initialSnapshot,setupReturned=false}:{initialSnapshot?:ConnectionManagementSnapshot;setupReturned?:boolean}={}) {
+export function ChannelConnections({initialSnapshot,setupReturned=false,localSimulatorOrigin}:{initialSnapshot?:ConnectionManagementSnapshot;setupReturned?:boolean;localSimulatorOrigin?:string}={}) {
  const [snapshot,setSnapshot]=useState<ConnectionManagementSnapshot>(initialSnapshot??unavailable),[busy,setBusy]=useState(false),[notice,setNotice]=useState(''),[emailPlatform,setEmailPlatform]=useState<Platform>('gmail');
  const [noticeChannel,setNoticeChannel]=useState<string>('');
  const [waitingForCallback,setWaitingForCallback]=useState(setupReturned);
@@ -70,9 +81,9 @@ export function ChannelConnections({initialSnapshot,setupReturned=false}:{initia
    const response=await fetch('/api/channels/connections',{method:'POST',headers:{'Content-Type':'application/json'},credentials:'same-origin',body:JSON.stringify(input)});
    if(!response.ok)throw Error('Unavailable');const result=await response.json();if(!mounted.current)return;
    if(input.action==='setup'&&result.status==='redirect'){
-    const url=new URL(result.action?.url);if(url.origin!=='https://account.unipile.com'||url.username||url.password||url.hash||Date.parse(result.action?.expiresAt)<=Date.now()||!Number.isFinite(Date.parse(result.action?.expiresAt)))throw Error('Invalid link');
+    const redirect=hostedSetupRedirect(result,{localSimulatorOrigin,pageOrigin:window.location.origin});
     try{sessionStorage.setItem(pendingSetupKey,JSON.stringify({channel,before:snapshot.connections.map(connectionKey),startedAt:Date.now()}));}catch{}
-    window.location.assign(url.href);return;
+    window.location.assign(redirect);return;
    }
    if(input.action==='setup'){
     setNotice('Account setup could not be opened. Please try again.');
@@ -85,10 +96,11 @@ export function ChannelConnections({initialSnapshot,setupReturned=false}:{initia
    await refresh();
   }catch {if(mounted.current)setNotice('The connection action could not be confirmed. Refresh to check its status.');}
   finally{inFlight.current=false;if(mounted.current)setBusy(false);}
- },[refresh,snapshot.connections]);
+ },[refresh,snapshot.connections,localSimulatorOrigin]);
  function disconnect(c:ManagedConnection) {
+  if(c.active!==true)return;
   if(!window.confirm(`Disconnect ${c.label}? Existing work will pause until its connection is resolved.`))return;
-  const identity=JSON.stringify(c.binding);let key=retirementKeys.current.get(identity);if(!key){key=crypto.randomUUID();retirementKeys.current.set(identity,key);}
+  const identity=JSON.stringify(c.binding);let key=retirementKeys.current.get(identity);if(!key){key=randomUuid();retirementKeys.current.set(identity,key);}
   void manage({action:'disconnect',binding:c.binding,key});
  }
  return <section aria-labelledby="channel-connections-heading" className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-6">
@@ -100,12 +112,12 @@ export function ChannelConnections({initialSnapshot,setupReturned=false}:{initia
    <div className="flex flex-wrap items-center gap-3"><div className="flex size-10 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--panel)]"><Icon size={20} aria-hidden="true"/></div><h3 className="flex-1 font-semibold">{name}</h3>{!snapshot.available&&<span className="rounded-full border border-[var(--border)] px-2.5 py-1 text-xs text-[var(--muted)]">Setup unavailable</span>}</div>
    <p className="mt-3 text-sm text-[var(--muted)]">{description}</p>
    {snapshot.connections.filter(c=>c.binding.channel===channel).map(c=><div key={c.binding.connectionId} aria-busy={connectionPending(c)} className="mt-4 border-t border-[var(--border)] pt-3">
-    <p className="break-words text-sm font-medium">{c.label}</p><p className="mt-1 flex items-center gap-2 text-sm text-[var(--muted)]">{connectionPending(c)&&<LoaderCircle size={16} role="img" aria-label={`${name} connection pending`} className="animate-spin motion-reduce:animate-none"/>}{connectionStatus(c)}{c.isDefault?' · Default for new work':''}</p>
+    <p className="break-words text-sm font-medium">{c.label}</p><p className="mt-1 flex items-center gap-2 text-sm text-[var(--muted)]">{connectionPending(c)&&<LoaderCircle size={16} role="img" aria-label={`${name} connection pending`} className="animate-spin motion-reduce:animate-none"/>}{connectionStatus(c)}{c.active===true&&c.isDefault?' · Default for new work':''}</p>
     <div className="mt-3 flex flex-wrap gap-3 text-sm">
      <button disabled={busy} type="button" onClick={()=>void manage({action:'status',binding:c.binding})} className="underline disabled:opacity-50">Check status</button>
-     {!c.isDefault&&c.status!=='disconnected'&&<button disabled={busy} type="button" onClick={()=>void manage({action:'default',binding:c.binding})} className="underline disabled:opacity-50">Use for new work</button>}
-     {(c.status==='disconnected'||c.status==='failed'||c.status==='verification_required')&&<button disabled={busy} type="button" onClick={()=>void manage({action:'setup',channel,platform:c.binding.platform,reconnectBinding:c.binding})} className="underline disabled:opacity-50">Reconnect</button>}
-     {c.status!=='disconnected'&&<button disabled={busy} type="button" onClick={()=>disconnect(c)} className="underline disabled:opacity-50">Disconnect</button>}
+     {c.active===true&&!c.isDefault&&c.status!=='disconnected'&&<button disabled={busy} type="button" onClick={()=>void manage({action:'default',binding:c.binding})} className="underline disabled:opacity-50">Use for new work</button>}
+     {c.active===true&&(c.status==='disconnected'||c.status==='failed'||c.status==='verification_required')&&<button disabled={busy} type="button" onClick={()=>void manage({action:'setup',channel,platform:c.binding.platform,reconnectBinding:c.binding})} className="underline disabled:opacity-50">Reconnect</button>}
+     {c.active===true&&c.status!=='disconnected'&&<button disabled={busy} type="button" onClick={()=>disconnect(c)} className="underline disabled:opacity-50">Disconnect</button>}
     </div>
    </div>)}
    {channel==='email'&&snapshot.available&&<label className="mt-4 block text-sm">Email provider<select aria-label="Email provider" value={emailPlatform} disabled={busy} onChange={e=>setEmailPlatform(e.target.value as Platform)} className="ml-3 rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2"><option value="gmail">Gmail</option><option value="outlook">Outlook</option><option value="imap" disabled>IMAP unavailable</option></select></label>}
@@ -113,5 +125,6 @@ export function ChannelConnections({initialSnapshot,setupReturned=false}:{initia
    {notice&&noticeChannel===channel&&<p role="status" aria-live="polite" className="mt-3 text-sm">{notice}</p>}
    {waitingForCallback&&callbackChannel===channel&&<p role="status" aria-live="polite" className="mt-3 flex items-center gap-2 text-sm"><LoaderCircle size={16} role="img" aria-label={`${name} connection pending`} className="animate-spin motion-reduce:animate-none"/>Waiting for account connection…</p>}
   </div>)}</div>
+  <ChannelReviews/>
  </section>;
 }

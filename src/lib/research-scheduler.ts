@@ -11,10 +11,10 @@ import { loadResearchSchedulingSnapshot } from './research-scheduling-snapshot';
 import { dispatchParallelBusinessResearch } from './parallel-business-research';
 export async function scheduleResearchRun(org:string,jobId:string, options:{recovery?:boolean}={}) {
  const job=await new ResearchRepository(org).getExecution(jobId);
- if(!job || job.status==='cancelled') return false;
+ if(!job || ['failed','cancelled'].includes(job.status)) return false;
  const rootId=(job.config as ResearchConfig).researchRunId || job.id;
  const root=rootId===job.id?job:await new ResearchRepository(org).getExecution(rootId);
- if(!root || root.status==='cancelled') return false;
+ if(!root || ['failed','cancelled'].includes(root.status)) return false;
  if(['firmable-v1','web-firmable-v1','hybrid-firmable-v1'].includes((root.config as ResearchConfig).pipelineDesign||''))return false;
  const dispatchBusiness = (root.config as ResearchConfig).pipelineDesign === 'corpus-v1' ? dispatchCorpusBusinessResearch : (root.config as ResearchConfig).pipelineDesign === 'balanced-v1' ? dispatchBalancedBusinessResearch : dispatchParallelBusinessResearch;
  if(!((root.config as ResearchConfig).performanceFlags as {schedulerCoalescing?:boolean}|undefined)?.schedulerCoalescing) {
