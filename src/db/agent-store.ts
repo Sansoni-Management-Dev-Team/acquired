@@ -1,4 +1,5 @@
-import { createHash } from 'node:crypto';
+import {agentRecordDigest as digest} from '@/lib/agent-record-digest';
+import {insertAgentReviewBatch,persistAgentReviewDecision} from './agent-review-ledger';
 import type { Pool, PoolClient } from 'pg';
 import { z } from 'zod';
 import {agentTransactionRuntimeContext} from '@/lib/agent-runtime-context';
@@ -10,12 +11,6 @@ export const agentActorSchema = z.object({ organizationId: z.string().min(1).max
 export type AgentActor = z.infer<typeof agentActorSchema>;
 const uuid = z.string().uuid();
 const key = z.string().trim().min(1).max(200);
-function canonical(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonical);
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b)).map(([k,v])=>[k,canonical(v)]));
-  return value;
-}
-function digest(value: unknown) { return createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex'); }
 function json(value: unknown) {
   const parsed = z.json().parse(value);
   if (Buffer.byteLength(JSON.stringify(parsed)) > 60_000) throw new Error('Agent payload exceeds the bounded storage limit');
@@ -220,8 +215,7 @@ export class AgentStore {
       const prior=(await c.query('SELECT * FROM agent_review_batches WHERE thread_id=$1 AND request_key=$2',[t.id,request])).rows[0];
       if(prior){assertExactReviewBatch(prior.manifest,manifest);return prior;}
       await this.currentReviewOperations(c,t,manifest);
-      return (await c.query(`INSERT INTO agent_review_batches(thread_id,organization_id,mandate_id,owner_user_id,request_key,manifest,manifest_digest)
-       VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,request,JSON.stringify(manifest),digest(manifest)])).rows[0];
+      return insertAgentReviewBatch(c,t,request,manifest);
     });
   }
   async listReviewBatches(threadId:string,options:{pendingOnly?:boolean}={}){
@@ -250,15 +244,7 @@ export class AgentStore {
       if(batch.state===decision)return batch;
       if(batch.state!=='pending')throw new Error('Review batch was already decided or invalidated');
       await this.currentReviewOperations(c,t,manifest);
-      await c.query('UPDATE agent_operations SET state=$2,updated_at=now() WHERE id=ANY($1::uuid[])',[manifest.map(item=>item.operationId),decision]);
-      const updated=(await c.query('UPDATE agent_review_batches SET state=$2,decided_by=$3,decided_at=clock_timestamp() WHERE id=$1 RETURNING *',[batch.id,decision,this.actor.userId])).rows[0];
-      const payload={reviewBatchId:batch.id,decision,items:manifest};
-      await c.query(`INSERT INTO agent_events(thread_id,organization_id,mandate_id,owner_user_id,event_key,kind,payload,payload_digest)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8)`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,'review:'+batch.id+':'+decision,'review.'+decision,JSON.stringify(payload),digest(payload)]);
-      const content={text:decision==='approved'?'You approved the displayed proposals. Execution will recheck current permissions and conversation state.':'You rejected the displayed proposals.',...payload};
-      await c.query(`INSERT INTO agent_messages(thread_id,organization_id,mandate_id,owner_user_id,request_key,role,content,content_digest)
-       VALUES($1,$2,$3,$4,$5,'user',$6,$7)`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,'review:'+batch.id+':'+decision,JSON.stringify(content),digest({role:'user',content})]);
-      return updated;
+      return persistAgentReviewDecision(c,t,this.actor.userId,{batchId:batch.id,manifest,decision});
     });
   }
   async editProposedOperation(threadId:string,operationId:string,revision:number,input:unknown){
@@ -291,8 +277,7 @@ export class AgentStore {
       await c.query('UPDATE agent_operations SET input=$2,input_digest=$3,revision=revision+1,updated_at=now() WHERE id=$1',[op.id,JSON.stringify(input),hash]);
       const next=manifest.map(item=>item.operationId===operationId?{...item,revision:revision+1,digest:hash}:item);
       await c.query("UPDATE agent_review_batches SET state='invalidated' WHERE id=$1",[batch.id]);
-      return (await c.query(`INSERT INTO agent_review_batches(thread_id,organization_id,mandate_id,owner_user_id,request_key,manifest,manifest_digest)
-       VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,request,JSON.stringify(next),digest(next)])).rows[0];
+      return insertAgentReviewBatch(c,t,request,next);
     });
   }
   async createAuthorityGrant(threadId:string,raw:unknown){
