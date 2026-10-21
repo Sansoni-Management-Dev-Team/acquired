@@ -1165,7 +1165,7 @@ export function AgentControlsPanel({
                 {running ? "Pause agent" : "Resume agent"}
               </button>
             )}
-            <button
+            {!cachedDemo && <button
               type="button"
               aria-label="Agent settings"
               aria-controls={settingsId}
@@ -1175,7 +1175,7 @@ export function AgentControlsPanel({
               title="Agent settings"
             >
               <SlidersHorizontal size={19} />
-            </button>
+            </button>}
           </div>
         </div>
         {briefChanged && (
@@ -1188,7 +1188,7 @@ export function AgentControlsPanel({
             approvals.
           </p>
         )}
-        <dialog
+        {!cachedDemo && <dialog
           ref={dialog}
           id={settingsId}
           aria-labelledby={settingsTitleId}
@@ -1694,7 +1694,7 @@ export function AgentControlsPanel({
               )}
             </div>
           </div>
-        </dialog>
+        </dialog>}
         {pollUnavailable && (
           <p role="status" className="text-xs">
             Could not refresh background status. Check the connection before

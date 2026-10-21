@@ -185,7 +185,7 @@ it('starts a cached demo in one click using server defaults instead of showing s
  await act(()=>{vi.advanceTimersByTime(3000);});const chat=tree!.root.findByProps({'aria-label':'Cached demo setup'});expect(chat.findAllByType('form')).toHaveLength(0);expect(posts).toHaveLength(0);
  await act(async()=>chat.findAllByType('button').find(button=>button.props.children==='Start')!.props.onClick());
  expect(posts).toEqual([{url:'/api/mandates/mandate/agent/demo',body:{action:'start',requestKey:expect.any(String)}}]);expect(saved).toHaveBeenCalledTimes(1);
- const drawer=tree!.root.findByType('dialog');expect(drawer.findAllByProps({'aria-label':'Advanced agent settings'})).toHaveLength(0);expect(drawer.findAllByProps({'aria-label':'Channel outreach policy'})).toHaveLength(0);expect(drawer.findAllByType('button').some(button=>button.props.children==='Review channel accounts in chat')).toBe(false);
+ expect(tree!.root.findAllByType('dialog')).toHaveLength(0);expect(tree!.root.findAllByProps({'aria-label':'Agent settings'})).toHaveLength(0);
  }finally{if(tree)await act(()=>tree!.unmount());vi.useRealTimers();vi.unstubAllGlobals();}
 });
 
@@ -343,4 +343,9 @@ it('keeps All selected without automatically retrying an unchanged saved empty c
  try{await act(()=>{tree=create(<AgentControlsPanel mandateId="mandate" initial={initial}>{()=>null}</AgentControlsPanel>);});await act(()=>tree!.root.findByType(AgentDemoApprovalControls).props.onChange(AGENT_DEMO_AUTO_APPROVAL_ALL));
  expect(posts).toEqual([]);expect(tree!.root.findByType(AgentDemoApprovalControls).props.value).toEqual(AGENT_DEMO_AUTO_APPROVAL_ALL);expect(JSON.stringify(tree!.toJSON())).toContain('Needs your review');
  }finally{if(tree)await act(()=>tree!.unmount());vi.useRealTimers();vi.unstubAllGlobals();}
+});
+
+it('omits the redundant settings menu in a saved-data demo while keeping primary controls',()=>{
+ const html=renderToStaticMarkup(<AgentControlsPanel mandateId="mandate" initialResearchSource="cached" initial={{...data,enabled:true,state:{...data.state!,executionMode:'demo',responsibility:{id:'r',state:'ready',revision:1,owner_user_id:'owner'}}}}>{renderConversation}</AgentControlsPanel>);
+ expect(html).not.toContain('aria-label="Agent settings"');expect(html).not.toContain('<dialog');expect(html).not.toContain('Configure the current mandate.');expect(html).toContain('Pause agent');
 });

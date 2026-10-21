@@ -30,3 +30,10 @@ it('does not restore historical token authorization when the connection service 
 it('disabled delivery never loads a retired mailbox or its OAuth token',async()=>{vi.stubEnv('COMMUNICATIONS_RUNTIME_ENABLED','false');await processCampaignEnrolment(actor,'enrol');expect(m.rows.mock.calls.some(([,sql])=>/mailbox_connections|encrypted_refresh_token/.test(sql))).toBe(false);expect(m.submit).not.toHaveBeenCalled();});
 it('disabled Studio never loads retired Gmail credentials',async()=>{vi.stubEnv('COMMUNICATIONS_RUNTIME_ENABLED','false');m.rows.mockResolvedValue([]);expect((await listCampaignStudio(actor,'mandate')).mailbox).toBeNull();expect(m.rows.mock.calls.some(([,sql])=>/mailbox_connections|encrypted_refresh_token/.test(sql))).toBe(false);});
 it('configured Studio reads current reply monitor coverage instead of retired scanners',async()=>{m.rows.mockResolvedValue([]);await listCampaignStudio(actor,'mandate');expect(m.rows.mock.calls.some(([,sql])=>sql.includes('communication_reply_monitors'))).toBe(true);expect(m.rows.mock.calls.some(([,sql])=>/\bFROM campaign_reply_monitors\b/.test(sql))).toBe(false);});
+
+
+it('projects agent ownership without requiring sequence mailbox setup to browse people',async()=>{
+ m.rows.mockImplementation(async(_c,sql:string)=>sql.includes('mandate-outreach-owner')?[{agent_managed:true}]:[]);
+ expect(await listCampaignStudio(actor,'mandate')).toMatchObject({outreachOwner:'agent',contacts:[]});
+ expect(m.connections).not.toHaveBeenCalled();
+});

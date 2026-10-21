@@ -1,6 +1,8 @@
 import {commitCampaignPublication} from './campaign-publication-store';
 import {createCampaignDraft,saveCampaignDraft} from './campaign-draft-store';
 import {CampaignError} from './campaign-error';
+import {mandateOutreachOwner} from './mandate-outreach-owner';
+import {agentManagedOutreachReason} from '@/domain/mandate-outreach-owner';
 export {CampaignError} from './campaign-error';
 import {communicationReplyIdentity} from '../domain/communication-reply-identity';
 import "server-only";
@@ -137,12 +139,14 @@ async function assertContactAllowed(client: PoolClient, actor: CampaignActor, em
 
 export async function listCampaignStudio(actor: CampaignActor, mandateId: string) {
   const studio = await withCampaignDb(actor, async client => {
+    const outreachOwner = await mandateOutreachOwner(client, actor, mandateId);
     const sequences = await rows<SequenceRow>(client, "SELECT s.*, s.xmin::text AS draft_revision, (SELECT v.definition FROM campaign_sequence_versions v WHERE v.sequence_id = s.id AND v.version = s.published_version) AS published_definition, (SELECT v.n8n_workflow_id FROM campaign_sequence_versions v WHERE v.sequence_id = s.id AND v.version = s.published_version) AS n8n_workflow_id FROM campaign_sequences s WHERE s.organization_id = $1 AND s.owner_user_id = $2 AND s.mandate_id = $3 ORDER BY s.updated_at DESC", [actor.organizationId, actor.userId, mandateId]);
     const enrolments = await rows<EnrolmentRow & { sequence_name: string; version: number; version_definition: unknown; last_sent_at: Date | null }>(client, "SELECT e.*, s.name AS sequence_name, v.version, v.definition AS version_definition, (SELECT max(a.sent_at) FROM campaign_send_attempts a WHERE a.enrolment_id = e.id AND a.state = 'sent') AS last_sent_at FROM campaign_enrolments e JOIN campaign_sequences s ON s.id = e.sequence_id JOIN campaign_sequence_versions v ON v.id = e.version_id WHERE e.organization_id = $1 AND e.owner_user_id = $2 AND e.mandate_id = $3 ORDER BY e.started_at DESC", [actor.organizationId, actor.userId, mandateId]);
     const contactRows = await rows<ContactRow>(client, `SELECT ${contactColumns} ${contactJoin} WHERE c.organization_id = $1 AND (c.mandate_id = $2 OR EXISTS (SELECT 1 FROM mandate_targets mt WHERE mt.target_id = c.target_id AND mt.organization_id = c.organization_id AND mt.mandate_id = $2)) ORDER BY company_name, c.display_name`, [actor.organizationId, mandateId]);
     const activity = enrolments.length ? await rows<{ entity_id: string; action: string; created_at: Date; metadata: { stepIndex?: number; splitId?: string; path?: "pathA" | "pathB"; channel?: ReplyChannel; receivedAt?: string } | null }>(client, "SELECT entity_id, action, created_at, metadata FROM audit_events WHERE organization_id = $1 AND actor_id = $2 AND entity_type = 'campaign_enrolment' AND entity_id = ANY($3::text[]) ORDER BY created_at DESC LIMIT 1000", [actor.organizationId, actor.userId, enrolments.map(row => row.id)]) : [];
     const attempts = enrolments.length ? await rows<{ enrolment_id: string; step_index: number; state: string; sent_at: Date | null }>(client, "SELECT enrolment_id, step_index, state, sent_at FROM campaign_send_attempts WHERE organization_id = $1 AND owner_user_id = $2 AND enrolment_id = ANY($3::uuid[])", [actor.organizationId, actor.userId, enrolments.map(row => row.id)]) : [];
     return {
+      outreachOwner,
       sequences: sequences.map(row => ({ id: row.id, name: row.name, draft: campaignDraftDefinition.parse(row.draft), publishedDefinition: row.published_definition ? parseDefinition(row.published_definition) : null, publishedVersion: row.published_version, n8nWorkflowId: row.n8n_workflow_id || null, updatedAt: row.updated_at.toISOString(),draftRevision:row.draft_revision })),
       enrolments: enrolments.map(row => {
         const definition = parseDefinition(row.version_definition);
@@ -170,10 +174,10 @@ export async function listCampaignStudio(actor: CampaignActor, mandateId: string
     };
   });
   const mode = replyMonitorMode();
-  const monitors = mode === "off" ? [] : await withCampaignDb(actor, client => rows<{ channel: ReplyChannel; last_success_at: Date | null; healthy: boolean; needs_review: boolean }>(client, `SELECT b.channel,min(m.observed_at) AS last_success_at,
+  const monitors = studio.outreachOwner === 'agent' || mode === "off" ? [] : await withCampaignDb(actor, client => rows<{ channel: ReplyChannel; last_success_at: Date | null; healthy: boolean; needs_review: boolean }>(client, `SELECT b.channel,min(m.observed_at) AS last_success_at,
  bool_and(m.complete AND m.initial_sync_complete AND NOT m.invalidated AND m.coverage_through>=clock_timestamp()-interval '5 minutes' AND m.coverage_through<=m.observed_at AND m.observed_at<=clock_timestamp() AND m.observed_at>=clock_timestamp()-interval '5 minutes') AS healthy,
  bool_or(m.failure_code IS NOT NULL) AS needs_review FROM public.communication_reply_monitors m JOIN public.communication_bindings b ON b.id=m.binding_id AND b.organization_id=m.organization_id AND b.owner_user_id=m.owner_user_id WHERE m.organization_id=$1 AND m.owner_user_id=$2 AND b.authority='service' AND b.backend='unipile' GROUP BY b.channel ORDER BY b.channel`, [actor.organizationId, actor.userId]));
-  const mailbox = communicationsRuntimeEnabled() ? await configuredStudioMailbox(actor) : null;
+  const mailbox = studio.outreachOwner !== 'agent' && communicationsRuntimeEnabled() ? await configuredStudioMailbox(actor) : null;
   return { ...studio, mailbox, replyMonitoring: { mode, monitors: monitors.map(item => ({ channel: item.channel, lastSuccessAt: item.last_success_at?.toISOString() || null, error: item.healthy ? null : item.needs_review ? "Reply monitoring needs review" : "Waiting for reply checks", healthy: item.healthy === true })) }, n8nUrl: process.env.CAMPAIGN_N8N_URL?.replace(/\/$/, "") || null };
 }
 
@@ -215,6 +219,7 @@ export async function enrolContacts(actor: CampaignActor, sequenceId: string, co
   const prepared = await withCampaignDb(actor, async client => {
     const [sequence] = await rows<SequenceRow>(client, "SELECT * FROM campaign_sequences WHERE id = $3 AND organization_id = $1 AND owner_user_id = $2", [actor.organizationId, actor.userId, sequenceId]);
     if (!sequence || !sequence.published_version) throw new CampaignError("Publish this sequence before adding contacts");
+    if (await mandateOutreachOwner(client, actor, sequence.mandate_id) === 'agent') throw new CampaignError(agentManagedOutreachReason);
     const [version] = await rows<VersionRow>(client, "SELECT * FROM campaign_sequence_versions WHERE sequence_id = $1 AND version = $2", [sequenceId, sequence.published_version]);
     if (!version) throw new CampaignError("Published version is missing");
     if (n8nCampaignEnabled() && !version.n8n_workflow_id) throw new CampaignError("This published version must be synced to n8n before new contacts can be added");
@@ -241,6 +246,7 @@ export async function enrolContacts(actor: CampaignActor, sequenceId: string, co
   for (const channel of campaignChannels(prepared.definition)) await deliveryProvider(channel).ready(actor);
   if (!communicationsRuntimeEnabled()) throw new ReplyCheckReview('delivery_disabled');
   const enrolled = await withCampaignDb(actor, async client => {
+    if (await mandateOutreachOwner(client, actor, prepared.sequence.mandate_id) === 'agent') throw new CampaignError(agentManagedOutreachReason);
     const results = [] as { id: string; contactId: string; state: string; nextStepAt: Date | null; firstAction: string }[];
     for (const { contact, email, phone, linkedin } of prepared.contacts) {
       await assertNoReplyHold(client, actor, contact.id);

@@ -66,3 +66,14 @@ it("shows an unconnected mailbox without implying an expired connection", () => 
   expect(html).not.toMatch(/unipile|n8n|firmable/i);
   if(workflowId) expect(html).toContain('https://automation.example.test/workflow/workflow-1');
  });
+
+
+it('keeps agent-run people browsable while explaining why sequence subscription is unavailable',()=>{
+ const html=renderToStaticMarkup(<CampaignStudio mandateId="mandate" mandateName="Example" initialData={{...data,outreachOwner:'agent'}} />);
+ expect(html).toContain('Newly Researched Person');expect(html).toContain('owner@example.com');
+ expect(html).toContain('The agent manages outreach for this mandate.');expect(html).toContain('/mandates/mandate/agent');
+ expect(html).toContain('Why are sequence subscriptions unavailable?');
+ expect(html).not.toContain('Connect email before subscribing');expect(html).not.toContain('aria-label="Select Newly Researched Person"');
+ expect(html).not.toContain('Select all shown');expect(html).not.toContain('Filter by available contact details, then select people for a published sequence.');
+ expect(html).toMatch(/<button[^>]*disabled[^>]*>[\s\S]*?Subscribe/);
+});

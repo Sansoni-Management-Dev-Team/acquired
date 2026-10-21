@@ -1,6 +1,8 @@
 "use client";
 
 import { BrowserLocalTime } from "./browser-local-time";
+import { AgentManagedOutreachNotice } from './agent-managed-outreach-notice';
+import { agentManagedOutreachReason } from '@/domain/mandate-outreach-owner';
 
 import { AgentManualFeedbackForm } from "@/components/agent-manual-feedback-form";
 
@@ -89,6 +91,7 @@ type ContactView = {
   doNotContact: boolean;
 };
 export type StudioData = {
+  outreachOwner?: 'agent' | 'sequences';
   replyMonitoring?: {
     mode: "off" | "observe" | "enforce";
     monitors: {
@@ -205,6 +208,7 @@ export function CampaignStudio({
     enrichmentContactIds !== undefined,
   );
   const [data, setData] = useState<StudioData>(initialData);
+  const agentManaged = data.outreachOwner === 'agent';
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -456,7 +460,7 @@ export function CampaignStudio({
   }
 
   async function subscribe() {
-    if (!enrolSequence || !selectedContactIds.length) return;
+    if (agentManaged || !enrolSequence || !selectedContactIds.length) return;
     await perform(async () => {
       const result = await requestJson<{ enrolments: { state: string }[] }>(
         `/api/campaigns/${enrolSequence.id}/enrolments`,
@@ -522,12 +526,13 @@ export function CampaignStudio({
           </h1>
           <p className="mt-2 text-sm text-[var(--muted)]">
             {initialView === "contacts"
-              ? "People and their available contact details, with outreach progress."
-              : "Publish a sequence and subscribe contacts using your connected accounts."}
+              ? agentManaged ? "People and their available contact details." : "People and their available contact details, with outreach progress."
+              : agentManaged ? "The agent manages outreach for this mandate." : "Publish a sequence and subscribe contacts using your connected accounts."}
           </p>
         </div>
       </header>
-      {!data.mailbox?.ready && (
+      {agentManaged && <AgentManagedOutreachNotice mandateId={mandateId} />}
+      {!agentManaged && !data.mailbox?.ready && (
         <div
           role="alert"
           className="flex gap-3 rounded-xl border border-[var(--border)] bg-[var(--accent-soft)] p-4 text-sm"
@@ -582,7 +587,7 @@ export function CampaignStudio({
       )}
       {view === "contacts" ? (
         <div className="space-y-5">
-          <div className="grid gap-3 sm:grid-cols-3">
+          {!agentManaged && <div className="grid gap-3 sm:grid-cols-3">
             {[
               [
                 "Active",
@@ -609,14 +614,13 @@ export function CampaignStudio({
                 <p className="mt-2 text-3xl font-semibold">{value}</p>
               </div>
             ))}
-          </div>
+          </div>}
           <section className={`${card} overflow-hidden`}>
             <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--border)] p-5">
               <div>
-                <h2 className="text-xl font-semibold">People and progress</h2>
+                <h2 className="text-xl font-semibold">{agentManaged ? 'People' : 'People and progress'}</h2>
                 <p className="mt-1 text-sm text-[var(--muted)]">
-                  Filter by available contact details, then select people for a
-                  published sequence.
+                  {agentManaged ? 'Browse people and their available contact details.' : 'Filter by available contact details, then select people for a published sequence.'}
                 </p>
               </div>
               <div className="flex gap-2">
@@ -627,18 +631,20 @@ export function CampaignStudio({
                 >
                   <Plus size={17} /> Add person
                 </button>
+                <span title={agentManaged ? agentManagedOutreachReason : undefined}>
                 <button
                   type="button"
                   className={primary}
-                  disabled={!selectedContactIds.length || !published.length}
+                  disabled={agentManaged || !selectedContactIds.length || !published.length}
                   onClick={() => {
+                    if (agentManaged) return;
                     setEnrolSequenceId(published[0]?.id || "");
                     setEnrolOpen(true);
                   }}
                 >
-                  <Plus size={17} /> Subscribe{" "}
-                  {selectedContactIds.length || "selected"}
+                  <Plus size={17} /> {agentManaged ? 'Subscribe to sequence' : <>Subscribe{" "}{selectedContactIds.length || "selected"}</>}
                 </button>
+                </span>
               </div>
             </div>
             <div className="flex flex-wrap items-end gap-4 border-b border-[var(--border)] p-4">
@@ -669,7 +675,7 @@ export function CampaignStudio({
                   <option value="phone">Has phone</option>
                 </select>
               </label>
-              <button
+              {!agentManaged && <button
                 type="button"
                 className={button}
                 disabled={
@@ -692,8 +698,8 @@ export function CampaignStudio({
                 }
               >
                 Select all shown
-              </button>
-              {selectedContactIds.length > 0 && (
+              </button>}
+              {!agentManaged && selectedContactIds.length > 0 && (
                 <button
                   type="button"
                   className={button}
@@ -708,15 +714,12 @@ export function CampaignStudio({
                 <thead className="bg-[var(--panel-raised)] text-xs uppercase tracking-wider text-[var(--muted)]">
                   <tr>
                     {[
-                      "Select",
+                      ...(!agentManaged ? ["Select"] : []),
                       "Person",
                       "Email",
                       "LinkedIn",
                       "Phone",
-                      "Sequence",
-                      "Status",
-                      "Current action",
-                      "Next",
+                      ...(!agentManaged ? ["Sequence", "Status", "Current action", "Next"] : []),
                     ].map((heading) => (
                       <th key={heading} className="p-4">
                         {heading}
@@ -740,7 +743,7 @@ export function CampaignStudio({
                         key={contact.id}
                         className="border-t border-[var(--border)]"
                       >
-                        <td className="p-4">
+                        {!agentManaged && <td className="p-4">
                           <input
                             type="checkbox"
                             aria-label={`Select ${personName(contact)}`}
@@ -754,7 +757,7 @@ export function CampaignStudio({
                               )
                             }
                           />
-                        </td>
+                        </td>}
                         <td className="p-4">
                           <button
                             type="button"
@@ -790,7 +793,7 @@ export function CampaignStudio({
                           )}
                         </td>
                         <td className="p-4">{contact.phone || "—"}</td>
-                        <td className="p-4">
+                        {!agentManaged && <><td className="p-4">
                           {enrolment
                             ? `${enrolment.sequenceName} · v${enrolment.version}`
                             : "—"}
@@ -812,7 +815,7 @@ export function CampaignStudio({
                           <BrowserLocalTime
                             value={enrolment?.nextStepAt || null}
                           />
-                        </td>
+                        </td></>}
                       </tr>
                     );
                   })}
@@ -1157,13 +1160,13 @@ export function CampaignStudio({
               </>
             ) : (
               <p className="mt-6 text-sm text-[var(--muted)]">
-                This contact has not been subscribed to one of your sequences.
+                {agentManaged ? 'Manage this person’s outreach in agent chat.' : 'This contact has not been subscribed to one of your sequences.'}
               </p>
             )}
           </section>
         </div>
       )}
-      {enrolOpen && enrolSequence && (
+      {!agentManaged && enrolOpen && enrolSequence && (
         <div
           className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4"
           onMouseDown={(event) => {
@@ -1374,14 +1377,14 @@ export function CampaignStudio({
           </section>
         </div>
       )}
-      <p className="flex items-center gap-2 text-xs text-[var(--muted)]">
+      {!agentManaged && <p className="flex items-center gap-2 text-xs text-[var(--muted)]">
         <Clock3 size={14} /> Sending window: weekdays, 9 am–5 pm Melbourne time.{" "}
         {data.replyMonitoring?.mode === "enforce"
           ? "Replies on any monitored channel stop the entire sequence."
           : data.replyMonitoring?.mode === "observe"
             ? "Reply monitoring is in observation mode; email replies stop the sequence."
             : "Channel delivery requires a verified connection."}
-      </p>
+      </p>}
     </div>
   );
 }
