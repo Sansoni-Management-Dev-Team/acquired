@@ -3,7 +3,12 @@ import {discoverNodeTestFiles} from "./scripts/test-runner-files.mjs";
 
 export default defineConfig({
   resolve: {
-    alias: { "@": new URL("./src", import.meta.url).pathname },
+    alias: {
+      "@": new URL("./src", import.meta.url).pathname,
+      // Next resolves this marker internally. Node unit tests use the same
+      // empty server implementation; application/client build guards stay intact.
+      "server-only": new URL("./node_modules/next/dist/compiled/server-only/empty.js", import.meta.url).pathname,
+    },
   },
   test: {
     environment: "node",
