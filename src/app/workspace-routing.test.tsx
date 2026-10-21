@@ -19,6 +19,7 @@ vi.mock("@/db/client", () => ({ requireDb: () => { throw new Error("Compact comp
 vi.mock("@/db/firmable-read-model", () => ({ loadWorkspaceContacts: vi.fn() }));
 vi.mock("@/db/firmable-history-repository", () => ({ FirmableHistoryRepository: vi.fn() }));
 vi.mock("@/components/app-shell", () => ({ SidebarRegistration: () => null }));
+vi.mock('next/server', () => ({ connection: async () => undefined }));
 vi.mock("next/navigation", () => ({
   notFound: () => { throw new Error("not-found"); },
   redirect: (href: string) => { throw new Error(`redirect:${href}`); },
