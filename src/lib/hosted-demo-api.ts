@@ -6,7 +6,7 @@ import{parseRemoteAuthorityRequest,parseRemoteAuthorityResponse,parseAuthoritySn
 import{parseHostedCoverageProof,parseHostedEventDelivery}from'../../communications/packages/core/src/hosted-proof-sessions';
 import{isDeepStrictEqual}from'node:util';
 import{parseHostedRecipientRequest,parseHostedRecipientProjection}from'./hosted-demo-recipient-context';
-export type HostedDemoApiOptions={descriptor:HostedDemoCommunicationsDescriptor;key:string;subscriberId?:string;authorizeCurrent:()=>Promise<boolean>;authority:Pick<ReturnType<typeof createHostedDemoAuthorityRegistry>,'execute'>;resolveRecipient:(query:HostedRecipientQuery)=>Promise<unknown>;projectCoverage?:(input:ReturnType<typeof parseHostedCoverageProof>,signal:AbortSignal)=>Promise<unknown>;deliverEvents?:(input:ReturnType<typeof parseHostedEventDelivery>,signal:AbortSignal)=>Promise<unknown>};
+export type HostedDemoApiOptions={descriptor:HostedDemoCommunicationsDescriptor;key:string;subscriberId?:string;proxyListenOrigin?:string;authorizeCurrent:()=>Promise<boolean>;authority:Pick<ReturnType<typeof createHostedDemoAuthorityRegistry>,'execute'>;resolveRecipient:(query:HostedRecipientQuery)=>Promise<unknown>;projectCoverage?:(input:ReturnType<typeof parseHostedCoverageProof>,signal:AbortSignal)=>Promise<unknown>;deliverEvents?:(input:ReturnType<typeof parseHostedEventDelivery>,signal:AbortSignal)=>Promise<unknown>};
 async function body(request:Request){
  if(request.headers.get('content-type')?.split(';')[0].trim().toLowerCase()!=='application/json'||!request.body)throw Error('Invalid body');
  const reader=request.body.getReader(),chunks:Uint8Array[]=[];let count=0,timer:ReturnType<typeof setTimeout>|undefined;
@@ -19,10 +19,16 @@ async function body(request:Request){
 export function createHostedDemoRequestHandler(options:HostedDemoApiOptions){
  const descriptor=structuredClone(options.descriptor),key=options.key,subscriberId=options.subscriberId??'acquire-hosted-demo-replies';
  if(!/^(?:[A-Za-z0-9_-]{43}|[a-f0-9]{64})$/.test(key))throw Error('Hosted demo API unavailable');
+ // Next's self-hosted request URL uses its listening address. Only the
+ // explicitly configured listener may use the public authority supplied by
+ // our TLS proxy; arbitrary request/forwarded hosts never select that origin.
+ const canonical=new URL(descriptor.applicationOrigin),listen=options.proxyListenOrigin;
+ if(listen){const url=new URL(listen);if(url.origin!==listen||url.protocol!==canonical.protocol||url.hostname!=='0.0.0.0'||!url.port)throw Error('Hosted demo API unavailable');}
+ const matchesOrigin=(url:URL,request:Request)=>url.origin===canonical.origin||(listen!==undefined&&url.origin===listen&&request.headers.get('host')===canonical.host&&request.headers.get('x-forwarded-proto')===canonical.protocol.slice(0,-1));
  const digest=(v:string)=>createHash('sha256').update(v).digest(),expected=digest(key),respond=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Content-Type-Options':'nosniff'}});
  return async(request:Request):Promise<Response>=>{
   const url=new URL(request.url),match=/^\/api\/agent\/hosted-demo\/(authority|recipient|access|coverage|events)$/.exec(url.pathname);
-  if(url.origin!==descriptor.applicationOrigin||url.search||!match)return respond({error:'Not available'},404);
+  if(!matchesOrigin(url,request)||url.search||!match)return respond({error:'Not available'},404);
   if(request.method!=='POST')return respond({error:'Unsupported method'},405);
   const authorization=request.headers.get('authorization')??'',credential=authorization.startsWith('Bearer ')?authorization.slice(7):'';
   if(credential.length>128||!timingSafeEqual(digest(credential),expected)||request.headers.get('x-acquire-demo-run')!==descriptor.runId||request.headers.get('x-acquire-demo-audience')!=='acquire-hosted-demo-v1')return respond({error:'Not available'},403);
