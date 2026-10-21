@@ -1,3 +1,4 @@
+import { createResearchAi } from "../../src/adapters/ai/research-provider";
 import { checkFirmableCallback } from './firmable-callback';
 import {runHybridCompanyPipeline} from '../../src/domain/hybrid-company-pipeline';
 import {runWebFirmablePipeline,type WebQuery,type WebCompany} from '../../src/domain/web-firmable-pipeline';
@@ -23,7 +24,7 @@ import { localRead } from "./local-reader";
 import { localSearch } from "./local-search";
 import { providerJsonRequest } from "../../src/adapters/observability/provider-request";
 import { researchExtractionRequest } from "../../src/domain/research-extraction-schema";
-import { FreeOpenRouter, type FreeResearchRequest } from "../../src/adapters/ai/free-openrouter";
+import { type FreeResearchRequest } from "../../src/adapters/ai/free-openrouter";
 import { callbackOrigin } from "./callback-origin";
 import { cancelCrawl, crawlRetryUrl, CrawlerRequestError, requestBudgetStop, stalledResearch } from "./runtime-policy";
 import { targetedPrompt, targetedSchema, fallbackTargetedChoice } from "../../src/domain/targeted-research";
@@ -54,6 +55,10 @@ interface Env extends FirmableSessionEnv {
   PROVIDER_COORDINATOR?: DurableObjectNamespace<ProviderCoordinator>;
   OPENROUTER_API_KEY: string;
   SERVICE_SECRET: string;
+  OPENAI_API_KEY?: string;
+  RESEARCH_AI_PROVIDER?: string;
+  OPENAI_RESEARCH_MODEL?: string;
+  OPENAI_RESEARCH_FALLBACK_MODEL?: string;
   FIRMABLE_VALIDATION_SECRET?: string;
   APP_ORIGIN: string;
   LOCAL_DEVELOPMENT?: string;
@@ -271,8 +276,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
       try {return await runFirmableCompanyPipeline({checkpoint,now:()=>Date.now(),search:(from:number,interpreted?:FirmableFilters)=>callback(this.env,id,{action:'d-search',from,interpreted},requestBudget) as Promise<CompanySearchPage>,profile:row=>callback(this.env,id,{action:'d-company',row},requestBudget) as Promise<{ok:boolean}>,finish:result=>callback(this.env,id,{action:'d-finish',result},requestBudget)},{deadline:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:100,pageSize:100,concurrency:2});}
       catch(error){await checkpoint('d-fail',()=>callback(this.env,id,{action:'d-fail',result:{error:error instanceof Error?error.message:'D failed'}},requestBudget));return {failed:true};}
     }
-    const ai = new FreeOpenRouter({
-      apiKey: this.env.OPENROUTER_API_KEY,
+    const ai = createResearchAi(this.env, {
       primaryRoute: this.env.RESEARCH_AI_PRIMARY_ROUTE === 'fast-paid' ? 'fast-paid' : 'free',
       freeAttemptTimeoutMs: Number(this.env.RESEARCH_AI_FREE_TIMEOUT_MS || 25000),
       extractionReasoning: this.env.RESEARCH_AI_EXTRACTION_REASONING === 'none' ? 'none' : this.env.RESEARCH_AI_EXTRACTION_REASONING === 'medium' ? 'medium' : undefined,
@@ -283,7 +287,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
     });
     const cacheEvent = (kind: 'page' | 'extraction', event: string) => console.info('research-cache', JSON.stringify({ timestamp: new Date().toISOString(), jobId: id, kind, event }));
     const completeExtraction = (input: FreeResearchRequest) => cachedResearchExtraction(caches.default, stateCache?.value.config.researchRunId || id, {
-      input, routing: { primaryRoute: this.env.RESEARCH_AI_PRIMARY_ROUTE || 'free', reasoning: this.env.RESEARCH_AI_EXTRACTION_REASONING || 'request', freeTimeout: this.env.RESEARCH_AI_FREE_TIMEOUT_MS || '25000' },
+      input, routing: { provider: this.env.RESEARCH_AI_PROVIDER || "openrouter", model: this.env.OPENAI_RESEARCH_MODEL || "gpt-6-luna", fallbackModel: this.env.OPENAI_RESEARCH_FALLBACK_MODEL || "gpt-5.6-luna", primaryRoute: this.env.RESEARCH_AI_PRIMARY_ROUTE || 'free', reasoning: this.env.RESEARCH_AI_EXTRACTION_REASONING || 'request', freeTimeout: this.env.RESEARCH_AI_FREE_TIMEOUT_MS || '25000' },
     }, () => ai.complete(input), event => cacheEvent('extraction', event));
     const execute = (runner: typeof runResearch) => runner(
       {

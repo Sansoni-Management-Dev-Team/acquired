@@ -12,7 +12,7 @@
   ],
   "durable_objects": { "bindings": [{ "name": "PROVIDER_COORDINATOR", "class_name": "ProviderCoordinator" }] },
   "exports": { "ProviderCoordinator": { "type": "durable-object", "storage": "sqlite" } },
-  "vars": { "APP_ORIGIN": "https://acquire.mlai.au" },
+  "vars": { "APP_ORIGIN": "https://acquire.mlai.au", "RESEARCH_AI_PROVIDER": "openai", "OPENAI_RESEARCH_MODEL": "gpt-6-luna", "OPENAI_RESEARCH_FALLBACK_MODEL": "gpt-5.6-luna" },
   "triggers": { "crons": ["*/1 * * * *"] },
   "observability": { "enabled": true }
 }

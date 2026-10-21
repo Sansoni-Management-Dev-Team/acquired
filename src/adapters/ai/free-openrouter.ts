@@ -5,17 +5,19 @@ import { z } from "zod";
 // Explicit free candidates, never openrouter/auto. Update only
 // after testing the new candidate against the research extraction cases.
 export const FREE_RESEARCH_MODELS = [
-  "nex-agi/nex-n2.5-pro:free",
-  "nex-agi/nex-n2.5-mini:free",
+  "dots-studio/dots-3-note-preview:free",
+  "nvidia/nemotron-3.5-super-vl:free",
   "nvidia/nemotron-3-super-120b-a12b:free",
 ] as const;
-
-export const FREE_MANDATE_MODELS = ["dots-studio/dots-3-note-preview:free", "nex-agi/nex-n2.5-mini:free", "qwen/qwen3.8-27b:free"] as const;
-const supportsDisabledReasoning = (model: string) => model.startsWith("nex-agi/") || model.startsWith("qwen/") || model === "dots-studio/dots-3-note-preview:free";
+export const FREE_MANDATE_MODELS = FREE_RESEARCH_MODELS;
+// All approved free candidates passed reasoning=none with strict JSON schema.
+const supportsDisabledReasoning = (model: string) => FREE_RESEARCH_MODELS.some(allowed => allowed === model);
 
 export const MERCURY_FALLBACK_MODEL = "inception/mercury-2.5";
 // USD per million tokens. Fail closed if current promotional pricing increases.
 export const MERCURY_PRICE_CAP = { prompt: 0.04, completion: 0.15 };
+export const NEMO_FALLBACK_MODEL = "mistralai/mistral-nemo";
+export const PAID_RESEARCH_MODELS = [MERCURY_FALLBACK_MODEL, NEMO_FALLBACK_MODEL] as const;
 class FallbackEligibleError extends ResearchAiError {}
 
 export type FreeResearchRequest = {
@@ -31,6 +33,8 @@ export type FreeResearchUsage = {
   model: string;
   inputTokens: number;
   outputTokens: number;
+  cachedInputTokens?: number;
+  reasoningTokens?: number;
   cost: number | null;
   elapsedMs: number;
   paidFallback?: boolean;
@@ -92,15 +96,24 @@ export class FreeOpenRouter {
     catch (error) {
       if (this.options.paidFallback === false || !(error instanceof FallbackEligibleError) || Date.now() >= deadline - 1000) throw error;
       console.info("research-provider", JSON.stringify({ timestamp: new Date().toISOString(), provider: "openrouter", operation: input.operation || "structured_completion", jobId: this.options.jobId, event: "paid_fallback_started", model: MERCURY_FALLBACK_MODEL, priceCapPerMillion: MERCURY_PRICE_CAP }));
-      return this.attempt(input, true, deadline);
+      for (const [index, model] of PAID_RESEARCH_MODELS.entries()) {
+        if (Date.now() >= deadline - 1000) throw error;
+        const attemptDeadline = Date.now() + Math.floor((deadline - Date.now()) / (PAID_RESEARCH_MODELS.length - index));
+        try { return await this.attempt(input, true, attemptDeadline, this.models, model); }
+        catch (paidError) {
+          if (!(paidError instanceof FallbackEligibleError) || index === PAID_RESEARCH_MODELS.length - 1) throw paidError;
+        }
+      }
+      throw error;
     }
   }
 
-  private async attempt(input: FreeResearchRequest, paid: boolean, deadline: number, freeModels = this.models): Promise<{ response: unknown }> {
+  private async attempt(input: FreeResearchRequest, paid: boolean, deadline: number, freeModels = this.models, paidModel: string = MERCURY_FALLBACK_MODEL): Promise<{ response: unknown }> {
     if (!this.options.apiKey) throw new ResearchAiError("Research AI unavailable: OPENROUTER_API_KEY is not configured");
     const validator = z.fromJSONSchema(input.response_format.json_schema);
-    // NEX and Dots support disabling reasoning; Nemotron does not.
-    const models = paid ? [MERCURY_FALLBACK_MODEL] : input.reasoning_effort === "none" ? freeModels.filter(supportsDisabledReasoning) : freeModels;
+    // The NeMo fallback accepts schema output but has no reasoning parameter.
+    const label = paid ? paidModel === MERCURY_FALLBACK_MODEL ? "Mercury fallback" : "NeMo fallback" : "Free research AI";
+    const models = paid ? [paidModel] : input.reasoning_effort === "none" ? freeModels.filter(supportsDisabledReasoning) : freeModels;
     if (!models.length) throw new ResearchAiError("No approved free model supports the requested reasoning mode");
     const routeKey = JSON.stringify({ models, reasoning: input.reasoning_effort ?? "medium", schema: input.response_format, operation: input.operation });
     const started = Date.now();
@@ -130,17 +143,17 @@ export class FreeOpenRouter {
           messages: input.messages,
           max_tokens: Math.max(input.max_tokens, 2048),
           temperature: input.temperature ?? 0,
-          // Medium is supported by every candidate; NEX does not support low.
-          reasoning: { effort: input.reasoning_effort ?? "medium", exclude: true },
+          // NeMo does not expose reasoning controls.
+          ...(paid && paidModel === NEMO_FALLBACK_MODEL ? {} : { reasoning: { effort: input.reasoning_effort ?? "medium", exclude: true } }),
           response_format: { type: "json_schema", json_schema: { name: "research_result", strict: true, schema: input.response_format.json_schema } },
-          provider: { require_parameters: true, data_collection: "deny", max_price: paid ? MERCURY_PRICE_CAP : { prompt: 0, completion: 0 } },
+          provider: { require_parameters: true, data_collection: "allow", max_price: paid ? MERCURY_PRICE_CAP : { prompt: 0, completion: 0 } },
         }),
         signal: AbortSignal.timeout(Math.max(1, Math.min(deadline - Date.now(), !paid && this.options.paidFallback !== false ? Math.max(1000, Math.min(25000, this.options.freeAttemptTimeoutMs || 25000)) : 45000))),
       }, { provider: "openrouter", operation: input.operation || "structured_completion", requestId, jobId: this.options.jobId, modelCandidates: models, verbose: this.options.verbose });
       response = result.response;
       payload = result.data;
     } catch {
-      throw new FallbackEligibleError(`${paid ? "Mercury fallback" : "Free research AI"} unavailable: request timed out or transport failed`);
+      throw new FallbackEligibleError(`${label} unavailable: request timed out or transport failed`);
     }
     if (!response.ok) {
       // Do not log provider bodies: they can echo page content or credentials.
@@ -152,7 +165,7 @@ export class FreeOpenRouter {
         this.unavailableRoutes.set(routeKey, Date.now() + 60000);
       }
       const ErrorType = [404, 408, 429].includes(response.status) || response.status >= 500 ? FallbackEligibleError : ResearchAiError;
-      throw new ErrorType(`${paid ? "Mercury fallback" : "Free research AI"} unavailable (HTTP ${response.status})${retryAfter && /^\d+$/.test(retryAfter) ? `; retry after ${retryAfter} seconds` : ""}.`);
+      throw new ErrorType(`${label} unavailable (HTTP ${response.status})${retryAfter && /^\d+$/.test(retryAfter) ? `; retry after ${retryAfter} seconds` : ""}.`);
     }
     this.options.onUsage?.({ model: payload.model ?? "unknown", inputTokens: payload.usage?.prompt_tokens ?? 0, outputTokens: payload.usage?.completion_tokens ?? 0, cost: payload.usage?.cost ?? null, paidFallback: paid && this.options.primaryRoute !== "fast-paid", route: paid ? this.options.primaryRoute === "fast-paid" ? "fast-paid" : "paid-fallback" : "free", elapsedMs: Date.now() - started });
     const rejectOutput = (message: string, category: string): never => {
