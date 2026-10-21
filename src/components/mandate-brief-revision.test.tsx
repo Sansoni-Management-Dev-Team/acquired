@@ -44,3 +44,17 @@ it('adopts a new base revision only after the user explicitly loads the saved br
   expect(JSON.parse(fetch.mock.calls[2][1].body).expectedRevision).toBe('130');
  }finally{if(tree)await act(async()=>tree!.unmount());}
 });
+it('starts research directly when the saved description is unchanged',async()=>{
+ vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);
+ const brief={...emptyBrief(),naturalLanguage:'Saved acquisition description'};
+ const before=JSON.stringify(brief);
+ const fetch=vi.fn().mockResolvedValueOnce(Response.json({jobId:'fixture-job'}));vi.stubGlobal('fetch',fetch);
+ let tree:ReturnType<typeof create>|undefined;
+ try{
+  await act(async()=>{tree=create(<MandateBriefForm mandateId="fixture" brief={brief} revision="123"/>);});
+  await act(async()=>tree!.root.findByType('form').props.onSubmit({preventDefault(){}}));
+  expect(fetch).toHaveBeenCalledTimes(1);expect(fetch.mock.calls[0][0]).toBe('/api/mandates/fixture/research');
+  expect(JSON.parse(fetch.mock.calls[0][1].body)).toMatchObject({fromBrief:true});
+  expect(JSON.stringify(brief)).toBe(before);
+ }finally{if(tree)await act(async()=>tree!.unmount());}
+});

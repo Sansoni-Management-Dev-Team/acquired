@@ -79,6 +79,7 @@ export function MandateBriefForm({ mandateId, brief, revision, onSaved }: { mand
     <textarea id="acquisition-description" required minLength={10} maxLength={10000} rows={10} readOnly={busy} value={description} onChange={event => setDescription(event.target.value)} placeholder="Tell us about the businesses you’re looking to buy" className="w-full resize-y rounded-lg border border-[var(--border)] bg-[var(--panel-raised)] p-4 text-sm text-[var(--foreground)]" />
     {error && <div className="space-y-2"><p role="alert" className="text-sm text-[var(--status-red)]">{error}</p><button type="button" onClick={()=>void reloadBrief()} className="text-sm underline underline-offset-4">Load saved brief</button><p className="text-xs text-[var(--muted)]">Loading replaces your unsaved description with the current saved brief.</p></div>}
     {progress && <p role="status" className="text-sm text-[var(--muted)]">{progress}</p>}
+    {description.trim()!==savedDescription && <p className="text-sm text-[var(--muted)]">Your description changes remain unsaved. Find companies updates the description and starts research separately.</p>}
     <div className="flex justify-end"><button disabled={busy || description.trim().length < 10} className="min-h-12 rounded-lg bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--on-accent)] disabled:opacity-50">{busy ? "Finding companies…" : "Find companies"}</button></div>
   </form>
   </div>;

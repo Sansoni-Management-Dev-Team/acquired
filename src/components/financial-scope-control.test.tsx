@@ -4,11 +4,23 @@ import {expect,it,vi} from 'vitest';
 vi.mock('next/navigation',()=>({useRouter:()=>({refresh:vi.fn()})}));
 import {MandateBriefForm} from './mandate-brief-form';
 import {emptyBrief} from '@/domain/acquisition';
-it('shows the brief description and search action without the removed criteria controls',()=>{
- const html=renderToStaticMarkup(<MandateBriefForm mandateId="fixture" brief={emptyBrief()}/>);
+it('shows the description without financial scope or the acquisition criteria card',()=>{
+ const brief=emptyBrief();
+ const revenue=brief.criteria.find(c=>c.key==='revenue')!;
+ Object.assign(revenue,{state:'specified',value:'AUD 5m–10m',origin:'assumed',confirmed:false});
+ const before=JSON.stringify(brief);
+ const html=renderToStaticMarkup(<MandateBriefForm mandateId="fixture" brief={brief} revision="123"/>);
  expect(html).toContain('Describe the acquisition brief');
  expect(html).toContain('Find companies');
  expect(html).not.toContain('Financial scope');
  expect(html).not.toContain('Acquisition criteria');
- expect(html).not.toContain('Save criteria');
+ expect(html).not.toContain('Edit criteria');
+ expect(html).not.toContain('Save reviewed criteria');
+ expect(html).not.toContain('AUD 5m–10m');
+ expect(html).not.toContain('<dialog');
+ expect(html).not.toContain('<select');
+ expect(html).not.toContain('Mark all reviewed');
+ expect(html.match(/<textarea\b/g)).toHaveLength(1);
+ expect(JSON.stringify(brief)).toBe(before);
+ expect(revenue.confirmed).toBe(false);
 });
