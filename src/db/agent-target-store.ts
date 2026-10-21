@@ -1,3 +1,4 @@
+import type {AgentReviewContextOperation} from './agent-review-context';
 import {agentPersonChannelRecipientSchema} from '@/domain/agent-person-channel';
 import {loadApprovedAgentGuidance} from '@/lib/agent-guidance-snapshot';
 import {z} from 'zod';
@@ -35,7 +36,7 @@ export class AgentTargetStore extends AgentResearchStore{
   return {simulationEnabled:process.env.AGENT_LOCAL_SIMULATION_ENABLED==='true',bindings:rows.map(row=>({id:row.id as string,label:String(row.platform)+' · '+String(row.service_account_id)+' · recorded account'}))};
  });}
  async targetSelectionContext(threadId:string){return this.nativeTransaction(async c=>this.targetContext(c,await this.thread(c,threadId)));}
- protected async checkReviewContext(c:PoolClient,t:AgentThread,op:Parameters<AgentResearchStore['checkReviewContext']>[2]){
+ protected async checkReviewContext(c:PoolClient,t:AgentThread,op:AgentReviewContextOperation){
   await super.checkReviewContext(c,t,op);if(op.name!=='target.select')return;
   const plan=op.input as ReturnType<typeof buildAgentTargetSelection>,delivery=agentTargetDeliverySchema.parse(plan.delivery),context=await this.targetContext(c,t,plan.selected.map(item=>uuid.parse(item.contactId)));
   if(digest(context.guidance??null)!==digest(plan.guidance??null))throw new Error('Approved qualification guidance changed; review current contacts');

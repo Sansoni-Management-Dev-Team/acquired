@@ -1,3 +1,4 @@
+import {checkAgentResearchMandateReviewContext,type AgentReviewContextOperation} from './agent-review-context';
 import {isAgentReviewableOperation,isAgentEditableMessageOperation} from '@/domain/agent-operation-classifications';
 import {agentRecordDigest as digest} from '@/lib/agent-record-digest';
 import {insertAgentReviewBatch,persistAgentReviewDecision} from './agent-review-ledger';
@@ -203,11 +204,8 @@ export class AgentStore {
     return rows;
   }
   /** Additional current-context guards run under the same review transaction. */
-  protected async checkReviewContext(c:PoolClient,t:AgentThread,op:{name:string;input?:{nativeResearchPlanVersion?:unknown;mandateRevision?:unknown;[key:string]:unknown}}){
-    if(op.name==='research.start'&&op.input?.nativeResearchPlanVersion===1){
-      const mandate=(await c.query('SELECT xmin::text AS revision FROM mandates WHERE id=$1 AND organization_id=$2',[t.mandate_id,t.organization_id])).rows[0];
-      if(mandate?.revision!==op.input.mandateRevision)throw new Error('Mandate changed; review the current research plan');
-    }
+  protected async checkReviewContext(c:PoolClient,t:AgentThread,op:AgentReviewContextOperation){
+    await checkAgentResearchMandateReviewContext(c,t,op);
   }
   async createReviewBatch(threadId:string,requestKey:string,items:unknown){
     const manifest=assertExactReviewBatch(items,items).sort((a,b)=>a.operationId.localeCompare(b.operationId)),request=key.parse(requestKey);

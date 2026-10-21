@@ -1,3 +1,4 @@
+import type {AgentReviewContextOperation} from './agent-review-context';
 import {loadApprovedAgentGuidance} from '@/lib/agent-guidance-snapshot';
 import {assessCompanyGuidance} from '@/lib/agent-qualification-guidance';
 import {randomUUID} from 'node:crypto';
@@ -20,19 +21,19 @@ export class AgentPeopleStore extends AgentTargetStore{
   return {...snapshot,guidance,companies:snapshot.companies.map((company:{targetId:string;name:string;blockedReasons:string[]})=>{const assessment=assessCompanyGuidance(guidance,evidence[company.targetId]??{name:company.name});return {...company,guidanceAssessment:assessment,blockedReasons:[...company.blockedReasons,...(assessment.excluded?['approved_qualification_guidance']:[])]};})};
  }
  async peopleResearchContext(threadId:string){return this.nativeTransaction(async c=>this.peopleSnapshot(c,await this.thread(c,threadId)));}
- protected async checkReviewContext(c:PoolClient,t:AgentThread,op:Parameters<AgentTargetStore['checkReviewContext']>[2]){
+ protected async checkReviewContext(c:PoolClient,t:AgentThread,op:AgentReviewContextOperation){
   await super.checkReviewContext(c,t,op);if(op.name!=='research.people')return;
   const plan=agentPeoplePlanSchema.parse(op.input),current=await this.peopleSnapshot(c,t,plan.selected.map(item=>item.targetId),('id' in op?op.id:undefined) as string|undefined);
   const rebuilt=buildAgentPeoplePlan({...current,researchJobId:plan.config.requestId});
   if(digest(rebuilt)!==digest(plan))throw new Error('Company selection, facts or people supervision changed; review again');
  }
- protected async checkResearchRunContext(c:PoolClient,t:AgentThread,op:Parameters<AgentTargetStore['checkReviewContext']>[2]){
+ protected async checkResearchRunContext(c:PoolClient,t:AgentThread,op:AgentReviewContextOperation){
   if(op.name!=='research.people')return super.checkResearchRunContext(c,t,op);
   const plan=agentPeoplePlanSchema.parse(op.input),r=(await c.query('SELECT r.*,m.xmin::text AS current_mandate_revision FROM agent_responsibilities r JOIN mandates m ON m.id=r.mandate_id AND m.organization_id=r.organization_id WHERE r.thread_id=$1',[t.id])).rows[0];
   const currentGuidance=await loadApprovedAgentGuidance(c,t,{categories:['qualification']});if(digest(plan.guidance??null)!==digest(currentGuidance.items.length?currentGuidance:null))throw new Error('Approved qualification guidance changed before people execution');
   if(!r||!['ready','waiting'].includes(r.state)||r.id!==plan.responsibilityId||r.revision!==plan.responsibilityRevision||r.mandate_revision!==plan.mandateRevision||r.current_mandate_revision!==plan.mandateRevision)throw new Error('People supervision or mandate changed');
  }
- protected async checkResearchProviderContext(c:PoolClient,t:AgentThread,op:Parameters<AgentTargetStore['checkReviewContext']>[2],targetId?:string){
+ protected async checkResearchProviderContext(c:PoolClient,t:AgentThread,op:AgentReviewContextOperation,targetId?:string){
   if(op.name!=='research.people')return super.checkResearchProviderContext(c,t,op,targetId);
   await this.checkResearchRunContext(c,t,op);const plan=agentPeoplePlanSchema.parse(op.input),selected=plan.selected.find(s=>s.targetId===targetId);
   if(!selected)throw new Error('Physical request needs an exact approved company');

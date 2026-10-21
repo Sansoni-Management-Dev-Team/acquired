@@ -1,3 +1,4 @@
+import type {AgentReviewContextOperation} from './agent-review-context';
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
 import type {PoolClient} from 'pg';
@@ -19,7 +20,7 @@ const uuid=z.string().uuid(),phaseSchema=z.enum(['create','activate']);
 type PublicationPlan={nativeSequencePublicationVersion:1;sequenceId:string;versionId:string;draftRevision:string;publishedVersion:number;name:string;definition:z.infer<typeof campaignDefinition>;runtime:'n8n'|'legacy';configuration:NativeN8nConfiguration|null;configurationDigest:string;workflow:Record<string,unknown>|null;mandateRevision:string;responsibilityId:string;responsibilityRevision:number;contextRevision:string;body:string};
 const effectSchema=z.object({state:z.enum(['running','uncertain','complete']),workflowId:z.string().min(1).max(200).optional()}).strict();
 export class AgentSequenceExecutionStore extends AgentSequenceStore{
- protected async checkReviewContext(c:PoolClient,t:AgentThread,op:Parameters<AgentSequenceStore['checkReviewContext']>[2]){
+ protected async checkReviewContext(c:PoolClient,t:AgentThread,op:AgentReviewContextOperation){
   await super.checkReviewContext(c,t,op);if(op.name==='sequence.enrol'&&op.input?.nativeSequenceEnrolmentVersion===1){await this.checkEnrolmentContext(c,t,op.input);return;}if(op.name!=='sequence.publish'||op.input?.nativeSequencePublicationVersion!==1)return;
   const p=op.input as PublicationPlan;validateNativeSequenceDefinition(p.definition);const r=(await c.query('SELECT * FROM agent_responsibilities WHERE thread_id=$1',[t.id])).rows[0],m=(await c.query('SELECT xmin::text AS revision FROM mandates WHERE id=$1 AND organization_id=$2',[t.mandate_id,t.organization_id])).rows[0],s=(await c.query('SELECT *,xmin::text AS draft_revision FROM campaign_sequences WHERE id=$1 AND organization_id=$2 AND owner_user_id=$3 AND mandate_id=$4',[p.sequenceId,t.organization_id,t.owner_user_id,t.mandate_id])).rows[0];
   if(!r||!['ready','waiting'].includes(r.state)||r.id!==p.responsibilityId||r.revision!==p.responsibilityRevision||r.mandate_revision!==p.mandateRevision||m?.revision!==p.mandateRevision||!s||s.draft_revision!==p.draftRevision||s.published_version!==p.publishedVersion||digest(campaignDefinition.parse(s.draft))!==digest(p.definition))throw new Error('Reviewed sequence publication changed');

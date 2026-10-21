@@ -1,3 +1,4 @@
+import type {AgentReviewContextOperation} from './agent-review-context';
 import {loadApprovedAgentGuidance} from '@/lib/agent-guidance-snapshot';
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
@@ -11,7 +12,7 @@ import {nativeResearchAttemptSchema,nativeResearchProviderReceiptSchema} from '@
 import {agentResearchPlanSchema,agentResearchContextRevision,buildAgentResearchPlan} from '@/lib/agent-research-plan';
 const scopeSchema=z.object({responsibilityId:z.string().uuid(),responsibilityRevision:z.number().int().positive(),mandateRevision:z.string().regex(/^\d{1,30}$/)}).strict();
 export class AgentResearchStore extends AgentHandoffStore{
- protected async checkReviewContext(c:PoolClient,t:AgentThread,op:Parameters<AgentHandoffStore['checkReviewContext']>[2]){
+ protected async checkReviewContext(c:PoolClient,t:AgentThread,op:AgentReviewContextOperation){
   await super.checkReviewContext(c,t,op);
   if(op.name!=='research.start'||op.input?.nativeResearchPlanVersion!==1)return;
   const plan=agentResearchPlanSchema.parse(op.input);
@@ -22,8 +23,8 @@ export class AgentResearchStore extends AgentHandoffStore{
   const current=buildAgentResearchPlan({...(guidance.items.length?{guidance}:{}),responsibilityId:r.id,responsibilityRevision:r.revision,mandateRevision:r.mandate_revision,researchJobId:plan.config.requestId,brief:briefSchema.parse(readableStoredBrief(mandate?.filters?.brief))});
   if(digest(current)!==digest(plan))throw new Error('Native research plan changed outside the bounded planning policy; prepare a new plan');
  }
- protected async checkResearchRunContext(c:PoolClient,t:AgentThread,op:Parameters<AgentResearchStore['checkReviewContext']>[2]){await this.checkReviewContext(c,t,op);}
- protected async checkResearchProviderContext(c:PoolClient,t:AgentThread,op:Parameters<AgentResearchStore['checkReviewContext']>[2],_targetId?:string){void _targetId;await this.checkResearchRunContext(c,t,op);}
+ protected async checkResearchRunContext(c:PoolClient,t:AgentThread,op:AgentReviewContextOperation){await this.checkReviewContext(c,t,op);}
+ protected async checkResearchProviderContext(c:PoolClient,t:AgentThread,op:AgentReviewContextOperation,_targetId?:string){void _targetId;await this.checkResearchRunContext(c,t,op);}
  protected nativeResearchSpecification(op:{name:string;input:unknown}):{config:{requestId:string};providerPolicy:{requestCeilingMicroUsd:string;maxAttempts:Record<'search'|'page'|'ai'|'firmable',number>}}{return agentResearchPlanSchema.parse(op.input);}
  async researchSupervisionContext(threadId:string){
   return this.nativeTransaction(async c=>{
