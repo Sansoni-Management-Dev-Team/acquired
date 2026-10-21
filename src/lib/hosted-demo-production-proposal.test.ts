@@ -4,7 +4,7 @@ import { expect, it } from 'vitest';
 
 const directory = new URL('../../ops/agent-mode/production-proposals/', import.meta.url);
 const read = (name: string) => readFileSync(new URL(name, directory), 'utf8');
-const native = read('001-native-agent-baseline.proposed.sql');
+const native = read('001-native-agent-baseline-v2.proposed.sql');
 const hosted = read('002-hosted-demo-registration.proposed.sql');
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
 function body(sql: string, name: string) {
@@ -16,6 +16,9 @@ function body(sql: string, name: string) {
 
 it('pins the exact reviewed artifacts and separates production from an empty isolated rehearsal', () => {
   const manifest = JSON.parse(read('approval-manifest.json'));
+  const correction = JSON.parse(read('001-native-agent-baseline-v2.review.json'));
+  expect(digest(native)).toBe(correction.sha256);
+  expect(native).toBe(read(correction.supersedes.file).replace('DEFAULT public.local_simulator_business_now()', 'DEFAULT public.agent_business_now()'));
   for (const artifact of manifest.artifacts) expect(digest(read(artifact.file))).toBe(artifact.sha256);
   for (const sql of [native, hosted]) {
     expect(sql).toContain("target->>'environment'='production'");
@@ -58,4 +61,9 @@ it('adds only nullable execution context to old dispatch intents and preserves s
   expect(statements).not.toMatch(/(?:TRUNCATE|DELETE FROM) public\./);
   expect(statements).not.toMatch(/UPDATE public\.(?:contacts|targets|mandates|communication_bindings)\s/);
   expect(native).toContain('FROM PUBLIC,anon,authenticated,service_role');
+});
+
+it('uses only the production wall clock in table defaults', () => {
+  expect(native).not.toMatch(/DEFAULT public\.local_simulator_business_now\(\)/);
+  expect(native).toContain('available_at timestamp with time zone DEFAULT public.agent_business_now() NOT NULL');
 });

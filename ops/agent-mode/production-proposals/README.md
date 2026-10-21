@@ -4,6 +4,14 @@ All artifacts here are **proposals, unapplied on every database**. Creating a ne
 
 The production app was inspected inside its actual healthy container at source `a62ea79`. Its verified-TLS PostgreSQL17 database is Supabase `njasjqpztiteionfxxul`, database `postgres`, owner `postgres`, system identifier `7678071634733212629`. It has no native agent tables or agent roles. The configured hosted actor is a current organization owner; the organization has 76 mandates, 3,564 companies and 2,997 contacts. These are read-only observations, not exported person profiles.
 
+## Rehearsal corrections (22 October)
+
+The user approved the exact original package. The schema-only rehearsal bootstrap rolled back because its prerequisite roles omitted `supabase_admin`. The separately approved private `000-isolated-rehearsal-baseline-v2.proposed.sql` adds only that NOLOGIN/NOSUPERUSER/NOBYPASSRLS role and passed on the network-none rehearsal cluster, system identifier `7699248227334438947`.
+
+Original `001` then rolled back completely at the `agent_events.available_at` default because it still named the deliberately excluded local simulator clock. **Do not apply original `001`.** Its preserved bytes/hash are historical review evidence. The proposed replacement is `001-native-agent-baseline-v2.proposed.sql`, SHA-256 `2a712a1a93c609d5372debfae0925668b57f7366c27f5b4fd6749ae40190ebd2`. Its only change uses the existing production `agent_business_now()` real-time function for that default. The exact one-line diff and target/hash supplement are beside it. All function bodies, guards, permissions and production scope remain byte-identical. Original `002` is unchanged.
+
+The corrected `001` requires fresh specific approval for rehearsal and conditional production application. Production database remains unchanged, and `002` has not been attempted. Execute neither corrected file nor production work merely because this proposal was committed. After approval, continue with corrected `001` and unchanged `002` on the already bootstrapped empty rehearsal; verify actual PostgreSQL behaviour before production.
+
 ## Exact proposed operations
 
 1. Create a new disposable PostgreSQL17 container named `acquire-hosted-demo-rehearsal-postgres`, with database `acquire_hosted_demo_rehearsal`, no network, no published ports and temporary storage. Load **only the captured production schema**, with no production rows, using the private bootstrap below. Existing local databases remain untouched.
