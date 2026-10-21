@@ -23,11 +23,27 @@ describe.runIf(enabled)('durable reviews and authority grants',()=>{
  afterAll(async()=>{
   // Delete only this suite's synthetic tenant; never use a pilot user's thread.
   const c=await pool.connect();try{await c.query('BEGIN');await c.query("SET LOCAL session_replication_role='replica'");
-  for(const table of ['agent_review_batches','agent_authority_grants','agent_runs','agent_events','agent_operations','agent_messages','agent_threads','mandates','member'])await c.query(`DELETE FROM ${table} WHERE organization_id=$1`,[org]);
+  for(const table of ['agent_review_batches','agent_authority_grants','agent_runs','agent_events','agent_operations','agent_messages','agent_threads','mandates','member','communication_send_gates'])await c.query(`DELETE FROM ${table} WHERE organization_id=$1`,[org]);
   await c.query('DELETE FROM organization WHERE id=$1',[org]);
   await c.query('DELETE FROM "user" WHERE id=$1',[user]);
-  await c.query('COMMIT');}finally{c.release();}
-  await pool.end();
+  await c.query('COMMIT');
+  try {
+   expect((await c.query('SELECT count(*)::int AS count FROM communication_send_gates WHERE organization_id=$1',[org])).rows[0].count).toBe(0);
+   for(const table of ['agent_review_batches','agent_authority_grants','agent_runs','agent_events','agent_operations','agent_messages','agent_threads','mandates','member']) {
+    const count=(await c.query(`SELECT count(*)::int AS count FROM ${table} WHERE organization_id=$1`,[org])).rows[0].count;
+    expect({table,count}).toEqual({table,count:0});
+   }
+   expect((await c.query('SELECT (SELECT count(*)::int FROM organization WHERE id=$1) AS organizations,(SELECT count(*)::int FROM "user" WHERE id=$2) AS users',[org,user])).rows[0]).toEqual({organizations:0,users:0});
+  } finally {
+   // Keep a failed teardown assertion from leaving this run's synthetic gate.
+   // This fallback is deliberately exact to the random organization above.
+   await c.query('BEGIN');
+   await c.query("SET LOCAL session_replication_role='replica'");
+   await c.query('DELETE FROM communication_send_gates WHERE organization_id=$1',[org]);
+   await c.query('COMMIT');
+   expect((await c.query('SELECT count(*)::int AS count FROM communication_send_gates WHERE organization_id=$1',[org])).rows[0].count).toBe(0);
+  }
+  }finally{c.release();await pool.end();}
  });
 
  async function proposal(text='Original',name='email.reply'){
