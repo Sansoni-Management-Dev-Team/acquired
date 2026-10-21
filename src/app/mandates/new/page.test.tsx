@@ -1,6 +1,6 @@
 import {afterEach,expect,it,vi} from 'vitest';
 vi.mock('@/components/cached-mandate-pages',()=>({CachedMandateCreate:()=>null}));
-const request=vi.hoisted(()=>({connection:vi.fn(async()=>undefined)}));
+const request=vi.hoisted(()=>({connection:vi.fn(async():Promise<void>=>undefined)}));
 vi.mock('next/server',()=>({connection:request.connection}));
 import NewMandatePage from './page';
 import Home from '../../page';
