@@ -18,7 +18,7 @@ it('leaves every hosted route unavailable before loading data or authority when 
 it('uses the fixed HTTPS service origin and fresh exact-actor scoped authentication without redirects or retries',async()=>{
  const fetcher=vi.fn(async()=>Response.json({verified:true})),call=createHostedDemoServiceRequest(descriptor,key,fetcher);
  expect(await call('/v1/hosted-demo/admissions/verify',{receipt:{}},new AbortController().signal)).toEqual({verified:true});expect(fetcher).toHaveBeenCalledOnce();
- const [url,init]=fetcher.mock.calls[0] as unknown as [string,RequestInit];expect(url).toBe(d.serviceOrigin+'/v1/hosted-demo/admissions/verify');expect(init).toMatchObject({method:'POST',redirect:'error',credentials:'omit'});
+ const [url,init]=fetcher.mock.calls[0] as unknown as [string,RequestInit];expect(url).toBe(d.serviceOrigin+'/v1/hosted-demo/admissions/verify');expect(init).toMatchObject({method:'POST',redirect:'error',credentials:'omit'});expect(new Headers(init.headers).get('X-Communications-Contract-Version')).toBe('1');
  const verifier=createScopedServiceAuth({key,applicationId:'acquire',audience:'communications',authorize:async()=>true});expect(await verifier.verify(new Headers(init.headers).get('authorization')!)).toEqual(d.actor);
  await expect(call('/admin',{key:'PRIVATE'},new AbortController().signal)).rejects.toThrow('Hosted demo runtime unavailable');expect(fetcher).toHaveBeenCalledOnce();
 });
