@@ -1,3 +1,4 @@
+import {agentChannelMessageSqlNames} from './agent-operation-sql';
 import {z} from 'zod';
 import {AgentRunLimitError} from '@/domain/agent-events';
 import type {PoolClient} from 'pg';
@@ -88,7 +89,7 @@ export class AgentExecutionStore extends AgentRuntimeRegistryStore{
  }
  protected async executionChannelProgress<T extends Record<string,unknown>>(_c:PoolClient,_t:AgentThread,conversations:T[]):Promise<T[]>{void _c;void _t;return conversations;}
  protected async invalidateNativeReviews(c:PoolClient,t:AgentThread,conversationId:string){
-   const ids=(await c.query("UPDATE agent_operations SET state='failed',result=jsonb_build_object('reason','context_changed'),updated_at=now() WHERE thread_id=$1 AND conversation_id=$2 AND name IN('email.initial','email.reply','email.follow_up','whatsapp.initial','whatsapp.reply','whatsapp.follow_up','linkedin.initial','linkedin.reply','linkedin.follow_up') AND state IN('proposed','approved') RETURNING id",[t.id,conversationId])).rows.map(r=>r.id);
+   const ids=(await c.query(`UPDATE agent_operations SET state='failed',result=jsonb_build_object('reason','context_changed'),updated_at=now() WHERE thread_id=$1 AND conversation_id=$2 AND name IN(${agentChannelMessageSqlNames}) AND state IN('proposed','approved') RETURNING id`,[t.id,conversationId])).rows.map(r=>r.id);
   if(ids.length)await c.query("UPDATE agent_review_batches b SET state='invalidated' WHERE b.thread_id=$1 AND b.state='pending' AND EXISTS(SELECT 1 FROM jsonb_array_elements(b.manifest) item WHERE item->>'operationId'=ANY($2::text[]))",[t.id,ids]);
  }
  protected async revokePersonDelegations(c:PoolClient,t:AgentThread,conversationId:string,email:string|null){void conversationId;await c.query("UPDATE agent_authority_grants SET revoked_at=clock_timestamp(),revision=revision+1 WHERE thread_id=$1 AND revoked_at IS NULL AND recipient_keys ? $2",[t.id,'email:'+email]);}

@@ -1,3 +1,4 @@
+import {agentNativeDispatchSqlNames} from './agent-operation-sql';
 import{z}from'zod';
 import type{PoolClient}from'pg';
 import{AgentChannelStore}from'./agent-channel-store';
@@ -49,7 +50,7 @@ export class AgentInvitationStore extends AgentChannelStore{
  }
  override async pendingNativeEmail(threadId:string,conversationId:string,contextRevision:string){return this.nativeTransaction(async c=>{
   const t=await this.thread(c,threadId);await this.lockConversation(c,t,conversationId);
-  return !!(await c.query("SELECT id FROM agent_operations WHERE thread_id=$1 AND conversation_id=$2 AND name IN('email.initial','email.reply','email.follow_up','whatsapp.initial','whatsapp.reply','whatsapp.follow_up','linkedin.initial','linkedin.reply','linkedin.follow_up','linkedin.invitation') AND input->>'contextRevision'=$3 AND state IN('proposed','approved','running','uncertain') AND (state<>'proposed' OR EXISTS(SELECT 1 FROM agent_review_batches b WHERE b.thread_id=$1 AND b.state='pending' AND b.manifest @> jsonb_build_array(jsonb_build_object('operationId',agent_operations.id)))) LIMIT 1",[t.id,conversationId,contextRevision])).rowCount;
+  return !!(await c.query(`SELECT id FROM agent_operations WHERE thread_id=$1 AND conversation_id=$2 AND name IN(${agentNativeDispatchSqlNames}) AND input->>'contextRevision'=$3 AND state IN('proposed','approved','running','uncertain') AND (state<>'proposed' OR EXISTS(SELECT 1 FROM agent_review_batches b WHERE b.thread_id=$1 AND b.state='pending' AND b.manifest @> jsonb_build_array(jsonb_build_object('operationId',agent_operations.id)))) LIMIT 1`,[t.id,conversationId,contextRevision])).rowCount;
  });}
  override async channelDispatchRecord(threadId:string,operationId:string){
   const invitation=await this.nativeTransaction(async c=>{const t=await this.thread(c,threadId),op=(await c.query("SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name='linkedin.invitation'",[uuid.parse(operationId),t.id])).rows[0];if(!op)return null;

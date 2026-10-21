@@ -1,4 +1,5 @@
 'use client';
+import {isAgentMessageReviewOperation as isMessage} from '@/domain/agent-operation-classifications';
 import {useState} from 'react';
 import {AgentNativeProposalDetails,AgentProposalGuidance,nativeProposalReviewable} from './agent-native-proposal-details';
 import {AgentFeedbackForm} from './agent-feedback-form';
@@ -8,7 +9,6 @@ export type AgentReviewBatchView={id:string;revision:number;state:'pending'|'app
 type Props={mandateId?:string;batches:AgentReviewBatchView[];busy:boolean;onFeedback?:(input:unknown)=>Promise<boolean>;onDecision:(batch:AgentReviewBatchView,decision:'approved'|'rejected')=>void;onEdit:(batch:AgentReviewBatchView,operationId:string,revision:number,body:string)=>Promise<boolean>};
 export function AgentReviewCards({batches,busy,onDecision,onEdit,onFeedback,mandateId}:Props){
  const [edit,setEdit]=useState<{batchId:string;operationId:string;revision:number;body:string;snapshot:AgentReviewBatchView}|null>(null);
- const isMessage=(name:string)=>name==='linkedin.invitation'||/^(email|whatsapp|linkedin)\.(initial|reply|follow_up|manual_link)$/.test(name);
  const channelLabel=(name:string)=>name.startsWith('whatsapp.')?'WhatsApp':name.startsWith('linkedin.')?'LinkedIn':'Email';
  const title=(name:string)=>name==='linkedin.invitation'?'Suggested LinkedIn invitation':name.startsWith('whatsapp.')||name.startsWith('linkedin.')?`Suggested ${channelLabel(name)} ${name.endsWith('.reply')?'reply':name.endsWith('.follow_up')?'follow-up':'message'}`:undefined;
  const pending=batches.filter(batch=>batch.state==='pending'||batch.id===edit?.batchId);

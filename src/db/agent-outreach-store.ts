@@ -1,3 +1,5 @@
+import {isAgentLegacyEmailOperation} from '@/domain/agent-operation-classifications';
+import {agentChannelMessageSqlNames,agentLegacyEmailSqlNames,agentNativeDispatchSqlNames} from './agent-operation-sql';
 import {z} from 'zod';
 import type {PoolClient} from 'pg';
 import type {AgentThread} from './agent-store';
@@ -23,7 +25,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
   * even after cancellation; recording an outcome never grants another send. */
  async markNativeCommunicationsOutcome(threadId:string,operationId:string,outcome:DeliveryOutcome):Promise<NativeAgentDelivery>{
   uuid.parse(operationId);return this.nativeTransaction(async c=>{
-   const t=await this.lockThread(c,threadId),op=(await c.query("SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name IN('email.initial','email.reply','email.follow_up','whatsapp.initial','whatsapp.reply','whatsapp.follow_up','linkedin.initial','linkedin.reply','linkedin.follow_up') FOR UPDATE",[operationId,t.id])).rows[0];
+   const t=await this.lockThread(c,threadId),op=(await c.query(`SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name IN(${agentChannelMessageSqlNames}) FOR UPDATE`,[operationId,t.id])).rows[0];
    if(!op)throw new Error('Owned native operation unavailable');
    if(Object.hasOwn(op.input??{},'routeId'))return this.markRoutedCommunicationsOutcome(c,t,op,outcome);
    const row=await this.lockConversation(c,t,op.conversation_id);if(row.delivery_mode!=='communications')throw new Error('Recorded communications outcome required');
@@ -107,7 +109,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
  async delegatedDispatchTarget(threadId:string,operationId:string){
   uuid.parse(operationId);return this.nativeTransaction(async c=>{
    const t=await this.thread(c,threadId);
-   const op=(await c.query("SELECT o.*,v.delivery_mode,v.binding_digest,v.recipient_email FROM agent_operations o JOIN agent_conversations v ON v.id=o.conversation_id AND v.thread_id=o.thread_id WHERE o.id=$1 AND o.thread_id=$2 AND o.state='proposed' AND o.name IN('email.initial','email.reply','email.follow_up','whatsapp.initial','whatsapp.reply','whatsapp.follow_up','linkedin.initial','linkedin.reply','linkedin.follow_up')",[operationId,t.id])).rows[0];
+   const op=(await c.query(`SELECT o.*,v.delivery_mode,v.binding_digest,v.recipient_email FROM agent_operations o JOIN agent_conversations v ON v.id=o.conversation_id AND v.thread_id=o.thread_id WHERE o.id=$1 AND o.thread_id=$2 AND o.state='proposed' AND o.name IN(${agentChannelMessageSqlNames})`,[operationId,t.id])).rows[0];
    if(!op||op.input?.requiresHumanReview===true)return null;
    const route=await this.nativeOperationRoute(c,t,op),kind=op.name.split('.').reverse().join('_'),channel=route?.channel??'email',recipientKey=route?channel+':'+route.recipient.value:'email:'+op.recipient_email,binding=route?.bindingDigest??op.binding_digest;
    if(!route)await this.assertLegacyAgentEmail(c,t);
@@ -118,7 +120,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
  async abandonUnpreparedNativeEmail(threadId:string,operationId:string,authority:AgentExecutionFence){
   uuid.parse(operationId);return this.nativeTransaction(async c=>{
    const t=await this.lockThread(c,threadId);await this.assertExecutionFence(c,t,authority,'email-unprepared:'+operationId);
-   const op=(await c.query("SELECT o.state,o.result,o.lease_until<=clock_timestamp() AS expired,EXISTS(SELECT 1 FROM communication_dispatch_intents i WHERE i.organization_id=o.organization_id AND i.owner_user_id=o.owner_user_id AND i.source_kind='agent' AND i.source_id=o.id) AS has_intent FROM agent_operations o WHERE o.id=$1 AND o.thread_id=$2 AND o.name IN('email.initial','email.reply','email.follow_up','whatsapp.initial','whatsapp.reply','whatsapp.follow_up','linkedin.initial','linkedin.reply','linkedin.follow_up') FOR UPDATE",[operationId,t.id])).rows[0];
+   const op=(await c.query(`SELECT o.state,o.result,o.lease_until<=clock_timestamp() AS expired,EXISTS(SELECT 1 FROM communication_dispatch_intents i WHERE i.organization_id=o.organization_id AND i.owner_user_id=o.owner_user_id AND i.source_kind='agent' AND i.source_id=o.id) AS has_intent FROM agent_operations o WHERE o.id=$1 AND o.thread_id=$2 AND o.name IN(${agentChannelMessageSqlNames}) FOR UPDATE`,[operationId,t.id])).rows[0];
    if(!op)throw new Error('Owned native email operation unavailable');
    if(op.state==='failed'&&op.result?.delivery?.status==='not_submitted')return true;
    if(!['running','uncertain'].includes(op.state)||!op.expired||op.has_intent)return false;
@@ -132,7 +134,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
    const t=await this.thread(c,threadId);
    const row=(await c.query(`SELECT o.id AS operation_id,o.conversation_id,o.state AS operation_state,o.result AS operation_result,c.binding_id,c.delivery_mode,c.binding_digest,c.recipient_email
     FROM agent_operations o JOIN agent_conversations c ON c.id=o.conversation_id AND c.thread_id=o.thread_id
-    WHERE o.id=$1 AND o.thread_id=$2 AND o.name IN('email.initial','email.reply','email.follow_up')`,[operationId,t.id])).rows[0];
+    WHERE o.id=$1 AND o.thread_id=$2 AND o.name IN(${agentLegacyEmailSqlNames})`,[operationId,t.id])).rows[0];
    if(!row)throw new Error('Owned native email operation unavailable');
    return {operationId:row.operation_id as string,conversationId:row.conversation_id as string,notSubmitted:row.operation_state==='failed'&&row.operation_result?.delivery?.status==='not_submitted',submitted:row.operation_state==='complete'&&row.operation_result?.delivery?.status==='submitted',bindingId:row.binding_id as string|null,deliveryMode:row.delivery_mode as 'local_sink'|'communications',bindingDigest:row.binding_digest as string,recipient:row.recipient_email as string};
   });
@@ -179,7 +181,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
  async pendingNativeEmail(threadId:string,conversationId:string,contextRevision:string){
   return this.nativeTransaction(async c=>{
    const t=await this.thread(c,threadId);await this.lockConversation(c,t,conversationId);
-   return !!(await c.query("SELECT id FROM agent_operations WHERE thread_id=$1 AND conversation_id=$2 AND name IN('email.initial','email.reply','email.follow_up','whatsapp.initial','whatsapp.reply','whatsapp.follow_up','linkedin.initial','linkedin.reply','linkedin.follow_up') AND input->>'contextRevision'=$3 AND state IN('proposed','approved','running','uncertain') AND (state<>'proposed' OR EXISTS(SELECT 1 FROM agent_review_batches b WHERE b.thread_id=$1 AND b.state='pending' AND b.manifest @> jsonb_build_array(jsonb_build_object('operationId',agent_operations.id)))) LIMIT 1",[t.id,conversationId,contextRevision])).rowCount;
+   return !!(await c.query(`SELECT id FROM agent_operations WHERE thread_id=$1 AND conversation_id=$2 AND name IN(${agentChannelMessageSqlNames}) AND input->>'contextRevision'=$3 AND state IN('proposed','approved','running','uncertain') AND (state<>'proposed' OR EXISTS(SELECT 1 FROM agent_review_batches b WHERE b.thread_id=$1 AND b.state='pending' AND b.manifest @> jsonb_build_array(jsonb_build_object('operationId',agent_operations.id)))) LIMIT 1`,[t.id,conversationId,contextRevision])).rowCount;
   });
  }
  async nativeDecisionContext(threadId:string,conversationId:string){
@@ -305,15 +307,15 @@ export class AgentOutreachStore extends AgentLifecycleStore{
     AND NOT EXISTS(SELECT 1 FROM agent_authority_uses u WHERE u.operation_id=o.id)
     AND NOT EXISTS(SELECT 1 FROM agent_budget_reservations r JOIN agent_budget_accounts a ON a.id=r.account_id WHERE r.operation_id=o.id AND a.unit='sends') AS allowed
     FROM agent_operations o JOIN agent_conversations v ON v.id=o.conversation_id AND v.thread_id=o.thread_id
-    WHERE o.id=$1 AND o.thread_id=$2 AND v.id=$3 AND o.name IN('email.initial','email.reply','email.follow_up','whatsapp.initial','whatsapp.reply','whatsapp.follow_up','linkedin.initial','linkedin.reply','linkedin.follow_up','linkedin.invitation')`,[operationId,t.id,conversationId])).rows[0]?.allowed;
+    WHERE o.id=$1 AND o.thread_id=$2 AND v.id=$3 AND o.name IN(${agentNativeDispatchSqlNames})`,[operationId,t.id,conversationId])).rows[0]?.allowed;
    return result===true;
   });
  }
  async channelDispatchRecord(threadId:string,operationId:string){
   uuid.parse(operationId);return this.nativeTransaction(async c=>{
-   const t=await this.thread(c,threadId),op=(await c.query("SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name IN('email.initial','email.reply','email.follow_up','whatsapp.initial','whatsapp.reply','whatsapp.follow_up','linkedin.initial','linkedin.reply','linkedin.follow_up')",[operationId,t.id])).rows[0];
+   const t=await this.thread(c,threadId),op=(await c.query(`SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name IN(${agentChannelMessageSqlNames})`,[operationId,t.id])).rows[0];
    if(!op)throw Error('Owned native message operation unavailable');const conversation=await this.lockConversation(c,t,op.conversation_id),route=await this.nativeOperationRoute(c,t,op);
-   if(!route){if(!['email.initial','email.reply','email.follow_up'].includes(op.name))throw Error('Social messages require their original reviewed route');await this.assertLegacyAgentEmail(c,t);}
+   if(!route){if(!isAgentLegacyEmailOperation(op.name))throw Error('Social messages require their original reviewed route');await this.assertLegacyAgentEmail(c,t);}
    return {conversation,operation:op,route,submitted:op.state==='complete'&&op.result?.delivery?.status==='submitted',notSubmitted:op.state==='failed'&&op.result?.delivery?.status==='not_submitted'};
   });
  }
@@ -322,7 +324,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
   return this.nativeTransaction(async c=>{
    const t=await this.lockThread(c,threadId);await this.assertExecutionFence(c,t,authority,'email-authority:'+operationId);
    await this.assertLegacyAgentEmail(c,t);
-   const op=(await c.query("SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name IN('email.initial','email.reply','email.follow_up') FOR UPDATE",[operationId,t.id])).rows[0];
+   const op=(await c.query(`SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name IN(${agentLegacyEmailSqlNames}) FOR UPDATE`,[operationId,t.id])).rows[0];
    if(!op)throw new Error('Native email operation not found');
    const conversation=await this.lockConversation(c,t,op.conversation_id);
    if(conversation.delivery_mode!=='communications')throw new Error('The recorded communications delivery mode is required');
@@ -342,7 +344,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
   uuid.parse(operationId);
   return this.nativeTransaction(async c=>{
    const t=await this.lockThread(c,threadId);await this.assertExecutionFence(c,t,authority,'email-authority:'+operationId);
-   const op=(await c.query("SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name IN('email.initial','email.reply','email.follow_up') FOR UPDATE",[operationId,t.id])).rows[0];
+   const op=(await c.query(`SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name IN(${agentLegacyEmailSqlNames}) FOR UPDATE`,[operationId,t.id])).rows[0];
    if(!op)throw new Error('Native email operation not found');
    const existing=(await c.query('SELECT * FROM agent_sink_messages WHERE operation_id=$1',[op.id])).rows[0];
    if(existing){if(op.state!=='complete'||existing.payload_digest!==op.input_digest)throw new Error('Simulation receipt needs reconciliation');return {status:'simulated' as const,receiptId:existing.message_id as string,operationId:op.id as string};}

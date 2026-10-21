@@ -1,3 +1,4 @@
+import {isAgentReviewableOperation,isAgentEditableMessageOperation} from '@/domain/agent-operation-classifications';
 import {agentRecordDigest as digest} from '@/lib/agent-record-digest';
 import {insertAgentReviewBatch,persistAgentReviewDecision} from './agent-review-ledger';
 import type { Pool, PoolClient } from 'pg';
@@ -194,7 +195,7 @@ export class AgentStore {
     if(rows.length!==manifest.length)throw new Error('Review operation not found');
     for(const item of manifest){
       const op=rows.find(row=>row.id===item.operationId)!;
-      if(!['target.select','research.start','research.people','sequence.prepare','sequence.publish','sequence.enrol','email.initial','email.reply','email.follow_up','whatsapp.initial','whatsapp.reply','whatsapp.follow_up','linkedin.initial','linkedin.reply','linkedin.follow_up','linkedin.invitation','email.manual_link'].includes(op.name))throw new Error('Operation is not reviewable');
+      if(!isAgentReviewableOperation(op.name))throw new Error('Operation is not reviewable');
       if(op.state!=='proposed'||op.revision!==item.revision||op.input_digest!==item.digest||op.input?.contextRevision!==item.contextRevision)throw new Error('Operation changed; refresh and review again');
       await this.checkReviewContext(c,t,op);
       if(op.conversation_id){const current=(await c.query('SELECT agent_context_revision($1::uuid) AS revision',[op.conversation_id])).rows[0];if(current.revision!==item.contextRevision)throw new Error('Conversation changed; reassess before approval');}
@@ -253,7 +254,7 @@ export class AgentStore {
     return this.transaction(async c=>{
       const t=await this.lockThread(c,threadId);
       const op=(await c.query('SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 FOR UPDATE',[operationId,t.id])).rows[0];
-      if(!op||!['target.select','research.start','research.people','sequence.prepare','sequence.publish','sequence.enrol','email.initial','email.reply','email.follow_up','whatsapp.initial','whatsapp.reply','whatsapp.follow_up','linkedin.initial','linkedin.reply','linkedin.follow_up','linkedin.invitation','email.manual_link'].includes(op.name)||op.state!=='proposed'||op.revision!==revision)throw new Error('Operation changed or unavailable');
+      if(!op||!isAgentReviewableOperation(op.name)||op.state!=='proposed'||op.revision!==revision)throw new Error('Operation changed or unavailable');
       return (await c.query('UPDATE agent_operations SET input=$2,input_digest=$3,revision=revision+1,updated_at=now() WHERE id=$1 RETURNING *',[op.id,JSON.stringify(value),digest({name:op.name,input:value})])).rows[0];
     });
   }
@@ -269,7 +270,7 @@ export class AgentStore {
       if(!batch||batch.state!=='pending')throw new Error('Review batch changed or unavailable');
       const manifest=assertExactReviewBatch(batch.manifest,batch.manifest);
       const rows=await this.currentReviewOperations(c,t,manifest),op=rows.find(row=>row.id===operationId);
-      if(!op||!['email.initial','email.reply','email.follow_up','whatsapp.initial','whatsapp.reply','whatsapp.follow_up','linkedin.initial','linkedin.reply','linkedin.follow_up','linkedin.invitation','email.manual_link'].includes(op.name)||op.revision!==revision)throw new Error('Email proposal changed or unavailable');
+      if(!op||!isAgentEditableMessageOperation(op.name)||op.revision!==revision)throw new Error('Email proposal changed or unavailable');
       if(op.name==='linkedin.invitation'&&(body.length>300||op.input.requiresHumanReview!==true))throw new Error('An invitation requires human review and at most 300 characters');
       if(op.conversation_id&&op.name!=='email.manual_link'&&containsAgentOutboundLink(body))throw new Error('A booking link requires a human handoff');
       const input={...op.input,body},hash=digest({name:op.name,input});
