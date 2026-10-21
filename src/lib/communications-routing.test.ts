@@ -19,3 +19,12 @@ it('refuses a different testing actor, disabled profile, changed generation meta
  for(const patch of [{AGENT_TESTING_COMMUNICATIONS_ENABLED:'false'},{AGENT_TESTING_COMMUNICATIONS_ENV_JSON:configured.AGENT_TESTING_COMMUNICATIONS_ENV_JSON.replace(':5991',':5891')},{AGENT_TESTING_COMMUNICATIONS_DESCRIPTOR_JSON:configured.AGENT_TESTING_COMMUNICATIONS_DESCRIPTOR_JSON.replace('"ownerId":"owner"','"ownerId":"another-owner"')}]){const f=fixture(row);await expect(resolveOwnedCommunicationsLane(actor,binding,{env:{...configured,...patch},servicePool:f.servicePool as never})).rejects.toThrow();}
  expect(()=>communicationsLaneForMetadata({integrationId:row.integration_id,configurationReference:'different-v1'},configured)).toThrow();
 });
+
+function hostedEnvironment(){const runId='hosted-demo-example',descriptor={version:1,mode:'hosted-demo',phase:'active',runId,integrationId:'sim-'+runId,configurationReference:'sim-'+runId+'-v1',applicationOrigin:'https://acquire.example.invalid',serviceOrigin:'https://simulator.example.invalid',setupOrigin:'https://simulator.example.invalid',actor:{applicationId:'acquire',tenantId:'org',ownerId:'owner'},capabilities:{dynamicRecipients:true,recipientContextLookup:true,remoteApplicationAuthority:true,durableEvents:true},bindings:[binding]};return{NODE_ENV:'production',APP_URL:descriptor.applicationOrigin,AGENT_HOSTED_DEMO_COMMUNICATIONS_ENABLED:'true',AGENT_HOSTED_DEMO_COMMUNICATIONS_DESCRIPTOR_JSON:JSON.stringify(descriptor)};}
+it('routes only an explicitly captured hosted original binding without opening the independent service database',async()=>{
+ const f=fixture(),configured=hostedEnvironment();expect(await resolveOwnedCommunicationsLane(actor,binding,{env:configured,servicePool:f.servicePool as never})).toBe('hosted');expect(f.app).toHaveBeenCalledOnce();expect(f.query).not.toHaveBeenCalled();
+ expect(communicationsLaneForMetadata({integrationId:'sim-hosted-demo-example',configurationReference:'sim-hosted-demo-example-v1'},configured)).toBe('hosted');
+});
+it('never falls back to service SQL when the original generation belongs to a hosted connection but differs from its descriptor',async()=>{
+ const f=fixture(),configured=hostedEnvironment();for(const changed of[{...binding,generation:2},{...binding,accountId:'another-account'}])await expect(resolveOwnedCommunicationsLane(actor,changed,{env:configured,servicePool:f.servicePool as never})).rejects.toThrow();expect(f.query).not.toHaveBeenCalled();
+});

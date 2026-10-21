@@ -59,8 +59,16 @@ export function localSimulatorHostedOrigin(value:string):string {
  if(u.protocol!=='https:'||!['localhost','127.0.0.1','[::1]'].includes(u.hostname)||u.origin!==value||u.username||u.password)invalid();
  return u.origin;
 }
-export function assertManagementSetupResponse(value: unknown,options?:{localSimulatorOrigin?:string}): asserts value is ConnectionSetupResponse {
- const origin=options?.localSimulatorOrigin===undefined?'https://account.unipile.com':localSimulatorHostedOrigin(options.localSimulatorOrigin);
+export interface HostedDemoCapability{capability:'hosted-demo';origin:string}
+/** Trusted deployment setting, never inferred from provider/request data. */
+export function captureHostedDemoCapability(raw:unknown):HostedDemoCapability{
+ const value=object(raw,['capability','origin']);if(value.capability!=='hosted-demo'||typeof value.origin!=='string')invalid();
+ const u=new URL(value.origin);if(u.protocol!=='https:'||u.origin!==value.origin||u.username||u.password||!u.hostname.includes('.')||/^[\d.]+$/.test(u.hostname)||u.hostname.includes(':')||/\.(?:localhost|local|internal|test)$/.test(u.hostname))invalid();
+ return{capability:'hosted-demo',origin:u.origin};
+}
+export function assertManagementSetupResponse(value: unknown,options?:{localSimulatorOrigin?:string;hostedDemo?:HostedDemoCapability}): asserts value is ConnectionSetupResponse {
+ if(options?.localSimulatorOrigin!==undefined&&options.hostedDemo!==undefined)invalid();
+ const origin=options?.hostedDemo!==undefined?captureHostedDemoCapability(options.hostedDemo).origin:options?.localSimulatorOrigin===undefined?'https://account.unipile.com':localSimulatorHostedOrigin(options.localSimulatorOrigin);
  const o=object(value,['status'],['action','code']);
  if(o.status==='redirect'){
   if(o.code!==undefined)invalid();const a=object(o.action,['type','url','expiresAt']);timestamp(a.expiresAt);

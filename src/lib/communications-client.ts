@@ -1,4 +1,5 @@
 import 'server-only';
+import {readHostedDemoCommunicationsDescriptor} from './hosted-demo-communications-environment';
 import {withCampaignDb,type CampaignActor} from '@/db/campaign-client';
 import {CommunicationsClient} from '../../communications/packages/sdk/src';
 import {createScopedServiceAuth} from '../../communications/packages/core/src/scoped-service-auth';
@@ -9,11 +10,12 @@ import type {ConnectionBinding} from '../../communications/packages/contracts/sr
 /** Explicit setup lane is supplied only by a trusted server command which has
  * loaded mandate intent. Every existing binding independently resolves its DB lane. */
 export async function actorCommunicationsClient(actor:CampaignActor,options:{setupLane?:CommunicationsLane}={}):Promise<CommunicationsClient>{
- if(options.setupLane!==undefined&&!['primary','demo','testing'].includes(options.setupLane))throw Error('Unknown communications setup lane');
+ if(options.setupLane!==undefined&&!['primary','demo','testing','hosted'].includes(options.setupLane))throw Error('Unknown communications setup lane');
  if(process.env.COMMUNICATIONS_RUNTIME_ENABLED!=='true')throw Error('Communications runtime unavailable');
  await withCampaignDb(actor,async()=>undefined);
  function construct(lane:CommunicationsLane){
   try{
+   if(lane==='hosted'){const descriptor=readHostedDemoCommunicationsDescriptor(process.env,actor),encoded=process.env.AGENT_HOSTED_DEMO_SERVICE_AUTH_KEY??'';if(!/^(?:[A-Za-z0-9_-]{43}|[a-f0-9]{64})$/.test(encoded))throw Error();const key=Buffer.from(encoded,encoded.length===64?'hex':'base64url');if(key.length!==32)throw Error();const signer=createScopedServiceAuth({key,audience:'communications',applicationId:'acquire',authorize:async()=>false});return new CommunicationsClient({baseUrl:descriptor.serviceOrigin,contractVersion:'1',apiKey:signer.issue(descriptor.actor),allowLoopbackHttp:false,timeoutMs:28000,hostedDemo:{capability:'hosted-demo',origin:descriptor.setupOrigin}});}
    const env=lane==='testing'?readTestingCommunicationsEnvironment(process.env,actor):lane==='demo'?readDemoCommunicationsEnvironment(process.env):process.env;
    const encoded=env.COMMUNICATIONS_SCOPED_AUTH_KEY||'';if(!/^[A-Za-z0-9+/]{43}=$/.test(encoded))throw Error();const key=Buffer.from(encoded,'base64');if(key.length!==32||key.toString('base64')!==encoded)throw Error();
    const applicationId=env.COMMUNICATIONS_APPLICATION_ID||'acquire';const signer=createScopedServiceAuth({key,audience:'communications',applicationId,authorize:async()=>false});

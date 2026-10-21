@@ -1,0 +1,29 @@
+import{afterEach,expect,it,vi}from'vitest';
+vi.mock('server-only',()=>({}));
+const db=vi.hoisted(()=>({work:vi.fn()}));
+vi.mock('@/db/campaign-client',()=>({withCampaignDb:db.work,campaignSqlPool:vi.fn()}));
+import{hostedDemoRequest,createHostedDemoServiceRequest}from'./hosted-demo-runtime';
+import{readHostedDemoCommunicationsDescriptor}from'./hosted-demo-communications-environment';
+import{createScopedServiceAuth}from'../../communications/packages/core/src/scoped-service-auth';
+const d={version:1,mode:'hosted-demo',runId:'hosted-demo-example',integrationId:'sim-hosted-demo-example',configurationReference:'sim-hosted-demo-example-v1',applicationOrigin:'https://app.example.invalid',serviceOrigin:'https://demo.example.invalid',setupOrigin:'https://demo.example.invalid',actor:{applicationId:'acquire',tenantId:'org',ownerId:'owner'},capabilities:{dynamicRecipients:true,recipientContextLookup:true,remoteApplicationAuthority:true,durableEvents:true},bindings:[{applicationId:'acquire',tenantId:'org',ownerId:'owner',connectionId:'connection',accountId:'account',generation:1,channel:'whatsapp',platform:'whatsapp',backend:'unipile'}]};
+const descriptor=readHostedDemoCommunicationsDescriptor({NODE_ENV:'production',APP_URL:d.applicationOrigin,AGENT_HOSTED_DEMO_COMMUNICATIONS_ENABLED:'true',AGENT_HOSTED_DEMO_COMMUNICATIONS_DESCRIPTOR_JSON:JSON.stringify(d)}),key=Buffer.alloc(32,7);
+afterEach(()=>{vi.unstubAllEnvs();vi.useRealTimers();});
+it('bounds the whole service RPC even when an injected transport ignores cancellation',async()=>{
+ vi.useFakeTimers();const call=createHostedDemoServiceRequest(descriptor,key,vi.fn(()=>new Promise<Response>(()=>{})));let settled=false;
+ void call('/v1/hosted-demo/admissions/verify',{receipt:{}},new AbortController().signal).catch(()=>{settled=true;});await vi.advanceTimersByTimeAsync(5001);expect(settled).toBe(true);
+});
+it('leaves every hosted route unavailable before loading data or authority when its explicit flag is off',async()=>{
+ vi.stubEnv('AGENT_HOSTED_DEMO_COMMUNICATIONS_ENABLED','false');for(const path of['access','authority','recipient','coverage','events'])expect((await hostedDemoRequest(new Request(d.applicationOrigin+'/api/agent/hosted-demo/'+path,{method:'POST'}))).status).toBe(404);expect(db.work).not.toHaveBeenCalled();
+});
+it('uses the fixed HTTPS service origin and fresh exact-actor scoped authentication without redirects or retries',async()=>{
+ const fetcher=vi.fn(async()=>Response.json({verified:true})),call=createHostedDemoServiceRequest(descriptor,key,fetcher);
+ expect(await call('/v1/hosted-demo/admissions/verify',{receipt:{}},new AbortController().signal)).toEqual({verified:true});expect(fetcher).toHaveBeenCalledOnce();
+ const [url,init]=fetcher.mock.calls[0] as unknown as [string,RequestInit];expect(url).toBe(d.serviceOrigin+'/v1/hosted-demo/admissions/verify');expect(init).toMatchObject({method:'POST',redirect:'error',credentials:'omit'});
+ const verifier=createScopedServiceAuth({key,applicationId:'acquire',audience:'communications',authorize:async()=>true});expect(await verifier.verify(new Headers(init.headers).get('authorization')!)).toEqual(d.actor);
+ await expect(call('/admin',{key:'PRIVATE'},new AbortController().signal)).rejects.toThrow('Hosted demo runtime unavailable');expect(fetcher).toHaveBeenCalledOnce();
+});
+it('rejects oversized, invalid and unavailable service responses without exposing private errors',async()=>{
+ for(const response of[new Response('PRIVATE failure',{status:500}),Response.json({private:'x'.repeat(65537)}),new Response('PRIVATE json',{headers:{'Content-Type':'application/json'}})]){
+  const fetcher=vi.fn(async()=>response);await expect(createHostedDemoServiceRequest(descriptor,key,fetcher)('/v1/hosted-demo/admissions/verify',{},new AbortController().signal)).rejects.toThrow('Hosted demo runtime unavailable');expect(fetcher).toHaveBeenCalledOnce();
+ }
+});

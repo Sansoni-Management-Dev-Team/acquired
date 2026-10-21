@@ -9,6 +9,9 @@ import type{createAcquireCommunicationsRuntime}from'./communications-runtime';
 import{assertAgentBusinessTimeScope,type AgentBusinessTimeSelection}from'./agent-business-time';
 import{installAgentBusinessTimeSql,type AgentBusinessDbOptions}from'./agent-business-time-sql';
 import 'server-only';
+import {readHostedDemoCommunicationsDescriptor} from './hosted-demo-communications-environment';
+import {configuredHostedDemoRuntime} from './hosted-demo-runtime';
+import {createHostedDemoNativeFacade} from './hosted-demo-native';
 import {AgentPreBeginHistoryError} from './agent-pre-begin-history-error';
 import {createHash} from 'node:crypto';
 import {localSimulatorTestPolicy} from './agent-simulator-test-policy';
@@ -39,7 +42,8 @@ type ConfiguredAgentStore=Pick<AgentOutreachStore,'conversation'|'ingestHistory'
  beginNativeCommunicationsMessage?:(threadId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number})=>Promise<Awaited<ReturnType<AgentOutreachStore['beginNativeCommunicationsEmail']>>|{operationId:string;conversationId:string;routeId:string;epoch:number;fence:string;bindingId:string;recipient:CanonicalIdentity;channel:'email'|'whatsapp'|'linkedin';subject:string;body:string;effect?:'invitation'}>;
  ingestChannelRelationship?:(threadId:string,conversationId:string,routeId:string,relationship:AgentChannelRelationship)=>Promise<unknown>;
 };
-export type ConfiguredAgentCommunicationsPorts={businessTime?:AgentBusinessTimeSelection;host?:ReturnType<typeof createAcquireCommunicationsRuntime>;actorClient?:typeof actorCommunicationsClient;applicationPool?:Pick<Pool,'connect'>;applicationCodec?:JournalCodec};
+type AgentCommunicationsHost=Pick<ReturnType<typeof createAcquireCommunicationsRuntime>,'admission'|'readAgentConversation'|'readAgentChannelConversation'|'revalidateAgentChannelCoverage'>;
+export type ConfiguredAgentCommunicationsPorts={businessTime?:AgentBusinessTimeSelection;host?:AgentCommunicationsHost;actorClient?:typeof actorCommunicationsClient;applicationPool?:Pick<Pool,'connect'>;applicationCodec?:JournalCodec};
 /** Trusted host composition. The immutable conversation account is the only
  * selection; defaults and model arguments cannot choose an account. */
 export function configuredAgentCommunications(actor:CampaignActor,store:ConfiguredAgentStore,options:ConfiguredAgentCommunicationsPorts={}){
@@ -71,8 +75,13 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
   // Authenticated status renews service scope, including historical disconnected
   // records. It is not readiness and does not block original receipt recovery.
   await observed('ports.status',()=>client.connectionStatus(original.binding));
-  const configured=options.host?undefined:await configuredAcquireCommunicationsForBinding(actor,original.binding),host=options.host??configured!.host,admission=await observed('ports.admission',()=>host.admission(original.binding),{bindingId:original.bindingId,channel:original.binding.channel,configurationId:configured?.options?.providerConfigurationReference});
-  return {...original,client,host,delivery:createAgentCommunicationsDelivery({businessClock:time?.context,binding:original.binding,admission,client,async recordSubmitted(operationId,outcome){const receipt=outcome.receipt;const source={bindingId:original.bindingId,binding:original.binding,sourceKind:'agent' as const,sourceId:operationId},expected={effect:'message'in receipt?'message' as const:'invitation' as const,providerReference:'message'in receipt?receipt.message.id:receipt.operation.id,submittedAt:receipt.submittedAt!};if(time)await captureOriginalSubmission(actor,source,expected,{pool:applicationSqlPool!,codec:options.applicationCodec!,admission,client,businessClock:time.context});else await captureOriginalSubmission(actor,source,expected);}})};
+  let hosted:ReturnType<typeof configuredHostedDemoRuntime>|undefined;
+  if(process.env.AGENT_HOSTED_DEMO_COMMUNICATIONS_ENABLED==='true'){
+   const descriptor=readHostedDemoCommunicationsDescriptor(process.env,actor),captured=descriptor.bindings.find(b=>b.connectionId===original.binding.connectionId);
+   if(captured){try{assertSameBinding(captured,original.binding);}catch{throw Error('Original hosted account changed');}if(descriptor.phase!=='active'||options.host||time)throw Error('Hosted native communications ports unavailable');hosted=configuredHostedDemoRuntime();}
+  }
+  const configured=options.host||hosted?undefined:await configuredAcquireCommunicationsForBinding(actor,original.binding),host:AgentCommunicationsHost=options.host??(hosted?createHostedDemoNativeFacade(hosted):configured!.host),admission=await observed('ports.admission',()=>host.admission(original.binding),{bindingId:original.bindingId,channel:original.binding.channel,configurationId:hosted?.descriptor.configurationReference??configured?.options?.providerConfigurationReference});
+  return {...original,client,host,delivery:createAgentCommunicationsDelivery({businessClock:time?.context,binding:original.binding,admission,client,async recordSubmitted(operationId,outcome){const receipt=outcome.receipt;const source={bindingId:original.bindingId,binding:original.binding,sourceKind:'agent' as const,sourceId:operationId},expected={effect:'message'in receipt?'message' as const:'invitation' as const,providerReference:'message'in receipt?receipt.message.id:receipt.operation.id,submittedAt:receipt.submittedAt!};if(time)await captureOriginalSubmission(actor,source,expected,{pool:applicationSqlPool!,codec:options.applicationCodec!,admission,client,businessClock:time.context});else if(hosted)await captureOriginalSubmission(actor,source,expected,{pool:hosted.applicationPool,codec:hosted.applicationCodec,admission,client});else await captureOriginalSubmission(actor,source,expected);}})};
  }
  async function refresh(threadId:string,conversationId:string){
   const routes=store.channelRoutes?await store.channelRoutes(threadId,conversationId):[];

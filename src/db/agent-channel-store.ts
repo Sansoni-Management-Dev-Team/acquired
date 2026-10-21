@@ -108,12 +108,14 @@ export class AgentChannelStore extends AgentChatStore{
   return z.array(z.object({channel:z.enum(['email','whatsapp','linkedin']),bindingId:uuid,bindingDigest:z.string().regex(/^[a-f0-9]{64}$/)})).length(3).parse(runs[0].senders);
  });}
  /** Read-only timing exception. Final SQL admission independently rechecks the
-  * same exact local run; this supplies no approval or provider authority. */
+  * same exact registered demo run; this supplies no approval or provider authority. */
  async testingSendWindowExempt(threadId:string,routeId:string){
   uuid.parse(routeId);return this.nativeTransaction(async c=>{
    const t=await this.thread(c,threadId);
-   if((await c.query("SELECT to_regprocedure('public.agent_gui_testing_send_window_exempt(uuid)') IS NOT NULL AS installed")).rows[0]?.installed!==true)return false;
-   const rows=(await c.query('SELECT public.agent_gui_testing_send_window_exempt(r.id) AS exempt FROM public.agent_conversation_channels r WHERE r.thread_id=$1 AND r.id=$2 AND r.organization_id=$3 AND r.owner_user_id=$4',[t.id,routeId,this.actor.organizationId,this.actor.userId])).rows;
+   const guards=(await c.query("SELECT to_regprocedure('public.agent_gui_testing_send_window_exempt(uuid)') IS NOT NULL AS installed,to_regprocedure('public.agent_demo_send_window_exempt(uuid)') IS NOT NULL AS \"hostedInstalled\" ")).rows[0];
+   if(guards?.installed!==true&&guards?.hostedInstalled!==true)return false;
+   const guard=guards.hostedInstalled===true?'agent_demo_send_window_exempt':'agent_gui_testing_send_window_exempt';
+   const rows=(await c.query(`SELECT public.${guard}(r.id) AS exempt FROM public.agent_conversation_channels r WHERE r.thread_id=$1 AND r.id=$2 AND r.organization_id=$3 AND r.owner_user_id=$4`,[t.id,routeId,this.actor.organizationId,this.actor.userId])).rows;
    return rows.length===1&&rows[0].exempt===true;
   });
  }

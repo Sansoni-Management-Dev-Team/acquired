@@ -24,3 +24,8 @@ it('does not conceal database errors or accept malformed route identity',async()
  await expect(f.store.testingSendWindowExempt(thread,route)).rejects.toBe(cause);
  const malformed=fixture();await expect(malformed.store.testingSendWindowExempt(thread,'not-a-route-id')).rejects.toThrow();expect(malformed.query).not.toHaveBeenCalled();
 });
+
+it('prefers the installed common demo guard for hosted runs while keeping the same exact owned route query',async()=>{
+ const f=fixture();f.query.mockResolvedValueOnce({rows:[{installed:true,hostedInstalled:true}]});expect(await f.store.testingSendWindowExempt(thread,route)).toBe(true);
+ expect(f.query.mock.calls[0]?.[0]).toContain("to_regprocedure('public.agent_demo_send_window_exempt(uuid)')");expect(f.query.mock.calls[1]?.[0]).toContain('public.agent_demo_send_window_exempt(r.id)');expect(f.query.mock.calls[1]?.[1]).toEqual([thread,route,'owned-org','owned-user']);
+});
