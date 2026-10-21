@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { mandateConfirmation, parseMandate } from "./mandate";
+import { mandateConfirmation, parseMandate } from "./legacy-mandate-parser";
 
 describe("parseMandate", () => {
   it("extracts states and financial ranges", () => {

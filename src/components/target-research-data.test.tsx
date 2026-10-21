@@ -1,8 +1,8 @@
-import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it } from "vitest";
 import { TargetResearchData, TargetEbitdaData, compactAud, groupTargetObservations } from "./target-research-data";
 import { estimateEbitda } from "@/domain/estimated-ebitda";
+import { mapFirmableProfile } from "@/adapters/firmable-company-mapper";
 import type { SavedResearchFinding } from "@/domain/research";
 const finding = (kind: "headcount" | "revenue" | "person", value: string): SavedResearchFinding => ({ id: value, jobId: "job", targetId: "target", sourceUrl: "https://example.com/team", observedAt: "2026-09-15T00:00:00Z", confidence: 0.2, evidence: { kind, name: kind === "person" ? "Alex Example" : kind, value, quote: "Company source statement", website: "https://example.com", factMetadata: { basis: "search_snippet", sourceKind: "third_party_directory", currency: null, scope: "unspecified", period: null, identityNote: null } } });
 it("formats compact AUD values deterministically across server and browser runtimes", () => {
@@ -104,4 +104,61 @@ it('shows conflicting revenue without averaging and people email availability se
  const html=renderToStaticMarkup(<TargetResearchData kind="revenue" findings={[a,b]} fallback="Unknown"/>);
  expect(html.split('<details>')[0]).toContain('Sources disagree');expect(html).not.toContain('$60');
  expect(renderToStaticMarkup(<TargetResearchData kind="person" findings={[finding('person','Director')]} fallback="Unknown"/>)).toContain('Email unknown');
+});
+
+it("keeps equally authoritative disjoint headcounts unresolved with both source observations available", () => {
+  const findings = [finding("headcount", "11–50 employees"), finding("headcount", "51–200 employees")];
+  for (const observation of findings) {
+    observation.evidence.factMetadata = { ...observation.evidence.factMetadata!, basis: "reported", sourceKind: "company_profile" };
+  }
+  const html = renderToStaticMarkup(<TargetResearchData kind="headcount" findings={findings} fallback="Unknown" />);
+  const summary = html.split("<details>")[0];
+  expect(summary).toContain("Sources disagree");
+  expect(summary).not.toContain("Reported · awaiting review");
+  for (const value of ["11–50 employees", "51–200 employees"]) expect(html).toContain(value);
+});
+
+it("labels a third-party headcount as an estimate rather than a reported observation", () => {
+  const observation = finding("headcount", "148 employees");
+  observation.evidence.factMetadata = { ...observation.evidence.factMetadata!, basis: "third_party_estimate" };
+  const html = renderToStaticMarkup(<TargetResearchData kind="headcount" findings={[observation]} fallback="Unknown" />);
+  expect(html).toContain("Estimate · awaiting review");
+  expect(html).toContain("Third-party estimate");
+  expect(html).not.toContain("Reported · awaiting review");
+});
+
+it("makes a fallback industry explicit and never invents EBITDA without sourced inputs", () => {
+  const fallback = renderToStaticMarkup(<TargetEbitdaData findings={[finding("headcount", "30 employees")]} />);
+  expect(fallback).toContain("Industry unconfirmed");
+  expect(fallback).toContain("Estimated annual EBITDA");
+  const empty = renderToStaticMarkup(<TargetEbitdaData findings={[]} />);
+  expect(empty).toContain("Unavailable");
+  expect(empty).not.toContain("Estimated annual EBITDA");
+  expect(empty).not.toContain("$");
+});
+
+function financialTarget() {
+  return mapFirmableProfile(
+    { id: "synthetic", name: "Synthetic manufacturer", hq_country: "AU", revenue: "$5M - $10M", industries: ["Manufacturing"], employee_count: 100, region: { AU: { employee_count: 50 }, NZ: {} } },
+    { sectors: ["Manufacturing"], states: [], revenue: { min: 0, max: null }, ebitda: { min: 0, max: null } },
+    "test",
+  );
+}
+
+it("identifies the company revenue input and model used for indicative EBITDA", () => {
+  const html = renderToStaticMarkup(<TargetEbitdaData target={financialTarget()} />);
+  expect(html).toContain("Company/group revenue input");
+  expect(html).toContain("abs-revenue-margin-v1");
+  expect(html).toContain("Estimated annual EBITDA");
+  expect(html).not.toContain("Reported earnings");
+});
+
+it("presents reported earnings directly without implying a benchmark model", () => {
+  const target = financialTarget();
+  target.ebitda = { value: 350000, provenance: { source: "Reviewed accounts", capturedAt: "2026-10-01", currency: "AUD", confidence: 95 } };
+  const html = renderToStaticMarkup(<TargetEbitdaData target={target} />);
+  expect(html).toContain("$350K");
+  expect(html).toContain("Reported annual EBITDA");
+  expect(html).not.toContain("Estimated annual EBITDA");
+  expect(html).not.toContain("abs-revenue-margin-v1");
 });

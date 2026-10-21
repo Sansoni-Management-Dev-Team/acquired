@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FirmableClient } from "./firmable-client";
 import { GooglePlacesClient } from "./google-places-client";
 import { mergeDiscoveryCandidates, placesQueryForMandate, searchAndEnrichTargets } from "./live-target-search";
-import { parseMandate } from "@/domain/mandate";
+import { parseMandate } from "@/test/fixtures/legacy-mandate-parser";
 
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 

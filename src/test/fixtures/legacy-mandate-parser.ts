@@ -1,5 +1,7 @@
+/** Legacy text parsing retained only to construct existing adapter test fixtures.
+ * Application mandate creation uses acquisition briefs and the native command flow. */
 import { z } from "zod";
-import type { Mandate } from "./models";
+import type { Mandate } from "@/domain/models";
 
 export const mandateSchema = z.object({
   unknownFields: z.array(z.string()).optional(),
