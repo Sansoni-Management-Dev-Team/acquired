@@ -1,3 +1,5 @@
+import {projectAgentInvitationExecutionProgress} from './agent-execution-progress';
+import {projectAgentInvitationDecisionContext} from './agent-channel-decision-context';
 import {agentNativeDispatchSqlNames} from './agent-operation-sql';
 import{z}from'zod';
 import type{PoolClient}from'pg';
@@ -21,9 +23,8 @@ export class AgentInvitationStore extends AgentChannelStore{
   if(ids.length)await c.query("UPDATE agent_review_batches b SET state='invalidated' WHERE b.thread_id=$1 AND b.state='pending' AND EXISTS(SELECT 1 FROM jsonb_array_elements(b.manifest) item WHERE item->>'operationId'=ANY($2::text[]))",[t.id,ids]);
  }
  protected override async executionChannelProgress<T extends Record<string,unknown>>(c:PoolClient,t:AgentThread,conversations:T[]):Promise<T[]>{
-  const people=await super.executionChannelProgress(c,t,conversations);if(!(await c.query("SELECT to_regclass('public.agent_linkedin_relationships') IS NOT NULL AS installed")).rows[0]?.installed)return people;
-  const relations=(await c.query('SELECT * FROM agent_linkedin_relationships WHERE thread_id=$1',[t.id])).rows,actions=(await c.query('SELECT DISTINCT ON(route_id) route_id,state FROM agent_linkedin_invitations WHERE thread_id=$1 ORDER BY route_id,created_at DESC,operation_id',[t.id])).rows;
-  return people.map(person=>({...person,...(Array.isArray(person.channels)?{channels:person.channels.map((route:Record<string,unknown>)=>{const r=relations.find(r=>r.route_id===route.id),a=actions.find(a=>a.route_id===route.id);return {...route,...(r?{relationship:{status:r.status,canMessage:r.can_message,observedAt:new Date(r.observed_at).toISOString()}}:{}),...(a?{invitationState:a.state}:{})};})}:{})}));
+  const people=await super.executionChannelProgress(c,t,conversations);
+  return projectAgentInvitationExecutionProgress(c,t,people);
  }
  async ingestChannelRelationship(threadId:string,conversationId:string,routeId:string,raw:unknown){
   const observation=agentChannelRelationshipSchema.parse(raw);uuid.parse(routeId);
@@ -34,13 +35,8 @@ export class AgentInvitationStore extends AgentChannelStore{
   });
  }
  protected override async nativeChannelDecisionContext(c:PoolClient,t:AgentThread,row:Record<string,unknown>){
-  const base=await super.nativeChannelDecisionContext(c,t,row);if(!Array.isArray(base.channels))return base;
-  const installed=(await c.query("SELECT to_regclass('public.agent_linkedin_relationships') IS NOT NULL AS installed")).rows[0]?.installed===true;if(!installed)return base;
-  const observations=(await c.query('SELECT * FROM agent_linkedin_relationships WHERE conversation_id=$1 AND thread_id=$2',[row.id,t.id])).rows;
-  const channels=[];for(const route of base.channels){const saved=observations.find(r=>r.route_id===route.id),allowedActions=[];
-   for(const action of ['initial','reply','follow_up',...(route.channel==='linkedin'?['invitation']:[])])if((await c.query('SELECT public.agent_channel_proposal_permitted($1::uuid,$2) AS allowed',[route.id,action])).rows[0]?.allowed===true)allowedActions.push(action);
-   channels.push({...route,readiness:allowedActions.length?'ready':'waiting',allowedActions,...(saved?{relationship:{status:saved.status,canMessage:saved.can_message,observedAt:new Date(saved.observed_at).toISOString()}}:{})});
-  }return {...base,channels};
+  const base=await super.nativeChannelDecisionContext(c,t,row);
+  return projectAgentInvitationDecisionContext(c,t,row,base);
  }
  override async proposeNativeMessage(threadId:string,key:string,raw:unknown,authority?:AgentExecutionFence,options?:{forceHumanReview?:boolean}){
   const invite=raw!==null&&typeof raw==='object'&&(raw as {draft?:{kind?:unknown}}).draft?.kind==='invitation_linkedin';
