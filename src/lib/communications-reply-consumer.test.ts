@@ -207,23 +207,29 @@ describe('Acquire reply consumer SQL protocol, scripted driver only', () => {
         expect(f.release).toHaveBeenCalledOnce();
     });
     it('discards an expired in-flight COMMIT without competing rollback or later success', async () => {
+        vi.useFakeTimers({toFake:['setTimeout','clearTimeout','performance']});
         const f = fixture();
-        let unblock!: () => void;
+        let unblock!: () => void, entered!: () => void;
+        const atCommit = new Promise<void>(resolve => { entered = resolve; });
         const stalled = new Promise<void>(resolve => { unblock = resolve; }), query = f.client.query.bind(f.client);
         f.client.query = async <Row>(sql: string, values?: unknown[]) => {
             const result = await query<Row>(sql, values);
-            if (sql === 'COMMIT')
+            if (sql === 'COMMIT') {
+                entered();
                 await stalled;
+            }
             return result;
         };
         const settled = createCommunicationReplyConsumer({ ...f.options, transactionTimeoutMs: 10 }).apply(f.input).then(() => 'completed', () => 'unavailable');
         try {
+            await atCommit;
+            await vi.advanceTimersByTimeAsync(11);
             expect(await settled).toBe('unavailable');
             expect(f.calls.some(c => c.sql === 'ROLLBACK')).toBe(false);
         }
         finally {
             unblock();
-            await new Promise(resolve => setTimeout(resolve, 0));
+            try { await vi.runAllTimersAsync(); } finally { vi.useRealTimers(); }
         }
         expect(f.calls.some(c => c.sql === 'COMMIT')).toBe(true);
         expect(f.release).toHaveBeenCalledOnce();
