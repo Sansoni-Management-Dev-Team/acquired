@@ -1,6 +1,10 @@
 # Hosted demo database review
 
-All artifacts here are **proposals, unapplied on every database**. Creating a new rehearsal database, loading its schema, or applying either application migration requires the user's specific approval. Do not use the isolated-agent migration runner against production.
+**Execution status, 22 October:** the user specifically approved exact `001-v3` (SHA-256 `f3fd9ee8d7b47c5ffcb771f176ddb80fc018bf31de204b1bb8dfe4968b3fa81c`) and unchanged `002` (SHA-256 `4d60a4e2f78accc73f2e4bb5f4fb0db00a8b8f86898b27db6f9e4c112fc37763`) for the identified rehearsal and conditional production target. Both committed in rehearsal, passed actual catalog and restricted-role/registration transactions, then committed on production system identifier `7678071634733212629` through its verified-TLS session pooler. Read-only production catalog/permissions/function-body checks passed. A valid consistent backup and exact approval/application receipts are retained in the ignored release packet. Neither artifact may be repeated: both ledger markers now exist.
+
+Original `001`/`001-v2` remain immutable review history, never installation candidates. Historical proposal wording below records the preparation process; it does not supersede the execution status above. No registered run or outreach was created by these migrations. Hosted activation remains blocked by the simulator's current account capability declarations. PR17 merged as `447e0b90b03d727262e9cd7f4fd08342d33d8763`; production deployment39692316499 succeeded. Both actual app and communications containers are healthy on that merged revision; database and public callback checks passed.
+
+Every future migration still requires specific user approval. Do not use the isolated-agent migration runner against production.
 
 The production app was inspected inside its actual healthy container at source `a62ea79`. Its verified-TLS PostgreSQL17 database is Supabase `njasjqpztiteionfxxul`, database `postgres`, owner `postgres`, system identifier `7678071634733212629`. It has no native agent tables or agent roles. The configured hosted actor is a current organization owner; the organization has 76 mandates, 3,564 companies and 2,997 contacts. These are read-only observations, not exported person profiles.
 

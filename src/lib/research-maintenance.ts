@@ -81,13 +81,19 @@ export async function recoverMandateResearch(org:string,id:string,now=Date.now()
  * Bounded database-derived scopes only; existing workflow IDs, claims and leases
  * arbitrate overlapping passes. Native actions keep their own authority/receipts.
  */
-export async function maintainScheduledResearch(now=Date.now()){
-  if(!researchEnabled())return 0;
+let scheduledResearchPass:Promise<number>|undefined;
+export function maintainScheduledResearch(now=Date.now()):Promise<number>{
+  if(!researchEnabled())return Promise.resolve(0);
+  // This deployment has one persistent app process. A late cron request shares
+  // the existing pass instead of starting another global scan beside it.
+  return scheduledResearchPass??=runScheduledResearch(now).finally(()=>{scheduledResearchPass=undefined;});
+}
+async function runScheduledResearch(now:number){
   const deadline=performance.now()+10000;
   await recoverCompanyBackground(deadline);
   if(performance.now()>=deadline)return 0;
   const [{requireDb},{researchJobs,firmableSyncRuns,mandateTargets},{sql}]=await Promise.all([import('@/db/client'),import('@/db/schema'),import('drizzle-orm')]);
-  const result=await requireDb().execute(sql`
+  const database=requireDb(),query=sql`
     WITH pending_scopes AS (
     SELECT organization_id, mandate_id, MIN(due_at) AS due_at
     FROM (
@@ -120,7 +126,23 @@ export async function maintainScheduledResearch(now=Date.now()){
     -- Advance the first scope every existing one-minute worker pass, even when
     -- an unavailable old scope consumed the whole preceding pass. No synthetic
     -- progress timestamp or process-local cursor is needed across cold starts.
-    ORDER BY (position - (${Math.floor(now/60000)}::bigint % total) + total) % total LIMIT 50`);
+    ORDER BY (position - (${Math.floor(now/60000)}::bigint % total) + total) % total LIMIT 50`;
+  let result:unknown;
+  try{
+    // The loop deadline cannot interrupt a database read. PostgreSQL enforces
+    // the same remaining budget while the original selection runs unchanged.
+    // Other configured drivers retain their existing execution contract.
+    result=process.env.DATABASE_DRIVER==='postgres'
+      ?await database.transaction(async tx=>{
+        const remaining=Math.max(1,Math.floor(deadline-performance.now()));
+        await tx.execute(sql`SELECT set_config('statement_timeout',${String(remaining)},true),set_config('lock_timeout','1000ms',true)`);
+        return tx.execute(query);
+      },{accessMode:'read only'})
+      :await database.execute(query);
+  }catch{
+    console.info('research-maintenance',JSON.stringify({event:'scope_scan_deferred',module:'research.maintenance',timestamp:new Date().toISOString()}));
+    return 0;
+  }
   const scopes=(result as unknown as {rows:{organizationId:string;mandateId:string}[]}).rows;
   let completed=0;
   for(const scope of scopes){

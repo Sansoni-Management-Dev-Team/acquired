@@ -1,4 +1,4 @@
-import {beforeEach,expect,it,vi} from 'vitest';
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {getTableName} from 'drizzle-orm';
 import {PgDialect} from 'drizzle-orm/pg-core';
 const m=vi.hoisted(()=>({enabled:true,background:vi.fn(),recoverBackground:vi.fn(),people:vi.fn(),schedule:vi.fn(),worker:vi.fn(),recover:vi.fn(),list:vi.fn(),latest:vi.fn(),firmable:vi.fn(),execute:vi.fn(),scopeRows:[]as {organizationId:string;mandateId:string}[],members:[]as {id:string}[],tables:[]as string[],db:null as unknown}));
@@ -12,12 +12,13 @@ vi.mock('@/db/firmable-history-repository',()=>({FirmableHistoryRepository:class
 vi.mock('./firmable-run-recovery',()=>({recoverFirmableRefreshes:m.firmable}));
 import {maintainScheduledResearch,recoverMandateResearch} from './research-maintenance';
 beforeEach(()=>{
- vi.resetAllMocks();m.enabled=true;m.scopeRows=[];m.members=[];m.tables=[];
+ vi.resetAllMocks();vi.stubEnv('DATABASE_DRIVER','neon');m.enabled=true;m.scopeRows=[];m.members=[];m.tables=[];
  m.list.mockResolvedValue([]);m.latest.mockResolvedValue([]);m.schedule.mockResolvedValue(false);
  m.execute.mockImplementation(async()=>({rows:m.scopeRows}));
  m.db={execute:m.execute,select:()=>({from:(table:Parameters<typeof getTableName>[0])=>{m.tables.push(getTableName(table));return{where:async()=>m.members};}})};
  vi.spyOn(console,'info').mockImplementation(()=>{});
 });
+afterEach(()=>vi.unstubAllEnvs());
 it('performs no database/provider work when research is disabled',async()=>{
  m.enabled=false;expect(await maintainScheduledResearch()).toBe(0);expect(await recoverMandateResearch('org','mandate')).toBe(false);
  expect(m.execute).not.toHaveBeenCalled();expect(m.background).not.toHaveBeenCalled();expect(m.recoverBackground).not.toHaveBeenCalled();expect(m.list).not.toHaveBeenCalled();
@@ -91,4 +92,13 @@ it.runIf(process.env.RUN_AGENT_EXECUTION_LOCAL_INTEGRATION==='true')('rotates re
   expect(m.list.mock.calls.map(call=>call[0])).toEqual(['mandate-a','mandate-b']);
   expect(m.worker).not.toHaveBeenCalled();expect(m.recover).not.toHaveBeenCalled();expect(m.firmable).not.toHaveBeenCalled();
  }finally{await client.query('ROLLBACK').catch(()=>{});await client.end();vi.mocked(performance.now).mockRestore();}
+});
+
+it('does not overlap the global scan when another scheduled pass is still reading',async()=>{
+ let finish!:()=>void;m.recoverBackground.mockImplementationOnce(()=>new Promise<void>(resolve=>{finish=resolve;}));
+ const first=maintainScheduledResearch(1000),second=maintainScheduledResearch(1000);await Promise.resolve();expect(m.recoverBackground).toHaveBeenCalledTimes(1);finish();await Promise.all([first,second]);expect(m.execute).toHaveBeenCalledTimes(1);
+});
+it('bounds the PostgreSQL scope scan in a read-only transaction and defers a cancelled read without changing any job',async()=>{
+ vi.stubEnv('DATABASE_DRIVER','postgres');const execute=vi.fn().mockResolvedValueOnce({rows:[]}).mockRejectedValueOnce(Object.assign(Error('PRIVATE query'),{code:'57014'}));const transaction=vi.fn(async(work:(tx:{execute:typeof execute})=>Promise<unknown>)=>work({execute}));Object.assign(m.db!,{transaction});
+ expect(await maintainScheduledResearch(1000)).toBe(0);expect(transaction).toHaveBeenCalledWith(expect.any(Function),{accessMode:'read only'});const budget=new PgDialect().sqlToQuery(execute.mock.calls[0][0]);expect(budget.sql).toContain("set_config('statement_timeout'");expect(Number(budget.params[0])).toBeGreaterThan(0);expect(Number(budget.params[0])).toBeLessThanOrEqual(10000);expect(budget.sql).toContain("set_config('lock_timeout'");expect(execute).toHaveBeenCalledTimes(2);expect(m.list).not.toHaveBeenCalled();expect(m.recover).not.toHaveBeenCalled();expect(m.worker).not.toHaveBeenCalled();expect(JSON.stringify(vi.mocked(console.info).mock.calls)).not.toContain('PRIVATE');
 });

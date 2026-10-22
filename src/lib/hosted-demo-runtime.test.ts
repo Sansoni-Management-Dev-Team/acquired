@@ -27,3 +27,11 @@ it('rejects oversized, invalid and unavailable service responses without exposin
   const fetcher=vi.fn(async()=>response);await expect(createHostedDemoServiceRequest(descriptor,key,fetcher)('/v1/hosted-demo/admissions/verify',{},new AbortController().signal)).rejects.toThrow('Hosted demo runtime unavailable');expect(fetcher).toHaveBeenCalledOnce();
  }
 });
+
+it('allows a complete six-second hosted history or coverage round trip, while retaining bounded cancellation',async()=>{
+ vi.useFakeTimers();for(const path of ['/v1/hosted-demo/history/read','/v1/hosted-demo/coverage/project']){
+  const fetcher=vi.fn(async()=>{await new Promise(resolve=>setTimeout(resolve,6000));return Response.json({complete:true});}),call=createHostedDemoServiceRequest(descriptor,key,fetcher);const result=call(path,{},new AbortController().signal).then(()=>true,()=>false);await vi.advanceTimersByTimeAsync(6000);expect(await result).toBe(true);expect(fetcher).toHaveBeenCalledOnce();
+  const never=createHostedDemoServiceRequest(descriptor,key,vi.fn(()=>new Promise<Response>(()=>{})));let stopped=false;void never(path,{},new AbortController().signal).catch(()=>{stopped=true;});await vi.advanceTimersByTimeAsync(24001);expect(stopped).toBe(true);
+  const parent=new AbortController();let aborted=false;void never(path,{},parent.signal).catch(()=>{aborted=true;});parent.abort();await vi.advanceTimersByTimeAsync(0);expect(aborted).toBe(true);
+ }
+});
