@@ -3,12 +3,12 @@ import type{SqlPool}from'../../communications/packages/storage-postgres/src/webh
 /** Authentication renewals must not acquire the organization writer gate:
  * this read is called while an original admission transaction may hold it. */
 export function createHostedDemoAccessProbe(input:HostedDemoCommunicationsDescriptor,pool:SqlPool){
- const descriptor=structuredClone(input);
- return async()=>{
+ const descriptor=structuredClone(input);let inFlight:Promise<boolean>|undefined;
+ const check=async()=>{
   let physical:Awaited<ReturnType<SqlPool['connect']>>|undefined,closed=false;const deadline=performance.now()+5000;
   const dispose=(error?:Error)=>{if(closed)return;closed=true;physical?.release(error);};
   const live=()=>{if(closed||performance.now()>=deadline)throw Error('Hosted access unavailable');};
-  let timer:ReturnType<typeof setTimeout>;const stopped=new Promise<boolean>(resolve=>{timer=setTimeout(()=>{dispose(Error('Hosted access retired'));resolve(false);},5000);});
+  let timer:ReturnType<typeof setTimeout>;const stopped=new Promise<boolean>((_,reject)=>{timer=setTimeout(()=>{dispose(Error('Hosted access retired'));reject(Error('Hosted access unavailable'));},5000);});
   const run=(async()=>{try{
    const acquired=await pool.connect();if(closed){acquired.release(Error('Hosted access retired'));return false;}physical=acquired;
    const query=async(sql:string,values?:unknown[])=>{live();const result=await acquired.query(sql,values);live();return result;};
@@ -24,7 +24,10 @@ export function createHostedDemoAccessProbe(input:HostedDemoCommunicationsDescri
     if(allowed){const registration=(await query('SELECT public.agent_hosted_demo_access_ready($1,$2,$3) AS allowed',[descriptor.runId,descriptor.integrationId,descriptor.configurationReference])).rows;allowed=registration.length===1&&registration[0].allowed===true;}
    }
    await query('COMMIT');dispose();return allowed;
-  }catch{dispose(Error('Hosted access retired'));return false;}})();
+  }catch{dispose(Error('Hosted access retired'));throw Error('Hosted access unavailable');}})();
   try{return await Promise.race([run,stopped]);}finally{clearTimeout(timer!);}
  };
+ // Concurrent callbacks share this pending read only. Never cache an allowed
+ // result: the next callback after settlement rechecks membership/registration.
+ return()=>{if(inFlight)return inFlight;const work=check();inFlight=work;const clear=()=>{if(inFlight===work)inFlight=undefined;};void work.then(clear,clear);return work;};
 }
