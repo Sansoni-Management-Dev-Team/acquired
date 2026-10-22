@@ -8,6 +8,7 @@ import {createSequenceApprovedHandler} from './agent-sequence-supervisor';
 import {createNativeChatProposalHandler} from './agent-chat-supervisor';
 import {createResearchCompletedSupervisor,reuseCachedMandateTargets} from './agent-people-supervisor';
 import {randomUUID} from 'node:crypto';
+import type {PoolClient} from 'pg';
 import {z} from 'zod';
 import type {AgentActor} from '@/db/agent-store';
 import {agentActorSchema} from '@/db/agent-store';
@@ -48,34 +49,54 @@ export async function runNativeTickWithPorts(options:{businessTime?:AgentBusines
  }
  return {enabled:true,processed:0,outcome:'idle'} as const;
 }
-export async function listDueNativeAgentScopes(maximum:number,mandateId?:string){
- z.number().int().min(1).max(10).parse(maximum);if(mandateId!==undefined)z.string().uuid().parse(mandateId);const client=await agentPool().connect();
+/** A cancelled HTTP caller cannot cancel PostgreSQL work by itself. Bound
+ * discovery on the server and discard any session whose rollback is uncertain. */
+async function nativeDiscovery<T>(work:(client:PoolClient)=>Promise<T>):Promise<T>{
+ const raw=await agentPool().connect();let discarded=false;
+ const client=new Proxy(raw,{get(target,key){
+  if(key==='query')return(text:string,values?:unknown[])=>{const config={text,values,query_timeout:6500};return target.query(config);};
+  const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;
+ }});
  try{
-  await client.query('BEGIN');await client.query('SET LOCAL ROLE acquire_agent_worker');
+  await client.query('BEGIN');
+  await client.query("SELECT set_config('statement_timeout',$1,true),set_config('lock_timeout',$2,true)",['5000ms','1000ms']);
+  await client.query('SET LOCAL ROLE acquire_agent_worker');
   const role=(await client.query('SELECT current_user AS name,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user')).rows[0];
-  if(role?.name!=='acquire_agent_worker'||role.rolsuper||role.rolbypassrls)throw new Error('Native worker role must enforce row scope');
+  if(role?.name!=='acquire_agent_worker'||role.rolsuper||role.rolbypassrls)throw Error('Native worker role must enforce row scope');
+  const result=await work(client);await client.query('COMMIT');return result;
+ }catch(error){
+  try{await client.query('ROLLBACK');}catch{
+   raw.release(error instanceof Error?error:Error('Native discovery transaction unavailable'));discarded=true;
+  }
+  throw error;
+ }finally{if(!discarded)raw.release();}
+}
+export async function listDueNativeAgentScopes(maximum:number,mandateId?:string){
+ z.number().int().min(1).max(10).parse(maximum);if(mandateId!==undefined)z.string().uuid().parse(mandateId);
+ return nativeDiscovery(async client=>{
   const rows=(await (mandateId?client.query('SELECT * FROM agent_worker_scopes_for_mandate($1::integer,$2::uuid)',[maximum,mandateId]):client.query('SELECT * FROM agent_worker_scopes($1::integer)',[maximum]))).rows;
-  await client.query('COMMIT');return rows.map(row=>({organizationId:row.organization_id,userId:row.owner_user_id}));
- }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+  return rows.map(row=>({organizationId:row.organization_id,userId:row.owner_user_id}));
+ });
 }
 export async function listRegisteredNativeAgentScopes(maximum:number,runtimeId:string,businessTime?:AgentBusinessTimeSelection){
- z.number().int().min(1).max(10).parse(maximum);nativeRegisteredRuntime({scopeMode:'registered',runtimeId,required:true});if(businessTime)assertAgentBusinessTimeScope(businessTime.context,businessTime.scope);const client=await agentPool().connect();
- try{await client.query('BEGIN');await client.query('SET LOCAL ROLE acquire_agent_worker');
-  const role=(await client.query('SELECT current_user AS name,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user')).rows[0];if(role?.name!=='acquire_agent_worker'||role.rolsuper||role.rolbypassrls)throw Error('Native worker role must enforce row scope');
+ z.number().int().min(1).max(10).parse(maximum);nativeRegisteredRuntime({scopeMode:'registered',runtimeId,required:true});if(businessTime)assertAgentBusinessTimeScope(businessTime.context,businessTime.scope);
+ return nativeDiscovery(async client=>{
   await client.query("SELECT set_config('app.acquire_runtime_id',$1,true)",[runtimeId]);
   if(businessTime){await client.query("SELECT set_config('app.acquire_org',$1,true),set_config('app.acquire_user',$2,true)",[businessTime.context.scope.organizationId,businessTime.context.scope.userId]);await installAgentBusinessTimeSql(client,businessTime,businessTime.context.scope);}
   const rows=(await client.query('SELECT * FROM agent_registered_worker_scopes($1::integer,$2::text)',[maximum,runtimeId])).rows;
-  await client.query('COMMIT');return rows.map(row=>({organizationId:row.organization_id,userId:row.owner_user_id,mandateId:row.mandate_id}));
- }catch(cause){await client.query('ROLLBACK');throw cause;}finally{client.release();}
+  return rows.map(row=>({organizationId:row.organization_id,userId:row.owner_user_id,mandateId:row.mandate_id}));
+ });
 }
 export async function listRegisteredReviewRecoveryScopes(maximum:number,runtimeId:string,businessTime?:AgentBusinessTimeSelection){
- z.number().int().min(1).max(10).parse(maximum);nativeRegisteredRuntime({scopeMode:'registered',runtimeId,required:true});if(businessTime)assertAgentBusinessTimeScope(businessTime.context,businessTime.scope);const c=await agentPool().connect();
- try{await c.query('BEGIN');await c.query('SET LOCAL ROLE acquire_agent_worker');const role=(await c.query('SELECT current_user AS name,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user')).rows[0];if(role?.name!=='acquire_agent_worker'||role.rolsuper||role.rolbypassrls)throw Error('Native worker role must enforce row scope');await c.query("SELECT set_config('app.acquire_runtime_id',$1,true)",[runtimeId]);
+ z.number().int().min(1).max(10).parse(maximum);nativeRegisteredRuntime({scopeMode:'registered',runtimeId,required:true});if(businessTime)assertAgentBusinessTimeScope(businessTime.context,businessTime.scope);
+ return nativeDiscovery(async c=>{
+  await c.query("SELECT set_config('app.acquire_runtime_id',$1,true)",[runtimeId]);
   if(businessTime){await c.query("SELECT set_config('app.acquire_org',$1,true),set_config('app.acquire_user',$2,true)",[businessTime.context.scope.organizationId,businessTime.context.scope.userId]);await installAgentBusinessTimeSql(c,businessTime,businessTime.context.scope);}
   // Until the exact forward migration is approved, the normal API hook remains available.
   const installed=(await c.query("SELECT to_regprocedure('public.agent_registered_review_recovery_scopes(integer,text)') IS NOT NULL AS installed")).rows[0]?.installed;if(typeof installed!=='boolean')throw Error('Review recovery capability unknown');
-  const rows=installed?(await (businessTime?c.query('SELECT * FROM public.agent_registered_review_recovery_scopes($1,$2) WHERE organization_id=$3 AND owner_user_id=$4',[maximum,runtimeId,businessTime.context.scope.organizationId,businessTime.context.scope.userId]):c.query('SELECT * FROM public.agent_registered_review_recovery_scopes($1,$2)',[maximum,runtimeId]))).rows:[];await c.query('COMMIT');return rows.map(r=>({organizationId:r.organization_id,userId:r.owner_user_id,requestKey:r.review_request_key}));
- }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
+  const rows=installed?(await (businessTime?c.query('SELECT * FROM public.agent_registered_review_recovery_scopes($1,$2) WHERE organization_id=$3 AND owner_user_id=$4',[maximum,runtimeId,businessTime.context.scope.organizationId,businessTime.context.scope.userId]):c.query('SELECT * FROM public.agent_registered_review_recovery_scopes($1,$2)',[maximum,runtimeId]))).rows:[];
+  return rows.map(r=>({organizationId:r.organization_id,userId:r.owner_user_id,requestKey:r.review_request_key}));
+ });
 }
 export async function runNativeAgentTick(options:{businessTime?:AgentBusinessTimeSelection;communications?:ConfiguredAgentCommunicationsPorts}={}){
  if(options.communications?.businessTime&&options.communications.businessTime.context!==options.businessTime?.context)throw Error('Agent business time scope unavailable');
