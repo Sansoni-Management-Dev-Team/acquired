@@ -17,6 +17,8 @@ export default defineConfig({
       // These use node:test and are run by test:node after Vitest.
       "scripts/app-deploy-host.test.mjs",
       "scripts/app-public-smoke.test.mjs",
+      "scripts/aws-uat-release.test.mjs",
+      "scripts/aws-uat-start.test.mjs",
       "scripts/communications-standalone-lifecycle-runner.test.mjs",
       "scripts/communications-deploy-host.test.mjs",
       "scripts/communications-deploy-schema-preflight.test.mjs",
