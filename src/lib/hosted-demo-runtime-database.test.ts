@@ -1,8 +1,10 @@
 import{afterEach,expect,it,vi}from'vitest';
+import type{HostedRecipientDb}from'./hosted-demo-recipient-store';
 
-const ports=vi.hoisted(()=>({writerConnect:vi.fn(()=>new Promise<never>(()=>{})),readConnect:vi.fn(),config:[]as Record<string,unknown>[]}));
+const ports=vi.hoisted(()=>({writerConnect:vi.fn(()=>new Promise<never>(()=>{})),readConnect:vi.fn(),config:[]as Record<string,unknown>[],recipientDb:undefined as HostedRecipientDb|undefined}));
 vi.mock('server-only',()=>({}));
-vi.mock('@/db/campaign-client',()=>({campaignSqlPool:()=>({connect:ports.writerConnect}),withCampaignDb:vi.fn()}));
+vi.mock('@/db/campaign-client',()=>({campaignSqlPool:()=>({connect:ports.writerConnect}),withCampaignDb:vi.fn(async()=>{throw Error('Outer admission owns the organization writer gate');})}));
+vi.mock('./hosted-demo-recipient-store',()=>({createHostedDemoRecipientResolver:(_descriptor:unknown,db:HostedRecipientDb)=>{ports.recipientDb=db;return vi.fn();}}));
 vi.mock('./communications-configuration',()=>({readAcquireCommunicationsKeys:()=>({})}));
 vi.mock('@vercel/functions',()=>({attachDatabasePool:vi.fn()}));
 vi.mock('pg',()=>({Pool:class{constructor(config:Record<string,unknown>){ports.config.push(config);}connect=ports.readConnect;}}));
@@ -27,4 +29,6 @@ it('authorizes a live callback while every campaign writer connection is retaine
  expect(ports.writerConnect).not.toHaveBeenCalled();expect(ports.readConnect).toHaveBeenCalledTimes(2);
  expect(statements.join('\n')).not.toMatch(/communications_lock_send_gate|FOR UPDATE/);
  await expect(runtime.localBinding({...binding,ownerId:'foreign'}as never)).rejects.toThrow('Hosted demo runtime unavailable');expect(ports.readConnect).toHaveBeenCalledTimes(2);
+ expect(await ports.recipientDb!(async client=>{await client.query('SELECT fixture FOR SHARE');return'current recipient';})).toBe('current recipient');
+ expect(ports.writerConnect).not.toHaveBeenCalled();expect(statements).toContain('BEGIN');expect(statements.join('\n')).not.toMatch(/communications_lock_send_gate|FOR UPDATE/);
 });

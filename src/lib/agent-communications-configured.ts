@@ -83,12 +83,17 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
   const configured=options.host||hosted?undefined:await configuredAcquireCommunicationsForBinding(actor,original.binding),host:AgentCommunicationsHost=options.host??(hosted?createHostedDemoNativeFacade(hosted):configured!.host),admission=await observed('ports.admission',()=>host.admission(original.binding),{bindingId:original.bindingId,channel:original.binding.channel,configurationId:hosted?.descriptor.configurationReference??configured?.options?.providerConfigurationReference});
   return {...original,client,host,delivery:createAgentCommunicationsDelivery({businessClock:time?.context,binding:original.binding,admission,client,async recordSubmitted(operationId,outcome){const receipt=outcome.receipt;const source={bindingId:original.bindingId,binding:original.binding,sourceKind:'agent' as const,sourceId:operationId},expected={effect:'message'in receipt?'message' as const:'invitation' as const,providerReference:'message'in receipt?receipt.message.id:receipt.operation.id,submittedAt:receipt.submittedAt!};if(time)await captureOriginalSubmission(actor,source,expected,{pool:applicationSqlPool!,codec:options.applicationCodec!,admission,client,businessClock:time.context});else if(hosted)await captureOriginalSubmission(actor,source,expected,{pool:hosted.applicationPool,codec:hosted.applicationCodec,admission,client});else await captureOriginalSubmission(actor,source,expected);}})};
  }
- async function refresh(threadId:string,conversationId:string){
+ type PreparedRoutePorts={route:RecordedRoute;ports:Awaited<ReturnType<typeof ports>>};
+ const sameRoute=(a:RecordedRoute,b:RecordedRoute)=>a.id===b.id&&a.conversationId===b.conversationId&&a.channel===b.channel&&a.bindingId===b.bindingId&&a.bindingDigest===b.bindingDigest&&a.recipient.kind===b.recipient.kind&&a.recipient.value===b.recipient.value;
+ // Reuse only the original ports constructed by this dispatch, after reading
+ // the current route list again. History, coverage and final SQL admission are
+ // still fresh; no metadata or authority survives into another dispatch call.
+ async function refresh(threadId:string,conversationId:string,prepared?:PreparedRoutePorts){
   const routes=store.channelRoutes?await store.channelRoutes(threadId,conversationId):[];
   if(routes.length){
    if(!store.ingestChannelHistory||routes.length>3||new Set(routes.map(r=>r.channel)).size!==routes.length||new Set(routes.map(r=>r.bindingId)).size!==routes.length)throw Error('Recorded person channel routes need review');
    const selected:Array<{route:RecordedRoute}&Awaited<ReturnType<typeof ports>>>=[];
-   for(const route of routes)selected.push({route,...await observed('refresh.ports',()=>ports(threadId,conversationId,route))});
+   for(const route of routes)selected.push({route,...await observed('refresh.ports',()=>prepared&&sameRoute(prepared.route,route)?Promise.resolve(prepared.ports):ports(threadId,conversationId,route))});
    // Register every explicitly reviewed identity before any account scan can
    // consume a reply. No model input or provider display name supplies a peer.
    for(const {row,route}of selected)await observed('refresh.save_identity',()=>registerNativeReplyIdentity(actor,{threadId,conversationId,routeId:route.id,bindingId:route.bindingId,identity:{contactId:row.contact_id,email:row.recipient_email??null,channel:route.channel,identity:route.recipient.value,sourceIdentity:route.recipient.value,since:new Date('1970-01-01T00:00:00.000Z'),authority:'service'}},dbOptions));
@@ -126,10 +131,10 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
   return record?.route??undefined;
  }
  return {refresh:(threadId:string,conversationId:string)=>withDispatchObservation({threadId,conversationId},()=>refresh(threadId,conversationId)),async recover(threadId:string,conversationId:string,operationId:string){return withDispatchObservation({threadId,conversationId,operationId},async()=>{const route=await operationRoute(threadId,conversationId,operationId),recovered=await (await ports(threadId,conversationId,route)).delivery.recover(operationId);if(recovered.found&&'noSubmission'in recovered)await (dbOptions?settleAgentNoSubmission(actor,operationId,recovered.noSubmission,dbOptions):settleAgentNoSubmission(actor,operationId,recovered.noSubmission));return recovered;});},async dispatch(threadId:string,conversationId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number}){return withDispatchObservation({threadId,conversationId,operationId},async()=>{
-  const route=await operationRoute(threadId,conversationId,operationId),preparedPorts=await observed('dispatch.ports',()=>ports(threadId,conversationId,route)),recovered=await observed('dispatch.recover',()=>preparedPorts.delivery.recover(operationId));
+  const route=await operationRoute(threadId,conversationId,operationId),capturedRoute=route?structuredClone(route):undefined,preparedPorts=await observed('dispatch.ports',()=>ports(threadId,conversationId,route)),recovered=await observed('dispatch.recover',()=>preparedPorts.delivery.recover(operationId));
   if(recovered.found){if('noSubmission'in recovered){await (dbOptions?settleAgentNoSubmission(actor,operationId,recovered.noSubmission,dbOptions):settleAgentNoSubmission(actor,operationId,recovered.noSubmission));return {status:'unknown' as const};}return recovered.outcome;}
   let coverageScopes:Array<{bindingId:string;scopeDigest:string}>;
-  try{coverageScopes=await refresh(threadId,conversationId);}catch(error){
+  try{coverageScopes=await refresh(threadId,conversationId,capturedRoute?{route:capturedRoute,ports:preparedPorts}:undefined);}catch(error){
    let preBegin=false;try{preBegin=await store.preBeginHistoryRetryProof?.(threadId,operationId,conversationId)===true;}catch{/* Missing current proof cannot authorize a retry. */}
    if(preBegin)throw new AgentPreBeginHistoryError(threadId,conversationId,operationId,error);
    throw error;
