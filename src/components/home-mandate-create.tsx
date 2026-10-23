@@ -15,6 +15,7 @@ import {briefSchema} from "@/domain/acquisition";
 import { useRouter } from "next/navigation";
 import { AgentModeToggle, AgentPlanReview } from "./agent-mode";
 import { DetailTooltip } from "./detail-tooltip";
+import {cachedDemoRequestTimeoutMs,saveCachedDemoRequest} from '@/lib/cached-demo-request';
 
 const cachedDemoSchema=z.object({sourceMandateId:z.string().uuid(),brief:briefSchema,companies:z.number().int().nonnegative(),people:z.number().int().nonnegative()});
 
@@ -53,7 +54,7 @@ export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true,
       if(mode==='demo'||demoSource.current){
         if(!demoSource.current){
           setProgress('Loading saved company and people data…');
-          const response=await fetch('/api/mandates/demo-data',{cache:'no-store',signal:AbortSignal.timeout(15000)}),value=await response.json();
+          const response=await fetch('/api/mandates/demo-data',{cache:'no-store',signal:AbortSignal.timeout(cachedDemoRequestTimeoutMs)}),value=await response.json();
           if(!response.ok)throw Error(typeof value.error==='string'?value.error:'No saved demo data is available.');
           const parsed=cachedDemoSchema.safeParse(value);if(!parsed.success)throw Error('The saved demo dataset could not be verified.');demoSource.current=parsed.data;
         }
@@ -62,9 +63,7 @@ export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true,
           setProgress('Preparing your saved demo workspace…');
           if(native){nativeCreateRequest.current??=JSON.stringify({requestId:randomUuid(),brief:source.brief,executionMode:'demo',demoSourceMandateId:source.sourceMandateId});setNativeCreateAttempted(true);}
           else demoCreateRequest.current??=JSON.stringify({requestId:randomUuid(),sourceMandateId:source.sourceMandateId});
-          const response=await fetch(native?'/api/mandates/agent':'/api/mandates/demo-data',{method:'POST',headers:{'Content-Type':'application/json'},body:native?nativeCreateRequest.current!:demoCreateRequest.current!,signal:AbortSignal.timeout(15000)}),value=await response.json() as {id?:string;revision?:string;error?:string};
-          if(!response.ok||!value.id)throw Error(value.error||'Could not confirm the saved demo. Retry this exact request.');
-          if(native&&(!value.revision||!/^\d{1,30}$/.test(value.revision)))throw Error('Could not confirm the saved mandate revision. Retry this exact request.');
+          const value=await saveCachedDemoRequest({native,body:native?nativeCreateRequest.current!:demoCreateRequest.current!,sourceMandateId:source.sourceMandateId,onReconcile:()=>setProgress('Checking your saved demo workspace…')});
           id=value.id;setCreatedId(id);useMandateCache.getState().upsert({id,brief:source.brief,createdAt:new Date().toISOString()});
         }
         router.push(agentMode?`/mandates/${id}/agent`:`/mandates/${id}?tab=targets`);setBusy(false);setProgress('');return;
