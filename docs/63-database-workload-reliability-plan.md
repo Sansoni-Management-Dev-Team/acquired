@@ -1,6 +1,6 @@
 # Database workload reliability implementation plan
 
-Date: 2026-10-23. Status: implementation started. DBR-2A whole-pass guard and phase timing are locally verified; background SQL/lifecycle budgets and admission/cooldown are also locally verified; first code-only safeguards released at 1af21a8; browser contention follow-up is under production verification.
+Date: 2026-10-24. Status: reliability safeguards are deployed directly to DigitalOcean through abd7574. Pool reservation, bounded background work, durable continuations and read-only snapshots have local and production evidence. DBR-5/6 remain in progress: history callback serialization starvation has a tested and deployed fix; complete simulated outbound/reply and final-image soak acceptance are still pending. DBR-4 schema changes remain unapplied and require specific approval if justified by measurements.
 Incident evidence and operational history: [communications progress](communications/progress.md), P7.3/P7.4.
 Related work: [research performance ledger](36-research-performance-completion-plan.md) and [communications execution plan](39-communications-service-execution-plan.md).
 

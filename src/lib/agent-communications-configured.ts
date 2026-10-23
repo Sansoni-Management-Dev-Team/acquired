@@ -31,7 +31,7 @@ import {configuredAcquireCommunicationsForBinding} from './communications-config
 import {actorCommunicationsClient} from './communications-client';
 import{captureOriginalSubmission}from'./communications-submission-projection';
 import {createAgentCommunicationsDelivery} from './agent-communications-delivery';
-type RecordedRoute={id:string;conversationId:string;channel:'email'|'whatsapp'|'linkedin';bindingId:string;bindingDigest:string;recipient:CanonicalIdentity;historyComplete?:boolean;historyObservedAt?:string|null};
+type RecordedRoute={id:string;conversationId:string;channel:'email'|'whatsapp'|'linkedin';bindingId:string;bindingDigest:string;recipient:CanonicalIdentity;historyComplete?:boolean;historyObservedAt?:string|null;relationshipObservedAt?:string|null};
 type ChannelDispatchRecord={conversation:Awaited<ReturnType<AgentOutreachStore['conversation']>>;operation:{input?:Record<string,unknown>};route:RecordedRoute|null;submitted:boolean;notSubmitted:boolean;originalAccount?:Record<string,unknown>};
 type ConfiguredAgentStore=Pick<AgentOutreachStore,'conversation'|'ingestHistory'|'beginNativeCommunicationsEmail'> & {
  channelPolicy?:(threadId:string)=>Promise<{policy:null|{acceleratedSimulation:boolean}}> ;
@@ -99,7 +99,9 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
    if(!store.ingestChannelHistory||routes.length>3||new Set(routes.map(r=>r.channel)).size!==routes.length||new Set(routes.map(r=>r.bindingId)).size!==routes.length)throw Error('Recorded person channel routes need review');
    const checkpointAt=checkpointSince===undefined?undefined:Date.parse(checkpointSince);
    if(checkpointAt!==undefined&&(!Number.isFinite(checkpointAt)||checkpointAt>businessNow(time?.context)))throw Error('Invalid history checkpoint time');
-   const pending=checkpointAt===undefined?routes:routes.filter(route=>{const observed=Date.parse(route.historyObservedAt??'');return !route.historyComplete||!Number.isFinite(observed)||observed<checkpointAt||observed>businessNow(time?.context)||businessNow(time?.context)-observed>300000;});
+   const freshCheckpoint=(observedAt:string|null|undefined)=>{const observed=Date.parse(observedAt??''),now=businessNow(time?.context);return checkpointAt!==undefined&&Number.isFinite(observed)&&observed>=checkpointAt&&observed<=now&&now-observed<=300000;};
+   const historyReady=(route:RecordedRoute)=>route.historyComplete&&freshCheckpoint(route.historyObservedAt);
+   const pending=checkpointAt===undefined?routes:routes.filter(route=>!historyReady(route)||route.channel==='linkedin'&&store.ingestChannelRelationship&&!freshCheckpoint(route.relationshipObservedAt));
    const selected:Array<{route:RecordedRoute}&Awaited<ReturnType<typeof ports>>>=[];
    // This snapshot belongs only to this read refresh. Dispatch retains its exact
    // operation capture and final authority checks; no account cache crosses calls.
@@ -124,15 +126,16 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
    else for(const registration of registrations)await observe('refresh.save_identity',()=>registerNativeReplyIdentity(actor,registration,dbOptions));
    const coverage:Array<{bindingId:string;scopeDigest:string}>=[];
    for(const {route,binding,host,bindingId,client}of selected){
+    // Relationship inspection is a separate durable checkpoint. A slow provider
+    // inspection must not discard an already completed channel history read.
+    if(checkpointAt!==undefined&&historyReady(route)&&route.channel==='linkedin'&&store.ingestChannelRelationship){
+     signal?.throwIfAborted();const relationship=await client.inspectRelationship(binding,route.recipient);signal?.throwIfAborted();
+     await store.ingestChannelRelationship(threadId,conversationId,route.id,relationship);
+     throw new AgentHistoryCheckpointPendingError();
+    }
     const history=await observe('refresh.read_history',()=>signal?host.readAgentChannelConversation(binding,route.recipient,signal):host.readAgentChannelConversation(binding,route.recipient));
     assertSameBinding(binding,history.binding);
     const normalized:NativeHistory={source:history.source,observedAt:history.observedAt,complete:history.complete,messages:history.messages.map(m=>({...m,id:'channel-message:'+createHash('sha256').update(JSON.stringify([route.bindingDigest,m.id])).digest('hex'),providerMessageId:m.id,routeId:route.id,channel:route.channel,bindingDigest:route.bindingDigest})),...('deliveryFailures'in history&&history.deliveryFailures?.length?{deliveryFailures:history.deliveryFailures}:{})};
-    // Persist relationship proof before the channel-history checkpoint so a
-    // failed relationship read leaves this route eligible for the next attempt.
-    if(checkpointAt!==undefined&&route.channel==='linkedin'&&store.ingestChannelRelationship){
-     signal?.throwIfAborted();const relationship=await client.inspectRelationship(binding,route.recipient);signal?.throwIfAborted();
-     await store.ingestChannelRelationship(threadId,conversationId,route.id,relationship);
-    }
     const ingested=await observe('refresh.ingest',()=>store.ingestChannelHistory!(threadId,conversationId,route.id,normalized));
     if(ingested&&typeof ingested==='object'&&'status'in ingested&&ingested.status==='held'&&(!('historyAccepted'in ingested)||ingested.historyAccepted!==true))throw new AgentDecisionReviewError('The recorded channel history has a conflict and requires human review.');
     if(!history.complete)throw new AgentDecisionReviewError('Full recorded-account channel history needs human review');
