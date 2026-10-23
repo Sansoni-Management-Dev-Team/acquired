@@ -26,3 +26,20 @@ it('backs off repeated failures and returns to the normal interval after recover
  await vi.advanceTimersByTimeAsync(1000);expect(load).toHaveBeenCalledTimes(3);
  await vi.advanceTimersByTimeAsync(1000);expect(load).toHaveBeenCalledTimes(4);stop();
 });
+
+it('serializes independent page subscriptions and skips a queued read after unmount',async()=>{
+ vi.useFakeTimers();let resolve:(value:string)=>void=()=>{};
+ const first=vi.fn(()=>new Promise<string>(done=>{resolve=done;})),second=vi.fn().mockResolvedValue('second');
+ const base={apply:vi.fn(),isBusy:()=>false,isVisible:()=>true,version:()=>0,intervalMs:1000};
+ const stopFirst=startAgentActivityPolling({...base,load:first});
+ const stopSecond=startAgentActivityPolling({...base,load:second});
+ await vi.advanceTimersByTimeAsync(0);expect(first).toHaveBeenCalledOnce();expect(second).not.toHaveBeenCalled();
+ stopSecond();resolve('first');await vi.advanceTimersByTimeAsync(0);expect(second).not.toHaveBeenCalled();stopFirst();
+});
+it('lets another subscription proceed after the first read fails',async()=>{
+ vi.useFakeTimers();let reject:(error:Error)=>void=()=>{};
+ const first=vi.fn(()=>new Promise<string>((_,fail)=>{reject=fail;})),second=vi.fn().mockResolvedValue('second');
+ const base={apply:vi.fn(),isBusy:()=>false,isVisible:()=>true,version:()=>0,intervalMs:1000};
+ const stopFirst=startAgentActivityPolling({...base,load:first});const stopSecond=startAgentActivityPolling({...base,load:second});
+ await vi.advanceTimersByTimeAsync(0);expect(second).not.toHaveBeenCalled();reject(Error('timeout'));await vi.advanceTimersByTimeAsync(0);expect(second).toHaveBeenCalledOnce();stopFirst();stopSecond();
+});

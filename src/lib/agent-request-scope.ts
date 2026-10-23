@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {safeResearchFailure} from '@/domain/research-trace-context';
 import {auth} from '@/lib/auth';
 import {agentStore,durableAgentEnabled} from '@/lib/agent-runtime';
 import {acquireCommands} from '@/lib/acquire-commands';
@@ -18,5 +19,6 @@ export async function agentRequestScope(request:Request,context:AgentRequestCont
 }
 export function agentRequestFailure(cause:unknown){
  if(cause instanceof AcquireCommandError)return agentRequestError(cause.message,cause.status);
+ console.warn('agent-request-failed',safeResearchFailure(cause));
  return agentRequestError('This item changed or is unavailable. Refresh before trying again.',409);
 }
