@@ -3108,3 +3108,11 @@ A follow-up removes the separate route-list read transaction from history refres
 The run row inherited PostgreSQL transaction-start now() as created_at. Lock acquisition and setup therefore consumed the 45-second SQL duration before the run was inserted, while the JavaScript timer started later. A real PostgreSQL regression holds the thread lock for 300ms and proves the old run timestamp predates lock release (one failed / seven passed). The insert now records clock_timestamp() explicitly. The original event lease, prior-run timestamp on idempotent lookup, 45-second SQL duration and 45-second handler ceiling are unchanged. No migration.
 
 Green: 21 focused worker/database tests, full 6,654 Vitest / 953 skipped, 170 Node, typecheck and lint. The combined snapshot image was built but not deployed; this timestamp correction will ship with it. Production acceptance remains pending.
+
+### DBR-5/6: released run-clock fixes and decision freshness race
+
+4f82b35 deployed directly as acquire-app:run-clock-20261024, digest sha256:8f4085a253908015653798dd27966307b275e7171adab3571e3527981a7b5835. Database and campaign readiness passed. Its five-phase history refresh completed; reassessment returned 200 in 13.22s. The worker reached the actual AI decision, which requested review because all protected channel actions were unavailable. No outbound was attempted.
+
+The saved email history was observed at 17:03:15.221 UTC, expiring at 17:08:15.221; reassessment began at 17:08:03.920 and completed at 17:08:55.371. The precheck accepted history with only seconds remaining, and later protected context checks rejected the expired history. The decision freshness threshold now reserves the full 45-second decision window within the existing five-minute history limit. This tightens the precheck rather than extending any permission lifetime; history-only events retain their original event anchor.
+
+Red: near-expiry history incorrectly reached the model (one failed / 36 passed). Green: 89 focused tests cover both near-expiry deferral without model/proposal/hold and sufficiently fresh history proceeding. Full suite, typecheck and lint passed; release remains pending. The previous 30-minute readiness canary had 59 successes and one timeout during container replacement, so it is not recorded as a clean pass. A new canary runs on 4f82b35.

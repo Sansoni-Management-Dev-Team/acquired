@@ -15,6 +15,9 @@ import type {AgentEventHandler} from './agent-event-worker';
 import type {AgentEventOutcome} from '@/domain/agent-events';
 import {reassessAgentConversation,AgentDecisionReviewError,type AgentConversationContext} from './agent-conversation-engine';
 import {createNativeModelDecision} from './agent-model-decision';
+// Leave the full bounded decision window before SQL's five-minute expiry.
+// History-only event checkpoints retain their event-time anchor.
+const decisionHistoryMaxAgeMs=300000-45000;
 const uuid=z.string().uuid();
 const reassessment=z.object({conversationId:uuid,epoch:z.number().int().positive(),reminderGeneration:z.number().int().positive()}).strict();
 export function createNativeAgentHandlers(options:{store:AgentModelStore & {proposeNativeMessage?:(threadId:string,key:string,input:unknown,authority?:AgentExecutionFence)=>Promise<unknown>};businessTime?:{context:AgentBusinessTimeContext;scope:AgentBusinessTimeScope};decide?:(input:{threadId:string;requestKey:string;authority:AgentExecutionFence})=>(context:AgentConversationContext)=>Promise<unknown>;chatProposal?:AgentEventHandler;supervise?:AgentEventHandler;researchApproved?:AgentEventHandler;sequenceApproved?:AgentEventHandler;targetApproved?:(input:Parameters<AgentEventHandler>[0],targets:Awaited<ReturnType<AgentModelStore['reviewDispatchTargets']>>)=>ReturnType<AgentEventHandler>;peopleApproved?:AgentEventHandler;fieldsApproved?:AgentEventHandler;fieldsDispatch?:AgentEventHandler;peopleDispatch?:AgentEventHandler;researchCompleted?:AgentEventHandler;reconcileProvider?:(threadId:string,operationId:string,authority:AgentExecutionFence)=>Promise<{known:boolean}>;researchDispatch?:AgentEventHandler;handoffReminder?:AgentEventHandler;dispatchProvider?:(threadId:string,operationId:string,authority:AgentExecutionFence,delegation?:{id:string;revision:number})=>Promise<void>;channelDue?:(threadId:string,payload:unknown)=>Promise<{conversationId:string;epoch:number;reminderGeneration:number}|null>;refreshProviderHistory?:(threadId:string,conversationId:string,signal?:AbortSignal,since?:string)=>Promise<void>}){
@@ -48,7 +51,7 @@ export function createNativeAgentHandlers(options:{store:AgentModelStore & {prop
   if(eligibility.deliveryMode==='local_sink')await store.refreshLocalConversationHistory(threadId,trigger.conversationId);
   else{
    if(!options.refreshProviderHistory)return {kind:'review',message:'Conversation history needs the recorded communications account adapter before drafting.'};
-   try{await options.refreshProviderHistory(threadId,trigger.conversationId,input.signal,...(input.event.created_at?[new Date(businessNow(businessClock)-300000).toISOString()]:[]));}catch(error){return historyFailure(input,trigger.conversationId,error);}
+   try{await options.refreshProviderHistory(threadId,trigger.conversationId,input.signal,...(input.event.created_at?[new Date(businessNow(businessClock)-decisionHistoryMaxAgeMs).toISOString()]:[]));}catch(error){return historyFailure(input,trigger.conversationId,error);}
   }
   const context=await store.nativeDecisionContext(threadId,trigger.conversationId);
   if(await store.pendingNativeEmail(threadId,trigger.conversationId,context.contextRevision))return {kind:'complete'};

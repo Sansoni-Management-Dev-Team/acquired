@@ -233,3 +233,12 @@ it('uses lightweight conversation eligibility before refreshing history, and dec
  const handlers=createNativeAgentHandlers({store:{...f.mock,nativeConversationEligibility} as unknown as AgentModelStore,decide:()=>f.decide,refreshProviderHistory});
  await handlers['conversation.reassess'](execution);expect(nativeConversationEligibility).toHaveBeenCalledOnce();expect(refreshProviderHistory).toHaveBeenCalledOnce();expect(f.mock.nativeDecisionContext).toHaveBeenCalledOnce();expect(f.mock.nativeDecisionContext.mock.invocationCallOrder[0]).toBeGreaterThan(refreshProviderHistory.mock.invocationCallOrder[0]);
 });
+
+it.each([280000,240000])('reserves a decision window for history aged %i milliseconds',async(age)=>{
+ const {AgentHistoryCheckpointPendingError}=await import('./agent-history-checkpoint');
+ const f=fixture(),instant=Date.now(),observedAt=instant-age,clock=vi.spyOn(Date,'now').mockReturnValue(instant);
+ f.mock.nativeDecisionContext.mockResolvedValue({...context,deliveryMode:'communications'});
+ const refreshProviderHistory=vi.fn(async(_thread:string,_conversation:string,_signal?:AbortSignal,since?:string)=>{if(since&&observedAt<Date.parse(since))throw new AgentHistoryCheckpointPendingError();});
+ try{const handlers=createNativeAgentHandlers({store:f.mock as unknown as AgentModelStore,decide:()=>f.decide,refreshProviderHistory});expect(await handlers['conversation.reassess']({...execution,event:{...event,created_at:new Date(instant-1000)}})).toMatchObject({kind:age>255000?'defer':'complete'});expect(f.decide).toHaveBeenCalledTimes(age>255000?0:1);expect(f.mock.proposeNativeEmail).toHaveBeenCalledTimes(age>255000?0:1);expect(f.mock.holdNativeConversation).not.toHaveBeenCalled();}
+ finally{clock.mockRestore();}
+});
