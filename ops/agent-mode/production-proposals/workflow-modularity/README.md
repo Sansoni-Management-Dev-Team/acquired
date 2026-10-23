@@ -1,38 +1,58 @@
-# Workflow modularity migration package — preparation
+# Shared workflow migration approval package
 
-Status: WF-02 in progress. **Not an approval-ready migration bundle. No migration SQL has been applied.**
+Status: proposed, not applied. These files prepare database support only. They do not enable the new workflow, make provider requests, change account registrations or send outreach.
 
-The catalog preflight is SELECT-only evidence collection, not a migration. It was executed on 2026-10-24 through the deployed Acquire container against the configured Supabase project `njasjqpztiteionfxxul`, in a read-only transaction, with one connection, a 5s server statement timeout and 8s client query timeout. Results: 31 tables, 408 columns, 313 constraints, 98 indexes, 67 policies, 64 triggers and 67 function definitions. All 31 named tables and 50 named function checks were present. PostgreSQL reports 17.6. The existing production ledger contains `native-agent-baseline-v1` and `hosted-demo-registration-v1`; these labels alone are not hash verification.
+## Exact targets
 
-The initial catalog findings are recorded in `docs/workflow-modularity/schema-audit.md`. A follow-up inventory extended the SELECT to transitive helper functions, but its SSH connection timed out before database execution after the AI release removed its temporary access rule. The initial raw response was overwritten by the failed probe; the private probe has been corrected to preserve prior successful output on failures. A fresh complete catalog capture remains required before SQL freeze. Do not commit raw function definitions without review for embedded historical configuration. No production business rows, local database, simulator or provider were accessed by this inventory.
+1. **Rehearsal first:** existing Docker container `acquire-hosted-demo-rehearsal-postgres`, network mode `none`, database `acquire_hosted_demo_rehearsal`, marker `acquire-hosted-demo-rehearsal-only`, PostgreSQL system identifier `7699248227334438947`.
+2. **Production only after rehearsal passes:** Supabase project `njasjqpztiteionfxxul`, database `postgres`, system identifier `7678071634733212629`, through Acquire's existing verified connection. New feature activation remains off.
 
-## Planned complete approval units
+No new rehearsal database or bootstrap is needed. The user's active local simulator and its shared database are excluded. Each proposed migration rejects any other database/cluster before DDL. A missing rehearsal marker fails closed.
 
-| Unit | Required content | Approval gate |
-| --- | --- | --- |
-| 001 expansion | Narrow workflow records, scoped execution/effect associations, execution-scoped mapping evidence, RLS and immutable identity constraints | Exact reviewed SQL/hash and approved rehearsal/production targets |
-| 002 compatibility | All affected installed functions/guards resolve new explicit origins and preserve legacy receipts; research-only and manual-route admission; old workers fail closed on new rows | Must be fully drafted with unit 001, never treated as a later unapproved prerequisite |
-| 003 admission | Atomic source reservation, same-request replay, bounded transition and discovery; no network or provider work in transactions | Same complete package approval |
+## Ordered artifacts
 
-Names above are planned application units, not files available for execution. Do not create an applied-ledger record or approve a hash for this README.
+The final filenames and SHA-256 hashes are in [approval-manifest.json](approval-manifest.json). Apply in order, as the existing schema owner, only after specific approval of those exact files and targets.
 
-## Scope fixed by audit
+- `001-workflow-executions.proposed.sql`: one execution record with fixed preset, actor ownership, immutable identity, RLS, active reservation and one lifetime outreach execution per mandate.
+- `002-workflow-compatibility.proposed.sql`: execution-scoped simulator evidence, immutable work associations and admission guards. Existing real/demo rows and receipts remain unchanged. New reads use a compatibility view; exact predecessor hashes protect installed function changes.
+- `003-workflow-admission.proposed.sql`: narrow start/replay and state-transition functions. Saved selection occurs outside the shared write fence; only one candidate is locked and rechecked. There is no new scheduler or provider work inside a transaction.
 
-- Reuse the original owned mandate and canonical research IDs. No duplicate company/person rows, no new mandate/membership initialization for saved demo, no clearing history.
-- One lifetime outreach execution per mandate; completed research-only executions may precede it.
-- Keep historical mode and sealed dispatch proofs unchanged. New effects resolve an immutable execution association, never whichever execution is current at retry time.
-- Retain the existing worker/queue, research action and conversation handlers.
-- Reserve against all competing research/outreach writers, not only other demo starts.
-- No provider-specific AI fields, keys or retry logic in the schema.
+The three presets are saved-data demo with hosted simulated outreach, live research test with no outreach, and the normal live flow. Agent/workspace presentation remains independent. Live workspace retains manual sequence outreach; agent-managed, demo and research-only runs cannot use that route.
 
-## Remaining package work before requesting approval
+## Evidence before approval
 
-1. Finalize scoped keys and FK design jointly with execution-aware mapping, so expansion does not strand new records behind legacy mode guards.
-2. Draft exact compatibility functions from the installed definitions, inventorying direct TypeScript mode reads and callback joins as well as SQL guards.
-3. Specify and prepare actual PostgreSQL race/RLS/legacy-recovery tests and the separate rehearsal bootstrap. No rehearsal DB has been created or approved for this package.
-4. Review original-effect compatibility and hosted context schema before freezing wire/proof changes.
-5. Produce ordered exact SQL, SHA-256 manifest, fixed target identities, timeout/lock behavior, expected catalog changes, rollback and recovery procedure. Any later changed file requires new approval.
+A fresh SELECT-only production catalog captured 31 tables, 408 columns, 313 constraints, 98 indexes, 67 policies, 64 triggers and 117 function definitions. Comparison against the isolated rehearsal found all 117 functions and all inventoried application columns/constraints/guards identical. The one metadata difference is RLS on the migration ledger (enabled in production, disabled in rehearsal); this bundle does not alter that setting.
 
-Schema rollback should disable new starts while retaining rows and guards for recovery; it must not drop history or let an older worker reinterpret new work as real outreach. Feature activation stays off until application and database acceptance pass.
+`catalog-preflight.sql` uses a read-only transaction controlled by the caller, a five-second statement deadline and one connection. Object identities are explicitly text to avoid PostgreSQL `name` truncation. Raw catalog evidence remains private in `.local-data/workflow-modularity/`; the temporary operator-IP SSH rule was removed and absence verified.
 
-See `docs/workflow-modularity/` for the source/production audit and characterization evidence. No new feature test or migration rehearsal is claimed as passing by this preparation record.
+SQL and PL/pgSQL syntax parsing and independent source review are preparation evidence, **not runtime verification**. No migration or new database acceptance test has been executed. Existing AI/demo/research characterization previously passed 93 tests; those tests do not validate this new schema.
+
+## Rehearsal acceptance required before production
+
+Run the rollback-only SQL assertions in `tests/` after applying the approved bundle to the exact rehearsal target. They must not run on production. Their target checks reject any other cluster. No test disables triggers or changes schema.
+
+In addition to those prepared ownership/admission/negative assertions, complete these integration gates before production application:
+
+- Two concurrent starts for the same source produce one accepted execution; a lost-response replay returns the same identity. Race with legacy conversation/research insertion is fenced, with no deadlock.
+- Legacy real and demo write paths continue with no workflow association; original dispatch proofs and receipt recovery stay unchanged. Compare predecessor and effective-view semantics using synthetic data.
+- New demo mapping evidence resolves only registered simulated recipient/account identities; collisions across old/new mapping tables reject. Missing mappings never fall back to real recipients.
+- Research-only cannot create conversation, operation, manual enrolment, policy or dispatch intent. A late/restarted event cannot inherit a later demo execution.
+- Live workspace manual enrolment and final dispatch retain their existing approval gates and bind the original execution; agent presentation remains manual-outreach-disabled.
+- Terminal/uncertain work cannot restart automatically. Historical receipt/history capture remains possible without a new submission.
+- Current membership, same-organization foreign-user isolation, malformed requests, stale revisions and SQL-role restrictions pass using restricted roles.
+
+Any failure stops the production step. A change to proposed SQL requires a new hash and approval; do not edit an already applied file or silently retry changed SQL.
+
+## Locking, rollback and release boundary
+
+Each file uses a transaction, three-second lock timeout and fifteen-second per-statement timeout. Constraint validation/DDL may briefly block writers; a timeout rolls back that file. If a later unit fails, earlier additive units remain inert and feature activation stays off. Record every successfully applied file's exact hash externally alongside the existing ledger; do not rerun a successful file.
+
+Before production, recheck target identity, hashes, predecessor definitions, current health and a verified recovery backup. Apply only after the rehearsal gates pass. Check schema/privileges and existing app readiness after application. Do not treat schema readiness as proof that the new product flow works.
+
+Rollback is to disable new starts and retain schema, immutable history and recovery guards. No destructive down migration, history reset, account rebind or old-worker reinterpretation is authorized. Complete application modules and end-to-end tests before activating new execution creation. Deploy application releases directly to DigitalOcean, not GitHub Actions.
+
+## Known bounded behavior
+
+Auto-selection examines a bounded candidate window and reports that scope explicitly; it never falls back to live research. Source availability is not contact-outreach authority: fit, canonical alias conflicts, history, ownership and approvals are checked later by the existing shared modules. A saved source can consequently have no contacts eligible for outreach. A failed or cancelled outreach execution is resumed under its original request rather than allocated a new transport identity.
+
+See [the audit](../../../../docs/workflow-modularity/README.md) and the Plane module for implementation work after migration approval.

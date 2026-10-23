@@ -128,17 +128,18 @@ WITH RECURSIVE wanted_tables(name) AS (
 ), selected_functions AS (
   SELECT p.* FROM pg_catalog.pg_proc p JOIN function_closure c ON c.oid=p.oid
 ), evidence(section,identity,detail) AS (
-  SELECT 'identity',current_database(),jsonb_build_object(
+  SELECT 'identity',current_database()::text,jsonb_build_object(
     'database',current_database(),'role',current_user,'serverVersion',current_setting('server_version'),
+    'systemIdentifier',(SELECT system_identifier::text FROM pg_catalog.pg_control_system()),
     'transactionReadOnly',current_setting('transaction_read_only'),
     'statementTimeout',current_setting('statement_timeout'),
     'databaseMarker',pg_catalog.shobj_description(d.oid,'pg_database'))
   FROM pg_catalog.pg_database d WHERE d.datname=current_database()
   UNION ALL
-  SELECT 'table-presence',w.name,jsonb_build_object('present',r.oid IS NOT NULL)
+  SELECT 'table-presence',w.name::text,jsonb_build_object('present',r.oid IS NOT NULL)
   FROM wanted_tables w LEFT JOIN relations r ON r.relname=w.name
   UNION ALL
-  SELECT 'tables',r.relname,jsonb_build_object('kind',r.relkind,'owner',pg_catalog.pg_get_userbyid(r.relowner),
+  SELECT 'tables',r.relname::text,jsonb_build_object('kind',r.relkind,'owner',pg_catalog.pg_get_userbyid(r.relowner),
     'rlsEnabled',r.relrowsecurity,'rlsForced',r.relforcerowsecurity,'acl',r.relacl::text)
   FROM relations r
   UNION ALL
@@ -168,7 +169,7 @@ WITH RECURSIVE wanted_tables(name) AS (
     'using',pg_catalog.pg_get_expr(p.polqual,p.polrelid),'withCheck',pg_catalog.pg_get_expr(p.polwithcheck,p.polrelid))
   FROM pg_catalog.pg_policy p WHERE p.polrelid IN (SELECT oid FROM relations)
   UNION ALL
-  SELECT 'function-presence',w.name,jsonb_build_object('present',EXISTS(SELECT 1 FROM selected_functions p WHERE p.proname=w.name))
+  SELECT 'function-presence',w.name::text,jsonb_build_object('present',EXISTS(SELECT 1 FROM selected_functions p WHERE p.proname=w.name))
   FROM wanted_functions w
   UNION ALL
   SELECT 'functions',p.oid::regprocedure::text,jsonb_build_object(

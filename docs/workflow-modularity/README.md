@@ -43,8 +43,12 @@ Read-only inspection found `src/adapters/ai/provider.ts` exposes `completeAiJson
 
 ## Current handoff
 
-WF-01 source audit is complete; deployed catalog attestation remains open. WF-02 SQL preparation depends on that inventory. No exact migration bundle is approval-ready yet. No database changes, local simulator access, AI merge, real sends or production deployment are part of this audit.
+WF-01 source and production catalog audit is complete. WF-02 has a proposed three-file migration bundle and three rollback-only rehearsal assertions, with exact hashes and targets in `ops/agent-mode/production-proposals/workflow-modularity/approval-manifest.json`. SQL/PLpgSQL parsing passed. WF-03 awaits explicit approval before any application or database acceptance run. Application workflow implementation, activation and live verification remain unfinished. The local simulator was not accessed.
 
 ## Remote-main integration
 
 Merged remote main `6c0d90c` into this branch at `0bb930c`. Preserved both progress histories in the only merge conflict; no application-code conflict. The shared AI module is now part of this branch. Combined AI and demo/research characterization: **93 tests passed across 9 files** (1.92s), with mocked providers, no simulator/database calls. Full workflow implementation and migration approval remain separate work.
+
+## Migration package verification
+
+The fresh transitive catalog capture covers 117 functions. All 1,098 inventoried object records match rehearsal except the migration ledger RLS flag, which is intentionally untouched. The package has 119 parsed migration statements and 18 parsed rehearsal-test statements. Independent review corrected target NULL handling, alias-ID locking, write-lock ordering, terminal reactivation and live/workspace manual routing. These are static review results; real PostgreSQL acceptance, concurrency and existing-route compatibility still gate production application. Temporary SSH access was removed and verified.
