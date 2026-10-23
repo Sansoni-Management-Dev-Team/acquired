@@ -88,9 +88,16 @@ export class AgentDemoProvisioningStore implements AgentDemoProvisioningPort{
    const prior=(await c.query('SELECT result FROM agent_demo_mapping_receipts WHERE request_key=$1',[manifest.requestKey])).rows[0];
    if(prior){if(prior.result.mappingDigest!==result.mappingDigest||agentRecordDigest(prior.result.mappings)!==agentRecordDigest(result.mappings))throw new AgentDemoProvisioningError('The original demo mapping receipt differs.');return prior.result.mappings.length;}
    await c.query('INSERT INTO agent_demo_mapping_receipts(request_key,organization_id,mandate_id,demo_id,created_by,demo_run_id,result,result_digest) VALUES($1,$2,$3,$3,$4,$5,$6,$7)',[manifest.requestKey,this.actor.organizationId,manifest.mandateId,this.actor.userId,run.id,JSON.stringify(result),agentRecordDigest(result)]);
+   // Keep the same transaction, row triggers and immutable conflict checks.
+   // One insert/read pair avoids 100 network round trips for fifty people.
+   await c.query(`INSERT INTO agent_demo_contact_mappings(organization_id,mandate_id,demo_id,created_by,contact_id,source_revision,source_fingerprint,demo_run_id,request_key,wire,mapping_digest)
+    SELECT $1,$2,$2,$3,(entry.wire->>'sourcePersonId')::uuid,entry.wire->>'sourceRevision',entry.wire->>'sourceFingerprint',$4,$5,entry.wire,$7
+    FROM jsonb_array_elements($6::jsonb) WITH ORDINALITY AS entry(wire,position) ORDER BY entry.position
+    ON CONFLICT(demo_id,contact_id) DO NOTHING`,[this.actor.organizationId,manifest.mandateId,this.actor.userId,run.id,manifest.requestKey,JSON.stringify(result.mappings),result.mappingDigest]);
+   const recorded=(await c.query('SELECT contact_id,demo_run_id,wire FROM agent_demo_contact_mappings WHERE demo_id=$1 AND contact_id=ANY($2::uuid[])',[manifest.demoId,result.mappings.map(wire=>wire.sourcePersonId)])).rows;
+   if(recorded.length!==result.mappings.length||new Set(result.mappings.map(wire=>wire.sourcePersonId)).size!==result.mappings.length)throw new AgentDemoProvisioningError('The complete immutable demo identity set could not be verified.');
    for(const wire of result.mappings){
-    await c.query('INSERT INTO agent_demo_contact_mappings(organization_id,mandate_id,demo_id,created_by,contact_id,source_revision,source_fingerprint,demo_run_id,request_key,wire,mapping_digest) VALUES($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(demo_id,contact_id) DO NOTHING',[this.actor.organizationId,manifest.mandateId,this.actor.userId,wire.sourcePersonId,wire.sourceRevision,wire.sourceFingerprint,run.id,manifest.requestKey,JSON.stringify(wire),result.mappingDigest]);
-    const current=(await c.query('SELECT demo_run_id,wire FROM agent_demo_contact_mappings WHERE demo_id=$1 AND contact_id=$2',[manifest.demoId,wire.sourcePersonId])).rows[0];
+    const current=recorded.find(row=>row.contact_id===wire.sourcePersonId);
     if(current?.demo_run_id!==run.id||agentRecordDigest(current?.wire)!==agentRecordDigest(wire))throw new AgentDemoProvisioningError('A different immutable demo identity is already recorded.');
    }
    const content={text:`Prepared ${result.mappings.length} simulated contacts for this demo. The company and person research stays real. This preparation does not approve or send messages.`,details:{demoRunId:run.id,requestKey:manifest.requestKey,count:result.mappings.length,outreachReady:false}};

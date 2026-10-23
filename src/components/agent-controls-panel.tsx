@@ -301,7 +301,7 @@ export function AgentControlsPanel({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...command, requestKey }),
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(kind === "demo" && command.action === "start" ? 90000 : 15000),
         }),
         result = await response
           .json()
@@ -339,7 +339,11 @@ export function AgentControlsPanel({
     } catch (cause) {
       if (mounted.current)
         setError(
-          cause instanceof Error
+          cause instanceof Error && ["TimeoutError", "AbortError"].includes(cause.name)
+            ? kind === "demo" && command.action === "start"
+              ? "Preparation is still unconfirmed. Press Start again to check the same saved request."
+              : "Could not confirm this action. Check saved progress before trying again."
+            : cause instanceof Error
             ? cause.message
             : "Could not save this action. Check saved state before retrying.",
         );
