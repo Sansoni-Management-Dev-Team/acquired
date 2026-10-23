@@ -3187,3 +3187,15 @@ agent-history-busy-local.integration.test.ts
 ```
 
 Next action after the AI module lands: rerun these orchestration invariants through its injected provider boundary, then separately verify an actual local simulator round trip and production normal-route submission/reply. Component tests do not establish browser visual acceptance; fast localhost PostgreSQL tests do not establish production latency targets. No genuine AI-generated simulator reply or production performance improvement is claimed by this local batch.
+
+### DBR-6: production read concurrency, local simulator excluded
+
+At the user's request, this verification did not call, restart, reconfigure or write to the local simulator or its shared local database. It also made no model requests, approvals, sends, migrations or production business-data writes. Thirty-five isolated pool/deadline/worker/polling unit tests passed (four files); these used test doubles rather than the local database.
+
+From the deployed DigitalOcean application container, a bounded probe opened at most two connections to the production database and ran 20 paired read-only rounds with five-second gaps. Each transaction had a four-second server statement timeout and six-second client query timeout, with early stop on failure. One lane ran the actual initial-research discovery SELECT; the other ran a representative actor-scoped sequence of mandate/thread/conversation/event SELECTs under `acquire_agent_user`. This second lane is a database probe, not the full execution HTTP route. No stored mutation functions or local services were called.
+
+All 40 tasks succeeded. Discovery: median 531ms, p95 553ms, maximum 609ms (20 samples, zero eligible rows). Actor-scoped read bundle: median 1,189ms, p95 1,257ms, maximum 1,739ms (20 samples). Latencies include checkout, transaction setup and rollback. Start/end database snapshots showed 10/13 total connections, one active query and zero lock waiters; these are snapshots, not peak-connection measurements. The queue remained at one pending `control.changed` event with zero attempts under a paused responsibility. The source eligibility rule excludes that event while paused. Supabase CLI succeeded and separately captured a short approximately 256ms lock wait; no sustained blocking was observed in this bounded window.
+
+Private evidence: `.local-data/reliability-release/production-read-concurrency.{mjs,jsonl}`, `pending-read-status.mjs`, `snapshot-session-cli.private.txt`, and `.local-data/local-recovery-verification/database-boundaries-only.log`. The deployed image before the run was sha256:cbceca9823933b83ec34ceb99adde3ad066fdd389cdd9dfefdea182e994aad7f.
+
+Interpretation: the sampled production read path is responsive under low bounded concurrency. This does not establish full demo-opening latency, sustained write-load performance, peak CPU/I/O, absence of intermittent blockers, or successful simulator delivery. Those acceptance checks remain open and should use a separate controlled demo lane once available.
