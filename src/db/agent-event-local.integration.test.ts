@@ -49,6 +49,14 @@ describe.runIf(enabled)('native due-event runs and recovery',()=>{
   expect(await store.finishEventRun(run.runId,old,{kind:'complete'})).toBe(false);expect(await store.finishEventRun(fresh.runId,event,{kind:'complete'})).toBe(true);
   expect((await pool.query('SELECT state FROM agent_runs WHERE id=$1',[run.runId])).rows[0].state).toBe('uncertain');
  });
+ it('preserves a valid short retry when saving waits beyond its due instant',async()=>{
+  await store.enqueueEvent(thread,randomUUID(),'conversation.reassess',{});const event=await claim(),run=await store.beginEventRun(event);if(run.kind!=='started')throw Error();
+  await expect(store.finishEventRun(run.runId,event,{kind:'defer',wakeAt:new Date(Date.now()-1000).toISOString(),reason:'Expired before receipt'})).rejects.toThrow('outside the allowed horizon');
+  const lock=await pool.connect();await lock.query('BEGIN');await lock.query('SELECT id FROM agent_threads WHERE id=$1 FOR UPDATE',[thread]);
+  const wakeAt=new Date(Date.now()+100).toISOString(),finished=store.finishEventRun(run.runId,event,{kind:'defer',wakeAt,reason:'Continue saved checkpoint'});
+  try{await new Promise(resolve=>setTimeout(resolve,250));await lock.query('COMMIT');expect(await finished).toBe(true);}finally{await lock.query('ROLLBACK');lock.release();}
+  const next=await claim();expect(next.id).toBe(event.id);const resumed=await store.beginEventRun(next);if(resumed.kind!=='started')throw Error();expect(await store.finishEventRun(resumed.runId,next,{kind:'complete'})).toBe(true);
+ });
  it('commits a human notification atomically and never repeats it on a late completion',async()=>{
   await store.enqueueEvent(thread,randomUUID(),'conversation.reassess',{});const event=await claim(),run=await store.beginEventRun(event);if(run.kind!=='started')throw Error();
   const failingStore=new AgentStore(agentOutboxFailurePool(pool),actor);

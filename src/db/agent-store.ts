@@ -284,6 +284,8 @@ export class AgentStore {
   }
   async finishEventRun(runId:string,event:AgentEvent,raw:AgentEventOutcome){
     uuid.parse(runId);const identity=this.eventIdentity(event),outcome=agentEventOutcomeSchema.parse(raw);
+    // Validate operational retry horizons at receipt, before lock/checkout waits.
+    const receivedAt=new Date().toISOString();
     if(outcome.kind==='defer'&&outcome.timeBasis==='business'&&!this.businessTime)throw Error('Selected business clock required');
     return this.transaction(async c=>{
       const t=await this.lockThread(c,event.thread_id);
@@ -293,7 +295,8 @@ export class AgentStore {
       if(!current)return false;
       if(outcome.kind==='defer'){
         const business=outcome.timeBasis==='business',basis=business?this.businessSql():'clock_timestamp()';
-        const due=(await c.query(`SELECT $1::timestamptz>${basis} AND $1::timestamptz<=${basis}+interval '30 days' AS allowed`,[outcome.wakeAt])).rows[0];
+        const lower=business?basis:'$2::timestamptz';
+        const due=(await c.query(`SELECT $1::timestamptz>${lower} AND $1::timestamptz<=${basis}+interval '30 days' AS allowed`,business?[outcome.wakeAt]:[outcome.wakeAt,receivedAt])).rows[0];
         if(!due.allowed)throw new Error('Reassessment is outside the allowed horizon');
         if(business){
           // The current event/run is already locked and its lease is real. Only
