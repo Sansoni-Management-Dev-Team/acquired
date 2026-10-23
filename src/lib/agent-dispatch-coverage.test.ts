@@ -18,7 +18,7 @@ it('selects one lagging projection without inventing a service revision',async()
  const records=rows();records[0].revision='6';query.mockResolvedValue({rows:records});
  expect((await readAgentDispatchCoverage(actor,routes,'subscriber',now)).pendingBindingId).toBe('a');
  records[0].revision='7';records[0].updated_at=new Date(now-20000);
- expect((await readAgentDispatchCoverage(actor,routes,'subscriber',now)).pendingBindingId).toBe('a');
+ expect((await readAgentDispatchCoverage(actor,routes,'subscriber',now)).pendingBindingId).toBeNull();
 });
 it.each(['missing','duplicate','foreign','stale','future','malformed']as const)('refuses %s scope hints rather than selecting another account',async kind=>{
  const records=rows();if(kind==='missing')records.pop();if(kind==='duplicate')records.push({...records[0]});if(kind==='foreign')records[0].binding_id='foreign';if(kind==='stale')records[0].observed_at=new Date(now-256000);if(kind==='future')records[0].coverage_through=new Date(now+1);if(kind==='malformed')records[0].scope_digest='invalid';query.mockResolvedValue({rows:records});

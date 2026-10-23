@@ -22,5 +22,5 @@ export async function readAgentDispatchCoverage(actor:CampaignActor,routes:Array
   return {bindingId:route.bindingId,scopeDigest:row.scope_digest as string,revision:BigInt(row.revision),updated};
  });
  const maximum=selected.reduce((value,row)=>row.revision>value?row.revision:value,BigInt(0));
- return {scopes:selected.map(({bindingId,scopeDigest})=>({bindingId,scopeDigest})),pendingBindingId:selected.find(row=>row.revision!==maximum||row.updated<latestHistory)?.bindingId??null};
+ return {scopes:selected.map(({bindingId,scopeDigest})=>({bindingId,scopeDigest})),pendingBindingId:selected.find(row=>row.revision!==maximum)?.bindingId??null};
 }
