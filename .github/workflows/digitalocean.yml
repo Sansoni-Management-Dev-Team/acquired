@@ -16,7 +16,8 @@ concurrency:
 
 jobs:
   build:
-    if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'
+    # Keep the existing production release path scoped to its original repository.
+    if: github.repository == 'callumholt/project-acquire' && (github.ref == 'refs/heads/main' || github.event_name == 'pull_request')
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     steps:
@@ -55,7 +56,7 @@ jobs:
 
   deploy:
     needs: build
-    if: github.ref == 'refs/heads/main'
+    if: github.repository == 'callumholt/project-acquire' && github.ref == 'refs/heads/main'
     runs-on: [self-hosted, linux, x64, acquire-production]
     environment:
       name: digitalocean-production
