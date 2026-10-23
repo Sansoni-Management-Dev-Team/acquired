@@ -1,3 +1,4 @@
+import {traceOperation,updateOperationTrace} from '../../../communications/packages/core/src/operation-trace';
 import { providerJsonRequest } from "../observability/provider-request";
 import { z } from "zod";
 import type { FreeResearchRequest, FreeResearchUsage } from "./free-openrouter";
@@ -38,6 +39,7 @@ export async function completeOpenAiJson(input: OpenAiJsonRequest, options: { ap
   const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY ?? "";
   if (!apiKey) throw new ResearchAiError("OpenAI fallback unavailable: OPENAI_API_KEY is not configured");
   const model = options.model ?? process.env.OPENAI_MANDATE_MODEL ?? OPENAI_FALLBACK_MODEL;
+  return traceOperation('acquire.model.completion',{kind:'generation',model,...(options.jobId?{jobId:options.jobId}:{}),messageCount:input.messages.length,inputBytes:new TextEncoder().encode(JSON.stringify(input.messages)).byteLength},async()=>{
   const requestId = crypto.randomUUID();
   let payload: { model?: string; usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?:number }; completion_tokens_details?: { reasoning_tokens?: number } }; error?: { code?: string; type?:string; param?:string }; choices?: { finish_reason?: string; message?: { content?: string } }[] };
   let response: Response;
@@ -72,11 +74,13 @@ export async function completeOpenAiJson(input: OpenAiJsonRequest, options: { ap
   const writes=payload.usage?.prompt_tokens_details?.cache_write_tokens;
   const usage = { ...(writes===undefined?{}:{cacheWriteTokens:writes}), inputTokens: payload.usage?.prompt_tokens ?? 0, cachedInputTokens: payload.usage?.prompt_tokens_details?.cached_tokens ?? 0, outputTokens: payload.usage?.completion_tokens ?? 0, reasoningTokens: payload.usage?.completion_tokens_details?.reasoning_tokens ?? 0 };
   if(input.requireUsage&&(!payload.usage||!Number.isSafeInteger(usage.inputTokens)||usage.inputTokens<=0||!Number.isSafeInteger(usage.outputTokens)||usage.outputTokens<0||!Number.isSafeInteger(usage.cachedInputTokens)||usage.cachedInputTokens<0||usage.cachedInputTokens>usage.inputTokens||writes!==undefined&&(!Number.isSafeInteger(writes)||writes<0||writes+usage.cachedInputTokens>usage.inputTokens)||!Number.isSafeInteger(usage.reasoningTokens)||usage.reasoningTokens<0||usage.reasoningTokens>usage.outputTokens))throw new OpenAiResponseFailure("usage_invalid");
+  updateOperationTrace({model:actualModel,...usage});
   options.onUsage?.(usage, actualModel);
   const choice = payload.choices?.[0];
   if (!choice?.message?.content || choice.finish_reason === "length") throw new OpenAiResponseFailure("incomplete_response");
   try { return { response: JSON.parse(choice.message.content), model: actualModel, usage }; }
   catch { throw new OpenAiResponseFailure("invalid_json"); }
+  });
 }
 
 /** Same structured completion contract as the research Worker, without OpenRouter. */

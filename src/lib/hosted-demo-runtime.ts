@@ -1,5 +1,6 @@
+import {traceOperation,updateOperationTrace} from '../../communications/packages/core/src/operation-trace';
 import 'server-only';
-import{createHash}from'node:crypto';
+import{createHash,randomUUID}from'node:crypto';
 import{isDeepStrictEqual}from'node:util';
 import{z}from'zod';
 import{createHostedDemoRequestHandler}from'./hosted-demo-api';
@@ -22,13 +23,13 @@ const paths=new Set(['/v1/hosted-demo/coverage/project','/v1/hosted-demo/partici
  * no redirects. Separate from the incoming application-authority credential. */
 export function createHostedDemoServiceRequest(descriptor:HostedDemoCommunicationsDescriptor,key:Buffer,fetcher:typeof fetch=fetch){
  const signer=createScopedServiceAuth({key,audience:'communications',applicationId:'acquire',authorize:async()=>false});
- return async(path:string,command:unknown,signal:AbortSignal)=>{
+ return async(path:string,command:unknown,signal:AbortSignal)=>traceOperation('acquire.hosted.rpc.'+(paths.has(path)?path.slice('/v1/hosted-demo/'.length).replaceAll('/','.'):'invalid'),{},async()=>{
   if(!paths.has(path)||signal.aborted)fail();const controller=new AbortController();let rejectStopped!:(error:Error)=>void;const stopped=new Promise<never>((_,reject)=>{rejectStopped=reject;}),abort=()=>{controller.abort();rejectStopped(Error('Hosted demo runtime unavailable'));};signal.addEventListener('abort',abort,{once:true});const timeout=path==='/v1/hosted-demo/history/read'||path==='/v1/hosted-demo/coverage/project'?24000:5000;const timer=setTimeout(abort,timeout);
-  const run=async()=>{if(controller.signal.aborted||signal.aborted)fail();const response=await fetcher(descriptor.serviceOrigin+path,{method:'POST',headers:{'Content-Type':'application/json','X-Communications-Contract-Version':'1',Authorization:'Bearer '+signer.issue(descriptor.actor)},body:JSON.stringify(command),redirect:'error',credentials:'omit',signal:controller.signal});if(controller.signal.aborted||!response.ok||response.headers.get('content-type')?.split(';')[0].trim().toLowerCase()!=='application/json'||!response.body)fail();
+  const run=async()=>{if(controller.signal.aborted||signal.aborted)fail();const response=await fetcher(descriptor.serviceOrigin+path,{method:'POST',headers:{'Content-Type':'application/json','X-Communications-Contract-Version':'1',Authorization:'Bearer '+signer.issue(descriptor.actor)},body:JSON.stringify(command),redirect:'error',credentials:'omit',signal:controller.signal});updateOperationTrace({httpStatus:response.status});if(controller.signal.aborted||!response.ok||response.headers.get('content-type')?.split(';')[0].trim().toLowerCase()!=='application/json'||!response.body)fail();
    const reader=(response.body??fail()).getReader();try{let size=0;const chunks:Uint8Array[]=[];for(;;){const next=await reader.read();if(next.done)break;size+=next.value.byteLength;if(size>65536||controller.signal.aborted)fail();chunks.push(next.value);}return JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(Buffer.concat(chunks))) as unknown;}finally{void reader.cancel().catch(()=>undefined);}
   };
   try{if(signal.aborted)abort();return await Promise.race([run(),stopped]);}catch{return fail();}finally{clearTimeout(timer);signal.removeEventListener('abort',abort);controller.abort();}
- };
+ });
 }
 /** One persistent application node owns these live handles. Restart loses them
  * and rolls back connections; a different replica must refuse unknown handles.
@@ -62,6 +63,9 @@ export function configuredHostedDemoRuntime(){
  if(configured){if(hash!==fingerprint)fail();return configured;}configured=createRuntime({...process.env});fingerprint=hash;return configured;
 }
 export async function hostedDemoRequest(request:Request){
- if(process.env.AGENT_HOSTED_DEMO_COMMUNICATIONS_ENABLED!=='true')return Response.json({error:'Not available'},{status:404,headers:{'Cache-Control':'no-store'}});
- try{return await configuredHostedDemoRuntime().handler(request);}catch{return Response.json({error:'Hosted demo unavailable'},{status:503,headers:{'Cache-Control':'no-store'}});}
+ let callback='unknown';try{callback=new URL(request.url).pathname.match(/^\/api\/agent\/hosted-demo\/(access|authority|recipient|coverage|events)$/)?.[1]??callback;}catch{}
+ return traceOperation('acquire.hosted.callback.'+callback,{requestId:randomUUID()},async()=>{
+ if(process.env.AGENT_HOSTED_DEMO_COMMUNICATIONS_ENABLED!=='true'){updateOperationTrace({httpStatus:404});return Response.json({error:'Not available'},{status:404,headers:{'Cache-Control':'no-store'}});}
+ try{const response=await configuredHostedDemoRuntime().handler(request);updateOperationTrace({httpStatus:response.status});return response;}catch{updateOperationTrace({httpStatus:503,outcome:'error'});return Response.json({error:'Hosted demo unavailable'},{status:503,headers:{'Cache-Control':'no-store'}});}
+ });
 }
