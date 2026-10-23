@@ -44,3 +44,7 @@ Read-only inspection found `src/adapters/ai/provider.ts` exposes `completeAiJson
 ## Current handoff
 
 WF-01 source audit is complete; deployed catalog attestation remains open. WF-02 SQL preparation depends on that inventory. No exact migration bundle is approval-ready yet. No database changes, local simulator access, AI merge, real sends or production deployment are part of this audit.
+
+## Remote-main integration
+
+Merged remote main `6c0d90c` into this branch at `0bb930c`. Preserved both progress histories in the only merge conflict; no application-code conflict. The shared AI module is now part of this branch. Combined AI and demo/research characterization: **93 tests passed across 9 files** (1.92s), with mocked providers, no simulator/database calls. Full workflow implementation and migration approval remain separate work.

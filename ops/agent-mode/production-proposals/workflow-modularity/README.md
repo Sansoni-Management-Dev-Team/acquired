@@ -4,7 +4,7 @@ Status: WF-02 in progress. **Not an approval-ready migration bundle. No migratio
 
 The catalog preflight is SELECT-only evidence collection, not a migration. It was executed on 2026-10-24 through the deployed Acquire container against the configured Supabase project `njasjqpztiteionfxxul`, in a read-only transaction, with one connection, a 5s server statement timeout and 8s client query timeout. Results: 31 tables, 408 columns, 313 constraints, 98 indexes, 67 policies, 64 triggers and 67 function definitions. All 31 named tables and 50 named function checks were present. PostgreSQL reports 17.6. The existing production ledger contains `native-agent-baseline-v1` and `hosted-demo-registration-v1`; these labels alone are not hash verification.
 
-Private raw evidence: `.local-data/workflow-modularity/catalog.private.json`. Do not commit raw function definitions without review for embedded historical configuration. No production business rows, local database, simulator or provider were accessed by this inventory.
+The initial catalog findings are recorded in `docs/workflow-modularity/schema-audit.md`. A follow-up inventory extended the SELECT to transitive helper functions, but its SSH connection timed out before database execution after the AI release removed its temporary access rule. The initial raw response was overwritten by the failed probe; the private probe has been corrected to preserve prior successful output on failures. A fresh complete catalog capture remains required before SQL freeze. Do not commit raw function definitions without review for embedded historical configuration. No production business rows, local database, simulator or provider were accessed by this inventory.
 
 ## Planned complete approval units
 
