@@ -118,7 +118,7 @@ export async function runNativeAgentTick(options:{businessTime?:AgentBusinessTim
    if(recovered.found&&'noSubmission'in recovered)return {known:true};
    if(recovered.outcome.status!=='submitted')return {known:false};
    await store.markNativeCommunicationsOutcome(threadId,operationId,recovered.outcome);return {known:true};
-  },refreshProviderHistory:async(threadId,conversationId)=>{await communications.refresh(threadId,conversationId);},dispatchProvider:async(threadId,operationId,authority,delegation)=>{
+  },refreshProviderHistory:async(threadId,conversationId,signal)=>{await communications.refresh(threadId,conversationId,signal);},dispatchProvider:async(threadId,operationId,authority,delegation)=>{
    const record=await store.channelDispatchRecord(threadId,operationId);
    const outcome=await communications.dispatch(threadId,record.conversation.id,operationId,authority,delegation);
    if(outcome.status==='unknown'&&(await store.channelDispatchRecord(threadId,operationId)).notSubmitted)return;
