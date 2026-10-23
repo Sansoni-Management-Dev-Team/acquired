@@ -1,8 +1,9 @@
 import {afterEach,beforeEach,it,expect,vi} from 'vitest';
 import {ZodError} from 'zod';
 vi.mock('server-only',()=>({}));
-const f=vi.hoisted(()=>({query:vi.fn(),status:vi.fn(),admission:vi.fn(),refresh:vi.fn(),read:vi.fn(),recover:vi.fn(),dispatch:vi.fn(),saveIdentity:vi.fn(),settle:vi.fn(),policy:vi.fn(),catchup:vi.fn(),deliveryFactory:vi.fn(),capture:vi.fn(),localConfig:vi.fn(),hosted:vi.fn(),relationship:vi.fn()}));
+const f=vi.hoisted(()=>({query:vi.fn(),status:vi.fn(),admission:vi.fn(),refresh:vi.fn(),read:vi.fn(),recover:vi.fn(),dispatch:vi.fn(),saveIdentity:vi.fn(),settle:vi.fn(),policy:vi.fn(),catchup:vi.fn(),deliveryFactory:vi.fn(),capture:vi.fn(),localConfig:vi.fn(),hosted:vi.fn(),relationship:vi.fn(),coverageCheckpoints:vi.fn()}));
 vi.mock('@/db/campaign-client',()=>({withCampaignDb:async(_actor:unknown,work:(c:unknown)=>unknown)=>work({query:f.query})}));
+vi.mock('./agent-dispatch-coverage',()=>({readAgentDispatchCoverage:f.coverageCheckpoints}));
 vi.mock('./agent-simulator-test-policy',()=>({localSimulatorTestPolicy:f.policy}));
 vi.mock('./agent-recorded-reply-identity',()=>({registerNativeReplyIdentity:(actor:unknown,input:{identity:unknown})=>f.saveIdentity(actor,input.identity),registerNativeReplyIdentities:async(actor:unknown,inputs:Array<{identity:unknown}>)=>{for(const input of inputs)await f.saveIdentity(actor,input.identity);}}));
 vi.mock('./communications-client',()=>({actorCommunicationsClient:async()=>({connectionStatus:f.status,inspectRelationship:f.relationship})}));
@@ -293,4 +294,43 @@ it('preserves an already recovered receipt when cancellation happens during rece
  f.recover.mockImplementationOnce(async()=>{controller.abort();return {found:true,outcome:{status:'submitted',receipt:{}}};});
  expect(await x.service.dispatch('thread',conversation,operation,undefined,undefined,controller.signal)).toMatchObject({status:'submitted'});
  expect(f.read).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+});
+
+async function preparedDispatchFixture(){
+ const x=await capturedAccountFixture();
+ Object.assign(x.routes[0],{historyComplete:true,historyObservedAt:new Date().toISOString()});
+ const descriptor={version:1,mode:'hosted-demo',phase:'active',runId:'hosted-demo-example',integrationId:'sim-hosted-demo-example',configurationReference:'sim-hosted-demo-example-v1',applicationOrigin:'https://acquire.example.invalid',serviceOrigin:'https://simulator.example.invalid',setupOrigin:'https://simulator.example.invalid',actor:{applicationId:'acquire',tenantId:actor.organizationId,ownerId:actor.userId},capabilities:{dynamicRecipients:true,recipientContextLookup:true,remoteApplicationAuthority:true,durableEvents:true},bindings:[{applicationId:binding.application_id,tenantId:binding.organization_id,ownerId:binding.owner_user_id,connectionId:binding.service_connection_id,accountId:binding.service_account_id,generation:binding.generation,channel:binding.channel,platform:binding.platform,backend:binding.backend}]};
+ for(const[k,v]of Object.entries({NODE_ENV:'production',APP_URL:descriptor.applicationOrigin,AGENT_HOSTED_DEMO_COMMUNICATIONS_ENABLED:'true',AGENT_HOSTED_DEMO_COMMUNICATIONS_DESCRIPTOR_JSON:JSON.stringify(descriptor)}))vi.stubEnv(k,v);
+ const store={...x.store,historyAccountSnapshot:vi.fn(async()=>({conversation:x.record.conversation,accounts:[x.record.originalAccount],routes:x.routes}))};
+ f.coverageCheckpoints.mockResolvedValue({scopes:[{bindingId:x.routes[0].bindingId,scopeDigest:'a'.repeat(64)}],pendingBindingId:null});
+ return {...x,store,service:configuredAgentCommunications(actor,store as never)};
+}
+it('uses fresh durable coverage hints for final dispatch without another provider scan',async()=>{
+ const x=await preparedDispatchFixture();await x.service.prepareDispatch('thread',conversation,operation);
+ expect(x.store.historyAccountSnapshot).toHaveBeenCalledOnce();
+ await x.service.dispatch('thread',conversation,operation);
+ expect(f.read).not.toHaveBeenCalled();expect(f.catchup).not.toHaveBeenCalled();expect(f.dispatch).toHaveBeenCalledOnce();expect(x.store.beginNativeCommunicationsMessage).toHaveBeenCalledOnce();
+});
+it('projects one lagging scope as a separate checkpoint before any admission',async()=>{
+ const x=await preparedDispatchFixture();f.coverageCheckpoints.mockResolvedValue({scopes:[{bindingId:x.routes[0].bindingId,scopeDigest:'a'.repeat(64)}],pendingBindingId:x.routes[0].bindingId});
+ await expect(x.service.prepareDispatch('thread',conversation,operation)).rejects.toMatchObject({historyError:{name:'AgentHistoryCheckpointPendingError'}});
+ expect(f.catchup).toHaveBeenCalledOnce();expect(f.read).not.toHaveBeenCalled();expect(x.store.beginNativeCommunicationsMessage).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+});
+
+it('never prepares new history when an original send may already exist',async()=>{
+ const x=await preparedDispatchFixture();x.store.preBeginHistoryRetryProof.mockResolvedValue(false);
+ await x.service.prepareDispatch('thread',conversation,operation);
+ expect(f.coverageCheckpoints).not.toHaveBeenCalled();expect(f.read).not.toHaveBeenCalled();
+ f.recover.mockResolvedValueOnce({found:true,outcome:{status:'submitted',receipt:{}}});
+ expect(await x.service.dispatch('thread',conversation,operation)).toMatchObject({status:'submitted'});expect(f.dispatch).not.toHaveBeenCalled();
+});
+it('rejects a route change after preparation and consumes its hints only once',async()=>{
+ const x=await preparedDispatchFixture();await x.service.prepareDispatch('thread',conversation,operation);
+ x.routes[0]={...x.routes[0],bindingDigest:'b'.repeat(64)};
+ await expect(x.service.dispatch('thread',conversation,operation)).rejects.toThrow();
+ expect(x.store.beginNativeCommunicationsMessage).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+});
+it('does not retain successful checkpoint hints for another dispatch call',async()=>{
+ const x=await preparedDispatchFixture();await x.service.prepareDispatch('thread',conversation,operation);await x.service.dispatch('thread',conversation,operation);
+ expect(f.read).not.toHaveBeenCalled();await x.service.dispatch('thread',conversation,operation);expect(f.read).toHaveBeenCalledOnce();
 });

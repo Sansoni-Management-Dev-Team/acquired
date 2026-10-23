@@ -249,7 +249,19 @@ it('passes the worker cancellation signal into approved and delegated dispatch',
  x.mock.delegatedDispatchTarget.mockResolvedValue({id,conversationId:id,deliveryMode:'communications',grant}as never);
  const handlers=createNativeAgentHandlers({store:x.mock as never,dispatchProvider:dispatch});
  await handlers['review.approved']({...execution,event:{...event,kind:'review.approved',payload:{reviewBatchId:id}}});
- expect(dispatch).toHaveBeenLastCalledWith(id,id,expect.any(Object),undefined,execution.signal);
+ expect(dispatch).toHaveBeenLastCalledWith(id,id,expect.any(Object),undefined,execution.signal,id);
  await handlers['email.proposed']({...execution,event:{...event,kind:'email.proposed',payload:{operationId:id}}});
- expect(dispatch).toHaveBeenLastCalledWith(id,id,expect.any(Object),grant,execution.signal);
+ expect(dispatch).toHaveBeenLastCalledWith(id,id,expect.any(Object),grant,execution.signal,id);
+});
+
+it('continues only a successful pre-begin history checkpoint and retains ordinary failure retries',async()=>{
+ const {AgentPreBeginHistoryError}=await import('./agent-pre-begin-history-error');
+ const {AgentHistoryCheckpointPendingError}=await import('./agent-history-checkpoint');
+ const x=fixture(),continuation=vi.fn(async()=>({kind:'complete'as const})),dispatch=vi.fn().mockRejectedValue(new AgentPreBeginHistoryError(id,id,id,new AgentHistoryCheckpointPendingError()));
+ x.mock.reviewDispatchTargets.mockResolvedValue([{id,conversationId:id,name:'email.initial',delivery_mode:'communications'}]);
+ const handlers=createNativeAgentHandlers({store:x.mock as never,dispatchProvider:dispatch,continueDispatchPreparation:continuation});
+ const input={...execution,event:{...event,kind:'review.approved',payload:{reviewBatchId:id}}};
+ expect(await handlers['review.approved'](input)).toEqual({kind:'complete'});expect(continuation).toHaveBeenCalledWith(input);
+ continuation.mockClear();dispatch.mockRejectedValue(new AgentPreBeginHistoryError(id,id,id,Error('transport')));
+ expect(await handlers['review.approved'](input)).toMatchObject({kind:'defer'});expect(continuation).not.toHaveBeenCalled();
 });

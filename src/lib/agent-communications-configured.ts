@@ -1,3 +1,4 @@
+import {readAgentDispatchCoverage} from './agent-dispatch-coverage';
 import {AgentHistoryCheckpointPendingError} from './agent-history-checkpoint';
 import{businessNow}from'../../communications/packages/core/src/business-clock';
 import{campaignSendWindowOpen,nextAllowedCampaignSend}from'../domain/campaign';
@@ -91,11 +92,11 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
  // Reuse only the original ports constructed by this dispatch, after reading
  // the current route list again. History, coverage and final SQL admission are
  // still fresh; no metadata or authority survives into another dispatch call.
- async function refresh(threadId:string,conversationId:string,prepared?:PreparedRoutePorts,signal?:AbortSignal,checkpointSince?:string){
+ async function refresh(threadId:string,conversationId:string,prepared?:PreparedRoutePorts,signal?:AbortSignal,checkpointSince?:string,initialSnapshot?:Awaited<ReturnType<NonNullable<ConfiguredAgentStore['historyAccountSnapshot']>>>){
   const observe=cancellationObserver(signal);signal?.throwIfAborted();
   // Capture routes and their immutable account metadata in one actor-scoped
   // read transaction. It is refresh input only, never dispatch authority.
-  const snapshot=!prepared&&store.channelRoutes&&store.historyAccountSnapshot?await store.historyAccountSnapshot(threadId,conversationId):undefined;
+  const snapshot=initialSnapshot??(!prepared&&store.channelRoutes&&store.historyAccountSnapshot?await store.historyAccountSnapshot(threadId,conversationId):undefined);
   signal?.throwIfAborted();
   const routes=snapshot?.routes??(store.channelRoutes?await store.channelRoutes(threadId,conversationId):[]);
   signal?.throwIfAborted();
@@ -165,18 +166,60 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
   await observe('refresh.ingest',()=>store.ingestHistory(threadId,conversationId,{source:history.source,observedAt:history.observedAt,complete:true,messages:history.messages}));
   return [{bindingId:row.binding_id as string,scopeDigest:history.scopeDigest}];
  }
+ // Invocation-local hints only; final service/application admission remains authoritative.
+ const preparedCheckpoints=new Map<string,{threadId:string;conversationId:string;routes:RecordedRoute[];scopes:Array<{bindingId:string;scopeDigest:string}>}>();
+ async function prepareDispatch(threadId:string,conversationId:string,operationId:string,signal?:AbortSignal){
+  preparedCheckpoints.delete(operationId);
+  signal?.throwIfAborted();
+  if(time||process.env.AGENT_HOSTED_DEMO_COMMUNICATIONS_ENABLED!=='true')return;
+  const descriptor=readHostedDemoCommunicationsDescriptor(process.env);
+  if(descriptor.actor.tenantId!==actor.organizationId||descriptor.actor.ownerId!==actor.userId)return;
+  const originalSnapshot=await store.historyAccountSnapshot?.(threadId,conversationId),originalRoutes=originalSnapshot?.routes;
+  if(!originalSnapshot||!originalRoutes?.length)return;
+  const hosted=originalRoutes.map(route=>{const account=originalSnapshot.accounts.find(a=>a.id===route.bindingId);return descriptor.bindings.some(binding=>binding.connectionId===account?.service_connection_id);});
+  if(!hosted.some(Boolean))return;
+  if(!hosted.every(Boolean))throw Error('Mixed original dispatch accounts require review');
+  // An existing/uncertain submission must go directly to original receipt recovery.
+  if(!await store.preBeginHistoryRetryProof?.(threadId,operationId,conversationId))return;
+  try{
+   await refresh(threadId,conversationId,undefined,signal,new Date(Date.now()-255000).toISOString(),originalSnapshot);
+   signal?.throwIfAborted();
+   const snapshot=originalSnapshot,routes=snapshot.routes;
+   if(!snapshot||!routes?.length||routes.some(r=>!r.historyObservedAt))throw Error('Original dispatch route checkpoints unavailable');
+   const selected=[];
+   for(const route of routes){signal?.throwIfAborted();selected.push({route,...await originalAccount(threadId,conversationId,route,{conversation:snapshot.conversation,originalAccount:snapshot.accounts.find(a=>a.id===route.bindingId)})});}
+   const coverage=await readAgentDispatchCoverage(actor,routes.map(r=>({bindingId:r.bindingId,historyObservedAt:r.historyObservedAt!})),process.env.AGENT_HOSTED_DEMO_SUBSCRIBER_ID??'acquire-hosted-demo-replies');
+   signal?.throwIfAborted();
+   if(coverage.pendingBindingId){
+    const item=selected.find(item=>item.bindingId===coverage.pendingBindingId),scope=coverage.scopes.find(scope=>scope.bindingId===coverage.pendingBindingId);
+    if(!item||!scope)throw Error('Original coverage scope unavailable');
+    const runtime=configuredHostedDemoRuntime(),host=createHostedDemoNativeFacade(runtime);
+    await host.revalidateAgentChannelCoverage([{binding:item.binding,...scope}],signal);
+    signal?.throwIfAborted();throw new AgentHistoryCheckpointPendingError();
+   }
+   preparedCheckpoints.set(operationId,{threadId,conversationId,routes:structuredClone(routes),scopes:coverage.scopes});
+  }catch(error){signal?.throwIfAborted();throw new AgentPreBeginHistoryError(threadId,conversationId,operationId,error);}
+ }
  async function operationAccount(threadId:string,conversationId:string,operationId:string){
   const record=store.channelDispatchRecord?await store.channelDispatchRecord(threadId,operationId,{includeOriginalAccount:true}):null;
   if(record&&(record.conversation.id!==conversationId||record.operation.input?.routeId&&!record.route))throw Error('Recorded operation route needs review');
   return {route:record?.route??undefined,captured:record&&Object.hasOwn(record,'originalAccount')?record:undefined};
  }
- return {refreshCheckpoint:(threadId:string,conversationId:string,since:string,signal?:AbortSignal)=>withDispatchObservation({threadId,conversationId},()=>refresh(threadId,conversationId,undefined,signal,since)),refresh:(threadId:string,conversationId:string,signal?:AbortSignal)=>withDispatchObservation({threadId,conversationId},()=>refresh(threadId,conversationId,undefined,signal)),async recover(threadId:string,conversationId:string,operationId:string){return withDispatchObservation({threadId,conversationId,operationId},async()=>{const {route,captured}=await operationAccount(threadId,conversationId,operationId),recovered=await (await ports(threadId,conversationId,route,captured)).delivery.recover(operationId);if(recovered.found&&'noSubmission'in recovered)await (dbOptions?settleAgentNoSubmission(actor,operationId,recovered.noSubmission,dbOptions):settleAgentNoSubmission(actor,operationId,recovered.noSubmission));return recovered;});},async dispatch(threadId:string,conversationId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number},signal?:AbortSignal){return withDispatchObservation({threadId,conversationId,operationId},async()=>{
+ return {prepareDispatch,refreshCheckpoint:(threadId:string,conversationId:string,since:string,signal?:AbortSignal)=>withDispatchObservation({threadId,conversationId},()=>refresh(threadId,conversationId,undefined,signal,since)),refresh:(threadId:string,conversationId:string,signal?:AbortSignal)=>withDispatchObservation({threadId,conversationId},()=>refresh(threadId,conversationId,undefined,signal)),async recover(threadId:string,conversationId:string,operationId:string){return withDispatchObservation({threadId,conversationId,operationId},async()=>{const {route,captured}=await operationAccount(threadId,conversationId,operationId),recovered=await (await ports(threadId,conversationId,route,captured)).delivery.recover(operationId);if(recovered.found&&'noSubmission'in recovered)await (dbOptions?settleAgentNoSubmission(actor,operationId,recovered.noSubmission,dbOptions):settleAgentNoSubmission(actor,operationId,recovered.noSubmission));return recovered;});},async dispatch(threadId:string,conversationId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number},signal?:AbortSignal){return withDispatchObservation({threadId,conversationId,operationId},async()=>{
   signal?.throwIfAborted();
+  const checkpoint=preparedCheckpoints.get(operationId);preparedCheckpoints.delete(operationId);
   const {route,captured}=await operationAccount(threadId,conversationId,operationId),capturedRoute=route?structuredClone(route):undefined,preparedPorts=await observed('dispatch.ports',()=>ports(threadId,conversationId,route,captured,signal)),recovered=await observed('dispatch.recover',()=>preparedPorts.delivery.recover(operationId));
   if(recovered.found){if('noSubmission'in recovered){await (dbOptions?settleAgentNoSubmission(actor,operationId,recovered.noSubmission,dbOptions):settleAgentNoSubmission(actor,operationId,recovered.noSubmission));return {status:'unknown' as const};}return recovered.outcome;}
   signal?.throwIfAborted();
   let coverageScopes:Array<{bindingId:string;scopeDigest:string}>;
-  try{coverageScopes=await refresh(threadId,conversationId,capturedRoute?{route:capturedRoute,ports:preparedPorts}:undefined,signal);}catch(error){
+  try{
+   if(checkpoint){
+    const current=await store.channelRoutes?.(threadId,conversationId),now=Date.now();signal?.throwIfAborted();
+    const fresh=(at:string|null|undefined)=>!!at&&Date.parse(at)<=now&&Date.parse(at)>=now-255000;
+    if(checkpoint.threadId!==threadId||checkpoint.conversationId!==conversationId||!current||current.length!==checkpoint.routes.length||current.some(r=>!checkpoint.routes.some(old=>sameRoute(old,r))||!r.historyComplete||!fresh(r.historyObservedAt)||r.channel==='linkedin'&&store.ingestChannelRelationship&&!fresh(r.relationshipObservedAt)))throw new AgentHistoryCheckpointPendingError();
+    coverageScopes=checkpoint.scopes;
+   }else coverageScopes=await refresh(threadId,conversationId,capturedRoute?{route:capturedRoute,ports:preparedPorts}:undefined,signal);
+  }catch(error){
    signal?.throwIfAborted();
    let preBegin=false;try{preBegin=await store.preBeginHistoryRetryProof?.(threadId,operationId,conversationId)===true;}catch{/* Missing current proof cannot authorize a retry. */}
    if(preBegin)throw new AgentPreBeginHistoryError(threadId,conversationId,operationId,error);
