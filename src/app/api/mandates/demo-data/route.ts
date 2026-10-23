@@ -7,9 +7,9 @@ import {NativeMandateCreateError} from '@/lib/agent-native-create';
 import {cachedDemoStatusQuerySchema,readCachedDemoStatus} from '@/lib/cached-demo-status';
 import {traceOperation} from '../../../../../communications/packages/core/src/operation-trace';
 const headers={'Cache-Control':'private, no-store'};
-async function actor(request:Request){const session=await auth.api.getSession({headers:request.headers});return session?.session.activeOrganizationId?{organizationId:session.session.activeOrganizationId,userId:session.user.id}:undefined;}
+async function actor(request:Request){try{const session=await auth.api.getSession({headers:request.headers});return session?.session.activeOrganizationId?{organizationId:session.session.activeOrganizationId,userId:session.user.id}:undefined;}catch{return Response.json({error:'Sign-in status is temporarily unavailable. Please try again.'},{status:503,headers});}}
 export async function GET(request:Request){
- const scoped=await actor(request);if(!scoped)return Response.json({error:'Sign in and select an organisation.'},{status:401,headers});
+ const scoped=await actor(request);if(scoped instanceof Response)return scoped;if(!scoped)return Response.json({error:'Sign in and select an organisation.'},{status:401,headers});
  const params=new URL(request.url).searchParams;
  if(params.size){
   const parsed=cachedDemoStatusQuerySchema.safeParse(Object.fromEntries(params));
@@ -22,7 +22,7 @@ export async function GET(request:Request){
 }
 export async function POST(request:Request){
  const denied=guardBrowserMutation(request);if(denied)return denied;
- const scoped=await actor(request);if(!scoped)return Response.json({error:'Sign in and select an organisation.'},{status:401,headers});
+ const scoped=await actor(request);if(scoped instanceof Response)return scoped;if(!scoped)return Response.json({error:'Sign in and select an organisation.'},{status:401,headers});
  const text=await request.text();if(text.length>2000)return Response.json({error:'Demo request is too large.'},{status:413,headers});
  let raw:unknown;try{raw=JSON.parse(text);}catch{return Response.json({error:'Invalid demo request.'},{status:400,headers});}
  const parsed=cachedDemoCreateSchema.safeParse(raw);if(!parsed.success)return Response.json({error:'Invalid saved-data demo request.'},{status:400,headers});

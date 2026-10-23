@@ -1,4 +1,5 @@
 "use client";
+import {readJsonResponse} from '@/lib/read-json-response';
 
 import { randomUuid } from "@/lib/random-uuid";
 
@@ -54,7 +55,7 @@ export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true,
       if(mode==='demo'||demoSource.current){
         if(!demoSource.current){
           setProgress('Loading saved company and people data…');
-          const response=await fetch('/api/mandates/demo-data',{cache:'no-store',signal:AbortSignal.timeout(cachedDemoRequestTimeoutMs)}),value=await response.json();
+          const response=await fetch('/api/mandates/demo-data',{cache:'no-store',signal:AbortSignal.timeout(cachedDemoRequestTimeoutMs)}),value=await readJsonResponse(response,'Could not load saved demo data. Please try again.');
           if(!response.ok)throw Error(typeof value.error==='string'?value.error:'No saved demo data is available.');
           const parsed=cachedDemoSchema.safeParse(value);if(!parsed.success)throw Error('The saved demo dataset could not be verified.');demoSource.current=parsed.data;
         }
@@ -79,7 +80,7 @@ export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true,
             method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ description }),
             signal: AbortSignal.timeout(45000),
           });
-          const draft = await generated.json() as { brief?: AcquisitionBrief; error?: string };
+          const draft = await readJsonResponse(generated,'Could not create a mandate from your description. Please try again.') as { brief?: AcquisitionBrief; error?: string };
           if (!generated.ok || !draft.brief) throw new Error(draft.error || "Could not create a mandate from your description.");
           brief = draft.brief;
         }
@@ -96,7 +97,7 @@ export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true,
           method: "POST", headers: { "Content-Type": "application/json" }, body: native ? nativeCreateRequest.current! : JSON.stringify(brief),
           signal: AbortSignal.timeout(15000),
         });
-        const result = await saved.json() as { id?: string; revision?: string; error?: string };
+        const result = await readJsonResponse(saved,'Could not confirm the saved mandate. Check saved progress before retrying.') as { id?: string; revision?: string; error?: string };
         if (!saved.ok || !result.id) throw new Error(result.error || "Could not save the mandate.");
         if(native&&(!result.revision || !/^\d{1,30}$/.test(result.revision)))throw new Error("Could not confirm the saved mandate revision. Retry this exact request.");
         id = result.id;
@@ -113,7 +114,7 @@ export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true,
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ requestId: researchRequestId.current, fromBrief: true }),
         signal: AbortSignal.timeout(30000),
       });
-      const researchResult = await research.json() as { error?: string; jobId?: string };
+      const researchResult = await readJsonResponse(research,'Could not confirm the research request. Check saved progress before retrying.') as { error?: string; jobId?: string };
       if (!research.ok && !(research.status === 409 && researchResult.error?.includes("already running"))) throw new Error(researchResult.error || "Could not start company research.");
       if (agentMode) {
         router.push(`/mandates/${id}/agent`);

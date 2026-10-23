@@ -1,4 +1,5 @@
 'use client';
+import {readJsonResponse} from '@/lib/read-json-response';
 import {useEffect,useRef,useState} from 'react';
 import {z} from 'zod';
 import {briefSchema,criterionDefinitions,searchReadiness,type AcquisitionBrief} from '@/domain/acquisition';
@@ -13,7 +14,7 @@ const button='min-h-11 rounded-lg border border-[var(--border)] px-3 py-2 text-s
 export function AgentBriefReview({mandateId,busy=false,onReviewed,forceOpen=false}:Props){
  const [saved,setSaved]=useState<z.infer<typeof savedSchema>>(),[draft,setDraft]=useState<AcquisitionBrief>(),[execution,setExecution]=useState<z.infer<typeof executionSchema>>(),[error,setError]=useState(''),[working,setWorking]=useState(false),[done,setDone]=useState(false),[loadedFor,setLoadedFor]=useState(''),[attemptView,setAttemptView]=useState<{saved:boolean;control:boolean;blocked:boolean}|null>(null);
  const attempt=useRef<Attempt|null>(null),lock=useRef(false),generation=useRef(0);
- async function read(path:string){const response=await fetch(path,{cache:'no-store',signal:AbortSignal.timeout(15000)});if(!response.ok)throw Error('The saved brief and agent status could not be loaded.');return response.json();}
+ async function read(path:string){const response=await fetch(path,{cache:'no-store',signal:AbortSignal.timeout(15000)});if(!response.ok)throw Error('The saved brief and agent status could not be loaded.');return readJsonResponse(response,'Could not confirm the saved brief or supervision. Check saved progress before retrying.');}
  async function load(token:number){try{const[b,e]=await Promise.all([read(`/api/mandates/${mandateId}?briefOnly=true`),read(`/api/mandates/${mandateId}/agent/execution`)]),current=savedSchema.parse(b.mandate),status=executionSchema.parse(e);if(generation.current!==token)return;setSaved(current);setDraft(current.brief);setExecution(status);setError('');setDone(false);setLoadedFor(mandateId);attempt.current=null;setAttemptView(null);}catch{if(generation.current===token)setError('Could not load the saved brief. Check the connection, then reload it.');}}
  useEffect(()=>{const token=++generation.current;void load(token);return()=>{generation.current++;};},[mandateId]); // eslint-disable-line react-hooks/exhaustive-deps
  // Opening the existing card changes presentation only. A completed review
@@ -29,7 +30,7 @@ export function AgentBriefReview({mandateId,busy=false,onReviewed,forceOpen=fals
     const updated=briefSchema.parse(draft);let response:Response;
     try{response=await fetch(`/api/mandates/${mandateId}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'brief',brief:updated,expectedRevision:saved.revision}),signal:AbortSignal.timeout(30000)});}catch{current.blocked=true;throw Error('The brief save could not be confirmed. Reload the saved brief before continuing.');}
     if(!response.ok){current.blocked=true;throw Error(response.status===409?'The saved brief changed. Reload and review it before continuing.':'The brief could not be saved. Reload it before continuing.');}
-    try{current.saved=savedSchema.parse(await response.json());if(JSON.stringify(current.saved.brief)!==JSON.stringify(updated))throw Error();}catch{current.saved=undefined;current.blocked=true;throw Error('The saved brief receipt could not be verified. Reload before continuing.');}
+    try{current.saved=savedSchema.parse(await readJsonResponse(response,'Could not confirm the saved brief or supervision. Check saved progress before retrying.'));if(JSON.stringify(current.saved.brief)!==JSON.stringify(updated))throw Error();}catch{current.saved=undefined;current.blocked=true;throw Error('The saved brief receipt could not be verified. Reload before continuing.');}
    }
    if(!current.control){
     const state=executionSchema.parse(await read(`/api/mandates/${mandateId}/agent/execution`));

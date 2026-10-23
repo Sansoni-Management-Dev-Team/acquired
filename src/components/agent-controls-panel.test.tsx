@@ -332,7 +332,7 @@ it('waits at the welcome prompt for a new live mandate and starts the existing r
 it('shows a plain retry message for an HTML failure response instead of exposing a JSON parser error',async()=>{
  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('document',{visibilityState:'visible'});vi.useFakeTimers();const{create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;
  vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response('<!DOCTYPE html><title>Not found</title>',{status:404,headers:{'Content-Type':'text/html'}})));
- try{await act(()=>{tree=create(<AgentControlsPanel mandateId="mandate" initial={preparedDemo()}>{setup=><article aria-label="Chat steps">{setup}</article>}</AgentControlsPanel>);});await act(async()=>tree!.root.findAllByType('button').find(button=>button.props.children==='Review outreach contacts')!.props.onClick());const text=JSON.stringify(tree!.toJSON());expect(text).toContain('Could not complete this step. Please try again.');expect(text).not.toContain('Unexpected token');expect(text).not.toContain('DOCTYPE');}finally{if(tree)await act(()=>tree!.unmount());vi.useRealTimers();vi.unstubAllGlobals();}
+ try{await act(()=>{tree=create(<AgentControlsPanel mandateId="mandate" initial={preparedDemo()}>{setup=><article aria-label="Chat steps">{setup}</article>}</AgentControlsPanel>);});await act(async()=>tree!.root.findAllByType('button').find(button=>button.props.children==='Review outreach contacts')!.props.onClick());const text=JSON.stringify(tree!.toJSON());expect(text).toContain('Could not confirm this action. Check saved progress before trying again.');expect(text).not.toContain('Unexpected token');expect(text).not.toContain('DOCTYPE');}finally{if(tree)await act(()=>tree!.unmount());vi.useRealTimers();vi.unstubAllGlobals();}
 });
 
 it('keeps All selected without automatically retrying an unchanged saved empty contact selection',async()=>{
@@ -367,4 +367,15 @@ it.each([22000,95000])('keeps Start busy through preparation, with bounded safe 
   if(duration===22000)expect(tree!.root.findAllByProps({role:'alert'})).toHaveLength(0);
   else{await act(async()=>{await vi.advanceTimersByTimeAsync(69000);});expect(JSON.stringify(tree!.toJSON())).toContain('Press Start again to check the same saved request');expect(JSON.stringify(tree!.toJSON())).not.toContain('signal timed out');expect(posts).toHaveLength(1);await act(()=>tree!.root.findAllByType('button').find(b=>b.props.children==='Start')!.props.onClick());expect(posts).toHaveLength(2);expect(posts[0].body).toBe(posts[1].body);}
  }finally{if(tree)await act(()=>tree!.unmount());vi.restoreAllMocks();vi.useRealTimers();vi.unstubAllGlobals();}
+});
+
+it.each([200,503])('retains the original Start request when the response body is empty (status=%s)',async status=>{
+ vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('document',{visibilityState:'hidden'});const{create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;
+ const initial=selectedEmailReadiness();initial.demoPreparationEnabled=true;initial.state!.executionMode='demo';initial.state!.demoContacts={prepared:0,stale:0,outreachReady:false};initial.channelPolicy={enabled:true,policy:null,accounts:[]};
+ const saved=vi.fn(),fetcher=vi.fn().mockImplementation(async()=>new Response('',{status}));vi.stubGlobal('fetch',fetcher);
+ try{await act(()=>{tree=create(<AgentControlsPanel mandateId="mandate" initial={initial} initialResearchSource="cached" initialResearchStatus="complete" onActionSaved={saved}>{setup=><article>{setup}</article>}</AgentControlsPanel>);});
+  const start=()=>tree!.root.findAllByType('button').find(b=>b.props.children==='Start')!.props.onClick();await act(async()=>{start();});
+  expect(saved).not.toHaveBeenCalled();expect(JSON.stringify(tree!.toJSON())).toContain('Could not confirm this action. Check saved progress before trying again.');expect(JSON.stringify(tree!.toJSON())).not.toContain('Unexpected end');
+  expect(fetcher).toHaveBeenCalledOnce();await act(async()=>{start();});expect(fetcher).toHaveBeenCalledTimes(2);expect(fetcher.mock.calls[0][1].body).toBe(fetcher.mock.calls[1][1].body);
+ }finally{if(tree)await act(()=>tree!.unmount());vi.unstubAllGlobals();}
 });

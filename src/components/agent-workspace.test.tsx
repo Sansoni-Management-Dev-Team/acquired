@@ -157,3 +157,13 @@ it('keeps context focused on the brief and hides empty demo diagnostics and sequ
  const text=JSON.stringify(tree!.toJSON());expect(text).toContain('Saved buyer criteria');expect(text).not.toContain('Jobs recorded');expect(text).not.toContain('Open sequence builder');expect(text).not.toContain('Saved guidance (0)');
  }finally{if(tree)await act(()=>tree!.unmount());}
 });
+
+it.each([200,503])('keeps a review unconfirmed when its HTTP response is empty, without leaking a parser error (status=%s)',async status=>{
+ vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('requestAnimationFrame',vi.fn());const fetcher=vi.fn().mockImplementation(async()=>new Response('',{status}));vi.stubGlobal('fetch',fetcher);
+ const batch={id:'batch',revision:1,state:'pending' as const,stale:false,manifest:[{operationId:'op',revision:1,digest:'a'.repeat(64)}],operations:[{id:'op',name:'email.reply',revision:1,state:'proposed',input:{body:'Saved draft.'}}]};
+ const{create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;
+ try{await act(()=>{tree=create(<AgentWorkspace initial={initial} conversation={{threadId:'saved-thread',messages:[]}}/>);});await act(()=>activity.apply!({conversation:{messages:[]},batches:[batch],guidance:[]}));let result:unknown;
+  await act(async()=>{result=await tree!.root.findByType(AgentMessageReviewQueue).props.onEdit(batch,'op',1,'Keep this human edit.');});
+  expect(result).toBe(false);const text=JSON.stringify(tree!.toJSON());expect(text).not.toContain('Unexpected end');expect(text).toContain('Could not confirm the response. Check saved progress before retrying.');expect(fetcher).toHaveBeenCalledOnce();
+ }finally{if(tree)await act(()=>tree!.unmount());}
+});

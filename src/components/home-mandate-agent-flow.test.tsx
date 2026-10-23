@@ -151,3 +151,9 @@ it.each([false,true])('recovers an already saved demo after its creation respons
  expect(statusUrl.pathname).toBe('/api/mandates/demo-data');expect(statusUrl.searchParams.get('requestId')).toBe(body.requestId);expect(mocks.push).toHaveBeenCalledExactlyOnceWith(native?`/mandates/${body.requestId}/agent`:`/mandates/${body.requestId}?tab=targets`);expect(statusUrl.searchParams.get('sourceMandateId')).toBe(cachedDemo.sourceMandateId);expect(statusUrl.searchParams.get('presentation')).toBe(native?'agent':'workspace');
  expect(calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1);
 });
+
+it.each([200,503])('handles an empty demo-data response without exposing a JSON parser failure (status=%s)',async status=>{
+ await mount(true);vi.mocked(fetch).mockResolvedValueOnce(new Response('',{status}));
+ await act(async()=>{renderer.root.findAllByType('button').find(b=>b.children.join('')==='Run demo')!.props.onClick();});
+ const text=JSON.stringify(renderer.toJSON());expect(text).toContain('Could not load saved demo data. Please try again.');expect(text).not.toContain('Unexpected end');expect(mocks.push).not.toHaveBeenCalled();expect(vi.mocked(fetch).mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(0);
+});

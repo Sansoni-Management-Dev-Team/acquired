@@ -1,4 +1,5 @@
 "use client";
+import {readJsonResponse} from '@/lib/read-json-response';
 import { AgentWelcome } from "./agent-welcome";
 import {AgentChatSurface,AgentChatStatus} from "./agent-chat-ui";
 import type {AgentReviewBatchView} from "./agent-review-cards";
@@ -190,7 +191,7 @@ export function AgentControlsPanel({
         signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
       });
       if (!response.ok) throw new Error("Agent controls could not be loaded.");
-      return response.json();
+      return readJsonResponse(response,'Current agent status is temporarily unavailable. Please try again.');
     };
     const [execution, inbox, authority, targetOptions, runtime, channelPolicy] =
       await Promise.all([
@@ -232,7 +233,7 @@ export function AgentControlsPanel({
             },
           );
           if (!response.ok) throw new Error("Agent controls unavailable");
-          return response.json();
+          return readJsonResponse(response,'Current agent status is temporarily unavailable. Please try again.');
         };
         const [
           execution,
@@ -303,11 +304,7 @@ export function AgentControlsPanel({
           body: JSON.stringify({ ...command, requestKey }),
           signal: AbortSignal.timeout(kind === "demo" && command.action === "start" ? 90000 : 15000),
         }),
-        result = await response
-          .json()
-          .catch(() => ({
-            error: "Could not complete this step. Please try again.",
-          }));
+        result = await readJsonResponse(response, 'Could not confirm this action. Check saved progress before trying again.');
       if (!response.ok)
         throw new Error(
           typeof result.error === "string"
@@ -1658,7 +1655,7 @@ export function AgentControlsPanel({
                             );
                             if (!response.ok)
                               throw new Error("Ownership preview unavailable");
-                            return (await response.json()).preview;
+                            return (await readJsonResponse(response,'Current agent status is temporarily unavailable. Please try again.')).preview;
                           }}
                           onAdopt={(value) =>
                             mutate("sequence-handover", {

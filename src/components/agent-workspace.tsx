@@ -1,4 +1,5 @@
 "use client";
+import {readJsonResponse} from '@/lib/read-json-response';
 import {isAgentMessageReviewOperation} from '@/domain/agent-operation-classifications';
 
 import {isAgentResearchBriefReviewNotice} from '@/domain/agent-research-notice';
@@ -34,7 +35,7 @@ type SavedConversation={threadId?:string;messages:SavedAgentMessage[]};
 async function fetchReviewBatches(mandateId:string,signal:AbortSignal){
   const response=await fetch(`/api/mandates/${mandateId}/agent/reviews`,{cache:'no-store',signal});
   if(!response.ok)throw new Error('Could not load current review proposals.');
-  return (await response.json() as {batches:AgentReviewBatchView[]}).batches;
+  return (await readJsonResponse(response,'Could not confirm the response. Check saved progress before retrying.') as {batches:AgentReviewBatchView[]}).batches;
 }
 export function AgentWorkspace({ initial, conversation,learningEnabled=false,initialGuidance=[] }: { initial: AgentSnapshot; conversation?:SavedConversation;learningEnabled?:boolean;initialGuidance?:AgentGuidanceView[] }) {
   const agent = useMemo(() => new (conversation?SavedMandateHttpAgent:HttpAgent)({
@@ -99,7 +100,7 @@ function ResearchConversation({ agent,initial,persisted,learningEnabled,initialG
       load:async signal=>{
         const response=await fetch(`/api/mandates/${initial.mandate.id}/agent/activity`,{cache:'no-store',signal:AbortSignal.any([signal,AbortSignal.timeout(15000)])});
         if(!response.ok)throw new Error('Saved activity unavailable');
-        return await response.json() as {conversation:SavedConversation;batches:AgentReviewBatchView[];guidance:AgentGuidanceView[];initialResearch?:AgentSnapshot['initialResearch']};
+        return await readJsonResponse(response,'Could not confirm the response. Check saved progress before retrying.') as {conversation:SavedConversation;batches:AgentReviewBatchView[];guidance:AgentGuidanceView[];initialResearch?:AgentSnapshot['initialResearch']};
       },
       apply:data=>{
         const displayed=agent.messages.filter(message=>message.role==='user'||message.role==='assistant').map(message=>({id:message.id,role:message.role,content:message.content,...('noticeKind' in message?{noticeKind:message.noticeKind}:{}),...('lead' in message?{lead:message.lead}:{})}));
@@ -115,7 +116,7 @@ function ResearchConversation({ agent,initial,persisted,learningEnabled,initialG
   },[agent,initial.mandate.id,isReady,learningEnabled,persisted]);
   async function submitReview(value:unknown){
     const response=await fetch(`/api/mandates/${initial.mandate.id}/agent/reviews`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value),signal:AbortSignal.timeout(15000)});
-    const result=await response.json() as {error?:string};
+    const result=await readJsonResponse(response,'Could not confirm the response. Check saved progress before retrying.') as {error?:string};
     if(!response.ok)throw new Error(result.error||'This review changed. Refresh before trying again.');
   }
   async function approveMessageBatches(batches:AgentReviewBatchView[],shouldContinue:(batch:AgentReviewBatchView)=>boolean=()=>true,simulated=false):Promise<boolean>{
@@ -146,7 +147,7 @@ function ResearchConversation({ agent,initial,persisted,learningEnabled,initialG
     if(lock.current)return false;activityVersion.current++;lock.current=true;setBusy(true);setError('');
     try{
       const response=await fetch(`/api/mandates/${initial.mandate.id}/agent/guidance`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value),signal:AbortSignal.timeout(15000)});
-      const result=await response.json() as {error?:string};if(!response.ok)throw new Error(result.error||'Could not save guidance.');
+      const result=await readJsonResponse(response,'Could not confirm the response. Check saved progress before retrying.') as {error?:string};if(!response.ok)throw new Error(result.error||'Could not save guidance.');
       await refresh();return true;
     }catch(cause){setError(cause instanceof Error?cause.message:'Could not save guidance. Refresh before retrying.');return false;}
     finally{lock.current=false;setBusy(false);}
@@ -154,14 +155,14 @@ function ResearchConversation({ agent,initial,persisted,learningEnabled,initialG
   async function refresh() {
     const response = await fetch(`/api/mandates/${initial.mandate.id}/agent`, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
     if (!response.ok) throw new Error('Status unavailable');
-    const data=await response.json() as AgentSnapshot & {conversation?:SavedConversation};
+    const data=await readJsonResponse(response,'Could not confirm the response. Check saved progress before retrying.') as AgentSnapshot & {conversation?:SavedConversation};
     setSnapshot(data);
     if(data.conversation)agent.setMessages(data.conversation.messages);
     await loadReviews();
     if(learningEnabled){
       const response=await fetch(`/api/mandates/${initial.mandate.id}/agent/guidance`,{cache:'no-store',signal:AbortSignal.timeout(15000)});
       if(!response.ok)throw new Error('Could not refresh saved guidance.');
-      setGuidance((await response.json() as {guidance:AgentGuidanceView[]}).guidance);
+      setGuidance((await readJsonResponse(response,'Could not confirm the response. Check saved progress before retrying.') as {guidance:AgentGuidanceView[]}).guidance);
     }
     setUpdatesPaused(false);
   }
@@ -170,7 +171,7 @@ function ResearchConversation({ agent,initial,persisted,learningEnabled,initialG
     setStopping(true);setError('');
     try{
       const response=await fetch(`/api/mandates/${initial.mandate.id}/agent`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId}),signal:AbortSignal.timeout(15000)});
-      const data=await response.json() as {state?:string;error?:string};
+      const data=await readJsonResponse(response,'Could not confirm the response. Check saved progress before retrying.') as {state?:string;error?:string};
       if(!response.ok)throw new Error(data.error||'Could not stop this turn.');
       stoppedRun.current=runId;agent.abortRun();await refresh();
     }catch(cause){setError(cause instanceof Error?cause.message:'Could not stop. Refresh to check saved state.');}

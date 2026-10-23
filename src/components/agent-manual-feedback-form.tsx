@@ -1,4 +1,5 @@
 'use client';
+import {readJsonResponse} from '@/lib/read-json-response';
 import {useLayoutEffect,useRef,useState} from 'react';
 import {manualFeedbackInputSchema,type AgentManualFeedbackInput} from '@/domain/agent-manual-feedback';
 import {randomUuid} from '@/lib/random-uuid';
@@ -16,7 +17,7 @@ export function AgentManualFeedbackForm({mandateId,source,busy,defaultCategory='
   const submitted=identity;locked.current=true;setSaving(true);setStatus('');
   try{
    const response=await fetch(`/api/mandates/${mandateId}/agent/guidance`,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'manualFeedback',requestKey:retry.current.key,input:parsed.data})});
-   const payload=await response.json().catch(()=>null);
+   const payload=await readJsonResponse(response,'Could not confirm the feedback. Check saved progress before retrying.');
    if(current.current!==submitted)return;
    if(!response.ok||typeof payload?.guidance?.id!=='string'||payload.guidance.name!=='guidance.memory'||!Number.isInteger(payload.guidance.revision)||!['proposed','approved','rejected'].includes(payload.guidance.state)){setStatus('Feedback could not be confirmed. Your correction is preserved.');return;}
    setStatus('Feedback saved as a suggestion. Confirm it in saved guidance before use.');setReason('');setPreference('');retry.current=null;

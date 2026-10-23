@@ -9,7 +9,7 @@ const headers={'Cache-Control':'private, no-store'};
 export async function POST(request:Request){
  const denied=guardBrowserMutation(request);if(denied)return denied;
  if(!nativeAgentEnabled())return Response.json({error:'Native agent creation is unavailable.'},{status:404,headers});
- const session=await auth.api.getSession({headers:request.headers});if(!session?.session.activeOrganizationId)return Response.json({error:'Sign in and select an organisation.'},{status:401,headers});
+ const session=await auth.api.getSession({headers:request.headers}).catch(()=>Response.json({error:'Sign-in status is temporarily unavailable. Please try again.'},{status:503,headers}));if(session instanceof Response)return session;if(!session?.session.activeOrganizationId)return Response.json({error:'Sign in and select an organisation.'},{status:401,headers});
  const text=await request.text();if(text.length>100000)return Response.json({error:'Reviewed mandate is too large.'},{status:413,headers});
  let value:unknown;try{value=JSON.parse(text);}catch{return Response.json({error:'Invalid mandate request.'},{status:400,headers});}
  const parsed=nativeMandateCreateSchema.safeParse(value);if(!parsed.success)return Response.json({error:'Invalid reviewed mandate.'},{status:400,headers});
