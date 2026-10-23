@@ -4,7 +4,7 @@ vi.mock('server-only',()=>({}));
 const f=vi.hoisted(()=>({query:vi.fn(),status:vi.fn(),admission:vi.fn(),refresh:vi.fn(),read:vi.fn(),recover:vi.fn(),dispatch:vi.fn(),saveIdentity:vi.fn(),settle:vi.fn(),policy:vi.fn(),catchup:vi.fn(),deliveryFactory:vi.fn(),capture:vi.fn(),localConfig:vi.fn(),hosted:vi.fn()}));
 vi.mock('@/db/campaign-client',()=>({withCampaignDb:async(_actor:unknown,work:(c:unknown)=>unknown)=>work({query:f.query})}));
 vi.mock('./agent-simulator-test-policy',()=>({localSimulatorTestPolicy:f.policy}));
-vi.mock('./agent-recorded-reply-identity',()=>({registerNativeReplyIdentity:(actor:unknown,input:{identity:unknown})=>f.saveIdentity(actor,input.identity)}));
+vi.mock('./agent-recorded-reply-identity',()=>({registerNativeReplyIdentity:(actor:unknown,input:{identity:unknown})=>f.saveIdentity(actor,input.identity),registerNativeReplyIdentities:async(actor:unknown,inputs:Array<{identity:unknown}>)=>{for(const input of inputs)await f.saveIdentity(actor,input.identity);}}));
 vi.mock('./communications-client',()=>({actorCommunicationsClient:async()=>({connectionStatus:f.status})}));
 vi.mock('./communications-configuration',()=>({configuredAcquireCommunicationsForBinding:async()=>{f.localConfig();return({host:{admission:f.admission,refreshAndConsume:f.refresh,readAgentConversation:f.read,readAgentChannelConversation:f.read,revalidateAgentChannelCoverage:f.catchup}});}}));
 vi.mock('./agent-communications-no-submission',()=>({settleAgentNoSubmission:f.settle}));

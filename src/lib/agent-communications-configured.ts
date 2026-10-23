@@ -18,7 +18,7 @@ import {createHash} from 'node:crypto';
 import {localSimulatorTestPolicy} from './agent-simulator-test-policy';
 import {settleAgentNoSubmission} from './agent-communications-no-submission';
 import {readAgentCommunicationsSource,readAgentChannelCommunicationsSource} from './agent-communications-source';
-import {registerNativeReplyIdentity} from './agent-recorded-reply-identity';
+import {registerNativeReplyIdentity,registerNativeReplyIdentities} from './agent-recorded-reply-identity';
 import {withCampaignDb,type CampaignActor} from '@/db/campaign-client';
 import type {AgentOutreachStore} from '@/db/agent-outreach-store';
 import type {AgentExecutionFence} from '@/db/agent-execution-store';
@@ -119,7 +119,9 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
    // Register every explicitly reviewed identity before any account scan can
    // consume a reply. No model input or provider display name supplies a peer.
    const identities=checkpointAt===undefined?selected:checkpointIdentities;
-   for(const {row,route}of identities)await observe('refresh.save_identity',()=>registerNativeReplyIdentity(actor,{threadId,conversationId,routeId:route.id,bindingId:route.bindingId,identity:{contactId:row.contact_id,email:row.recipient_email??null,channel:route.channel,identity:route.recipient.value,sourceIdentity:route.recipient.value,since:new Date('1970-01-01T00:00:00.000Z'),authority:'service'}},dbOptions));
+   const registrations=identities.map(({row,route})=>({threadId,conversationId,routeId:route.id,bindingId:route.bindingId,identity:{contactId:row.contact_id,email:row.recipient_email??null,channel:route.channel,identity:route.recipient.value,sourceIdentity:route.recipient.value,since:new Date('1970-01-01T00:00:00.000Z'),authority:'service' as const}}));
+   if(checkpointAt!==undefined)await observe('refresh.save_identity',()=>registerNativeReplyIdentities(actor,registrations,dbOptions));
+   else for(const registration of registrations)await observe('refresh.save_identity',()=>registerNativeReplyIdentity(actor,registration,dbOptions));
    const coverage:Array<{bindingId:string;scopeDigest:string}>=[];
    for(const {route,binding,host,bindingId,client}of selected){
     const history=await observe('refresh.read_history',()=>signal?host.readAgentChannelConversation(binding,route.recipient,signal):host.readAgentChannelConversation(binding,route.recipient));
