@@ -1,6 +1,6 @@
 # Shared workflow migration approval package
 
-Status: proposed, not applied. These files prepare database support only. They do not enable the new workflow, make provider requests, change account registrations or send outreach.
+Status: 001–003 approved and applied to isolated rehearsal on 2026-10-24; production not applied. Corrective 004 awaits specific approval. These files prepare database support only. They do not enable the new workflow, make provider requests, change account registrations or send outreach.
 
 ## Exact targets
 
@@ -56,3 +56,13 @@ Rollback is to disable new starts and retain schema, immutable history and recov
 Auto-selection examines a bounded candidate window and reports that scope explicitly; it never falls back to live research. Source availability is not contact-outreach authority: fit, canonical alias conflicts, history, ownership and approvals are checked later by the existing shared modules. A saved source can consequently have no contacts eligible for outreach. A failed or cancelled outreach execution is resumed under its original request rather than allocated a new transport identity.
 
 See [the audit](../../../../docs/workflow-modularity/README.md) and the Plane module for implementation work after migration approval.
+
+## WF-03 rehearsal result, 2026-10-24
+
+All three original migration hashes committed successfully on the exact network-none rehearsal target. A pre-application custom-format dump and per-file logs are private under `.local-data/workflow-modularity/approved-rehearsal/`. Production and the local simulator were untouched.
+
+Initial assertions stopped in fixture setup because the schema-only baseline has no `communication_member_fence` singleton data. Tests now seed that baseline row inside their rollback-only transactions; no migration was altered. Identity/RLS assertions and research-only guards pass. Admission fails under the real restricted agent role with `Reviewed writer role required`: the new entry points call the communications-role helper rather than the existing agent-specific gate helper. This is a confirmed migration defect, not a simulator or application timeout.
+
+`004-workflow-agent-gate.proposed.sql` replaces those two calls with `agent_lock_send_gate()`, keeping role, membership and lock checks. Three compatibility triggers now avoid redundantly acquiring an organization gate already owned by the transaction. The general communications gate allowlist and grants remain unchanged. Exact predecessor checks protect all five replaced functions and the agent helper. See `correction-approval-manifest.json` for the new exact hash and same targets. Applied 001–003 remain byte-for-byte unchanged.
+
+004 has not been applied. Production remains blocked on this correction and all original compatibility/concurrency/security gates. The test files changed only to restore transaction-local baseline seed data; the original approval manifest is retained as the original receipt, with current test hashes in the correction manifest.

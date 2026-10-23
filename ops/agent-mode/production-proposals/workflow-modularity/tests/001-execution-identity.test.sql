@@ -46,7 +46,9 @@ DECLARE
   observed_count integer;
 BEGIN
   -- Existing statement/row policy fences remain enabled and run normally.
-  INSERT INTO public."user"(id,name,email) VALUES
+  -- Schema-only rehearsal omits the baseline singleton data; seed transactionally.
+ INSERT INTO public.communication_member_fence(singleton,writer_xid) VALUES(true,0) ON CONFLICT DO NOTHING;
+ INSERT INTO public."user"(id,name,email) VALUES
     (actor,'Workflow identity owner',actor||'@example.invalid'),
     (other_actor,'Workflow identity second owner',other_actor||'@example.invalid'),
     (foreign_actor,'Workflow identity foreign owner',foreign_actor||'@example.invalid');

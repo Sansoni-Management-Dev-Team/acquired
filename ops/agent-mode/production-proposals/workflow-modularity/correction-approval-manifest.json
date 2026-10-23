@@ -1,0 +1,39 @@
+{
+  "status": "proposed-not-applied",
+  "migrations": [
+    {
+      "file": "004-workflow-agent-gate.proposed.sql",
+      "sha256": "c698092533ece1b7f49c43435094a0bdff9b9b9cf6929255edf06b95c1bbf010"
+    }
+  ],
+  "targets": {
+    "rehearsal": {
+      "container": "acquire-hosted-demo-rehearsal-postgres",
+      "network": "none",
+      "database": "acquire_hosted_demo_rehearsal",
+      "marker": "acquire-hosted-demo-rehearsal-only",
+      "systemIdentifier": "7699248227334438947"
+    },
+    "conditionalProduction": {
+      "project": "njasjqpztiteionfxxul",
+      "database": "postgres",
+      "systemIdentifier": "7678071634733212629",
+      "condition": "Exact rehearsal and compatibility/concurrency/security acceptance passes; fresh target/hash/predecessor/backup checks pass; feature remains inactive."
+    }
+  },
+  "priorBundle": "001-003 approved and committed to rehearsal only; production condition not met",
+  "tests": [
+    {
+      "file": "tests/001-execution-identity.test.sql",
+      "sha256": "9a542643c76bcf0c14ef8d21d0dca8a1e9dad47199992311a33c7d8d8a8369ef"
+    },
+    {
+      "file": "tests/002-research-only-guards.test.sql",
+      "sha256": "2d5416f043c5e2e3cea2c37e1cffc1b313bc7645d8f98d697c38e4ce41f296f8"
+    },
+    {
+      "file": "tests/003-admission.test.sql",
+      "sha256": "2018e4cd400e9ce2c57058083da113ef99fb93018cc150d16af96b2d7705b2a2"
+    }
+  ]
+}

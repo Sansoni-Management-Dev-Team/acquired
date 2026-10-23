@@ -22,6 +22,8 @@ DECLARE
  mandate uuid:=gen_random_uuid();workflow uuid:=gen_random_uuid();thread uuid:=gen_random_uuid();
  old_job uuid:=gen_random_uuid();new_job uuid:=gen_random_uuid();denied boolean;observed_message text;stamp timestamptz;
 BEGIN
+ -- Schema-only rehearsal omits the baseline singleton data; seed transactionally.
+ INSERT INTO public.communication_member_fence(singleton,writer_xid) VALUES(true,0) ON CONFLICT DO NOTHING;
  INSERT INTO public."user"(id,name,email) VALUES(actor,'Research guard rehearsal',actor||'@example.invalid');
  INSERT INTO public.organization(id,name,slug) VALUES(org,'Research guard rehearsal',org);
  INSERT INTO public.member(id,organization_id,user_id,role) VALUES(gen_random_uuid()::text,org,actor,'member');

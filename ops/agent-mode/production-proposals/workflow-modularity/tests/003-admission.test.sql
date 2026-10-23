@@ -30,6 +30,8 @@ DECLARE
  denied boolean;
  observed_message text;
 BEGIN
+ -- Schema-only rehearsal omits the baseline singleton data; seed transactionally.
+ INSERT INTO public.communication_member_fence(singleton,writer_xid) VALUES(true,0) ON CONFLICT DO NOTHING;
  INSERT INTO public."user"(id,name,email) VALUES
   (actor,'Admission rehearsal owner',actor||'@example.invalid'),
   (other_actor,'Admission rehearsal other member',other_actor||'@example.invalid');
