@@ -11,6 +11,13 @@ import{assertSameBinding,type ConnectionBinding,type DeliveryOutcome}from'../../
 const uuid=z.string().uuid();
 /** Invitation actions are distinct from sent messages and always require HIL. */
 export class AgentInvitationStore extends AgentChannelStore{
+ async activitySnapshot(threadId:string,includeGuidance:boolean){
+  return this.readBundle(async()=>({
+   records:await this.messages(threadId),
+   batches:await this.listReviewBatches(threadId,{pendingOnly:true}),
+   guidance:includeGuidance?await this.listGuidance(threadId):[],
+  }));
+ }
  /** Fixed database-only projections share one ownership gate. No provider calls,
   * account mutations, drafts, sends or authorization caches are allowed here. */
  async controlsSnapshot(mandateId:string,threadId?:string){
