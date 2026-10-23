@@ -1,3 +1,5 @@
+import {continueAgentDispatchPreparation} from '../lib/agent-dispatch-continuation';
+import {readAgentDispatchCoverage} from '../lib/agent-dispatch-coverage';
 import{beforeAll,afterAll,describe,it,expect}from'vitest';
 import{Pool,type PoolClient}from'pg';import{randomUUID}from'node:crypto';
 import{AgentOutreachStore}from'./agent-outreach-store';
@@ -16,4 +18,25 @@ describe.runIf(enabled)('fresh owned proof for read-only pre-begin retries',()=>
   await seed(c=>c.query("INSERT INTO agent_budget_reservations(operation_id,account_id,organization_id,owner_user_id,amount,state)VALUES($1,$2,$3,$4,1,'reserved')",[operation,account,org,user]));try{expect(await proof()).toBe(false);}finally{await seed(c=>c.query('DELETE FROM agent_budget_reservations WHERE operation_id=$1',[operation]));}expect(await proof()).toBe(true);
  });
  it('denies a substituted person or revoked current member without an optimistic fallback',async()=>{expect(await store.preBeginHistoryRetryProof(thread,operation,randomUUID())).toBe(false);const m=(await pool.query('SELECT * FROM member WHERE organization_id=$1',[org])).rows[0];await seed(c=>c.query('DELETE FROM member WHERE id=$1',[m.id]));try{await expect(proof()).rejects.toThrow();}finally{await seed(c=>c.query('INSERT INTO member(id,organization_id,user_id,role)VALUES($1,$2,$3,$4)',[m.id,org,user,m.role]));}});
+ it('reads owned durable coverage hints through the restricted read-only role and refuses foreign access',async()=>{
+  const subscriber='dispatch-checkpoint-fixture',scopeDigest='d'.repeat(64),stamp=new Date();
+  await seed(async c=>{
+   await c.query("INSERT INTO communication_reply_monitors(binding_id,organization_id,owner_user_id,scope_digest,encrypted_cursor,cursor_key_version,coverage_from,coverage_through,observed_at,complete,initial_sync_complete,invalidated)VALUES($1,$2,$3,$4,'synthetic','fixture','1970-01-01',$5,$5,true,true,false)",[binding,org,user,scopeDigest,stamp]);
+   await c.query("INSERT INTO communication_consumer_checkpoints(binding_id,organization_id,owner_user_id,subscriber_id,scope_digest,encrypted_cursor,cursor_key_version,observed_service_revision)VALUES($1,$2,$3,$4,$5,'synthetic','fixture',7)",[binding,org,user,subscriber,scopeDigest]);
+  });
+  const routes=[{bindingId:binding,historyObservedAt:stamp.toISOString()}];
+  try{
+   expect(await readAgentDispatchCoverage(actor,routes,subscriber,Date.now(),{pool})).toEqual({scopes:[{bindingId:binding,scopeDigest}],pendingBindingId:null});
+   await expect(readAgentDispatchCoverage({organizationId:org,userId:randomUUID()},routes,subscriber,Date.now(),{pool})).rejects.toThrow();
+  }finally{await seed(async c=>{await c.query('DELETE FROM communication_consumer_checkpoints WHERE binding_id=$1 AND subscriber_id=$2',[binding,subscriber]);await c.query('DELETE FROM communication_reply_monitors WHERE binding_id=$1 AND scope_digest=$2',[binding,scopeDigest]);});}
+ });
+
+ it('persists a continuation once across repeated checkpoint finalization',async()=>{
+  const root=randomUUID(),input={event:{id:root,thread_id:thread,kind:'review.approved',payload:{reviewBatchId:batch}},assertCurrent:async()=>{}};
+  await continueAgentDispatchPreparation(store,input);await continueAgentDispatchPreparation(store,input);
+  const rows=(await pool.query('SELECT kind,payload FROM agent_events WHERE thread_id=$1 AND event_key=$2',[thread,'dispatch-preparation:'+root+':1'])).rows;
+  expect(rows).toEqual([{kind:'review.approved',payload:{reviewBatchId:batch,preparationRoot:root,preparationStep:1}}]);
+  expect(await store.preBeginHistoryRetryProof(thread,operation,person)).toBe(true);
+ });
+
 });

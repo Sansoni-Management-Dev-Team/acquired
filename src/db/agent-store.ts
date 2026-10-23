@@ -1,3 +1,4 @@
+import {AsyncLocalStorage} from 'node:async_hooks';
 import {loadAgentReviewPeople} from './agent-review-people';
 import {insertAgentReviewBatch,persistAgentReviewDecision} from './agent-review-ledger';
 import {agentRecordDigest as digest} from '@/lib/agent-record-digest';
@@ -24,12 +25,21 @@ function json(value: unknown) {
   return parsed;
 }
 export type AgentThread = { id: string; organization_id: string; mandate_id: string; owner_user_id: string; revision: number };
-export type AgentEvent = { id: string; thread_id: string; mandate_id?:string; kind: string; payload: unknown; lease_owner: string; fence: string; attempts: number };
+export type AgentEvent = { id: string; thread_id: string; mandate_id?:string; created_at?:Date|string; kind: string; payload: unknown; lease_owner: string; fence: string; attempts: number };
 
 export type AgentStoreOptions={businessTime?:{context:AgentBusinessTimeContext;scope:AgentBusinessTimeScope}};
 
 /** Server-owned scope. This class does not accept credentials, execute tools or send. */
 export class AgentStore {
+  private readonly readClient = new AsyncLocalStorage<{client:PoolClient;active:boolean}>();
+  /** Only fixed read projections may use this bundle; provider work stays outside.
+   * Context is per store/actor and expires before the outer transaction settles. */
+  protected readBundle<T>(work:()=>Promise<T>):Promise<T>{
+    return this.transaction(client=>{
+      const scope={client,active:true};
+      return this.readClient.run(scope,async()=>{try{return await work();}finally{scope.active=false;}});
+    });
+  }
   protected actor: AgentActor;
   protected readonly businessTime?:AgentBusinessTimeContext;
   constructor(private pool: Pick<Pool, 'connect'>, actor: AgentActor, options:AgentStoreOptions={}) {
@@ -53,10 +63,15 @@ export class AgentStore {
     if(!Number.isFinite(instant)||instant>this.businessNow())throw Error('Business reconciliation anchor unavailable');
     return new Date(instant);
   }
-  protected async transaction<T>(work: (client: PoolClient) => Promise<T>,preset?:AgentTransactionPreset) {
+  protected async transaction<T>(work: (client: PoolClient) => Promise<T>,preset?:AgentTransactionPreset,readOnly=false) {
+    const bundled=this.readClient.getStore();
+    if(bundled){
+      if(!bundled.active||preset!==undefined)throw new Error('Invalid nested agent read transaction');
+      return work(bundled.client);
+    }
     const client = await this.pool.connect();
     try {
-      await client.query('BEGIN');
+      await client.query(readOnly?'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY':'BEGIN');
       if(preset!==undefined)await installAgentReadBudget(client,preset);
       await client.query('SET LOCAL ROLE acquire_agent_user');
       const role = (await client.query('SELECT current_user AS name,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user')).rows[0];
@@ -70,12 +85,14 @@ export class AgentStore {
         if(typeof installed!=='boolean')throw Error('Agent business clock availability is unknown');
         if(installed)await client.query('SELECT public.local_simulator_business_now()');
       }
-      // Optional until the separately approved native-control migration exists.
-      // Once installed, use the shared gate BEFORE taking membership/row locks.
-      const gate=(await client.query("SELECT to_regprocedure('public.agent_lock_send_gate()') IS NOT NULL AS installed")).rows[0];
-      if(typeof gate?.installed!=='boolean')throw new Error('Agent gate availability is unknown');
-      if(gate.installed)await client.query('SELECT public.agent_lock_send_gate()');
-      const member = await client.query('SELECT agent_lock_member() AS allowed');
+      // Read projections use a consistent snapshot, RLS and current membership.
+      // PostgreSQL forbids writes; mutation/admission transactions retain the gate.
+      if(!readOnly){
+        const gate=(await client.query("SELECT to_regprocedure('public.agent_lock_send_gate()') IS NOT NULL AS installed")).rows[0];
+        if(typeof gate?.installed!=='boolean')throw new Error('Agent gate availability is unknown');
+        if(gate.installed)await client.query('SELECT public.agent_lock_send_gate()');
+      }
+      const member=readOnly?await client.query("SELECT EXISTS(SELECT 1 FROM member WHERE organization_id=$1 AND user_id=$2) AS allowed",[this.actor.organizationId,this.actor.userId]):await client.query('SELECT agent_lock_member() AS allowed');
       if (!member.rows[0]?.allowed) throw new Error('Agent actor is no longer a member');
       const result = await work(client);
       await client.query('COMMIT'); return result;
@@ -248,8 +265,10 @@ export class AgentStore {
       if(prior)return {kind:'started',runId:prior.id};
       await c.query("UPDATE agent_runs SET state='uncertain',stop_reason='interrupted_event',updated_at=now() WHERE thread_id=$1 AND state='running' AND lease_until<=clock_timestamp()",[t.id]);
       if((await c.query("SELECT id FROM agent_runs WHERE thread_id=$1 AND state='running'",[t.id])).rowCount)return {kind:'busy'};
-      const run=(await c.query(`INSERT INTO agent_runs(thread_id,organization_id,mandate_id,owner_user_id,trigger_event_id,state,lease_owner,lease_until,fence,model_config)
-       VALUES($1,$2,$3,$4,$5,'running',$6,$7,$8::bigint,'{"nativeLimits":{"version":1,"maxToolSteps":32,"maxDurationMs":45000}}'::jsonb) RETURNING id`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,event.id,event.lease_owner,current.lease_until,event.fence])).rows[0];
+      // Transaction-start now() includes lock waits before a run exists. Start
+      // its duration at insertion; retain the original event lease unchanged.
+      const run=(await c.query(`INSERT INTO agent_runs(thread_id,organization_id,mandate_id,owner_user_id,trigger_event_id,state,lease_owner,lease_until,fence,model_config,created_at)
+       VALUES($1,$2,$3,$4,$5,'running',$6,$7,$8::bigint,'{"nativeLimits":{"version":1,"maxToolSteps":32,"maxDurationMs":45000}}'::jsonb,clock_timestamp()) RETURNING id`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,event.id,event.lease_owner,current.lease_until,event.fence])).rows[0];
       return {kind:'started',runId:run.id};
     });
   }
@@ -257,7 +276,7 @@ export class AgentStore {
     uuid.parse(runId);const identity=this.eventIdentity(event);
     return this.transaction(async c=>{const eligible=await this.eventEligibilityPredicate(c);return !!(await c.query(`SELECT r.id FROM agent_runs r JOIN agent_events e ON e.id=r.trigger_event_id
       WHERE ${eligible} AND e.id=$1 AND e.thread_id=$2 AND e.lease_owner=$3 AND e.fence=$4::bigint AND e.state='leased' AND e.lease_until>clock_timestamp()
-      AND r.id=$5 AND r.state='running' AND r.lease_owner=e.lease_owner AND r.fence=e.fence AND r.lease_until>clock_timestamp() AND r.created_at>clock_timestamp()-interval '45 seconds'`,[...identity,runId])).rowCount;});
+      AND r.id=$5 AND r.state='running' AND r.lease_owner=e.lease_owner AND r.fence=e.fence AND r.lease_until>clock_timestamp() AND r.created_at>clock_timestamp()-interval '45 seconds'`,[...identity,runId])).rowCount;},undefined,true);
   }
   async deferEvent(event:AgentEvent,wakeAt:string){
     const identity=this.eventIdentity(event);z.string().datetime({offset:true}).parse(wakeAt);
@@ -267,6 +286,8 @@ export class AgentStore {
   }
   async finishEventRun(runId:string,event:AgentEvent,raw:AgentEventOutcome){
     uuid.parse(runId);const identity=this.eventIdentity(event),outcome=agentEventOutcomeSchema.parse(raw);
+    // Validate operational retry horizons at receipt, before lock/checkout waits.
+    const receivedAt=new Date().toISOString();
     if(outcome.kind==='defer'&&outcome.timeBasis==='business'&&!this.businessTime)throw Error('Selected business clock required');
     return this.transaction(async c=>{
       const t=await this.lockThread(c,event.thread_id);
@@ -276,7 +297,8 @@ export class AgentStore {
       if(!current)return false;
       if(outcome.kind==='defer'){
         const business=outcome.timeBasis==='business',basis=business?this.businessSql():'clock_timestamp()';
-        const due=(await c.query(`SELECT $1::timestamptz>${basis} AND $1::timestamptz<=${basis}+interval '30 days' AS allowed`,[outcome.wakeAt])).rows[0];
+        const lower=business?basis:'$2::timestamptz';
+        const due=(await c.query(`SELECT $1::timestamptz>${lower} AND $1::timestamptz<=${basis}+interval '30 days' AS allowed`,business?[outcome.wakeAt]:[outcome.wakeAt,receivedAt])).rows[0];
         if(!due.allowed)throw new Error('Reassessment is outside the allowed horizon');
         if(business){
           // The current event/run is already locked and its lease is real. Only

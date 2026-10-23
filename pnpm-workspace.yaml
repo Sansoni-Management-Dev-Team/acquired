@@ -1,9 +1,14 @@
 allowBuilds:
   '@scarf/scarf': false
   esbuild: true
+  protobufjs: false
   sharp: true
   unrs-resolver: true
   workerd: true
+minimumReleaseAgeExclude:
+  - '@langfuse/core@6.0.2'
+  - '@langfuse/otel@6.0.2'
+  - '@langfuse/tracing@6.0.2'
 onlyBuiltDependencies:
   - sharp
   - unrs-resolver

@@ -45,11 +45,13 @@ export async function projectAgentInvitationDecisionContext(
     const installed = (await c.query("SELECT to_regclass('public.agent_linkedin_relationships') IS NOT NULL AS installed")).rows[0]?.installed === true;
     if (!installed) return base;
     const observations = (await c.query('SELECT * FROM agent_linkedin_relationships WHERE conversation_id=$1 AND thread_id=$2', [row.id, t.id])).rows;
+    const requested=base.channels.flatMap(route=>['initial','reply','follow_up',...(route.channel==='linkedin'?['invitation']:[])].map(action=>({routeId:route.id,action})));
+    const permissions=(await c.query('SELECT requested.route_id,requested.action,public.agent_channel_proposal_permitted(requested.route_id,requested.action) AS allowed FROM unnest($1::uuid[],$2::text[]) AS requested(route_id,action)',[requested.map(r=>r.routeId),requested.map(r=>r.action)])).rows;
     const channels: DecisionChannel[] = [];
     for (const route of base.channels) {
         const saved = observations.find(r => r.route_id === route.id), allowedActions: NonNullable<DecisionChannel['allowedActions']> = [];
         for (const action of ['initial', 'reply', 'follow_up', ...(route.channel === 'linkedin' ? ['invitation' as const] : [])] as const) {
-            if ((await c.query('SELECT public.agent_channel_proposal_permitted($1::uuid,$2) AS allowed', [route.id, action])).rows[0]?.allowed === true) {
+            if (permissions.some(row=>row.route_id===route.id&&row.action===action&&row.allowed===true)) {
                 allowedActions.push(action);
             }
         }

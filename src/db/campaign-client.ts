@@ -1,3 +1,4 @@
+import {backgroundPool} from "./background-pool";
 import "server-only";
 import { attachDatabasePool } from "@vercel/functions";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
@@ -15,8 +16,8 @@ function pool() {
   const ca = process.env.DATABASE_SSL_CA;
   const created = new Pool({ connectionString: process.env.DATABASE_URL, ...(ca ? { ssl: { ca, rejectUnauthorized: true } } : {}), max: 3, connectionTimeoutMillis: 15_000, idleTimeoutMillis: 5_000 });
   attachDatabasePool(created);
-  globalForCampaign.acquireCampaignPool = created;
-  return created;
+  globalForCampaign.acquireCampaignPool = backgroundPool(created);
+  return globalForCampaign.acquireCampaignPool;
 }
 /** Standard driver injection for the configured communications consumer. Repositories
  * enter their own restricted role/transaction; uncertain sessions are physically discarded. */
@@ -56,19 +57,20 @@ async function scheduledClient(client: PoolClient): Promise<PoolClient> {
   });
 }
 
-export async function withCampaignDb<T>(actor: CampaignActor, callback: (client: PoolClient) => Promise<T>, options?:{pool?:Pick<Pool,'connect'>}): Promise<T> {
+export async function withCampaignDb<T>(actor: CampaignActor, callback: (client: PoolClient) => Promise<T>, options?:{pool?:Pick<Pool,'connect'>;readOnly?:boolean}): Promise<T> {
   assertCampaignWorkRemaining();
   const client = await (options?.pool??pool()).connect();
   try {
-    await client.query("BEGIN");
+    await client.query(options?.readOnly ? "BEGIN READ ONLY" : "BEGIN");
     const scoped = await scheduledClient(client);
     await scoped.query("SET LOCAL ROLE acquire_campaign_user");
     await assertRlsRole(scoped, "acquire_campaign_user");
     await scoped.query("SELECT set_config('app.acquire_org', $1, true), set_config('app.acquire_user', $2, true)", [actor.organizationId, actor.userId]);
     const runtime=agentTransactionRuntimeContext();
     if(runtime.runtimeId)await scoped.query("SELECT set_config('app.acquire_runtime_id',$1,true),set_config('app.acquire_channel_simulation',$2,true)",[runtime.runtimeId,runtime.channelSimulation?'true':'false']);
-    // Installed policy triggers remain active even when delivery is disabled.
-    await lockAcquireSendGate(scoped, actor.organizationId, { required: process.env.COMMUNICATIONS_RUNTIME_ENABLED==='true' });
+    // Pure metadata reads retain role/RLS/membership but cannot write in PostgreSQL.
+    // Mutations and send admission always retain the shared gate.
+    if(!options?.readOnly)await lockAcquireSendGate(scoped, actor.organizationId, { required: process.env.COMMUNICATIONS_RUNTIME_ENABLED==='true' });
     const membership = await scoped.query("SELECT 1 FROM member WHERE organization_id = $1 AND user_id = $2 LIMIT 1", [actor.organizationId, actor.userId]);
     if (!membership.rowCount) throw new Error("Campaign owner is no longer an organization member");
     const result = await callback(scoped);

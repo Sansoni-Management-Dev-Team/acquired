@@ -1,11 +1,12 @@
 import {afterEach,beforeEach,it,expect,vi} from 'vitest';
 import {ZodError} from 'zod';
 vi.mock('server-only',()=>({}));
-const f=vi.hoisted(()=>({query:vi.fn(),status:vi.fn(),admission:vi.fn(),refresh:vi.fn(),read:vi.fn(),recover:vi.fn(),dispatch:vi.fn(),saveIdentity:vi.fn(),settle:vi.fn(),policy:vi.fn(),catchup:vi.fn(),deliveryFactory:vi.fn(),capture:vi.fn(),localConfig:vi.fn(),hosted:vi.fn()}));
+const f=vi.hoisted(()=>({query:vi.fn(),status:vi.fn(),admission:vi.fn(),refresh:vi.fn(),read:vi.fn(),recover:vi.fn(),dispatch:vi.fn(),saveIdentity:vi.fn(),settle:vi.fn(),policy:vi.fn(),catchup:vi.fn(),deliveryFactory:vi.fn(),capture:vi.fn(),localConfig:vi.fn(),hosted:vi.fn(),relationship:vi.fn(),coverageCheckpoints:vi.fn()}));
 vi.mock('@/db/campaign-client',()=>({withCampaignDb:async(_actor:unknown,work:(c:unknown)=>unknown)=>work({query:f.query})}));
+vi.mock('./agent-dispatch-coverage',()=>({readAgentDispatchCoverage:f.coverageCheckpoints}));
 vi.mock('./agent-simulator-test-policy',()=>({localSimulatorTestPolicy:f.policy}));
-vi.mock('./agent-recorded-reply-identity',()=>({registerNativeReplyIdentity:(actor:unknown,input:{identity:unknown})=>f.saveIdentity(actor,input.identity)}));
-vi.mock('./communications-client',()=>({actorCommunicationsClient:async()=>({connectionStatus:f.status})}));
+vi.mock('./agent-recorded-reply-identity',()=>({registerNativeReplyIdentity:(actor:unknown,input:{identity:unknown})=>f.saveIdentity(actor,input.identity),registerNativeReplyIdentities:async(actor:unknown,inputs:Array<{identity:unknown}>)=>{for(const input of inputs)await f.saveIdentity(actor,input.identity);}}));
+vi.mock('./communications-client',()=>({actorCommunicationsClient:async()=>({connectionStatus:f.status,inspectRelationship:f.relationship})}));
 vi.mock('./communications-configuration',()=>({configuredAcquireCommunicationsForBinding:async()=>{f.localConfig();return({host:{admission:f.admission,refreshAndConsume:f.refresh,readAgentConversation:f.read,readAgentChannelConversation:f.read,revalidateAgentChannelCoverage:f.catchup}});}}));
 vi.mock('./agent-communications-no-submission',()=>({settleAgentNoSubmission:f.settle}));
 vi.mock('./agent-communications-delivery',()=>({createAgentCommunicationsDelivery:(ports:unknown)=>{f.deliveryFactory(ports);return {recover:f.recover,dispatch:f.dispatch};}}));
@@ -133,6 +134,29 @@ it('cannot label a history read as pre-begin when fresh persisted safety proof i
 });
 
 it.each(['message','invitation'] as const)('wires exact original native %s capture independently of current history',async(effect)=>{const x=fixture();await x.service.dispatch('thread',conversation,operation);const ports=f.deliveryFactory.mock.calls[0][0];const receipt={submittedAt:'2026-10-17T00:00:00Z',...(effect==='message'?{message:{id:'provider-message'}}:{operation:{id:'provider-action'}})};await ports.recordSubmitted(operation,{status:'submitted',receipt});expect(f.capture).toHaveBeenCalledWith(actor,{bindingId:binding.id,binding:expect.objectContaining({accountId:binding.service_account_id,generation:binding.generation}),sourceKind:'agent',sourceId:operation},{effect,providerReference:effect==='message'?'provider-message':'provider-action',submittedAt:receipt.submittedAt});});
+
+function recordedDispatchFixture(channel:'email'|'whatsapp'|'linkedin'){
+ const x=fixture(),account={...binding,id:'40000000-0000-4000-8000-000000000001',channel,platform:channel==='email'?'gmail':channel},recipient={kind:channel==='email'?'email':channel==='whatsapp'?'phone':'linkedin_profile',value:channel==='email'?'person@example.invalid':channel==='whatsapp'?'+999558427011936':'https://www.linkedin.com/in/sim-person'};
+ const route={id:'50000000-0000-4000-8000-000000000001',conversationId:conversation,channel,bindingId:account.id,bindingDigest:recordedAgentBindingDigest(account),recipient},routes=[structuredClone(route)],subject=channel==='email'?'Synthetic':'';
+ const store={...x.store,channelRoutes:vi.fn(async()=>routes),ingestChannelHistory:vi.fn(),channelDispatchRecord:vi.fn(async()=>({conversation:{...x.row,id:conversation},operation:{input:{routeId:route.id}},route:structuredClone(route),submitted:false,notSubmitted:false})),beginNativeCommunicationsMessage:vi.fn(async()=>({operationId:operation,conversationId:conversation,routeId:route.id,epoch:3,fence:'1',bindingId:account.id,recipient,channel,subject,body:'Synthetic body'}))};
+ f.query.mockImplementation(async(sql:string)=>sql.includes('agent_channel_communications_source')?{rows:[{source:{contactId:'10000000-0000-4000-8000-000000000003',routeId:route.id,channel,recipient,subject,body:'Synthetic body',contextDigest:'a'.repeat(64),requiredSince:'1970-01-01T00:00:00.000Z',replyParent:null,conversation:null,coverageRoutes:[{bindingId:account.id,channel,recipient}]}}]}:{rows:[account]});
+ f.read.mockImplementation(async selected=>({binding:selected,source:'communications',complete:true,observedAt:'2026-10-17T00:00:00.000Z',messages:[],scopeDigest:'a'.repeat(64)}));
+ return{store,routes,service:configuredAgentCommunications(actor,store as never)};
+}
+it.each(['email','whatsapp','linkedin']as const)('loads exact %s dispatch ports once while still refreshing current routes, history, coverage and final source',async channel=>{
+ const x=recordedDispatchFixture(channel);await x.service.dispatch('thread',conversation,operation);
+ expect(f.status).toHaveBeenCalledOnce();expect(f.admission).toHaveBeenCalledOnce();
+ expect(x.store.channelRoutes).toHaveBeenCalledOnce();expect(f.read).toHaveBeenCalledOnce();expect(f.catchup).toHaveBeenCalledOnce();expect(x.store.beginNativeCommunicationsMessage).toHaveBeenCalledOnce();expect(f.dispatch).toHaveBeenCalledOnce();
+ expect(f.recover.mock.invocationCallOrder[0]).toBeLessThan(f.read.mock.invocationCallOrder[0]);expect(f.read.mock.invocationCallOrder[0]).toBeLessThan(x.store.beginNativeCommunicationsMessage.mock.invocationCallOrder[0]);
+});
+it('revalidates changed route identity rather than reusing an earlier account observation',async()=>{
+ const x=recordedDispatchFixture('whatsapp');f.recover.mockImplementationOnce(async()=>{x.routes[0]={...x.routes[0],bindingDigest:'b'.repeat(64)};return{found:false};});
+ await expect(x.service.dispatch('thread',conversation,operation)).rejects.toThrow('before outbound admission');expect(f.read).not.toHaveBeenCalled();expect(x.store.beginNativeCommunicationsMessage).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+});
+it('does not retain prepared ports across separate dispatch calls',async()=>{
+ const x=recordedDispatchFixture('email');await x.service.dispatch('thread',conversation,operation);await x.service.dispatch('thread',conversation,operation);
+ expect(f.status).toHaveBeenCalledTimes(2);expect(f.read).toHaveBeenCalledTimes(2);expect(x.store.beginNativeCommunicationsMessage).toHaveBeenCalledTimes(2);
+});
 it('uses only per-operation scoped communications ports and passes the same business clock into original delivery',async()=>{const{createAgentBusinessTimeContext}=await import('./agent-business-time'),scope={runId:'native-clock-proof',...actor},context=createAgentBusinessTimeContext(scope,{now:()=>Date.parse('2030-01-07T00:00:00.000Z')}),x=fixture(),read=vi.fn(async()=>({source:'communications',complete:true,observedAt:'2030-01-07T00:00:00.000Z',messages:[],scopeDigest:'a'.repeat(64)})),status=vi.fn(async()=>({status:'connected'})),actorClient=vi.fn(async()=>({connectionStatus:status})),host={admission:vi.fn(async()=>({})),readAgentConversation:read},applicationPool={connect:vi.fn()};f.query.mockImplementation(async(sql:string)=>sql.includes('AS coherent')?{rows:[{coherent:true}]}:{rows:[binding]});const service=configuredAgentCommunications(actor,x.store as never,{businessTime:{context,scope},host:host as never,actorClient:actorClient as never,applicationPool:applicationPool as never,applicationCodec:{} as never});await service.refresh('thread',conversation);expect(read).toHaveBeenCalledOnce();expect(f.read).not.toHaveBeenCalled();expect(actorClient).toHaveBeenCalledWith(actor);expect(f.deliveryFactory).toHaveBeenCalledWith(expect.objectContaining({businessClock:context}));expect(f.query.mock.calls.some(([sql])=>sql.includes('AS coherent'))).toBe(true);});
 it('refuses incomplete or foreign clocked ports before native communications work',async()=>{const{createAgentBusinessTimeContext}=await import('./agent-business-time'),scope={runId:'native-clock-proof',...actor},context=createAgentBusinessTimeContext(scope,{now:()=>Date.now()}),x=fixture();expect(()=>configuredAgentCommunications(actor,x.store as never,{businessTime:{context,scope}})).toThrow('Scoped native communications ports unavailable');expect(()=>configuredAgentCommunications({...actor,userId:'other'},x.store as never,{businessTime:{context,scope}})).toThrow('Agent business time scope unavailable');expect(f.query).not.toHaveBeenCalled();});
 it('waits before native begin on Sunday using current routed policy and an exact no-effect proof',async()=>{
@@ -175,11 +199,138 @@ it('never consults the local timing exception before recovery and history or whe
  }}finally{clock.mockRestore();}
 });
 it('does not turn unavailable/no-effect proof, accelerated policy or original recovery into a sending-window wait',async()=>{const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse('2026-10-18T10:00:00Z'));try{for(const mode of['no-proof','missing-proof','accelerated','original']as const){const store=windowStore();if(mode==='no-proof')store.preBeginHistoryRetryProof.mockResolvedValue(false);if(mode==='missing-proof')delete (store as Partial<typeof store>).preBeginHistoryRetryProof;if(mode==='accelerated')store.channelPolicy.mockResolvedValue({policy:{acceleratedSimulation:true}});if(mode==='original'){f.recover.mockResolvedValueOnce({found:true,outcome:{status:'unknown'}});expect(await configuredAgentCommunications(actor,store as never).dispatch('thread',conversation,operation)).toEqual({status:'unknown'});expect(store.channelPolicy).not.toHaveBeenCalled();}else await expect(configuredAgentCommunications(actor,store as never).dispatch('thread',conversation,operation)).rejects.toThrow('Final admission sentinel');}}finally{clock.mockRestore();}});
-it('keeps a selected business sending window at its actual calendar instant',async()=>{const{createAgentBusinessTimeContext}=await import('./agent-business-time'),scope={runId:'native-clock-proof',...actor},context=createAgentBusinessTimeContext(scope,{now:()=>Date.parse('2030-01-06T10:00:00.000Z')}),clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse('2026-10-19T10:00:00.000Z'));try{const store=windowStore();f.query.mockImplementation(async(sql:string)=>sql.includes('AS coherent')?{rows:[{coherent:true}]}:{rows:[binding]});const service=configuredAgentCommunications(actor,store as never,{businessTime:{context,scope},host:{admission:f.admission,readAgentConversation:f.read}as never,actorClient:vi.fn(async()=>({connectionStatus:f.status}))as never,applicationPool:{connect:vi.fn()}as never,applicationCodec:{}as never});await expect(service.dispatch('thread',conversation,operation)).rejects.toMatchObject({name:'AgentPreBeginSendWindowError',wakeAt:'2030-01-06T22:00:00.000Z',businessContext:context});expect(store.beginNativeCommunicationsMessage).not.toHaveBeenCalled();}finally{clock.mockRestore();}});
+it('keeps a selected business sending window at its actual calendar instant',async()=>{const{createAgentBusinessTimeContext}=await import('./agent-business-time'),scope={runId:'native-clock-proof',...actor},context=createAgentBusinessTimeContext(scope,{now:()=>Date.parse('2030-01-06T10:00:00.000Z')}),clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse('2026-10-19T10:00:00.000Z'));try{const store=windowStore();f.query.mockImplementation(async(sql:string)=>sql.includes('AS coherent')?{rows:[{coherent:true}]}:{rows:[binding]});const service=configuredAgentCommunications(actor,store as never,{businessTime:{context,scope},host:{admission:f.admission,readAgentConversation:f.read}as never,actorClient:vi.fn(async()=>({connectionStatus:f.status,inspectRelationship:f.relationship}))as never,applicationPool:{connect:vi.fn()}as never,applicationCodec:{}as never});await expect(service.dispatch('thread',conversation,operation)).rejects.toMatchObject({name:'AgentPreBeginSendWindowError',wakeAt:'2030-01-06T22:00:00.000Z',businessContext:context});expect(store.beginNativeCommunicationsMessage).not.toHaveBeenCalled();}finally{clock.mockRestore();}});
 
 it('selects the provider-free hosted native facade only for the exact private original binding without constructing a shared service database runtime',async()=>{
  const runId='hosted-demo-example',descriptor={version:1,mode:'hosted-demo',phase:'active',runId,integrationId:'sim-'+runId,configurationReference:'sim-'+runId+'-v1',applicationOrigin:'https://acquire.example.invalid',serviceOrigin:'https://simulator.example.invalid',setupOrigin:'https://simulator.example.invalid',actor:{applicationId:'acquire',tenantId:actor.organizationId,ownerId:actor.userId},capabilities:{dynamicRecipients:true,recipientContextLookup:true,remoteApplicationAuthority:true,durableEvents:true},bindings:[{applicationId:binding.application_id,tenantId:binding.organization_id,ownerId:binding.owner_user_id,connectionId:binding.service_connection_id,accountId:binding.service_account_id,generation:binding.generation,channel:binding.channel,platform:binding.platform,backend:binding.backend}]};
  for(const[k,v]of Object.entries({NODE_ENV:'production',APP_URL:descriptor.applicationOrigin,AGENT_HOSTED_DEMO_COMMUNICATIONS_ENABLED:'true',AGENT_HOSTED_DEMO_COMMUNICATIONS_DESCRIPTOR_JSON:JSON.stringify(descriptor)}))vi.stubEnv(k,v);
  const x=fixture();await x.service.refresh('thread',conversation);expect(f.hosted).toHaveBeenCalledOnce();expect(f.localConfig).not.toHaveBeenCalled();expect(f.read).toHaveBeenCalledOnce();expect(f.admission).toHaveBeenCalledOnce();
  vi.stubEnv('AGENT_HOSTED_DEMO_COMMUNICATIONS_DESCRIPTOR_JSON',JSON.stringify({...descriptor,bindings:[{...descriptor.bindings[0],generation:2}]}));await expect(x.service.refresh('thread',conversation)).rejects.toThrow('Original hosted account changed');expect(f.localConfig).not.toHaveBeenCalled();
+});
+
+it.each(['email','whatsapp','linkedin']as const)('uses the invocation-local %s account snapshot without duplicate conversation/binding transactions',async channel=>{
+ const x=recordedDispatchFixture(channel),route=x.routes[0],original={...binding,id:route.bindingId,channel,platform:channel==='email'?'gmail':channel};
+ const prior=await x.store.channelDispatchRecord();x.store.channelDispatchRecord.mockResolvedValue(Object.assign(prior,{originalAccount:original}));
+ await x.service.dispatch('thread',conversation,operation);
+ expect(x.store.channelDispatchRecord).toHaveBeenLastCalledWith('thread',operation,{includeOriginalAccount:true});expect(x.store.conversation).not.toHaveBeenCalled();expect(f.query.mock.calls.some(([sql])=>sql.includes('FROM public.communication_bindings'))).toBe(false);
+ expect(x.store.channelRoutes).toHaveBeenCalledOnce();expect(f.read).toHaveBeenCalledOnce();expect(f.catchup).toHaveBeenCalledOnce();expect(x.store.beginNativeCommunicationsMessage).toHaveBeenCalledOnce();expect(f.query.mock.calls.some(([sql])=>sql.includes('agent_channel_communications_source'))).toBe(true);expect(f.dispatch).toHaveBeenCalledOnce();
+});
+
+async function capturedAccountFixture(channel:'email'|'whatsapp'|'linkedin'='email'){
+ const x=recordedDispatchFixture(channel),route=x.routes[0],original={...binding,id:route.bindingId,channel,platform:channel==='email'?'gmail':channel},record=Object.assign(await x.store.channelDispatchRecord(),{originalAccount:original});x.store.channelDispatchRecord.mockResolvedValue(record);x.store.channelDispatchRecord.mockClear();return{...x,record};
+}
+it('reads a new original account on each invocation and refuses a changed generation rather than reusing the first capture',async()=>{
+ const x=await capturedAccountFixture();await x.service.dispatch('thread',conversation,operation);x.record.originalAccount={...x.record.originalAccount,generation:2};
+ await expect(x.service.dispatch('thread',conversation,operation)).rejects.toThrow('Original native account changed');expect(x.store.channelDispatchRecord).toHaveBeenCalledTimes(2);expect(f.status).toHaveBeenCalledOnce();expect(f.dispatch).toHaveBeenCalledOnce();
+});
+it('does not fall back after a captured account is foreign or absent',async()=>{
+ for(const patch of [{owner_user_id:'foreign'},null]){const x=await capturedAccountFixture();Object.assign(x.record,{originalAccount:patch===null?null:{...x.record.originalAccount,...patch}});f.status.mockClear();await expect(x.service.dispatch('thread',conversation,operation)).rejects.toThrow('Original native account changed');expect(x.store.conversation).not.toHaveBeenCalled();expect(f.status).not.toHaveBeenCalled();}
+});
+it('retains final source/CAS refusal after the invocation-local account capture without dispatching or retrying',async()=>{
+ const x=await capturedAccountFixture('whatsapp'),prior=f.query.getMockImplementation()!,cause=Error('Current reviewed source changed');f.query.mockImplementation(async(sql,...args)=>{if(sql.includes('agent_channel_communications_source'))throw cause;return prior(sql,...args);});
+ await expect(x.service.dispatch('thread',conversation,operation)).rejects.toBe(cause);expect(x.store.channelRoutes).toHaveBeenCalledOnce();expect(f.catchup).toHaveBeenCalledOnce();expect(x.store.beginNativeCommunicationsMessage).toHaveBeenCalledOnce();expect(f.dispatch).not.toHaveBeenCalled();
+});
+it('rereads current route identity after receipt recovery even when original metadata was captured together',async()=>{
+ const x=await capturedAccountFixture('linkedin');f.recover.mockImplementationOnce(async()=>{x.routes[0]={...x.routes[0],bindingDigest:'b'.repeat(64)};return{found:false};});
+ await expect(x.service.dispatch('thread',conversation,operation)).rejects.toThrow('before outbound admission');expect(x.store.channelRoutes).toHaveBeenCalledOnce();expect(f.read).not.toHaveBeenCalled();expect(x.store.beginNativeCommunicationsMessage).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+});
+
+it('stops an expired history refresh before account or provider work',async()=>{const x=fixture(),controller=new AbortController();controller.abort();await expect(x.service.refresh('thread',conversation,controller.signal)).rejects.toThrow();expect(x.store.conversation).not.toHaveBeenCalled();expect(f.status).not.toHaveBeenCalled();});
+it('does not start another stage after cancellation during account status',async()=>{const x=fixture(),controller=new AbortController();f.status.mockImplementationOnce(async()=>{controller.abort();return{status:'connected'};});await expect(x.service.refresh('thread',conversation,controller.signal)).rejects.toThrow();expect(f.admission).not.toHaveBeenCalled();expect(f.saveIdentity).not.toHaveBeenCalled();expect(f.read).not.toHaveBeenCalled();});
+it('does not ingest a history response that completes after cancellation',async()=>{const x=fixture(),controller=new AbortController();f.read.mockImplementationOnce(async()=>{controller.abort();return{source:'communications',complete:true,messages:[]};});await expect(x.service.refresh('thread',conversation,controller.signal)).rejects.toThrow();expect(x.store.ingestHistory).not.toHaveBeenCalled();});
+it('passes the worker cancellation signal into the history transport',async()=>{const x=fixture(),controller=new AbortController();await x.service.refresh('thread',conversation,controller.signal);expect(f.read).toHaveBeenCalledWith(expect.any(Object),'person@example.invalid',controller.signal);});
+
+it('uses one owned account snapshot per refresh without calculating conversation revisions for each channel',async()=>{
+ const x=fixture(),route={id:'50000000-0000-4000-8000-000000000001',conversationId:conversation,channel:'email',bindingId:binding.id,bindingDigest:recordedAgentBindingDigest(binding),recipient:{kind:'email',value:'person@example.invalid'}};
+ const historyAccountSnapshot=vi.fn(async()=>({conversation:x.row,accounts:[binding]}));
+ const store={...x.store,historyAccountSnapshot,channelRoutes:vi.fn(async()=>[route]),ingestChannelHistory:vi.fn()};
+ f.read.mockImplementation(async(selected)=>({binding:selected,source:'communications',complete:true,observedAt:'2026-10-17T00:00:00.000Z',messages:[],scopeDigest:'a'.repeat(64)}));
+ const service=configuredAgentCommunications(actor,store as never);
+ await service.refresh('thread',conversation);
+ expect(historyAccountSnapshot).toHaveBeenCalledOnce();expect(x.store.conversation).not.toHaveBeenCalled();expect(f.query).not.toHaveBeenCalled();
+ await service.refresh('thread',conversation);expect(historyAccountSnapshot).toHaveBeenCalledTimes(2);
+ historyAccountSnapshot.mockResolvedValueOnce({conversation:x.row,accounts:[{...binding,generation:2}]});
+ await expect(service.refresh('thread',conversation)).rejects.toThrow('Original native account changed');
+});
+
+it('checkpoints background history one channel at a time and requires observations newer than the event',async()=>{
+ const x=fixture(),since=new Date(Date.now()-10000).toISOString();
+ const accounts=['email','whatsapp','linkedin'].map((channel,i)=>({...binding,id:`40000000-0000-4000-8000-00000000000${i+1}`,channel,platform:channel==='email'?'gmail':channel,service_connection_id:'connection-'+channel,service_account_id:'account-'+channel}));
+ const routes=accounts.map((b,i)=>({id:`50000000-0000-4000-8000-00000000000${i+1}`,conversationId:conversation,channel:b.channel,bindingId:b.id,bindingDigest:recordedAgentBindingDigest(b),recipient:{kind:b.channel==='email'?'email':b.channel==='whatsapp'?'phone':'linkedin_profile',value:b.channel==='email'?'person@example.invalid':b.channel==='whatsapp'?'+61400000002':'https://www.linkedin.com/in/peer'},historyComplete:false,historyObservedAt:null as string|null,relationshipObservedAt:null as string|null}));
+ f.relationship.mockResolvedValue({status:'connected',observedAt:new Date().toISOString()});
+ const store={...x.store,ingestChannelRelationship:vi.fn(async(_t:string,_c:string,id:string)=>{routes.find(r=>r.id===id)!.relationshipObservedAt=new Date().toISOString();}),historyAccountSnapshot:vi.fn(async()=>({conversation:x.row,accounts})),channelRoutes:vi.fn(async()=>structuredClone(routes)),ingestChannelHistory:vi.fn(async(_t:string,_c:string,id:string)=>{const route=routes.find(r=>r.id===id)!;route.historyComplete=true;route.historyObservedAt=new Date().toISOString();})};
+ f.read.mockImplementation(async(selected)=>({binding:selected,source:'communications',complete:true,observedAt:new Date().toISOString(),messages:[],scopeDigest:'a'.repeat(64)}));
+ const service=configuredAgentCommunications(actor,store as never);
+ for(let i=0;i<3;i++){await expect(service.refreshCheckpoint('thread',conversation,since)).rejects.toMatchObject({name:'AgentHistoryCheckpointPendingError'});expect(f.read).toHaveBeenCalledTimes(i+1);expect(f.relationship).not.toHaveBeenCalled();}
+ await expect(service.refreshCheckpoint('thread',conversation,since)).rejects.toMatchObject({name:'AgentHistoryCheckpointPendingError'});expect(f.relationship).toHaveBeenCalledOnce();expect(f.read).toHaveBeenCalledTimes(3);
+ await service.refreshCheckpoint('thread',conversation,since);expect(f.read).toHaveBeenCalledTimes(3);expect(f.catchup).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+ routes[0].historyObservedAt=new Date(Date.parse(since)-1).toISOString();await expect(service.refreshCheckpoint('thread',conversation,since)).rejects.toMatchObject({name:'AgentHistoryCheckpointPendingError'});expect(f.read).toHaveBeenCalledTimes(4);
+});
+
+it('reads checkpoint routes and original accounts from one scoped snapshot',async()=>{
+ const x=fixture(),since=new Date(Date.now()-10000).toISOString();
+ const route={id:'50000000-0000-4000-8000-000000000001',conversationId:conversation,channel:'email',bindingId:binding.id,bindingDigest:recordedAgentBindingDigest(binding),recipient:{kind:'email',value:'person@example.invalid'},historyComplete:true,historyObservedAt:new Date().toISOString()};
+ const store={...x.store,historyAccountSnapshot:vi.fn(async()=>({conversation:x.row,accounts:[binding],routes:[route]})),channelRoutes:vi.fn(async()=>[route]),ingestChannelHistory:vi.fn()};
+ await configuredAgentCommunications(actor,store as never).refreshCheckpoint('thread',conversation,since);
+ expect(store.historyAccountSnapshot).toHaveBeenCalledOnce();expect(store.channelRoutes).not.toHaveBeenCalled();expect(f.read).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+});
+
+it('stops dispatch preparation after recovery if its worker deadline expires',async()=>{
+ const x=fixture(),controller=new AbortController();
+ f.recover.mockImplementationOnce(async()=>{controller.abort();return {found:false};});
+ await expect(x.service.dispatch('thread',conversation,operation,undefined,undefined,controller.signal)).rejects.toThrow();
+ expect(f.read).not.toHaveBeenCalled();expect(f.saveIdentity).not.toHaveBeenCalled();
+ expect(x.store.beginNativeCommunicationsEmail).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+});
+
+it('does not ingest history or enter admission after an in-flight history read is cancelled',async()=>{
+ const x=fixture(),controller=new AbortController();
+ f.read.mockImplementationOnce(async()=>{controller.abort();return {source:'communications',complete:true,observedAt:new Date().toISOString(),messages:[],scopeDigest:'a'.repeat(64)};});
+ await expect(x.service.dispatch('thread',conversation,operation,undefined,undefined,controller.signal)).rejects.toThrow();
+ expect(x.store.ingestHistory).not.toHaveBeenCalled();expect(x.store.beginNativeCommunicationsEmail).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+});
+it('preserves an already recovered receipt when cancellation happens during receipt lookup',async()=>{
+ const x=fixture(),controller=new AbortController();
+ f.recover.mockImplementationOnce(async()=>{controller.abort();return {found:true,outcome:{status:'submitted',receipt:{}}};});
+ expect(await x.service.dispatch('thread',conversation,operation,undefined,undefined,controller.signal)).toMatchObject({status:'submitted'});
+ expect(f.read).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+});
+
+async function preparedDispatchFixture(){
+ const x=await capturedAccountFixture();
+ Object.assign(x.routes[0],{historyComplete:true,historyObservedAt:new Date().toISOString()});
+ const descriptor={version:1,mode:'hosted-demo',phase:'active',runId:'hosted-demo-example',integrationId:'sim-hosted-demo-example',configurationReference:'sim-hosted-demo-example-v1',applicationOrigin:'https://acquire.example.invalid',serviceOrigin:'https://simulator.example.invalid',setupOrigin:'https://simulator.example.invalid',actor:{applicationId:'acquire',tenantId:actor.organizationId,ownerId:actor.userId},capabilities:{dynamicRecipients:true,recipientContextLookup:true,remoteApplicationAuthority:true,durableEvents:true},bindings:[{applicationId:binding.application_id,tenantId:binding.organization_id,ownerId:binding.owner_user_id,connectionId:binding.service_connection_id,accountId:binding.service_account_id,generation:binding.generation,channel:binding.channel,platform:binding.platform,backend:binding.backend}]};
+ for(const[k,v]of Object.entries({NODE_ENV:'production',APP_URL:descriptor.applicationOrigin,AGENT_HOSTED_DEMO_COMMUNICATIONS_ENABLED:'true',AGENT_HOSTED_DEMO_COMMUNICATIONS_DESCRIPTOR_JSON:JSON.stringify(descriptor)}))vi.stubEnv(k,v);
+ const store={...x.store,historyAccountSnapshot:vi.fn(async()=>({conversation:x.record.conversation,accounts:[x.record.originalAccount],routes:x.routes}))};
+ f.coverageCheckpoints.mockResolvedValue({scopes:[{bindingId:x.routes[0].bindingId,scopeDigest:'a'.repeat(64)}],pendingBindingId:null});
+ return {...x,store,service:configuredAgentCommunications(actor,store as never)};
+}
+it('uses fresh durable coverage hints for final dispatch without another provider scan',async()=>{
+ const x=await preparedDispatchFixture();await x.service.prepareDispatch('thread',conversation,operation);
+ expect(x.store.historyAccountSnapshot).toHaveBeenCalledOnce();
+ await x.service.dispatch('thread',conversation,operation);
+ expect(f.read).not.toHaveBeenCalled();expect(f.catchup).not.toHaveBeenCalled();expect(f.dispatch).toHaveBeenCalledOnce();expect(x.store.beginNativeCommunicationsMessage).toHaveBeenCalledOnce();
+});
+it('projects one lagging scope as a separate checkpoint before any admission',async()=>{
+ const x=await preparedDispatchFixture();f.coverageCheckpoints.mockResolvedValue({scopes:[{bindingId:x.routes[0].bindingId,scopeDigest:'a'.repeat(64)}],pendingBindingId:x.routes[0].bindingId});
+ await expect(x.service.prepareDispatch('thread',conversation,operation)).rejects.toMatchObject({historyError:{name:'AgentHistoryCheckpointPendingError'}});
+ expect(f.catchup).toHaveBeenCalledOnce();expect(f.read).not.toHaveBeenCalled();expect(x.store.beginNativeCommunicationsMessage).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+});
+
+it('never prepares new history when an original send may already exist',async()=>{
+ const x=await preparedDispatchFixture();x.store.preBeginHistoryRetryProof.mockResolvedValue(false);
+ await x.service.prepareDispatch('thread',conversation,operation);
+ expect(f.coverageCheckpoints).not.toHaveBeenCalled();expect(f.read).not.toHaveBeenCalled();
+ f.recover.mockResolvedValueOnce({found:true,outcome:{status:'submitted',receipt:{}}});
+ expect(await x.service.dispatch('thread',conversation,operation)).toMatchObject({status:'submitted'});expect(f.dispatch).not.toHaveBeenCalled();
+});
+it('rejects a route change after preparation and consumes its hints only once',async()=>{
+ const x=await preparedDispatchFixture();await x.service.prepareDispatch('thread',conversation,operation);
+ x.routes[0]={...x.routes[0],bindingDigest:'b'.repeat(64)};
+ await expect(x.service.dispatch('thread',conversation,operation)).rejects.toThrow();
+ expect(x.store.beginNativeCommunicationsMessage).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+});
+it('does not retain successful checkpoint hints for another dispatch call',async()=>{
+ const x=await preparedDispatchFixture();await x.service.prepareDispatch('thread',conversation,operation);await x.service.dispatch('thread',conversation,operation);
+ expect(f.read).not.toHaveBeenCalled();await x.service.dispatch('thread',conversation,operation);expect(f.read).toHaveBeenCalledOnce();
 });

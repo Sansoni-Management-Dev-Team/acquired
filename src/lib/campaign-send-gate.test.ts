@@ -19,3 +19,8 @@ it('rejects invalid revisions without trusting a GUC as authority', async () => 
     const query = vi.fn().mockResolvedValueOnce({ rows: [{ installed: true }] }).mockResolvedValueOnce({ rows: [{ revision: '-1' }] });
     await expect(lockAcquireSendGate({ query }, 'synthetic-org')).rejects.toThrow('Send authority unavailable');
 });
+it('records an allowlisted gate SQL failure without exporting its raw exception or changing refusal',async()=>{
+ const{installOperationTrace}=await import('../../communications/packages/core/src/operation-trace'),rows:{name:string;metadata:Record<string,unknown>}[]=[];let current:typeof rows[number]|undefined;
+ const restore=installOperationTrace({async run(name,metadata,work){const prior=current,row={name,metadata};rows.push(row);current=row;try{return await work();}finally{current=prior;}},update(metadata){if(current)Object.assign(current.metadata,metadata);}});
+ try{const query=vi.fn().mockResolvedValueOnce({rows:[{installed:true}]}).mockRejectedValueOnce(Object.assign(Error('PRIVATE SQL password'),{code:'40001'}));await expect(lockAcquireSendGate({query},'synthetic-org',{required:true})).rejects.toThrow('Send authority unavailable');expect(rows).toContainEqual({name:'acquire.admission.gate',metadata:expect.objectContaining({failureCode:'40001'})});expect(JSON.stringify(rows)).not.toMatch(/PRIVATE|password|synthetic-org|SELECT/);expect(query).toHaveBeenCalledTimes(2);}finally{restore();}
+});

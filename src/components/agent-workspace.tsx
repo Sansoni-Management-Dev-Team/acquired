@@ -1,4 +1,6 @@
 "use client";
+import {readAgentStatus} from '@/lib/agent-read-request';
+import {readJsonResponse} from '@/lib/read-json-response';
 import {isAgentMessageReviewOperation} from '@/domain/agent-operation-classifications';
 
 import {isAgentResearchBriefReviewNotice} from '@/domain/agent-research-notice';
@@ -34,7 +36,7 @@ type SavedConversation={threadId?:string;messages:SavedAgentMessage[]};
 async function fetchReviewBatches(mandateId:string,signal:AbortSignal){
   const response=await fetch(`/api/mandates/${mandateId}/agent/reviews`,{cache:'no-store',signal});
   if(!response.ok)throw new Error('Could not load current review proposals.');
-  return (await response.json() as {batches:AgentReviewBatchView[]}).batches;
+  return (await readJsonResponse(response,'Could not confirm the response. Check saved progress before retrying.') as {batches:AgentReviewBatchView[]}).batches;
 }
 export function AgentWorkspace({ initial, conversation,learningEnabled=false,initialGuidance=[] }: { initial: AgentSnapshot; conversation?:SavedConversation;learningEnabled?:boolean;initialGuidance?:AgentGuidanceView[] }) {
   const agent = useMemo(() => new (conversation?SavedMandateHttpAgent:HttpAgent)({
@@ -97,9 +99,7 @@ function ResearchConversation({ agent,initial,persisted,learningEnabled,initialG
     return startAgentActivityPolling({
       isBusy:()=>lock.current,isVisible:()=>document.visibilityState!=='hidden',version:()=>activityVersion.current,
       load:async signal=>{
-        const response=await fetch(`/api/mandates/${initial.mandate.id}/agent/activity`,{cache:'no-store',signal:AbortSignal.any([signal,AbortSignal.timeout(15000)])});
-        if(!response.ok)throw new Error('Saved activity unavailable');
-        return await response.json() as {conversation:SavedConversation;batches:AgentReviewBatchView[];guidance:AgentGuidanceView[];initialResearch?:AgentSnapshot['initialResearch']};
+        return await readAgentStatus(`/api/mandates/${initial.mandate.id}/agent/activity`,signal) as {conversation:SavedConversation;batches:AgentReviewBatchView[];guidance:AgentGuidanceView[];initialResearch?:AgentSnapshot['initialResearch']};
       },
       apply:data=>{
         const displayed=agent.messages.filter(message=>message.role==='user'||message.role==='assistant').map(message=>({id:message.id,role:message.role,content:message.content,...('noticeKind' in message?{noticeKind:message.noticeKind}:{}),...('lead' in message?{lead:message.lead}:{})}));
@@ -115,7 +115,7 @@ function ResearchConversation({ agent,initial,persisted,learningEnabled,initialG
   },[agent,initial.mandate.id,isReady,learningEnabled,persisted]);
   async function submitReview(value:unknown){
     const response=await fetch(`/api/mandates/${initial.mandate.id}/agent/reviews`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value),signal:AbortSignal.timeout(15000)});
-    const result=await response.json() as {error?:string};
+    const result=await readJsonResponse(response,'Could not confirm the response. Check saved progress before retrying.') as {error?:string};
     if(!response.ok)throw new Error(result.error||'This review changed. Refresh before trying again.');
   }
   async function approveMessageBatches(batches:AgentReviewBatchView[],shouldContinue:(batch:AgentReviewBatchView)=>boolean=()=>true,simulated=false):Promise<boolean>{
@@ -130,7 +130,7 @@ function ResearchConversation({ agent,initial,persisted,learningEnabled,initialG
         await submitReview({action:'decide',batchId:batch.id,revision:batch.revision,items:batch.manifest,decision:'approved',...(simulated?{approvalSource:'automatic_demo'}:{})});
       }
     }catch{completed=false;setError('Approval stopped because a message changed or could not be checked. Review the latest drafts before continuing.');}
-    finally{try{await refresh();}catch{completed=false;setError('Refresh to check which messages were approved before trying again.');}lock.current=false;setBusy(false);}
+    finally{try{await refreshSavedActivity();}catch{completed=false;setError('Refresh to check which messages were approved before trying again.');}lock.current=false;setBusy(false);}
     return completed;
   }
   async function reviewAction(value:unknown):Promise<boolean>{
@@ -138,30 +138,37 @@ function ResearchConversation({ agent,initial,persisted,learningEnabled,initialG
     try{
       setSetupBoundary(ids=>ids??agent.messages.filter(message=>message.role==='user'||message.role==='assistant').map(message=>message.id));
       await submitReview(value);
-      await refresh();return true;
-    }catch(cause){setError(cause instanceof Error?cause.message:'Could not save review. Refresh before retrying.');return false;}
+      await refreshSavedActivity();return true;
+    }catch{setError('Could not confirm the response. Check saved progress before retrying.');return false;}
     finally{lock.current=false;setBusy(false);}
   }
   async function guidanceAction(value:unknown):Promise<boolean>{
     if(lock.current)return false;activityVersion.current++;lock.current=true;setBusy(true);setError('');
     try{
       const response=await fetch(`/api/mandates/${initial.mandate.id}/agent/guidance`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(value),signal:AbortSignal.timeout(15000)});
-      const result=await response.json() as {error?:string};if(!response.ok)throw new Error(result.error||'Could not save guidance.');
-      await refresh();return true;
-    }catch(cause){setError(cause instanceof Error?cause.message:'Could not save guidance. Refresh before retrying.');return false;}
+      const result=await readJsonResponse(response,'Could not confirm the response. Check saved progress before retrying.') as {error?:string};if(!response.ok)throw new Error(result.error||'Could not save guidance.');
+      await refreshSavedActivity();return true;
+    }catch{setError('Could not confirm the response. Check saved progress before retrying.');return false;}
     finally{lock.current=false;setBusy(false);}
+  }
+  async function refreshSavedActivity(){
+    const data=await readAgentStatus(`/api/mandates/${initial.mandate.id}/agent/activity`,AbortSignal.timeout(30000)) as {conversation:SavedConversation;batches:AgentReviewBatchView[];guidance:AgentGuidanceView[];initialResearch?:AgentSnapshot['initialResearch']};
+    agent.setMessages(data.conversation.messages);setReviews(data.batches);
+    if(learningEnabled)setGuidance(data.guidance);
+    if(data.initialResearch)setSnapshot(current=>({...current,initialResearch:data.initialResearch}));
+    setUpdatesPaused(false);
   }
   async function refresh() {
     const response = await fetch(`/api/mandates/${initial.mandate.id}/agent`, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
     if (!response.ok) throw new Error('Status unavailable');
-    const data=await response.json() as AgentSnapshot & {conversation?:SavedConversation};
+    const data=await readJsonResponse(response,'Could not confirm the response. Check saved progress before retrying.') as AgentSnapshot & {conversation?:SavedConversation};
     setSnapshot(data);
     if(data.conversation)agent.setMessages(data.conversation.messages);
     await loadReviews();
     if(learningEnabled){
       const response=await fetch(`/api/mandates/${initial.mandate.id}/agent/guidance`,{cache:'no-store',signal:AbortSignal.timeout(15000)});
       if(!response.ok)throw new Error('Could not refresh saved guidance.');
-      setGuidance((await response.json() as {guidance:AgentGuidanceView[]}).guidance);
+      setGuidance((await readJsonResponse(response,'Could not confirm the response. Check saved progress before retrying.') as {guidance:AgentGuidanceView[]}).guidance);
     }
     setUpdatesPaused(false);
   }
@@ -170,7 +177,7 @@ function ResearchConversation({ agent,initial,persisted,learningEnabled,initialG
     setStopping(true);setError('');
     try{
       const response=await fetch(`/api/mandates/${initial.mandate.id}/agent`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({runId}),signal:AbortSignal.timeout(15000)});
-      const data=await response.json() as {state?:string;error?:string};
+      const data=await readJsonResponse(response,'Could not confirm the response. Check saved progress before retrying.') as {state?:string;error?:string};
       if(!response.ok)throw new Error(data.error||'Could not stop this turn.');
       stoppedRun.current=runId;agent.abortRun();await refresh();
     }catch(cause){setError(cause instanceof Error?cause.message:'Could not stop. Refresh to check saved state.');}
@@ -210,7 +217,7 @@ function ResearchConversation({ agent,initial,persisted,learningEnabled,initialG
     </header>
     <div className={`grid min-h-0 flex-1 gap-4 ${contextOpen?'grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_280px] lg:grid-rows-1':''}`}>
       <section aria-label="Mandate conversation" className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--panel)] shadow-sm">
-        {persisted?<AgentControlsPanel pendingReviews={reviews} focusedConversationId={focusedConversation?.id} conversationFocusRequest={focusedConversation?.request} pendingContactReview={reviews.some(batch=>batch.state==='pending'&&!batch.stale&&batch.operations.some(op=>op.name==='target.select'))} pendingMessageReviews={reviews.filter(batch=>batch.state==='pending'&&!batch.stale).flatMap(batch=>batch.operations).filter(op=>isAgentMessageReviewOperation(op.name)).length} onShowReviews={()=>reviewAnchor.current?.scrollIntoView({block:'start',behavior:'auto'})} onActionSaved={refresh} onConversationActionStart={()=>setSetupBoundary(ids=>ids??visibleMessages.map(message=>message.id))} onViewCompanies={()=>showResults('companies')} onViewPeople={()=>showResults('people')} savedData={initialResearch?.source==='cached'?{companies:initialResearch.companies,people:initialResearch.people}:undefined} mandateDescription={snapshot.mandate.description} initialResearchStatus={initialResearch?.status} initialResearchSource={initialResearch?.source} onFeedback={learningEnabled?guidanceAction:undefined} mandateId={initial.mandate.id} busy={busy} onBusyChange={value=>{activityVersion.current++;lock.current=value;setBusy(value);}}>{renderConversation}</AgentControlsPanel>:<><div className="border-b border-[var(--border)] px-5 py-3 text-sm font-medium">Mandate conversation</div>{renderConversation(null)}</>}
+        {persisted?<AgentControlsPanel pendingReviews={reviews} focusedConversationId={focusedConversation?.id} conversationFocusRequest={focusedConversation?.request} pendingContactReview={reviews.some(batch=>batch.state==='pending'&&!batch.stale&&batch.operations.some(op=>op.name==='target.select'))} pendingMessageReviews={reviews.filter(batch=>batch.state==='pending'&&!batch.stale).flatMap(batch=>batch.operations).filter(op=>isAgentMessageReviewOperation(op.name)).length} onShowReviews={()=>reviewAnchor.current?.scrollIntoView({block:'start',behavior:'auto'})} onActionSaved={refreshSavedActivity} onConversationActionStart={()=>setSetupBoundary(ids=>ids??visibleMessages.map(message=>message.id))} onViewCompanies={()=>showResults('companies')} onViewPeople={()=>showResults('people')} savedData={initialResearch?.source==='cached'?{companies:initialResearch.companies,people:initialResearch.people}:undefined} mandateDescription={snapshot.mandate.description} initialResearchStatus={initialResearch?.status} initialResearchSource={initialResearch?.source} onFeedback={learningEnabled?guidanceAction:undefined} mandateId={initial.mandate.id} busy={busy} onBusyChange={value=>{activityVersion.current++;lock.current=value;setBusy(value);}}>{renderConversation}</AgentControlsPanel>:<><div className="border-b border-[var(--border)] px-5 py-3 text-sm font-medium">Mandate conversation</div>{renderConversation(null)}</>}
         <div className="shrink-0 border-t border-[var(--border)] px-4 py-3 sm:px-5">
           {persisted&&answering&&<button type="button" disabled={stopping} onClick={()=>void stopTurn()} className="mb-2 min-h-9 rounded-lg border border-[var(--border)] px-3 text-xs disabled:opacity-50">{stopping?'Stopping…':'Stop answer'}</button>}
           <form onSubmit={event=>{event.preventDefault();void ask(question);}} className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--input)] p-1.5 focus-within:ring-1 focus-within:ring-[var(--muted)]"><label htmlFor="agent-question" className="sr-only">Ask about this mandate</label><input id="agent-question" value={question} onChange={event=>setQuestion(event.target.value)} maxLength={5000} disabled={busy} placeholder="Message Acquire…" className="min-h-10 min-w-0 flex-1 bg-transparent px-2 text-sm outline-none"/><button disabled={busy||!question.trim()||!isReady} aria-label="Send question" className="flex size-11 shrink-0 items-center justify-center rounded-lg bg-[var(--accent)] text-[var(--on-accent)] disabled:opacity-40">{busy?<LoaderCircle size={18} className="animate-spin motion-reduce:animate-none"/>:<ArrowUp size={18}/>}</button></form>

@@ -1,4 +1,5 @@
 import {AsyncLocalStorage} from 'node:async_hooks';
+import {traceOperation,updateOperationTrace} from './operation-trace';
 export type DispatchDiagnosticStage='coordinator.claim'|'coordinator.record'|'coordinator.ready'|'coordinator.preflight'|'coordinator.begin'|'coordinator.admitted_record'|'coordinator.persist'|'admission.open'|'admission.permit'|'admission.service_commit'|'admission.app_commit'|'application.session'|'application.commit'|'application.binding'|'application.source'|'application.intent'|'application.coverage'|'application.policy'|'application.permit'|'service.grant'|'service.generation'|'service.sql';
 export type DispatchDiagnostic={stage:DispatchDiagnosticStage;outcome:'error'|'blocked';sqlState?:'40001'|'40P01'|'55P03'|'57014'|'42501'};
 export type DispatchDiagnosticPort=(event:DispatchDiagnostic)=>void;
@@ -29,6 +30,13 @@ function safeObservation(raw:DispatchObservationContext){const result:DispatchOb
 export function withDispatchObservation<T>(context:DispatchObservationContext,work:()=>T):T{return observationScope.run({...observationScope.getStore(),...safeObservation(context)},work);}
 export type ObservedDispatchStage='native.scope'|'native.handler'|'native.decision'|'delivery.lookup'|'delivery.prepare'|'delivery.submit'|'delivery.capture'|'ports.original_account'|'ports.client'|'ports.status'|'ports.admission'|'dispatch.ports'|'dispatch.recover'|'refresh.ports'|'refresh.save_identity'|'refresh.read_history'|'refresh.ingest'|'dispatch.begin'|'dispatch.source'|'refresh.coverage_revalidate';
 export async function observeDispatchStage<T>(stage:ObservedDispatchStage,work:()=>Promise<T>,context:DispatchObservationContext={}):Promise<T>{
+ const metadata=safeObservation({...observationScope.getStore(),...safeObservation(context)});
+ return traceOperation('acquire.'+stage,{...metadata,kind:stage==='native.scope'||stage==='native.handler'?'agent':'span'},async()=>{
+  try{const result=await observeLoggedDispatchStage(stage,work,context);let outcome='complete';try{if(result&&typeof result==='object'){const d=Object.getOwnPropertyDescriptor(result,'kind')??Object.getOwnPropertyDescriptor(result,'status'),state=d&&'value'in d?d.value:undefined;if(['review','unknown','submitted','lost'].includes(state))outcome=state;else if(['defer','waiting'].includes(state))outcome='wait';}}catch{}updateOperationTrace({outcome});return result;}
+  catch(error){let code:unknown;try{const d=error&&typeof error==='object'?Object.getOwnPropertyDescriptor(error,'code'):undefined;code=d&&'value'in d?d.value:undefined;}catch{}updateOperationTrace({outcome:'error',...(typeof code==='string'?{failureCode:code}:{})});throw error;}
+ });
+}
+async function observeLoggedDispatchStage<T>(stage:ObservedDispatchStage,work:()=>Promise<T>,context:DispatchObservationContext={}):Promise<T>{
  const enabled=process.env.AGENT_VERBOSE_LOGGING==='true'||process.env.AGENT_VERBOSE_LOGGING!=='false'&&process.env.NODE_ENV==='development';
  if(!enabled)return work();const started=performance.now(),metadata=safeObservation({...observationScope.getStore(),...safeObservation(context)});
  const emit=(outcome:string,error?:unknown)=>{try{let sqlState:string|undefined,errorClass:string|undefined,failureCode:string|undefined;

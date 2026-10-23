@@ -8,10 +8,8 @@ export async function GET(request:Request,context:AgentRequestContext){
   const scoped=await agentRequestScope(request,context);if(scoped instanceof Response)return scoped;
   const initialResearch=nativeAgentEnabled()?await readInitialMandateResearch(agentPool(),scoped.actor,(await context.params).id):undefined;
   if(!scoped.thread)return Response.json({conversation:{messages:[]},batches:[],guidance:[],...(initialResearch?{initialResearch}:{})},{headers:agentResponseHeaders});
-  const threadId=scoped.thread.id,records=await scoped.store.messages(threadId);
+  const threadId=scoped.thread.id,{records,batches,guidance}=await scoped.store.activitySnapshot(threadId,process.env.AGENT_GUIDANCE_ENABLED==='true');
   const messages=savedAgentMessages(records);
-  const batches=await scoped.store.listReviewBatches(threadId,{pendingOnly:true});
-  const guidance=process.env.AGENT_GUIDANCE_ENABLED==='true'?await scoped.store.listGuidance(threadId):[];
   return Response.json({conversation:{threadId,messages},batches,guidance,...(initialResearch?{initialResearch}:{})},{headers:agentResponseHeaders});
  }catch(error){return agentRequestFailure(error);}
 }

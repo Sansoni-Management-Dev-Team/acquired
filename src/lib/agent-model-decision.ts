@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {updateOperationTrace} from '../../communications/packages/core/src/operation-trace';
 import {nativeOutboundDraftSchema} from '@/domain/agent-execution';
 import {summariseAgentModelValidationFailure} from '@/domain/agent-model-response-failure';
 import {localSimulatorTestPolicy} from './agent-simulator-test-policy';
@@ -24,6 +25,7 @@ export function createNativeModelDecision(options:{store:Pick<AgentModelStore,'b
  return async(context:AgentConversationContext)=>{
   if(!options.evaluationModel&&process.env.AGENT_DECISION_MODEL&&process.env.AGENT_DECISION_MODEL!==nativeModelSpecification.model)throw new Error('The requested model needs reviewed pricing and evaluation before native execution');
   const complete=options.complete??completeOpenAiJson;
+  updateOperationTrace({conversationId:context.conversationId,threadId:options.threadId,promptVersion:specification.promptVersion,sourceCount:context.sources.length,historyComplete:context.historyComplete});
   const simulator=localSimulatorTestPolicy({...process.env});
   const instruction=simulator?system+'\nTrusted local simulator delivery policy: all recipients and mailboxes in this run are fictional local stores. Approved simulated messages and separately reviewed LinkedIn invitations may run now at any hour. A ready cold route with a due nextAllowedAt reflects the explicitly reviewed local stagger, which may be only seconds: an earlier message on another channel does not require an additional day of waiting, while any inbound cancels cold outreach on the others; this explicit test-hours policy supersedes the business-hours instruction above only for this run. Preserve all approval, opt-out, history, confidentiality, budget and human booking-handoff requirements. Do not claim real email delivery or a confirmed meeting.':system;
   const messages=[{role:'system',content:instruction},{role:'user',content:JSON.stringify({now:(options.now??(()=>new Date().toISOString()))(),context})}];
