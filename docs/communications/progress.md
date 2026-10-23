@@ -3150,3 +3150,40 @@ Supabase CLI session-pool blocking inspection succeeded; the snapshot showed sho
 ### DBR-6: resumed availability check and completed canary
 
 The a098b56 final-image readiness canary completed its 30-minute observation window with 59 checks and zero failures. On resume, a minimal completion probe from the deployed application container using its configured OpenAI key returned HTTP 429; the diagnostic probe identified code `credit_balance_exhausted`, type `insufficient_quota`, and no completion. These were direct provider probes, not normal Acquire demo runs or simulator submissions. No further demo run or approval was started. Supabase CLI session-pool blocking inspection completed successfully again. End-to-end dispatch/reply acceptance and latency targets remain open pending restored provider credits; a clean readiness canary does not establish them.
+
+### DBR-5/6: provider-independent local recovery acceptance while AI abstraction changes
+
+Verified baseline `adc6b79` in the database-release worktree using existing acceptance tests. Read-only identity verification confirmed database `acquire_agent_mode` at `127.0.0.1:5437` with marker `acquire-agent-mode-local-only` before synthetic fixture writes. No migrations, production mutations, live outreach, provider-key installation or AI adapter changes were made. Scripted decisions and synthetic transport responses were used; the Anthropic key was not needed. This is execution of existing characterization/acceptance tests, not a new red/green implementation claim.
+
+Results: **368 tests passed across 37 files**, no skips in these selected runs. Of those, **67 tests across 13 files used real isolated PostgreSQL**.
+
+- Persisted flow/recovery: 33 tests / 6 files / 8.04s. Draft → approval → local sink send → incoming reply → human handoff across fresh store instances; approval races, expired lease fencing, event deduplication, ownership boundaries, demo restrictions and dispatch preparation checkpoint persistence.
+- Replies/recovery: 34 tests / 7 files / 68.30s. Cross-channel incoming-reply ingestion and deduplication, cold-route cancellation, simultaneous replies, original no-submission settlement, same-organization foreign-user denial, provisioning idempotency, pending reply acknowledgements and real history lease expiry.
+- Route/component/worker contracts: 183 tests / 13 files / 3.14s. Demo creation/status, automatic approval, conversation history display, worker cancellation/checkpoints and background workload bounds.
+- Transport contracts: 76 tests / 5 files / 0.889s. Synthetic email recovery and Unipile-shaped message/history/reply HTTP contracts. These are not actual provider or simulator sends.
+- Model-boundary/demo tests: 42 tests / 6 files / 1.69s. Existing scripted model accounting/error boundaries, demo commands/provisioning and polling. These are a pre-refactor baseline; adapter-specific tests may need moving as the shared AI interface lands.
+
+Private raw evidence: `.local-data/local-recovery-verification/{database-direct,replies-recovery,contracts-ui,transport-contracts,model-boundaries-demo}.log`. The first `pnpm exec` attempt stopped before any tests because pnpm attempted to reconcile the shared node_modules link and refused removal without a TTY. No dependency directory was purged; invoking the installed Vitest binary directly ran the suites successfully.
+
+Rerun from the worktree with `./node_modules/.bin/vitest run --maxWorkers=1` and the following groups. Enable `RUN_AGENT_EXECUTION_LOCAL_INTEGRATION=true RUN_AGENT_LOCAL_INTEGRATION=true RUN_AGENT_JOURNEY_LOCAL_INTEGRATION=true` only for the two database groups, whose suites assert the exact isolated marker. Never substitute production connection strings.
+
+```text
+Database flow group (src/db/):
+agent-native-flow-local.integration.test.ts
+agent-native-journey-local.integration.test.ts
+agent-event-local.integration.test.ts
+agent-ownership-local.integration.test.ts
+agent-demo-mode-local.integration.test.ts
+agent-pre-begin-proof-local.integration.test.ts
+
+Database reply group (src/db/):
+agent-channel-incoming-local.integration.test.ts
+agent-channel-no-submission-local.integration.test.ts
+agent-simultaneous-replies-local.integration.test.ts
+agent-review-local.integration.test.ts
+agent-demo-provisioning-batch-local.integration.test.ts
+agent-history-pending-local.integration.test.ts
+agent-history-busy-local.integration.test.ts
+```
+
+Next action after the AI module lands: rerun these orchestration invariants through its injected provider boundary, then separately verify an actual local simulator round trip and production normal-route submission/reply. Component tests do not establish browser visual acceptance; fast localhost PostgreSQL tests do not establish production latency targets. No genuine AI-generated simulator reply or production performance improvement is claimed by this local batch.
