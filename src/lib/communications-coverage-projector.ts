@@ -150,7 +150,13 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
                             }
                         }) };
                     try{
-                    await tx.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+                    // The mandatory organization gate serializes every binding, monitor and
+                    // checkpoint writer; its global shared fence also excludes membership
+                    // changes. Read current committed policy only AFTER acquiring it.
+                    // A SERIALIZABLE snapshot taken by the role check predates gate
+                    // acquisition and repeatedly aborts when a prior writer commits.
+                    // The service proof stays held and is revalidated before COMMIT.
+                    await tx.query('BEGIN ISOLATION LEVEL READ COMMITTED');
                     await tx.query('SET LOCAL ROLE acquire_campaign_user');
                     const role = await tx.query('SELECT current_user AS role_name,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user');
                     if (role.rows.length !== 1 || role.rows[0].role_name !== 'acquire_campaign_user' || role.rows[0].rolsuper !== false || role.rows[0].rolbypassrls !== false)
