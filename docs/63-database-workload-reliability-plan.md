@@ -1,6 +1,6 @@
 # Database workload reliability implementation plan
 
-Date: 2026-10-24. Status: reliability safeguards are deployed directly to DigitalOcean through abd7574. Pool reservation, bounded background work, durable continuations and read-only snapshots have local and production evidence. DBR-5/6 remain in progress: history callback serialization starvation has a tested and deployed fix; complete simulated outbound/reply and final-image soak acceptance are still pending. DBR-4 schema changes remain unapplied and require specific approval if justified by measurements.
+Date: 2026-10-24. Status: reliability safeguards are deployed directly to DigitalOcean through d3efc4f. Pool reservation, bounded background work, durable continuations and read-only snapshots have local and production evidence. DBR-5/6 remain in progress: history callback serialization starvation and combined LinkedIn checkpoint timing have tested, deployed fixes; one five-phase history refresh completed; complete simulated outbound/reply and final-image soak acceptance are still pending. DBR-4 schema changes remain unapplied and require specific approval if justified by measurements.
 Incident evidence and operational history: [communications progress](communications/progress.md), P7.3/P7.4.
 Related work: [research performance ledger](36-research-performance-completion-plan.md) and [communications execution plan](39-communications-service-execution-plan.md).
 

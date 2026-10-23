@@ -265,3 +265,11 @@ it('checkpoints background history one channel at a time and requires observatio
  await service.refreshCheckpoint('thread',conversation,since);expect(f.read).toHaveBeenCalledTimes(3);expect(f.catchup).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
  routes[0].historyObservedAt=new Date(Date.parse(since)-1).toISOString();await expect(service.refreshCheckpoint('thread',conversation,since)).rejects.toMatchObject({name:'AgentHistoryCheckpointPendingError'});expect(f.read).toHaveBeenCalledTimes(4);
 });
+
+it('reads checkpoint routes and original accounts from one scoped snapshot',async()=>{
+ const x=fixture(),since=new Date(Date.now()-10000).toISOString();
+ const route={id:'50000000-0000-4000-8000-000000000001',conversationId:conversation,channel:'email',bindingId:binding.id,bindingDigest:recordedAgentBindingDigest(binding),recipient:{kind:'email',value:'person@example.invalid'},historyComplete:true,historyObservedAt:new Date().toISOString()};
+ const store={...x.store,historyAccountSnapshot:vi.fn(async()=>({conversation:x.row,accounts:[binding],routes:[route]})),channelRoutes:vi.fn(async()=>[route]),ingestChannelHistory:vi.fn()};
+ await configuredAgentCommunications(actor,store as never).refreshCheckpoint('thread',conversation,since);
+ expect(store.historyAccountSnapshot).toHaveBeenCalledOnce();expect(store.channelRoutes).not.toHaveBeenCalled();expect(f.read).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+});

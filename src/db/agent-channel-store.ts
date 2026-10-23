@@ -180,7 +180,8 @@ export class AgentChannelStore extends AgentChatStore{
    const conversation=(await c.query('SELECT * FROM agent_conversations WHERE id=$1 AND thread_id=$2',[uuid.parse(conversationId),t.id])).rows[0];
    if(!conversation)throw Error('Conversation not found');
    const accounts=(await c.query(`SELECT b.* FROM communication_bindings b WHERE b.organization_id=$1 AND b.owner_user_id=$2 AND b.id IN (SELECT binding_id FROM agent_conversation_channels WHERE conversation_id=$3 AND thread_id=$4)`,[t.organization_id,t.owner_user_id,conversation.id,t.id])).rows;
-   return {conversation,accounts};
+   const routes=await this.channelRows(c,t,conversation.id,true);
+   return {conversation,accounts,routes};
   },undefined,true);
  }
  async channelRoutes(threadId:string,conversationId:string){return this.nativeTransaction(async c=>{const t=await this.thread(c,threadId);return this.channelRows(c,t,uuid.parse(conversationId),true);},undefined,true);}

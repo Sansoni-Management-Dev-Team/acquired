@@ -37,7 +37,7 @@ type ConfiguredAgentStore=Pick<AgentOutreachStore,'conversation'|'ingestHistory'
  channelPolicy?:(threadId:string)=>Promise<{policy:null|{acceleratedSimulation:boolean}}> ;
  testingSendWindowExempt?:(threadId:string,routeId:string)=>Promise<boolean>;
  preBeginHistoryRetryProof?:(threadId:string,operationId:string,conversationId:string)=>Promise<boolean>;
- historyAccountSnapshot?:(threadId:string,conversationId:string)=>Promise<{conversation:ChannelDispatchRecord['conversation'];accounts:Record<string,unknown>[]}>;
+ historyAccountSnapshot?:(threadId:string,conversationId:string)=>Promise<{conversation:ChannelDispatchRecord['conversation'];accounts:Record<string,unknown>[];routes?:RecordedRoute[]}>;
  channelRoutes?:(threadId:string,conversationId:string)=>Promise<RecordedRoute[]>;
  ingestChannelHistory?:(threadId:string,conversationId:string,routeId:string,history:NativeHistory)=>Promise<unknown>;
  channelDispatchRecord?:(threadId:string,operationId:string,options?:{includeOriginalAccount?:boolean})=>Promise<ChannelDispatchRecord>;
@@ -93,7 +93,11 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
  // still fresh; no metadata or authority survives into another dispatch call.
  async function refresh(threadId:string,conversationId:string,prepared?:PreparedRoutePorts,signal?:AbortSignal,checkpointSince?:string){
   const observe=cancellationObserver(signal);signal?.throwIfAborted();
-  const routes=store.channelRoutes?await store.channelRoutes(threadId,conversationId):[];
+  // Capture routes and their immutable account metadata in one actor-scoped
+  // read transaction. It is refresh input only, never dispatch authority.
+  const snapshot=!prepared&&store.channelRoutes&&store.historyAccountSnapshot?await store.historyAccountSnapshot(threadId,conversationId):undefined;
+  signal?.throwIfAborted();
+  const routes=snapshot?.routes??(store.channelRoutes?await store.channelRoutes(threadId,conversationId):[]);
   signal?.throwIfAborted();
   if(routes.length){
    if(!store.ingestChannelHistory||routes.length>3||new Set(routes.map(r=>r.channel)).size!==routes.length||new Set(routes.map(r=>r.bindingId)).size!==routes.length)throw Error('Recorded person channel routes need review');
@@ -105,7 +109,6 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
    const selected:Array<{route:RecordedRoute}&Awaited<ReturnType<typeof ports>>>=[];
    // This snapshot belongs only to this read refresh. Dispatch retains its exact
    // operation capture and final authority checks; no account cache crosses calls.
-   const snapshot=!prepared&&store.historyAccountSnapshot?await store.historyAccountSnapshot(threadId,conversationId):undefined;
    signal?.throwIfAborted();
    const checkpointIdentities:Array<{route:RecordedRoute}&Awaited<ReturnType<typeof originalAccount>>>=[];
    if(checkpointAt!==undefined){
