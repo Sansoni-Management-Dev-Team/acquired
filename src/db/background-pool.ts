@@ -6,18 +6,18 @@ function report(label:string,stage:string,started:number,outcome:string){
 }
 /** Applies only inside an explicit background budget. Preserves the original
  * pool for interactive work and the caller's role, scope and transaction SQL. */
-export function backgroundPool(pool:Pool,admission:BackgroundAdmission=backgroundAdmission):Pool{
+export function backgroundPool(pool:Pool,admission:BackgroundAdmission=backgroundAdmission,reservedPool:Pool=pool):Pool{
  return new Proxy(pool,{get(target,key){
   if(key==='connect')return(callback?: (error:Error|null,client?:PoolClient,release?:PoolClient['release'])=>void)=>{
    if(!backgroundBudget())return callback?target.connect(callback as never):target.connect();
-   const pending=connect(target,admission);
+   const pending=connect(reservedPool,admission);
    if(callback){void pending.then(client=>callback(null,client,client.release),error=>callback(error));return;}
    return pending;
   };
   if(key==='query')return(...args:unknown[])=>{
    if(!backgroundBudget())return Reflect.apply(target.query,target,args);
    const callback=typeof args.at(-1)==='function'?args.pop() as (error:unknown,result?:QueryResult)=>void:undefined;
-   const pending=(async()=>{const client=await connect(target,admission);try{
+   const pending=(async()=>{const client=await connect(reservedPool,admission);try{
     await client.query('BEGIN');const result=await Reflect.apply(client.query,client,args);await client.query('COMMIT');return result;
    }catch(error){await client.query('ROLLBACK').catch(()=>{});throw error;}finally{client.release();}})();
    if(callback){void pending.then(value=>callback(null,value),error=>callback(error));return;}

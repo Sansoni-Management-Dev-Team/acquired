@@ -51,3 +51,11 @@ it('shares admission across different pools while interactive work continues',as
  const second=withBackgroundBudget('two',10000,()=>b.query('SELECT 2'));await Promise.resolve();expect(two.connect).not.toHaveBeenCalled();
  await b.query('SELECT interactive');expect(two.query).toHaveBeenCalledWith('SELECT interactive');finish();await first;await second;
 });
+it('reserves background capacity without sending interactive work to that pool',async()=>{
+ const interactive={connect:vi.fn(async()=>{throw Error('interactive pool occupied');}),query:vi.fn(async()=>({rows:[{lane:'interactive'}]}))};
+ const reservedQuery=vi.fn(async()=>({rows:[{lane:'reserved'}]})),reserved={connect:vi.fn(async()=>({query:reservedQuery,release:vi.fn()}))};
+ const pool=backgroundPool(interactive as never,new BackgroundAdmission(),reserved as never);
+ expect((await withBackgroundBudget('reserved',10000,()=>pool.query('SELECT 1'))).rows).toEqual([{lane:'reserved'}]);
+ expect(interactive.connect).not.toHaveBeenCalled();expect(reserved.connect).toHaveBeenCalledOnce();
+ expect((await pool.query('SELECT 1')).rows).toEqual([{lane:'interactive'}]);expect(reserved.connect).toHaveBeenCalledOnce();
+});

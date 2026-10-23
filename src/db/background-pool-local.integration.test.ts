@@ -34,3 +34,9 @@ it.runIf(enabled)('preserves Drizzle transaction and row-mode contracts',async()
  const result=await withBackgroundBudget('integration.drizzle',10000,()=>db.transaction(async tx=>tx.execute(sql`SELECT 42 AS value`),{accessMode:'read only'}));
  expect(result.rows).toEqual([{value:42}]);
 });
+it.runIf(enabled)('makes background progress while every interactive connection is occupied',async()=>{
+ const reserved=new Pool({connectionString:'postgresql://project_acquire:agent-local-only@127.0.0.1:5437/acquire_agent_mode',max:1,connectionTimeoutMillis:2000});
+ const held=await Promise.all([physical.connect(),physical.connect()]);
+ try{const pool=backgroundPool(physical,new BackgroundAdmission(),reserved);const started=performance.now();expect((await withBackgroundBudget('integration.reserved',10000,()=>pool.query('SELECT 1 AS ok'))).rows[0].ok).toBe(1);expect(performance.now()-started).toBeLessThan(1500);}
+ finally{held.forEach(c=>c.release());await reserved.end();}
+});

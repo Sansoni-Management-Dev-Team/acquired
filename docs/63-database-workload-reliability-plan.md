@@ -1,6 +1,6 @@
 # Database workload reliability implementation plan
 
-Date: 2026-10-23. Status: implementation started. DBR-2A whole-pass guard and phase timing are locally verified; background SQL/lifecycle budgets and admission/cooldown are also locally verified; production release is pending.
+Date: 2026-10-23. Status: implementation started. DBR-2A whole-pass guard and phase timing are locally verified; background SQL/lifecycle budgets and admission/cooldown are also locally verified; first code-only safeguards released at 1af21a8; browser contention follow-up is under production verification.
 Incident evidence and operational history: [communications progress](communications/progress.md), P7.3/P7.4.
 Related work: [research performance ledger](36-research-performance-completion-plan.md) and [communications execution plan](39-communications-service-execution-plan.md).
 
@@ -146,3 +146,50 @@ DBR-2A implemented locally: `scheduled-research-pass.ts` shares observer and mai
 Red evidence: route regression run had 3 failures—observer executed three times for concurrent calls, twice after caller disconnect, and uncaught failure prevented a JSON response. Green evidence: route, maintenance and observer suites pass 33 tests; TypeScript passes. Includes authorization during an active pass, successful and failed cleanup, maintenance failure and sanitized timing logs.
 
 Limits: process-local guard only, no distributed lease; phase timing is not pool/SQL/gate timing. Existing observer/maintenance internals still swallow some failures, so phase_finished means the function returned, not that all work succeeded. No SQL cancellation, whole-pass deadline or circuit breaker is claimed in this checkpoint. No migration or production changes. Next: DBR-2B same-client SQL/lifecycle budgets, explicit deferred outcomes, and cancellation evidence, followed by shared admission controls.
+
+## Release verification in progress — 2026-10-23
+
+The code-only release is isolated from the unreleased demo/Firmable changes, based on production b0593d6. Commit 1af21a8 was deployed directly to the existing single DigitalOcean app replica. No migrations, runtime settings, credentials, Caddy configuration or GitHub Actions deployment settings changed.
+
+Implemented DBR-2B/DBR-3: explicit background contexts, one admitted background transaction, at most two queued requests with one-second admission waits, same-client transaction-local statement/lock/idle limits, checkout and lifecycle deadlines, physical retirement of uncertain clients, and bounded failure cooldown with one cheap half-open probe. Main, agent and campaign pools share the admission lane only within explicit background scopes. Interactive work and actual send handling are not silently placed behind this queue. Scheduled observer and maintenance share a complete-pass guard; HTTP timeout does not release ownership of unfinished work.
+
+Verification: release baseline 6,610 Vitest and 169 Node tests passed; four actual PostgreSQL cancellation/locking/Drizzle tests passed without DDL on the isolated marked local database. Real statement cancellation returned 57014, lock cancellation returned 55P03, and cancelled/expired work did not remain active. Follow-up browser regression suite: 87 passed; full suite including those changes: 6,614 passed, 938 opt-in skips. Build/typecheck and targeted lint passed.
+
+Production exposed a separate agent-controls issue: six parallel reads compete for a shared send gate. The browser remained at Loading agent controls despite successful readiness checks. Commits b8fd7de and 7081ce4 serialize the shared controls loader and back off repeated polling failures up to 60 seconds. New failing regressions were observed before both fixes; required reads remain authoritative and optional capability failures remain explicitly unavailable. These commits must still pass the actual production browser check.
+
+Limits: historical research discovery still exceeds its bounded query budget and defers. DBR-4 indexed discovery is not implemented or released. Native event handling and full send-gate transaction restructuring remain outside this checkpoint. A healthy readiness response alone is not evidence that the agent journey or research throughput is healthy. One-hour local fault soak and final-image production canary are in progress.
+
+### Pool inventory verified during release
+
+The production application uses Supabase's transaction pooler at port 6543. Its persistent app process has configured client ceilings of main 5 + agent 4 + campaign/application 3 + hosted callback reads 2 = 14 client connections to the application database. This is a client ceiling, not a promise of 14 PostgreSQL server backends: Supavisor multiplexes them. The communications service pool (5) points at the separate DigitalOcean communications database and is shared between configured communication profiles. The hosted callback read pool is a singleton. Supabase platform clients, diagnostics and any independent deployment must be counted separately. Compose runs one app service; no replica increase was made.
+
+Supabase CLI `inspect db blocking` successfully connected and captured waits at the shared communications/agent gate. `inspect db db-stats` failed because this deployment lacks `pg_stat_statements_info` (42P01); this is a diagnostic compatibility failure, not an application query failure. The logs Management API returned 403 with the available CLI credential; no permissions were expanded.
+
+Authenticated production baseline, with this agent's extra chat polling stopped: execution 8.22s, handoffs 13.09s, authority 8.54s, targets 12.77s (all 200). A prior execution request took 16.68s under polling load, exceeding the browser's 15s request deadline. The new optional bundled-controls response reuses a single actor-store transaction and ownership gate for these four required projections. Scope authorization still runs before access; channel-policy/provider readiness remain outside the bundle. The legacy response remains available during rollout.
+
+Bundling verification: new failing scope/rollback tests first, then passing unit tests and one actual PostgreSQL test of concurrent actor isolation and connection reuse. No DDL was run; synthetic local test memberships were removed. Full suite after bundling: 6,620 passed, 939 opt-in skips. The composite request has a 30s client cap because it replaces four requests; the server transaction optimization, rather than a timeout increase alone, is the intended latency fix. Production timing and UI verification remain required.
+
+Activity follow-up: production activity GET returned 200 in 30.55s before the change, beyond the browser request deadline. Commit ebb522f bundles message, pending review and optional guidance reads in one actor-scoped database transaction. Four regression failures were demonstrated before implementation; 13 targeted tests and TypeScript passed afterward. Full suite: 6,621 passed, 939 skipped. The Docker image built successfully. Production acceptance remains pending; do not infer user-flow health from readiness.
+
+A subsequent Supabase CLI blocking snapshot recorded gate waits up to 5.56s. A separate bounded, read-only `pg_stat_activity` check confirmed one blocker per waiting transaction and active short transactions holding the gate. No long-running research scan was present in that individual snapshot; this does not establish sustained research throughput.
+
+### Measured recovery and readiness follow-up
+
+Production Start completed recipient preparation at 40.65s, channel defaults at 73.84s and contact selection at 95.00s. The old browser's 90s cap reported an unconfirmed result before the saved selection completed. Rechecking the same request completed in 35.58s without rebuilding recipients; the five-contact proposal appeared in the UI. Activity after bundling measured 23.45s versus 30.55s before. These remain above the latency target.
+
+Commit 49987fa aligns activity reads to a finite 30s cap, the composite post-action controls refresh to 60s, and demo Start to 150s. These are recovery-budget corrections, not claims of faster database work. Tests prove a measured 23s read and 95s Start can finish, stuck reads/Start still terminate, caller cancellation propagates and retries preserve the original command key. Full suite: 6,625 passed / 939 skipped. Direct production image: sha256:5b8387705e1d757904132feaae1cac34e0a05f488c711535789fa0eea6f093ca; runtime hash unchanged (4b52a8731ca1028fee39137c8820a883b06cce954685442f391679fc9cf291e4).
+
+The one-hour marked-local-database fault soak completed successfully: 358 cycles and successful interactive probes, 1,313 deferred background attempts, 119 recoveries. The private harness was removed from the source tree. No DDL was used. Production canaries are recorded separately for each image; interrupted canaries are not a completed final-image observation window.
+
+A direct bounded, read-only production execution of the initial-research discovery query returned zero eligible rows successfully; EXPLAIN also completed. This observation does not support attributing every scheduled deferral to a missing index. Admission/cooldown and the maintenance selector require separate evidence before DBR-4 migration design.
+
+Channel-readiness GET exceeded 40s. Code inspection found three separate owned-binding transactions and three separate communications-client membership checks. Commit cccd489 batches the binding read in one existing actor-gated transaction and creates a lazy request-local communications client once. Each binding is still checked for tenant/owner/channel, each service status retains exact-binding and capability validation, and the existing 30s status cache remains keyed to actor/binding facts. No provider call is made inside the batch transaction. Red regression demonstrated per-channel fan-out; green tests cover one binding read/client, cache reuse, foreign ownership and database failure. Full suite: 6,627 passed / 939 skipped; typecheck/lint passed. Production timing acceptance is pending.
+
+
+### Reserved discovery capacity and saved-action refresh — 2026-10-23
+
+Production logs showed native discovery retiring checkouts at 2,000ms before SQL while interactive requests occupied the agent pool. The agent pool now reserves one of its existing four clients for explicitly budgeted background work (three interactive + one background); the total application client ceiling stays 14. Role, tenant, approval and gate checks are unchanged. The regression first failed with all interactive clients held; the actual PostgreSQL test then proved discovery could complete while every interactive client was occupied. Combined pool and actor-bundle suite: 16 passed, including six actual-database tests; no DDL.
+
+Channel readiness after batching returned 200 in 22.01s, with all three demo channels connected and ready. This exceeds the previous 15s browser deadline, so controls now use the shared bounded 30s status reader. Saved review/control actions refresh the bundled activity projection instead of repeating full snapshot plus reviews reads. A failing regression demonstrated the duplicate refresh before the change. These changes do not claim the underlying latency target is met.
+
+Production contact approval persisted and its worker event progressed from pending to leased, with a conversation reassessment queued. No simulated message/reply round trip is yet claimed for this verification run. Final image deployment, worker progress and canary remain pending for this follow-up.

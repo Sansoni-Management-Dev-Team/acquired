@@ -1,4 +1,5 @@
 "use client";
+import {readAgentStatus} from '@/lib/agent-read-request';
 import {loadAgentControls} from '@/lib/agent-controls-load';
 import {readJsonResponse} from '@/lib/read-json-response';
 import { AgentWelcome } from "./agent-welcome";
@@ -187,14 +188,8 @@ export function AgentControlsPanel({
   const endpoint = (kind: string) => `/api/mandates/${mandateId}/agent/${kind}`;
   const load=useCallback(async (signal: AbortSignal): Promise<AgentControlsData> => {
     const read = async (kind: string) => {
-      signal.throwIfAborted();
-      const response = await fetch(`/api/mandates/${mandateId}/agent/${kind}`, {
-        cache: "no-store",
-        headers:kind==='execution'?{'X-Acquire-Control-Snapshot':'1'}:undefined,
-        signal: AbortSignal.any([signal, AbortSignal.timeout(kind==='execution'?30000:15000)]),
-      });
-      if (!response.ok) throw new Error("Agent controls could not be loaded.");
-      return readJsonResponse(response,'Current agent status is temporarily unavailable. Please try again.');
+      return readAgentStatus(`/api/mandates/${mandateId}/agent/${kind}`,signal,
+        kind==='execution'?{'X-Acquire-Control-Snapshot':'1'}:undefined);
     };
     return loadAgentControls(read);
   },[mandateId]);
@@ -253,7 +248,7 @@ export function AgentControlsPanel({
         );
       retryKeys.current.delete(identity);
       try {
-        const current = await load(AbortSignal.timeout(60000));
+        const current = await load(AbortSignal.timeout(90000));
         if (mounted.current) {
           setData(current);
           setPollUnavailable(false);
