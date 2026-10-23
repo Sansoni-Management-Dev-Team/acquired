@@ -27,13 +27,15 @@ const inputSchema=z.discriminatedUnion('action',[
 export async function GET(request:Request,context:Context){
  try{
   const data=await scope(request,context);if(data instanceof Response)return data;
-  const state=data.thread?await data.store.executionState(data.thread.id):null;
+  const controls=request.headers.get('X-Acquire-Control-Snapshot')==='1'
+   ?await data.store.controlsSnapshot((await context.params).id,data.thread?.id):undefined;
+  const state=controls?controls.state:data.thread?await data.store.executionState(data.thread.id):null;
   const config=agentDemoProvisioningConfiguration();
   const readiness=agentDemoPreparationReadiness(config,data.actor);
   // Existing prepared recipients retain their saved service and account bindings.
   const selectedTesting=process.env.AGENT_DEMO_TARGET==='testing'&&state?.executionMode==='demo'&&!state.demoContacts?.prepared;
   const demoService=selectedTesting?{communicationsApi:'https://127.0.0.1:5991',...readiness,...(!readiness.ready?{message:'The testing service on 5991 is not ready for this mandate yet. Your saved companies and people are available; simulated outreach has not started.'}:{})}:undefined;
-  return Response.json({enabled:nativeAgentEnabled(),state,mandateRevision:data.mandate?.revision,demoPreparationEnabled:readiness.ready,demoService},{headers});
+  return Response.json({enabled:nativeAgentEnabled(),state,mandateRevision:data.mandate?.revision,demoPreparationEnabled:readiness.ready,demoService,...(controls?{controls}:{})},{headers});
  }catch(cause){return failure(cause);}
 }
 

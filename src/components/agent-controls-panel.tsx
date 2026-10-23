@@ -190,7 +190,8 @@ export function AgentControlsPanel({
       signal.throwIfAborted();
       const response = await fetch(`/api/mandates/${mandateId}/agent/${kind}`, {
         cache: "no-store",
-        signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
+        headers:kind==='execution'?{'X-Acquire-Control-Snapshot':'1'}:undefined,
+        signal: AbortSignal.any([signal, AbortSignal.timeout(kind==='execution'?30000:15000)]),
       });
       if (!response.ok) throw new Error("Agent controls could not be loaded.");
       return readJsonResponse(response,'Current agent status is temporarily unavailable. Please try again.');

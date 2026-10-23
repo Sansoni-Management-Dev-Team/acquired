@@ -11,6 +11,17 @@ import{assertSameBinding,type ConnectionBinding,type DeliveryOutcome}from'../../
 const uuid=z.string().uuid();
 /** Invitation actions are distinct from sent messages and always require HIL. */
 export class AgentInvitationStore extends AgentChannelStore{
+ /** Fixed database-only projections share one ownership gate. No provider calls,
+  * account mutations, drafts, sends or authorization caches are allowed here. */
+ async controlsSnapshot(mandateId:string,threadId?:string){
+  return this.readBundle(async()=>({
+   state:threadId?await this.executionState(threadId):null,
+   inbox:await this.handoffInbox(mandateId),
+   grants:threadId?await this.listAuthorityGrants(threadId):[],
+   targetOptions:await this.targetDeliveryOptions(mandateId),
+  }));
+ }
+
  protected override async assertInvitationResumeHistory(c:PoolClient,t:AgentThread,row:Record<string,unknown>,proof:Record<string,unknown>){
   const input=z.object({routeId:uuid,bindingDigest:z.string().regex(/^[a-f0-9]{64}$/)}).passthrough().parse(proof.input),result=z.object({delivery:z.object({status:z.enum(['submitted','not_submitted']),effect:z.literal('invitation').optional(),providerOperationId:z.string().optional(),intentId:z.string().optional()}).passthrough()}).passthrough().parse(proof.result);
   const positive=result.delivery.status==='submitted';if(positive&&(result.delivery.effect!=='invitation'||!result.delivery.providerOperationId||!result.delivery.intentId))throw Error('Original invitation action receipt required');

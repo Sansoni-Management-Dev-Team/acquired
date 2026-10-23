@@ -13,3 +13,7 @@ it('marks optional readiness/policy failures unavailable',async()=>{
  const read=vi.fn(async(kind:string)=>{if(['readiness','channel-policy'].includes(kind))throw Error('unavailable');return kind==='authority'?{grants:[]}:{enabled:true,state:null,tasks:[]};});
  expect(await loadAgentControls(read)).toMatchObject({readinessUnavailable:true,channelPolicyUnavailable:true,channelPolicy:{enabled:false,policy:null,accounts:[]}});
 });
+it('uses an authoritative bundled response without repeating the required reads',async()=>{
+ const read=vi.fn(async(kind:string)=>kind==='execution'?{enabled:true,state:null,controls:{inbox:{tasks:[]},grants:[],targetOptions:{bindings:[]}}}:{});
+ expect(await loadAgentControls(read)).toMatchObject({enabled:true,inbox:{tasks:[]},grants:[]});expect(read.mock.calls.map(([kind])=>kind)).toEqual(['execution','readiness','channel-policy']);
+});

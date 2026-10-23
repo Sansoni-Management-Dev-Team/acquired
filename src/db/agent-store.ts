@@ -1,3 +1,4 @@
+import {AsyncLocalStorage} from 'node:async_hooks';
 import {loadAgentReviewPeople} from './agent-review-people';
 import {insertAgentReviewBatch,persistAgentReviewDecision} from './agent-review-ledger';
 import {agentRecordDigest as digest} from '@/lib/agent-record-digest';
@@ -30,6 +31,15 @@ export type AgentStoreOptions={businessTime?:{context:AgentBusinessTimeContext;s
 
 /** Server-owned scope. This class does not accept credentials, execute tools or send. */
 export class AgentStore {
+  private readonly readClient = new AsyncLocalStorage<{client:PoolClient;active:boolean}>();
+  /** Only fixed read projections may use this bundle; provider work stays outside.
+   * Context is per store/actor and expires before the outer transaction settles. */
+  protected readBundle<T>(work:()=>Promise<T>):Promise<T>{
+    return this.transaction(client=>{
+      const scope={client,active:true};
+      return this.readClient.run(scope,async()=>{try{return await work();}finally{scope.active=false;}});
+    });
+  }
   protected actor: AgentActor;
   protected readonly businessTime?:AgentBusinessTimeContext;
   constructor(private pool: Pick<Pool, 'connect'>, actor: AgentActor, options:AgentStoreOptions={}) {
@@ -54,6 +64,11 @@ export class AgentStore {
     return new Date(instant);
   }
   protected async transaction<T>(work: (client: PoolClient) => Promise<T>,preset?:AgentTransactionPreset) {
+    const bundled=this.readClient.getStore();
+    if(bundled){
+      if(!bundled.active||preset!==undefined)throw new Error('Invalid nested agent read transaction');
+      return work(bundled.client);
+    }
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
