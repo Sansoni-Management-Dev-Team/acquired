@@ -2,6 +2,8 @@ import {beforeAll,afterAll,describe,it,expect} from 'vitest';
 import {Pool} from 'pg';
 import {randomUUID} from 'node:crypto';
 import {withCampaignDb} from './campaign-client';
+import {AgentStore} from './agent-store';
+class SnapshotHarness extends AgentStore{read(sql:string){return this.transaction(c=>c.query(sql),undefined,true);}}
 const enabled=process.env.RUN_AGENT_EXECUTION_LOCAL_INTEGRATION==='true';
 const pool=new Pool({connectionString:'postgresql://project_acquire:agent-local-only@127.0.0.1:5437/acquire_agent_mode',query_timeout:3000});
 const fixtures=Array.from({length:2},()=>({org:randomUUID(),user:randomUUID(),binding:randomUUID()}));let attested=false;
@@ -19,4 +21,8 @@ describe.runIf(enabled)('read-only communications metadata isolation',()=>{
  });
  it('rejects writes at the database boundary',async()=>{await expect(withCampaignDb(actor,c=>c.query(insert,values({...fixtures[0],binding:randomUUID()})),{pool,readOnly:true})).rejects.toMatchObject({code:'25006'});});
  it('rejects a different organisation membership',async()=>{await expect(withCampaignDb({...actor,organizationId:fixtures[1].org},async()=>true,{pool,readOnly:true})).rejects.toThrow('no longer');});
+ it('agent snapshots read owned bindings while the write gate is held',async()=>{const lock=await pool.connect();try{await lock.query('BEGIN');await lock.query('SELECT 1 FROM communication_send_gates WHERE organization_id=$1 FOR UPDATE',[actor.organizationId]);const rows=await new SnapshotHarness(pool,actor).read('SELECT id FROM communication_bindings');expect(rows.rows).toEqual([{id:fixtures[0].binding}]);}finally{await lock.query('ROLLBACK');lock.release();}});
+ it('agent snapshots cannot perform a write',async()=>{await expect(new SnapshotHarness(pool,actor).read('INSERT INTO agent_messages DEFAULT VALUES')).rejects.toMatchObject({code:'25006'});});
+ it('agent snapshots reject a foreign membership',async()=>{await expect(new SnapshotHarness(pool,{...actor,organizationId:fixtures[1].org}).read('SELECT 1')).rejects.toThrow('no longer');});
+
 });

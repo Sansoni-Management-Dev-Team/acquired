@@ -29,12 +29,12 @@ export class AgentExecutionStore extends AgentRuntimeRegistryStore{
    return {id:account.id as string,revision:account.revision as number,status:'configured'};
   });
  }
- protected async nativeTransaction<T>(work:(c:PoolClient)=>Promise<T>,preset?:AgentTransactionPreset){
+ protected async nativeTransaction<T>(work:(c:PoolClient)=>Promise<T>,preset?:AgentTransactionPreset,readOnly=false){
   return this.transaction(async c=>{
    const installed=(await c.query("SELECT to_regprocedure('public.agent_person_keys(text,uuid)') IS NOT NULL AS installed")).rows[0]?.installed;
    if(installed!==true)throw new Error('Native execution control schema has not been approved and installed');
    return work(c);
-  },preset);
+  },preset,readOnly);
  }
  protected async emit(c:PoolClient,t:AgentThread,key:string,kind:string,value:unknown,availableAt?:string){
   const data=payload(value);
@@ -194,6 +194,6 @@ export class AgentExecutionStore extends AgentRuntimeRegistryStore{
    const t=await this.thread(c,threadId);
    const row=(await c.query('SELECT c.*,agent_context_revision(c.id) AS context_revision FROM agent_conversations c WHERE c.id=$1 AND c.thread_id=$2',[conversationId,t.id])).rows[0];
    if(!row)throw new Error('Conversation not found');return row;
-  });
+  },undefined,true);
  }
 }

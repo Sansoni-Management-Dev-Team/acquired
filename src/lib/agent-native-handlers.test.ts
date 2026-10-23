@@ -212,3 +212,12 @@ it('passes the exact reviewed targets to the allocation adapter without another 
  await handlers['review.approved']({...execution,event:{...event,kind:'review.approved',payload:{reviewBatchId:id}}});
  expect(read).toHaveBeenCalledTimes(1);expect(allocate).toHaveBeenCalledWith(expect.objectContaining({runId:id}),targets);
 });
+
+it('stops history failure recovery immediately when its worker deadline expires',async()=>{
+ const f=fixture(),controller=new AbortController(),expired=Error('Worker deadline expired');
+ f.mock.nativeDecisionContext.mockResolvedValue({...context,deliveryMode:'communications'});
+ const handlers=createNativeAgentHandlers({store:f.mock as unknown as AgentModelStore,refreshProviderHistory:async()=>{controller.abort(expired);throw expired;}});
+ await expect(handlers['conversation.reassess']({...execution,signal:controller.signal,event:{...event,attempts:3}})).rejects.toBe(expired);
+ expect(f.mock.nativeDecisionContext).toHaveBeenCalledOnce();
+ expect(f.mock.holdNativeConversation).not.toHaveBeenCalled();
+});

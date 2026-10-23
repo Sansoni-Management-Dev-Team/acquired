@@ -63,7 +63,7 @@ export class AgentStore {
     if(!Number.isFinite(instant)||instant>this.businessNow())throw Error('Business reconciliation anchor unavailable');
     return new Date(instant);
   }
-  protected async transaction<T>(work: (client: PoolClient) => Promise<T>,preset?:AgentTransactionPreset) {
+  protected async transaction<T>(work: (client: PoolClient) => Promise<T>,preset?:AgentTransactionPreset,readOnly=false) {
     const bundled=this.readClient.getStore();
     if(bundled){
       if(!bundled.active||preset!==undefined)throw new Error('Invalid nested agent read transaction');
@@ -71,7 +71,7 @@ export class AgentStore {
     }
     const client = await this.pool.connect();
     try {
-      await client.query('BEGIN');
+      await client.query(readOnly?'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY':'BEGIN');
       if(preset!==undefined)await installAgentReadBudget(client,preset);
       await client.query('SET LOCAL ROLE acquire_agent_user');
       const role = (await client.query('SELECT current_user AS name,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user')).rows[0];
@@ -85,12 +85,14 @@ export class AgentStore {
         if(typeof installed!=='boolean')throw Error('Agent business clock availability is unknown');
         if(installed)await client.query('SELECT public.local_simulator_business_now()');
       }
-      // Optional until the separately approved native-control migration exists.
-      // Once installed, use the shared gate BEFORE taking membership/row locks.
-      const gate=(await client.query("SELECT to_regprocedure('public.agent_lock_send_gate()') IS NOT NULL AS installed")).rows[0];
-      if(typeof gate?.installed!=='boolean')throw new Error('Agent gate availability is unknown');
-      if(gate.installed)await client.query('SELECT public.agent_lock_send_gate()');
-      const member = await client.query('SELECT agent_lock_member() AS allowed');
+      // Read projections use a consistent snapshot, RLS and current membership.
+      // PostgreSQL forbids writes; mutation/admission transactions retain the gate.
+      if(!readOnly){
+        const gate=(await client.query("SELECT to_regprocedure('public.agent_lock_send_gate()') IS NOT NULL AS installed")).rows[0];
+        if(typeof gate?.installed!=='boolean')throw new Error('Agent gate availability is unknown');
+        if(gate.installed)await client.query('SELECT public.agent_lock_send_gate()');
+      }
+      const member=readOnly?await client.query("SELECT EXISTS(SELECT 1 FROM member WHERE organization_id=$1 AND user_id=$2) AS allowed",[this.actor.organizationId,this.actor.userId]):await client.query('SELECT agent_lock_member() AS allowed');
       if (!member.rows[0]?.allowed) throw new Error('Agent actor is no longer a member');
       const result = await work(client);
       await client.query('COMMIT'); return result;

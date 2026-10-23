@@ -27,6 +27,7 @@ export function createNativeAgentHandlers(options:{store:AgentModelStore & {prop
  const store=options.store,handlers:Record<string,AgentEventHandler>={};
  const fence=(value:Parameters<AgentEventHandler>[0]):AgentExecutionFence=>({runId:value.runId,eventId:value.event.id,leaseOwner:value.event.lease_owner,fence:value.event.fence});
  const historyFailure=async(input:Parameters<AgentEventHandler>[0],conversationId:string,error:unknown):Promise<AgentEventOutcome>=>{
+  input.signal.throwIfAborted();
   if(error instanceof ReplyProcessingPendingError)return pendingHistory();
   if(isHistoryRefreshBusyError(error))return {kind:'defer',wakeAt:new Date(Date.now()+30000).toISOString(),reason:'Waiting for the authenticated recorded-account history refresh already in progress.'};
   // This port performs history/identity reads and idempotent ingestion only.
