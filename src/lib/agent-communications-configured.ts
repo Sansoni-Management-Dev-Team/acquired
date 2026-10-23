@@ -36,6 +36,7 @@ type ConfiguredAgentStore=Pick<AgentOutreachStore,'conversation'|'ingestHistory'
  channelPolicy?:(threadId:string)=>Promise<{policy:null|{acceleratedSimulation:boolean}}> ;
  testingSendWindowExempt?:(threadId:string,routeId:string)=>Promise<boolean>;
  preBeginHistoryRetryProof?:(threadId:string,operationId:string,conversationId:string)=>Promise<boolean>;
+ historyAccountSnapshot?:(threadId:string,conversationId:string)=>Promise<{conversation:ChannelDispatchRecord['conversation'];accounts:Record<string,unknown>[]}>;
  channelRoutes?:(threadId:string,conversationId:string)=>Promise<RecordedRoute[]>;
  ingestChannelHistory?:(threadId:string,conversationId:string,routeId:string,history:NativeHistory)=>Promise<unknown>;
  channelDispatchRecord?:(threadId:string,operationId:string,options?:{includeOriginalAccount?:boolean})=>Promise<ChannelDispatchRecord>;
@@ -61,7 +62,7 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
  }
  async function observed<T>(stage:Stage,work:()=>Promise<T>,context:Parameters<typeof observeDispatchStage>[2]={}):Promise<T>{return observeDispatchStage(stage,async()=>{trace(stage,'start');try{const value=await work();trace(stage,'complete');return value;}catch(cause){trace(stage,'error',cause);throw cause;}},context);}
  function cancellationObserver(signal?:AbortSignal){return async<T>(stage:Stage,work:()=>Promise<T>,context:Parameters<typeof observeDispatchStage>[2]={})=>{signal?.throwIfAborted();const value=await observed(stage,work,context);signal?.throwIfAborted();return value;};}
- async function originalAccount(threadId:string,conversationId:string,route?:RecordedRoute,captured?:ChannelDispatchRecord){
+ async function originalAccount(threadId:string,conversationId:string,route?:RecordedRoute,captured?:Pick<ChannelDispatchRecord,'conversation'|'originalAccount'>){
   const row=captured?.conversation??await store.conversation(threadId,conversationId);
   const bindingId=route?.bindingId??row.binding_id,digest=route?.bindingDigest??row.binding_digest,channel=route?.channel??'email';
   if(row.delivery_mode!=='communications'||typeof bindingId!=='string'||route&&route.conversationId!==conversationId)throw Error('Recorded native communications account required');
@@ -70,7 +71,7 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
   if(records.length!==1||!r||r.id!==bindingId||r.channel!==channel||r.organization_id!==actor.organizationId||r.owner_user_id!==actor.userId||r.application_id!=='acquire'||r.authority!=='service'||r.backend!=='unipile'||recordedAgentBindingDigest(r)!==digest)throw Error('Original native account changed');
   const binding:ConnectionBinding={applicationId:r.application_id as string,tenantId:r.organization_id as string,ownerId:r.owner_user_id as string,connectionId:r.service_connection_id as string,accountId:r.service_account_id as string,generation:r.generation as number,channel:r.channel as ConnectionBinding['channel'],platform:r.platform as ConnectionBinding['platform'],backend:r.backend as ConnectionBinding['backend']};assertSameBinding(binding,binding);return {row,binding,bindingId};
  }
- async function ports(threadId:string,conversationId:string,route?:RecordedRoute,captured?:ChannelDispatchRecord,signal?:AbortSignal){
+ async function ports(threadId:string,conversationId:string,route?:RecordedRoute,captured?:Pick<ChannelDispatchRecord,'conversation'|'originalAccount'>,signal?:AbortSignal){
   const observe=cancellationObserver(signal);
   const original=await observe('ports.original_account',()=>originalAccount(threadId,conversationId,route,captured)),client=await observe('ports.client',()=>options.actorClient?options.actorClient(actor):actorCommunicationsClient(actor));
   // Authenticated status renews service scope, including historical disconnected
@@ -96,7 +97,14 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
   if(routes.length){
    if(!store.ingestChannelHistory||routes.length>3||new Set(routes.map(r=>r.channel)).size!==routes.length||new Set(routes.map(r=>r.bindingId)).size!==routes.length)throw Error('Recorded person channel routes need review');
    const selected:Array<{route:RecordedRoute}&Awaited<ReturnType<typeof ports>>>=[];
-   for(const route of routes)selected.push({route,...await observe('refresh.ports',()=>prepared&&sameRoute(prepared.route,route)?Promise.resolve(prepared.ports):ports(threadId,conversationId,route,undefined,signal))});
+   // This snapshot belongs only to this read refresh. Dispatch retains its exact
+   // operation capture and final authority checks; no account cache crosses calls.
+   const snapshot=!prepared&&store.historyAccountSnapshot?await store.historyAccountSnapshot(threadId,conversationId):undefined;
+   signal?.throwIfAborted();
+   for(const route of routes){
+    const captured=snapshot?{conversation:snapshot.conversation,originalAccount:snapshot.accounts.find(account=>account.id===route.bindingId)}:undefined;
+    selected.push({route,...await observe('refresh.ports',()=>prepared&&sameRoute(prepared.route,route)?Promise.resolve(prepared.ports):ports(threadId,conversationId,route,captured,signal))});
+   }
    // Register every explicitly reviewed identity before any account scan can
    // consume a reply. No model input or provider display name supplies a peer.
    for(const {row,route}of selected)await observe('refresh.save_identity',()=>registerNativeReplyIdentity(actor,{threadId,conversationId,routeId:route.id,bindingId:route.bindingId,identity:{contactId:row.contact_id,email:row.recipient_email??null,channel:route.channel,identity:route.recipient.value,sourceIdentity:route.recipient.value,since:new Date('1970-01-01T00:00:00.000Z'),authority:'service'}},dbOptions));

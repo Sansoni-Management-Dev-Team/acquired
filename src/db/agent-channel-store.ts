@@ -170,6 +170,16 @@ export class AgentChannelStore extends AgentChatStore{
   if(!installed)return [];
   return (await c.query('SELECT r.*,p.revision AS policy_revision FROM agent_conversation_channels r JOIN agent_channel_policies p ON p.thread_id=$2 WHERE r.conversation_id=$1 ORDER BY array_position(p.channel_order,r.channel),r.id',[row.id,t.id])).rows.map(r=>({id:r.id as string,conversationId:r.conversation_id as string,channel:r.channel as 'email'|'whatsapp'|'linkedin',bindingId:r.binding_id as string,bindingDigest:r.binding_digest as string,recipient:{kind:r.recipient_kind as 'email'|'phone'|'linkedin_profile',value:r.recipient_value as string},identityRevision:r.identity_revision as string,revision:r.revision as number,policyRevision:r.policy_revision as number,history:r.history as unknown[],historyComplete:r.history_complete as boolean,historyRevision:r.history_revision as string,historyObservedAt:r.history_observed_at?new Date(r.history_observed_at).toISOString():null,nextAllowedAt:r.next_allowed_at?new Date(r.next_allowed_at).toISOString():null,coldCancelledAt:r.cold_cancelled_at?new Date(r.cold_cancelled_at).toISOString():null}));
  }
+ /** Original account metadata for one history refresh; never dispatch authority. */
+ async historyAccountSnapshot(threadId:string,conversationId:string){
+  return this.nativeTransaction(async c=>{
+   const t=await this.thread(c,threadId);
+   const conversation=(await c.query('SELECT * FROM agent_conversations WHERE id=$1 AND thread_id=$2',[uuid.parse(conversationId),t.id])).rows[0];
+   if(!conversation)throw Error('Conversation not found');
+   const accounts=(await c.query(`SELECT b.* FROM communication_bindings b WHERE b.organization_id=$1 AND b.owner_user_id=$2 AND b.id IN (SELECT binding_id FROM agent_conversation_channels WHERE conversation_id=$3 AND thread_id=$4)`,[t.organization_id,t.owner_user_id,conversation.id,t.id])).rows;
+   return {conversation,accounts};
+  },undefined,true);
+ }
  async channelRoutes(threadId:string,conversationId:string){return this.nativeTransaction(async c=>{const t=await this.thread(c,threadId);return this.channelRows(c,t,uuid.parse(conversationId));});}
  async ingestChannelHistory(threadId:string,conversationId:string,routeId:string,raw:unknown){
   uuid.parse(routeId);return this.nativeTransaction(async c=>{

@@ -238,3 +238,16 @@ it('stops an expired history refresh before account or provider work',async()=>{
 it('does not start another stage after cancellation during account status',async()=>{const x=fixture(),controller=new AbortController();f.status.mockImplementationOnce(async()=>{controller.abort();return{status:'connected'};});await expect(x.service.refresh('thread',conversation,controller.signal)).rejects.toThrow();expect(f.admission).not.toHaveBeenCalled();expect(f.saveIdentity).not.toHaveBeenCalled();expect(f.read).not.toHaveBeenCalled();});
 it('does not ingest a history response that completes after cancellation',async()=>{const x=fixture(),controller=new AbortController();f.read.mockImplementationOnce(async()=>{controller.abort();return{source:'communications',complete:true,messages:[]};});await expect(x.service.refresh('thread',conversation,controller.signal)).rejects.toThrow();expect(x.store.ingestHistory).not.toHaveBeenCalled();});
 it('passes the worker cancellation signal into the history transport',async()=>{const x=fixture(),controller=new AbortController();await x.service.refresh('thread',conversation,controller.signal);expect(f.read).toHaveBeenCalledWith(expect.any(Object),'person@example.invalid',controller.signal);});
+
+it('uses one owned account snapshot per refresh without calculating conversation revisions for each channel',async()=>{
+ const x=fixture(),route={id:'50000000-0000-4000-8000-000000000001',conversationId:conversation,channel:'email',bindingId:binding.id,bindingDigest:recordedAgentBindingDigest(binding),recipient:{kind:'email',value:'person@example.invalid'}};
+ const historyAccountSnapshot=vi.fn(async()=>({conversation:x.row,accounts:[binding]}));
+ const store={...x.store,historyAccountSnapshot,channelRoutes:vi.fn(async()=>[route]),ingestChannelHistory:vi.fn()};
+ f.read.mockImplementation(async(selected)=>({binding:selected,source:'communications',complete:true,observedAt:'2026-10-17T00:00:00.000Z',messages:[],scopeDigest:'a'.repeat(64)}));
+ const service=configuredAgentCommunications(actor,store as never);
+ await service.refresh('thread',conversation);
+ expect(historyAccountSnapshot).toHaveBeenCalledOnce();expect(x.store.conversation).not.toHaveBeenCalled();expect(f.query).not.toHaveBeenCalled();
+ await service.refresh('thread',conversation);expect(historyAccountSnapshot).toHaveBeenCalledTimes(2);
+ historyAccountSnapshot.mockResolvedValueOnce({conversation:x.row,accounts:[{...binding,generation:2}]});
+ await expect(service.refresh('thread',conversation)).rejects.toThrow('Original native account changed');
+});
