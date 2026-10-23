@@ -1,4 +1,5 @@
 "use client";
+import {loadAgentControls} from '@/lib/agent-controls-load';
 import {readJsonResponse} from '@/lib/read-json-response';
 import { AgentWelcome } from "./agent-welcome";
 import {AgentChatSurface,AgentChatStatus} from "./agent-chat-ui";
@@ -12,7 +13,7 @@ import {
   eligibleSimulatedAutoApprovalBatches,
   type AgentDemoAutoApprovalSelection,
 } from "./agent-demo-auto-approval";
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { SlidersHorizontal, X } from "lucide-react";
 import { randomUuid } from "@/lib/random-uuid";
 import {
@@ -184,87 +185,25 @@ export function AgentControlsPanel({
     externalBusy.current = busy;
   }, [busy]);
   const endpoint = (kind: string) => `/api/mandates/${mandateId}/agent/${kind}`;
-  async function load(signal: AbortSignal): Promise<AgentControlsData> {
+  const load=useCallback(async (signal: AbortSignal): Promise<AgentControlsData> => {
     const read = async (kind: string) => {
-      const response = await fetch(endpoint(kind), {
+      signal.throwIfAborted();
+      const response = await fetch(`/api/mandates/${mandateId}/agent/${kind}`, {
         cache: "no-store",
         signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
       });
       if (!response.ok) throw new Error("Agent controls could not be loaded.");
       return readJsonResponse(response,'Current agent status is temporarily unavailable. Please try again.');
     };
-    const [execution, inbox, authority, targetOptions, runtime, channelPolicy] =
-      await Promise.all([
-        read("execution"),
-        read("handoffs"),
-        read("authority"),
-        read("targets"),
-        read("readiness").catch(() => ({ readinessUnavailable: true })),
-        read("channel-policy").catch(() => ({
-          enabled: false,
-          policy: null,
-          accounts: [],
-          unavailable: true,
-        })),
-      ]);
-    return {
-      ...execution,
-      inbox,
-      targetOptions,
-      ...runtime,
-      channelPolicy,
-      channelPolicyUnavailable: channelPolicy.unavailable === true,
-      grants: authority.grants,
-    };
-  }
+    return loadAgentControls(read);
+  },[mandateId]);
   useEffect(() => {
     mounted.current = true;
     const stop = startAgentActivityPolling({
       isBusy: () => lock.current || externalBusy.current,
       isVisible: () => document.visibilityState !== "hidden",
       version: () => generation.current,
-      load: async (signal) => {
-        const read = async (kind: string) => {
-          const response = await fetch(
-            `/api/mandates/${mandateId}/agent/${kind}`,
-            {
-              cache: "no-store",
-              signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
-            },
-          );
-          if (!response.ok) throw new Error("Agent controls unavailable");
-          return readJsonResponse(response,'Current agent status is temporarily unavailable. Please try again.');
-        };
-        const [
-          execution,
-          inbox,
-          authority,
-          targetOptions,
-          runtime,
-          channelPolicy,
-        ] = await Promise.all([
-          read("execution"),
-          read("handoffs"),
-          read("authority"),
-          read("targets"),
-          read("readiness").catch(() => ({ readinessUnavailable: true })),
-          read("channel-policy").catch(() => ({
-            enabled: false,
-            policy: null,
-            accounts: [],
-            unavailable: true,
-          })),
-        ]);
-        return {
-          ...execution,
-          inbox,
-          targetOptions,
-          ...runtime,
-          channelPolicy,
-          channelPolicyUnavailable: channelPolicy.unavailable === true,
-          grants: authority.grants,
-        } as AgentControlsData;
-      },
+      load,
       apply: (value) => {
         setData(value);
         setPollUnavailable(false);
@@ -277,7 +216,7 @@ export function AgentControlsPanel({
       mounted.current = false;
       stop();
     };
-  }, [mandateId]);
+  }, [mandateId,load]);
   async function mutate(kind: string, value: unknown) {
     if (
       lock.current ||
