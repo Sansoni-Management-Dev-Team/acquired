@@ -1,3 +1,4 @@
+import {AgentHistoryCheckpointPendingError} from './agent-history-checkpoint';
 import {isAgentNativeDispatchOperation} from '@/domain/agent-operation-classifications';
 import{AgentPreBeginSendWindowError}from'./agent-pre-begin-send-window-error';
 import{AgentPreBeginSendBudgetError}from'./agent-pre-begin-send-budget-error';
@@ -16,7 +17,7 @@ import {reassessAgentConversation,AgentDecisionReviewError,type AgentConversatio
 import {createNativeModelDecision} from './agent-model-decision';
 const uuid=z.string().uuid();
 const reassessment=z.object({conversationId:uuid,epoch:z.number().int().positive(),reminderGeneration:z.number().int().positive()}).strict();
-export function createNativeAgentHandlers(options:{store:AgentModelStore & {proposeNativeMessage?:(threadId:string,key:string,input:unknown,authority?:AgentExecutionFence)=>Promise<unknown>};businessTime?:{context:AgentBusinessTimeContext;scope:AgentBusinessTimeScope};decide?:(input:{threadId:string;requestKey:string;authority:AgentExecutionFence})=>(context:AgentConversationContext)=>Promise<unknown>;chatProposal?:AgentEventHandler;supervise?:AgentEventHandler;researchApproved?:AgentEventHandler;sequenceApproved?:AgentEventHandler;targetApproved?:(input:Parameters<AgentEventHandler>[0],targets:Awaited<ReturnType<AgentModelStore['reviewDispatchTargets']>>)=>ReturnType<AgentEventHandler>;peopleApproved?:AgentEventHandler;fieldsApproved?:AgentEventHandler;fieldsDispatch?:AgentEventHandler;peopleDispatch?:AgentEventHandler;researchCompleted?:AgentEventHandler;reconcileProvider?:(threadId:string,operationId:string,authority:AgentExecutionFence)=>Promise<{known:boolean}>;researchDispatch?:AgentEventHandler;handoffReminder?:AgentEventHandler;dispatchProvider?:(threadId:string,operationId:string,authority:AgentExecutionFence,delegation?:{id:string;revision:number})=>Promise<void>;channelDue?:(threadId:string,payload:unknown)=>Promise<{conversationId:string;epoch:number;reminderGeneration:number}|null>;refreshProviderHistory?:(threadId:string,conversationId:string,signal?:AbortSignal)=>Promise<void>}){
+export function createNativeAgentHandlers(options:{store:AgentModelStore & {proposeNativeMessage?:(threadId:string,key:string,input:unknown,authority?:AgentExecutionFence)=>Promise<unknown>};businessTime?:{context:AgentBusinessTimeContext;scope:AgentBusinessTimeScope};decide?:(input:{threadId:string;requestKey:string;authority:AgentExecutionFence})=>(context:AgentConversationContext)=>Promise<unknown>;chatProposal?:AgentEventHandler;supervise?:AgentEventHandler;researchApproved?:AgentEventHandler;sequenceApproved?:AgentEventHandler;targetApproved?:(input:Parameters<AgentEventHandler>[0],targets:Awaited<ReturnType<AgentModelStore['reviewDispatchTargets']>>)=>ReturnType<AgentEventHandler>;peopleApproved?:AgentEventHandler;fieldsApproved?:AgentEventHandler;fieldsDispatch?:AgentEventHandler;peopleDispatch?:AgentEventHandler;researchCompleted?:AgentEventHandler;reconcileProvider?:(threadId:string,operationId:string,authority:AgentExecutionFence)=>Promise<{known:boolean}>;researchDispatch?:AgentEventHandler;handoffReminder?:AgentEventHandler;dispatchProvider?:(threadId:string,operationId:string,authority:AgentExecutionFence,delegation?:{id:string;revision:number})=>Promise<void>;channelDue?:(threadId:string,payload:unknown)=>Promise<{conversationId:string;epoch:number;reminderGeneration:number}|null>;refreshProviderHistory?:(threadId:string,conversationId:string,signal?:AbortSignal,since?:string)=>Promise<void>}){
  const businessClock=(()=>{const time=options.businessTime;if(!time)return undefined;assertAgentBusinessTimeScope(time.context,time.scope);return time.context;})();
  const now=()=>new Date(businessNow(businessClock)).toISOString();
  const sendWindowWait=(error:AgentPreBeginSendWindowError):AgentEventOutcome=>{
@@ -28,6 +29,7 @@ export function createNativeAgentHandlers(options:{store:AgentModelStore & {prop
  const fence=(value:Parameters<AgentEventHandler>[0]):AgentExecutionFence=>({runId:value.runId,eventId:value.event.id,leaseOwner:value.event.lease_owner,fence:value.event.fence});
  const historyFailure=async(input:Parameters<AgentEventHandler>[0],conversationId:string,error:unknown):Promise<AgentEventOutcome>=>{
   input.signal.throwIfAborted();
+  if(error instanceof AgentHistoryCheckpointPendingError)return {kind:'defer',wakeAt:new Date(Date.now()+1000).toISOString(),reason:'Verified channel history saved; checking the remaining channels.'};
   if(error instanceof ReplyProcessingPendingError)return pendingHistory();
   if(isHistoryRefreshBusyError(error))return {kind:'defer',wakeAt:new Date(Date.now()+30000).toISOString(),reason:'Waiting for the authenticated recorded-account history refresh already in progress.'};
   // This port performs history/identity reads and idempotent ingestion only.
@@ -40,15 +42,15 @@ export function createNativeAgentHandlers(options:{store:AgentModelStore & {prop
  };
  const processConversation:AgentEventHandler=async input=>{
   const trigger=reassessment.parse(input.event.payload),threadId=input.event.thread_id,authority=fence(input),requestKey='reassess:'+input.event.id;
-  let context=await store.nativeDecisionContext(threadId,trigger.conversationId);
-  if(context.epoch!==trigger.epoch||context.reminderGeneration!==trigger.reminderGeneration||context.driver!=='agent'||context.phase!=='active'||!context.supervisionActive)return {kind:'complete'};
+  const eligibility=store.nativeConversationEligibility?await store.nativeConversationEligibility(threadId,trigger.conversationId):await store.nativeDecisionContext(threadId,trigger.conversationId);
+  if(eligibility.epoch!==trigger.epoch||eligibility.reminderGeneration!==trigger.reminderGeneration||eligibility.driver!=='agent'||eligibility.phase!=='active'||!eligibility.supervisionActive)return {kind:'complete'};
   await input.assertCurrent();
-  if(context.deliveryMode==='local_sink')await store.refreshLocalConversationHistory(threadId,trigger.conversationId);
+  if(eligibility.deliveryMode==='local_sink')await store.refreshLocalConversationHistory(threadId,trigger.conversationId);
   else{
    if(!options.refreshProviderHistory)return {kind:'review',message:'Conversation history needs the recorded communications account adapter before drafting.'};
-   try{await options.refreshProviderHistory(threadId,trigger.conversationId,input.signal);}catch(error){return historyFailure(input,trigger.conversationId,error);}
+   try{await options.refreshProviderHistory(threadId,trigger.conversationId,input.signal,...(input.event.created_at?[new Date(businessNow(businessClock)-300000).toISOString()]:[]));}catch(error){return historyFailure(input,trigger.conversationId,error);}
   }
-  context=await store.nativeDecisionContext(threadId,trigger.conversationId);
+  const context=await store.nativeDecisionContext(threadId,trigger.conversationId);
   if(await store.pendingNativeEmail(threadId,trigger.conversationId,context.contextRevision))return {kind:'complete'};
   const decide=options.decide?.({threadId,requestKey,authority})??createNativeModelDecision({store,threadId,requestKey,authority,now});
   const outcome=await reassessAgentConversation({load:async()=>context,decide,now,commit:async(current,decision,key)=>{
@@ -80,7 +82,7 @@ export function createNativeAgentHandlers(options:{store:AgentModelStore & {prop
  handlers['conversation.history_changed']=async input=>{
   const {conversationId}=z.object({conversationId:uuid}).strict().parse(input.event.payload);
   if(!options.refreshProviderHistory)return {kind:'review',message:'Updated conversation history needs its recorded account adapter.'};
-  await input.assertCurrent();try{await options.refreshProviderHistory(input.event.thread_id,conversationId,input.signal);}catch(error){return historyFailure(input,conversationId,error);}
+  await input.assertCurrent();try{await options.refreshProviderHistory(input.event.thread_id,conversationId,input.signal,...(input.event.created_at?[new Date(input.event.created_at).toISOString()]:[]));}catch(error){return historyFailure(input,conversationId,error);}
   const current=await store.conversation(input.event.thread_id,conversationId);
   return current.history_complete?{kind:'complete'}:{kind:'defer',wakeAt:new Date(Date.now()+5000).toISOString(),reason:'Waiting for the original submission to appear in provider history'};
  };

@@ -26,6 +26,7 @@ describe.runIf(enabled)('one-person verified channel route foundations (0042)',(
 
  it('captures only this conversation recorded accounts without a decision revision calculation',async()=>{
   const snapshot=await store.historyAccountSnapshot(thread,conversation);
+  const eligible=await store.nativeConversationEligibility(thread,conversation);expect(eligible).toMatchObject({epoch:expect.any(Number),reminderGeneration:expect.any(Number),driver:expect.any(String),phase:expect.any(String),supervisionActive:expect.any(Boolean)});
   expect(snapshot.conversation.id).toBe(conversation);expect(snapshot.conversation).not.toHaveProperty('context_revision');
   expect(snapshot.accounts.map(a=>a.id).sort()).toEqual(Object.values(bindings).sort());
   await expect(store.historyAccountSnapshot(thread,randomUUID())).rejects.toThrow('Conversation not found');

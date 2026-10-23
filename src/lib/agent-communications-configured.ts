@@ -1,3 +1,4 @@
+import {AgentHistoryCheckpointPendingError} from './agent-history-checkpoint';
 import{businessNow}from'../../communications/packages/core/src/business-clock';
 import{campaignSendWindowOpen,nextAllowedCampaignSend}from'../domain/campaign';
 import{AgentPreBeginSendWindowError}from'./agent-pre-begin-send-window-error';
@@ -30,7 +31,7 @@ import {configuredAcquireCommunicationsForBinding} from './communications-config
 import {actorCommunicationsClient} from './communications-client';
 import{captureOriginalSubmission}from'./communications-submission-projection';
 import {createAgentCommunicationsDelivery} from './agent-communications-delivery';
-type RecordedRoute={id:string;conversationId:string;channel:'email'|'whatsapp'|'linkedin';bindingId:string;bindingDigest:string;recipient:CanonicalIdentity};
+type RecordedRoute={id:string;conversationId:string;channel:'email'|'whatsapp'|'linkedin';bindingId:string;bindingDigest:string;recipient:CanonicalIdentity;historyComplete?:boolean;historyObservedAt?:string|null};
 type ChannelDispatchRecord={conversation:Awaited<ReturnType<AgentOutreachStore['conversation']>>;operation:{input?:Record<string,unknown>};route:RecordedRoute|null;submitted:boolean;notSubmitted:boolean;originalAccount?:Record<string,unknown>};
 type ConfiguredAgentStore=Pick<AgentOutreachStore,'conversation'|'ingestHistory'|'beginNativeCommunicationsEmail'> & {
  channelPolicy?:(threadId:string)=>Promise<{policy:null|{acceleratedSimulation:boolean}}> ;
@@ -90,33 +91,50 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
  // Reuse only the original ports constructed by this dispatch, after reading
  // the current route list again. History, coverage and final SQL admission are
  // still fresh; no metadata or authority survives into another dispatch call.
- async function refresh(threadId:string,conversationId:string,prepared?:PreparedRoutePorts,signal?:AbortSignal){
+ async function refresh(threadId:string,conversationId:string,prepared?:PreparedRoutePorts,signal?:AbortSignal,checkpointSince?:string){
   const observe=cancellationObserver(signal);signal?.throwIfAborted();
   const routes=store.channelRoutes?await store.channelRoutes(threadId,conversationId):[];
   signal?.throwIfAborted();
   if(routes.length){
    if(!store.ingestChannelHistory||routes.length>3||new Set(routes.map(r=>r.channel)).size!==routes.length||new Set(routes.map(r=>r.bindingId)).size!==routes.length)throw Error('Recorded person channel routes need review');
+   const checkpointAt=checkpointSince===undefined?undefined:Date.parse(checkpointSince);
+   if(checkpointAt!==undefined&&(!Number.isFinite(checkpointAt)||checkpointAt>businessNow(time?.context)))throw Error('Invalid history checkpoint time');
+   const pending=checkpointAt===undefined?routes:routes.filter(route=>{const observed=Date.parse(route.historyObservedAt??'');return !route.historyComplete||!Number.isFinite(observed)||observed<checkpointAt||observed>businessNow(time?.context)||businessNow(time?.context)-observed>300000;});
    const selected:Array<{route:RecordedRoute}&Awaited<ReturnType<typeof ports>>>=[];
    // This snapshot belongs only to this read refresh. Dispatch retains its exact
    // operation capture and final authority checks; no account cache crosses calls.
    const snapshot=!prepared&&store.historyAccountSnapshot?await store.historyAccountSnapshot(threadId,conversationId):undefined;
    signal?.throwIfAborted();
-   for(const route of routes){
+   const checkpointIdentities:Array<{route:RecordedRoute}&Awaited<ReturnType<typeof originalAccount>>>=[];
+   if(checkpointAt!==undefined){
+    if(!snapshot)throw Error('Recorded history checkpoint snapshot unavailable');
+    for(const route of routes){signal?.throwIfAborted();checkpointIdentities.push({route,...await originalAccount(threadId,conversationId,route,{conversation:snapshot.conversation,originalAccount:snapshot.accounts.find(account=>account.id===route.bindingId)})});}
+    if(!pending.length)return [];
+   }
+   const working=checkpointAt===undefined?routes:pending.slice(0,1);
+   for(const route of working){
     const captured=snapshot?{conversation:snapshot.conversation,originalAccount:snapshot.accounts.find(account=>account.id===route.bindingId)}:undefined;
     selected.push({route,...await observe('refresh.ports',()=>prepared&&sameRoute(prepared.route,route)?Promise.resolve(prepared.ports):ports(threadId,conversationId,route,captured,signal))});
    }
    // Register every explicitly reviewed identity before any account scan can
    // consume a reply. No model input or provider display name supplies a peer.
-   for(const {row,route}of selected)await observe('refresh.save_identity',()=>registerNativeReplyIdentity(actor,{threadId,conversationId,routeId:route.id,bindingId:route.bindingId,identity:{contactId:row.contact_id,email:row.recipient_email??null,channel:route.channel,identity:route.recipient.value,sourceIdentity:route.recipient.value,since:new Date('1970-01-01T00:00:00.000Z'),authority:'service'}},dbOptions));
+   const identities=checkpointAt===undefined?selected:checkpointIdentities;
+   for(const {row,route}of identities)await observe('refresh.save_identity',()=>registerNativeReplyIdentity(actor,{threadId,conversationId,routeId:route.id,bindingId:route.bindingId,identity:{contactId:row.contact_id,email:row.recipient_email??null,channel:route.channel,identity:route.recipient.value,sourceIdentity:route.recipient.value,since:new Date('1970-01-01T00:00:00.000Z'),authority:'service'}},dbOptions));
    const coverage:Array<{bindingId:string;scopeDigest:string}>=[];
    for(const {route,binding,host,bindingId,client}of selected){
     const history=await observe('refresh.read_history',()=>signal?host.readAgentChannelConversation(binding,route.recipient,signal):host.readAgentChannelConversation(binding,route.recipient));
     assertSameBinding(binding,history.binding);
     const normalized:NativeHistory={source:history.source,observedAt:history.observedAt,complete:history.complete,messages:history.messages.map(m=>({...m,id:'channel-message:'+createHash('sha256').update(JSON.stringify([route.bindingDigest,m.id])).digest('hex'),providerMessageId:m.id,routeId:route.id,channel:route.channel,bindingDigest:route.bindingDigest})),...('deliveryFailures'in history&&history.deliveryFailures?.length?{deliveryFailures:history.deliveryFailures}:{})};
+    // Persist relationship proof before the channel-history checkpoint so a
+    // failed relationship read leaves this route eligible for the next attempt.
+    if(checkpointAt!==undefined&&route.channel==='linkedin'&&store.ingestChannelRelationship){
+     signal?.throwIfAborted();const relationship=await client.inspectRelationship(binding,route.recipient);signal?.throwIfAborted();
+     await store.ingestChannelRelationship(threadId,conversationId,route.id,relationship);
+    }
     const ingested=await observe('refresh.ingest',()=>store.ingestChannelHistory!(threadId,conversationId,route.id,normalized));
     if(ingested&&typeof ingested==='object'&&'status'in ingested&&ingested.status==='held'&&(!('historyAccepted'in ingested)||ingested.historyAccepted!==true))throw new AgentDecisionReviewError('The recorded channel history has a conflict and requires human review.');
     if(!history.complete)throw new AgentDecisionReviewError('Full recorded-account channel history needs human review');
-    if(route.channel==='linkedin'&&store.ingestChannelRelationship){
+    if(checkpointAt===undefined&&route.channel==='linkedin'&&store.ingestChannelRelationship){
      signal?.throwIfAborted();
      const relationship=await client.inspectRelationship(binding,route.recipient);
      signal?.throwIfAborted();
@@ -124,6 +142,7 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
     }
     coverage.push({bindingId,scopeDigest:history.scopeDigest});
    }
+   if(checkpointAt!==undefined)throw new AgentHistoryCheckpointPendingError();
    // Each completed account scan advances the shared reply barrier. Catch up
    // every original encrypted coverage proof after the final scan, provider-free.
    const caughtUp=await observe('refresh.coverage_revalidate',()=>selected[0].host.revalidateAgentChannelCoverage(selected.map(({binding,bindingId},i)=>({binding,bindingId,scopeDigest:coverage[i].scopeDigest})),...(signal?[signal]:[])));
@@ -143,7 +162,7 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
   if(record&&(record.conversation.id!==conversationId||record.operation.input?.routeId&&!record.route))throw Error('Recorded operation route needs review');
   return {route:record?.route??undefined,captured:record&&Object.hasOwn(record,'originalAccount')?record:undefined};
  }
- return {refresh:(threadId:string,conversationId:string,signal?:AbortSignal)=>withDispatchObservation({threadId,conversationId},()=>refresh(threadId,conversationId,undefined,signal)),async recover(threadId:string,conversationId:string,operationId:string){return withDispatchObservation({threadId,conversationId,operationId},async()=>{const {route,captured}=await operationAccount(threadId,conversationId,operationId),recovered=await (await ports(threadId,conversationId,route,captured)).delivery.recover(operationId);if(recovered.found&&'noSubmission'in recovered)await (dbOptions?settleAgentNoSubmission(actor,operationId,recovered.noSubmission,dbOptions):settleAgentNoSubmission(actor,operationId,recovered.noSubmission));return recovered;});},async dispatch(threadId:string,conversationId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number}){return withDispatchObservation({threadId,conversationId,operationId},async()=>{
+ return {refreshCheckpoint:(threadId:string,conversationId:string,since:string,signal?:AbortSignal)=>withDispatchObservation({threadId,conversationId},()=>refresh(threadId,conversationId,undefined,signal,since)),refresh:(threadId:string,conversationId:string,signal?:AbortSignal)=>withDispatchObservation({threadId,conversationId},()=>refresh(threadId,conversationId,undefined,signal)),async recover(threadId:string,conversationId:string,operationId:string){return withDispatchObservation({threadId,conversationId,operationId},async()=>{const {route,captured}=await operationAccount(threadId,conversationId,operationId),recovered=await (await ports(threadId,conversationId,route,captured)).delivery.recover(operationId);if(recovered.found&&'noSubmission'in recovered)await (dbOptions?settleAgentNoSubmission(actor,operationId,recovered.noSubmission,dbOptions):settleAgentNoSubmission(actor,operationId,recovered.noSubmission));return recovered;});},async dispatch(threadId:string,conversationId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number}){return withDispatchObservation({threadId,conversationId,operationId},async()=>{
   const {route,captured}=await operationAccount(threadId,conversationId,operationId),capturedRoute=route?structuredClone(route):undefined,preparedPorts=await observed('dispatch.ports',()=>ports(threadId,conversationId,route,captured)),recovered=await observed('dispatch.recover',()=>preparedPorts.delivery.recover(operationId));
   if(recovered.found){if('noSubmission'in recovered){await (dbOptions?settleAgentNoSubmission(actor,operationId,recovered.noSubmission,dbOptions):settleAgentNoSubmission(actor,operationId,recovered.noSubmission));return {status:'unknown' as const};}return recovered.outcome;}
   let coverageScopes:Array<{bindingId:string;scopeDigest:string}>;

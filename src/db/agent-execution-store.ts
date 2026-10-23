@@ -188,6 +188,15 @@ export class AgentExecutionStore extends AgentRuntimeRegistryStore{
    return {id:conversation.id as string,revision:1,status:'active',epoch:1};
   },authority);
  }
+ /** Eligibility is not decision or send authority. Full context is loaded after history. */
+ async nativeConversationEligibility(threadId:string,conversationId:string){
+  return this.nativeTransaction(async c=>{
+   const t=await this.thread(c,threadId);
+   const row=(await c.query(`SELECT c.epoch,c.reminder_generation,c.driver_kind,c.phase,c.delivery_mode,EXISTS(SELECT 1 FROM agent_responsibilities r WHERE r.id=c.responsibility_id AND r.thread_id=c.thread_id AND r.state IN ('ready','waiting')) AS supervision_active FROM agent_conversations c WHERE c.id=$1 AND c.thread_id=$2`,[conversationId,t.id])).rows[0];
+   if(!row)throw Error('Conversation not found');
+   return {epoch:Number(row.epoch),reminderGeneration:row.reminder_generation,driver:row.driver_kind,phase:row.phase,deliveryMode:row.delivery_mode,supervisionActive:row.supervision_active};
+  },undefined,true);
+ }
  async conversation(threadId:string,conversationId:string){
   uuid.parse(conversationId);
   return this.nativeTransaction(async c=>{

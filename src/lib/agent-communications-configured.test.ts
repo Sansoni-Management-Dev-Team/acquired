@@ -251,3 +251,15 @@ it('uses one owned account snapshot per refresh without calculating conversation
  historyAccountSnapshot.mockResolvedValueOnce({conversation:x.row,accounts:[{...binding,generation:2}]});
  await expect(service.refresh('thread',conversation)).rejects.toThrow('Original native account changed');
 });
+
+it('checkpoints background history one channel at a time and requires observations newer than the event',async()=>{
+ const x=fixture(),since=new Date(Date.now()-10000).toISOString();
+ const accounts=['email','whatsapp','linkedin'].map((channel,i)=>({...binding,id:`40000000-0000-4000-8000-00000000000${i+1}`,channel,platform:channel==='email'?'gmail':channel,service_connection_id:'connection-'+channel,service_account_id:'account-'+channel}));
+ const routes=accounts.map((b,i)=>({id:`50000000-0000-4000-8000-00000000000${i+1}`,conversationId:conversation,channel:b.channel,bindingId:b.id,bindingDigest:recordedAgentBindingDigest(b),recipient:{kind:b.channel==='email'?'email':b.channel==='whatsapp'?'phone':'linkedin_profile',value:b.channel==='email'?'person@example.invalid':b.channel==='whatsapp'?'+61400000002':'https://www.linkedin.com/in/peer'},historyComplete:false,historyObservedAt:null as string|null}));
+ const store={...x.store,historyAccountSnapshot:vi.fn(async()=>({conversation:x.row,accounts})),channelRoutes:vi.fn(async()=>structuredClone(routes)),ingestChannelHistory:vi.fn(async(_t:string,_c:string,id:string)=>{const route=routes.find(r=>r.id===id)!;route.historyComplete=true;route.historyObservedAt=new Date().toISOString();})};
+ f.read.mockImplementation(async(selected)=>({binding:selected,source:'communications',complete:true,observedAt:new Date().toISOString(),messages:[],scopeDigest:'a'.repeat(64)}));
+ const service=configuredAgentCommunications(actor,store as never);
+ for(let i=0;i<3;i++){await expect(service.refreshCheckpoint('thread',conversation,since)).rejects.toMatchObject({name:'AgentHistoryCheckpointPendingError'});expect(f.read).toHaveBeenCalledTimes(i+1);}
+ await service.refreshCheckpoint('thread',conversation,since);expect(f.read).toHaveBeenCalledTimes(3);expect(f.catchup).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+ routes[0].historyObservedAt=new Date(Date.parse(since)-1).toISOString();await expect(service.refreshCheckpoint('thread',conversation,since)).rejects.toMatchObject({name:'AgentHistoryCheckpointPendingError'});expect(f.read).toHaveBeenCalledTimes(4);
+});

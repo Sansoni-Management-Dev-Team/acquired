@@ -221,3 +221,15 @@ it('stops history failure recovery immediately when its worker deadline expires'
  expect(f.mock.nativeDecisionContext).toHaveBeenCalledOnce();
  expect(f.mock.holdNativeConversation).not.toHaveBeenCalled();
 });
+
+it('defers a saved history checkpoint without creating a human-review hold',async()=>{
+ const {AgentHistoryCheckpointPendingError}=await import('./agent-history-checkpoint');const f=fixture();f.mock.nativeDecisionContext.mockResolvedValue({...context,deliveryMode:'communications'});
+ const handlers=createNativeAgentHandlers({store:f.mock as unknown as AgentModelStore,refreshProviderHistory:async()=>{throw new AgentHistoryCheckpointPendingError();}});
+ expect(await handlers['conversation.reassess']({...execution,event:{...event,attempts:3}})).toMatchObject({kind:'defer'});expect(f.mock.holdNativeConversation).not.toHaveBeenCalled();expect(f.mock.nativeDecisionContext).toHaveBeenCalledOnce();
+});
+
+it('uses lightweight conversation eligibility before refreshing history, and decision context only afterward',async()=>{
+ const f=fixture(),nativeConversationEligibility=vi.fn(async()=>({...context,deliveryMode:'communications'})),refreshProviderHistory=vi.fn(async()=>undefined);
+ const handlers=createNativeAgentHandlers({store:{...f.mock,nativeConversationEligibility} as unknown as AgentModelStore,decide:()=>f.decide,refreshProviderHistory});
+ await handlers['conversation.reassess'](execution);expect(nativeConversationEligibility).toHaveBeenCalledOnce();expect(refreshProviderHistory).toHaveBeenCalledOnce();expect(f.mock.nativeDecisionContext).toHaveBeenCalledOnce();expect(f.mock.nativeDecisionContext.mock.invocationCallOrder[0]).toBeGreaterThan(refreshProviderHistory.mock.invocationCallOrder[0]);
+});

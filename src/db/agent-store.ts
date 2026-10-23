@@ -25,7 +25,7 @@ function json(value: unknown) {
   return parsed;
 }
 export type AgentThread = { id: string; organization_id: string; mandate_id: string; owner_user_id: string; revision: number };
-export type AgentEvent = { id: string; thread_id: string; mandate_id?:string; kind: string; payload: unknown; lease_owner: string; fence: string; attempts: number };
+export type AgentEvent = { id: string; thread_id: string; mandate_id?:string; created_at?:Date|string; kind: string; payload: unknown; lease_owner: string; fence: string; attempts: number };
 
 export type AgentStoreOptions={businessTime?:{context:AgentBusinessTimeContext;scope:AgentBusinessTimeScope}};
 
