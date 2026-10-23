@@ -2994,3 +2994,12 @@ Production logs showed native discovery retiring checkouts at 2,000ms before SQL
 Channel readiness after batching returned 200 in 22.01s, with all three demo channels connected and ready. This exceeds the previous 15s browser deadline, so controls now use the shared bounded 30s status reader. Saved review/control actions refresh the bundled activity projection instead of repeating full snapshot plus reviews reads. A failing regression demonstrated the duplicate refresh before the change. These changes do not claim the underlying latency target is met.
 
 Production contact approval persisted and its worker event progressed from pending to leased, with a conversation reassessment queued. No simulated message/reply round trip is yet claimed for this verification run. Final image deployment, worker progress and canary remain pending for this follow-up.
+
+
+### Bounded contact allocation continuation — 2026-10-23
+
+After the capacity release, five observed agent discovery passes acquired/released connections with no checkout retirements. Three independent cold connection probes completed in 534–564ms, ruling out slow establishment in that observation window. The previous 2s failures were pool contention. Supabase CLI blocking inspection continued to work; no migrations were applied.
+
+A separate production event exceeded its native 45s duration while allocating a five-contact approval. It created one conversation, then lost authority; one retry ended in review rather than silently repeating effects. The continuation fix preserves the same approved batch, allocates at most one contact per worker event, checkpoints results and emits the next event in the same final transaction. Existing per-contact command receipts make a crash before the checkpoint idempotent. Final fence checks remain inside the store before allocation/checkpoint; lease duration and send authority are not widened. The adapter reuses the already loaded approved target list instead of reading it twice.
+
+Red evidence: one-contact checkpoint regression failed (two contacts attempted), and adapter regression failed (reviewed target list not passed). Green evidence: ten unit allocation cases plus six actual PostgreSQL channel cases passed, including fresh-store continuation, no duplicate conversations and zero dispatch intents. Tests also cover lost fence and foreign checkpoint rejection. Full release checks/deployment are pending for this checkpoint.

@@ -9,7 +9,7 @@ function fixture(cause:unknown){
  const store=new AgentTargetStore({}as never,{organizationId:'fixture-org',userId:'fixture-owner'});
  const plan={delivery:{mode:'channels',policyRevision:1},responsibilityId:'fixture-responsibility',selected:[{contactId:ids.contact,sourceRevision:'a'.repeat(64)},{contactId:ids.other,sourceRevision:'b'.repeat(64)}]};
  const op={id:ids.operation,name:'target.select',state:'approved',input:plan,input_digest:agentRecordDigest({name:'target.select',input:plan})};
- const query=vi.fn(async(sql:string)=>({rows:sql.startsWith('SELECT * FROM agent_operations')?[op]:[]}));
+ const query=vi.fn(async(sql:string)=>({rows:sql.startsWith('SELECT * FROM agent_operations')?[op]:sql.startsWith('SELECT manifest')?[{manifest:[{operationId:ids.operation}]}]:[]}));
  const internal=store as unknown as {nativeTransaction:<T>(fn:(c:PoolClient)=>Promise<T>)=>Promise<T>;lockThread:()=>Promise<unknown>;assertExecutionFence:()=>Promise<void>;command:(...args:unknown[])=>Promise<unknown>;controlNotice:(...args:unknown[])=>Promise<void>;emit:(...args:unknown[])=>Promise<void>};
  vi.spyOn(internal,'nativeTransaction').mockImplementation(fn=>fn({query}as unknown as PoolClient));
  vi.spyOn(internal,'lockThread').mockResolvedValue({id:ids.thread,mandate_id:ids.mandate,organization_id:'fixture-org',owner_user_id:'fixture-owner'});
@@ -17,7 +17,7 @@ function fixture(cause:unknown){
  const allocation=vi.spyOn(internal,'command').mockRejectedValueOnce(cause).mockResolvedValueOnce({id:'fixture-conversation'});
  vi.spyOn(internal,'controlNotice').mockResolvedValue();vi.spyOn(internal,'emit').mockResolvedValue();
  const log=vi.spyOn(console,'warn').mockImplementation(()=>{});
- return{store,allocation,query,log};
+ return{store,allocation,query,log,op,internal};
 }
 afterEach(()=>vi.restoreAllMocks());
 
@@ -46,4 +46,34 @@ it('ignores hostile error accessors and keeps diagnostics from changing the allo
  f.log.mockImplementation(()=>{throw new Error('logging unavailable');});
  const result=await f.store.allocateApprovedTargets(ids.thread,ids.operation);
  expect(result).toMatchObject({allocated:1,needsReview:1,results:[{failureCategory:'allocation_needs_review'},{status:'allocated'}]});
+});
+
+
+it('checkpoints one reviewed contact and queues the remaining allocation without extending the worker lease',async()=>{
+ const f=fixture(new Error('contact needs review'));
+ const result=await f.store.allocateApprovedTargets(ids.thread,ids.operation,undefined,{reviewBatchId:ids.other});
+ expect(f.allocation).toHaveBeenCalledTimes(1);
+ expect(result).toMatchObject({pending:true,results:[{contactId:ids.contact,status:'needs_review'}]});
+ expect(f.query.mock.calls.some(([sql])=>/SET state='complete'/.test(sql))).toBe(false);
+ expect(f.internal.emit).toHaveBeenCalledWith(expect.anything(),expect.anything(),'target-allocation:'+ids.operation+':1','review.approved',{reviewBatchId:ids.other});
+});
+
+it('resumes a checkpoint without attempting its already processed contact again',async()=>{
+ const f=fixture(new Error('unused'));
+ Object.assign(f.op,{state:'running',result:{allocationCheckpointVersion:1,results:[{contactId:ids.contact,status:'needs_review',failureCategory:'database_busy'}]}});
+ f.allocation.mockReset().mockResolvedValue({id:'remaining-conversation'});
+ const result=await f.store.allocateApprovedTargets(ids.thread,ids.operation,undefined,{reviewBatchId:ids.other});
+ expect(f.allocation).toHaveBeenCalledTimes(1);expect(f.allocation.mock.calls[0][1]).toContain(ids.other);
+ expect(result).toMatchObject({allocated:1,needsReview:1});expect(result.pending).toBeUndefined();
+ expect(f.internal.emit).not.toHaveBeenCalledWith(expect.anything(),expect.anything(),expect.anything(),'review.approved',expect.anything());
+});
+it('does not checkpoint or enqueue a continuation after its execution fence is lost',async()=>{
+ const f=fixture(new Error('contact needs review'));
+ vi.mocked(f.internal.assertExecutionFence).mockResolvedValueOnce().mockRejectedValueOnce(new Error('expired fence'));
+ await expect(f.store.allocateApprovedTargets(ids.thread,ids.operation,undefined,{reviewBatchId:ids.other})).rejects.toThrow('expired fence');
+ expect(f.internal.emit).not.toHaveBeenCalled();expect(f.query.mock.calls.some(([sql])=>/SET result=/.test(sql))).toBe(false);
+});
+it('refuses a checkpoint containing contacts outside the approved selection',async()=>{
+ const f=fixture(new Error('unused'));Object.assign(f.op,{result:{allocationCheckpointVersion:1,results:[{contactId:ids.thread,status:'allocated',conversationId:'foreign'}]}});
+ await expect(f.store.allocateApprovedTargets(ids.thread,ids.operation,undefined,{reviewBatchId:ids.other})).rejects.toThrow('checkpoint differs');expect(f.allocation).not.toHaveBeenCalled();
 });

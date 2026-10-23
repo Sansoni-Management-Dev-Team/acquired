@@ -42,7 +42,7 @@ it('routes an exact approved target batch to allocation without dispatching emai
  const handlers=createNativeAgentHandlers({store:mock as unknown as AgentModelStore,targetApproved});
  const input={...execution,event:{...event,kind:'review.approved',payload:{reviewBatchId:id}}};
  expect(await handlers['review.approved'](input)).toEqual({kind:'complete'});
- expect(targetApproved).toHaveBeenCalledWith(input);expect(mock.deliverApprovedLocalEmail).not.toHaveBeenCalled();
+ expect(targetApproved).toHaveBeenCalledWith(input,[{id,name:'target.select'}]);expect(mock.deliverApprovedLocalEmail).not.toHaveBeenCalled();
  mock.reviewDispatchTargets.mockResolvedValue([{id,name:'target.select'},{id,name:'email.initial',delivery_mode:'local_sink'}]);
  expect((await handlers['review.approved'](input)).kind).toBe('review');expect(targetApproved).toHaveBeenCalledTimes(1);
 });
@@ -204,4 +204,11 @@ it('uses a business defer only for the exact issued pre-begin calendar context',
 it('refuses a cloned clock as pre-begin calendar authority',async()=>{
  const {createAgentBusinessTimeContext}=await import('./agent-business-time'),{AgentPreBeginSendWindowError}=await import('./agent-pre-begin-send-window-error'),scope={runId:'native-clock-proof',organizationId:'org',userId:'owner'},context=createAgentBusinessTimeContext(scope,{now:()=>Date.parse('2030-01-06T10:00:00.000Z')});
  expect(()=>Reflect.construct(AgentPreBeginSendWindowError,[id,id,id,'2030-01-06T22:00:00.000Z',{...context}])).toThrow('Agent business time scope unavailable');
+});
+
+it('passes the exact reviewed targets to the allocation adapter without another dispatch-target read',async()=>{
+ const targets=[{id,name:'target.select',conversationId:null,delivery_mode:null}],read=vi.fn().mockResolvedValue(targets),allocate=vi.fn().mockResolvedValue({kind:'complete'});
+ const handlers=createNativeAgentHandlers({store:{reviewDispatchTargets:read} as unknown as AgentModelStore,targetApproved:allocate});
+ await handlers['review.approved']({...execution,event:{...event,kind:'review.approved',payload:{reviewBatchId:id}}});
+ expect(read).toHaveBeenCalledTimes(1);expect(allocate).toHaveBeenCalledWith(expect.objectContaining({runId:id}),targets);
 });
