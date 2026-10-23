@@ -6,6 +6,8 @@ Account: `352329340196`. Workload region: `ap-southeast-2` (Sydney). AWS profile
 
 This map records configuration metadata and bounded public endpoint checks. It does not establish database content/compatibility, secret contents, private runtime connectivity or successful application deployment. No AWS configuration was changed.
 
+**October23 separate database verification:** user-authorized catalog inspection through the existing ECS Session Manager path now proves private Aurora connectivity, certificate/hostname validation and TLS1.3. The only non-template databases are `rdsadmin`, `postgres` and `n8n`; `acquire` is absent, and the only non-system login is the cluster master. Shared-secret database credentials were used in process memory for catalog reads in `postgres`, with explicit read-only transaction and rollback; no app/n8n rows or password hashes were queried. This supersedes the earlier unknown logical database status, not full schema/RLS/runtime-role readiness. The tunnel was terminated; no resources, database/users/schema, grants or deployments changed. See [the detailed readiness result](../ops/aws/README.md#october23-live-database-readiness-check).
+
 ## Current topology
 
 Solid arrows below show configured routes, bindings or permissions; private database access is not a completed runtime test. The dashed EFS connection identifies the missing container mount.
@@ -44,12 +46,12 @@ The public n8n URL resolves and returns HTTPS 200 with a valid certificate, but 
 | Release behavior | Rolling, minimum healthy 100%, maximum 200%; circuit-breaker rollback disabled | Allows overlapping tasks. Prepare a single-active n8n deployment strategy and explicit rollback. |
 | ECR | `acquire-n8n-develop`; `acquire-acquire-develop` | Immutable tags, scan on push, AES256 encryption. App image publication verified on October21 under `app-local-test-20261021T114343Z`; n8n repository remains empty. Communications image/repository ownership still needs deciding. |
 | Application / communications | No corresponding ECS services in the inspected cluster | Add reviewed task definitions, roles/security-group access and routing through the owning infrastructure/pipeline. |
-| Aurora cluster | `acquire-n8n-develop`, engine `aurora-postgresql` version `18.6` | Existing target to validate, superseding a greenfield assumption; compatibility is not proven. Initial database is named `n8n`. Other logical database/user existence was not queried. |
+| Aurora cluster | `acquire-n8n-develop`, engine `aurora-postgresql` version `18.6` | Initial database `n8n`; October23 catalog reads confirm no `acquire` database or dedicated non-system app login. Private connectivity/TLS verified separately; source/target compatibility, app schema and runtime-role acceptance are not proven. |
 | Aurora instance | `acquire-n8n-0-develop`, `db.serverless`, private | Single writer; scaling 0–2 ACUs, auto-pause after 300 seconds. Test wake-up latency/retries for UAT. |
 | Database recovery/transport | Seven-day backups, deletion protection, encryption enabled, CA `rds-ca-rsa2048-g1` | IAM DB authentication disabled. Validate client TLS, role/RLS parity and exact approved initialization/restore before startup. |
 | EFS | `fs-0af097cbfff6960bd`, `acquire-n8n-develop`, elastic throughput | Encrypted, automatic backup policy enabled, mount target in each private app subnet. Backup configuration is not a restore test or proof of completed backups. |
 | EFS access point | `acquire-n8n-uploads-develop`, `fsap-0c0eb0b5f3dc301f2` | Root `/uploads`, UID/GID 1000, permissions `0755`; task volume uses IAM authorization and transit encryption. No container mount currently uses it. Agree mapping to `/home/node/.n8n` or a separate appropriate access point before moving n8n files. |
-| Secrets Manager | `acquire-secrets-develop` | Exists; task execution role can retrieve it. No secret values were read. Key structure/required fields and application-specific secret isolation remain unverified. No custom KMS key is specified in its metadata. |
+| Secrets Manager | `acquire-secrets-develop` | Exists; task execution role can retrieve it. October23 DB inspection used the existing cluster username/password in memory, without output or project persistence. No dedicated app secret was discovered; app configuration/isolation remain incomplete. No custom KMS key is specified in shared-secret metadata. |
 | SSM Parameter Store | No parameters matched `acquire` | No project parameter configuration discovered. |
 | Private discovery | No namespace returned | Choose private service routing for app → communications when those services are defined. |
 

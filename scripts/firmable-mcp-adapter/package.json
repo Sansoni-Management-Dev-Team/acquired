@@ -1,0 +1,16 @@
+{
+  "name": "acquire-firmable-mcp-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test adapter.test.mjs",
+    "check": "node adapter.mjs check",
+    "login": "node adapter.mjs login",
+    "smoke": "node adapter.mjs smoke",
+    "stdio": "node adapter.mjs stdio"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1"
+  }
+}
