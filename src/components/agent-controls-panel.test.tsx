@@ -349,3 +349,22 @@ it('omits the redundant settings menu in a saved-data demo while keeping primary
  const html=renderToStaticMarkup(<AgentControlsPanel mandateId="mandate" initialResearchSource="cached" initial={{...data,enabled:true,state:{...data.state!,executionMode:'demo',responsibility:{id:'r',state:'ready',revision:1,owner_user_id:'owner'}}}}>{renderConversation}</AgentControlsPanel>);
  expect(html).not.toContain('aria-label="Agent settings"');expect(html).not.toContain('<dialog');expect(html).not.toContain('Configure the current mandate.');expect(html).toContain('Pause agent');
 });
+
+it.each([22000,95000])('keeps Start busy through preparation, with bounded safe recovery (duration=%s)',async duration=>{
+ vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('document',{visibilityState:'visible'});vi.useFakeTimers();const{create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;
+ vi.spyOn(AbortSignal,'timeout').mockImplementation(ms=>{const controller=new AbortController();setTimeout(()=>controller.abort(new DOMException('signal timed out','TimeoutError')),ms);return controller.signal;});
+ const initial=selectedEmailReadiness();initial.demoPreparationEnabled=true;initial.state!.executionMode='demo';initial.state!.demoContacts={prepared:0,stale:0,outreachReady:false};initial.channelPolicy={enabled:true,policy:null,accounts:[]};
+ const posts:RequestInit[]=[];
+ vi.stubGlobal('fetch',vi.fn((url:string,options?:RequestInit)=>{
+  if(options?.method==='POST'){posts.push(options);return new Promise<Response>((resolve,reject)=>{options.signal?.addEventListener('abort',()=>reject(options.signal!.reason),{once:true});setTimeout(()=>resolve(Response.json({result:{status:'proposed'}})),duration);});}
+  return Promise.resolve(Response.json(url.endsWith('/execution')?{enabled:true,state:initial.state}:url.endsWith('/handoffs')?initial.inbox:url.endsWith('/readiness')?{configuration:initial.configuration,readiness:initial.readiness}:url.endsWith('/channel-policy')?initial.channelPolicy:{grants:[]}));
+ }));
+ try{
+  await act(()=>{tree=create(<AgentControlsPanel mandateId="mandate" initial={initial} initialResearchSource="cached" initialResearchStatus="complete">{setup=><article aria-label="Start test">{setup}</article>}</AgentControlsPanel>);});
+  await act(()=>tree!.root.findAllByType('button').find(b=>b.props.children==='Start')!.props.onClick());
+  await act(async()=>{await vi.advanceTimersByTimeAsync(16000);});expect(JSON.stringify(tree!.toJSON())).not.toContain('signal timed out');expect(JSON.stringify(tree!.toJSON())).toContain('Starting…');
+  await act(async()=>{await vi.advanceTimersByTimeAsync(6001);});expect(posts).toHaveLength(1);
+  if(duration===22000)expect(tree!.root.findAllByProps({role:'alert'})).toHaveLength(0);
+  else{await act(async()=>{await vi.advanceTimersByTimeAsync(69000);});expect(JSON.stringify(tree!.toJSON())).toContain('Press Start again to check the same saved request');expect(JSON.stringify(tree!.toJSON())).not.toContain('signal timed out');expect(posts).toHaveLength(1);await act(()=>tree!.root.findAllByType('button').find(b=>b.props.children==='Start')!.props.onClick());expect(posts).toHaveLength(2);expect(posts[0].body).toBe(posts[1].body);}
+ }finally{if(tree)await act(()=>tree!.unmount());vi.restoreAllMocks();vi.useRealTimers();vi.unstubAllGlobals();}
+});

@@ -4,6 +4,7 @@ import {nativeAgentEnabled,agentPool} from '@/lib/agent-runtime';
 import {createNativeAgentMandate,nativeMandateCreateSchema,NativeMandateCreateError} from '@/lib/agent-native-create';
 import {ensureInitialMandateResearch} from '@/lib/agent-initial-research';
 import {createCachedDemo} from '@/lib/create-cached-demo';
+import {traceOperation} from '../../../../../communications/packages/core/src/operation-trace';
 const headers={'Cache-Control':'private, no-store'};
 export async function POST(request:Request){
  const denied=guardBrowserMutation(request);if(denied)return denied;
@@ -14,7 +15,7 @@ export async function POST(request:Request){
  const parsed=nativeMandateCreateSchema.safeParse(value);if(!parsed.success)return Response.json({error:'Invalid reviewed mandate.'},{status:400,headers});
  try{const actor={organizationId:session.session.activeOrganizationId,userId:session.user.id},pool=agentPool();
   if(parsed.data.executionMode==='demo'){
-   const result=await createCachedDemo(pool,actor,{requestId:parsed.data.requestId,...(parsed.data.demoSourceMandateId?{sourceMandateId:parsed.data.demoSourceMandateId}:{})},'agent');
+   const result=await traceOperation('acquire.demo.create',{kind:'span',requestId:parsed.data.requestId},()=>createCachedDemo(pool,actor,{requestId:parsed.data.requestId,...(parsed.data.demoSourceMandateId?{sourceMandateId:parsed.data.demoSourceMandateId}:{})},'agent'));
    return Response.json(result,{status:result.replayed?200:201,headers});
   }
   const result=await createNativeAgentMandate(pool,actor,parsed.data,{startResearch:true,startOn:'chat'});

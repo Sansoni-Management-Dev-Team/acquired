@@ -99,14 +99,14 @@ it('Run demo with agent mode off copies cached company and people data without a
 });
 
 it('an uncertain normal cached demo retries the same source and request without fetching a new dataset',async()=>{
- await mount(true);vi.mocked(fetch).mockResolvedValueOnce(Response.json(cachedDemo)).mockRejectedValueOnce(new DOMException('Timed out','TimeoutError'));
+ await mount(true);vi.mocked(fetch).mockResolvedValueOnce(Response.json(cachedDemo)).mockRejectedValueOnce(new DOMException('Timed out','TimeoutError')).mockResolvedValueOnce(Response.json({error:'Sign in again'},{status:401}));
  await act(async()=>{renderer.root.findAllByType('button').find(b=>b.children.join('')==='Run demo')!.props.onClick()});
  vi.mocked(fetch).mockResolvedValueOnce(Response.json({id:'demo-mandate'}));await act(async()=>{renderer.root.findByType('form').props.onSubmit({preventDefault(){}})});
- expect(vi.mocked(fetch).mock.calls.map(([url])=>url)).toEqual(['/api/mandates/demo-data','/api/mandates/demo-data','/api/mandates/demo-data']);expect(vi.mocked(fetch).mock.calls[1][1]!.body).toBe(vi.mocked(fetch).mock.calls[2][1]!.body);expect(mocks.push).toHaveBeenCalledExactlyOnceWith('/mandates/demo-mandate?tab=targets');
+ const calls=vi.mocked(fetch).mock.calls;expect(calls.map(([url])=>String(url).split('?')[0])).toEqual(['/api/mandates/demo-data','/api/mandates/demo-data','/api/mandates/demo-data','/api/mandates/demo-data']);expect(String(calls[2][0])).toContain('?requestId=');const posts=calls.filter(([,init])=>init?.method==='POST');expect(posts).toHaveLength(2);expect(posts[0][1]!.body).toBe(posts[1][1]!.body);expect(mocks.push).toHaveBeenCalledExactlyOnceWith('/mandates/demo-mandate?tab=targets');
 });
 
 it('keeps the native cached demo source and creation request through an uncertain save',async()=>{
- await mount(true);await act(()=>renderer.root.findByType(AgentModeToggle).props.onChange(true));vi.mocked(fetch).mockResolvedValueOnce(Response.json(cachedDemo)).mockRejectedValueOnce(new DOMException('Timed out','TimeoutError'));
+ await mount(true);await act(()=>renderer.root.findByType(AgentModeToggle).props.onChange(true));vi.mocked(fetch).mockResolvedValueOnce(Response.json(cachedDemo)).mockRejectedValueOnce(new DOMException('Timed out','TimeoutError')).mockResolvedValueOnce(Response.json({error:'Sign in again'},{status:401}));
  await act(async()=>{renderer.root.findAllByType('button').find(b=>b.children.join('')==='Run demo')!.props.onClick()});vi.mocked(fetch).mockResolvedValueOnce(Response.json({id:'demo-native',revision:'42'}));await act(async()=>{renderer.root.findByType('form').props.onSubmit({preventDefault(){}})});
  const saves=vi.mocked(fetch).mock.calls.filter(([url])=>url==='/api/mandates/agent');expect(saves).toHaveLength(2);expect(saves[0][1]!.body).toBe(saves[1][1]!.body);expect(JSON.parse(saves[0][1]!.body as string)).toMatchObject({executionMode:'demo',demoSourceMandateId:cachedDemo.sourceMandateId});expect(vi.mocked(fetch).mock.calls.filter(([url])=>url==='/api/mandates/demo-data')).toHaveLength(1);expect(mocks.push).toHaveBeenCalledExactlyOnceWith('/mandates/demo-native/agent');
 });
@@ -130,3 +130,24 @@ it('opens native chat with Continue and explains the Start prompt',async()=>{
 });
 
 it('does not fall back to live research when no saved demo dataset is available',async()=>{await mount(true);vi.mocked(fetch).mockResolvedValueOnce(Response.json({error:'No saved company and people data is available.'},{status:404}));await act(async()=>{renderer.root.findAllByType('button').find(b=>b.children.join('')==='Run demo')!.props.onClick()});expect(vi.mocked(fetch).mock.calls.map(([url])=>url)).toEqual(['/api/mandates/demo-data']);expect(renderer.root.findByProps({role:'alert'}).children.join('')).toContain('No saved company');expect(mocks.push).not.toHaveBeenCalled();});
+
+it.each([false,true])('keeps waiting for a valid demo creation that completes after fifteen seconds (native=%s)',async native=>{
+ vi.useFakeTimers();
+ vi.spyOn(AbortSignal,'timeout').mockImplementation(ms=>{const controller=new AbortController();setTimeout(()=>controller.abort(new DOMException('Timed out','TimeoutError')),ms);return controller.signal;});
+ try{
+  await mount(true);if(native)await act(()=>renderer.root.findByType(AgentModeToggle).props.onChange(true));
+  vi.mocked(fetch).mockResolvedValueOnce(Response.json(cachedDemo)).mockImplementationOnce((_url,init)=>new Promise((resolve,reject)=>{const signal=init?.signal;signal?.addEventListener('abort',()=>reject(signal.reason),{once:true});setTimeout(()=>resolve(Response.json({id:'late-demo',revision:'42'})),20000);}));
+  await act(async()=>{renderer.root.findAllByType('button').find(b=>b.children.join('')==='Run demo')!.props.onClick();});
+  await act(async()=>{await vi.advanceTimersByTimeAsync(20001);});
+  expect(mocks.push).toHaveBeenCalledExactlyOnceWith(native?'/mandates/late-demo/agent':'/mandates/late-demo?tab=targets');
+  expect(vi.mocked(fetch).mock.calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1);
+ }finally{vi.useRealTimers();}
+});
+it.each([false,true])('recovers an already saved demo after its creation response is lost, without resubmitting (native=%s)',async native=>{
+ await mount(true);if(native)await act(()=>renderer.root.findByType(AgentModeToggle).props.onChange(true));
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json(cachedDemo)).mockRejectedValueOnce(new DOMException('Timed out','TimeoutError')).mockImplementationOnce(async url=>Response.json({status:'ready',id:new URL(String(url),'https://app.test').searchParams.get('requestId'),revision:'42'}));
+ await act(async()=>{renderer.root.findAllByType('button').find(b=>b.children.join('')==='Run demo')!.props.onClick();});
+ const calls=vi.mocked(fetch).mock.calls,body=JSON.parse(calls[1][1]!.body as string),statusUrl=new URL(String(calls[2][0]),'https://app.test');
+ expect(statusUrl.pathname).toBe('/api/mandates/demo-data');expect(statusUrl.searchParams.get('requestId')).toBe(body.requestId);expect(mocks.push).toHaveBeenCalledExactlyOnceWith(native?`/mandates/${body.requestId}/agent`:`/mandates/${body.requestId}?tab=targets`);expect(statusUrl.searchParams.get('sourceMandateId')).toBe(cachedDemo.sourceMandateId);expect(statusUrl.searchParams.get('presentation')).toBe(native?'agent':'workspace');
+ expect(calls.filter(([,init])=>init?.method==='POST')).toHaveLength(1);
+});

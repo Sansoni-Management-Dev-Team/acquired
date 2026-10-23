@@ -39,7 +39,8 @@ function phaseKey(key:string,phase:string){
 }
 export async function startAgentOutreach({actor,mandateId,threadId,requestKey,store,prepare}:{actor:CampaignActor;mandateId:string;threadId:string;requestKey:string;store:Store;prepare:(actor:CampaignActor,mandateId:string,key:string)=>Promise<unknown>}){
  for(const id of [mandateId,threadId,requestKey])z.string().uuid().parse(id);
- const observe=(stage:string)=>console.info('agent-start-outreach',JSON.stringify({module:'agent-start-outreach',mandateId,threadId,stage,timestamp:new Date().toISOString()}));
+ const started=performance.now();
+ const observe=(stage:string)=>console.info('agent-start-outreach',JSON.stringify({module:'agent-start-outreach',mandateId,threadId,stage,elapsedMs:Math.round(performance.now()-started),timestamp:new Date().toISOString()}));
  const state=await store.executionState(threadId);
  if(state.executionMode!=='demo')throw new AgentOutreachStartError('This start action is for saved-data demos.');
  if(!state.responsibility||!['ready','waiting'].includes(state.responsibility.state)||state.responsibility.mandate_revision!==state.mandateRevision)throw new AgentOutreachStartError('Resume the agent with the current brief before starting outreach.');
