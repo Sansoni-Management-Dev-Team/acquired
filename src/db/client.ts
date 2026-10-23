@@ -1,3 +1,4 @@
+import {backgroundPool} from "./background-pool";
 import { observeResearchDatabase } from "@/lib/research-request-observability";
 import "server-only";
 import { attachDatabasePool } from "@vercel/functions";
@@ -30,8 +31,9 @@ function getPostgresPool(connectionString: string) {
     idleTimeoutMillis: 5_000,
   });
   attachDatabasePool(pool);
-  pools.set(connectionString, pool);
-  return pool;
+  const bounded = backgroundPool(pool);
+  pools.set(connectionString, bounded);
+  return bounded;
 }
 
 function createDatabase(): Database | null {

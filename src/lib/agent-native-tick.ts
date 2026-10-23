@@ -1,3 +1,4 @@
+import {withBackgroundBudget} from './background-workload';
 import{observeDispatchStage,withDispatchObservation}from'../../communications/packages/core/src/dispatch-diagnostic';
 import{assertAgentBusinessTimeScope,type AgentBusinessTimeSelection}from'./agent-business-time';
 import{installAgentBusinessTimeSql}from'./agent-business-time-sql';
@@ -51,7 +52,10 @@ export async function runNativeTickWithPorts(options:{businessTime?:AgentBusines
 }
 /** A cancelled HTTP caller cannot cancel PostgreSQL work by itself. Bound
  * discovery on the server and discard any session whose rollback is uncertain. */
-async function nativeDiscovery<T>(work:(client:PoolClient)=>Promise<T>):Promise<T>{
+function nativeDiscovery<T>(work:(client:PoolClient)=>Promise<T>):Promise<T>{
+ return withBackgroundBudget('agent.discovery',10000,()=>runNativeDiscovery(work));
+}
+async function runNativeDiscovery<T>(work:(client:PoolClient)=>Promise<T>):Promise<T>{
  const raw=await agentPool().connect();let discarded=false;
  const client=new Proxy(raw,{get(target,key){
   if(key==='query')return(text:string,values?:unknown[])=>{const config={text,values,query_timeout:6500};return target.query(config);};

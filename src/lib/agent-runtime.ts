@@ -1,3 +1,4 @@
+import {backgroundPool} from '@/db/background-pool';
 import {Pool} from 'pg';
 import {attachDatabasePool} from '@vercel/functions';
 import {type AgentStore,type AgentActor,type AgentStoreOptions} from '@/db/agent-store';
@@ -15,7 +16,7 @@ export function agentPool():Pool{
  const connectionString=process.env.DATABASE_URL;
  if(!connectionString || process.env.DATABASE_DRIVER!=='postgres')throw new Error('Durable agent requires the configured PostgreSQL driver');
  const pools=globalAgent.acquireAgentPools??=new Map<string,Pool>();let pool=pools.get(connectionString);
- if(!pool){const ca=process.env.DATABASE_SSL_CA;pool=new Pool({connectionString,max:4,connectionTimeoutMillis:10000,idleTimeoutMillis:5000,...(ca?{ssl:{ca,rejectUnauthorized:true}}:{})});attachDatabasePool(pool);pools.set(connectionString,pool);}
+ if(!pool){const ca=process.env.DATABASE_SSL_CA;pool=new Pool({connectionString,max:4,connectionTimeoutMillis:10000,idleTimeoutMillis:5000,...(ca?{ssl:{ca,rejectUnauthorized:true}}:{})});attachDatabasePool(pool);pool=backgroundPool(pool);pools.set(connectionString,pool);}
  return pool;
 }
 export function agentStore(actor:AgentActor,options:AgentStoreOptions={}){

@@ -1,3 +1,4 @@
+import {backgroundRemaining} from './background-workload';
 import {z} from 'zod';
 import type {ResearchConfig} from '@/domain/research';
 import {terminalResearchStates} from '@/domain/research';
@@ -85,6 +86,7 @@ export async function observeScheduledInitialResearch():Promise<{checked:number;
    ),ordered AS (SELECT *,row_number() OVER(ORDER BY created_at,organization_id,mandate_id)-1 AS position,count(*) OVER() AS total FROM eligible)
    SELECT organization_id,owner_user_id,mandate_id,job_id FROM ordered ORDER BY (position-($1::bigint%total)+total)%total LIMIT 10`,[Math.floor(Date.now()/60000)])).rows;
   for(const scope of scopes){
+   backgroundRemaining();
    result.checked++;
    try{
     const actor={organizationId:scope.organization_id,userId:scope.owner_user_id},current=await ensureInitialMandateResearch(pool,actor,scope.mandate_id);

@@ -1,3 +1,4 @@
+import {backgroundPool} from "./background-pool";
 import "server-only";
 import { attachDatabasePool } from "@vercel/functions";
 import { Pool, type PoolClient, type QueryResultRow } from "pg";
@@ -15,8 +16,8 @@ function pool() {
   const ca = process.env.DATABASE_SSL_CA;
   const created = new Pool({ connectionString: process.env.DATABASE_URL, ...(ca ? { ssl: { ca, rejectUnauthorized: true } } : {}), max: 3, connectionTimeoutMillis: 15_000, idleTimeoutMillis: 5_000 });
   attachDatabasePool(created);
-  globalForCampaign.acquireCampaignPool = created;
-  return created;
+  globalForCampaign.acquireCampaignPool = backgroundPool(created);
+  return globalForCampaign.acquireCampaignPool;
 }
 /** Standard driver injection for the configured communications consumer. Repositories
  * enter their own restricted role/transaction; uncertain sessions are physically discarded. */
