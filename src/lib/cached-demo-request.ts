@@ -22,10 +22,12 @@ export async function saveCachedDemoRequest(input:{native:boolean;body:string;so
   input.onReconcile();
   const {requestId}=JSON.parse(input.body) as {requestId:string};
   const params=new URLSearchParams({requestId,sourceMandateId:input.sourceMandateId,presentation:input.native?'agent':'workspace'});
-  for(let attempt=0;attempt<6;attempt++){
+  const recovery=AbortSignal.timeout(60000);
+  for(let attempt=0;attempt<6&&!recovery.aborted;attempt++){
    if(attempt)await new Promise(resolve=>setTimeout(resolve,2000));
+   if(recovery.aborted)break;
    try{
-    const response=await fetcher('/api/mandates/demo-data?'+params,{cache:'no-store',signal:AbortSignal.timeout(5000)});
+    const response=await fetcher('/api/mandates/demo-data?'+params,{cache:'no-store',signal:AbortSignal.any([recovery,AbortSignal.timeout(30000)])});
     if(response.status>=500||response.status===408||response.status===429)continue;
     if(!response.ok)break;
     const value=await response.json();
