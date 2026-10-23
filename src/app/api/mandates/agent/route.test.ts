@@ -37,3 +37,4 @@ it('new chat-first mandates wait for Start while keeping their durable research 
  mock.create.mockResolvedValueOnce({id:requestId,revision:'42',replayed:false,initialResearch:{version:1,requestId,creationRevision:'42',startOn:'chat'}});mock.start.mockResolvedValueOnce({requestId,status:'awaiting_start',source:'live'});
  const r=await POST(request());expect(r.status).toBe(201);expect(await r.json()).toMatchObject({initialResearch:{status:'awaiting_start'}});
 });
+it('returns JSON503 when session storage is unavailable before native creation',async()=>{mock.session.mockRejectedValueOnce(Error('private session database error'));const r=await POST(request());expect(r.status).toBe(503);expect(await r.json()).toEqual({error:'Sign-in status is temporarily unavailable. Please try again.'});expect(mock.create).not.toHaveBeenCalled();expect(mock.cached).not.toHaveBeenCalled();});

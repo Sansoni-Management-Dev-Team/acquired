@@ -36,3 +36,10 @@ it('does not apply a new demo target to historical prepared recipients',async()=
  vi.stubEnv('AGENT_DEMO_TARGET','testing');mock.state.mockResolvedValue({executionMode:'demo',demoContacts:{prepared:50,stale:0,outreachReady:true},mandateRevision:'123',responsibility:null,conversations:[]});
  const result=await(await GET(new Request(url),context)).json();expect(result.demoService).toBeUndefined();
 });
+it('returns one scoped controls bundle only when requested and never starts work',async()=>{
+ const controlsSnapshot=vi.fn().mockResolvedValue({state:{mandateRevision:'123'},inbox:{tasks:[],members:[]},grants:[],targetOptions:{bindings:[]}});
+ mock.scope.mockResolvedValue({actor:{organizationId:'org',userId:'actor'},store:{...store,controlsSnapshot},thread:{id:'owned-thread'}});
+ const response=await GET(new Request(url,{headers:{'X-Acquire-Control-Snapshot':'1'}}),context);
+ expect(response.status).toBe(200);expect(controlsSnapshot).toHaveBeenCalledWith(id,'owned-thread');expect(mock.state).not.toHaveBeenCalled();expect(mock.control).not.toHaveBeenCalled();
+ expect(await response.json()).toMatchObject({state:{mandateRevision:'123'},controls:{grants:[],inbox:{tasks:[]}}});
+});

@@ -18,9 +18,9 @@ it('keeps demo contact allocation disabled after choosing a delivery mode until 
 it('keeps execution honest without a duplicate header start when native execution is unavailable',()=>{const html=renderToStaticMarkup(<AgentControlsPanel mandateId="mandate" initial={data}>{renderConversation}</AgentControlsPanel>);expect(html).toContain('Native execution is disabled');expect(html).not.toContain('Start agent');expect(html).toContain('disabled');expect(html).not.toContain('Agent is running');});
 it('shows human assigned tasks even without an owned supervision thread',()=>{const html=renderToStaticMarkup(<AgentControlsPanel mandateId="mandate" initial={{...data,state:null,inbox:{members:[],tasks:[{id:'task',revision:1,state:'pending',assignee_user_id:'other',owner_user_id:'owner',context_revision:'a'.repeat(64),context:{summary:'Please send booking link manually'},human_evidence:{},can_reassign:false}]}}}>{renderConversation}</AgentControlsPanel>);expect(html).toContain('Please send booking link manually');expect(html).toContain('Acknowledge');});
 it('keeps bounded automatic sending behind explicit options and never offers global YOLO',()=>{const html=renderToStaticMarkup(<AgentControlsPanel mandateId="mandate" initial={{...data,enabled:true,state:{...data.state!,responsibility:{id:'responsibility',state:'ready',revision:1,owner_user_id:'owner'},conversations:[{id:'conversation',revision:1,epoch:'1',context_revision:'a'.repeat(64),driver_kind:'agent',phase:'active',recipient_email:'lead@example.invalid',binding_digest:'b'.repeat(64),engagement:'engaged'}]}}}>{renderConversation}</AgentControlsPanel>);for(const text of ['Pause agent','Automatic sending limits','Human approval is the default','lead@example.invalid'])expect(html).toContain(text);expect(html).not.toContain('Approve all forever');});
-it('loads assigned tasks without an owner thread and ignores late results after unmount',async()=>{
+it('does not fan out queued control reads and ignores late results after unmount',async()=>{
  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.useFakeTimers();const {create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;let resolveExecution:(value:Response)=>void=()=>{};const fetcher=vi.fn((url:string,options?:RequestInit)=>{if(options?.method==='POST')return Promise.resolve(Response.json({result:{}}));if(url.endsWith('/execution'))return new Promise<Response>(resolve=>{resolveExecution=resolve;});if(url.endsWith('/handoffs'))return Promise.resolve(Response.json({tasks:[],members:[]}));return Promise.resolve(Response.json({grants:[]}));});vi.stubGlobal('fetch',fetcher);vi.stubGlobal('document',{visibilityState:'visible'});
- try{await act(async()=>{tree=create(<AgentControlsPanel mandateId="mandate" initial={data}>{renderConversation}</AgentControlsPanel>);});await act(async()=>{await vi.advanceTimersByTimeAsync(1);});expect(fetcher).toHaveBeenCalledWith(expect.stringContaining('/handoffs'),expect.anything());await act(async()=>{tree!.unmount();});resolveExecution(Response.json({enabled:true,state:null}));await act(async()=>{await Promise.resolve();});
+ try{await act(async()=>{tree=create(<AgentControlsPanel mandateId="mandate" initial={data}>{renderConversation}</AgentControlsPanel>);});await act(async()=>{await vi.advanceTimersByTimeAsync(1);});expect(fetcher).not.toHaveBeenCalledWith(expect.stringContaining('/handoffs'),expect.anything());await act(async()=>{tree!.unmount();});resolveExecution(Response.json({enabled:true,state:null}));await act(async()=>{await Promise.resolve();});expect(fetcher).not.toHaveBeenCalledWith(expect.stringContaining('/handoffs'),expect.anything());
  }finally{vi.useRealTimers();vi.unstubAllGlobals();}
 });
 it('reuses an uncertain mutation key on retry instead of creating another operation',async()=>{
@@ -332,7 +332,7 @@ it('waits at the welcome prompt for a new live mandate and starts the existing r
 it('shows a plain retry message for an HTML failure response instead of exposing a JSON parser error',async()=>{
  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('document',{visibilityState:'visible'});vi.useFakeTimers();const{create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;
  vi.stubGlobal('fetch',vi.fn().mockResolvedValue(new Response('<!DOCTYPE html><title>Not found</title>',{status:404,headers:{'Content-Type':'text/html'}})));
- try{await act(()=>{tree=create(<AgentControlsPanel mandateId="mandate" initial={preparedDemo()}>{setup=><article aria-label="Chat steps">{setup}</article>}</AgentControlsPanel>);});await act(async()=>tree!.root.findAllByType('button').find(button=>button.props.children==='Review outreach contacts')!.props.onClick());const text=JSON.stringify(tree!.toJSON());expect(text).toContain('Could not complete this step. Please try again.');expect(text).not.toContain('Unexpected token');expect(text).not.toContain('DOCTYPE');}finally{if(tree)await act(()=>tree!.unmount());vi.useRealTimers();vi.unstubAllGlobals();}
+ try{await act(()=>{tree=create(<AgentControlsPanel mandateId="mandate" initial={preparedDemo()}>{setup=><article aria-label="Chat steps">{setup}</article>}</AgentControlsPanel>);});await act(async()=>tree!.root.findAllByType('button').find(button=>button.props.children==='Review outreach contacts')!.props.onClick());const text=JSON.stringify(tree!.toJSON());expect(text).toContain('Could not confirm this action. Check saved progress before trying again.');expect(text).not.toContain('Unexpected token');expect(text).not.toContain('DOCTYPE');}finally{if(tree)await act(()=>tree!.unmount());vi.useRealTimers();vi.unstubAllGlobals();}
 });
 
 it('keeps All selected without automatically retrying an unchanged saved empty contact selection',async()=>{
@@ -348,4 +348,34 @@ it('keeps All selected without automatically retrying an unchanged saved empty c
 it('omits the redundant settings menu in a saved-data demo while keeping primary controls',()=>{
  const html=renderToStaticMarkup(<AgentControlsPanel mandateId="mandate" initialResearchSource="cached" initial={{...data,enabled:true,state:{...data.state!,executionMode:'demo',responsibility:{id:'r',state:'ready',revision:1,owner_user_id:'owner'}}}}>{renderConversation}</AgentControlsPanel>);
  expect(html).not.toContain('aria-label="Agent settings"');expect(html).not.toContain('<dialog');expect(html).not.toContain('Configure the current mandate.');expect(html).toContain('Pause agent');
+});
+
+it.each([22000,95000,155000])('keeps Start busy through preparation, with bounded safe recovery (duration=%s)',async duration=>{
+ vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('document',{visibilityState:'visible'});vi.useFakeTimers();const{create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;
+ vi.spyOn(AbortSignal,'timeout').mockImplementation(ms=>{const controller=new AbortController();setTimeout(()=>controller.abort(new DOMException('signal timed out','TimeoutError')),ms);return controller.signal;});
+ const initial=selectedEmailReadiness();initial.demoPreparationEnabled=true;initial.state!.executionMode='demo';initial.state!.demoContacts={prepared:0,stale:0,outreachReady:false};initial.channelPolicy={enabled:true,policy:null,accounts:[]};
+ const posts:RequestInit[]=[];
+ vi.stubGlobal('fetch',vi.fn((url:string,options?:RequestInit)=>{
+  if(options?.method==='POST'){posts.push(options);return new Promise<Response>((resolve,reject)=>{options.signal?.addEventListener('abort',()=>reject(options.signal!.reason),{once:true});setTimeout(()=>resolve(Response.json({result:{status:'proposed'}})),duration);});}
+  return Promise.resolve(Response.json(url.endsWith('/execution')?{enabled:true,state:initial.state}:url.endsWith('/handoffs')?initial.inbox:url.endsWith('/readiness')?{configuration:initial.configuration,readiness:initial.readiness}:url.endsWith('/channel-policy')?initial.channelPolicy:{grants:[]}));
+ }));
+ try{
+  await act(()=>{tree=create(<AgentControlsPanel mandateId="mandate" initial={initial} initialResearchSource="cached" initialResearchStatus="complete">{setup=><article aria-label="Start test">{setup}</article>}</AgentControlsPanel>);});
+  await act(()=>tree!.root.findAllByType('button').find(b=>b.props.children==='Start')!.props.onClick());
+  await act(async()=>{await vi.advanceTimersByTimeAsync(16000);});expect(JSON.stringify(tree!.toJSON())).not.toContain('signal timed out');expect(JSON.stringify(tree!.toJSON())).toContain('Starting…');
+  await act(async()=>{await vi.advanceTimersByTimeAsync(6001);});expect(posts).toHaveLength(1);
+  if(duration<=95000){await act(async()=>{await vi.advanceTimersByTimeAsync(Math.max(0,duration-22001));});expect(tree!.root.findAllByProps({role:'alert'})).toHaveLength(0);}
+  else{await act(async()=>{await vi.advanceTimersByTimeAsync(129000);});expect(JSON.stringify(tree!.toJSON())).toContain('Press Start again to check the same saved request');expect(JSON.stringify(tree!.toJSON())).not.toContain('signal timed out');expect(posts).toHaveLength(1);await act(()=>tree!.root.findAllByType('button').find(b=>b.props.children==='Start')!.props.onClick());expect(posts).toHaveLength(2);expect(posts[0].body).toBe(posts[1].body);}
+ }finally{if(tree)await act(()=>tree!.unmount());vi.restoreAllMocks();vi.useRealTimers();vi.unstubAllGlobals();}
+});
+
+it.each([200,503])('retains the original Start request when the response body is empty (status=%s)',async status=>{
+ vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('document',{visibilityState:'hidden'});const{create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;
+ const initial=selectedEmailReadiness();initial.demoPreparationEnabled=true;initial.state!.executionMode='demo';initial.state!.demoContacts={prepared:0,stale:0,outreachReady:false};initial.channelPolicy={enabled:true,policy:null,accounts:[]};
+ const saved=vi.fn(),fetcher=vi.fn().mockImplementation(async()=>new Response('',{status}));vi.stubGlobal('fetch',fetcher);
+ try{await act(()=>{tree=create(<AgentControlsPanel mandateId="mandate" initial={initial} initialResearchSource="cached" initialResearchStatus="complete" onActionSaved={saved}>{setup=><article>{setup}</article>}</AgentControlsPanel>);});
+  const start=()=>tree!.root.findAllByType('button').find(b=>b.props.children==='Start')!.props.onClick();await act(async()=>{start();});
+  expect(saved).not.toHaveBeenCalled();expect(JSON.stringify(tree!.toJSON())).toContain('Could not confirm this action. Check saved progress before trying again.');expect(JSON.stringify(tree!.toJSON())).not.toContain('Unexpected end');
+  expect(fetcher).toHaveBeenCalledOnce();await act(async()=>{start();});expect(fetcher).toHaveBeenCalledTimes(2);expect(fetcher.mock.calls[0][1].body).toBe(fetcher.mock.calls[1][1].body);
+ }finally{if(tree)await act(()=>tree!.unmount());vi.unstubAllGlobals();}
 });

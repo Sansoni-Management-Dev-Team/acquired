@@ -42,6 +42,7 @@ function fixture() {
     if (sql.startsWith('SELECT public.agent_channel_reply_causality')) return { rows: [{ causality: data.causality }], rowCount: 1 };
     if (sql.includes("to_regclass('public.agent_linkedin_relationships')")) return { rows: [{ installed: data.relationshipInstalled }], rowCount: 1 };
     if (sql.startsWith('SELECT * FROM agent_linkedin_relationships')) return { rows: data.relationships, rowCount: data.relationships.length };
+    if(sql.startsWith('SELECT requested.route_id'))return {rows:(values?.[0] as string[]).map((route_id,i)=>({route_id,action:(values?.[1] as string[])[i],allowed:data.allowed.has(route_id+':'+(values?.[1] as string[])[i])}))};
     if (sql.startsWith('SELECT public.agent_channel_proposal_permitted($1::uuid,$2)')) return { rows: [{ allowed: data.allowed.has(values?.join(':') ?? '') }], rowCount: 1 };
     throw new Error('Unexpected query: ' + sql);
   });
@@ -91,10 +92,7 @@ it('composes relationship and invitation-only admission after ordinary route pro
   expect(context.channels![0]).not.toHaveProperty('relationship');
   const calls = f.query.mock.calls;
   expect(calls.find(([sql]) => sql.startsWith('SELECT * FROM agent_linkedin_relationships'))?.[1]).toEqual([id, thread.id]);
-  expect(calls.filter(([sql]) => sql.startsWith('SELECT public.agent_channel_proposal_permitted($1::uuid,$2)')).map(([, values]) => values)).toEqual([
-    [emailRoute, 'initial'], [emailRoute, 'reply'], [emailRoute, 'follow_up'],
-    [linkedinRoute, 'initial'], [linkedinRoute, 'reply'], [linkedinRoute, 'follow_up'], [linkedinRoute, 'invitation'],
-  ]);
+  expect(calls.find(([sql])=>sql.startsWith('SELECT requested.route_id'))?.[1]).toEqual([[emailRoute,emailRoute,emailRoute,linkedinRoute,linkedinRoute,linkedinRoute,linkedinRoute],['initial','reply','follow_up','initial','reply','follow_up','invitation']]);
   expect(calls.findIndex(([sql]) => sql.startsWith('SELECT * FROM agent_linkedin_relationships'))).toBeGreaterThan(calls.map(([sql]) => sql).lastIndexOf('SELECT public.agent_channel_reply_causality($1::uuid) AS causality'));
 });
 
@@ -141,4 +139,9 @@ it('rejects malformed protected causality rather than returning permissive parti
 it('propagates a relationship read failure without returning the ordinary context', async () => {
   const f = fixture(); f.data.failure = 'SELECT * FROM agent_linkedin_relationships';
   await expect(f.invitation.nativeDecisionContext(id, id)).rejects.toThrow('Projection unavailable');
+});
+
+it('reads invitation action permissions in one database round trip for all routes',async()=>{
+ const f=fixture();await f.invitation.nativeDecisionContext(id,id);
+ expect(f.query.mock.calls.filter(([sql])=>sql.includes('agent_channel_proposal_permitted')&&!sql.includes("'initial') OR"))).toHaveLength(1);
 });

@@ -1,3 +1,4 @@
+import{traceOperation,updateOperationTrace}from'../../communications/packages/core/src/operation-trace';
 export interface SendGateClient {
     query(sql: string, values?: unknown[]): Promise<{
         rows: Record<string, unknown>[];
@@ -8,7 +9,7 @@ export interface SendGateClient {
 export async function lockAcquireSendGate(client: SendGateClient, organizationId: string, options: {
     required?: boolean;
 } = {}): Promise<string | null> {
-    try {
+    return traceOperation('acquire.admission.gate',{},async()=>{try {
         if (typeof organizationId !== 'string' || !organizationId || organizationId.length > 200 || organizationId !== organizationId.trim() || /[\u0000-\u001f\u007f]/.test(organizationId))
             throw Error();
         const installed = await client.query("SELECT to_regprocedure('public.communications_lock_send_gate(text)') IS NOT NULL AS installed");
@@ -25,7 +26,8 @@ export async function lockAcquireSendGate(client: SendGateClient, organizationId
             throw Error();
         return revision;
     }
-    catch {
+    catch(error) {
+        try{const descriptor=error&&typeof error==='object'?Object.getOwnPropertyDescriptor(error,'code'):undefined;updateOperationTrace({failureCode:descriptor&&'value'in descriptor?descriptor.value:undefined});}catch{/* Diagnostics preserve the original refusal. */}
         throw Error('Send authority unavailable');
-    }
+    }});
 }

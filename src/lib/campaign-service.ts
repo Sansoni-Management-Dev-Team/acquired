@@ -1,3 +1,4 @@
+import {withBackgroundBudget} from './background-workload';
 import {commitCampaignPublication} from './campaign-publication-store';
 import {createCampaignDraft,saveCampaignDraft} from './campaign-draft-store';
 import {CampaignError} from './campaign-error';
@@ -619,12 +620,12 @@ export async function runCampaignTick(limit = 3, options: { budgetMs?: number } 
   };
   const locked = await withCampaignTickLock(() => withCampaignWorkBudget(options.budgetMs ?? 20_000, async () => {
     try {
-      const dispatch = await withCampaignWorker(client => rows<{ id: string; version_id: string }>(client, "SELECT id, version_id FROM campaign_enrolments WHERE runtime = 'n8n' AND n8n_started_at IS NULL AND state IN ('active','paused','needs_review') ORDER BY started_at LIMIT $1", [limit]));
-      const jobs = await withCampaignWorker(client => rows<{ id: string; organization_id: string; owner_user_id: string }>(client, "SELECT id, organization_id, owner_user_id FROM campaign_enrolments WHERE runtime = 'legacy' AND state = 'active' AND next_step_at <= now() ORDER BY next_step_at LIMIT $1", [limit]));
+      const dispatch = await withBackgroundBudget('campaign.discovery',10000,()=>withCampaignWorker(client => rows<{ id: string; version_id: string }>(client, "SELECT id, version_id FROM campaign_enrolments WHERE runtime = 'n8n' AND n8n_started_at IS NULL AND state IN ('active','paused','needs_review') ORDER BY started_at LIMIT $1", [limit])));
+      const jobs = await withBackgroundBudget('campaign.discovery',10000,()=>withCampaignWorker(client => rows<{ id: string; organization_id: string; owner_user_id: string }>(client, "SELECT id, organization_id, owner_user_id FROM campaign_enrolments WHERE runtime = 'legacy' AND state = 'active' AND next_step_at <= now() ORDER BY next_step_at LIMIT $1", [limit])));
       // Register/replay a small contact batch before selecting account scans.
       // One contact per tick keeps the existing multi-transaction RLS checks
       // affordable; account scans still cover all registered contacts.
-      const scans = await withCampaignWorker(client => rows<EnrolmentRow>(client, "SELECT * FROM campaign_enrolments WHERE (state = 'active' OR ($2 AND state IN ('paused','needs_review'))) AND (last_reply_checked_at IS NULL OR last_reply_checked_at < now() - interval '5 minutes') ORDER BY (state = 'active' AND next_step_at <= now() + interval '5 minutes') DESC, last_reply_checked_at NULLS FIRST, started_at, id LIMIT $1", [replyMonitorMode() === "off" ? limit * 2 : 1, replyMonitorMode() !== "off"]));
+      const scans = await withBackgroundBudget('campaign.discovery',10000,()=>withCampaignWorker(client => rows<EnrolmentRow>(client, "SELECT * FROM campaign_enrolments WHERE (state = 'active' OR ($2 AND state IN ('paused','needs_review'))) AND (last_reply_checked_at IS NULL OR last_reply_checked_at < now() - interval '5 minutes') ORDER BY (state = 'active' AND next_step_at <= now() + interval '5 minutes') DESC, last_reply_checked_at NULLS FIRST, started_at, id LIMIT $1", [replyMonitorMode() === "off" ? limit * 2 : 1, replyMonitorMode() !== "off"])));
       const prepared: { enrolment: EnrolmentRow; actor: CampaignActor; contact: ReplyContact }[] = [];
       const finishScan = async (enrolment: EnrolmentRow, failure?: unknown) => {
         if (replyMonitorMode() !== "off") await withCampaignWorkCleanup(() => withCampaignWorker(client =>

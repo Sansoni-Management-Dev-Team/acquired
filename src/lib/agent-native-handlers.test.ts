@@ -42,7 +42,7 @@ it('routes an exact approved target batch to allocation without dispatching emai
  const handlers=createNativeAgentHandlers({store:mock as unknown as AgentModelStore,targetApproved});
  const input={...execution,event:{...event,kind:'review.approved',payload:{reviewBatchId:id}}};
  expect(await handlers['review.approved'](input)).toEqual({kind:'complete'});
- expect(targetApproved).toHaveBeenCalledWith(input);expect(mock.deliverApprovedLocalEmail).not.toHaveBeenCalled();
+ expect(targetApproved).toHaveBeenCalledWith(input,[{id,name:'target.select'}]);expect(mock.deliverApprovedLocalEmail).not.toHaveBeenCalled();
  mock.reviewDispatchTargets.mockResolvedValue([{id,name:'target.select'},{id,name:'email.initial',delivery_mode:'local_sink'}]);
  expect((await handlers['review.approved'](input)).kind).toBe('review');expect(targetApproved).toHaveBeenCalledTimes(1);
 });
@@ -125,7 +125,7 @@ it('does not read history or spend model tokens when the saved channel due wake 
  expect(await handlers['channel.due']({...execution,event:{...event,kind:'channel.due',payload}})).toEqual({kind:'complete'});
  expect(refreshProviderHistory).not.toHaveBeenCalled();expect(f.decide).not.toHaveBeenCalled();expect(f.mock.proposeNativeEmail).not.toHaveBeenCalled();
 });
-it('rechecks actual provider readiness before a human-requested reassessment can spend tokens or propose a message',async()=>{const{mock,decide}=fixture();mock.nativeDecisionContext.mockResolvedValue({...context,deliveryMode:'communications'});const refreshProviderHistory=vi.fn().mockRejectedValue(new Error('Original recorded connection unavailable')),handlers=createNativeAgentHandlers({store:mock as unknown as AgentModelStore,decide:()=>decide,refreshProviderHistory});expect((await handlers['conversation.reassess'](execution)).kind).toBe('defer');expect(refreshProviderHistory).toHaveBeenCalledExactlyOnceWith(id,id);expect(decide).not.toHaveBeenCalled();expect(mock.proposeNativeEmail).not.toHaveBeenCalled();expect(mock.deliverApprovedLocalEmail).not.toHaveBeenCalled();});
+it('rechecks actual provider readiness before a human-requested reassessment can spend tokens or propose a message',async()=>{const{mock,decide}=fixture();mock.nativeDecisionContext.mockResolvedValue({...context,deliveryMode:'communications'});const refreshProviderHistory=vi.fn().mockRejectedValue(new Error('Original recorded connection unavailable')),handlers=createNativeAgentHandlers({store:mock as unknown as AgentModelStore,decide:()=>decide,refreshProviderHistory});expect((await handlers['conversation.reassess'](execution)).kind).toBe('defer');expect(refreshProviderHistory).toHaveBeenCalledExactlyOnceWith(id,id,execution.signal);expect(decide).not.toHaveBeenCalled();expect(mock.proposeNativeEmail).not.toHaveBeenCalled();expect(mock.deliverApprovedLocalEmail).not.toHaveBeenCalled();});
 
 it('defers only exact typed pre-begin history failures for reviewed and delegated messages, then requires human review after three reads',async()=>{
  const{AgentPreBeginHistoryError}=await import('./agent-pre-begin-history-error');
@@ -204,4 +204,64 @@ it('uses a business defer only for the exact issued pre-begin calendar context',
 it('refuses a cloned clock as pre-begin calendar authority',async()=>{
  const {createAgentBusinessTimeContext}=await import('./agent-business-time'),{AgentPreBeginSendWindowError}=await import('./agent-pre-begin-send-window-error'),scope={runId:'native-clock-proof',organizationId:'org',userId:'owner'},context=createAgentBusinessTimeContext(scope,{now:()=>Date.parse('2030-01-06T10:00:00.000Z')});
  expect(()=>Reflect.construct(AgentPreBeginSendWindowError,[id,id,id,'2030-01-06T22:00:00.000Z',{...context}])).toThrow('Agent business time scope unavailable');
+});
+
+it('passes the exact reviewed targets to the allocation adapter without another dispatch-target read',async()=>{
+ const targets=[{id,name:'target.select',conversationId:null,delivery_mode:null}],read=vi.fn().mockResolvedValue(targets),allocate=vi.fn().mockResolvedValue({kind:'complete'});
+ const handlers=createNativeAgentHandlers({store:{reviewDispatchTargets:read} as unknown as AgentModelStore,targetApproved:allocate});
+ await handlers['review.approved']({...execution,event:{...event,kind:'review.approved',payload:{reviewBatchId:id}}});
+ expect(read).toHaveBeenCalledTimes(1);expect(allocate).toHaveBeenCalledWith(expect.objectContaining({runId:id}),targets);
+});
+
+it('stops history failure recovery immediately when its worker deadline expires',async()=>{
+ const f=fixture(),controller=new AbortController(),expired=Error('Worker deadline expired');
+ f.mock.nativeDecisionContext.mockResolvedValue({...context,deliveryMode:'communications'});
+ const handlers=createNativeAgentHandlers({store:f.mock as unknown as AgentModelStore,refreshProviderHistory:async()=>{controller.abort(expired);throw expired;}});
+ await expect(handlers['conversation.reassess']({...execution,signal:controller.signal,event:{...event,attempts:3}})).rejects.toBe(expired);
+ expect(f.mock.nativeDecisionContext).toHaveBeenCalledOnce();
+ expect(f.mock.holdNativeConversation).not.toHaveBeenCalled();
+});
+
+it('defers a saved history checkpoint without creating a human-review hold',async()=>{
+ const {AgentHistoryCheckpointPendingError}=await import('./agent-history-checkpoint');const f=fixture();f.mock.nativeDecisionContext.mockResolvedValue({...context,deliveryMode:'communications'});
+ const handlers=createNativeAgentHandlers({store:f.mock as unknown as AgentModelStore,refreshProviderHistory:async()=>{throw new AgentHistoryCheckpointPendingError();}});
+ expect(await handlers['conversation.reassess']({...execution,event:{...event,attempts:3}})).toMatchObject({kind:'defer'});expect(f.mock.holdNativeConversation).not.toHaveBeenCalled();expect(f.mock.nativeDecisionContext).toHaveBeenCalledOnce();
+});
+
+it('uses lightweight conversation eligibility before refreshing history, and decision context only afterward',async()=>{
+ const f=fixture(),nativeConversationEligibility=vi.fn(async()=>({...context,deliveryMode:'communications'})),refreshProviderHistory=vi.fn(async()=>undefined);
+ const handlers=createNativeAgentHandlers({store:{...f.mock,nativeConversationEligibility} as unknown as AgentModelStore,decide:()=>f.decide,refreshProviderHistory});
+ await handlers['conversation.reassess'](execution);expect(nativeConversationEligibility).toHaveBeenCalledOnce();expect(refreshProviderHistory).toHaveBeenCalledOnce();expect(f.mock.nativeDecisionContext).toHaveBeenCalledOnce();expect(f.mock.nativeDecisionContext.mock.invocationCallOrder[0]).toBeGreaterThan(refreshProviderHistory.mock.invocationCallOrder[0]);
+});
+
+it.each([280000,240000])('reserves a decision window for history aged %i milliseconds',async(age)=>{
+ const {AgentHistoryCheckpointPendingError}=await import('./agent-history-checkpoint');
+ const f=fixture(),instant=Date.now(),observedAt=instant-age,clock=vi.spyOn(Date,'now').mockReturnValue(instant);
+ f.mock.nativeDecisionContext.mockResolvedValue({...context,deliveryMode:'communications'});
+ const refreshProviderHistory=vi.fn(async(_thread:string,_conversation:string,_signal?:AbortSignal,since?:string)=>{if(since&&observedAt<Date.parse(since))throw new AgentHistoryCheckpointPendingError();});
+ try{const handlers=createNativeAgentHandlers({store:f.mock as unknown as AgentModelStore,decide:()=>f.decide,refreshProviderHistory});expect(await handlers['conversation.reassess']({...execution,event:{...event,created_at:new Date(instant-1000)}})).toMatchObject({kind:age>255000?'defer':'complete'});expect(f.decide).toHaveBeenCalledTimes(age>255000?0:1);expect(f.mock.proposeNativeEmail).toHaveBeenCalledTimes(age>255000?0:1);expect(f.mock.holdNativeConversation).not.toHaveBeenCalled();}
+ finally{clock.mockRestore();}
+});
+
+it('passes the worker cancellation signal into approved and delegated dispatch',async()=>{
+ const x=fixture(),dispatch=vi.fn(),grant={id,revision:1};
+ x.mock.reviewDispatchTargets.mockResolvedValue([{id,conversationId:id,name:'email.initial',delivery_mode:'communications'}]);
+ x.mock.delegatedDispatchTarget.mockResolvedValue({id,conversationId:id,deliveryMode:'communications',grant}as never);
+ const handlers=createNativeAgentHandlers({store:x.mock as never,dispatchProvider:dispatch});
+ await handlers['review.approved']({...execution,event:{...event,kind:'review.approved',payload:{reviewBatchId:id}}});
+ expect(dispatch).toHaveBeenLastCalledWith(id,id,expect.any(Object),undefined,execution.signal,id);
+ await handlers['email.proposed']({...execution,event:{...event,kind:'email.proposed',payload:{operationId:id}}});
+ expect(dispatch).toHaveBeenLastCalledWith(id,id,expect.any(Object),grant,execution.signal,id);
+});
+
+it('continues only a successful pre-begin history checkpoint and retains ordinary failure retries',async()=>{
+ const {AgentPreBeginHistoryError}=await import('./agent-pre-begin-history-error');
+ const {AgentHistoryCheckpointPendingError}=await import('./agent-history-checkpoint');
+ const x=fixture(),continuation=vi.fn(async()=>({kind:'complete'as const})),dispatch=vi.fn().mockRejectedValue(new AgentPreBeginHistoryError(id,id,id,new AgentHistoryCheckpointPendingError()));
+ x.mock.reviewDispatchTargets.mockResolvedValue([{id,conversationId:id,name:'email.initial',delivery_mode:'communications'}]);
+ const handlers=createNativeAgentHandlers({store:x.mock as never,dispatchProvider:dispatch,continueDispatchPreparation:continuation});
+ const input={...execution,event:{...event,kind:'review.approved',payload:{reviewBatchId:id}}};
+ expect(await handlers['review.approved'](input)).toEqual({kind:'complete'});expect(continuation).toHaveBeenCalledWith(input);
+ continuation.mockClear();dispatch.mockRejectedValue(new AgentPreBeginHistoryError(id,id,id,Error('transport')));
+ expect(await handlers['review.approved'](input)).toMatchObject({kind:'defer'});expect(continuation).not.toHaveBeenCalled();
 });

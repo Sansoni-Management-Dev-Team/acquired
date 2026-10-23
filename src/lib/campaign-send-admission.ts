@@ -287,7 +287,7 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
                         fail();
                     inFlight++;
                     try {
-                        try{return await q<Row>(sql, values);}catch(error){if(!bootstrapComplete&&error&&typeof error==='object'&&!types.isProxy(error)&&Object.getOwnPropertyDescriptor(error,'code')?.value==='40001'){bootstrapSerialization=true;}const stage:DispatchDiagnosticStage=sql==='COMMIT'?'application.commit':sql.includes('agent_communications_source')?'application.source':sql.includes('communication_dispatch_permits')?'application.permit':sql.includes('communication_reply_monitors')?'application.coverage':sql.includes('communication_dispatch_intents')?'application.intent':sql.includes('communication_bindings')?'application.binding':'application.session';reportDispatchDiagnostic(diagnostic,stage,'error',error);throw error;}
+                        try{return await q<Row>(sql, values);}catch(error){if(!bootstrapComplete&&error&&typeof error==='object'&&!types.isProxy(error)&&['40001','55P03'].includes(Object.getOwnPropertyDescriptor(error,'code')?.value)){bootstrapSerialization=true;}const stage:DispatchDiagnosticStage=sql==='COMMIT'?'application.commit':sql.includes('agent_communications_source')?'application.source':sql.includes('communication_dispatch_permits')?'application.permit':sql.includes('communication_reply_monitors')?'application.coverage':sql.includes('communication_dispatch_intents')?'application.intent':sql.includes('communication_bindings')?'application.binding':'application.session';reportDispatchDiagnostic(diagnostic,stage,'error',error);throw error;}
                     }
                     finally {
                         inFlight--;
@@ -309,7 +309,7 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
             };
             await member();
             // The immutable owned account is the last read-only bootstrap fence.
-            // A 40001 here is retryable only after confirmed rollback, before any
+            // A 40001 or55P03 here is retryable only after confirmed rollback, before any
             // intent/source/context read or externally observable effect.
             await recordedBinding(tx);
             bootstrapComplete=true;

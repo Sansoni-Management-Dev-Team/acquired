@@ -1,4 +1,5 @@
 'use client';
+import {readJsonResponse} from '@/lib/read-json-response';
 import{useEffect,useState}from'react';
 import{z}from'zod';
 import {AgentChatMessage,AgentChatDetails} from './agent-chat-ui';
@@ -20,7 +21,7 @@ export function AgentConversationHistory({mandateId,operationId,conversationId,r
   void(async()=>{try{
    const response=await fetch(`/api/mandates/${encodeURIComponent(mandateId)}/agent/operations?${selector}=${encodeURIComponent(selected)}&include=history`,{method:'GET',cache:'no-store',signal:controller.signal});
    if(!response.ok)throw Error('Saved history unavailable');
-   const payload=await response.json(),history=historySchema.parse(payload?.history);
+   const payload=await readJsonResponse(response,'Conversation history is temporarily unavailable. Please try again.'),history=historySchema.parse(payload?.history);
    if(new Set(history.messages.map(m=>m.id)).size!==history.messages.length)throw Error('Saved history unavailable');
    if(active&&!controller.signal.aborted)setState({key,status:'ready',history});
   }catch{if(active)setState({key,status:'error'});}finally{clearTimeout(timer);}})();

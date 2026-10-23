@@ -3,7 +3,7 @@ import {agentChannelMessageSqlNames,agentLegacyEmailSqlNames,agentNativeDispatch
 import {z} from 'zod';
 import type {PoolClient} from 'pg';
 import type {AgentThread} from './agent-store';
-import type {AgentExecutionFence} from './agent-execution-store';
+import {recordedAgentBindingDigest,type AgentExecutionFence} from './agent-execution-store';
 import {AgentLifecycleStore} from './agent-lifecycle-store';
 import {agentRecordDigest as digest} from './agent-store';
 import {resolveDemoBuyerProfile} from '@/lib/agent-demo-buyer-profile';
@@ -355,12 +355,30 @@ export class AgentOutreachStore extends AgentLifecycleStore{
    return result===true;
   });
  }
- async channelDispatchRecord(threadId:string,operationId:string){
+ /** Capture account metadata only for this dispatch invocation, inside the
+  * existing actor/member-fenced transaction. This is not send authority. */
+ async channelDispatchRecord(threadId:string,operationId:string,options:{includeOriginalAccount?:boolean}={}){
   uuid.parse(operationId);return this.nativeTransaction(async c=>{
    const t=await this.thread(c,threadId),op=(await c.query(`SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name IN(${agentChannelMessageSqlNames})`,[operationId,t.id])).rows[0];
-   if(!op)throw Error('Owned native message operation unavailable');const conversation=await this.lockConversation(c,t,op.conversation_id),route=await this.nativeOperationRoute(c,t,op);
+   if(!op)throw Error('Owned native message operation unavailable');
+   // The dispatch snapshot needs owned identity/account metadata, not a context
+   // digest. History ingestion, begin and final source admission still compute
+   // and check their fresh context independently. Other callers keep the digest.
+   const conversation=options.includeOriginalAccount===true?(await c.query('SELECT c.* FROM agent_conversations c WHERE c.id=$1 AND c.thread_id=$2 FOR UPDATE',[uuid.parse(op.conversation_id),t.id])).rows[0]:await this.lockConversation(c,t,op.conversation_id);
+   if(!conversation)throw Error('Conversation not found');
+   const route=await this.nativeOperationRoute(c,t,op);
    if(!route){if(!isAgentLegacyEmailOperation(op.name))throw Error('Social messages require their original reviewed route');await this.assertLegacyAgentEmail(c,t);}
-   return {conversation,operation:op,route,submitted:op.state==='complete'&&op.result?.delivery?.status==='submitted',notSubmitted:op.state==='failed'&&op.result?.delivery?.status==='not_submitted'};
+   let originalAccount:Record<string,unknown>|undefined;
+   if(options.includeOriginalAccount===true){
+    const bindingId=route?.bindingId??conversation.binding_id,bindingDigest=route?.bindingDigest??conversation.binding_digest,channel=route?.channel??'email';
+    if(conversation.delivery_mode!=='communications'||typeof bindingId!=='string')throw Error('Recorded native communications account required');
+    const rows=(await c.query("SELECT * FROM public.communication_bindings WHERE id=$1 AND organization_id=$2 AND owner_user_id=$3 AND application_id='acquire' AND authority='service' AND backend='unipile'",[bindingId,this.actor.organizationId,this.actor.userId])).rows;
+    const saved=rows[0];
+    if(rows.length!==1||saved.id!==bindingId||saved.organization_id!==this.actor.organizationId||saved.owner_user_id!==this.actor.userId||saved.application_id!=='acquire'||saved.authority!=='service'||saved.backend!=='unipile'||saved.channel!==channel||recordedAgentBindingDigest(saved)!==bindingDigest)throw Error('Original native account changed');
+    const value:ConnectionBinding={applicationId:saved.application_id,tenantId:saved.organization_id,ownerId:saved.owner_user_id,connectionId:saved.service_connection_id,accountId:saved.service_account_id,generation:saved.generation,channel:saved.channel,platform:saved.platform,backend:saved.backend};assertSameBinding(value,value);
+    originalAccount=saved;
+   }
+   return {conversation,operation:op,route,submitted:op.state==='complete'&&op.result?.delivery?.status==='submitted',notSubmitted:op.state==='failed'&&op.result?.delivery?.status==='not_submitted',...(originalAccount?{originalAccount}:{})};
   });
  }
  async beginNativeCommunicationsEmail(threadId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number}){

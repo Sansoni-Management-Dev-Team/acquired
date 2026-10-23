@@ -9,7 +9,9 @@ export function nativeWorkerPollingMode(env={}){
 export async function requestNativeTick({secret,fetcher=globalThis.fetch,signal}={}){
  if(!secret)throw new Error('Native worker credentials unavailable');
  signal?.throwIfAborted();
- const response=await fetcher('http://127.0.0.1:3000/api/internal/agent/tick',{method:'POST',headers:{authorization:'Bearer '+secret},signal:signal?AbortSignal.any([signal,AbortSignal.timeout(55000)]):AbortSignal.timeout(55000)});
+ // Transport includes queue discovery, bounded handler execution and fenced finalization.
+ // It does not extend the handler deadline, event lease or sending authority.
+ const response=await fetcher('http://127.0.0.1:3000/api/internal/agent/tick',{method:'POST',headers:{authorization:'Bearer '+secret},signal:signal?AbortSignal.any([signal,AbortSignal.timeout(90000)]):AbortSignal.timeout(90000)});
  if(!response.ok)throw new Error('Native worker request failed');
  let value;try{value=await response.json();}catch{throw new Error('Native worker response unavailable');}
  if(typeof value?.enabled!=='boolean'||![0,1].includes(value.processed)||value.outcome!==undefined&&!['idle','complete','review','defer','lost'].includes(value.outcome))throw new Error('Invalid native worker receipt');

@@ -1,4 +1,7 @@
 "use client";
+import {readAgentStatus} from '@/lib/agent-read-request';
+import {loadAgentControls} from '@/lib/agent-controls-load';
+import {readJsonResponse} from '@/lib/read-json-response';
 import { AgentWelcome } from "./agent-welcome";
 import {AgentChatSurface,AgentChatStatus} from "./agent-chat-ui";
 import type {AgentReviewBatchView} from "./agent-review-cards";
@@ -11,7 +14,7 @@ import {
   eligibleSimulatedAutoApprovalBatches,
   type AgentDemoAutoApprovalSelection,
 } from "./agent-demo-auto-approval";
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { SlidersHorizontal, X } from "lucide-react";
 import { randomUuid } from "@/lib/random-uuid";
 import {
@@ -183,87 +186,20 @@ export function AgentControlsPanel({
     externalBusy.current = busy;
   }, [busy]);
   const endpoint = (kind: string) => `/api/mandates/${mandateId}/agent/${kind}`;
-  async function load(signal: AbortSignal): Promise<AgentControlsData> {
+  const load=useCallback(async (signal: AbortSignal): Promise<AgentControlsData> => {
     const read = async (kind: string) => {
-      const response = await fetch(endpoint(kind), {
-        cache: "no-store",
-        signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
-      });
-      if (!response.ok) throw new Error("Agent controls could not be loaded.");
-      return response.json();
+      return readAgentStatus(`/api/mandates/${mandateId}/agent/${kind}`,signal,
+        kind==='execution'?{'X-Acquire-Control-Snapshot':'1'}:undefined);
     };
-    const [execution, inbox, authority, targetOptions, runtime, channelPolicy] =
-      await Promise.all([
-        read("execution"),
-        read("handoffs"),
-        read("authority"),
-        read("targets"),
-        read("readiness").catch(() => ({ readinessUnavailable: true })),
-        read("channel-policy").catch(() => ({
-          enabled: false,
-          policy: null,
-          accounts: [],
-          unavailable: true,
-        })),
-      ]);
-    return {
-      ...execution,
-      inbox,
-      targetOptions,
-      ...runtime,
-      channelPolicy,
-      channelPolicyUnavailable: channelPolicy.unavailable === true,
-      grants: authority.grants,
-    };
-  }
+    return loadAgentControls(read);
+  },[mandateId]);
   useEffect(() => {
     mounted.current = true;
     const stop = startAgentActivityPolling({
       isBusy: () => lock.current || externalBusy.current,
       isVisible: () => document.visibilityState !== "hidden",
       version: () => generation.current,
-      load: async (signal) => {
-        const read = async (kind: string) => {
-          const response = await fetch(
-            `/api/mandates/${mandateId}/agent/${kind}`,
-            {
-              cache: "no-store",
-              signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
-            },
-          );
-          if (!response.ok) throw new Error("Agent controls unavailable");
-          return response.json();
-        };
-        const [
-          execution,
-          inbox,
-          authority,
-          targetOptions,
-          runtime,
-          channelPolicy,
-        ] = await Promise.all([
-          read("execution"),
-          read("handoffs"),
-          read("authority"),
-          read("targets"),
-          read("readiness").catch(() => ({ readinessUnavailable: true })),
-          read("channel-policy").catch(() => ({
-            enabled: false,
-            policy: null,
-            accounts: [],
-            unavailable: true,
-          })),
-        ]);
-        return {
-          ...execution,
-          inbox,
-          targetOptions,
-          ...runtime,
-          channelPolicy,
-          channelPolicyUnavailable: channelPolicy.unavailable === true,
-          grants: authority.grants,
-        } as AgentControlsData;
-      },
+      load,
       apply: (value) => {
         setData(value);
         setPollUnavailable(false);
@@ -276,7 +212,7 @@ export function AgentControlsPanel({
       mounted.current = false;
       stop();
     };
-  }, [mandateId]);
+  }, [mandateId,load]);
   async function mutate(kind: string, value: unknown) {
     if (
       lock.current ||
@@ -301,13 +237,9 @@ export function AgentControlsPanel({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...command, requestKey }),
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(kind === "demo" && command.action === "start" ? 150000 : 15000),
         }),
-        result = await response
-          .json()
-          .catch(() => ({
-            error: "Could not complete this step. Please try again.",
-          }));
+        result = await readJsonResponse(response, 'Could not confirm this action. Check saved progress before trying again.');
       if (!response.ok)
         throw new Error(
           typeof result.error === "string"
@@ -316,7 +248,7 @@ export function AgentControlsPanel({
         );
       retryKeys.current.delete(identity);
       try {
-        const current = await load(AbortSignal.timeout(15000));
+        const current = await load(AbortSignal.timeout(90000));
         if (mounted.current) {
           setData(current);
           setPollUnavailable(false);
@@ -339,7 +271,11 @@ export function AgentControlsPanel({
     } catch (cause) {
       if (mounted.current)
         setError(
-          cause instanceof Error
+          cause instanceof Error && ["TimeoutError", "AbortError"].includes(cause.name)
+            ? kind === "demo" && command.action === "start"
+              ? "Preparation is still unconfirmed. Press Start again to check the same saved request."
+              : "Could not confirm this action. Check saved progress before trying again."
+            : cause instanceof Error
             ? cause.message
             : "Could not save this action. Check saved state before retrying.",
         );
@@ -1654,7 +1590,7 @@ export function AgentControlsPanel({
                             );
                             if (!response.ok)
                               throw new Error("Ownership preview unavailable");
-                            return (await response.json()).preview;
+                            return (await readJsonResponse(response,'Current agent status is temporarily unavailable. Please try again.')).preview;
                           }}
                           onAdopt={(value) =>
                             mutate("sequence-handover", {

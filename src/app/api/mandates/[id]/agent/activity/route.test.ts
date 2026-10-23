@@ -1,11 +1,11 @@
 import {beforeEach,afterEach,expect,it,vi} from 'vitest';
-const mock=vi.hoisted(()=>({scope:vi.fn(),messages:vi.fn(),reviews:vi.fn(),guidance:vi.fn()}));
+const mock=vi.hoisted(()=>({scope:vi.fn(),messages:vi.fn(),reviews:vi.fn(),guidance:vi.fn(),activity:vi.fn()}));
 vi.mock('@/lib/agent-runtime',()=>({nativeAgentEnabled:()=>false,agentPool:vi.fn()}));
 vi.mock('@/lib/agent-initial-research',()=>({readInitialMandateResearch:vi.fn()}));
 vi.mock('@/lib/agent-request-scope',()=>({agentRequestScope:mock.scope,agentResponseHeaders:{'Cache-Control':'private, no-store'},agentRequestFailure:()=>Response.json({error:'Unavailable'},{status:409})}));
 import {GET} from './route';
 const context={params:Promise.resolve({id:'mandate'})},request=new Request('https://app.test/api/mandates/mandate/agent/activity');
-beforeEach(()=>{vi.resetAllMocks();vi.stubEnv('AGENT_GUIDANCE_ENABLED','true');mock.scope.mockResolvedValue({thread:{id:'owned-thread'},store:{messages:mock.messages,listReviewBatches:mock.reviews,listGuidance:mock.guidance}});mock.messages.mockResolvedValue([{id:'saved',role:'assistant',content:{text:'The lead is ready for your review'}}]);mock.reviews.mockResolvedValue([]);mock.guidance.mockResolvedValue([]);});afterEach(()=>vi.unstubAllEnvs());
+beforeEach(()=>{vi.resetAllMocks();vi.stubEnv('AGENT_GUIDANCE_ENABLED','true');mock.scope.mockResolvedValue({thread:{id:'owned-thread'},store:{activitySnapshot:mock.activity}});mock.messages.mockResolvedValue([{id:'saved',role:'assistant',content:{text:'The lead is ready for your review'}}]);mock.reviews.mockResolvedValue([]);mock.guidance.mockResolvedValue([]);mock.activity.mockImplementation(async(id:string,include:boolean)=>({records:await mock.messages(id),batches:await mock.reviews(id,{pendingOnly:true}),guidance:include?await mock.guidance(id):[]}));});afterEach(()=>vi.unstubAllEnvs());
 it('reads only the authenticated stored thread and serves no-store human notifications',async()=>{const result=await GET(request,context);expect(result.status).toBe(200);expect(result.headers.get('cache-control')).toContain('no-store');expect(await result.json()).toMatchObject({conversation:{threadId:'owned-thread',messages:[{id:'saved',role:'assistant',content:'The lead is ready for your review'}]},batches:[],guidance:[]});expect(mock.messages).toHaveBeenCalledWith('owned-thread');});
 it('does not create threads or run models while polling an empty conversation',async()=>{mock.scope.mockResolvedValue({thread:undefined,store:{}});const result=await GET(request,context);expect(await result.json()).toMatchObject({conversation:{messages:[]},batches:[],guidance:[]});expect(mock.messages).not.toHaveBeenCalled();});
 it('preserves scope denial without reading saved data',async()=>{mock.scope.mockResolvedValue(Response.json({error:'Sign in'},{status:401}));expect((await GET(request,context)).status).toBe(401);expect(mock.messages).not.toHaveBeenCalled();});
@@ -15,3 +15,5 @@ it('polls only the narrow saved display marker without exposing internal route p
  mock.messages.mockResolvedValue([{id:'notice',role:'assistant',request_key:'channel-route:'+id,content:{text,details:{routeId:id,conversationId:id,bindingId:id,channel:'whatsapp',policyRevision:1,recipient:'PRIVATE_RECIPIENT'}}}]);
  const body=await(await GET(request,context)).json();expect(body.conversation.messages).toEqual([{id:'notice',role:'assistant',content:text,noticeKind:'contact_channel_reviewed'}]);expect(JSON.stringify(body)).not.toMatch(/PRIVATE|request_key|details|bindingId|routeId/);
 });
+
+it('loads the database chat projection through one scoped bundle',async()=>{expect((await GET(request,context)).status).toBe(200);expect(mock.activity).toHaveBeenCalledWith('owned-thread',true);});

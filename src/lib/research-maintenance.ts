@@ -1,3 +1,4 @@
+import {backgroundRemaining} from './background-workload';
 import {dispatchCompanyBackground,recoverCompanyBackground} from './company-background-dispatch';
 import {tickCompanyPeople} from './company-people-research';
 import {scheduleResearchRun} from './research-scheduler';
@@ -89,7 +90,7 @@ export function maintainScheduledResearch(now=Date.now()):Promise<number>{
   return scheduledResearchPass??=runScheduledResearch(now).finally(()=>{scheduledResearchPass=undefined;});
 }
 async function runScheduledResearch(now:number){
-  const deadline=performance.now()+10000;
+  const deadline=performance.now()+Math.min(10000,backgroundRemaining());
   await recoverCompanyBackground(deadline);
   if(performance.now()>=deadline)return 0;
   const [{requireDb},{researchJobs,firmableSyncRuns,mandateTargets},{sql}]=await Promise.all([import('@/db/client'),import('@/db/schema'),import('drizzle-orm')]);

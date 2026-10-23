@@ -1,4 +1,5 @@
 'use client';
+import {readJsonResponse} from '@/lib/read-json-response';
 
 import {useEffect,useState} from 'react';
 import type {CompanyList} from '@/domain/company-list';
@@ -15,7 +16,7 @@ export function AgentSavedResults({mandateId,view,onClose,learningEnabled=false}
   void(async()=>{try{
    const response=await fetch(`/api/mandates/${mandateId}/${view==='companies'?'companies':'campaigns'}`,{cache:'no-store',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(15000)])});
    if(!response.ok)throw new Error('Saved results unavailable');
-   const data=await response.json();if(abort.signal.aborted)return;
+   const data=await readJsonResponse(response,'Saved results are temporarily unavailable. Please try again.');if(abort.signal.aborted)return;
    if(view==='companies')setCompanies(data as CompanyList);else setPeople(data as SavedPeople);
   }catch{if(!abort.signal.aborted)setError(true);}})();
   return()=>abort.abort();
