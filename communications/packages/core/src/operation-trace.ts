@@ -15,7 +15,9 @@ export function safeTraceMetadata(raw:object):TraceMetadata {
  try{for(const key of Object.keys(raw)){
   const d=Object.getOwnPropertyDescriptor(raw,key);if(!d||!('value'in d))continue;const v=d.value;
   if(ids.has(key)&&typeof v==='string'&&uuid.test(v))result[key]=v;
-  else if(['httpStatus','attempt','inputTokens','outputTokens','cachedInputTokens','reasoningTokens','messageCount','sourceCount','inputBytes','outputBytes'].includes(key)&&Number.isSafeInteger(v)&&v>=0&&v<=100000000)result[key]=v;
+  else if(['latencyMs','httpStatus','attempt','inputTokens','outputTokens','cachedInputTokens','cacheWriteTokens','cacheWrite5mTokens','cacheWrite1hTokens','reasoningTokens','messageCount','sourceCount','inputBytes','outputBytes'].includes(key)&&Number.isSafeInteger(v)&&v>=0&&v<=100000000)result[key]=v;
+  else if(key==='provider'&&['openai','anthropic','openrouter','openrouter-free'].includes(v))result[key]=v;
+  else if(key==='failureCategory'&&['authentication','credits','rate_limit','unsupported_request','timeout','transport','invalid_json','incomplete_response','usage_invalid','schema_validation','cancelled','unknown'].includes(v))result[key]=v;
   else if(key==='channel'&&['email','whatsapp','linkedin'].includes(v))result[key]=v;
   else if(key==='kind'&&['agent','tool','span','generation'].includes(v))result[key]=v;
   else if(key==='outcome'&&['complete','error','wait','review','unknown','submitted','lost','denied','cached'].includes(v))result[key]=v;

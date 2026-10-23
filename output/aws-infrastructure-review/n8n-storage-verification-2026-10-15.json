@@ -1,0 +1,22 @@
+{
+  "checkedAt": "2026-10-15T05:28:57.105296+00:00",
+  "method": "Read-only strict-host-key SSH; allowlisted Docker metadata and file-existence/key-presence inspection only",
+  "host": "Oracle n8n VM",
+  "n8nImage": "n8nio/n8n:2.1.5",
+  "databaseType": "postgresdb",
+  "databaseHost": "postgres",
+  "databasePort": 5432,
+  "databaseName": "n8n",
+  "postgresImage": "postgres:15-alpine",
+  "postgresBinaryVersion": "15.15",
+  "n8nDataVolume": "n8n_n8n_data",
+  "n8nDataMount": "/home/node/.n8n",
+  "storedEncryptionKeyPresent": true,
+  "encryptionKeyEnvironmentPresent": false,
+  "sqliteFilePresent": false,
+  "postgresDataVolume": "n8n_postgres_data",
+  "ingress": "Cloudflare Tunnel container",
+  "runtimeState": "All three n8n-related containers running",
+  "changesPerformed": false,
+  "secretValuesRecorded": false
+}

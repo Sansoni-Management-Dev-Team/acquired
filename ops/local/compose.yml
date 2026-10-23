@@ -1,0 +1,109 @@
+# Overlay: docker compose -f compose.local.yml -f ops/local/compose.yml ...
+x-runtime: &runtime
+  image: project-acquire-local:dev
+  working_dir: /workspace
+  init: true
+  volumes:
+    - .:/workspace:ro
+    - local-node-modules:/workspace/node_modules
+    - local-next:/workspace/.next
+    - ./.local-data/orbstack/next-env.d.ts:/workspace/next-env.d.ts
+    # Mask host dotenv files so Next cannot reload remote/provider credentials.
+    - ./.local-data/orbstack/app.env:/workspace/.env.local:ro
+    - ./.local-data/orbstack/app.env:/workspace/.env:ro
+  environment:
+    NEXT_TELEMETRY_DISABLED: "1"
+    WRANGLER_SEND_METRICS: "false"
+
+services:
+  # Stable namespace owner keeps loopback sidecars connected when Next restarts.
+  local-network:
+    image: node:22.23.1-bookworm-slim
+    container_name: project-acquire-local-network
+    command: ["node", "-e", "setInterval(() => {}, 2147483647)"]
+    labels:
+      dev.orbstack.domains: acquire.orb.local
+      dev.orbstack.http-port: "3000"
+    ports:
+      - "127.0.0.1:3020:3000"
+    restart: unless-stopped
+  local-dependencies:
+    <<: *runtime
+    build:
+      context: ./ops/local
+    command: ["node", "ops/local/install.mjs"]
+    volumes:
+      - .:/workspace:ro
+      - local-node-modules:/install/node_modules
+      - local-pnpm-store:/root/.local/share/pnpm/store
+    restart: "no"
+  local-transports:
+    <<: *runtime
+    container_name: project-acquire-local-transports
+    network_mode: service:local-network
+    command: ["node", "ops/local/transports.mjs"]
+    depends_on:
+      local-network:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      crawl4ai:
+        condition: service_healthy
+      openserp:
+        condition: service_healthy
+    restart: unless-stopped
+  app:
+    <<: *runtime
+    container_name: project-acquire-app
+    network_mode: service:local-network
+    command: ["node", "node_modules/next/dist/bin/next", "dev", "--hostname", "0.0.0.0", "--port", "3000"]
+    env_file:
+      - path: ./.local-data/orbstack/app.env
+        format: raw
+    depends_on:
+      local-dependencies:
+        condition: service_completed_successfully
+      local-transports:
+        condition: service_started
+      research:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 10s
+      start_period: 60s
+      retries: 5
+    restart: unless-stopped
+  research:
+    <<: *runtime
+    container_name: project-acquire-research
+    network_mode: service:local-network
+    command: ["node", "node_modules/wrangler/bin/wrangler.js", "dev", "--local", "--config", "/config/wrangler.json", "--ip", "127.0.0.1", "--port", "8787", "--inspector-port", "0", "--persist-to", "/state", "--show-interactive-dev-session=false"]
+    environment:
+      CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: "false"
+      CLOUDFLARE_INCLUDE_PROCESS_ENV: "false"
+      WRANGLER_SEND_METRICS: "false"
+    volumes:
+      - .:/workspace:ro
+      - local-node-modules:/workspace/node_modules
+      - ./.local-data/orbstack/wrangler.json:/config/wrangler.json:ro
+      - ./.local-data/orbstack/worker.env:/config/.dev.vars:ro
+      - local-research-state:/state
+    depends_on:
+      local-dependencies:
+        condition: service_completed_successfully
+      local-transports:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/').then(r=>process.exit(r.status===401?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      start_period: 30s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  local-node-modules:
+  local-pnpm-store:
+  local-next:
+  local-research-state:

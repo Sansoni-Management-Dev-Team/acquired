@@ -51,7 +51,7 @@ export function createLangfuseOperationTrace():OperationTrace {
    if(typeof current.httpStatus==='number'&&current.httpStatus>=400)current.outcome='error';
    if('inputTokens'in metadata||'outputTokens'in metadata){
     const input=Number(metadata.inputTokens??0),cached=Number(metadata.cachedInputTokens??0),output=Number(metadata.outputTokens??0);
-    updateActiveObservation({...(typeof metadata.model==='string'?{model:metadata.model}:{}),usageDetails:{input:Math.max(0,input-cached),input_cached:cached,output},metadata:current},{asType:'generation'});
+    updateActiveObservation({...(typeof metadata.model==='string'?{model:metadata.model}:{}),usageDetails:{input:Math.max(0,input-cached-Number(metadata.cacheWriteTokens??0)),input_cached:cached,...(metadata.cacheWriteTokens===undefined?{}:{input_cache_write:Number(metadata.cacheWriteTokens)}),output},metadata:current},{asType:'generation'});
    }else updateActiveObservation(attributes(current));
   },
  };

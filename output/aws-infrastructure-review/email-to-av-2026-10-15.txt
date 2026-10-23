@@ -1,0 +1,36 @@
+Subject: Acquired — AWS access and initial provisioning requirements
+
+Hi Av,
+
+Thanks for the discussion today. I’ve reviewed the current stack and suggest starting with a container-based UAT deployment in AWS Sydney, using your existing Terraform and deployment conventions, then preparing a separate production environment.
+
+Please arrange the following:
+
+1. Access and source control
+   Company GitHub organisation/repository access for the Acquire application and communications code, the relevant Terraform repository and deployment pipeline, and an AWS SSO role scoped to this project. I’ll need image push/deployment access, logs, secure runtime configuration and troubleshooting access through your standard process. GitHub Actions can use OIDC rather than long-lived AWS keys.
+
+2. Container hosting and image registry
+   An initial Linux x86_64 container pool of 4 vCPU / 8 GiB for UAT, with capacity adjustable after testing, plus ECR repositories. The services are the Next.js application, the separate Node communications service, and self-hosted n8n, each in its own container. These can share initial compute if that fits your platform. Next.js uses server-side rendering, authentication and API routes, so the application cannot be hosted solely as static files in S3.
+
+3. PostgreSQL
+   One isolated RDS PostgreSQL instance for UAT and one for production, compatible with PostgreSQL 17. Each environment needs separate application and communications databases with distinct users/roles. Please include private connectivity, verified TLS, backups and restore capability. The n8n persistence backend will be confirmed before copying its state. We do not currently require MongoDB, Redis or pgvector. Database creation, restores and schema/role changes will be reviewed and explicitly approved before execution; no auto-migrations in deployment.
+
+4. Networking and operations
+   HTTPS ingress and DNS for UAT, production and the communications callback/webhook endpoint; outbound HTTPS to our providers and public research websites; S3/EBS as appropriate for artifacts, persistent n8n state and backups; Secrets Manager/KMS; and CloudWatch logs, alerts and billing visibility. UAT must use separate configuration/accounts and keep live sending disabled. Please confirm the intended production domain and the owner of DNS/OAuth/provider callback updates.
+
+5. Research migration capacity
+   Cloudflare currently provides durable workflows, shared provider coordination, browser-based website/search reads, PDF conversion and caching. I need a separately scalable browser-worker allocation; an initial 2 vCPU / 4–8 GiB is a benchmark starting point, not a production capacity guarantee. For the AWS replacement, please support a UAT proof using Step Functions Standard with task workers, EventBridge scheduling and S3. The shared coordination store will be selected after that proof; DynamoDB is the proposed option. A plain Lambda runtime swap will not preserve all the existing behaviour. Please hold production research sizing until we validate quality, pacing, restart and cancellation behaviour.
+
+6. Provider ownership and inference
+   Please confirm the company-owned accounts/billing for Unipile, Firmable, OpenRouter/OpenAI, Google OAuth/Places, Apollo and Resend. Unipile is now the communications backend; the old direct Gmail, Baileys WhatsApp and browser LinkedIn implementations are preserved in a separate legacy repository and should not be provisioned as new Acquire channel servers. Existing legacy resources can be retired only after their historical state and recovery obligations are reviewed.
+
+   For inference, I can initially retain the current OpenRouter integration under company ownership. If Bedrock or your approved AI gateway is preferred, please provide the approved models, region, access and budget. That needs an adapter and output-quality testing; existing OpenRouter models and bring-your-own-provider-key behaviour should not be assumed available through Bedrock.
+
+I’ll prioritise access, UAT deployment and migration rehearsal against the one-week target discussed. Full production cutover—particularly the Cloudflare research replacement—will follow the validation results rather than treating the whole move as a straightforward runtime change. We’ll preserve campaign execution state, account ownership, encryption keys and unresolved-send handling throughout.
+
+As discussed, we should also confirm the approved data handling/disclosures for AI prompts and third-party channel connections with John. Buyer/contact names can enter drafting prompts, and connected account access is managed through Unipile. Production data should not be copied into UAT by default.
+
+Could you confirm the GitHub/AWS access route, your preferred container platform, the DNS owner, and the approved inference/provider account ownership? I can then fit the deployment into your Terraform setup.
+
+Thanks,
+Callum

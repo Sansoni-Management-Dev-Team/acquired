@@ -25,3 +25,10 @@ coverage/
 
 # Python reader/benchmark bytecode
 __pycache__/
+
+# Terraform local state, provider caches and private inputs (lock files are committed).
+**/.terraform/
+**/terraform.tfstate*
+**/*.tfplan
+**/*.tfvars
+**/*.tfvars.json

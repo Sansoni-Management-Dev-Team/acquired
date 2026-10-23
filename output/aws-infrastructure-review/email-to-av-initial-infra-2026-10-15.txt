@@ -1,0 +1,30 @@
+Subject: Acquired — initial AWS/UAT infrastructure request
+
+Hi Av,
+
+Following our discussion, I suggest we first move the existing containerized application, communications service and n8n to AWS. We can consolidate more backend work and replace the Cloudflare research runtime separately, once those changes are tested.
+
+Please provision the following through your Terraform conventions, starting with UAT in Sydney (ap-southeast-2):
+
+1. Company GitHub/repository and Terraform access, scoped AWS SSO access, and GitHub Actions OIDC deployment permissions.
+
+2. An ECS cluster using EC2 capacity, initially one Linux x86_64 host with 4 vCPU / 8 GiB. Run the Next.js app, communications service and n8n as separately deployable containers/services sharing this capacity. Keep one active instance of each initially and allow capacity changes after testing. ECR repositories are needed for the release images. This is an initial sizing assumption, not a production capacity guarantee.
+
+3. RDS PostgreSQL compatible with version 17: one isolated instance for UAT and a separate instance for production. Each environment needs separate application, communications and n8n databases with distinct users/roles, private access, verified TLS, encryption, backups and restore capability. A read-only live Oracle check confirms n8n 2.1.5 currently uses a PostgreSQL 15.15 container. Restoring that database onto the proposed PostgreSQL 17 target needs a compatibility rehearsal and specific migration approval; do not upgrade n8n itself at the same time. Single-AZ is sufficient for UAT; please confirm production availability requirements before selecting its redundancy and size.
+
+4. A private network/security-group setup, outbound HTTPS to the approved providers and Cloudflare research endpoints, HTTPS ingress with certificates, and DNS for the app, communications callbacks/webhooks and n8n. Please use an Application Load Balancer or your standard equivalent, with health checks and timeouts compatible with our existing long callbacks (some allow 90–105 seconds). Restrict n8n editor access separately from required webhook traffic. Confirm the production domain and who will update Google OAuth and provider callbacks.
+
+5. Persistent n8n configuration storage, its existing encryption key and backups. The live encryption key is in the existing /home/node/.n8n data volume, not an environment variable; preserve it when moving the PostgreSQL database to RDS. The storage/placement design must preserve state across task or host replacement. We must retain workflow IDs and waiting executions rather than importing workflow JSON alone. Please enable RDS automated backups and arrange consistent, scheduled EBS snapshots for persistent n8n data where EBS is used. Use your existing approved mechanism for temporary migration archives. ECR holds release images; no application S3 bucket is required for this first phase. Also include Secrets Manager/KMS, CloudWatch logs/alerts and billing visibility.
+
+Please keep UAT and production keys, accounts and configuration separate, with UAT live sending disabled. Database initialization, restores, schema/role changes and any n8n startup/upgrade migrations require explicit approval for their exact target; deployment must not auto-migrate. Production user data and connected accounts must not be copied into UAT by default.
+
+For the initial cutover, retain Cloudflare Workers/Workflows/Durable Objects/browser services and the current inference adapters under agreed company ownership. Please confirm account/billing ownership for Cloudflare, Unipile, Firmable, OpenRouter/OpenAI, Google OAuth/Places, Apollo and Resend. If temporarily retaining Cloudflare conflicts with the all-AWS requirement, we need to agree that additional implementation scope before committing to the cutover date.
+
+We do not need Redis, MongoDB, pgvector, EKS or replacement legacy WhatsApp/LinkedIn servers for this first phase. Step Functions, EventBridge, DynamoDB and an AWS browser-worker pool can be requested after the research replacement design/proof. Bedrock/AI Gateway selection is also a separate adapter/model-validation decision.
+
+This gets us an AWS UAT deployment and migration rehearsal against the one-week target, without coupling it to a backend rewrite. Production cutover will preserve encryption keys, campaign execution state, account ownership and unresolved-send handling.
+
+Could you confirm the access route, your ECS/Terraform conventions, DNS owner and whether this phased scope is acceptable?
+
+Thanks,
+Callum

@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Acquire infrastructure review — AWS migration</title>
+<style>
+:root{color-scheme:light;--ink:#172a32;--muted:#52656c;--line:#dbe3e5;--accent:#166454}
+*{box-sizing:border-box}body{margin:0;background:#f4f7f6;color:var(--ink);font:16px/1.6 system-ui,-apple-system,sans-serif}main{max-width:1120px;margin:32px auto;padding:40px;background:white;border:1px solid var(--line);border-radius:14px}h1{font-size:34px;line-height:1.2;margin:8px 0 18px}h2{margin:34px 0 12px;font-size:23px}h3{margin:22px 0 8px;font-size:18px}p{margin:10px 0}a{color:var(--accent)}code{font-size:.9em;background:#f1f4f4;padding:2px 5px;border-radius:4px}table{border-collapse:collapse;width:100%;font-size:14px;margin:16px 0}td,th{padding:11px 12px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{background:#edf4f1}ul,ol{padding-left:24px}li{margin:7px 0}.note{padding:17px 20px;background:#edf6f2;border-left:4px solid var(--accent);border-radius:4px}.meta{font-size:14px;color:var(--muted)}.scroll{overflow-x:auto}.diagram{white-space:pre-wrap;font:14px/1.7 ui-monospace,monospace;background:#f1f5f4;padding:20px;border-radius:8px}@media(max-width:700px){main{margin:0;padding:24px;border:0;border-radius:0}h1{font-size:28px}}@media print{body{background:white}main{border:0;margin:0;padding:0}h2,h3{break-after:avoid}tr{break-inside:avoid}}
+</style>
+</head>
+<body><main>
+<p class="meta">12 October 2026 · Repository HEAD fa544da · Read-only review</p>
+<h1>Moving Acquire’s infrastructure to AWS</h1>
+<div class="note"><strong>Feasible, with research as the main engineering project.</strong> The Next.js app and channel services already have portable containers. PostgreSQL and n8n can move with careful preservation of state. Removing Cloudflare requires replacing durable execution, shared provider coordination, browser/search services, PDF conversion and caching. Plan approximately <strong>25–40 engineering days</strong> for the full infrastructure move, before optional AI-provider changes.</div>
+<p>The recommended destination is AWS Sydney (<code>ap-southeast-2</code>), preserving <code>https://acquire.mlai.au</code>. This is a proposed architecture and an engineering estimate, not a tested AWS deployment or a fixed quotation. No infrastructure was changed, database migration applied, workflow invoked, account connected or message sent during this review.</p>
+
+<h2>What is running today</h2>
+<p>Live checks included DigitalOcean’s read-only API, SSH into the app host, selected nonsecret runtime configuration, PostgreSQL metadata/counts inside a read-only transaction, and n8n’s workflow-list API. Repository configurations and deployment records supplied the remaining context.</p>
+<div class="scroll"><table>
+<thead><tr><th>Component</th><th>Current deployment</th><th>Evidence and significance</th></tr></thead>
+<tbody>
+<tr><td>Web app/API</td><td>DigitalOcean Sydney, 1 vCPU / 2 GiB, US$12/month</td><td>Live host inventory and runtime origin confirm <code>acquire.mlai.au</code>. Next.js standalone Node container; Better Auth and Drizzle.</td></tr>
+<tr><td>LinkedIn service</td><td>DigitalOcean Sydney, 4 vCPU / 8 GiB, US$48/month</td><td>Live inventory supersedes older 2 GiB/US$12 records. Python/Chromium/Xvfb/noVNC; hosted configuration permits five browser workers and 7 GiB container memory.</td></tr>
+<tr><td>WhatsApp service</td><td>DigitalOcean Sydney, 1 vCPU / 512 MiB, US$4/month</td><td>Persistent Baileys sockets; encrypted credentials, ownership leases and delivery/reply state in PostgreSQL. Generic hosted Compose allows 1 GiB; size the AWS target from observed usage, not that template alone.</td></tr>
+<tr><td>Product database</td><td>Supabase PostgreSQL 17.6</td><td>Live metadata: 245,034,131 bytes (~234 MiB) total database size, 48 public tables, one Drizzle table and nine legacy <code>neon_auth</code> tables. Total size includes managed schemas and is not the export size.</td></tr>
+<tr><td>Research and Firmable session service</td><td>Cloudflare Workers, two Workflows and a Durable Object namespace</td><td>Live app uses the Cloudflare research URL, <code>hybrid-firmable-v1</code> and <code>FIRMABLE_TRANSPORT=cloudflare-session</code>. Wrangler declares minute scheduling, Workers AI and provider coordination.</td></tr>
+<tr><td>Page reading/search/PDFs</td><td>Cloudflare Browser Rendering; Cloudflare Crawl4AI fallback container; Workers AI PDF conversion</td><td>Production search renders DuckDuckGo HTML. Local OpenSERP/Crawl4AI already offer useful starting code, but local endpoint guards are intentionally limited to loopback development.</td></tr>
+<tr><td>Campaign runtime</td><td>n8n at <code>n8n.mlai.au</code>; Oracle host documented</td><td>Live API lists four active Acquire workflows and one inactive unrelated workflow. Product database has five active n8n enrolments. This is operating state that must survive cutover.</td></tr>
+<tr><td>DNS and TLS</td><td>Cloudflare DNS documented; host Caddy; channel names depend on IP-based <code>sslip.io</code> hostnames</td><td>Preserve the app hostname. Introduce owned service names for channels so moving machines does not change their public identity.</td></tr>
+<tr><td>Deployment</td><td>GitHub Actions builds app images and deploys via an <code>acquire-production</code> self-hosted runner</td><td>Workflow and operator scripts target DigitalOcean/Compose. Vercel automatic Git deployments are disabled; historic Vercel standby status needs rechecking before relying on it.</td></tr>
+</tbody></table></div>
+<p><strong>Verified DigitalOcean baseline: US$64/month for the three hosts.</strong> All three report backups disabled. This excludes Supabase, Cloudflare, n8n/Oracle, domain services, external APIs, tax and any transfer overages. Their current invoices and traffic were not available, so a complete current monthly total is unknown.</p>
+<p><strong>Live configuration corrects the written history:</strong> <code>CAMPAIGN_N8N_ENABLED=true</code>, <code>CAMPAIGN_LINKEDIN_ENABLED=true</code> and <code>CAMPAIGN_REPLY_MONITOR_MODE=enforce</code>. The service’s separate live-send switches were not inspected. The database snapshot contained only terminal research-job statuses, but five active campaign enrolments. Absence of unfinished research rows does not establish absence of platform executions or permit assuming campaigns are idle.</p>
+
+<h2>Recommended AWS destination</h2>
+<div class="diagram">Public app hostname → HTTPS ingress → Next.js container
+                                         │
+                          RDS PostgreSQL in private subnets
+                                         │
+               ┌─────────────────────────┼────────────────────────┐
+               │                         │                        │
+      WhatsApp service          LinkedIn on EC2 + EBS       n8n on AWS
+      always running             single state owner         same pinned version
+
+Research API → Step Functions Standard → Lambda/ECS task workers
+                    │                          │
+             durable job execution      AWS-hosted browser/search/PDF services
+                    │                          │
+             DynamoDB coordination + S3 page/result objects
+
+ECR · GitHub OIDC deployment roles · Secrets Manager/KMS · CloudWatch · backups</div>
+<p><strong>Start with an EC2/Compose move where it reduces work.</strong> Existing VM deployments can move to AWS without first adopting ECS. The managed target can use ECS Fargate for the app and WhatsApp, and EC2 or ECS on EC2 for browser workloads. Keep one app replica and one writer for each LinkedIn state shard until concurrency is addressed. EKS adds little value for the current footprint.</p>
+<p>RDS PostgreSQL is the natural database target; there is no demonstrated need for an Aurora rewrite or Cognito adoption. Better Auth remains the identity system. Put app and database in the same region and consider same-AZ placement for the initial single-AZ footprint, accounting for the availability tradeoff. Add multi-AZ database and app redundancy if the required uptime justifies the cost and concurrency work.</p>
+<p>The architecture above can remove DigitalOcean, Supabase hosting, Oracle hosting and Cloudflare runtime dependencies while retaining the current product integrations. Hosting n8n on AWS satisfies infrastructure consolidation; rewriting campaigns to Step Functions is a separate product/runtime project.</p>
+
+<h2>Work required by component</h2>
+<h3>Application: mostly packaging and operations</h3>
+<ul>
+<li>Reuse <code>ops/app/Dockerfile</code>, standalone output, readiness checks and immutable release builds. Publish images to ECR; provision the service and ingress through versioned Terraform or CDK.</li>
+<li>Replace host-specific deployment scripts and runner coupling with GitHub OIDC and scoped AWS deployment roles. Keep builds off small production hosts.</li>
+<li>Load runtime secrets from Secrets Manager. Preserve the exact Better Auth, Gmail-token and channel encryption keys. KMS can protect those secrets; it does not automatically replace the existing application encryption format.</li>
+<li>Keep the public hostname to preserve registered Google redirects and cookie identity. The current image checks build-time and runtime origins match; <code>NEXT_PUBLIC_APP_URL</code> is embedded during build.</li>
+<li>Test long research/campaign callbacks, streaming, redirects, shutdown and readiness behind the chosen ingress. An ALB defaults to a 60-second idle timeout; some current callbacks allow 90–105 seconds. Configure and test this rather than relying on route <code>maxDuration</code>. <a href="https://docs.aws.amazon.com/elasticloadbalancing/latest/application/edit-load-balancer-attributes.html">AWS ALB timeout documentation</a>.</li>
+<li>Before increasing replicas, replace the process-local target-search guard with shared coordination and review Next.js caches/build consistency. Main and campaign pools currently permit five plus three connections per app process; include channel and n8n pools in the connection budget.</li>
+</ul>
+
+<h3>Database: small data volume, important permissions</h3>
+<p>The live database is PostgreSQL 17.6; use a compatible supported PostgreSQL 17 RDS release and test exact extension/collation compatibility. The application uses ordinary PostgreSQL, not Supabase Auth or its client Data API. Installed extensions include <code>pgcrypto</code>, <code>uuid-ossp</code>, <code>pg_stat_statements</code>, <code>plpgsql</code> and Supabase’s vault extension.</p>
+<ul>
+<li>Prepare a scoped schema/data/role export for application-owned objects. Do not blanket-restore Supabase-managed <code>auth</code>, <code>storage</code>, <code>realtime</code> or <code>vault</code> services and roles into RDS. Decide how to preserve legacy <code>neon_auth</code> objects after a dependency inventory.</li>
+<li>The limited catalog check found no public view/rule references into those managed schemas. It did not prove there are no function, trigger, dynamic-SQL, extension or external dependencies. Complete that inventory before excluding objects.</li>
+<li>Explicitly preserve campaign roles, memberships, grants, RLS policies, <code>SET LOCAL ROLE</code>, advisory locks, sequence values and the Drizzle ledger. Both live campaign roles are non-superuser and non-BYPASSRLS. A table-only copy or generic restore that discards grants is insufficient.</li>
+<li>Switch to the RDS endpoint and CA bundle; test certificate/hostname verification and reconnect. Direct PostgreSQL pooling is already supported; add RDS Proxy only if measured connection demand warrants it.</li>
+<li>Rehearse restore and compare schema, row counts and content hashes. Test authentication, encrypted token decryption, tenant isolation, campaign replay prevention, WhatsApp leases and reply enforcement.</li>
+<li>A scheduled write freeze is likely simpler than continuous replication at this size, but freeze duration must come from a rehearsal. Stop every writer, including channel/background processes and n8n. After RDS accepts writes, rollback requires reconciliation or transfer of those writes; changing the connection URL alone loses access to them.</li>
+</ul>
+<p>RDS has its own administrative role model, so permissions must be validated on the target. <a href="https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/Appendix.PostgreSQL.CommonDBATasks.Roles.html">RDS PostgreSQL roles</a>. Every proposed schema/data migration, restore or role change requires the user’s explicit approval for that specific operation before execution.</p>
+
+<h3>LinkedIn and WhatsApp: preserve ownership and session state</h3>
+<p><strong>LinkedIn:</strong> copy the encrypted <code>/data</code> volume and its exact key, preserving action journals, quotas, cooldowns, inbox checkpoints and browser session state. Use encrypted EBS with tested backup/restore and one active writer per state directory. Drain and stop the old owner before starting the new one. Test WebSocket/noVNC grants, framing policy and browser restore; a changed cloud egress IP may require fresh account verification.</p>
+<p>EC2 is the lowest-friction initial target for LinkedIn and Chromium readers. Hosted configs request 1 GiB shared memory, while Fargate does not support the <code>sharedMemorySize</code> task parameter. LinkedIn already launches Chromium with <code>--disable-dev-shm-usage</code>, so Fargate is not categorically impossible; it needs separate memory, disk, viewer and persistence validation. <a href="https://docs.aws.amazon.com/AmazonECS/latest/developerguide/fargate-tasks-services.html">Fargate task limitations</a>.</p>
+<p><strong>WhatsApp:</strong> the Node service can run on EC2 or Fargate, continuously rather than in a short-lived function. Preserve its encrypted PostgreSQL data and encryption key, shard identity, leases and delivery journals. Drain sockets without logging out devices; allow lease ownership to transfer safely. Verify recovery without a QR rescan, including stale-owner fencing and unknown-send outcomes. Initial sizing should include adequate headroom beyond the present 512 MiB pilot.</p>
+<p>For both channels, introduce stable owned service DNS names, update server-only URLs and maintain authentication. Keep existing send gates and uncertain-outcome handling during migration. Never run overlapping services against the same account merely to test availability.</p>
+
+<h3>n8n: move the runtime, not just workflow JSON</h3>
+<p>The repository compiles one n8n workflow per immutable sequence version and stores its IDs. Five active enrolments already depend on that runtime. Preserve the instance database, credential encryption key, workflow/webhook IDs, version information, waiting executions and external binary/custom-node storage where present. The production database backend and pinned n8n version still need direct host inspection.</p>
+<p>A workflow export alone omits execution history and instance configuration. Full migration must preserve the underlying runtime state or explicitly drain existing executions on the original host. Avoid duplicating the minute scheduler or resuming waits twice. The public execution list alone is insufficient evidence that no waits exist. <a href="https://docs.n8n.io/deploy/host-n8n/keep-n8n-running/backup-and-restore.md">n8n backup and restore requirements</a>.</p>
+<p>The documented Oracle instance also contains an unrelated accounting workflow. Decide between moving the entire shared instance or creating an Acquire-only AWS instance and handling existing waits explicitly; do not move or delete unrelated workloads as a side effect. Initially retain the same n8n version/backend. A fresh initialization or version change can run built-in database migrations and also needs specific approval.</p>
+
+<h3>Cloudflare research: the largest replacement</h3>
+<div class="scroll"><table>
+<thead><tr><th>Current mechanism</th><th>Proposed AWS replacement</th><th>Behaviour to preserve</th></tr></thead><tbody>
+<tr><td>Cloudflare Workflows and <code>step.do/step.sleep</code></td><td>Step Functions Standard and Lambda/ECS workers</td><td>Checkpointed execution, retry classification, cancellation, deterministic job IDs, leases, per-job budgets and child-job fairness. Existing domain runners can be reused; their execution adapter needs rewriting.</td></tr>
+<tr><td>ProviderCoordinator Durable Object</td><td>DynamoDB conditional/transactional coordination, or a tested Redis implementation</td><td>Account-wide slots, domain spacing, token fencing, cooldowns, abandoned-lease recovery and serialized Firmable renewal. Maximum worker concurrency alone cannot enforce these rules.</td></tr>
+<tr><td>Firmable account Durable Object storage</td><td>AWS-hosted account service and durable encrypted state</td><td>Preserve latest rotated cookie/session state and its key, or establish an explicitly reviewed fresh reconnect. Original bootstrap secrets may be stale. Prevent concurrent renewals and preserve reconnect-required/cooldown status.</td></tr>
+<tr><td>Browser Rendering + fallback container</td><td>Dockerized Crawl4AI/Chromium pool on EC2/ECS</td><td>Page quality, redirects, public-URL validation, timeouts, rate limits and CPU/memory limits. The fallback currently has three reader slots; it is not sized to replace the 32-slot production page pool.</td></tr>
+<tr><td>DuckDuckGo HTML rendered through Cloudflare</td><td>AWS-hosted browser search or a selected search API</td><td>Result/snippet normalization and bounded queries. Benchmark from AWS IPs; Cloudflare or local success does not prove AWS search reliability. Adopting a paid search vendor changes the operating budget.</td></tr>
+<tr><td>Workers AI <code>toMarkdown</code> PDF conversion</td><td>Container PDF extraction; optional Textract for scanned documents</td><td>5 MiB limits, redirects, provenance, literal evidence text and output limits. OCR is an additional capability and cost, not a required substitute for all PDFs.</td></tr>
+<tr><td><code>caches.default</code> page/extraction cache</td><td>S3 object data and expiry metadata; optional DynamoDB/Redis index</td><td>Original retrieval timestamps, public-page versus run-specific extraction scope, expiration and bounded reuse.</td></tr>
+<tr><td>Minute Cron Trigger</td><td>EventBridge scheduling and authenticated worker dispatch</td><td>One active dispatcher, existing database reconciliation and cancellation checks.</td></tr>
+</tbody></table></div>
+<p><strong>Two AWS constraints change the design.</strong> Standard workflows support long runs; Express is capped at five minutes and is inappropriate for 30–120 minute research budgets. Standard workflow state/task payloads are limited to 256 KiB, so put larger page/extraction payloads in S3 and pass references. <a href="https://docs.aws.amazon.com/step-functions/latest/dg/welcome.html">Workflow types</a>; <a href="https://docs.aws.amazon.com/step-functions/latest/dg/service-quotas.html">Step Functions quotas</a>.</p>
+<p>Direct Step Functions HTTP tasks time out after 60 seconds, shorter than some existing 90–105 second callbacks. Use Lambda wrappers with suitable timeouts, ECS/activity workers, or an asynchronous task-token completion contract. Standard workflow semantics do not remove the need for idempotent side effects when an upstream request succeeds but its receipt is lost. <a href="https://docs.aws.amazon.com/step-functions/latest/dg/call-https-apis.html">HTTP task timeout</a>.</p>
+<p>Replace Cloudflare’s public-fetch guardrails explicitly for AWS browser/PDF workers: block private/link-local/metadata destinations, revalidate DNS and redirects, and restrict worker network access. Preserve existing evidence validation and budget checks. This is necessary deployment equivalence for a service that fetches arbitrary public URLs.</p>
+
+<h2>What “everything on AWS” can mean</h2>
+<p><strong>All owned infrastructure on AWS:</strong> move compute, PostgreSQL, workflow hosting, coordination, caches, secrets, logs, backups and project DNS. External product integrations remain where they are: Google sign-in/Gmail/Places, LinkedIn, WhatsApp, Firmable, Apollo/ABN and AI providers where used. Hosting on AWS cannot replace those services’ identities, data or delegated accounts.</p>
+<p><strong>Optional provider consolidation:</strong> replace Resend password-reset delivery with SES and add a Bedrock adapter for AI. SES requires verified sending identities and production access outside the regional sandbox. Bedrock needs model/region availability checks and benchmarks against current structured extraction/drafting behaviour; it is not a model-name substitution. Keep Gmail for owner-delegated campaigns unless intentionally redesigning that product flow. <a href="https://docs.aws.amazon.com/ses/latest/dg/request-production-access.html">SES production access</a>.</p>
+<p>Moving <code>acquire.mlai.au</code> DNS does not authorize moving the whole shared <code>mlai.au</code> zone. Route 53 delegation for project subdomains, or retaining parent DNS temporarily, needs an explicit ownership plan. Keeping Sydney persistence does not establish that every external provider processes data exclusively in Australia.</p>
+
+<h2>Effort and sequence</h2>
+<p>Estimates below assume one engineer familiar with this codebase, a usable AWS account, planned maintenance windows, preservation of existing product integrations, and an initial modest footprint. They include targeted regression/cutover work, but not a broad feature rewrite, procurement delays or an uptime guarantee.</p>
+<div class="scroll"><table><thead><tr><th>Work package</th><th>Engineering days</th><th>Exit condition</th></tr></thead><tbody>
+<tr><td>Inventory, AWS/IaC, IAM, secrets, logs and backup foundation</td><td>2–3</td><td>Reproducible staging environment and documented secret/restore ownership.</td></tr>
+<tr><td>App, CI and both channel services</td><td>4–6</td><td>Readiness, OAuth/redirects, channel persistence and deployment rollback validated; stable service DNS.</td></tr>
+<tr><td>PostgreSQL rehearsal and cutover plan</td><td>3–4</td><td>Approved migration plan; target parity, RLS and encryption tests; measured write-freeze window.</td></tr>
+<tr><td>n8n state migration</td><td>2–4</td><td>Workflow/credential IDs and waiting executions preserved, one scheduler active.</td></tr>
+<tr><td>Research/Firmable/browser/search/PDF/cache replacement</td><td>10–17</td><td>Existing runner behaviour, restart/replay, quotas, cancellation, provider quality and capacity validated on AWS.</td></tr>
+<tr><td>Coordinated release, restore drills and observation</td><td>4–6</td><td>Data and campaign continuity demonstrated; old infrastructure retained until recovery gates pass.</td></tr>
+<tr><td><strong>Total full infrastructure migration</strong></td><td><strong>25–40</strong></td><td><strong>Approximately 5–8 working weeks for one engineer.</strong></td></tr>
+</tbody></table></div>
+<p>An initial app/channel move, retaining Supabase, n8n and Cloudflare, is approximately <strong>6–9 engineering days</strong>. This is a useful milestone but does not complete AWS consolidation. Optional SES/Bedrock work is additional; a full high-availability design also adds state/concurrency and failure-testing work.</p>
+<ol>
+<li>Record live configuration, image identities, keys and backup ownership; inspect n8n waits/backend directly and collect representative CPU/memory/browser/DB/traffic metrics.</li>
+<li>Build AWS staging and move the app/channel containers first, preserving public app origin and existing provider contracts. Validate session restoration and release rollback.</li>
+<li>Rehearse and specifically approve the product database migration; pause all writers, restore and verify, then switch app/channel endpoints together. Move n8n through its separately approved state-preservation plan.</li>
+<li>Build and validate the AWS research implementation against fixed fixtures and a bounded benchmark; retain existing evidence gates. Existing Cloudflare research can remain active during development.</li>
+<li>At research cutover, drain current workflows and stop Cloudflare scheduling, then start exactly one AWS dispatcher. Transfer latest Firmable credentials/cooldowns and enable new jobs through the existing authenticated API contract.</li>
+<li>Observe, perform recovery checks and reconcile any post-cutover writes before retiring old services. Retire each provider only after its state and rollback obligations are resolved.</li>
+</ol>
+
+<h2>Cost and operational tradeoffs</h2>
+<p><strong>Budget roughly US$300–700/month for a modest AWS-only footprint</strong>, or <strong>US$700–1,500+/month</strong> for a more redundant managed deployment with extra browser capacity. These are planning allowances, not a configured AWS quote or an upper bound. Assumptions: Sydney, about 730 hours/month, an always-on browser service comparable to the current 4-vCPU/8-GiB LinkedIn host, small app/WhatsApp/n8n services, modest research usage and log retention, no AWS credits/commitments, and external data/AI fees excluded.</p>
+<div class="scroll"><table><thead><tr><th>Modest-footprint allowance</th><th>Monthly USD</th></tr></thead><tbody>
+<tr><td>App, WhatsApp, LinkedIn, n8n and modest browser/search compute</td><td>200–400</td></tr>
+<tr><td>Small single-AZ RDS instance, storage and backup allowance</td><td>45–100</td></tr>
+<tr><td>Ingress/networking/IPv4, EBS/S3/ECR, secrets, logs and workflow/coordination usage</td><td>55–200</td></tr>
+<tr><td><strong>Total allowance</strong></td><td><strong>300–700</strong></td></tr>
+</tbody></table></div>
+<p>A live AWS public price-list check returned Sydney single-AZ PostgreSQL rates of US$0.025/hour for <code>db.t4g.micro</code>, US$0.051/hour for <code>db.t4g.small</code>, and US$0.102/hour for <code>db.t4g.medium</code>. At 730 hours that is US$18.25 / US$37.23 / US$74.46 for database compute only. The size selection still needs load and connection measurements; storage, backups and redundancy are additional. <a href="https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonRDS/current/ap-southeast-2/index.json">AWS Sydney RDS price-list data</a>; <a href="https://aws.amazon.com/rds/postgresql/pricing/">RDS pricing</a>.</p>
+<p>AWS bills several items separately that bundled VMs obscure: NAT gateway hours and processing, public IPv4, load balancing, disks/snapshots, logs and network transfer. A low-cost EC2/Caddy pilot can avoid some managed ingress/NAT charges, at the cost of operating the hosts. Browser-heavy traffic and minute-by-minute workflow polling can materially exceed the allowance. Use explicit workloads in AWS Pricing Calculator before provisioning. <a href="https://aws.amazon.com/ec2/pricing/on-demand/">EC2 pricing</a>; <a href="https://aws.amazon.com/fargate/pricing/">Fargate pricing</a>; <a href="https://aws.amazon.com/vpc/pricing/">Network pricing</a>.</p>
+<p>AWS should not be assumed cheaper. Its strongest benefits here are unified operations, private app/database connectivity, managed recovery options and IAM-based deployment. Prior Supabase investigations identified repeated large database reads as a likely egress contributor. Colocation can reduce public database egress, but migration does not repair inefficient queries or remove all network charges; use the existing <code>research-db</code> instrumentation to measure current behaviour.</p>
+
+<h2>Specific gaps to resolve before committing to a move</h2>
+<ul>
+<li><strong>Recovery:</strong> DigitalOcean VM backups are disabled. That does not prove no other backups exist; inventory database, n8n, LinkedIn-volume and key backups, then prove restoration.</li>
+<li><strong>Inventory drift:</strong> <code>docs/24-architecture.md</code> still says Vercel/Neon, the October 7 plan understates LinkedIn capacity/cost, and the live campaign flags differ from older execution records. Update the authoritative inventory after the architecture decision.</li>
+<li><strong>AWS account readiness:</strong> account, IAM access, service quotas, Sydney service/model availability, billing/credits and existing networking were not inspected. No existing AWS deployment was assumed.</li>
+<li><strong>Actual workload:</strong> current peak CPU/RSS, browser saturation, campaign wait schedules, storage growth, database connection headroom, transfer volumes and full provider invoices remain unmeasured.</li>
+<li><strong>Migration scope:</strong> resolve shared n8n ownership, project DNS delegation, legacy schema retention, allowed downtime and whether multi-AZ recovery is required.</li>
+<li><strong>Live integration validation:</strong> retain the current campaign delivery safeguards, then validate intended account/session recovery and bounded research quality from AWS. Do not treat fixture success or a new VM’s health endpoint as production equivalence.</li>
+</ul>
+
+<h2>Repository evidence</h2>
+<p>Primary code/config reviewed: <code>ops/app/{Dockerfile,compose.hosted.yml,runtime.mjs,build.mjs,Caddyfile}</code>, <code>.github/workflows/digitalocean.yml</code>, <code>next.config.ts</code>, <code>src/db/{client.ts,campaign-client.ts,driver.ts,schema.ts}</code>, <code>src/adapters/target-search-guard.ts</code>, <code>src/lib/{research-service.ts,campaign-n8n.ts,transactional-email.ts}</code>, <code>cloudflare/research/{index.ts,provider-coordinator.ts,browser-reader.ts,pdf-reader.ts,local-search.ts,wrangler.jsonc,firmable/account.ts}</code>, <code>cloudflare/crawl4ai/{index.ts,server.py,wrangler.jsonc}</code>, and channel service/hosting configurations.</p>
+<p>Historical context: <code>docs/31-supabase-database.md</code>, <code>docs/37-digitalocean-app-deployment-plan.md</code>, <code>docs/campaign-automation.md</code>, <code>docs/channel-service-reliability.md</code>, <code>docs/34-supabase-egress-rca.md</code> and <code>docs/36-background-research-egress-observability.md</code>. Installed Next.js self-hosting documentation was read. Live checks take precedence over stale deployment history.</p>
+<p class="meta">This review changed only this local report artifact. It did not export production records, print secret values, apply any migration, initialize n8n, change provider configuration or trigger campaign/research execution. No application tests were run because application code was not changed. AWS deployment compatibility and cutover duration require the implementation/rehearsal work above.</p>
+</main></body></html>

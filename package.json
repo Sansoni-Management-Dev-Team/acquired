@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/dev.mjs",
+    "dev:orbstack": "node scripts/dev-orbstack.mjs",
     "build": "next build",
     "start": "next start",
     "db:local:start": "docker compose -f compose.local.yml up -d postgres",
