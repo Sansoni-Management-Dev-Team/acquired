@@ -242,3 +242,14 @@ it.each([280000,240000])('reserves a decision window for history aged %i millise
  try{const handlers=createNativeAgentHandlers({store:f.mock as unknown as AgentModelStore,decide:()=>f.decide,refreshProviderHistory});expect(await handlers['conversation.reassess']({...execution,event:{...event,created_at:new Date(instant-1000)}})).toMatchObject({kind:age>255000?'defer':'complete'});expect(f.decide).toHaveBeenCalledTimes(age>255000?0:1);expect(f.mock.proposeNativeEmail).toHaveBeenCalledTimes(age>255000?0:1);expect(f.mock.holdNativeConversation).not.toHaveBeenCalled();}
  finally{clock.mockRestore();}
 });
+
+it('passes the worker cancellation signal into approved and delegated dispatch',async()=>{
+ const x=fixture(),dispatch=vi.fn(),grant={id,revision:1};
+ x.mock.reviewDispatchTargets.mockResolvedValue([{id,conversationId:id,name:'email.initial',delivery_mode:'communications'}]);
+ x.mock.delegatedDispatchTarget.mockResolvedValue({id,conversationId:id,deliveryMode:'communications',grant}as never);
+ const handlers=createNativeAgentHandlers({store:x.mock as never,dispatchProvider:dispatch});
+ await handlers['review.approved']({...execution,event:{...event,kind:'review.approved',payload:{reviewBatchId:id}}});
+ expect(dispatch).toHaveBeenLastCalledWith(id,id,expect.any(Object),undefined,execution.signal);
+ await handlers['email.proposed']({...execution,event:{...event,kind:'email.proposed',payload:{operationId:id}}});
+ expect(dispatch).toHaveBeenLastCalledWith(id,id,expect.any(Object),grant,execution.signal);
+});

@@ -273,3 +273,24 @@ it('reads checkpoint routes and original accounts from one scoped snapshot',asyn
  await configuredAgentCommunications(actor,store as never).refreshCheckpoint('thread',conversation,since);
  expect(store.historyAccountSnapshot).toHaveBeenCalledOnce();expect(store.channelRoutes).not.toHaveBeenCalled();expect(f.read).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
 });
+
+it('stops dispatch preparation after recovery if its worker deadline expires',async()=>{
+ const x=fixture(),controller=new AbortController();
+ f.recover.mockImplementationOnce(async()=>{controller.abort();return {found:false};});
+ await expect(x.service.dispatch('thread',conversation,operation,undefined,undefined,controller.signal)).rejects.toThrow();
+ expect(f.read).not.toHaveBeenCalled();expect(f.saveIdentity).not.toHaveBeenCalled();
+ expect(x.store.beginNativeCommunicationsEmail).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+});
+
+it('does not ingest history or enter admission after an in-flight history read is cancelled',async()=>{
+ const x=fixture(),controller=new AbortController();
+ f.read.mockImplementationOnce(async()=>{controller.abort();return {source:'communications',complete:true,observedAt:new Date().toISOString(),messages:[],scopeDigest:'a'.repeat(64)};});
+ await expect(x.service.dispatch('thread',conversation,operation,undefined,undefined,controller.signal)).rejects.toThrow();
+ expect(x.store.ingestHistory).not.toHaveBeenCalled();expect(x.store.beginNativeCommunicationsEmail).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+});
+it('preserves an already recovered receipt when cancellation happens during receipt lookup',async()=>{
+ const x=fixture(),controller=new AbortController();
+ f.recover.mockImplementationOnce(async()=>{controller.abort();return {found:true,outcome:{status:'submitted',receipt:{}}};});
+ expect(await x.service.dispatch('thread',conversation,operation,undefined,undefined,controller.signal)).toMatchObject({status:'submitted'});
+ expect(f.read).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+});

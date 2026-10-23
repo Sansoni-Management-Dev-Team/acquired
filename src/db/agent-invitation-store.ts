@@ -67,11 +67,11 @@ export class AgentInvitationStore extends AgentChannelStore{
   const t=await this.thread(c,threadId);await this.lockConversation(c,t,conversationId);
   return !!(await c.query(`SELECT id FROM agent_operations WHERE thread_id=$1 AND conversation_id=$2 AND name IN(${agentNativeDispatchSqlNames}) AND input->>'contextRevision'=$3 AND state IN('proposed','approved','running','uncertain') AND (state<>'proposed' OR EXISTS(SELECT 1 FROM agent_review_batches b WHERE b.thread_id=$1 AND b.state='pending' AND b.manifest @> jsonb_build_array(jsonb_build_object('operationId',agent_operations.id)))) LIMIT 1`,[t.id,conversationId,contextRevision])).rowCount;
  });}
- override async channelDispatchRecord(threadId:string,operationId:string){
+ override async channelDispatchRecord(threadId:string,operationId:string,options:{includeOriginalAccount?:boolean}={}){
   const invitation=await this.nativeTransaction(async c=>{const t=await this.thread(c,threadId),op=(await c.query("SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name='linkedin.invitation'",[uuid.parse(operationId),t.id])).rows[0];if(!op)return null;
    const conversation=await this.lockConversation(c,t,op.conversation_id),route=await this.nativeOperationRoute(c,t,op);if(!route||route.channel!=='linkedin')throw Error('Original reviewed invitation route required');
    return {conversation,operation:op,route,submitted:op.state==='complete'&&op.result?.delivery?.status==='submitted',notSubmitted:op.state==='failed'&&op.result?.delivery?.status==='not_submitted',effect:'invitation' as const};});
-  return invitation??super.channelDispatchRecord(threadId,operationId);
+  return invitation??super.channelDispatchRecord(threadId,operationId,options);
  }
  override async beginNativeCommunicationsMessage(threadId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number}){
   const record=await this.channelDispatchRecord(threadId,operationId);if(record.operation.name!=='linkedin.invitation')return super.beginNativeCommunicationsMessage(threadId,operationId,authority,delegation);

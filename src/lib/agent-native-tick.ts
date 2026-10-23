@@ -118,9 +118,10 @@ export async function runNativeAgentTick(options:{businessTime?:AgentBusinessTim
    if(recovered.found&&'noSubmission'in recovered)return {known:true};
    if(recovered.outcome.status!=='submitted')return {known:false};
    await store.markNativeCommunicationsOutcome(threadId,operationId,recovered.outcome);return {known:true};
-  },refreshProviderHistory:async(threadId,conversationId,signal,since)=>{if(since&&!options.businessTime&&process.env.AGENT_HOSTED_DEMO_COMMUNICATIONS_ENABLED==='true')await communications.refreshCheckpoint(threadId,conversationId,since,signal);else await communications.refresh(threadId,conversationId,signal);},dispatchProvider:async(threadId,operationId,authority,delegation)=>{
+  },refreshProviderHistory:async(threadId,conversationId,signal,since)=>{if(since&&!options.businessTime&&process.env.AGENT_HOSTED_DEMO_COMMUNICATIONS_ENABLED==='true')await communications.refreshCheckpoint(threadId,conversationId,since,signal);else await communications.refresh(threadId,conversationId,signal);},dispatchProvider:async(threadId,operationId,authority,delegation,signal)=>{
+   signal?.throwIfAborted();
    const record=await store.channelDispatchRecord(threadId,operationId);
-   const outcome=await communications.dispatch(threadId,record.conversation.id,operationId,authority,delegation);
+   const outcome=await communications.dispatch(threadId,record.conversation.id,operationId,authority,delegation,signal);
    if(outcome.status==='unknown'&&(await store.channelDispatchRecord(threadId,operationId)).notSubmitted)return;
    await store.markNativeCommunicationsOutcome(threadId,operationId,outcome);
   },handoffReminder:async input=>{

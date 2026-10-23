@@ -170,11 +170,14 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
   if(record&&(record.conversation.id!==conversationId||record.operation.input?.routeId&&!record.route))throw Error('Recorded operation route needs review');
   return {route:record?.route??undefined,captured:record&&Object.hasOwn(record,'originalAccount')?record:undefined};
  }
- return {refreshCheckpoint:(threadId:string,conversationId:string,since:string,signal?:AbortSignal)=>withDispatchObservation({threadId,conversationId},()=>refresh(threadId,conversationId,undefined,signal,since)),refresh:(threadId:string,conversationId:string,signal?:AbortSignal)=>withDispatchObservation({threadId,conversationId},()=>refresh(threadId,conversationId,undefined,signal)),async recover(threadId:string,conversationId:string,operationId:string){return withDispatchObservation({threadId,conversationId,operationId},async()=>{const {route,captured}=await operationAccount(threadId,conversationId,operationId),recovered=await (await ports(threadId,conversationId,route,captured)).delivery.recover(operationId);if(recovered.found&&'noSubmission'in recovered)await (dbOptions?settleAgentNoSubmission(actor,operationId,recovered.noSubmission,dbOptions):settleAgentNoSubmission(actor,operationId,recovered.noSubmission));return recovered;});},async dispatch(threadId:string,conversationId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number}){return withDispatchObservation({threadId,conversationId,operationId},async()=>{
-  const {route,captured}=await operationAccount(threadId,conversationId,operationId),capturedRoute=route?structuredClone(route):undefined,preparedPorts=await observed('dispatch.ports',()=>ports(threadId,conversationId,route,captured)),recovered=await observed('dispatch.recover',()=>preparedPorts.delivery.recover(operationId));
+ return {refreshCheckpoint:(threadId:string,conversationId:string,since:string,signal?:AbortSignal)=>withDispatchObservation({threadId,conversationId},()=>refresh(threadId,conversationId,undefined,signal,since)),refresh:(threadId:string,conversationId:string,signal?:AbortSignal)=>withDispatchObservation({threadId,conversationId},()=>refresh(threadId,conversationId,undefined,signal)),async recover(threadId:string,conversationId:string,operationId:string){return withDispatchObservation({threadId,conversationId,operationId},async()=>{const {route,captured}=await operationAccount(threadId,conversationId,operationId),recovered=await (await ports(threadId,conversationId,route,captured)).delivery.recover(operationId);if(recovered.found&&'noSubmission'in recovered)await (dbOptions?settleAgentNoSubmission(actor,operationId,recovered.noSubmission,dbOptions):settleAgentNoSubmission(actor,operationId,recovered.noSubmission));return recovered;});},async dispatch(threadId:string,conversationId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number},signal?:AbortSignal){return withDispatchObservation({threadId,conversationId,operationId},async()=>{
+  signal?.throwIfAborted();
+  const {route,captured}=await operationAccount(threadId,conversationId,operationId),capturedRoute=route?structuredClone(route):undefined,preparedPorts=await observed('dispatch.ports',()=>ports(threadId,conversationId,route,captured,signal)),recovered=await observed('dispatch.recover',()=>preparedPorts.delivery.recover(operationId));
   if(recovered.found){if('noSubmission'in recovered){await (dbOptions?settleAgentNoSubmission(actor,operationId,recovered.noSubmission,dbOptions):settleAgentNoSubmission(actor,operationId,recovered.noSubmission));return {status:'unknown' as const};}return recovered.outcome;}
+  signal?.throwIfAborted();
   let coverageScopes:Array<{bindingId:string;scopeDigest:string}>;
-  try{coverageScopes=await refresh(threadId,conversationId,capturedRoute?{route:capturedRoute,ports:preparedPorts}:undefined);}catch(error){
+  try{coverageScopes=await refresh(threadId,conversationId,capturedRoute?{route:capturedRoute,ports:preparedPorts}:undefined,signal);}catch(error){
+   signal?.throwIfAborted();
    let preBegin=false;try{preBegin=await store.preBeginHistoryRetryProof?.(threadId,operationId,conversationId)===true;}catch{/* Missing current proof cannot authorize a retry. */}
    if(preBegin)throw new AgentPreBeginHistoryError(threadId,conversationId,operationId,error);
    throw error;
@@ -188,6 +191,7 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
     throw new AgentPreBeginSendWindowError(threadId,conversationId,operationId,new Date(time?next:Date.now()+next-instant).toISOString(),time?.context);
    }
   }
+  signal?.throwIfAborted();
   if(route&&!store.beginNativeCommunicationsMessage)throw Error('Recorded channel admission unavailable');
   const record=route?await observed('dispatch.begin',()=>store.beginNativeCommunicationsMessage!(threadId,operationId,authority,delegation)):await observed('dispatch.begin',()=>store.beginNativeCommunicationsEmail(threadId,operationId,authority,delegation));
   if(record.conversationId!==conversationId||record.bindingId!==preparedPorts.bindingId||route&&(!('routeId'in record)||record.routeId!==route.id))throw Error('Native source/account changed before admission');
@@ -197,6 +201,7 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
    if(proof.routeId!==route.id||proof.channel!==route.channel||proof.subject!==record.subject||proof.body!==record.body)throw Error('Native reviewed channel source changed');
    const replyParent=proof.replyParent?{message:{binding:preparedPorts.binding,id:proof.replyParent.id},contentDigest:proof.replyParent.contentDigest}:undefined;
    const message={recipient:proof.recipient,text:proof.body,...(route.channel==='email'?{subject:proof.subject,...(replyParent?{replyParent}:{})}:proof.conversation?{conversation:{binding:preparedPorts.binding,id:proof.conversation.id}}:{})};
+   signal?.throwIfAborted();
    return preparedPorts.delivery.dispatch({source,message,coverageScopes});
   }
   // The same scoped SQL source selects the parent for construction and final
@@ -204,6 +209,7 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
   const proof=await observed('dispatch.source',()=>withNativeDb(c=>readAgentCommunicationsSource(c,source,record.bindingId)),{channel:'email',bindingId:record.bindingId});
   const replyParent=proof.replyParent?{message:{binding:preparedPorts.binding,id:proof.replyParent.id},contentDigest:proof.replyParent.contentDigest}:undefined;
   if(typeof record.recipient!=='string')throw Error('Legacy email source required');
+  signal?.throwIfAborted();
   return preparedPorts.delivery.dispatch({source,message:{recipient:{kind:'email',value:record.recipient},subject:record.subject,text:record.body,...(replyParent?{replyParent}:{})},coverageScopes});
  });}};
 }
