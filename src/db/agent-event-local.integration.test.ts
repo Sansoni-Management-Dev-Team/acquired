@@ -49,6 +49,12 @@ describe.runIf(enabled)('native due-event runs and recovery',()=>{
   expect(await store.finishEventRun(run.runId,old,{kind:'complete'})).toBe(false);expect(await store.finishEventRun(fresh.runId,event,{kind:'complete'})).toBe(true);
   expect((await pool.query('SELECT state FROM agent_runs WHERE id=$1',[run.runId])).rows[0].state).toBe('uncertain');
  });
+ it('checks the current fence without waiting for an unrelated send gate holder',async()=>{
+  await store.enqueueEvent(thread,randomUUID(),'conversation.reassess',{});const event=await claim(),run=await store.beginEventRun(event);if(run.kind!=='started')throw Error();
+  const lock=await pool.connect(),readerPool=new Pool({connectionString:'postgresql://project_acquire:agent-local-only@127.0.0.1:5437/acquire_agent_mode',statement_timeout:200}),reader=new AgentStore(readerPool,actor);
+  try{await lock.query('BEGIN');await lock.query('SELECT public.communications_lock_send_gate($1)',[org]);expect(await reader.eventRunCurrent(run.runId,event)).toBe(true);expect(await reader.eventRunCurrent(run.runId,{...event,fence:String(BigInt(event.fence)+BigInt(1))})).toBe(false);await expect(new AgentStore(readerPool,{...actor,userId:randomUUID()}).eventRunCurrent(run.runId,event)).rejects.toThrow();}
+  finally{await lock.query('ROLLBACK');lock.release();await readerPool.end();await store.finishEventRun(run.runId,event,{kind:'complete'});}
+ });
  it('preserves a valid short retry when saving waits beyond its due instant',async()=>{
   await store.enqueueEvent(thread,randomUUID(),'conversation.reassess',{});const event=await claim(),run=await store.beginEventRun(event);if(run.kind!=='started')throw Error();
   await expect(store.finishEventRun(run.runId,event,{kind:'defer',wakeAt:new Date(Date.now()-1000).toISOString(),reason:'Expired before receipt'})).rejects.toThrow('outside the allowed horizon');

@@ -274,7 +274,7 @@ export class AgentStore {
     uuid.parse(runId);const identity=this.eventIdentity(event);
     return this.transaction(async c=>{const eligible=await this.eventEligibilityPredicate(c);return !!(await c.query(`SELECT r.id FROM agent_runs r JOIN agent_events e ON e.id=r.trigger_event_id
       WHERE ${eligible} AND e.id=$1 AND e.thread_id=$2 AND e.lease_owner=$3 AND e.fence=$4::bigint AND e.state='leased' AND e.lease_until>clock_timestamp()
-      AND r.id=$5 AND r.state='running' AND r.lease_owner=e.lease_owner AND r.fence=e.fence AND r.lease_until>clock_timestamp() AND r.created_at>clock_timestamp()-interval '45 seconds'`,[...identity,runId])).rowCount;});
+      AND r.id=$5 AND r.state='running' AND r.lease_owner=e.lease_owner AND r.fence=e.fence AND r.lease_until>clock_timestamp() AND r.created_at>clock_timestamp()-interval '45 seconds'`,[...identity,runId])).rowCount;},undefined,true);
   }
   async deferEvent(event:AgentEvent,wakeAt:string){
     const identity=this.eventIdentity(event);z.string().datetime({offset:true}).parse(wakeAt);

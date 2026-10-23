@@ -1,7 +1,7 @@
 import {timingSafeEqual} from 'node:crypto';
 import {runNativeAgentTick} from '@/lib/agent-native-tick';
 export const runtime='nodejs';
-export const maxDuration=60;
+export const maxDuration=90;
 const headers={'Cache-Control':'private, no-store'};
 let running:ReturnType<typeof runNativeAgentTick>|undefined;
 export async function POST(request:Request){

@@ -94,3 +94,9 @@ test('continued failures back off to60seconds and abort cancels that sleep',asyn
  const work=runNativeWorker({signal:controller.signal,sleep:clock.sleep,log:()=>{},nativeTick:async()=>{calls++;throw Error('Private failure');},maintenance:async()=>new Promise((_resolve,reject)=>controller.signal.addEventListener('abort',()=>reject(controller.signal.reason),{once:true}))});
  try{await settled();for(const ms of[1000,2000,4000,8000,16000,32000]){assert.equal(clock.waits.at(-1).ms,ms);clock.waits.at(-1).release();await settled();}assert.equal(calls,7);assert.equal(clock.waits.at(-1).ms,60000);}finally{controller.abort();await work;}
 });
+
+test('waits for bounded run finalization after the handler deadline without starting a second tick',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});t.mock.method(AbortSignal,'timeout',ms=>{const controller=new AbortController();setTimeout(()=>controller.abort(),ms);return controller.signal;});
+ let calls=0;const work=requestNativeTick({secret:'synthetic',fetcher:async(_url,{signal})=>{calls++;return new Promise((resolve,reject)=>{signal.addEventListener('abort',()=>reject(Error('transport expired')),{once:true});setTimeout(()=>resolve(Response.json({enabled:true,processed:1,outcome:'defer'})),62500);});}});
+ t.mock.timers.tick(62500);assert.deepEqual(await work,{enabled:true,processed:1,outcome:'defer'});assert.equal(calls,1);
+});
