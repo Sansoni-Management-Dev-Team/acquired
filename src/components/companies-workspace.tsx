@@ -7,6 +7,7 @@ import { MandateFitSummaryCells } from './mandate-fit-cells';
 import { TargetReviewRow } from './target-review-row';
 import { SidebarRegistration } from './app-shell';
 import { CompanyReviewPanel } from './company-review-panel';
+import {CompanyIdentityReviews} from './company-identity-reviews';
 import { ContactEnrichmentProgress } from './contact-enrichment-progress';
 import { useActivePolling } from './use-active-polling';
 import { mandateTabHref } from '@/domain/mandate-navigation';
@@ -19,7 +20,7 @@ async function read(url: string, signal?: AbortSignal, method = 'GET') {
   if (!response.ok) throw new Error(data.error || 'Could not load companies');
   return data;
 }
-export function CompaniesWorkspace({ mandates, initial }: { mandates: MandateView[]; initial: CompanyList }) {
+export function CompaniesWorkspace({ mandates, initial, learningEnabled=false, embedded=false }: { embedded?:boolean; learningEnabled?:boolean; mandates: MandateView[]; initial: CompanyList }) {
   const [data, setData] = useState(() => discoveredCompaniesFor(initial)), [query, setQuery] = useState<CompanyListQuery>(defaultCompanyListQuery);
   const [selected, setSelected] = useState<string[]>([]), [review, setReview] = useState<CompanySummary | null>(null);
   const [enriching, setEnriching] = useState<string[] | null>(null), [error, setError] = useState('');
@@ -43,15 +44,16 @@ export function CompaniesWorkspace({ mandates, initial }: { mandates: MandateVie
   }, [id, query]);
   useEffect(() => () => controller.current?.abort(), []);
   useActivePolling(refresh, { active: data.active && !enriching, intervalMs: 5000, key: `${id}:${queryKey}` });
-  const recover = useCallback(async () => { try { await read(`/api/mandates/${id}/companies`, undefined, 'POST'); } catch { /* Subsequent recovery retries. */ } }, [id]);
-  useActivePolling(recover, { active: data.active && !enriching, intervalMs: 30000, key: id });
+  const recover = useCallback(async () => { if (embedded) return; try { await read(`/api/mandates/${id}/companies`, undefined, 'POST'); } catch { /* Subsequent recovery retries. */ } }, [id,embedded]);
+  useActivePolling(recover, { active: !embedded && data.active && !enriching, intervalMs: 30000, key: id, initial: !embedded });
   const change = (key: keyof CompanyListQuery, value: string | number) => setQuery(previous => ({ ...previous, [key]: value, page: key === 'page' ? Number(value) : 1 }));
   const pageIds = data.rows.map(row => row.id), allSelected = pageIds.length > 0 && pageIds.every(value => selected.includes(value));
-  const navigation = <SidebarRegistration value={{ mandates: mandates.map(m => ({ id: m.id, name: m.id === id ? data.mandate.brief.name : m.brief.name })), selected: id, tab: 'targets' }} />;
+  const navigation = !embedded && <SidebarRegistration value={{ mandates: mandates.map(m => ({ id: m.id, name: m.id === id ? data.mandate.brief.name : m.brief.name })), selected: id, tab: 'targets' }} />;
   if (enriching) return <>{navigation}<div className="p-5 sm:p-8"><ContactEnrichmentProgress mandateId={id} targetIds={enriching} onBack={() => { setEnriching(null); revision.current = ''; void refresh(); }} /></div></>;
-  return <>{navigation}<div className="space-y-5 p-5 sm:p-8">
-    <header><p className="text-xs uppercase tracking-widest text-[var(--accent)]">Acquisition workspace</p><h1 className="mt-2 text-3xl font-semibold">{data.mandate.brief.name}</h1></header>
-    <section className="space-y-3"><h2 className="text-xl font-semibold">Companies</h2><p className="text-sm text-[var(--muted)]">Companies appear as they are found. Open a company to view its research, financials and decision-makers.</p></section>
+  return <>{navigation}<div className={embedded ? "space-y-4" : "space-y-5 p-5 sm:p-8"}>
+    {!embedded&&<header><p className="text-xs uppercase tracking-widest text-[var(--accent)]">Acquisition workspace</p><h1 className="mt-2 text-3xl font-semibold">{data.mandate.brief.name}</h1></header>}
+    <section className="space-y-3">{!embedded&&<h2 className="text-xl font-semibold">Companies</h2>}<p className="text-sm text-[var(--muted)]">Companies appear as they are found. Open a company to view its research, financials and decision-makers.</p></section>
+    {!embedded&&<CompanyIdentityReviews mandateId={id} onResolved={()=>{revision.current='';void refresh();}}/>}
     {error && <p role="alert" className="text-sm">{error}</p>}
     <div className="flex flex-wrap items-center justify-end gap-3">{selected.length > 0 && <button className="text-xs underline" onClick={() => setSelected([])}>Clear selection</button>}<div className="flex max-w-sm flex-col gap-2"><button className="rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-semibold text-[var(--on-accent)] disabled:cursor-not-allowed disabled:bg-neutral-400 disabled:text-white" disabled={selected.length === 0 || selected.length > 20} onClick={() => setEnriching([...selected])}>Find phone numbers →</button>{selected.length > 20 && <p className="text-xs text-[var(--muted)]">Select 20 or fewer businesses ({selected.length} selected)</p>}</div></div>
     {selected.length > 0 && <p className="text-xs text-[var(--muted)]">Retrieve phone numbers for existing contacts at the selected businesses. This uses credits; people and emails are retrieved during Find Companies.</p>}
@@ -61,16 +63,16 @@ export function CompaniesWorkspace({ mandates, initial }: { mandates: MandateVie
       {!data.rows.length && <tr><td colSpan={4} className="p-8 text-[var(--muted)]">{data.hasResearch || data.total ? 'New companies will appear as they are found.' : <>No companies yet. <Link className="underline" href={mandateTabHref(id,'brief')}>Find businesses or import sourced records in Brief</Link> to start your review.</>}</td></tr>}
     </tbody></table></div>
     {data.pages > 1 && <nav aria-label="Company pages" className="flex items-center justify-between"><button disabled={data.page <= 1} onClick={() => change('page',data.page-1)}>Previous</button><span className="text-sm">Page {data.page} of {data.pages} · {data.total} companies</span><button disabled={data.page >= data.pages} onClick={() => change('page',data.page+1)}>Next</button></nav>}
-  </div>{review && <CompanyDetails key={review.id} mandate={data.mandate} row={review} onClose={() => setReview(null)} />}</>;
+  </div>{review && <CompanyDetails key={review.id} mandate={data.mandate} row={review} learningEnabled={learningEnabled} onClose={() => setReview(null)} />}</>;
 }
 
-function CompanyDetails({ mandate, row, onClose }: { mandate: MandateView; row: CompanySummary; onClose: () => void }) {
+function CompanyDetails({ mandate, row, onClose, learningEnabled=false }: { learningEnabled?:boolean; mandate: MandateView; row: CompanySummary; onClose: () => void }) {
   const [member,setMember] = useState<MembershipView>(), [error,setError] = useState('');
   useEffect(() => {
     const abort = new AbortController();
     void read(`/api/mandates/${mandate.id}/companies/${row.id}`,abort.signal).then(data => setMember(data.member)).catch(cause => { if (!abort.signal.aborted) setError(cause.message); });
     return () => abort.abort();
   }, [mandate.id,row.id]);
-  if (member) return <CompanyReviewPanel mandate={mandate} initial={member} position="Company" onClose={onClose} />;
+  if (member) return <CompanyReviewPanel learningEnabled={learningEnabled} mandate={mandate} initial={member} position="Company" onClose={onClose} />;
   return <div role="dialog" aria-modal="true" aria-label={row.name} className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"><div className="rounded-lg bg-[var(--background)] p-8"><p role={error ? 'alert' : 'status'}>{error || `Loading ${row.name}…`}</p><button className="mt-4 underline" onClick={onClose}>Close</button></div></div>;
 }

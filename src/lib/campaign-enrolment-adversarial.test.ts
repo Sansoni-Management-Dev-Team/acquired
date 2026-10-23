@@ -67,3 +67,22 @@ it('configured email enrollment freezes service defaults without requiring retir
 it('configured enrollment cannot continue without a persisted same-owner service binding',async()=>{vi.stubEnv('COMMUNICATIONS_RUNTIME_ENABLED','true');const old=mock.query.getMockImplementation()!;mock.query.mockImplementation((sql,...args)=>sql.startsWith('INSERT INTO public.campaign_channel_bindings')?Promise.resolve({rows:[],rowCount:0}):old(sql,...args));await expect(enrolContacts(actor,sequenceId,[contactId])).rejects.toThrow('recorded');});
 
 it('configured LinkedIn enrollment records canonical person identity in its frozen owner transaction',async()=>{vi.stubEnv('COMMUNICATIONS_RUNTIME_ENABLED','true');kind='linkedin';recipientDetails={email:null,linkedinUrl:'https://www.linkedin.com/in/alex/'};await enrolContacts(actor,sequenceId,[contactId]);const write=mock.query.mock.calls.find(([sql])=>sql.startsWith('INSERT INTO public.campaign_reply_identities'));expect(write).toBeDefined();expect(write![1]).toContain('https://www.linkedin.com/in/alex');});
+
+
+it('rejects an agent-run mandate before contacts, enrolment writes or provider work',async()=>{
+ const original=mock.rows.getMockImplementation()!;
+ mock.rows.mockImplementation((client,sql,values)=>sql.includes('mandate-outreach-owner')?Promise.resolve([{agent_managed:true}]):original(client,sql,values));
+ await expect(enrolContacts(actor,sequenceId,[contactId])).rejects.toThrow('The agent manages outreach for this mandate');
+ expect(mock.ready).not.toHaveBeenCalled();expect(contacts).toBe(0);
+ expect(mock.rows.mock.calls.some(([,sql])=>sql.startsWith('INSERT INTO campaign_enrolments'))).toBe(false);
+});
+
+
+it('rechecks outreach ownership before committing a subscription after provider readiness',async()=>{
+ const original=mock.rows.getMockImplementation()!;let reads=0;
+ mock.rows.mockImplementation((client,sql,values)=>sql.includes('mandate-outreach-owner')?Promise.resolve([{agent_managed:++reads>1}]):original(client,sql,values));
+ await expect(enrolContacts(actor,sequenceId,[contactId])).rejects.toThrow('The agent manages outreach for this mandate');
+ expect(reads).toBe(2);expect(mock.ready).toHaveBeenCalledOnce();
+ expect(mock.rows.mock.calls.some(([,sql])=>sql.startsWith('INSERT INTO campaign_enrolments'))).toBe(false);
+ expect(mock.query.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO campaign_contact_assignments'))).toBe(false);
+});

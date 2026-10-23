@@ -1,0 +1,5 @@
+import {expect,it} from 'vitest';
+import {agentHandoffActionSchema as schema} from './agent-handoffs';
+const base={taskId:'00000000-0000-4000-8000-000000000001',revision:1,contextRevision:'a'.repeat(64)};
+it('requires exact task and context revisions and rejects actor/send overrides',()=>{expect(schema.safeParse({...base,action:'acknowledge'}).success).toBe(true);for(const input of [{...base,action:'acknowledge',userId:'forged'},{...base,action:'send'},{...base,action:'acknowledge',revision:0},{...base,action:'acknowledge',contextRevision:''}])expect(schema.safeParse(input).success).toBe(false);});
+it('requires bounded external evidence separately for link sent and meeting confirmed',()=>{for(const action of ['link_sent','meeting_confirmed']){expect(schema.safeParse({...base,action}).success).toBe(false);expect(schema.safeParse({...base,action,evidence:{note:'Human confirmed externally',externalReference:'email:123',occurredAt:'2026-10-16T10:30:00Z'}}).success).toBe(true);expect(schema.safeParse({...base,action,evidence:{note:'x'.repeat(2001),externalReference:'email:123',occurredAt:'2026-10-16T10:30:00Z'}}).success).toBe(false);}});

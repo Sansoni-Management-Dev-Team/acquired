@@ -1,0 +1,25 @@
+{
+  "status": "proposed; NOT APPLIED anywhere",
+  "file": "001-native-agent-baseline-v3.proposed.sql",
+  "sha256": "f3fd9ee8d7b47c5ffcb771f176ddb80fc018bf31de204b1bb8dfe4968b3fa81c",
+  "supersedes": {
+    "file": "001-native-agent-baseline-v2.proposed.sql",
+    "sha256": "2a712a1a93c609d5372debfae0925668b57f7366c27f5b4fd6749ae40190ebd2"
+  },
+  "change": "Remove two redundant ADD CONSTRAINT statements for already-existing user primary/email keys. Add exact predecessor-definition guards for those retained keys. Preserve the approved real-time event default and all other bytes.",
+  "retainedExistingKeys": [
+    {
+      "name": "user_email_unique",
+      "definition": "UNIQUE (email)"
+    },
+    {
+      "name": "user_pkey",
+      "definition": "PRIMARY KEY (id)"
+    }
+  ],
+  "targets": [
+    "isolated acquire-hosted-demo-rehearsal-postgres / acquire_hosted_demo_rehearsal / system 7699248227334438947",
+    "production Supabase njasjqpztiteionfxxul / postgres / system 7678071634733212629 ONLY after successful full rehearsal"
+  ],
+  "unchangedHosted002Sha256": "4d60a4e2f78accc73f2e4bb5f4fb0db00a8b8f86898b27db6f9e4c112fc37763"
+}

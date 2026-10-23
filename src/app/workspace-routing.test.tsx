@@ -19,6 +19,7 @@ vi.mock("@/db/client", () => ({ requireDb: () => { throw new Error("Compact comp
 vi.mock("@/db/firmable-read-model", () => ({ loadWorkspaceContacts: vi.fn() }));
 vi.mock("@/db/firmable-history-repository", () => ({ FirmableHistoryRepository: vi.fn() }));
 vi.mock("@/components/app-shell", () => ({ SidebarRegistration: () => null }));
+vi.mock('next/server', () => ({ connection: async () => undefined }));
 vi.mock("next/navigation", () => ({
   notFound: () => { throw new Error("not-found"); },
   redirect: (href: string) => { throw new Error(`redirect:${href}`); },
@@ -61,11 +62,13 @@ beforeEach(() => {
 });
 afterEach(() => { vi.unstubAllGlobals(); });
 
-it("opens the mandate creation flow on home with no provider request", async () => {
+it("opens the cached mandate creation shell without server-side repository or provider work", async () => {
   const html = await renderPage(await Home());
   expect(html).toContain(">Create a mandate</h1>");
   expect(html).toContain('id="mandate-description"');
-  expect(mocks.repository).toHaveBeenCalledExactlyOnceWith("org-a");
+  expect(mocks.repository).not.toHaveBeenCalled();
+  expect(mocks.listMandates).not.toHaveBeenCalled();
+  expect(html).toContain("Loading your mandates");
   expect(fetch).not.toHaveBeenCalled();
 });
 

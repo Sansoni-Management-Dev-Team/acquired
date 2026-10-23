@@ -206,10 +206,34 @@ it('uses the cloud service without retrying its shared cooldown', async () => {
     expect(String(fetcher.mock.calls[0]?.[0])).toContain('https://worker.example/firmable/company?country=AU&fqdn=raymax.com.au&name=Raymax');
   } finally { vi.unstubAllEnvs(); }
 });
+it('preserves the shared cooldown for the research worker without making another request', async () => {
+ vi.stubEnv('FIRMABLE_TRANSPORT','cloudflare-session');
+ try {
+  const fetcher=vi.fn(async()=>Response.json({category:'rate_limited'},{status:429,headers:{'Retry-After':'60'}}));
+  await expect(new FirmableClient({apiKey:'test',baseUrl:'https://worker.example/firmable',fetch:fetcher}).enrichCompany({id:'f123'})).rejects.toMatchObject({status:429,retryAfterMs:60000});
+  expect(fetcher).toHaveBeenCalledOnce();
+ } finally {vi.unstubAllEnvs();}
+});
 it('keeps discovery people retrieval email-only even when a provider returns a phone', async () => {
  const fetcher = vi.fn(async(input: RequestInfo | URL)=>{void input;return Response.json({id:'fp123',full_name:'Example Person',emails:{work:[{value:'person@example.com'}]},phones:[{value:'0412345678'}]});});
  const client = new FirmableClient({apiKey:'test',fetch:fetcher,fictionalise:false});
  const person = await client.enrichPerson({id:'fp123'},{includePhones:false});
  expect(person.email).toBe('person@example.com');expect(person.phone).toBeUndefined();expect(person.phoneAvailable).toBe(false);
  expect(String(fetcher.mock.calls[0][0])).toContain('includePhones=false');
+});
+
+it('correlates normal service calls without creating native budget authority or logging private payloads',async()=>{
+ vi.stubEnv('FIRMABLE_TRANSPORT','cloudflare-session');const log=vi.spyOn(console,'info').mockImplementation(()=>{}),fetcher=vi.fn<typeof fetch>().mockResolvedValue(response({category:'rate_limited',private:'PRIVATE response'},429));
+ try{const client=new FirmableClient({apiKey:'PRIVATE_API_KEY',baseUrl:'https://worker.example/firmable',fetch:fetcher,retries:0,traceContext:{jobId:'job-12345',requestId:'request-12345'}});await expect(client.enrichCompany({fqdn:'private-buyer.example',name:'PRIVATE Company'})).rejects.toMatchObject({status:429});const headers=new Headers(fetcher.mock.calls[0][1]?.headers);expect(headers.get('x-acquire-research-job')).toBe('job-12345');expect(headers.get('x-request-id')).toBe('request-12345');expect(headers.get('x-acquire-research-call')).toMatch(/^[a-f0-9-]{36}$/);expect(headers.has('x-acquire-native-research-job')).toBe(false);expect(headers.has('x-acquire-native-research-key')).toBe(false);const events=log.mock.calls.filter(([tag])=>tag==='firmable-client').map(([,body])=>JSON.parse(body));expect(events.map(e=>e.event)).toEqual(expect.arrayContaining(['request_started','attempt_started','attempt_finished','request_failed','request_finished']));expect(events.at(-1)).toMatchObject({module:'firmable.client',jobId:'job-12345',outcome:'failed',httpStatus:429});expect(JSON.stringify(events)).not.toMatch(/PRIVATE|private-buyer/);}finally{vi.unstubAllEnvs();log.mockRestore();}
+});
+it('keeps internal trace headers out of the direct legacy upstream transport',async()=>{vi.stubEnv('FIRMABLE_TRANSPORT','direct');const fetcher=vi.fn<typeof fetch>().mockResolvedValue(response({id:'f123'}));try{await new FirmableClient({apiKey:'test',fetch:fetcher,traceContext:{jobId:'job-12345',requestId:'request-12345'}}).enrichCompany({id:'f123'});const headers=new Headers(fetcher.mock.calls[0][1]?.headers);expect(headers.has('x-acquire-research-job')).toBe(false);expect(headers.has('x-request-id')).toBe(false);}finally{vi.unstubAllEnvs();}});
+it.each(['ambiguous_company','native_budget_admission_required','native_provider_reconciliation_required'])('preserves a structured %s category without putting the private body into the error',async category=>{
+ const fetcher=vi.fn(async()=>response({category,private:'PRIVATE fixture body',error:'PRIVATE fixture details'},409));
+ const error=await new FirmableClient({apiKey:'test',fetch:fetcher,retries:0}).enrichCompany({fqdn:'fixture.example'}).catch(error=>error);
+ expect(error).toMatchObject({status:409,category});expect(error.message).not.toContain('PRIVATE');expect(fetcher).toHaveBeenCalledOnce();
+});
+it('does not copy arbitrary provider text into machine error metadata',async()=>{const fetcher=vi.fn(async()=>response({category:'SECRET contact@example.invalid'},409));const error=await new FirmableClient({apiKey:'test',fetch:fetcher}).enrichCompany({id:'f123'}).catch(error=>error);expect(error.category).toBeUndefined();expect(error.message).not.toContain('SECRET');});
+it('carries the full sanitized research correlation only on the internal service transport',async()=>{
+ const traceContext={mandateId:'mandate-12345',runId:'run-12345',jobId:'job-12345',operationId:'operation-12345',requestId:'request-12345'};
+ try{for(const transport of ['cloudflare-session','direct']){vi.stubEnv('FIRMABLE_TRANSPORT',transport);const fetcher=vi.fn<typeof fetch>().mockResolvedValue(response({id:'f123'}));await new FirmableClient({apiKey:'synthetic',baseUrl:'https://service.example.invalid',fetch:fetcher,traceContext}).enrichCompany({id:'f123'});const headers=new Headers(fetcher.mock.calls[0][1]?.headers);for(const[name,value]of Object.entries({'x-acquire-mandate-id':traceContext.mandateId,'x-acquire-research-run':traceContext.runId,'x-acquire-research-job':traceContext.jobId,'x-acquire-agent-operation':traceContext.operationId,'x-request-id':traceContext.requestId}))expect(headers.get(name)).toBe(transport==='cloudflare-session'?value:null);expect(headers.has('x-acquire-native-research-job')).toBe(false);expect(headers.has('x-acquire-native-research-key')).toBe(false);}}finally{vi.unstubAllEnvs();}
 });

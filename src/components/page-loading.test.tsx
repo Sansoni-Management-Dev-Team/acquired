@@ -57,10 +57,14 @@ describe("instant page loading", () => {
     function checkPages(directory: string) {
       const entries = readdirSync(directory, { withFileTypes: true });
       if (entries.some(entry => entry.name === "page.tsx")) {
-        expect(readFileSync(join(directory, "loading.tsx"), "utf8")).toContain("PageLoading as default");
+        expect(readFileSync(join(directory, "loading.tsx"), "utf8")).toMatch(/(?:PageLoading|ConfiguredPageLoading) as default/);
       }
       entries.filter(entry => entry.isDirectory()).forEach(entry => checkPages(join(directory, entry.name)));
     }
     checkPages(join(process.cwd(), "src/app"));
   });
+});
+
+it.each([false,true])('preserves the Agent mode selector while the create page is loading (query suspended: %s)',suspended=>{
+ Object.assign(location,{pathname:'/mandates/new',suspended});const html=renderToStaticMarkup(<PageLoading agentModeEnabled nativeAgentEnabled/>);expect(html).toContain('aria-label="Agent mode"');expect(html).toContain('Outreach approval required');location.suspended=false;
 });

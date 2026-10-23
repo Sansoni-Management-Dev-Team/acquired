@@ -1,0 +1,11 @@
+import{beforeEach,expect,it,vi}from'vitest';
+vi.mock('server-only',()=>({}));
+const f=vi.hoisted(()=>({read:vi.fn(),runtime:vi.fn(),host:vi.fn()}));
+vi.mock('../../communications/packages/adapter-unipile/src/v1-runtime-env',()=>({readConfiguredUnipileV1Environment:f.read}));
+vi.mock('../../communications/packages/adapter-unipile/src/v1-runtime',()=>({createConfiguredUnipileV1Runtime:f.runtime}));
+vi.mock('./communications-runtime',()=>({createAcquireCommunicationsRuntime:f.host}));
+import{configureAcquireCommunications}from'./communications-configuration';
+const pools={application:{connect:vi.fn()},service:{connect:vi.fn()}},businessClock={now:()=>Date.parse('2030-01-07T00:00:00.000Z')},key=(n:number)=>Buffer.alloc(32,n),environment={NODE_ENV:'development',ACQUIRE_COMMUNICATIONS_ACTIVE_KEY_VERSION:'local-app',ACQUIRE_COMMUNICATIONS_KEYRING_JSON:JSON.stringify([{version:'local-app',encryptionKey:key(31).toString('base64'),digestKey:key(32).toString('base64')}])};
+beforeEach(()=>{vi.clearAllMocks();f.read.mockReturnValue({scopedAuthKey:key(21),options:{localSimulatorOrigin:'https://127.0.0.1:5990',callbackKey:key(22),vault:{identityKey:key(23),keys:[{encryptionKey:key(24),digestKey:key(25)}]}}});f.runtime.mockReturnValue({});f.host.mockReturnValue({});});
+it('forwards an explicit fixed-metadata local diagnostic without enabling a simulator test policy',()=>{const diagnostic=vi.fn();configureAcquireCommunications(environment,pools,{businessClock,diagnostic}as never);expect(f.host).toHaveBeenCalledOnce();expect(f.host.mock.calls[0][0].diagnostic).toBe(diagnostic);});
+it('preserves the default host and refuses diagnostic composition outside the existing local clock guard',()=>{configureAcquireCommunications(environment,pools);expect(f.host.mock.calls[0][0]).not.toHaveProperty('diagnostic');f.host.mockClear();f.read.mockReturnValueOnce({scopedAuthKey:key(21),options:{localSimulatorOrigin:undefined}});expect(()=>configureAcquireCommunications(environment,pools,{businessClock,diagnostic:vi.fn()}as never)).toThrow('Local business clock requires simulator mode');expect(f.host).not.toHaveBeenCalled();});

@@ -70,6 +70,21 @@ export function createRecordedReplyIdentityResolver(options: Pick<CommunicationR
         catch {
             return null;
         }
+        // Optional schema capability preserves installations without the native
+        // module. Once a binding is registered in a scoped identity namespace,
+        // missing route proof is a review, never a legacy/global alias fallback.
+        const catalog=await client.query<{installed:boolean}>("SELECT to_regprocedure('public.agent_recorded_reply_execution_scope(uuid,text,text)') IS NOT NULL AS installed");
+        if(catalog.rows.length===1&&catalog.rows[0].installed===true){
+            const projected=await client.query<{context:{registered:boolean;scope:unknown}}>('SELECT public.agent_recorded_reply_execution_scope($1::uuid,$2::text,$3::text) AS context',[bindingId,sender.kind,sender.value]);
+            const context=projected.rows.length===1?projected.rows[0].context:null;
+            if(!context||typeof context.registered!=='boolean')return null;
+            if(context.registered){
+                let scope:{kind:'demo';id:string};
+                try{const row=data(context.scope,['kind','id']);if(row.kind!=='demo'||typeof row.id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(row.id))return null;scope={kind:'demo',id:row.id};}catch{return null;}
+                const identity=communicationReplyIdentity(fixed.channel,sender.value);if(!identity)return null;
+                return{actor:{...actor},binding:{...fixed},sender:{kind:sender.kind,value:sender.value}as Parameters<CommunicationReplyConsumerOptions['resolveIdentity']>[1]['sender'],identity,...(fixed.channel==='linkedin'?{identityAuthority:'canonical_service' as const}:{}),identityScope:scope};
+            }
+        }
         // Binding history is immutable and the owner role has no UPDATE grant for it. Lock only
         // mutable identity evidence; locking b would demand a broader privilege without adding safety.
         const result = await client.query(`SELECT b.id AS binding_id,b.application_id,b.organization_id,b.owner_user_id,

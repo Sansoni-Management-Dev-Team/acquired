@@ -6,26 +6,31 @@ import { companyResearchProgressState, isCompanyPipeline, type CompanyResearchCo
 
 export function CompanyPipelineProgress({ job, jobs = [], mandateId, detail: startupDetail, coverage, peopleSaved }: { job?: ResearchJob; jobs?: ResearchJob[]; mandateId?: string; detail?: string; coverage?: CompanyResearchCoverage; peopleSaved?: number }) {
   const state = job ? companyResearchProgressState(job, jobs, { coverage, peopleSaved }) : {
-    settled: false, processed: 0, active: 0, headcounts: 0, revenueBands: 0,
+    settled: false, discovered: 0, processed: 0, active: 0, headcounts: 0, revenueBands: 0,
     abns: 0, peopleSaved: 0, peopleActive: 0, peopleQueued: 0, backgroundActive: 0, backgroundQueued: 0, savedIds: [],
   };
+  // A failed/cancelled root stops foreground discovery even when a child has
+  // not recorded its final outcome. Keep those child facts visible below.
+  const stopped = job?.status === 'failed' || job?.status === 'cancelled';
+  const running = !stopped && !state.settled;
   const [startedAt] = useState(Date.now);
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
-    if (state.settled) return;
+    if (!running) return;
     const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [state.settled]);
-  const end = state.settled && job ? new Date(job.updatedAt || job.createdAt).getTime() : now;
+  }, [running]);
+  const end = !running && job ? new Date(job.updatedAt || job.createdAt).getTime() : now;
   const seconds = Math.max(0, Math.floor((end - (job ? new Date(job.createdAt).getTime() : startedAt)) / 1000));
   const complete = state.settled && job?.status === 'complete';
-  const running = !state.settled;
   const researching = state.processed > 0 || state.active > 0;
+  const continuation = Boolean(job?.config.companyContinuation);
+  const discoveredLabel = `${state.discovered} ${state.discovered === 1 ? 'business' : 'businesses'} ${continuation ? 'selected' : 'found'}`;
   const includePeople = !job || (isCompanyPipeline(job) ? job.config.includeCompanyPeople : job.config.findPeople !== false);
   const title = running ? 'Finding businesses' : complete ? 'Research complete' : job?.status === 'partial' ? 'Finished with issues' : `Research ${job?.status}`;
-  const detail = startupDetail || (running ? researching ? 'Finding headcounts, revenue bands, ABNs, people and email addresses for the businesses we discover.' : 'Searching for businesses that match your acquisition brief.' : complete ? 'Company research finished. Your results are ready to review.' : 'Research has stopped. Review the available results and any missing information.');
+  const detail = startupDetail || (running ? job?.message?.startsWith('Waiting for Firmable') ? job.message : researching ? 'Finding headcounts, revenue bands, ABNs, people and email addresses for the businesses we discover.' : 'Searching for businesses that match your acquisition brief.' : complete ? 'Company research finished. Your results are ready to review.' : job?.message || 'Research has stopped. Review the available results and any missing information.');
   const stages = [
-    { label: 'Searching for businesses', count: undefined, active: running },
+    { label: continuation ? 'Saved businesses selected' : 'Searching for businesses', count: state.discovered, active: running },
     { label: 'Finding headcounts', count: state.headcounts, active: running && researching },
     { label: 'Finding revenue bands', count: state.revenueBands, active: running && researching },
     { label: 'Verifying ABNs', count: state.abns, active: running && researching },
@@ -41,16 +46,17 @@ export function CompanyPipelineProgress({ job, jobs = [], mandateId, detail: sta
     <div role="progressbar" aria-label="Company research progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={complete ? 100 : undefined} aria-valuetext={complete ? 'Research complete' : running ? 'Company research in progress' : title} className="mt-[22px] h-2 overflow-hidden rounded-full bg-[#e9ebf4]">
       <div className={`h-full bg-[#3732a0] ${running ? 'animate-pulse motion-reduce:animate-none' : ''}`} style={{ width: complete ? '100%' : researching ? '70%' : '30%' }} />
     </div>
-    <div className="mt-[9px] flex justify-between gap-3 text-[10px] text-[#637592]"><span>{complete ? '100%' : running ? 'In progress' : title}</span><span>{state.processed} {state.processed === 1 ? 'company' : 'companies'} researched</span></div>
+    <div className="mt-[9px] flex flex-wrap justify-between gap-3 text-[10px] text-[#637592]"><span role="status" aria-live="polite">{complete ? '100% · ' : running ? 'In progress · ' : ''}{discoveredLabel}</span><span>{state.processed} {state.processed === 1 ? 'company' : 'companies'} researched</span></div>
     <ol className="mx-auto mt-[23px] grid max-w-[350px] gap-[10px] text-left">
       {stages.map(({ label, count, active }, index) => <li key={label} className={`flex items-center gap-[9px] text-[11px] ${complete ? 'text-[#2c7958]' : active ? 'font-bold text-[#4541cf]' : 'text-[#8593aa]'}`}>
         <span aria-hidden="true" className={`flex size-[19px] shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${complete ? 'bg-[#e5f4eb]' : active ? 'bg-[#e6e5ff]' : 'bg-[#eceff5]'}`}>{complete ? <Check size={12} /> : index + 1}</span>
-        <span>{label}</span>{count !== undefined && <span className="ml-auto text-[#637592]">{count} {label === 'Saving company results' ? 'saved' : 'found'}</span>}
+        <span>{label}</span>{count !== undefined && <span className="ml-auto text-[#637592]">{count} {label === 'Saving company results' ? 'saved' : label === 'Saved businesses selected' ? 'selected' : 'found'}</span>}
       </li>)}
     </ol>
+    {stopped && state.active > 0 && <p className="mt-5 text-[11px] text-[#637592]">{state.active} company {state.active === 1 ? 'request is' : 'requests are'} still recorded as in progress.</p>}
     {state.settled && state.peopleActive + state.peopleQueued > 0 && <p className="mt-5 text-[11px] text-[#637592]">Finding people and emails: continuing in the background.</p>}
     {state.settled && state.backgroundActive + state.backgroundQueued > 0 && <p className="mt-3 text-[11px] text-[#637592]">Company details continue updating in the background.</p>}
-    <p className="mt-6 text-[11px] text-[#637592]">{state.savedIds.length} {state.savedIds.length === 1 ? 'company' : 'companies'} saved · {Math.floor(seconds / 60)}m {seconds % 60}s{state.settled ? ' elapsed' : ' so far'}</p>
-    {state.settled && mandateId && state.savedIds.length > 0 && <a href={`/mandates/${mandateId}?tab=targets`} className="mt-5 inline-block rounded-md bg-[#3732a0] px-4 py-3 text-sm font-semibold text-white">View companies</a>}
+    <p className="mt-6 text-[11px] text-[#637592]">{state.savedIds.length} {state.savedIds.length === 1 ? 'company' : 'companies'} saved · {Math.floor(seconds / 60)}m {seconds % 60}s{running ? ' so far' : ' elapsed'}</p>
+    {!running && mandateId && state.savedIds.length > 0 && <a href={`/mandates/${mandateId}?tab=targets`} className="mt-5 inline-block rounded-md bg-[#3732a0] px-4 py-3 text-sm font-semibold text-white">View companies</a>}
   </section>;
 }

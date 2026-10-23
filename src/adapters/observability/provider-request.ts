@@ -1,3 +1,4 @@
+import {researchTraceRequestHeaders,safeResearchTrace,type ResearchTraceContext} from '../../domain/research-trace-context';
 type Json = Record<string, unknown>;
 const object = (value: unknown): Json => value && typeof value === "object" && !Array.isArray(value) ? value as Json : {};
 const numeric = (value: unknown) => typeof value === "number" && Number.isFinite(value) ? value : typeof value === "string" && /^\d+(\.\d+)?$/.test(value) ? Number(value) : undefined;
@@ -14,9 +15,11 @@ export function providerDiagnostics(status: number, headers: Headers, body: unkn
   else if (/upstream|overload|capacity|temporarily rate.limited/i.test(message)) category = "upstream_capacity";
   else if (/credit|balance|payment/i.test(message) || status === 402) category = "credits";
   else if (status === 401 || status === 403) category = "authentication_or_policy";
-  const readerReasons = ["reader_busy", "domain_backoff", "origin_rate_limit", "origin_http_error", "page_unavailable", "reader_timeout", "reader_failure"];
+  const readerReasons = ["reader_busy", "domain_backoff", "origin_rate_limit", "origin_http_error", "page_unavailable", "reader_timeout", "reader_failure",'unsupported_public_url','dns_resolution_failed'];
   const readerReason = provider === "local-crawl4ai" && typeof data.category === "string" && readerReasons.includes(data.category) ? data.category : undefined;
   if (readerReason) category = readerReason;
+  const admissionReason=provider==='research-worker'&&typeof data.category==='string'&&['native_budget_admission_required','native_provider_reconciliation_required','native_budget_not_configured','native_search_upstream_not_allowed'].includes(data.category)?data.category:undefined;
+  if(admissionReason)category=admissionReason;
   const workerAdmission = provider === 'research-worker' && status === 503 && data.category === 'browser_admission';
   if (workerAdmission) category = 'browser_admission';
   const reader: Record<string, number | string | boolean> = {};
@@ -30,6 +33,8 @@ export function providerDiagnostics(status: number, headers: Headers, body: unkn
     }
     if (typeof diagnostics.domainActive === "boolean") reader.domainActive = diagnostics.domainActive;
     if (typeof diagnostics.domainKey === "string" && /^[a-f0-9]{12}$/.test(diagnostics.domainKey)) reader.domainKey = diagnostics.domainKey;
+    if(typeof diagnostics.urlValidationReason==='string'&&['scheme_or_credentials','hostname','dns_resolution_failed','non_public_address','malformed_url','allowed'].includes(diagnostics.urlValidationReason))reader.urlValidationReason=diagnostics.urlValidationReason;
+    if(typeof diagnostics.dnsErrorCode==='number'&&Number.isInteger(diagnostics.dnsErrorCode)&&Math.abs(diagnostics.dnsErrorCode)<10000)reader.dnsErrorCode=diagnostics.dnsErrorCode;
   }
   const metadataHeaders = object(metadata.headers);
   const limits: Record<string, number | string> = {};
@@ -47,14 +52,12 @@ export function providerDiagnostics(status: number, headers: Headers, body: unkn
   }
   // Only known provider names are emitted; metadata may otherwise contain arbitrary text.
   const providerName = typeof metadata.provider_name === "string" && /^(Nex AGI|NEX|Nvidia|NVIDIA|OpenRouter|Cloudflare|Chutes|DeepInfra|Together|Google AI Studio|Novita|SambaNova)$/i.test(metadata.provider_name) ? metadata.provider_name : undefined;
-  return { category, classificationBasis: workerAdmission ? 'worker_category' : readerReason ? "reader_category" : category === "rate_limit_unspecified" || category === "provider_error" ? "http_status" : "provider_message_pattern", errorCodes: [error.code, ...errors.map(e => e.code)].map(numeric).filter(v => v !== undefined), limits, providerRequestIds: ids, upstreamProvider: providerName, ...(Object.keys(reader).length ? { reader } : {}) };
+  return { category, classificationBasis: workerAdmission || admissionReason ? 'worker_category' : readerReason ? "reader_category" : category === "rate_limit_unspecified" || category === "provider_error" ? "http_status" : "provider_message_pattern", errorCodes: [error.code, ...errors.map(e => e.code)].map(numeric).filter(v => v !== undefined), limits, providerRequestIds: ids, upstreamProvider: providerName, ...(Object.keys(reader).length ? { reader } : {}) };
 }
 
-export type RequestContext = {
+export type RequestContext = ResearchTraceContext & {
   provider: "openrouter" | "openai" | "cloudflare-browser" | "research-worker" | "local-crawl4ai" | "local-openserp";
   operation: string;
-  jobId?: string;
-  requestId?: string;
   modelCandidates?: string[];
   verbose?: boolean;
 };
@@ -82,11 +85,12 @@ function callbackMeasurements(headers: Headers) {
 
 /** One request; no retries, additional provider calls, request content or secrets in logs. */
 export async function providerJsonRequest<T>(fetcher: typeof fetch, url: string, init: RequestInit, context: RequestContext): Promise<{ response: Response; data: T }> {
-  const { verbose = true, ...fields } = context;
-  const requestId = context.requestId && (context.provider !== "research-worker" || /^[a-zA-Z0-9_-]{8,100}$/.test(context.requestId)) ? context.requestId : crypto.randomUUID();
+  const { verbose = true } = context,trace=safeResearchTrace(context);
+  const fields={provider:context.provider,operation:context.operation,...(context.modelCandidates?{modelCandidates:context.modelCandidates}:{}),...trace};
+  const requestId = trace.requestId && (context.provider !== "research-worker" || /^[a-zA-Z0-9_-]{8,100}$/.test(trace.requestId)) ? trace.requestId : crypto.randomUUID();
   if (context.provider === "research-worker") {
     const headers = new Headers(init.headers);
-    headers.set("x-request-id", requestId);
+    for(const[name,value]of Object.entries(researchTraceRequestHeaders({...trace,requestId})))headers.set(name,value);
     init = { ...init, headers };
   }
   const requestBodyBytes = typeof init.body === 'string' ? new TextEncoder().encode(init.body).byteLength : init.body == null ? 0 : undefined;

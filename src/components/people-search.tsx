@@ -1,4 +1,7 @@
 "use client";
+
+import { randomUuid } from "@/lib/random-uuid";
+
 import { useCallback, useState } from "react";
 import { useActivePolling } from "./use-active-polling";
 import { outreachEmail } from "@/domain/outreach-contact";
@@ -30,8 +33,8 @@ export function PeopleSearch({ mandateId, targetId, onSaved }: { mandateId: stri
     <p className="text-xs text-[var(--muted)]">Read company pages first, then use a targeted follow-up if a named owner or director is still missing. Review sources before saving a contact. Published emails are not delivery-verified.</p>
     <p className="text-xs text-[var(--muted)]">Up to 2 web searches, 5 pages and 5 AI calls. Runs in the background for up to 10 minutes; provider usage may incur charges.</p>
     {data && !data.webSearchEnabled && <p className="text-xs text-[var(--status-amber)]">Web search is unavailable. The agent can still follow the company website’s team and contact links.</p>}
-    <button className={`${buttonClass} min-h-12`} disabled={busy || !data?.enabled || Boolean(active)} onClick={() => act(url, { action: "start", mandateId, requestId: crypto.randomUUID(), approved: true })}>{busy ? "Working…" : active ? "Research running…" : "Search public web"}</button>
-    {!active && data?.jobs[0] && (data.jobs[0].config?.runtime?.remaining?.length || data.jobs[0].config?.runtime?.attempts?.some(a => a.status !== "read")) ? <button className={`${buttonClass} min-h-12`} disabled={busy || !data.enabled} onClick={() => act(url, { action: "start", mandateId, requestId: crypto.randomUUID(), continueFrom: data.jobs[0].id, approved: true })}>Continue / retry unread pages</button> : null}
+    <button className={`${buttonClass} min-h-12`} disabled={busy || !data?.enabled || Boolean(active)} onClick={() => act(url, { action: "start", mandateId, requestId: randomUuid(), approved: true })}>{busy ? "Working…" : active ? "Research running…" : "Search public web"}</button>
+    {!active && data?.jobs[0] && (data.jobs[0].config?.runtime?.remaining?.length || data.jobs[0].config?.runtime?.attempts?.some(a => a.status !== "read")) ? <button className={`${buttonClass} min-h-12`} disabled={busy || !data.enabled} onClick={() => act(url, { action: "start", mandateId, requestId: randomUuid(), continueFrom: data.jobs[0].id, approved: true })}>Continue / retry unread pages</button> : null}
     {data && !data.enabled && <p className="text-xs">Public web research is unavailable in this environment.</p>}
     {data?.jobs[0] && <div role="status" className="text-xs"><strong>{data.jobs[0].status}</strong> · {data.jobs[0].pages} pages read<p className="mt-1 text-[var(--muted)]">{data.jobs[0].message}</p></div>}
     {active && <div className="flex gap-3">{active.status === "queued" && <button className={buttonClass} disabled={busy} onClick={() => act(`/api/research/${active.id}`, { action: "retry-dispatch" })}>Reconnect</button>}<button className={buttonClass} disabled={busy} onClick={() => act(`/api/research/${active.id}`, { action: "cancel" })}>Cancel research</button></div>}

@@ -34,6 +34,11 @@ import {
   researchDomain,
 } from "@/domain/research";
 import type { z } from "zod";
+export class MandateResearchRevisionError extends Error {
+  constructor(message = "The mandate changed before research started. Submit the current brief again.") { super(message); }
+}
+export type InitialResearchResponsibility = { id: string; revision: number; threadId: string };
+export type ResearchStartAdmission = { expectedMandateRevision?: string; initialResponsibility?: InitialResearchResponsibility };
 export type ResearchJobRow = typeof researchJobs.$inferSelect;
 export const researchExecutionSelection = { ...getTableColumns(researchJobs), config: sql<ResearchJobRow['config']>`${researchJobs.config} - 'pipelineTiming' - 'scheduling'` };
 export const researchControlConfig = sql<ResearchJobRow['config']>`jsonb_build_object('researchRunId', ${researchJobs.config}->'researchRunId', 'budget', ${researchJobs.config}->'budget', 'automaticDeadline', ${researchJobs.config}->'automaticDeadline', 'newBusinessIds', ${researchJobs.config}->'newBusinessIds', 'performanceFlags', ${researchJobs.config}->'performanceFlags')`;
@@ -175,8 +180,55 @@ export class ResearchRepository {
     mandateId: string,
     createdBy: string,
     config: ResearchConfig,
+    options: ResearchStartAdmission = {},
   ) {
     config = { ...config, pipelineTiming: undefined, executionSlot: mandateResearchSlot(mandateId, config.executionSlot) };
+    if (options.initialResponsibility && options.expectedMandateRevision === undefined)
+      throw new MandateResearchRevisionError("Current mandate revision is required for initial agent research.");
+    if (options.expectedMandateRevision !== undefined) {
+      const responsibility = options.initialResponsibility;
+      const control = responsibility ? sql`owned_responsibility AS MATERIALIZED (
+        SELECT r.id FROM agent_responsibilities r
+        JOIN agent_threads t ON t.id = r.thread_id AND t.organization_id = r.organization_id
+          AND t.mandate_id = r.mandate_id AND t.owner_user_id = r.owner_user_id
+        JOIN member member ON member.organization_id = r.organization_id AND member.user_id = r.owner_user_id
+        JOIN owned_mandate owned ON r.mandate_revision = owned.revision
+        WHERE r.id = ${responsibility.id}::uuid AND r.thread_id = ${responsibility.threadId}::uuid
+          AND r.organization_id = ${this.org} AND r.mandate_id = ${mandateId}::uuid
+          AND r.owner_user_id = ${createdBy} AND r.revision = ${responsibility.revision}
+          AND r.state IN ('ready', 'waiting')
+        FOR SHARE OF r, t, member
+      ),` : sql``;
+      const controlCurrent = responsibility ? sql`EXISTS (SELECT 1 FROM owned_responsibility)` : sql`true`;
+      // One statement keeps the checked mandate revision locked through insertion,
+      // including with the HTTP database driver that has no transaction callback.
+      const result = await this.db.execute(sql`
+        WITH owned_mandate AS MATERIALIZED (
+          SELECT xmin::text AS revision FROM mandates
+          WHERE id = ${mandateId}::uuid AND organization_id = ${this.org} AND created_by = ${createdBy}
+          FOR SHARE
+        ), ${control} inserted AS (
+          INSERT INTO research_jobs (id, mandate_id, created_by, organization_id, config, seeds)
+          SELECT ${id}::uuid, ${mandateId}::uuid, ${createdBy}, ${this.org},
+            ${JSON.stringify(config.targetBusinesses ? { ...config, businessTargetStartedAt: config.businessTargetStartedAt || new Date().toISOString() } : config)}::jsonb,
+            ${JSON.stringify(config.seeds.map(publicResearchUrl).filter(Boolean))}::jsonb
+          FROM owned_mandate WHERE revision = ${options.expectedMandateRevision} AND ${controlCurrent}
+          ON CONFLICT DO NOTHING RETURNING id
+        )
+        SELECT EXISTS (SELECT 1 FROM owned_mandate WHERE revision = ${options.expectedMandateRevision}) AS revision_matches,
+          ${controlCurrent} AS responsibility_matches, (SELECT id::text FROM inserted LIMIT 1) AS inserted_id
+      `);
+      const rows = (Array.isArray(result) ? result : (result as { rows?: unknown[] }).rows) || [];
+      const matched = (rows[0] as { revision_matches?: boolean } | undefined)?.revision_matches === true;
+      const controlled = !responsibility || (rows[0] as { responsibility_matches?: boolean } | undefined)?.responsibility_matches === true;
+      const job = await this.get(id);
+      const ownJob = job && job.mandateId === mandateId && job.createdBy === createdBy;
+      if (!matched && !ownJob) throw new MandateResearchRevisionError();
+      if (!controlled && !ownJob) throw new MandateResearchRevisionError("Agent supervision changed before research started.");
+      if (!ownJob)
+        throw new Error("Another research job is active. Wait for it to finish or cancel it.");
+      return job;
+    }
     await this.db
       .insert(researchJobs)
       .values({

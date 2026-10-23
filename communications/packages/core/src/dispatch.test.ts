@@ -235,3 +235,14 @@ describe("dispatch coordinator original historical lookup", () => {
     expect(await createDispatchCoordinator(binding, f.adapter, f.journal).lookup(lookup())).toEqual({ status: "unknown" }); expect(f.journal.reconcile).toHaveBeenCalledTimes(1);
   });
 });
+it('reports only the failed coordinator boundary with unchanged uncertainty and no extra provider effects',async()=>{
+ for(const boundary of ['claim','record','ready','preflight','begin','admitted_record','persist']as const){const f=fixture(),diagnostic=vi.fn(),error=Object.assign(Error('private body/token'),{code:'40001'});
+ if(boundary==='claim')vi.mocked(f.journal.claim).mockRejectedValue(error);
+ if(boundary==='record')vi.mocked(f.journal.claim).mockResolvedValue({kind:'claimed',token:'t',record:{snapshot:submission().snapshot,recipient:{kind:'phone',value:'+15559999999'},state:'claimed'}});
+ if(boundary==='ready')vi.mocked(f.adapter.ready).mockRejectedValue(error);
+ if(boundary==='preflight')vi.mocked(f.adapter.ready).mockResolvedValue({status:'ready',extra:'private'}as never);
+ if(boundary==='begin')vi.mocked(f.journal.beginDispatch).mockRejectedValue(error);
+ if(boundary==='admitted_record')vi.mocked(f.journal.beginDispatch).mockResolvedValue({kind:'admitted',record:{snapshot:submission().snapshot,recipient:{kind:'phone',value:'+15559999999'},state:'dispatching'}});
+ if(boundary==='persist')vi.mocked(f.journal.complete).mockRejectedValue(error);
+ expect(await createDispatchCoordinator(binding,f.adapter,f.journal,{diagnostic}as never).submit(submission())).toEqual({status:'unknown'});expect(diagnostic.mock.calls.some(([v])=>v.stage==='coordinator.'+boundary)).toBe(true);expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('private');if(!['persist'].includes(boundary))expect(f.adapter.submit).not.toHaveBeenCalled();}
+});

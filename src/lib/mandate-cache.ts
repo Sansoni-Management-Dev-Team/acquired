@@ -8,7 +8,7 @@ import { briefSchema, type MandateView } from "@/domain/acquisition";
 export const SESSION_CACHE_TTL = 60_000;
 export const MANDATE_CACHE_TTL = 30_000;
 const mandateSchema = z.object({ id: z.string(), brief: briefSchema, createdAt: z.string() });
-const entrySchema = z.object({ scope: z.string(), mandates: z.array(mandateSchema), updatedAt: z.number() });
+const entrySchema = z.object({ scope: z.string(), mandates: z.array(mandateSchema), updatedAt: z.number(), selectedMandateId: z.string().optional() });
 type Entry = z.infer<typeof entrySchema>;
 type Session = { scope: string; expiresAt: number };
 type CacheState = {
@@ -22,6 +22,7 @@ type CacheState = {
   refresh: (force?: boolean) => Promise<void>;
   upsert: (mandate: MandateView) => void;
   clear: () => void;
+  selectMandate: (id: string) => void;
 };
 
 // Storage may be disabled or full. The in-memory cache must still work.
@@ -39,6 +40,11 @@ export function createMandateCache(storage: StateStorage = browserStorage, reque
   let mandatesRequest: { scope: string; promise: Promise<void> } | undefined;
   return create<CacheState>()(persist<CacheState, [], [], { entry: Entry | null }>((set, get) => ({
     entry: null, session: null, status: "unknown", sessionError: "", error: "", refreshing: false,
+    selectMandate: id => {
+      const entry=get().entry,scope=get().session?.scope;
+      if(!scope||entry?.scope!==scope||entry.selectedMandateId===id||!entry.mandates.some(m=>m.id===id))return;
+      set({entry:{...entry,selectedMandateId:id}});
+    },
     clear: () => {
       epoch++; revision++;
       sessionRequest = undefined; mandatesRequest = undefined;
@@ -95,7 +101,7 @@ export function createMandateCache(storage: StateStorage = browserStorage, reque
           if (started !== epoch) return;
           if (result.scope !== scope) { await get().validateSession(true); return; }
           // A save made during this request is newer than its list snapshot.
-          if (startedRevision === revision) set({ entry: { ...result, updatedAt: Date.now() } });
+          if (startedRevision === revision) {const selected=get().entry?.scope===scope?get().entry?.selectedMandateId:undefined;set({ entry: { ...result, updatedAt: Date.now(),selectedMandateId:result.mandates.some(m=>m.id===selected)?selected:undefined } });}
         } catch {
           if (started === epoch) set({ error: "Could not refresh mandates. Please retry." });
         } finally {
@@ -111,7 +117,7 @@ export function createMandateCache(storage: StateStorage = browserStorage, reque
       if (!scope) return;
       revision++;
       const mandates = get().entry?.scope === scope ? get().entry!.mandates : [];
-      set({ entry: { scope, updatedAt: 0, mandates: [mandate, ...mandates.filter(item => item.id !== mandate.id)].sort((a, b) => b.createdAt.localeCompare(a.createdAt)) } });
+      set({ entry: { scope, updatedAt: 0, selectedMandateId:get().entry?.scope===scope?get().entry?.selectedMandateId:undefined, mandates: [mandate, ...mandates.filter(item => item.id !== mandate.id)].sort((a, b) => b.createdAt.localeCompare(a.createdAt)) } });
     },
   }), {
     name: "acquired-mandates-v1",
@@ -120,7 +126,7 @@ export function createMandateCache(storage: StateStorage = browserStorage, reque
     partialize: state => ({ entry: state.entry }),
     merge: (stored, current) => {
       const parsed = entrySchema.safeParse((stored as { entry?: unknown } | undefined)?.entry);
-      return { ...current, entry: parsed.success ? parsed.data : null };
+      return { ...current, entry: parsed.success ? {...parsed.data,selectedMandateId:parsed.data.mandates.some(m=>m.id===parsed.data.selectedMandateId)?parsed.data.selectedMandateId:undefined} : null };
     },
   }));
 }

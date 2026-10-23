@@ -1,0 +1,15 @@
+{
+  "status": "proposed; NOT APPLIED anywhere",
+  "file": "001-native-agent-baseline-v2.proposed.sql",
+  "sha256": "2a712a1a93c609d5372debfae0925668b57f7366c27f5b4fd6749ae40190ebd2",
+  "supersedes": {
+    "file": "001-native-agent-baseline.proposed.sql",
+    "sha256": "ed8e64ef719a9d3d206605169aa442c3329d9023ce8cb951b05158727f54a6ea"
+  },
+  "change": "Only agent_events.available_at default changes from the absent local simulator clock to the existing production agent_business_now() real wall clock. All other bytes unchanged.",
+  "targets": [
+    "isolated acquire-hosted-demo-rehearsal-postgres / acquire_hosted_demo_rehearsal / system 7699248227334438947",
+    "production Supabase njasjqpztiteionfxxul / postgres / system 7678071634733212629 ONLY after successful full rehearsal"
+  ],
+  "unchangedHosted002Sha256": "4d60a4e2f78accc73f2e4bb5f4fb0db00a8b8f86898b27db6f9e4c112fc37763"
+}

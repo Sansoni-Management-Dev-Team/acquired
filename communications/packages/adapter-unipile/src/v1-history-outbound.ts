@@ -46,6 +46,11 @@ export function createUnipileV1HistoryOutboundNormalizer(options: HistoryOutboun
                     return null;
                 if (!owners.includes(mail.from_attendee.identifier.toLowerCase()))
                     return mail.role === 'sent' ? null : [];
+                // The full original email read is the authority for threading.
+                // Missing metadata stays absent; it cannot satisfy a recorded
+                // receipt that requires a conversation. Never infer a thread.
+                if (mail.thread_id !== undefined && !opaque(mail.thread_id) || raw.thread_id !== undefined && (!opaque(raw.thread_id) || raw.thread_id !== mail.thread_id))
+                    return null;
                 const recipients = new Set<string>();
                 for (const field of ['to_attendees', 'cc_attendees', 'bcc_attendees']) {
                     if (!Array.isArray(mail[field]) || mail[field].length > 1000)
@@ -58,7 +63,7 @@ export function createUnipileV1HistoryOutboundNormalizer(options: HistoryOutboun
                             recipients.add(value);
                     }
                 }
-                return [...recipients].map(value => ({ binding: structuredClone(record.binding), reference, recipient: { kind: 'email', value }, occurredAt: new Date(mail.date as string).toISOString() }));
+                return [...recipients].map(value => ({ binding: structuredClone(record.binding), reference, ...(typeof mail.thread_id === 'string' ? { conversation: { binding: structuredClone(record.binding), id: mail.thread_id } } : {}), recipient: { kind: 'email', value }, occurredAt: new Date(mail.date as string).toISOString() }));
             }
             if (raw.is_sender !== 1)
                 return [];

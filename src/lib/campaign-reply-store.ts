@@ -1,7 +1,7 @@
 import {communicationReplyIdentity} from '../domain/communication-reply-identity';
 import "server-only";
 import { createHash } from "node:crypto";
-import type { PoolClient } from "pg";
+import type { Pool, PoolClient } from "pg";
 import { rows, withCampaignDb, withCampaignWorker, type CampaignActor } from "@/db/campaign-client";
 import { replyDecision, replyIdentity, replyEventSchema, type ReplyChannel, type ReplyEvent } from "@/domain/campaign-replies";
 
@@ -16,7 +16,7 @@ export async function assertNoReplyHold(client: PoolClient, actor: CampaignActor
   if (hold) throw new Error(`Contact is held: ${hold.reason}`);
 }
 
-export async function saveReplyIdentity(actor: CampaignActor, input: { contactId: string; email: string | null; channel: ReplyChannel; identity: string; sourceIdentity: string; since: Date; authority?:'service' }) {
+export async function saveReplyIdentity(actor: CampaignActor, input: { contactId: string; email: string | null; channel: ReplyChannel; identity: string; sourceIdentity: string; since: Date; authority?:'service' }, options?:{pool?:Pick<Pool,'connect'>}) {
   if (replyMonitorMode() === "off") return;
   const normalized = input.authority==='service'?communicationReplyIdentity(input.channel,input.identity):replyIdentity(input.channel, input.identity);
   if (!normalized) throw new Error("Invalid reply identity");
@@ -27,7 +27,7 @@ export async function saveReplyIdentity(actor: CampaignActor, input: { contactId
     const earlier = await client.query(`UPDATE campaign_reply_identities SET since = $7 WHERE organization_id = $1 AND owner_user_id = $2 AND contact_id = $3 AND channel = $4 AND identity = $5 AND email = $6 AND since > $7`,
     [actor.organizationId, actor.userId, input.contactId, input.channel, normalized, input.email || "", input.since]);
     if (inserted.rowCount || earlier.rowCount) await client.query(`UPDATE campaign_reply_monitors SET last_success_at = NULL, lease_token = NULL, lease_until = NULL, cursor = CASE WHEN channel = 'email' THEN NULL ELSE cursor END WHERE organization_id = $1 AND owner_user_id = $2 AND channel = $3`, [actor.organizationId, actor.userId, input.channel]);
-  });
+  }, options);
 }
 
 // Runs inside the caller's transaction: the receipt, deduplication, contact hold,

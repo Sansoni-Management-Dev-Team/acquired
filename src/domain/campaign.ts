@@ -104,7 +104,7 @@ export function campaignNextOptions(definition: CampaignDraft, sentIndex: number
 }
 
 export const createCampaignRequest = z.object({ mandateId: z.string().uuid(), name: z.string().trim().min(1).max(120), definition: campaignDefinition }).strict();
-export const saveCampaignRequest = z.object({ name: z.string().trim().min(1).max(120), definition: campaignDraftDefinition }).strict();
+export const saveCampaignRequest = z.object({ name: z.string().trim().min(1).max(120), definition: campaignDraftDefinition, expectedRevision:z.string().regex(/^[0-9]{1,10}$/) }).strict();
 export const enrolCampaignRequest = z.object({ contactIds: z.array(z.string().uuid()).min(1).max(50), confirmation: z.literal(true) }).strict();
 export const enrolmentActionRequest = z.object({ action: z.enum(["pause", "resume", "stop", "review_existing_conversation", "retry_preflight"]) }).strict();
 

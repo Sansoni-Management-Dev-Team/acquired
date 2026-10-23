@@ -25,6 +25,7 @@ export function companyResearchProgressState(root: ResearchJob, jobs: ResearchJo
   const people = scoped.filter(job => job.config.purpose === 'people');
   return {
     ...state,
+    discovered: Math.max(state.discovered, companies.filter(job => job.config.discoveryCandidate).length),
     savedIds: [...new Set(scoped.flatMap(job => job.config.newBusinessIds || []))],
     settled: terminalResearchStates.includes(root.status) && scoped.filter(job=>!secondaryResearch(job)).every(job => terminalResearchStates.includes(job.status)),
     processed: companies.filter(job => terminalResearchStates.includes(job.status)).length,
@@ -46,14 +47,14 @@ export function companyPipelineState(root: ResearchJob, jobs: ResearchJob[]) {
   const background=scoped.filter(job=>Boolean('companyBackgroundResearch' in job.config && job.config.companyBackgroundResearch));
   const settled = terminalResearchStates.includes(root.status) && scoped.filter(job=>!secondaryResearch(job)).every(job => terminalResearchStates.includes(job.status));
   const config = root.config as typeof root.config & { webSearchPages?: Record<string, { ok: boolean }>; firmableSearchPages?: Record<string, unknown> };
-  return { savedIds, settled, backgroundActive:background.filter(job=>job.status!=='queued'&&!terminalResearchStates.includes(job.status)).length,backgroundQueued:background.filter(job=>job.status==='queued').length,backgroundFailed:background.filter(job=>['failed','partial'].includes(job.status)).length,peopleSettled:people?.settled??true, peopleFound: people?.found || 0, peopleSaved: people?.saved || 0, peopleActive: people?.active || 0, peopleQueued: people?.queued || 0, processed: children.filter(job => terminalResearchStates.includes(job.status)).length,
+  return { savedIds, settled, discovered: root.discovery?.candidates ?? 0, backgroundActive:background.filter(job=>job.status!=='queued'&&!terminalResearchStates.includes(job.status)).length,backgroundQueued:background.filter(job=>job.status==='queued').length,backgroundFailed:background.filter(job=>['failed','partial'].includes(job.status)).length,peopleSettled:people?.settled??true, peopleFound: people?.found || 0, peopleSaved: people?.saved || 0, peopleActive: people?.active || 0, peopleQueued: people?.queued || 0, processed: children.filter(job => terminalResearchStates.includes(job.status)).length,
     active: children.filter(job => !terminalResearchStates.includes(job.status)).length,
     failed: children.filter(job => ['failed', 'partial'].includes(job.status)).length,
     headcounts: children.filter(job => { const profile = (job.config as typeof job.config & { firmableProfile?: { headcountExact?: number | null; headcountBand?: unknown } }).firmableProfile; return profile?.headcountExact != null || profile?.headcountBand != null; }).length,
     revenueBands: children.filter(job => (job.config as typeof job.config & { firmableProfile?: { revenueBand?: unknown } }).firmableProfile?.revenueBand != null).length,
     matched: children.filter(job => (job.config as typeof job.config & { firmableMatch?: string }).firmableMatch === 'matched').length,
     abns: children.filter(job => { const lookup = (job.config as typeof job.config & { abnLookup?: { status: string; abn?: string } }).abnLookup; return lookup?.status === 'matched' && lookup.abn; }).length,
-    webSearches: Object.values(config.webSearchPages || {}).length,
-    webFailures: Object.values(config.webSearchPages || {}).filter(page => !page.ok).length,
-    firmableSearches: Object.values(config.firmableSearchPages || {}).length };
+    webSearches: root.discovery?.webQueries ?? Object.values(config.webSearchPages || {}).length,
+    webFailures: root.discovery?.webFailures ?? Object.values(config.webSearchPages || {}).filter(page => !page.ok).length,
+    firmableSearches: root.discovery?.firmablePages ?? Object.values(config.firmableSearchPages || {}).length };
 }

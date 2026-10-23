@@ -1,5 +1,19 @@
 import { expect, it, vi } from 'vitest';
 import { pipelineTiming } from './pipeline-timing';
+import type {ResearchTraceContext} from '../../src/domain/research-trace-context';
+
+it('correlates span logs with the current sanitized workflow context without changing persisted spans',async()=>{
+ const log=vi.spyOn(console,'info').mockImplementation(()=>{}),deliver=vi.fn().mockRejectedValue(new Error('private failure'));
+ let context:ResearchTraceContext={jobId:'job'};
+ try{
+  const timing=pipelineTiming('job',deliver,()=>0,()=>context);
+  context={jobId:'job',mandateId:'mandate-1',runId:'run-1',operationId:'operation-1'};
+  await timing.measure('f-plan',async()=>null);await timing.flush();
+  const entries=log.mock.calls.map(([,body])=>JSON.parse(body as string));
+  for(const event of ['segment_started','segment_finished','timing_delivery_deferred'])expect(entries.find(item=>item.event===event)).toMatchObject(context);
+  expect(deliver.mock.calls[0][0][0]).not.toHaveProperty('mandateId');
+ }finally{log.mockRestore();}
+});
 
 it('retains failed timing delivery and records operation failures without hiding them', async () => {
   let now = 0;

@@ -6,8 +6,9 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { ArrowLeft, LoaderCircle } from "lucide-react";
 import { CachedMandateCreate, CachedMandatesPage, MandatePicker } from "./cached-mandate-pages";
 
-function LoadingView({ pathname, tab }: { pathname: string; tab?: string | null }) {
-  if (pathname === "/" || pathname === "/mandates/new") return <CachedMandateCreate />;
+type AgentFlags={agentModeEnabled?:boolean;nativeAgentEnabled?:boolean};
+function LoadingView({ pathname, tab, ...flags }: { pathname: string; tab?: string | null } & AgentFlags) {
+  if (pathname === "/" || pathname === "/mandates/new") return <CachedMandateCreate {...flags} />;
   if (pathname === "/mandates") return <CachedMandatesPage />;
   const section = pathname.match(/^\/mandates\/select\/(brief|targets|people|sequences)$/)?.[1];
   if (section) return <MandatePicker section={section as "brief" | "targets" | "people" | "sequences"} />;
@@ -36,13 +37,13 @@ function LoadingView({ pathname, tab }: { pathname: string; tab?: string | null 
   );
 }
 
-function QueryLoadingView({ pathname }: { pathname: string }) {
+function QueryLoadingView({ pathname, ...flags }: { pathname: string } & AgentFlags) {
   const query = useSearchParams();
-  return <LoadingView pathname={pathname} tab={query.get("tab")} />;
+  return <LoadingView pathname={pathname} tab={query.get("tab")} {...flags} />;
 }
 
-export function PageLoading() {
+export function PageLoading(flags:AgentFlags={}) {
   const pathname = usePathname();
   // Query parameters can suspend on a direct visit. Keep the shell visible then too.
-  return <Suspense fallback={<LoadingView pathname={pathname} />}><QueryLoadingView pathname={pathname} /></Suspense>;
+  return <Suspense fallback={<LoadingView pathname={pathname} {...flags} />}><QueryLoadingView pathname={pathname} {...flags} /></Suspense>;
 }

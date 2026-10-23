@@ -1,0 +1,45 @@
+{
+  "migration": "0036-agent-isolated-communications-storage.sql",
+  "sources": [
+    {
+      "source": "ops/communications/standalone/001-service-storage.local.sql",
+      "sourceSha256": "cedeedde1b873a943af4566af78faf184da56e3d68de7d7bb8a2d69b9127c2d0",
+      "bodySha256": "3b78541a368bc697939ad64ca1e1e9c9dd6075c81070c0cd0dd1c211f920fdef"
+    },
+    {
+      "source": "ops/communications/standalone/002-reply-barrier.local.sql",
+      "sourceSha256": "3d2423f632f1e36fdffda5eeb803f5b5f6c32950f8a6f649abfdc4f6e6a2cbae",
+      "bodySha256": "05062dc522b49aeb0fb8dc07fb5db0ada516a9222d01be2cc809997d03cd7358"
+    },
+    {
+      "source": "ops/communications/standalone/003-connection-retirement.local.sql",
+      "sourceSha256": "2448ee14577f97a6d17e3c307fe376c4d44dfb204f0a94a83b652fb56a905dde",
+      "bodySha256": "1d9555334b8bd2dbeb18b647fa1b6f3aa5696bd797782dde44f23aad762633f3"
+    },
+    {
+      "source": "ops/communications/standalone/004-email-tracking.local.sql",
+      "sourceSha256": "71fa73939d98509d7c28da4d8f8fa0efe550f74fd5a6b134b230747cd4900edc",
+      "bodySha256": "406f939ba930a0f94a7b11045e5acf6f0a02d2ba3f420172ebab5d59c19418cd"
+    },
+    {
+      "source": "ops/communications/standalone/005-send-admission.local.sql",
+      "sourceSha256": "6d6179fe4f27359dfbe3f6acaa535741036e1d589c9dafaff28323b37c58710c",
+      "bodySha256": "7de3ceeaba8c7d9a9ca40c63a2e3d4117f825d6ecbd5d710d9f7ff77fdbea0fe"
+    },
+    {
+      "source": "ops/communications/standalone/006-account-runtime.local.sql",
+      "sourceSha256": "cd6ec7e2c305fcd7536b013c7d0fcc2d17476e941fc58cc71f3e035fdaffc732",
+      "bodySha256": "f321c3bbf4463b935013a80aa46965b04222051756854cc289929532ed2f904a"
+    },
+    {
+      "source": "ops/communications/standalone/007-history-checkpoints.local.sql",
+      "sourceSha256": "e2406e5e2455856db703360123b7a352e4a7152cfad22ea50aa58b7930390d3e",
+      "bodySha256": "fc13f68c718bd52c6975e52d9bb101e953d4bb7982a2bbca0f53493f6de1f2d3"
+    },
+    {
+      "source": "ops/communications/standalone/008-provider-spool-record-guard.local.sql",
+      "sourceSha256": "bc674ae0ece1ff3a305b35d120848140021b0480dd0c420359ace96cd3de3b5f",
+      "bodySha256": "0958dc2f6d20c7ee2a70d226a6c9834d7d70b6977c0a6edf668776974ed23671"
+    }
+  ]
+}

@@ -1,10 +1,18 @@
+import {observeInitialResearchProgress} from '@/lib/agent-initial-research-observer';
+import {nativeResearchRequestClassSchema} from '@/lib/agent-research-provider-request';
+import{executeNativeFieldsResearch,finishNativeFieldsResearch}from'@/lib/agent-fields-execution';
+import {executeNativePeopleResearch,finishNativePeopleResearch} from '@/lib/agent-people-execution';
+import {agentStore,nativeAgentEnabled} from '@/lib/agent-runtime';
+import {nativeResearchProviderAdmissionRequired} from '@/lib/agent-research-admission';
 import {dispatchCompanyBackground} from '@/lib/company-background-dispatch';
 import {executeCompanyBackground} from '@/lib/company-background-execution';
 import {queueCompanyPeople} from '@/lib/company-people-research';
 import { firmableCompanyResearch } from '@/lib/firmable-company-research';
+import {FirmableError} from '@/adapters/firmable-client';
 import { researchCallbackContext } from '@/lib/research-egress-metrics';
 import { adaptiveDiscovery, discoveryLimit, discoveryRegions, resolveDiscoveryDecision, DISCOVERY_BATCH_SIZE, discoveryQueryId, type DiscoveryContext, type DiscoveryAttempt } from "@/domain/adaptive-discovery";
 import { setResearchDatabaseContext, bufferResearchTiming, configureResearchTelemetry, flushResearchTiming, observeResearchRequest, researchRequestJson, researchJsonResponse, observeResearchOperation, researchRequestId } from "@/lib/research-request-observability";
+import {safeResearchTrace} from '@/domain/research-trace-context';
 import { saveResearchTimingSpans } from "@/db/research-timing-repository";
 import { measureResearchSegment } from "@/lib/research-segment-timing";
 import { scheduleResearchRun } from "@/lib/research-scheduler";
@@ -52,19 +60,38 @@ import {
 } from "@/lib/research-service";
 export const maxDuration = 120;
 const DISCOVERY_PERSIST_BATCH = 8;
-async function getJob(request: Request, jobId: string, lean = false) {
+async function getJob(request: Request, jobId: string, lean = false,action='control') {
   if (!researchServiceAuthorized(request) || !researchEnabled()) return null;
   if (!z.string().uuid().safeParse(jobId).success) return null;
-  return (
+  const job = (
     await requireDb()
       .select(lean ? {
         ...researchExecutionSelection,
+        nativeAgentJob:sql<boolean>`${researchJobs.config} ? 'nativeAgent'`,
+        nativeAgentSnapshot:sql<ResearchConfig['nativeAgent']>`${researchJobs.config}->'nativeAgent'`,
         config: sql<ResearchConfig>`jsonb_build_object('researchRunId', ${researchJobs.config}->'researchRunId', 'budget', ${researchJobs.config}->'budget', 'automaticDeadline', ${researchJobs.config}->'automaticDeadline', 'newBusinessIds', ${researchJobs.config}->'newBusinessIds', 'performanceFlags', ${researchJobs.config}->'performanceFlags', 'discoveryCandidate', ${researchJobs.config}->'discoveryCandidate', 'parallelDiscovery', ${researchJobs.config}->'parallelDiscovery', 'companyBackgroundResearch', ${researchJobs.config}->'companyBackgroundResearch')`,
       } : researchExecutionSelection)
       .from(researchJobs)
       .where(eq(researchJobs.id, jobId))
       .limit(1)
   )[0];
+  if(!job)return null;
+  if(('nativeAgentJob' in job&&job.nativeAgentJob===true)||nativeResearchProviderAdmissionRequired(job.config)){
+    const metadata=(job.config as ResearchConfig).nativeAgent??('nativeAgentSnapshot' in job?job.nativeAgentSnapshot:undefined);
+    const allowed=metadata?.providerAdmission==='public-fields-v1'?['control','native-fields-plan','native-fields-company','native-fields-finish','provider-reserve','provider-release','browser-permit','browser-cooldown','native-provider-begin','native-provider-finish']:metadata?.providerAdmission==='hybrid-company-v1'?['control','f-continuation-plan','d-search','d-company','e-plan','e-search','e-company','f-finish','f-fail','provider-reserve','provider-release','browser-permit','browser-cooldown','native-provider-begin','native-provider-finish']:metadata?.providerAdmission==='firmable-company-v1'?['control','d-search','d-company','d-finish','d-fail','native-provider-begin','native-provider-finish']:metadata?.providerAdmission==='firmable-people-v1'?['control','native-people-plan','native-people-company','native-people-finish','native-provider-begin','native-provider-finish']:[];
+    if(!nativeAgentEnabled()||!metadata||(job.config as ResearchConfig).researchRunId!==job.id||!allowed.includes(action))return null;
+    const store=agentStore({organizationId:job.organizationId,userId:job.createdBy});
+    if(action!=='native-provider-finish'&&!await store.nativeResearchExecutionAllowed(metadata.threadId,metadata.operationId,['d-finish','d-fail','f-finish','f-fail'].includes(action)))return null;
+    return job;
+  }
+  // Root provenance fences children whose existing configuration builder did
+  // not copy extension fields. No agent schema is needed for original UI jobs.
+  const rootId=(job.config as ResearchConfig).researchRunId;
+  if(rootId&&rootId!==job.id&&z.string().uuid().safeParse(rootId).success){
+    const root=await new ResearchRepository(job.organizationId).getExecution(rootId);
+    if(root&&root.mandateId===job.mandateId&&nativeResearchProviderAdmissionRequired(root.config))return null;
+  }
+  return job;
 }
 async function getResearchControl(
   request: Request,
@@ -74,7 +101,7 @@ async function getResearchControl(
   const lean = new URL(request.url).searchParams.get("control") === "1";
   const job = await getJob(request, jobId, lean);
   if (!job) return researchJsonResponse({ error: "Not available" }, { status: 403 });
-  setResearchDatabaseContext({ jobId: job.id, organizationId: job.organizationId, mandateId: job.mandateId, runId: (job.config as ResearchConfig).researchRunId || job.id });
+  setResearchDatabaseContext({ ...jobTraceContext(job), organizationId: job.organizationId });
   configureResearchTelemetry(researchPerformanceFlags(job.config as ResearchConfig).telemetryBatching);
   return researchJsonResponse(await controlSnapshot(job, !lean), { headers: { "Cache-Control": "no-store" } });
 }
@@ -90,10 +117,16 @@ async function runEvidence(job: NonNullable<Awaited<ReturnType<typeof getJob>>>)
   }
   return requireDb().select().from(researchFindings).where(and(eq(researchFindings.organizationId, job.organizationId), config.targetId ? and(eq(researchFindings.targetId, config.targetId), sql`${researchFindings.jobId} IN (SELECT id FROM research_jobs WHERE id = ${rootId} OR config->>'researchRunId' = ${rootId})`) : eq(researchFindings.jobId, job.id)));
 }
+function jobTraceContext(job: NonNullable<Awaited<ReturnType<typeof getJob>>>) {
+  const config=job.config as ResearchConfig;
+  const native=config.nativeAgent??('nativeAgentSnapshot' in job?job.nativeAgentSnapshot as ResearchConfig['nativeAgent']:undefined);
+  return safeResearchTrace({jobId:job.id,mandateId:job.mandateId,runId:config.researchRunId||job.id,operationId:native?.operationId});
+}
 async function controlSnapshot(job: NonNullable<Awaited<ReturnType<typeof getJob>>>, includeFindings = false) {
   const config = job.config as ResearchConfig;
   const root = config.researchRunId && config.researchRunId !== job.id ? await new ResearchRepository(job.organizationId).getControl(config.researchRunId) : job;
   return {
+    traceContext: jobTraceContext(job),
     status: root?.status === "cancelled" ? "cancelled" : job.status,
     updatedAt: job.updatedAt.toISOString(), crawlId: job.crawlId, config: { ...(config.discoveryCandidate || config.parallelDiscovery ? { ...config, newBusinessIds: (root?.config as ResearchConfig | undefined)?.newBusinessIds || [] } : config), pipelineTiming: undefined }, seeds: job.seeds,
     deadline: config.companyBackgroundResearch ? config.automaticDeadline || Infinity : Math.min(job.createdAt.getTime() + config.budget.maxMinutes * 60000, (root?.config as ResearchConfig | undefined)?.automaticDeadline || Infinity),
@@ -128,24 +161,69 @@ async function postResearchCallback(
   if (!researchServiceAuthorized(request) || !researchEnabled() || !z.string().uuid().safeParse(jobId).success) return researchJsonResponse({ error: "Not available" }, { status: 403 });
   const payload = await researchRequestJson(request).catch(() => null);
   setResearchDatabaseContext(researchCallbackContext(payload?.action));
-  const job = await getJob(request, jobId);
+  const job = await getJob(request, jobId,false,typeof payload?.action==='string'?payload.action:'progress');
   if (!job) return researchJsonResponse({ error: "Not available" }, { status: 403 });
-  setResearchDatabaseContext({ jobId: job.id, organizationId: job.organizationId, mandateId: job.mandateId, runId: (job.config as ResearchConfig).researchRunId || job.id });
+  setResearchDatabaseContext({ ...jobTraceContext(job), organizationId: job.organizationId });
   configureResearchTelemetry(researchPerformanceFlags(job.config as ResearchConfig).telemetryBatching);
   const repo = new ResearchRepository(job.organizationId);
+  if(payload?.action==='native-fields-plan'){const meta=(job.config as ResearchConfig).nativeAgent!,plan=await agentStore({organizationId:job.organizationId,userId:job.createdBy}).nativeFieldsPlan(meta.threadId,meta.operationId);return researchJsonResponse({targetIds:plan.selected.map(c=>c.targetId)});}
+  if(payload?.action==='native-fields-company'){const p=z.object({action:z.literal('native-fields-company'),targetId:z.string().uuid()}).strict().safeParse(payload);if(!p.success)return researchJsonResponse({error:'Exact field company required'},{status:400});return researchJsonResponse(await executeNativeFieldsResearch(job,p.data.targetId));}
+  if(payload?.action==='native-fields-finish')return researchJsonResponse(await finishNativeFieldsResearch(job));
+  if(payload?.action==='native-people-plan'){const meta=(job.config as ResearchConfig).nativeAgent!;const plan=await agentStore({organizationId:job.organizationId,userId:job.createdBy}).nativePeoplePlan(meta.threadId,meta.operationId);return researchJsonResponse({targetIds:plan.selected.map(c=>c.targetId)});}
+  if(payload?.action==='native-people-company'){const p=z.object({action:z.literal('native-people-company'),targetId:z.string().uuid()}).strict().safeParse(payload);if(!p.success)return researchJsonResponse({error:'Invalid company step'},{status:400});return researchJsonResponse(await executeNativePeopleResearch(job,{targetId:p.data.targetId}));}
+  if(payload?.action==='native-people-finish')return researchJsonResponse(await finishNativePeopleResearch(job));
+  if(payload?.action==='native-provider-begin'||payload?.action==='native-provider-finish'){
+    const metadata=(job.config as ResearchConfig).nativeAgent;
+    if(!metadata)return researchJsonResponse({error:'Native research required'},{status:403});
+    const store=agentStore({organizationId:job.organizationId,userId:job.createdBy});
+    if(payload.action==='native-provider-begin'){
+      const p=z.object({action:z.literal('native-provider-begin'),targetId:z.string().uuid().optional(),provider:z.enum(['firmable','search','page']).default('firmable'),requestClass:nativeResearchRequestClassSchema.optional(),key:z.string().min(1).max(200),requestDigest:z.string().regex(/^[a-f0-9]{64}$/)}).strict().safeParse(payload);
+      if(!p.success)return researchJsonResponse({error:'Invalid native provider request'},{status:400});
+      if((job.config as ResearchConfig).companyDiscoveryPolicy?.version===4&&p.data.provider==='firmable'&&!['company_search','company_profile','auth'].includes(p.data.requestClass??''))return researchJsonResponse({error:'Company-only research cannot perform this provider action'},{status:403});
+      if(p.data.provider!=='firmable'&&!['hybrid-company-v1','public-fields-v1'].includes(metadata.providerAdmission))return researchJsonResponse({error:'Provider is outside the reviewed execution plan'},{status:403});
+      const result=await store.beginNativeResearchAttempt(metadata.threadId,p.data.key,{researchOperationId:metadata.operationId,researchJobId:job.id,provider:p.data.provider,...(p.data.requestClass?{requestClass:p.data.requestClass}:{}),...(p.data.targetId?{targetId:p.data.targetId}:{}),requestDigest:p.data.requestDigest});return researchJsonResponse(result);
+    }
+    const p=z.object({action:z.literal('native-provider-finish'),operationId:z.string().uuid(),fence:z.string().regex(/^\d+$/),outcome:z.object({actualCostMicroUsd:z.null(),costBasis:z.literal('unknown'),reason:z.literal('request_outcome_unknown').optional(),response:z.object({status:z.number().int().min(100).max(599),provider:z.enum(['firmable','search','page']),requestDigest:z.string().regex(/^[a-f0-9]{64}$/)}).strict().optional()}).strict()}).strict().safeParse(payload);
+    if(!p.success)return researchJsonResponse({error:'Invalid native provider receipt'},{status:400});
+    await store.finishNativeResearchAttempt(metadata.threadId,p.data.operationId,p.data.fence,p.data.outcome,metadata.operationId);return researchJsonResponse({ok:true});
+  }
   if (['company-background-research','company-background-failed'].includes(payload?.action)) {
     if(!(job.config as ResearchConfig).companyBackgroundResearch)return researchJsonResponse({error:'Not a background job'},{status:400});
     const result=await executeCompanyBackground(job,payload.action==='company-background-failed');
     after(()=>dispatchCompanyBackground(job.organizationId,job.mandateId));
     return researchJsonResponse(result);
   }
+  if(payload?.action==='f-continuation-plan'){
+    const meta=(job.config as ResearchConfig).nativeAgent;
+    if(!meta||(job.config as ResearchConfig).researchRunId!==job.id||!(job.config as ResearchConfig).companyContinuation)return researchJsonResponse({error:'Reviewed native continuation required'},{status:403});
+    return researchJsonResponse(await agentStore({organizationId:job.organizationId,userId:job.createdBy}).nativeCompanyContinuation(meta.threadId,meta.operationId));
+  }
   if (['company-people-status','d-search','d-company','d-finish','d-fail','e-plan','e-search','e-company','e-finish','e-fail','f-finish','f-fail'].includes(payload?.action)) {
-    const result=await firmableCompanyResearch(job,payload);
+    let result:Awaited<ReturnType<typeof firmableCompanyResearch>>;
+    try { result=await firmableCompanyResearch(job,payload); }
+    catch(error){
+      if(error instanceof FirmableError){
+        const categories=new Set(['reconnect_required','authentication_or_policy','rate_limit_unspecified','transport','timeout','provider_error']);
+        const category=error.category&&categories.has(error.category)?error.category:error.status===401||error.status===403?'authentication_or_policy':error.status===429?'rate_limit_unspecified':'provider_error';
+        const issue={version:1,provider:'firmable',category,...(error.status>=400&&error.status<=599?{status:error.status}:{})};
+        try{await requireDb().update(researchJobs).set({config:sql`jsonb_set(${researchJobs.config}, '{operationalIssues}', (SELECT coalesce(jsonb_agg(value),'[]'::jsonb) FROM (SELECT DISTINCT value FROM jsonb_array_elements(CASE WHEN jsonb_typeof(${researchJobs.config}->'operationalIssues')='array' THEN ${researchJobs.config}->'operationalIssues' ELSE '[]'::jsonb END || ${JSON.stringify([issue])}::jsonb) value LIMIT 10) saved_issues))`}).where(and(eq(researchJobs.id,job.id),eq(researchJobs.organizationId,job.organizationId),eq(researchJobs.mandateId,job.mandateId)));}
+        catch{/* Failure presentation must not overwrite the original provider outcome. */}
+        if(error.status===401||error.status===403)return researchJsonResponse({provider:'firmable',category,error:category==='reconnect_required'?'The Firmable connection needs renewal.':'Firmable authentication or policy requires attention.'},{status:error.status});
+      }
+      if(error instanceof FirmableError&&error.status===429&&['d-search','d-company','e-company'].includes(payload.action)){
+        const retryAfterMs=error.retryAfterMs??30000;
+        return researchJsonResponse({provider:'firmable',category:'rate_limited',retryAfterMs},{status:429,headers:{'Retry-After':String(Math.ceil(retryAfterMs/1000))}});
+      }
+      throw error;
+    }
+    if((job.config as ResearchConfig).nativeAgent&&['d-finish','d-fail','f-finish','f-fail'].includes(String(payload.action))){const meta=(job.config as ResearchConfig).nativeAgent!;await agentStore({organizationId:job.organizationId,userId:job.createdBy}).finishNativeResearchJob(meta.threadId,meta.operationId);}
     if(['d-company','e-company','d-finish','e-finish','f-finish'].includes(payload.action))after(async()=>{
       await dispatchCompanyBackground(job.organizationId,job.mandateId);
       const company=result as {matched?:boolean;targetId?:string;firmableId?:string};
       if(company.matched&&company.targetId&&company.firmableId)await queueCompanyPeople(job,company.targetId,company.firmableId);
+      if(!(job.config as ResearchConfig).nativeAgent)await observeInitialResearchProgress(job);
     });
+    if(!(job.config as ResearchConfig).nativeAgent&&!['d-company','e-company','d-finish','e-finish','f-finish'].includes(payload.action))after(()=>observeInitialResearchProgress(job).then(()=>{}));
     return researchJsonResponse(result);
   }
   if (payload?.action === 'balanced-wakeup') {
@@ -639,10 +717,11 @@ async function postResearchCallback(
   // status-only heartbeats must stay cheap.
   const pageMatters = Boolean(page && (page.findings.length > 0 || directorySource(page.url, page.markdown)));
   const terminal = ["complete", "partial", "failed"].includes(status);
+  if(!(job.config as ResearchConfig).nativeAgent&&event.data.revision>job.revision&&(status!==job.status||pageMatters||terminal))after(()=>observeInitialResearchProgress(job).then(()=>{}));
   if ((pageMatters || terminal) && event.data.revision > job.revision && !terminalResearchStates.includes(job.status)) {
     const requestId = researchRequestId() || crypto.randomUUID();
     after(() => observeResearchOperation(`${requestId}-dispatch`, async () => {
-      setResearchDatabaseContext({ jobId, organizationId: job.organizationId, mandateId: job.mandateId, runId: (job.config as ResearchConfig).researchRunId || job.id, stage: "coordination", action: "dispatch" });
+      setResearchDatabaseContext({ ...jobTraceContext(job), organizationId: job.organizationId, stage: "coordination", action: "dispatch" });
       configureResearchTelemetry(researchPerformanceFlags(job.config as ResearchConfig).telemetryBatching);
       try {
         if ((job.config as ResearchConfig).mode === "automatic") {

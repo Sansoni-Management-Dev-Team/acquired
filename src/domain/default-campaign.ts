@@ -1,3 +1,4 @@
+import { randomUuid } from "@/lib/random-uuid";
 import type { CampaignDefinition } from "./campaign";
 
 export const DEFAULT_CAMPAIGN_NAME = "7-step introduction sequence";
@@ -42,8 +43,8 @@ export function defaultCampaignDefinition(): CampaignDefinition {
   ];
   const steps: CampaignDefinition["steps"] = [];
   emails.forEach((email, index) => {
-    if (index > 0) steps.push({ id: crypto.randomUUID(), kind: "wait", title: "Wait three days", days: 3 });
-    steps.push({ id: crypto.randomUUID(), kind: "email", ...email });
+    if (index > 0) steps.push({ id: randomUuid(), kind: "wait", title: "Wait three days", days: 3 });
+    steps.push({ id: randomUuid(), kind: "email", ...email });
   });
   return { schemaVersion: 1, steps };
 }

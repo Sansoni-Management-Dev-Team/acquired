@@ -30,10 +30,45 @@ DOMAIN_DELAY = max(1, int(os.environ.get("CRAWL4AI_DOMAIN_DELAY", "3")))
 ACTIVE_DOMAIN_RETRY_SECONDS = 3
 
 
+TRANSPORT_FAILURES = frozenset({"connection_refused", "dns_resolution_failed", "timeout", "connection_reset", "connection_closed", "tls_verification_failed", "network_unavailable", "navigation_failed"})
+
+
+def classify_transport_failure(error):
+    """Diagnostic classification only; never expose raw messages/URLs or retry.
+
+    Crawl4AI returns failed navigation as a result rather than an exception, so
+    status/category alone cannot distinguish network refusal from an empty page.
+    """
+    if isinstance(error, ConnectionRefusedError):
+        return "connection_refused"
+    if isinstance(error, socket.gaierror):
+        return "dns_resolution_failed"
+    if isinstance(error, TimeoutError):
+        return "timeout"
+    try:
+        text = (error if isinstance(error, str) else str(error) if isinstance(error, Exception) else "")[:16000].lower()
+        for tokens, category in [
+            (("net::err_connection_refused", "econnrefused"), "connection_refused"),
+            (("net::err_name_not_resolved", "eai_again"), "dns_resolution_failed"),
+            (("net::err_timed_out", "net::err_connection_timed_out", "timeouterror"), "timeout"),
+            (("net::err_connection_reset",), "connection_reset"),
+            (("net::err_connection_closed",), "connection_closed"),
+            (("net::err_cert_",), "tls_verification_failed"),
+            (("net::err_internet_disconnected", "net::err_network_changed"), "network_unavailable"),
+            (("net::err_failed",), "navigation_failed"),
+        ]:
+            if any(token in text for token in tokens):
+                return category
+    except Exception:
+        pass  # Diagnostics cannot change a failed read's original outcome.
+    return None
+
+
 class ReadError(Exception):
-    def __init__(self, category, status=502, origin_status=None):
+    def __init__(self, category, status=502, origin_status=None, transport_failure=None):
         self.category, self.status = category, status
         self.origin_status = origin_status
+        self.transport_failure = transport_failure if transport_failure in TRANSPORT_FAILURES else None
 
 
 def acquire_slot():
@@ -89,16 +124,27 @@ def release_domain(host, cooldown=DOMAIN_DELAY):
 reader_loop = asyncio.new_event_loop()
 
 
-def public_url(url):
+def public_url(url, diagnostics=None):
+    validation = diagnostics if diagnostics is not None else {}
     try:
         parsed = urlsplit(url)
         if parsed.scheme != "https" or parsed.port not in (None, 443) or parsed.username or parsed.password:
+            validation["urlValidationReason"] = "scheme_or_credentials"
             return False
         if not parsed.hostname or "." not in parsed.hostname or parsed.hostname.endswith((".localhost", ".local", ".internal")):
+            validation["urlValidationReason"] = "hostname"
             return False
         addresses = socket.getaddrinfo(parsed.hostname, 443, type=socket.SOCK_STREAM)
-        return bool(addresses) and all(ipaddress.ip_address(item[4][0]).is_global for item in addresses)
-    except (ValueError, OSError):
+        allowed = bool(addresses) and all(ipaddress.ip_address(item[4][0]).is_global for item in addresses)
+        validation["urlValidationReason"] = "allowed" if allowed else "non_public_address"
+        return allowed
+    except OSError as error:
+        validation["urlValidationReason"] = "dns_resolution_failed"
+        if isinstance(error.errno, int):
+            validation["dnsErrorCode"] = error.errno
+        return False
+    except ValueError:
+        validation["urlValidationReason"] = "malformed_url"
         return False
 
 
@@ -146,7 +192,7 @@ async def read_page(url, only_main_content=True):
         if status and status >= 400:
             raise ReadError("origin_http_error", origin_status=status)
         if not result.success or not result.markdown:
-            raise ReadError("page_unavailable")
+            raise ReadError("page_unavailable", transport_failure=classify_transport_failure(getattr(result, "error_message", None)))
         final_url = getattr(result, "redirected_url", None) or result.url
         if not await asyncio.to_thread(public_url, final_url):
             raise ReadError("unsupported_redirect")
@@ -180,16 +226,21 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass  # Do not log URLs, page contents or credentials.
 
+    def correlation(self):
+        result = {}
+        for header, key in [("x-request-id", "requestId"), ("x-research-job-id", "jobId")]:
+            value = self.headers.get(header, "")
+            if re.fullmatch(r"[a-zA-Z0-9_-]{8,100}", value):
+                result[key] = value
+        return result
+
     def send_json(self, status, data, retry_after=None):
         if hasattr(self, "crawl_started"):
             diagnostics = reader_diagnostics(self.crawl_started, getattr(self, "crawl_domain", None), retry_after)
+            diagnostics.update(getattr(self, "url_validation", {}))
             data = {**data, "reader": diagnostics}
-            correlation = {}
-            for header, key in [("x-request-id", "requestId"), ("x-research-job-id", "jobId")]:
-                value = self.headers.get(header, "")
-                if re.fullmatch(r"[a-zA-Z0-9_-]{8,100}", value):
-                    correlation[key] = value
-            print("research-reader " + json.dumps({"event": "response", "httpStatus": status, "category": data.get("category", "succeeded" if status == 200 else "invalid_request"), **({"originHttpStatus": data["originHttpStatus"]} if data.get("originHttpStatus") else {}), **correlation, **diagnostics}), flush=True)
+            transport = getattr(self, "transport_failure", None)
+            print("research-reader " + json.dumps({"module": "public-reader", "event": "response", "httpStatus": status, "category": data.get("category", "succeeded" if status == 200 else "invalid_request"), **({"originHttpStatus": data["originHttpStatus"]} if data.get("originHttpStatus") else {}), **({"transportFailure": transport} if transport in TRANSPORT_FAILURES else {}), **self.correlation(), **diagnostics}), flush=True)
         payload = json.dumps(data).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -208,6 +259,8 @@ class Handler(BaseHTTPRequestHandler):
         if service_secret and not hmac.compare_digest(self.headers.get("Authorization", ""), f"Bearer {service_secret}"):
             return self.send_json(401, {"error": "Unauthorized"})
         self.crawl_started = time.monotonic()
+        self.url_validation = {}
+        print("research-reader " + json.dumps({"module": "public-reader", "event": "request_started", **self.correlation()}), flush=True)
         if not acquire_slot():
             return self.send_json(429, {"error": "Reader busy", "category": "reader_busy"}, 3)
         future = None
@@ -220,13 +273,16 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(400, {"error": "Invalid request"})
             data = json.loads(self.rfile.read(length))
             url = data.get("url") if isinstance(data, dict) else None
-            if not isinstance(url, str) or not public_url(url):
-                return self.send_json(400, {"error": "Unsupported public URL"})
+            if not isinstance(url, str) or not public_url(url, self.url_validation):
+                dns_failed = self.url_validation.get("urlValidationReason") == "dns_resolution_failed"
+                self.transport_failure = "dns_resolution_failed" if dns_failed else None
+                return self.send_json(503 if dns_failed else 400, {"error": "Public URL resolution unavailable" if dns_failed else "Unsupported public URL", "category": "dns_resolution_failed" if dns_failed else "unsupported_public_url"})
             only_main_content = data.get("only_main_content", True)
             if not isinstance(only_main_content, bool):
                 return self.send_json(400, {"error": "Invalid content mode"})
             domain = urlsplit(url).hostname.lower().removeprefix("www.")
             self.crawl_domain = domain
+            print("research-reader " + json.dumps({"module": "public-reader", "event": "url_validation_completed", **self.correlation(), **self.url_validation, **reader_diagnostics(self.crawl_started, domain)}), flush=True)
             delay = claim_domain(domain)
             if delay:
                 return self.send_json(429, {"error": "Domain cooling down", "category": "domain_backoff"}, delay)
@@ -238,12 +294,14 @@ class Handler(BaseHTTPRequestHandler):
             future = asyncio.run_coroutine_threadsafe(bounded(), reader_loop)
             self.send_json(200, future.result(timeout=40))
         except ReadError as error:
+            self.transport_failure = error.transport_failure
             cooldown = 30 if error.status == 429 else DOMAIN_DELAY
             self.send_json(error.status, {"error": "Page read failed", "category": error.category, **({"originHttpStatus": error.origin_status} if error.origin_status else {})}, cooldown if error.status == 429 else None)
         except Exception as error:
             if future is not None:
                 future.cancel()
             category = "reader_timeout" if isinstance(error, TimeoutError) else "reader_failure"
+            self.transport_failure = classify_transport_failure(error)
             self.send_json(502, {"error": "Page read failed", "category": category})
         finally:
             if host:
@@ -253,4 +311,4 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     threading.Thread(target=reader_loop.run_forever, daemon=True).start()
-    ThreadingHTTPServer(("0.0.0.0", 8080), Handler).serve_forever()
+    ThreadingHTTPServer(("0.0.0.0", int(os.environ.get("CRAWL4AI_PORT", "8080"))), Handler).serve_forever()

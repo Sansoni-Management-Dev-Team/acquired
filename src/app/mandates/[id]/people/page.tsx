@@ -31,5 +31,5 @@ async function PeopleContent({ id, rawRuns }: { id: string; rawRuns?: string | s
   const runIds = typeof rawRuns === "string" ? rawRuns.split(",") : [];
   const filteredContactIds = rawRuns === undefined ? undefined : runIds.length <= 20 && runIds.every(runId => z.uuid().safeParse(runId).success)
     ? await new FirmableHistoryRepository().contactIdsForRuns(organizationId, id, runIds) : [];
-  return <><MandateNavigation mandates={mandates} selected={id} tab="people" /><CampaignStudio key={typeof rawRuns === "string" ? rawRuns : "all"} mandateId={id} mandateName={mandate.brief.name} initialData={initialData} initialView="contacts" enrichmentContactIds={filteredContactIds} /></>;
+  return <><MandateNavigation mandates={mandates} selected={id} tab="people" /><CampaignStudio key={typeof rawRuns === "string" ? rawRuns : "all"} mandateId={id} mandateName={mandate.brief.name} initialData={initialData} learningEnabled={process.env.AGENT_GUIDANCE_ENABLED==='true'&&process.env.AGENT_MODE_EXPLORATION_ENABLED==='true'&&process.env.AGENT_DURABLE_STATE_ENABLED==='true'} initialView="contacts" enrichmentContactIds={filteredContactIds} /></>;
 }

@@ -1,3 +1,4 @@
+import{ReplyProcessingPendingError}from'../../core/src/history-pending';
 import { types } from 'node:util';
 import type { SqlPool, SqlClient } from './webhook-repository';
 /** release(error) MUST terminate the physical connection. No rollback races an unfinished query.
@@ -55,8 +56,10 @@ export function historyTransaction(pool: SqlPool, budgetMs = 20000) {
         try {
             return await Promise.race([run(), deadline]);
         }
-        catch {
+        catch(error) {
+            const pending=error instanceof ReplyProcessingPendingError&&!commit&&!closed&&!controller.signal.aborted&&!signal?.aborted&&performance.now()<end;
             dispose();
+            if(pending)throw error;
             throw Error('History storage unavailable');
         }
         finally {

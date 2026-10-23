@@ -70,3 +70,34 @@ it('keeps modern progress visible while the overall run is still discovering', a
   expect(mocks.push).not.toHaveBeenCalled();
   expect(fetch).not.toHaveBeenCalled();
 });
+
+it('opens retained results when a parallel root has zero pages and failed while child enrichment continues', async () => {
+  const update = observe();
+  const stopped = { ...root, status: 'failed', pages: 0, message: 'Worker stopped unexpectedly; saved evidence retained.', config: { ...root.config, researchRunId: 'new', parallelBusinessResearch: true } };
+  const saved = { ...root, id: 'saved-child', status: 'complete', config: { ...root.config, researchRunId: 'new', discoveryCandidate: true, newBusinessIds: ['saved-company'] } };
+  const enriching = { ...root, id: 'enrich-child', status: 'reading', config: { ...root.config, researchRunId: 'new', purpose: 'firmographics' as const } };
+  const data = { ...snapshot([stopped, saved]), companyJobs: [enriching] };
+  await update(data);
+  await update(data);
+  expect(mocks.push).toHaveBeenCalledExactlyOnceWith('/mandates/mandate?tab=targets');
+  expect(fetch).not.toHaveBeenCalled();
+  expect(stopped.status).toBe('failed');
+  expect(enriching.status).toBe('reading');
+});
+
+it('opens partial retained company results from separately projected company jobs', async () => {
+  const stopped = { ...root, status: 'partial', pages: 0, config: { ...root.config, researchRunId: 'new', parallelBusinessResearch: true } };
+  const saved = { ...root, id: 'saved-child', status: 'complete', config: { ...root.config, researchRunId: 'new', purpose: 'firmographics' as const, newBusinessIds: ['saved-company'] } };
+  await observe()({ ...snapshot([stopped]), companyJobs: [saved] });
+  expect(mocks.push).toHaveBeenCalledExactlyOnceWith('/mandates/mandate?tab=targets');
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it('does not use older saved companies or merely queued target identifiers to hide a failed current search', async () => {
+  const stopped = { ...root, status: 'failed', config: { ...root.config, researchRunId: 'new' } };
+  const old = { ...root, id: 'old-child', config: { ...root.config, researchRunId: 'old', newBusinessIds: ['old-company'] } };
+  const queued = { ...root, id: 'queued-child', status: 'queued', config: { ...root.config, researchRunId: 'new', targetId: 'planned-company' } };
+  await observe()({ ...snapshot([stopped, old]), companyJobs: [queued] });
+  expect(mocks.push).not.toHaveBeenCalled();
+  expect(fetch).not.toHaveBeenCalled();
+});

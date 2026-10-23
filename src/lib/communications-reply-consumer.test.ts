@@ -28,7 +28,7 @@ function fixture(channel: 'linkedin' | 'email' | 'whatsapp' = 'linkedin') {
         values: unknown[];
     }[] = [];
     let role = 'acquire_campaign_user';
-    const state = { gateInstalled:false, member: true, bindingValid: true, receipt: null as Record<string, unknown> | null, failInsert: false, failCommit: false, failRollback: false, insertCollision: false, latch: null as Record<string, unknown> | null, waitCommit: null as Promise<void> | null };
+    const state = { humanUnrelated:false, channelCatalog:{installed:false,routed_schema:false}, bounceCatalog:{installed:true,native_schema:true},nativeInstalled:false, nativeQueueFailed:false,gateInstalled:false, member: true, bindingValid: true, receipt: null as Record<string, unknown> | null, failInsert: false, failCommit: false, failRollback: false, insertCollision: false, latch: null as Record<string, unknown> | null, waitCommit: null as Promise<void> | null };
     const release = vi.fn();
     const query: SqlClient['query'] = async <Row = Record<string, unknown>>(sql: string, values: unknown[] = []): Promise<SqlResult<Row>> => {
         calls.push({ sql, values });
@@ -37,6 +37,12 @@ function fixture(channel: 'linkedin' | 'email' | 'whatsapp' = 'linkedin') {
             role = sql.split(' ').at(-1)!;
         if (sql.includes('FROM pg_roles'))
             rows = [{ active_role: role, rolsuper: false, rolbypassrls: false, rolcanlogin: false }];
+        if(sql.includes("to_regprocedure('public.agent_channel_communications_change"))rows=[state.channelCatalog];
+        if(sql.includes('SELECT public.agent_channel_communications_change')){if(state.nativeQueueFailed)throw Error('Synthetic native outbox failure');rows=[{queued:1}];}
+        if(sql.includes("to_regprocedure('public.agent_communications_bounce"))rows=[state.bounceCatalog];
+        if(sql.includes("to_regprocedure('public.agent_communications_change"))rows=[{installed:state.nativeInstalled}];
+        if(sql.includes('SELECT public.agent_communications_bounce')){if(state.nativeQueueFailed)throw Error('Synthetic native outbox failure');rows=[{queued:1}];}
+        if(sql.includes('SELECT public.agent_communications_change')){if(state.nativeQueueFailed)throw Error('Synthetic native outbox failure');rows=[{queued:1}];}
         if (sql.includes("to_regprocedure('public.communications_lock_send_gate")) rows=[{installed:state.gateInstalled}];
         if (sql.includes('communications_lock_send_gate($1)')) rows=[{revision:'1'}];
         if (sql.includes('communications_lock_reply_member'))
@@ -61,6 +67,7 @@ function fixture(channel: 'linkedin' | 'email' | 'whatsapp' = 'linkedin') {
         }
         if (sql.includes('FROM public.communication_reply_review_latches'))
             rows = state.latch ? [state.latch] : [];
+        if(sql.includes('AS human_unrelated'))rows=[{human_unrelated:state.humanUnrelated}];
         if (sql === 'COMMIT') {
             if (state.waitCommit)
                 await state.waitCommit;
@@ -133,8 +140,14 @@ describe('Acquire reply consumer SQL protocol, scripted driver only', () => {
         expect(f.release).toHaveBeenCalledWith(expect.any(Error));
     });
     it.each(['authentication', 'connect', 'query', 'identity'] as const)('rejects synchronous %s work that blocks the deadline timer', async (stage) => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+        let elapsed = 0;
+        const monotonic = vi.spyOn(performance, 'now').mockImplementation(() => elapsed);
+        try {
         const f = fixture(), proof = await f.resolveIdentity();
-        const block = () => { const end = performance.now() + 20; while (performance.now() < end) { /* Synthetic callback starves timers. */ } };
+        // Advance elapsed work without servicing the deadline timer. Real CPU
+        // scheduling could previously expire authentication before later stages.
+        const block = () => { elapsed += 20; };
         if (stage === 'authentication')
             f.authenticateDelivery.mockImplementationOnce(async () => { block(); return true; });
         if (stage === 'connect')
@@ -156,6 +169,10 @@ describe('Acquire reply consumer SQL protocol, scripted driver only', () => {
         else {
             expect(f.release).toHaveBeenCalledOnce();
             expect(f.release).toHaveBeenCalledWith(expect.any(Error));
+        }
+        } finally {
+            monotonic.mockRestore();
+            vi.useRealTimers();
         }
     });
     it('honors a delivery abort inside identity resolution and prevents later SQL', async () => {
@@ -200,23 +217,29 @@ describe('Acquire reply consumer SQL protocol, scripted driver only', () => {
         expect(f.release).toHaveBeenCalledOnce();
     });
     it('discards an expired in-flight COMMIT without competing rollback or later success', async () => {
+        vi.useFakeTimers({toFake:['setTimeout','clearTimeout','performance']});
         const f = fixture();
-        let unblock!: () => void;
+        let unblock!: () => void, entered!: () => void;
+        const atCommit = new Promise<void>(resolve => { entered = resolve; });
         const stalled = new Promise<void>(resolve => { unblock = resolve; }), query = f.client.query.bind(f.client);
         f.client.query = async <Row>(sql: string, values?: unknown[]) => {
             const result = await query<Row>(sql, values);
-            if (sql === 'COMMIT')
+            if (sql === 'COMMIT') {
+                entered();
                 await stalled;
+            }
             return result;
         };
         const settled = createCommunicationReplyConsumer({ ...f.options, transactionTimeoutMs: 10 }).apply(f.input).then(() => 'completed', () => 'unavailable');
         try {
+            await atCommit;
+            await vi.advanceTimersByTimeAsync(11);
             expect(await settled).toBe('unavailable');
             expect(f.calls.some(c => c.sql === 'ROLLBACK')).toBe(false);
         }
         finally {
             unblock();
-            await new Promise(resolve => setTimeout(resolve, 0));
+            try { await vi.runAllTimersAsync(); } finally { vi.useRealTimers(); }
         }
         expect(f.calls.some(c => c.sql === 'COMMIT')).toBe(true);
         expect(f.release).toHaveBeenCalledOnce();
@@ -479,3 +502,27 @@ it('concurrent unrelated probes cannot change one another’s engine-owned SQL r
 
 it('installed send gate precedes member locks while provider runtime is disabled',async()=>{const f=fixture(),previous=process.env.COMMUNICATIONS_RUNTIME_ENABLED;process.env.COMMUNICATIONS_RUNTIME_ENABLED='false';f.state.gateInstalled=true;try{await f.api.apply(f.input);const gate=f.calls.findIndex(c=>c.sql.includes('communications_lock_send_gate($1)')),member=f.calls.findIndex(c=>c.sql.includes('communications_lock_reply_member'));expect(gate).toBeGreaterThanOrEqual(0);expect(gate).toBeLessThan(member);}finally{if(previous===undefined)delete process.env.COMMUNICATIONS_RUNTIME_ENABLED;else process.env.COMMUNICATIONS_RUNTIME_ENABLED=previous;}});
 it('reply recovery remains compatible with an older app schema when activation is disabled',async()=>{const f=fixture(),previous=process.env.COMMUNICATIONS_RUNTIME_ENABLED;process.env.COMMUNICATIONS_RUNTIME_ENABLED='false';f.state.gateInstalled=false;try{expect(await f.api.apply(f.input)).toEqual({status:'applied',decision:'stop'});expect(f.calls.some(c=>c.sql.includes("to_regprocedure('public.communications_lock_send_gate"))).toBe(true);expect(f.calls.some(c=>c.sql.includes('communications_lock_send_gate($1)'))).toBe(false);expect(f.calls.some(c=>c.sql==='COMMIT')).toBe(true);}finally{if(previous===undefined)delete process.env.COMMUNICATIONS_RUNTIME_ENABLED;else process.env.COMMUNICATIONS_RUNTIME_ENABLED=previous;}});
+
+it('queues native email change in the existing receipt transaction before commit',async()=>{const f=fixture('email');f.state.nativeInstalled=true;await f.api.apply(f.input);const receipt=f.calls.findIndex(c=>c.sql.startsWith('INSERT INTO public.communication_event_receipts')),native=f.calls.findIndex(c=>c.sql.includes('SELECT public.agent_communications_change')),commit=f.calls.findIndex(c=>c.sql==='COMMIT');expect(receipt).toBeGreaterThanOrEqual(0);expect(native).toBeGreaterThan(receipt);expect(commit).toBeGreaterThan(native);expect(f.calls[native].values).toEqual([bindingId,'100',expect.stringMatching(/^[a-f0-9]{64}$/),expect.stringMatching(/^[a-f0-9]{64}$/),'person@example.com','m1','2026-10-12T10:00:00.000Z',false]);});
+it('does not commit the app receipt when native notification/outbox insertion fails',async()=>{const f=fixture('email');f.state.nativeInstalled=true;f.state.nativeQueueFailed=true;await expect(f.api.apply(f.input)).rejects.toThrow();expect(f.calls.some(c=>c.sql==='COMMIT')).toBe(false);expect(f.calls.some(c=>c.sql==='ROLLBACK')).toBe(true);});
+
+it('commits a distinct delivery-failure receipt and exact native hold before ACK without applying a human reply to the original sequence',async()=>{
+ const f=fixture('email'),event={type:'email_change' as const,change:'bounce' as const,reference:{binding:f.input.binding,id:'dsn'},recipient:{kind:'email' as const,value:'person@example.com'},occurredAt:'2026-10-12T10:00:00.000Z'},scope=vector(f.input.binding),eventKey=hash(['communications.email.bounce.event.v1',scope,'dsn']),fingerprint=hash(['communications.email.bounce.content.v1',scope,'dsn','email','person@example.com',event.occurredAt]);
+ f.input.sourceKey=eventKey;f.input.payload.outcome={kind:'event',event,eventKey,fingerprint};f.input.payload.fingerprint=fingerprint;
+ expect(await f.api.apply(f.input)).toEqual({status:'applied',decision:'ignore'});expect(f.resolveIdentity).not.toHaveBeenCalled();expect(helper.apply).not.toHaveBeenCalled();expect(f.state.receipt?.event_type).toBe('email_change');
+ const receipt=f.calls.findIndex(c=>c.sql.startsWith('INSERT INTO public.communication_event_receipts')),bounce=f.calls.findIndex(c=>c.sql.includes('SELECT public.agent_communications_bounce')),commit=f.calls.findIndex(c=>c.sql==='COMMIT');expect(receipt).toBeLessThan(bounce);expect(bounce).toBeLessThan(commit);expect(f.calls[bounce].values).toContain('person@example.com');expect(f.calls[bounce].values).not.toContain('private body');
+ expect(await f.api.apply(f.input)).toEqual({status:'duplicate',decision:'ignore'});
+ const old=fixture('email');old.state.bounceCatalog={installed:false,native_schema:false};expect(await old.api.apply(f.input)).toEqual({status:'applied',decision:'ignore'});expect(old.calls.some(c=>c.sql.includes('SELECT public.agent_communications_bounce'))).toBe(false);old.state.bounceCatalog={installed:false,native_schema:true};await expect(old.api.apply(f.input)).rejects.toThrow();expect(old.calls.at(-1)?.sql).toBe('ROLLBACK');
+});
+it('rolls back a delivery-failure receipt if its native hold/outbox cannot commit',async()=>{
+ const f=fixture('email'),event={type:'email_change' as const,change:'bounce' as const,reference:{binding:f.input.binding,id:'dsn'},recipient:{kind:'email' as const,value:'person@example.com'},occurredAt:'2026-10-12T10:00:00.000Z'},scope=vector(f.input.binding),eventKey=hash(['communications.email.bounce.event.v1',scope,'dsn']),fingerprint=hash(['communications.email.bounce.content.v1',scope,'dsn','email','person@example.com',event.occurredAt]);f.input.sourceKey=eventKey;f.input.payload.outcome={kind:'event',event,eventKey,fingerprint};f.input.payload.fingerprint=fingerprint;f.state.nativeQueueFailed=true;
+ await expect(f.api.apply(f.input)).rejects.toThrow();expect(f.calls.some(c=>c.sql==='ROLLBACK')).toBe(true);expect(f.calls.some(c=>c.sql==='COMMIT')).toBe(false);expect(helper.apply).not.toHaveBeenCalled();
+});
+it('passes authenticated LinkedIn incoming metadata to the native route ingress before committing the application receipt',async()=>{const f=fixture('linkedin');f.state.channelCatalog={installed:true,routed_schema:true};await f.api.apply(f.input);const native=f.calls.find(c=>c.sql.includes('SELECT public.agent_channel_communications_change('));expect(native).toBeDefined();expect(f.calls.findIndex(c=>c===native)).toBeLessThan(f.calls.findIndex(c=>c.sql==='COMMIT'));});
+it.each(['email','whatsapp','linkedin']as const)('rolls back authenticated %s incoming receipts if routed invalidation is unavailable',async(channel)=>{const f=fixture(channel);f.state.channelCatalog={installed:false,routed_schema:true};await expect(f.api.apply(f.input)).rejects.toThrow('Communication reply consumption unavailable');expect(f.calls.some(c=>c.sql==='COMMIT')).toBe(false);expect(f.calls.some(c=>c.sql==='ROLLBACK')).toBe(true);});
+it('passes changed-receipt conflict as unverified metadata preserving the ORIGINAL receipt hash',async()=>{const f=fixture('whatsapp');f.state.channelCatalog={installed:true,routed_schema:true};await f.api.apply(f.input);const original=f.state.receipt!.payload_fingerprint;const e=f.input.payload.outcome;if(e.kind!=='event'||e.event.type!=='message')throw Error('fixture');e.event.sender={kind:'phone',value:'+61412345679'};const content=hash(['communications.reply.content.v1',vector(f.input.binding),'m1','chat','inbound','phone','+61412345679',e.event.occurredAt]);e.fingerprint=content;f.input.payload.fingerprint=content;f.calls.length=0;expect(await f.api.apply(f.input)).toEqual({status:'review',decision:'review'});const call=f.calls.find(c=>c.sql.includes('SELECT public.agent_channel_communications_change('));const p=JSON.parse(call!.values[0] as string);expect(p).toMatchObject({receiptFingerprint:original,reviewRequired:true,reviewReason:'semantic_conflict'});expect(p.changeFingerprint).not.toBe(original);});
+
+it('keeps an exactly reviewed-unrelated original replay unrelated without policy effects or native reply credit',async()=>{const f=fixture('email');await f.api.apply(f.input);f.state.receipt!.result='review';f.state.humanUnrelated=true;f.calls.length=0;helper.apply.mockClear();expect(await f.api.apply(f.input)).toEqual({status:'duplicate',decision:'ignore'});expect(helper.apply).not.toHaveBeenCalled();expect(f.calls.some(c=>c.sql.includes('SELECT public.agent_channel_communications_change(')||c.sql.includes('SELECT public.agent_communications_change('))).toBe(false);});
+
+it('consumes exact recorded demo identity without writing organization campaign policy, while retaining native receipt wake',async()=>{const f=fixture('email'),scope={kind:'demo',id:'11111111-1111-4111-8111-111111111111'},base=f.client.query;f.client.query=(async(sql:string,values?:unknown[])=>sql.includes('agent_recorded_reply_execution_scope')?{rows:[{context:{registered:true,scope}}],rowCount:1}:base(sql,values)) as SqlClient['query'];f.resolveIdentity.mockResolvedValue({...await f.resolveIdentity(),identityScope:scope}as never);expect(await createCommunicationReplyConsumer({...f.options,pool:{connect:async()=>f.client}}).apply(f.input)).toEqual({status:'applied',decision:'stop'});expect(helper.apply).not.toHaveBeenCalled();expect(f.state.receipt?.result).toBe('processed');});
+it('does not trust forged demo identity scope to suppress global policy or acknowledge verified reply',async()=>{const f=fixture('email'),scope={kind:'demo',id:'11111111-1111-4111-8111-111111111111'};f.resolveIdentity.mockResolvedValue({...await f.resolveIdentity(),identityScope:scope}as never);expect(await f.api.apply(f.input)).toEqual({status:'review',decision:'review'});expect(helper.apply).not.toHaveBeenCalled();expect(f.state.receipt?.result).toBe('review');});

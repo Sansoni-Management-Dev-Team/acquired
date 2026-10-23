@@ -7,6 +7,8 @@ export interface ManagedConnection {
   capabilities: Capabilities;
   readiness: Readiness;
   isDefault: boolean;
+  /** Always emitted by current services; absent on older v1 servers means unknown/read-only. */
+  active?: boolean;
 }
 export interface ConnectionManagementSnapshot { available: boolean; connections: ManagedConnection[]; checkedAt: string }
 export interface ConnectionSetupRequest { channel: Channel; platform: Platform; reconnectBinding?: ConnectionBinding }
@@ -29,7 +31,8 @@ function object(value: unknown, required: string[], optional: string[] = []): Re
 function timestamp(value: unknown) { if (typeof value !== 'string' || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z$/.test(value) || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString() !== value) invalid(); }
 function booleans(value: unknown, fields: string[]) { const o = object(value, fields); if (fields.some(k => typeof o[k] !== 'boolean')) invalid(); }
 export function assertManagedConnection(value: unknown, scope?: AccessScope): asserts value is ManagedConnection {
-  const o = object(value, ['binding', 'label', 'status', 'capabilities', 'readiness', 'isDefault']);
+  const o = object(value, ['binding', 'label', 'status', 'capabilities', 'readiness', 'isDefault'], ['active']);
+  if(Object.hasOwn(o,'active')&&typeof o.active!=='boolean')invalid();
   object(o.binding, ['applicationId', 'tenantId', 'ownerId', 'connectionId', 'accountId', 'generation', 'channel', 'platform', 'backend']);
   const b = o.binding as ConnectionBinding; assertManagementBinding(b, scope ?? b);
   if (typeof o.label !== 'string' || !o.label.trim() || o.label.length > 200 || /[\u0000-\u001f\u007f]/.test(o.label) || typeof o.isDefault !== 'boolean' || !['connecting', 'connected', 'syncing', 'verification_required', 'disconnected', 'failed'].includes(String(o.status))) invalid();
@@ -38,7 +41,7 @@ export function assertManagedConnection(value: unknown, scope?: AccessScope): as
   if (c.email !== undefined) { if (b.channel !== 'email') invalid(); booleans(c.email, ['drafts', 'threading', 'rfcMessageId']); }
   if (c.linkedin !== undefined) { if (b.channel !== 'linkedin') invalid(); booleans(c.linkedin, ['resolveProfile', 'relationships', 'invitations']); }
   const r = object(o.readiness, ['status'], ['code', 'retryAt']);
-  if (r.status === 'ready') { if (r.code !== undefined || r.retryAt !== undefined || o.status !== 'connected') invalid(); }
+  if (r.status === 'ready') { if (o.active===false || r.code !== undefined || r.retryAt !== undefined || o.status !== 'connected') invalid(); }
   else if (r.status === 'waiting') { if (!['incomplete', 'stale', 'busy', 'timeout', 'rate_limited', 'unavailable', 'identity_pending'].includes(String(r.code))) invalid(); if (r.retryAt !== undefined) timestamp(r.retryAt); }
   else if (r.status === 'review') { if (!['reconnect', 'account_changed', 'protocol', 'unexpected', 'delivery_disabled', 'unresolved_send', 'unsupported', 'forbidden', 'operation_conflict'].includes(String(r.code)) || r.retryAt !== undefined) invalid(); }
   else invalid();
@@ -50,12 +53,27 @@ export function assertManagementSnapshot(value: unknown, scope?: AccessScope): a
   const seen = new Set<string>(), defaults = new Set<string>();
   for (const c of o.connections) { assertManagedConnection(c, scope); if (seen.has(c.binding.connectionId)) invalid(); seen.add(c.binding.connectionId); if (c.isDefault) { if (defaults.has(c.binding.channel)) invalid(); defaults.add(c.binding.channel); } }
 }
-export function assertManagementSetupResponse(value: unknown): asserts value is ConnectionSetupResponse {
+/** Explicit test setting; never inferred from an untrusted hosted redirect. */
+export function localSimulatorHostedOrigin(value:string):string {
+ const u=new URL(value);
+ if(u.protocol!=='https:'||!['localhost','127.0.0.1','[::1]'].includes(u.hostname)||u.origin!==value||u.username||u.password)invalid();
+ return u.origin;
+}
+export interface HostedDemoCapability{capability:'hosted-demo';origin:string}
+/** Trusted deployment setting, never inferred from provider/request data. */
+export function captureHostedDemoCapability(raw:unknown):HostedDemoCapability{
+ const value=object(raw,['capability','origin']);if(value.capability!=='hosted-demo'||typeof value.origin!=='string')invalid();
+ const u=new URL(value.origin);if(u.protocol!=='https:'||u.origin!==value.origin||u.username||u.password||!u.hostname.includes('.')||/^[\d.]+$/.test(u.hostname)||u.hostname.includes(':')||/\.(?:localhost|local|internal|test)$/.test(u.hostname))invalid();
+ return{capability:'hosted-demo',origin:u.origin};
+}
+export function assertManagementSetupResponse(value: unknown,options?:{localSimulatorOrigin?:string;hostedDemo?:HostedDemoCapability}): asserts value is ConnectionSetupResponse {
+ if(options?.localSimulatorOrigin!==undefined&&options.hostedDemo!==undefined)invalid();
+ const origin=options?.hostedDemo!==undefined?captureHostedDemoCapability(options.hostedDemo).origin:options?.localSimulatorOrigin===undefined?'https://account.unipile.com':localSimulatorHostedOrigin(options.localSimulatorOrigin);
  const o=object(value,['status'],['action','code']);
  if(o.status==='redirect'){
   if(o.code!==undefined)invalid();const a=object(o.action,['type','url','expiresAt']);timestamp(a.expiresAt);
   if(a.type!=='redirect'||typeof a.url!=='string'||a.url.length>8192||Date.parse(a.expiresAt as string)<=Date.now())invalid();
-  const u=new URL(a.url);if(u.origin!=='https://account.unipile.com'||u.username||u.password||u.hash)invalid();return;
+  const u=new URL(a.url);if(u.origin!==origin||u.username||u.password||u.hash)invalid();return;
  }
  if(o.action!==undefined)invalid();
  if(['unknown','unavailable'].includes(String(o.status))&&o.code===undefined)return;

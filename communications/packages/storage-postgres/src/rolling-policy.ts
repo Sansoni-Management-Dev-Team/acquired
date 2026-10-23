@@ -1,3 +1,4 @@
+import {businessSql,type BusinessClock} from '../../core/src/business-clock';
 import { types } from 'node:util';
 import type { DispatchBlock } from '../../core/src/dispatch';
 import type { SqlClient } from './webhook-repository';
@@ -26,7 +27,7 @@ function timestamp(value: unknown): string {
 /** Read-only under the caller's original physical-account lock. Charged admissions include
  * uncertain application commits and rejected provider attempts: this policy never refunds them.
  * Calendar quotas and current authority still must pass; allowed is not a provider permit. */
-export async function checkRollingDispatchPolicy(client: SqlClient, accountId: string, input: RollingAccountPolicy): Promise<RollingPolicyDecision> {
+export async function checkRollingDispatchPolicy(client: SqlClient, accountId: string, input: RollingAccountPolicy,businessClock?:BusinessClock): Promise<RollingPolicyDecision> {
     try {
         if (typeof accountId !== 'string' || !accountId || accountId.length > 200 || accountId.trim() !== accountId || /[\u0000-\u001f\u007f]/.test(accountId) || !input || typeof input !== 'object' || types.isProxy(input) || Array.isArray(input) || ![Object.prototype, null].includes(Object.getPrototypeOf(input)))
             fail();
@@ -40,9 +41,9 @@ export async function checkRollingDispatchPolicy(client: SqlClient, accountId: s
             return { allowed: false, outcome: { status: 'review', code: 'delivery_disabled' } };
         if (rolling === undefined && (spacing === undefined || spacing === 0))
             return { allowed: true };
-        const result = await client.query(`WITH policy_clock AS MATERIALIZED(SELECT clock_timestamp() AS now),
-charged AS MATERIALIZED(SELECT a.created_at,j.account_id AS journal_account,j.quota_reserved,j.state,j.updated_at,j.claim_until FROM communications.dispatch_admissions a LEFT JOIN communications.operation_journal j ON j.id=a.journal_id WHERE a.account_id=$1),
-facts AS(SELECT coalesce(bool_and(CASE WHEN created_at IS NULL THEN true ELSE coalesce(journal_account=$1 AND quota_reserved AND state IN('dispatching','unknown','submitted','blocked','rejected','skipped') AND created_at<=p.now AND updated_at>=created_at AND updated_at<=p.now AND claim_until IS NOT NULL,false) END),true) AS policy_valid,
+        const result = await client.query(`WITH policy_clock AS MATERIALIZED(SELECT ${businessSql(businessClock)} AS now),
+charged AS MATERIALIZED(SELECT ${businessClock?'a.id AS admission_id,a.business_admitted_at':'a.created_at'} AS created_at,j.account_id AS journal_account,j.quota_reserved,j.state,${businessClock?'a.business_admitted_at AS updated_at':'j.updated_at'},j.claim_until FROM communications.dispatch_admissions a LEFT JOIN communications.operation_journal j ON j.id=a.journal_id WHERE a.account_id=$1),
+facts AS(SELECT coalesce(bool_and(CASE WHEN ${businessClock?'admission_id IS NULL':'created_at IS NULL'} THEN true ELSE coalesce(journal_account=$1 AND quota_reserved AND state IN('dispatching','unknown','submitted','blocked','rejected','skipped') AND created_at<=p.now AND updated_at>=created_at AND updated_at<=p.now AND claim_until IS NOT NULL,false) END),true) AS policy_valid,
  coalesce(bool_or(state IN('dispatching','unknown')),false) AS unresolved,
  ($2::integer IS NULL OR count(*) FILTER(WHERE created_at>p.now-interval '24 hours')<$2) AS rolling_ready,
  ($3::integer=0 OR coalesce(max(GREATEST(updated_at,CASE WHEN state IN('dispatching','unknown') THEN claim_until ELSE updated_at END))+($3::double precision*interval '1 second')<=p.now,true)) AS spacing_ready,

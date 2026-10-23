@@ -1,4 +1,7 @@
+import {researchTraceRequestHeaders,safeResearchTrace,safeResearchFailure,type ResearchTraceContext} from '../domain/research-trace-context';
+import {firmableDoNotContact,withoutFirmablePersonPhones} from '@/domain/firmable-person-privacy';
 import { z } from "zod";
+import {providerRetryDelay} from '@/domain/research-provider-error';
 import type { CompanyIdentifier, DecisionMakerSearchOptions, PersonCandidate, PersonDetail, PersonIdentifier } from "./source-contracts";
 import { fictionalisePersonalData } from "@/domain/fictionalise";
 
@@ -74,11 +77,11 @@ export function mapFirmablePerson(raw: Record<string, unknown>, identifier: Pers
     || contactValue(raw.phone);
   const source = { name: String(raw.full_name || raw.name || ""), email, mobile, linkedinUrl: String(raw.linkedin_url || raw.linkedin || "") };
   const output = fictionalise ? fictionalisePersonalData(source) : source;
-  return { id: String(raw.id || identifier.id || ""), position: String(raw.position || raw.title || "") || undefined, seniority: String(raw.seniority || "") || undefined, department: String(raw.department || "") || undefined, emailAvailable: Boolean(source.email), phoneAvailable: Boolean(source.mobile), emailLookupStatus: source.email ? "reported" : ["emails", "work_email", "personal_email"].some(key => raw[key] !== undefined) ? "unavailable" : "not_reported", phoneLookupStatus: source.mobile ? "reported" : ["phones", "phone"].some(key => raw[key] !== undefined) ? "unavailable" : "not_reported", name: output.name, email: output.email || undefined, phone: output.mobile || undefined, linkedinUrl: output.linkedinUrl, fictionalised: fictionalise, doNotContact: phones.some((phone) => phone.is_dnd === true), rawResponse: fictionalise ? undefined : raw };
+  return { id: String(raw.id || identifier.id || ""), position: String(raw.position || raw.title || "") || undefined, seniority: String(raw.seniority || "") || undefined, department: String(raw.department || "") || undefined, emailAvailable: Boolean(source.email), phoneAvailable: Boolean(source.mobile), emailLookupStatus: source.email ? "reported" : ["emails", "work_email", "personal_email"].some(key => raw[key] !== undefined) ? "unavailable" : "not_reported", phoneLookupStatus: source.mobile ? "reported" : ["phones", "phone"].some(key => raw[key] !== undefined) ? "unavailable" : "not_reported", name: output.name, email: output.email || undefined, phone: output.mobile || undefined, linkedinUrl: output.linkedinUrl, fictionalised: fictionalise, doNotContact: firmableDoNotContact(raw), rawResponse: fictionalise ? undefined : raw };
 }
 
 export class FirmableError extends Error {
-  constructor(public endpoint: string, public status: number, message: string) { super(message); }
+  constructor(public endpoint: string, public status: number, message: string, public retryAfterMs?: number,public readonly category?:string) { super(message); }
 }
 
 export type FirmableClientOptions = {
@@ -87,6 +90,7 @@ export type FirmableClientOptions = {
   fetch?: typeof globalThis.fetch;
   fictionalise?: boolean;
   retries?: number;
+  traceContext?: ResearchTraceContext;
   onObservation?: (observation: FirmableHttpObservation) => Promise<void> | void;
 };
 
@@ -117,9 +121,11 @@ export class FirmableClient {
   private fictionalise: boolean;
   private retries: number;
   private sessionService: boolean;
+  private traceContext: ResearchTraceContext;
   private onObservation?: FirmableClientOptions["onObservation"];
 
   constructor(options: FirmableClientOptions = {}) {
+    this.traceContext=safeResearchTrace(options.traceContext);
     this.sessionService = process.env.FIRMABLE_TRANSPORT === 'cloudflare-session';
     if (this.sessionService && !options.baseUrl && !process.env.FIRMABLE_SERVICE_URL) throw new Error('FIRMABLE_SERVICE_URL is required for cloudflare-session transport');
     this.apiKey = options.apiKey || (this.sessionService ? process.env.FIRMABLE_SERVICE_SECRET : process.env.FIRMABLE_API_KEY) || "";
@@ -135,40 +141,49 @@ export class FirmableClient {
   }
 
   private async request(path: string, init?: RequestInit, retries = this.retries) {
-    if (!this.apiKey) throw new FirmableError(path, 0, "Firmable is not configured");
     const logicalCallId = crypto.randomUUID();
+    const started=Date.now(),trace={...this.traceContext,logicalCallId,requestId:this.traceContext.requestId||logicalCallId};
+    const log=(event:string,fields:Record<string,unknown>={})=>console.info('firmable-client',JSON.stringify({module:'firmable.client',event,timestamp:new Date().toISOString(),...trace,endpoint:path.split('?')[0],...fields,elapsedMs:Date.now()-started}));
+    let outcome='failed',httpStatus:number|undefined;log('request_started');
+    try{
+    if (!this.apiKey) throw new FirmableError(path, 0, "Firmable is not configured");
     for (let attempt = 0; ; attempt++) {
       const requestedAt = new Date();
       const endpoint = path.split("?")[0];
       const requestBody = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
       const query = Object.fromEntries(new URL(path, this.baseUrl).searchParams.entries());
       let response: Response;
+      log('attempt_started',{attempt:attempt+1});
       try {
         response = await this.fetcher(`${this.baseUrl}${path}`, {
           ...init,
           signal: AbortSignal.timeout(this.sessionService ? 30_000 : 10_000),
-          headers: { Authorization: `Bearer ${this.apiKey}`, "Content-Type": "application/json", ...init?.headers },
+          headers: { Authorization: `Bearer ${this.apiKey}`, "Content-Type": "application/json", ...init?.headers, ...(this.sessionService?researchTraceRequestHeaders(trace):{}) },
         });
       } catch (error) {
         await this.onObservation?.({ logicalCallId, attempt: attempt + 1, endpoint, method: init?.method || "GET", request: { query, body: requestBody }, requestedAt, fetchedAt: new Date(), error: error instanceof Error ? error.message : "Firmable network request failed" });
         throw error;
       }
+      httpStatus=response.status;log('attempt_finished',{attempt:attempt+1,httpStatus:response.status,outcome:response.ok?'complete':'failed'});
       const responseText = await response.text();
       let payload: unknown;
       try { payload = responseText ? JSON.parse(responseText) : null; } catch { payload = undefined; }
       await this.onObservation?.({ logicalCallId, attempt: attempt + 1, endpoint, method: init?.method || "GET", request: { query, body: requestBody }, response: payload, ...(payload === undefined ? { responseText } : {}), httpStatus: response.status, requestedAt, fetchedAt: new Date() });
       if (response.ok) {
         if (payload === undefined) throw new FirmableError(endpoint, response.status, "Firmable returned invalid JSON");
-        return payload;
+        outcome='complete';return payload;
       }
-      const errorPayload = payload as { error?: unknown } | null;
+      const errorPayload = payload as { error?: unknown;category?:unknown } | null;
+      const category=typeof errorPayload?.category==='string'&&/^[a-z][a-z0-9_]{0,79}$/.test(errorPayload.category)?errorPayload.category:undefined;
       const profileNotFound = response.status === 500 && errorPayload?.error === "Company profile not found";
       const retryable = !(this.sessionService && response.status === 429) && !profileNotFound && (response.status === 429 || response.status >= 500);
       if (!retryable || attempt >= retries) {
-        throw new FirmableError(endpoint, response.status, (payload as { category?: string })?.category === "reconnect_required" ? "Firmable session needs reconnecting" : profileNotFound ? "Firmable company profile not found" : `Firmable request failed (${response.status})`);
+        throw new FirmableError(endpoint, response.status, (payload as { category?: string })?.category === "reconnect_required" ? "Firmable session needs reconnecting" : profileNotFound ? "Firmable company profile not found" : `Firmable request failed (${response.status})`, response.status === 429 ? providerRetryDelay(response.headers.get('retry-after')) : undefined,category);
       }
+      log('retry_scheduled',{attempt:attempt+1,delayMs:100*(2**attempt)});
       await new Promise((resolve) => setTimeout(resolve, 100 * (2 ** attempt)));
     }
+    }catch(error){log('request_failed',{...safeResearchFailure(error),...(error instanceof FirmableError?{httpStatus:error.status}:{})});throw error;}finally{log('request_finished',{outcome,httpStatus});}
   }
 
   async searchCompaniesPage(query: string, from=0, size=100, interpreted?: import('@/domain/firmable-company-pipeline').FirmableFilters) {
@@ -266,8 +281,8 @@ export class FirmableClient {
     if (!selected) throw new FirmableError("/people", 0, "A person identifier is required");
     const params = new URLSearchParams({ [selected[0]]: selected[1] as string });
     if (options.includePhones === false) params.set('includePhones', 'false');
-    const raw = personSchema.parse(await this.request(`/people?${params}`));
-    if (options.includePhones === false) { delete raw.phones; delete raw.phone; delete raw.mobile; }
+    let raw = personSchema.parse(await this.request(`/people?${params}`));
+    if (options.includePhones === false)raw=personSchema.parse(withoutFirmablePersonPhones(raw));
     const person = mapFirmablePerson(raw, identifier, this.fictionalise);
     if (options.includePhones === false) { person.phone = undefined; person.phoneAvailable = false; person.phoneLookupStatus = "not_requested"; }
     return person;

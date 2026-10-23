@@ -1,0 +1,11 @@
+--- 001-native-agent-baseline.proposed.sql
++++ 001-native-agent-baseline-v2.proposed.sql
+@@ -4626,7 +4626,7 @@
+     payload jsonb NOT NULL,
+     payload_digest text NOT NULL,
+     state text DEFAULT 'pending'::text NOT NULL,
+-    available_at timestamp with time zone DEFAULT public.local_simulator_business_now() NOT NULL,
++    available_at timestamp with time zone DEFAULT public.agent_business_now() NOT NULL,
+     lease_owner uuid,
+     lease_until timestamp with time zone,
+     fence bigint DEFAULT 0 NOT NULL,

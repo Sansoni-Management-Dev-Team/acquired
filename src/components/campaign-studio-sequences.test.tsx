@@ -7,7 +7,7 @@ import { CampaignStudio } from "./campaign-studio";
 
 it("opens the saved default sequence immediately on the sequences page", () => {
   const html = renderToStaticMarkup(<CampaignStudio mandateId="mandate" mandateName="Example" initialView="sequences" initialData={{
-    sequences: [{ id: "default", name: "7-step introduction sequence", draft: defaultCampaignDefinition(), publishedDefinition: null, publishedVersion: 0, n8nWorkflowId: null, updatedAt: new Date().toISOString() }],
+    sequences: [{ id: "default", name: "7-step introduction sequence", draft: defaultCampaignDefinition(), publishedDefinition: null, publishedVersion: 0, n8nWorkflowId: null, draftRevision:'24',updatedAt: new Date().toISOString() }],
     enrolments: [], contacts: [], mailbox: null,
   }} />);
   expect(html).toContain("7 emails in editor");

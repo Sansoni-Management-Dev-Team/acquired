@@ -1,0 +1,2 @@
+import{it,expect}from'vitest';import{agentChannelRelationshipSchema}from'./agent-invitation';
+it('preserves real adapter not-connected null capability without treating it as messaging permission',()=>{const value={status:'not_connected',canMessage:null,observedAt:'2026-10-17T10:00:00.000Z'};expect(agentChannelRelationshipSchema.parse(value)).toEqual(value);for(const invalid of [{...value,status:'connected'},{...value,status:'invitation_pending'},{...value,canMessage:true}])expect(agentChannelRelationshipSchema.safeParse(invalid).success).toBe(false);});

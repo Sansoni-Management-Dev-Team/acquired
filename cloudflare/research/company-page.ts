@@ -1,12 +1,15 @@
+import{nativeSearchContext}from'./native-search-budget';
+import{nativeFieldsPageBudgetFetch}from'./native-fields-page-budget';
 import { publicResearchUrl } from '../../src/domain/research';
 import { localReaderEndpoint, type LocalReaderEnv } from './local-reader';
 import { researchFetch } from './local-policy';
 
-type CompanyPageEnv = LocalReaderEnv & { APP_ORIGIN?: string; CRAWL4AI_URL?: string; CRAWL4AI_SECRET?: string };
+type CompanyPageEnv = LocalReaderEnv & { APP_ORIGIN?: string; CRAWL4AI_URL?: string; CRAWL4AI_SECRET?: string; SERVICE_SECRET?:string };
 
 /** Full-page crawler evidence for the application, using existing Worker credentials. */
 export async function companyPage(request: Request, env: CompanyPageEnv, fetcher: typeof fetch = fetch) {
   if (request.method !== 'POST') return Response.json({ error: 'Method not allowed' }, { status: 405, headers: { Allow: 'POST' } });
+  let native;try{native=nativeSearchContext(request.headers);}catch{return Response.json({error:'Invalid native page context'},{status:400});}
   const text = await request.text();
   if (text.length > 20000) return Response.json({ error: 'Request too large' }, { status: 413 });
   let input: unknown;
@@ -21,7 +24,8 @@ export async function companyPage(request: Request, env: CompanyPageEnv, fetcher
     if (!local && (new URL(endpoint).protocol !== 'https:' || new URL(endpoint).username || new URL(endpoint).password)) throw Error('Invalid service');
   } catch { return Response.json({ error: 'Company page reader unavailable' }, { status: 503 }); }
   try {
-    const response = await researchFetch(env, fetcher)(endpoint, {
+    const physical=researchFetch(env,fetcher),read=native?nativeFieldsPageBudgetFetch(env,native,endpoint,physical,physical):physical;
+    const response = await read(endpoint, {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...(!local ? { authorization: `Bearer ${env.CRAWL4AI_SECRET}` } : {}) },
       body: JSON.stringify({ url, only_main_content: false }), signal: AbortSignal.timeout(35000), redirect: 'manual',
     });

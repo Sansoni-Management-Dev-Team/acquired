@@ -1,0 +1,40 @@
+{
+  "status": "proposed; no migration applied",
+  "production": {
+    "supabaseProject": "njasjqpztiteionfxxul",
+    "database": "postgres",
+    "owner": "postgres",
+    "systemIdentifier": "7678071634733212629"
+  },
+  "rehearsal": {
+    "container": "acquire-hosted-demo-rehearsal-postgres",
+    "database": "acquire_hosted_demo_rehearsal",
+    "network": "none",
+    "productionRowsCopied": 0
+  },
+  "artifacts": [
+    {
+      "file": "001-native-agent-baseline.proposed.sql",
+      "sha256": "ed8e64ef719a9d3d206605169aa442c3329d9023ce8cb951b05158727f54a6ea",
+      "targets": [
+        "isolated rehearsal",
+        "production after successful rehearsal"
+      ]
+    },
+    {
+      "file": "002-hosted-demo-registration.proposed.sql",
+      "sha256": "4d60a4e2f78accc73f2e4bb5f4fb0db00a8b8f86898b27db6f9e4c112fc37763",
+      "targets": [
+        "isolated rehearsal",
+        "production after successful rehearsal"
+      ]
+    }
+  ],
+  "rehearsalBootstrap": {
+    "file": "000-isolated-rehearsal-baseline.proposed.sql",
+    "sha256": "ad943a83d806d74f14e7a792521633708e544f62dbf89d71e48abe2dc69a8d71",
+    "targets": [
+      "new isolated rehearsal only"
+    ]
+  }
+}

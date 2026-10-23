@@ -1,4 +1,6 @@
-import type { ConnectionManagementPort } from '../../contracts/src/management';
+import {createLocalSyncEventVerifier,type LocalSyncEventsOptions} from '../../core/src/local-sync-event';
+import {businessNow,type BusinessClock} from '../../core/src/business-clock';
+import type { ConnectionManagementPort,ManagedConnection } from '../../contracts/src/management';
 import type { AccessScope, ConnectionBinding, MessagingAdapter, ReceiptLookup, SubmissionReceipt, DeliveryOutcome, Readiness } from '../../contracts/src';
 import type { RecordedLifecycleConnection } from '../../core/src/connection-lifecycle';
 import type { CompleteSetupResult } from '../../core/src/connection-setup';
@@ -13,6 +15,8 @@ import { createPostgresProviderWebhookSpool } from '../../storage-postgres/src/p
 import type { PostgresDispatchJournalOptions } from '../../storage-postgres/src/dispatch-journal';
 import type { UncertainDispatchRecord } from '../../core/src/dispatch';
 export interface ConfiguredUnipileV1RuntimeOptions {
+    localSyncEvents?:LocalSyncEventsOptions;
+    businessClock?:BusinessClock;
     pool: SqlPool;
     provider: UnipileV1TransportConfig;
     applicationId: string;
@@ -25,7 +29,11 @@ export interface ConfiguredUnipileV1RuntimeOptions {
     successPath: string;
     failurePath: string;
     notifyUrl: string;
+    /** Explicit local-test profile only: HTTPS loopback origin matching the provider. */
+    localSimulatorOrigin?: string;
     readiness?(binding: ConnectionBinding): Promise<Readiness>;
+    /** Trusted configured source support, separate from current history coverage. */
+    historyCapabilities?(binding:ConnectionBinding):Promise<{read:boolean;history:boolean}>;
     sourceIds?: Partial<Record<'gmail' | 'outlook' | 'whatsapp' | 'linkedin', string>>;
 }
 export interface ConfiguredUnipileV1Runtime extends ConnectionManagementPort {
@@ -45,7 +53,7 @@ export interface ConfiguredUnipileV1Runtime extends ConnectionManagementPort {
     }): Promise<{
         kind: 'associated' | 'duplicate' | 'missing' | 'review';
     }>;
-    createWebhookRuntime(options: Pick<ConfiguredV1WebhookRuntimeOptions, 'journal' | 'history'> & {
+    createWebhookRuntime(options: Pick<ConfiguredV1WebhookRuntimeOptions, 'journal' | 'history' | 'onEmailSentAssociation'> & {
         captureCodec: Pick<WebhookCodec, 'decode' | 'digest'>;
     }): ConfiguredV1WebhookRuntime;
     providerAccountDigests(binding: ConnectionBinding): Promise<string[]>;
@@ -110,7 +118,7 @@ export function createConfiguredUnipileV1Runtime(options: ConfiguredUnipileV1Run
         }
         if (Reflect.ownKeys(d).some(k => typeof k !== 'string' || !('value' in d[k])))
             failure();
-        if (Object.keys(d).some(k => !['pool', 'provider', 'applicationId', 'integrationId', 'providerConfigurationReference', 'vault', 'callbackKey', 'webhookSecret', 'redirectOrigin', 'successPath', 'failurePath', 'notifyUrl', 'sourceIds', 'readiness'].includes(k)))
+        if (Object.keys(d).some(k => !['pool', 'provider', 'applicationId', 'integrationId', 'providerConfigurationReference', 'vault', 'callbackKey', 'webhookSecret', 'redirectOrigin', 'successPath', 'failurePath', 'notifyUrl', 'localSimulatorOrigin', 'sourceIds', 'readiness','historyCapabilities','businessClock','localSyncEvents'].includes(k)))
             failure();
         if (!options.provider || types.isProxy(options.provider) || Object.getPrototypeOf(options.provider) !== Object.prototype)
             failure();
@@ -133,7 +141,7 @@ export function createConfiguredUnipileV1Runtime(options: ConfiguredUnipileV1Run
         if (!types.isUint8Array(options.callbackKey) || types.isProxy(options.callbackKey) || ![Uint8Array.prototype, Buffer.prototype].includes(Object.getPrototypeOf(options.callbackKey)))
             failure();
         key = Buffer.from(options.callbackKey);
-        if (key.length !== 32 || typeof options.webhookSecret !== 'string' || options.webhookSecret.length < 16 || options.webhookSecret.length > 4096 || options.readiness !== undefined && (typeof options.readiness !== 'function' || types.isProxy(options.readiness)))
+        if (key.length !== 32 || typeof options.webhookSecret !== 'string' || options.webhookSecret.length < 16 || options.webhookSecret.length > 4096 || options.readiness !== undefined && (typeof options.readiness !== 'function' || types.isProxy(options.readiness)) || options.historyCapabilities!==undefined&&(typeof options.historyCapabilities!=='function'||types.isProxy(options.historyCapabilities)))
             failure();
         for (const k of ['applicationId', 'integrationId', 'providerConfigurationReference'] as const)
             if (typeof options[k] !== 'string' || !options[k].length || options[k].length > 2000)
@@ -141,12 +149,20 @@ export function createConfiguredUnipileV1Runtime(options: ConfiguredUnipileV1Run
         const notify = new URL(fixed.notifyUrl), redirect = new URL(fixed.redirectOrigin);
         if (notify.protocol !== 'https:' || notify.username || notify.password || notify.hash || notify.search || redirect.protocol !== 'https:' || redirect.origin !== fixed.redirectOrigin)
             failure();
+        if(fixed.localSimulatorOrigin!==undefined){
+            const local=new URL(fixed.localSimulatorOrigin),provider=new URL(fixed.provider.baseUrl);
+            const loopback=(u:URL)=>u.protocol==='https:'&&['localhost','127.0.0.1','[::1]'].includes(u.hostname)&&!u.username&&!u.password;
+            if(process.env.NODE_ENV==='production'||!loopback(local)||local.origin!==fixed.localSimulatorOrigin||provider.origin!==local.origin||!loopback(notify)||!loopback(redirect)||!fixed.integrationId.startsWith('sim-')||!fixed.providerConfigurationReference.startsWith('sim-'))failure();
+        }
     }
     catch {
         throw Error('Invalid configured communications runtime');
     }
-    const vault = new AccountRuntimeVault(fixed.vault), store = createPostgresAccountRuntime({ pool: fixed.pool, vault, applicationId: fixed.applicationId, integrationId: fixed.integrationId, providerConfigurationReference: fixed.providerConfigurationReference, timeoutMs: 5000 });
-    const reader = new UnipileV1OwnerReader(fixed.provider), transport = new UnipileV1Transport(fixed.provider), hosted = new UnipileV1HostedAuth({ ...fixed.provider, redirectOrigins: [fixed.redirectOrigin], notifyOrigins: [new URL(fixed.notifyUrl).origin] }), lifecycleProvider = new UnipileV1AccountLifecycle(fixed.provider), retirementCodec = new ConnectionRetirementCodec({ activeVersion: fixed.vault.activeVersion, keys: fixed.vault.keys });
+    if(fixed.businessClock){if(!fixed.localSimulatorOrigin||process.env.NODE_ENV==='production')throw Error('Local business clock requires simulator mode');businessNow(fixed.businessClock);}
+    let localSyncVerify:ReturnType<typeof createLocalSyncEventVerifier>|undefined;
+    if(fixed.localSyncEvents){const local=fixed.localSyncEvents;if(fixed.localSimulatorOrigin!=='https://127.0.0.1:5990'||fixed.integrationId!==local.integrationId||fixed.providerConfigurationReference!==local.providerConfigurationReference||process.env.NODE_ENV==='production')throw Error('Invalid local sync event profile');localSyncVerify=createLocalSyncEventVerifier(local);const selected=Buffer.from(local.signingKey);for(const reserved of [key,Buffer.from(fixed.webhookSecret),Buffer.from(fixed.provider.apiKey),...(/^[a-f0-9]{64}$/.test(fixed.provider.apiKey)?[Buffer.from(fixed.provider.apiKey,'hex')]:[]),...(/^[a-f0-9]{64}$/.test(fixed.webhookSecret)?[Buffer.from(fixed.webhookSecret,'hex')]:[]),fixed.vault.identityKey,...fixed.vault.keys.flatMap(k=>[k.encryptionKey,k.digestKey])])if(selected.equals(Buffer.from(reserved)))throw Error('Distinct local sync signing key required');}
+    const vault = new AccountRuntimeVault(fixed.vault), store = createPostgresAccountRuntime({ pool: fixed.pool, vault, applicationId: fixed.applicationId, integrationId: fixed.integrationId, providerConfigurationReference: fixed.providerConfigurationReference, setupRedirectOrigin:fixed.redirectOrigin, timeoutMs: 5000 });
+    const reader = new UnipileV1OwnerReader(fixed.provider), transport = new UnipileV1Transport(fixed.provider), hosted = new UnipileV1HostedAuth({ ...fixed.provider, redirectOrigins: [fixed.redirectOrigin], notifyOrigins: [new URL(fixed.notifyUrl).origin], ...(fixed.localSimulatorOrigin?{hostedAuthOrigins:[fixed.localSimulatorOrigin]}:{}) }), lifecycleProvider = new UnipileV1AccountLifecycle(fixed.provider), retirementCodec = new ConnectionRetirementCodec({ activeVersion: fixed.vault.activeVersion, keys: fixed.vault.keys });
     const scope = (input: AccessScope) => {
         const s = inert(input);
         if (Object.keys(s).length !== 3 || s.applicationId !== fixed.applicationId || ['tenantId', 'ownerId'].some(k => typeof s[k as keyof AccessScope] !== 'string' || !s[k as keyof AccessScope].length || s[k as keyof AccessScope].length > 200))
@@ -198,9 +214,30 @@ export function createConfiguredUnipileV1Runtime(options: ConfiguredUnipileV1Run
     }
     const record = (value: RuntimeConnection): RecordedLifecycleConnection => ({ binding: inert(value.binding), providerAccountId: value.owner.providerAccountId, sourceId: value.owner.sourceId, ownerIdentity: inert(value.owner.providerOwner) });
     const configuredReadiness = options.readiness ? Function.prototype.bind.call(options.readiness, options) : undefined;
-    async function managed(value: RuntimeConnection) {
-        const result = { binding: inert(value.binding), label: value.owner.canonicalIdentity.value.slice(0, 200), status: value.status, capabilities: inert(value.owner.capabilities), isDefault: value.isDefault, readiness: value.active && value.status === 'connected' ? { status: 'waiting' as const, code: 'incomplete' as const } : { status: 'review' as const, code: 'reconnect' as const } };
-        if (value.active && value.status === 'connected' && configuredReadiness)
+    const configuredHistoryCapabilities=options.historyCapabilities?Function.prototype.bind.call(options.historyCapabilities,options):undefined;
+    async function managed(value: RuntimeConnection,sourceVerified=true) {
+        const result:ManagedConnection = { binding: inert(value.binding), active:value.active, label: value.owner.canonicalIdentity.value.slice(0, 200), status: value.status, capabilities: inert(value.owner.capabilities), isDefault: value.isDefault, readiness: value.active && value.status === 'connected' ? { status: 'waiting' as const, code: 'incomplete' as const } : { status: 'review' as const, code: 'reconnect' as const } };
+        if(configuredHistoryCapabilities){
+            // Stored owner capability snapshots remain immutable. Only this
+            // server's concrete source factory may advertise history support.
+            result.capabilities.events={read:false,history:false,realtime:false};
+            if(sourceVerified&&value.active&&value.status==='connected')try{
+                const access={applicationId:value.binding.applicationId,tenantId:value.binding.tenantId,ownerId:value.binding.ownerId};
+                await store.requireGrant(access);
+                const current=await store.resolve(inert(value.binding));
+                if(!current||!current.active||current.status!=='connected')failure();
+                assertSameBinding(current.binding,value.binding);
+                const supported=inert(await configuredHistoryCapabilities(inert(value.binding)));
+                if(!supported||Object.keys(supported).sort().join(',')!=='history,read'||typeof supported.read!=='boolean'||typeof supported.history!=='boolean')failure();
+                await store.requireGrant(access);
+                const latest=await store.resolve(inert(value.binding));
+                if(!latest||!latest.active||latest.status!=='connected'||!isDeepStrictEqual(latest.owner,current.owner))failure();
+                assertSameBinding(latest.binding,value.binding);
+                result.capabilities.events={read:supported.read,history:supported.history,realtime:false};
+            }catch{/* An unavailable source never promotes a recorded capability. */}
+        }
+        if(!sourceVerified)result.readiness={status:'waiting',code:'unavailable'};
+        else if (value.active && value.status === 'connected' && configuredReadiness)
             result.readiness = inert(await configuredReadiness(inert(value.binding))) as typeof result.readiness;
         assertManagedConnection(result, value.binding);
         return result;
@@ -238,7 +275,7 @@ export function createConfiguredUnipileV1Runtime(options: ConfiguredUnipileV1Run
         const value = await store.resolve(b, false);
         if (!value || b.channel !== 'email')
             failure();
-        return createRuntimeEmail({ pool: fixed.pool, connection: value, store, vault, integrationId: fixed.integrationId, providerConfigurationReference: fixed.providerConfigurationReference, transport, ownerReader: reader, authenticate });
+        return createRuntimeEmail({ pool: fixed.pool, connection: value, store, vault, integrationId: fixed.integrationId, providerConfigurationReference: fixed.providerConfigurationReference, transport, ownerReader: reader, authenticate, businessClock:fixed.businessClock });
     }
     const runtime: ConfiguredUnipileV1Runtime = { store,
         async recoverUnknownEmail(input, signal) {
@@ -259,7 +296,7 @@ export function createConfiguredUnipileV1Runtime(options: ConfiguredUnipileV1Run
                 return { available: false, connections: [], checkedAt };
             await store.requireGrant(s);
             await drain(s);
-            return { available: true, connections: await Promise.all((await store.list(s)).map(managed)), checkedAt: new Date().toISOString() };
+            return { available: true, connections: await Promise.all((await store.list(s)).map(value=>managed(value))), checkedAt: new Date().toISOString() };
         },
         async setup(input, requested) {
             const s = scope(input), r = inert(requested);
@@ -310,7 +347,7 @@ export function createConfiguredUnipileV1Runtime(options: ConfiguredUnipileV1Run
                 return managed(stored);
             const proof = await reader.verify({ platform: b.platform, providerAccountId: stored.owner.providerAccountId, sourceId: stored.owner.sourceId });
             if (proof.kind !== 'verified')
-                return managed(stored);
+                return managed(stored,false);
             return managed(await store.observe(b, proof.owner));
         },
         async setDefault(input, requested) { const s = scope(input), b = binding(s, requested); return managed(await store.setDefault(s, b)); },
@@ -358,8 +395,8 @@ export function createConfiguredUnipileV1Runtime(options: ConfiguredUnipileV1Run
             return (await email(snapshot.binding)).tracking.associate({ snapshot, trackingId: raw.tracking_id as string, notification: { rawBody: Buffer.from(input.rawBody), rawHeaders: [...input.rawHeaders] } });
         },
         createWebhookRuntime(options) {
-            const spool = createPostgresProviderWebhookSpool({ pool: fixed.pool, vault, captureCodec: options.captureCodec, applicationId: fixed.applicationId, integrationId: fixed.integrationId, providerConfigurationReference: fixed.providerConfigurationReference, authenticate: authenticated });
-            return createConfiguredUnipileV1WebhookRuntime({ spool, authenticate: authenticated, journal: options.journal, history: options.history, async associateSent(record) {
+            const spool = createPostgresProviderWebhookSpool({ pool: fixed.pool, vault, captureCodec: options.captureCodec, applicationId: fixed.applicationId, integrationId: fixed.integrationId, providerConfigurationReference: fixed.providerConfigurationReference, authenticate: authenticated,...(localSyncVerify?{localSync:{verify:localSyncVerify,epoch:store.verifyLocalSyncEpoch.bind(store)}}:{}) });
+            return createConfiguredUnipileV1WebhookRuntime({ businessClock:fixed.businessClock, spool, authenticate: authenticated, journal: options.journal, history: options.history, onEmailSentAssociation:options.onEmailSentAssociation, async associateSent(record) {
                     if (!await spool.proveRouted(record))
                         return { kind: 'review' };
                     let raw: Record<string, unknown>;
@@ -378,7 +415,8 @@ export function createConfiguredUnipileV1Runtime(options: ConfiguredUnipileV1Run
                     // Authentication here is the retained encrypted ORIGINAL routed provider receipt, not a
                     // fabricated notification header or boolean supplied by an HTTP body/caller.
                     const sender = await email(snapshot.binding, () => true);
-                    return sender.tracking.associate({ snapshot, trackingId: raw.tracking_id as string, notification: { rawBody: Buffer.from(record.rawBody), rawHeaders: [] } });
+                    const result=await sender.tracking.associate({ snapshot, trackingId: raw.tracking_id as string, notification: { rawBody: Buffer.from(record.rawBody), rawHeaders: [] } });
+                    return 'association'in result?{...result,snapshot:structuredClone(snapshot),evidenceDigest:result.association.evidenceDigest}:result;
                 } });
         },
         async providerAccountDigests(requested) {
@@ -407,7 +445,7 @@ export function createConfiguredUnipileV1Runtime(options: ConfiguredUnipileV1Run
             if (b.channel === 'email')
                 provider = (await email(b)).provider;
             else
-                provider = createV1SocialRuntime({ connection: options.lookupOnly ? { ...connection, active: true } : connection, store, provider: fixed.provider, ownerReader: reader });
+                provider = createV1SocialRuntime({ connection: options.lookupOnly ? { ...connection, active: true } : connection, store, provider: fixed.provider, ownerReader: reader, businessClock:fixed.businessClock });
             if (options.lookupOnly)
                 return { ready: async (requested) => { assertSameBinding(b, requested); return { status: 'review', code: 'reconnect' }; }, submit: async (requested) => { assertSameBinding(b, requested.snapshot.binding); return { status: 'review', code: 'reconnect' }; }, lookup: provider.lookup };
             return provider;
@@ -421,7 +459,7 @@ export function createConfiguredUnipileV1Runtime(options: ConfiguredUnipileV1Run
                 const connection = await store.resolve(b, false);
                 if (!connection)
                     return null;
-                return createV1SocialRuntime({ connection: { ...connection, active: true }, store, provider: fixed.provider, ownerReader: reader }).receiptDetails(inert(lookup), inert(accepted));
+                return createV1SocialRuntime({ connection: { ...connection, active: true }, store, provider: fixed.provider, ownerReader: reader, businessClock:fixed.businessClock }).receiptDetails(inert(lookup), inert(accepted));
             }
             return null;
         }

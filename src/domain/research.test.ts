@@ -149,3 +149,14 @@ it('ignores newest terminal page tasks when deciding whether a settled parallel 
  const deadline=Date.now()+60000;
  expect(researchActive([{status:'complete',config:{mode:'automatic',researchTask:'page',automaticDeadline:deadline}},{status:'partial',config:{mode:'automatic',parallelResearchSettled:true,automaticDeadline:deadline}}])).toBe(false);
 });
+
+it('requires exact initial V5 basic-People scope and keeps old V4 company-only authority',()=>{
+ const shared={requestId:'00000000-0000-4000-8000-000000000001',seeds:[],searchTerms:['industrial services'],geography:'Australia',approved:true,budget:{maxPages:3,maxDomains:3,maxMinutes:15,maxModelCalls:0},targetBusinesses:20,findPeople:false,includeCompanyPeople:true,includePhones:false};
+ const policy={version:5,countryScope:'AU',desiredSourceCompanies:20,maxProfiledCompanies:800,firmablePageSize:100,maxFirmablePages:2,maxFirmableRows:200,maxWebQueries:6,maxWebRowsPerQuery:100,queryOrder:'subsector_round_robin',profileSelection:{strategy:'all_discovered',identity:'firmable_id_then_domain',companyOnly:false},automaticPeople:{version:1,maxCompanies:800,maxSearchPagesPerCompany:1,searchPageSize:50,maxContactsPerCompany:3,includePhones:false}};
+ expect(researchStartSchema.safeParse({...shared,companyDiscoveryPolicy:policy}).success).toBe(true);
+ for(const flags of [{includeCompanyPeople:false},{includePhones:true},{findPeople:true},{companyOnly:true},{targetBusinesses:19}])expect(researchStartSchema.safeParse({...shared,...flags,companyDiscoveryPolicy:policy}).success).toBe(false);
+ const historical={...policy};Reflect.deleteProperty(historical,'automaticPeople');
+ const v4={...historical,version:4,profileSelection:{...historical.profileSelection,companyOnly:true}};
+ expect(researchStartSchema.safeParse({...shared,companyDiscoveryPolicy:v4,companyOnly:true,includeCompanyPeople:false}).success).toBe(true);
+ expect(researchStartSchema.safeParse({...shared,companyDiscoveryPolicy:v4,companyOnly:true}).success).toBe(false);
+});

@@ -1,5 +1,9 @@
+import {researchTraceHeaders,researchTraceRequestHeaders,safeResearchTrace,type ResearchTraceContext} from '../../src/domain/research-trace-context';
+import {nativeSearchContext,nativeSearchBudgetFetch} from './native-search-budget';
+import { createResearchAi } from "../../src/adapters/ai/research-provider";
 import { checkFirmableCallback } from './firmable-callback';
-import {runHybridCompanyPipeline} from '../../src/domain/hybrid-company-pipeline';
+import {runHybridCompanyPipeline,hybridCompanyPartialResult} from '../../src/domain/hybrid-company-pipeline';
+import type {HybridCompanyContinuation} from '../../src/domain/hybrid-company-continuation';
 import {runWebFirmablePipeline,type WebQuery,type WebCompany} from '../../src/domain/web-firmable-pipeline';
 import {isFirmableCompanyRoot,isWebFirmableRoot,isHybridCompanyRoot} from '../../src/domain/research-pipeline-design';
 import { runFirmableCompanyPipeline, type CompanySearchPage, type FirmableFilters } from '../../src/domain/firmable-company-pipeline';
@@ -18,12 +22,12 @@ import type { ResearchProvider } from "../../src/domain/research-provider-queue"
 import { productionPolicy, researchFetch } from "./local-policy";
 import { browserMarkdown } from "./browser-reader";
 import { cachedPage, lookupCachedPage } from "./page-cache";
-import { providerFailure, BrowserAdmissionDeferred } from "../../src/domain/research-provider-error";
+import { providerFailure, BrowserAdmissionDeferred, FirmableCooldown } from "../../src/domain/research-provider-error";
 import { localRead } from "./local-reader";
 import { localSearch } from "./local-search";
 import { providerJsonRequest } from "../../src/adapters/observability/provider-request";
 import { researchExtractionRequest } from "../../src/domain/research-extraction-schema";
-import { FreeOpenRouter, type FreeResearchRequest } from "../../src/adapters/ai/free-openrouter";
+import { type FreeResearchRequest } from "../../src/adapters/ai/free-openrouter";
 import { callbackOrigin } from "./callback-origin";
 import { cancelCrawl, crawlRetryUrl, CrawlerRequestError, requestBudgetStop, stalledResearch } from "./runtime-policy";
 import { targetedPrompt, targetedSchema, fallbackTargetedChoice } from "../../src/domain/targeted-research";
@@ -54,6 +58,10 @@ interface Env extends FirmableSessionEnv {
   PROVIDER_COORDINATOR?: DurableObjectNamespace<ProviderCoordinator>;
   OPENROUTER_API_KEY: string;
   SERVICE_SECRET: string;
+  OPENAI_API_KEY?: string;
+  RESEARCH_AI_PROVIDER?: string;
+  OPENAI_RESEARCH_MODEL?: string;
+  OPENAI_RESEARCH_FALLBACK_MODEL?: string;
   FIRMABLE_VALIDATION_SECRET?: string;
   APP_ORIGIN: string;
   LOCAL_DEVELOPMENT?: string;
@@ -71,9 +79,10 @@ interface Env extends FirmableSessionEnv {
   RESEARCH_AI_EXTRACTION_REASONING?: string;
 }
 const coordinator = (env: Env) => env.PROVIDER_COORDINATOR?.getByName("account-wide");
-async function providerAction(env: Env, jobId: string, body: { action: string; token?: string | null; provider?: ResearchProvider; retryAfterMs?: number; url?: string; domain?: string; holdMs?: number }, budget?: { used: number; jobId?: string }) {
+type RequestBudget={used:number;jobId?:string;traceContext?:ResearchTraceContext};
+async function providerAction(env: Env, jobId: string, body: { action: string; token?: string | null; provider?: ResearchProvider; retryAfterMs?: number; url?: string; domain?: string; holdMs?: number }, budget?: RequestBudget, traceContext?:ResearchTraceContext) {
   const stub = coordinator(env);
-  if (!stub) return callback(env, jobId, body.action === "provider-reserve" ? { ...body, policy: "paid-v1" } : body, budget);
+  if (!stub) return callback(env, jobId, body.action === "provider-reserve" ? { ...body, policy: "paid-v1" } : body, budget,false,traceContext);
   // The coordinator holds the request while capacity is busy, so one admission
   // step usually replaces a series of sleep-and-poll rounds.
   if (body.action === "provider-reserve" && body.token && body.provider) return stub.reserve({ jobId, token: body.token, provider: balancedReservation(body.provider, env).provider, local: balancedReservation(body.provider, env).balancedLocal || !productionPolicy(env), holdMs: body.holdMs ?? 20000 });
@@ -96,7 +105,7 @@ async function authorized(request: Request, secret: string) {
   for (let i = 0; i < x.length; i++) difference |= x[i] ^ y[i];
   return difference === 0;
 }
-async function callback(env: Env, id: string, body?: unknown, budget?: { used: number; jobId?: string }, lean = false) {
+async function callback(env: Env, id: string, body?: unknown, budget?: RequestBudget, lean = false, traceContext?:ResearchTraceContext) {
   const origin = callbackOrigin(env.APP_ORIGIN, env.LOCAL_DEVELOPMENT === "true");
   if (budget) budget.used++;
   const action = (body as { action?: string } | undefined)?.action || "";
@@ -106,16 +115,22 @@ async function callback(env: Env, id: string, body?: unknown, budget?: { used: n
       ? 5000
       : body ? 55000 : 10000;
   const operation = !body ? "callback_control" : action && /^[a-z][a-z0-9-]{0,48}$/.test(action) ? `callback_${action.replaceAll("-", "_")}` : "callback_progress";
+  const trace=safeResearchTrace({... (budget?.traceContext??traceContext),jobId:id});
   const { response: r, data } = await providerJsonRequest<unknown>(researchFetch(env), `${origin}/api/research/internal/${id}${lean && !body ? "?control=1" : ""}`, {
     method: body ? "POST" : "GET",
     headers: {
       authorization: `Bearer ${env.SERVICE_SECRET}`,
       "Content-Type": "application/json",
+      ...researchTraceRequestHeaders(trace),
     },
     body: body ? JSON.stringify(body) : undefined,
     signal: AbortSignal.timeout(timeoutMs),
-  }, { provider: "research-worker", operation, jobId: id });
-  if (!r.ok) throw new Error(`Callback failed (${r.status})`);
+  }, { provider: "research-worker", operation, ...trace });
+  if (!r.ok) {
+    const limited=data as {provider?:unknown;category?:unknown;retryAfterMs?:unknown}|null;
+    if(r.status===429&&limited?.provider==='firmable'&&limited.category==='rate_limited'&&typeof limited.retryAfterMs==='number'&&Number.isFinite(limited.retryAfterMs)&&limited.retryAfterMs>=1000)throw new FirmableCooldown(limited.retryAfterMs);
+    throw new Error(`Callback failed (${r.status})`);
+  }
   return data;
 }
 
@@ -135,7 +150,7 @@ async function firmableCallback<T>(env: Env, id: string, body: unknown): Promise
   await checkFirmableCallback(response, action, startedAt);
   return response.json() as Promise<T>;
 }
-async function browser(env: Env, path: string, method = "GET", body?: unknown, budget?: { used: number; jobId?: string }) {
+async function browser(env: Env, path: string, method = "GET", body?: unknown, budget?: RequestBudget) {
   if (env.LOCAL_DEVELOPMENT === "true") throw new Error("Cloudflare browser API is disabled in local development");
   if (budget) budget.used++;
   const { response: r, data } = await providerJsonRequest<{ success: boolean; result: unknown }>(fetch,
@@ -148,18 +163,18 @@ async function browser(env: Env, path: string, method = "GET", body?: unknown, b
       },
       body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(30000),
-    }, { provider: "cloudflare-browser", operation: `crawl_${method.toLowerCase()}`, jobId: budget?.jobId },
+    }, { provider: "cloudflare-browser", operation: `crawl_${method.toLowerCase()}`, ...safeResearchTrace({...budget?.traceContext,jobId:budget?.jobId}) },
   );
   if (!r.ok || !data.success)
     throw new CrawlerRequestError(r.status);
   return data.result;
 }
-async function readMarkdown(env: Env, url: string, budget: { used: number; jobId?: string }, fallback = false, reservation?: string) {
+async function readMarkdown(env: Env, url: string, budget: RequestBudget, fallback = false, reservation?: string) {
   if (!publicResearchUrl(url)) throw new Error("Unsupported URL");
   if (!productionPolicy(env)) {
     const read = (token?: string) => withLocalProvider('page', token,
       body => providerAction(env, budget.jobId!, body, budget),
-      () => localRead(env, url, { jobId: budget.jobId }, researchFetch(env)));
+      () => localRead(env, url, safeResearchTrace({...budget.traceContext,jobId:budget.jobId}), researchFetch(env)));
     try { return await read(reservation); }
     catch (error) {
       if (error instanceof BrowserAdmissionDeferred) throw error;
@@ -170,11 +185,11 @@ async function readMarkdown(env: Env, url: string, budget: { used: number; jobId
     }
   }
   const markdown = await browserMarkdown(env, url, {
-    jobId: budget.jobId, operation: fallback ? "markdown_fallback" : "markdown",
+    ...safeResearchTrace({...budget.traceContext,jobId:budget.jobId}), operation: fallback ? "markdown_fallback" : "markdown",
     onRequest: () => { budget.used++; },
-    cooldown: (retryAfterMs, domain) => providerAction(env, budget.jobId!, { action: "browser-cooldown", retryAfterMs, domain }),
-    release: () => reservation ? providerAction(env, budget.jobId!, { action: "provider-release", token: reservation }) : Promise.resolve(),
-    permit: () => providerAction(env, budget.jobId!, { action: "browser-permit", token: reservation, url }) as Promise<{ granted: boolean; retryAfterMs: number }>,
+    cooldown: (retryAfterMs, domain) => providerAction(env, budget.jobId!, { action: "browser-cooldown", retryAfterMs, domain },undefined,budget.traceContext),
+    release: () => reservation ? providerAction(env, budget.jobId!, { action: "provider-release", token: reservation },undefined,budget.traceContext) : Promise.resolve(),
+    permit: () => providerAction(env, budget.jobId!, { action: "browser-permit", token: reservation, url },undefined,budget.traceContext) as Promise<{ granted: boolean; retryAfterMs: number }>,
   });
   return { status: "completed", page: { url, markdown: markdown.slice(0, 30000), observedAt: new Date().toISOString() } };
 }
@@ -185,18 +200,24 @@ export class AcquireResearch extends WorkflowEntrypoint<
   async run(event: WorkflowEvent<{ jobId: string }>, step: WorkflowStep) {
     const id = event.payload.jobId;
     // Bound callback/provider traffic while leaving ample room for paid-plan admission waits.
-    const requestBudget = { used: 0, jobId: id };
+    const requestBudget:RequestBudget = { used: 0, jobId: id,traceContext:safeResearchTrace({jobId:id}) };
+    const adoptTrace=(value:ResearchControl)=>{
+      // Only authenticated saved control data enriches workflow-local identity.
+      // Diagnostic fields do not supply admission, routing or receipt authority.
+      const config=value.config as ResearchControl['config']&{requestId?:string};
+      requestBudget.traceContext=safeResearchTrace({runId:config.researchRunId||id,operationId:config.nativeAgent?.operationId,requestId:config.requestId,...requestBudget.traceContext,...value.traceContext,jobId:id});
+    };
     let stateCache: { value: ResearchControl; at: number } | undefined;
     let telemetryBatching: boolean | undefined;
     const timing = pipelineTiming(id, async spans => {
       requestBudget.used++;
       const origin = callbackOrigin(this.env.APP_ORIGIN, this.env.LOCAL_DEVELOPMENT === 'true');
       const response = await researchFetch(this.env)(`${origin}/api/research/internal/${id}/timings`, {
-        method: 'POST', headers: { authorization: `Bearer ${this.env.SERVICE_SECRET}`, 'Content-Type': 'application/json' },
+        method: 'POST', headers: { authorization: `Bearer ${this.env.SERVICE_SECRET}`, 'Content-Type': 'application/json',...researchTraceRequestHeaders(requestBudget.traceContext) },
         body: JSON.stringify({ spans }), signal: AbortSignal.timeout(5000),
       });
       if (!response.ok) throw new Error(`Timing delivery failed (${response.status})`);
-    });
+    },Date.now,()=>requestBudget.traceContext??{});
     const control = async () => {
       // Adjacent goal, page and extraction guards reuse a freshly checked state.
       // After network work or durable waiting, cancellation is checked again.
@@ -204,20 +225,56 @@ export class AcquireResearch extends WorkflowEntrypoint<
         const prior = stateCache?.value;
         const fresh = await callback(this.env, id, undefined, requestBudget, Boolean(prior)) as ResearchControl;
         stateCache = { value: prior ? mergeResearchControl(prior, fresh) : fresh, at: Date.now() };
+        adoptTrace(stateCache.value);
       }
       telemetryBatching ??= researchPerformanceFlags(stateCache.value.config).telemetryBatching;
       const stopReason = requestBudgetStop(requestBudget.used, !productionPolicy(this.env), true);
       return stopReason ? { ...stateCache.value, deadline: 0, stopReason } : stateCache.value;
     };
-    const checkpoint = async <T>(name: string, run: () => Promise<T>, retry = true): Promise<T> => {
-      const serialized = await step.do(name, { retries: { limit: retry ? 2 : 0, delay: "12 seconds", backoff: "exponential" }, timeout: "120 seconds" }, async () => JSON.stringify(await timing.measure(name, run)) ?? "null");
+    const checkpoint = async <T>(name: string, run: (firmableAttempt?:number) => Promise<T>, retry = true): Promise<T> => {
+      const cooldownPrefix='acquire:firmable-cooldown:v1:';
+      let serialized:string;
+      for(let attempt=0;;attempt++){
+        const label=attempt?`${name}-firmable-attempt-${attempt}`:name;
+        serialized=await step.do(label, { retries: { limit: retry ? 2 : 0, delay: "12 seconds", backoff: "exponential" }, timeout: "120 seconds" }, async () => {
+          try{return JSON.stringify(await timing.measure(label,()=>run(attempt)))??'null';}
+          catch(error){if(error instanceof FirmableCooldown)return cooldownPrefix+JSON.stringify({retryAfterMs:error.retryAfterMs});throw error;}
+        });
+        if(!serialized.startsWith(cooldownPrefix))break;
+        const {retryAfterMs}=JSON.parse(serialized.slice(cooldownPrefix.length)) as {retryAfterMs:number};
+        if(attempt>=2)throw new Error('Firmable rate limit persists; bounded research attempts exhausted.');
+        // A saved known-429 result is not a failed/uncertain execution. Sleep
+        // outside step.do, then use a distinct bounded physical-attempt key.
+        stateCache=undefined;
+        const before=await control();
+        if(['cancelled','complete','partial','failed'].includes(before.status)||Date.now()+retryAfterMs>=before.deadline)throw new Error('Firmable rate limit; research authority or deadline does not permit another attempt.');
+        await timing.measure(`${label}-cooldown`,()=>step.sleep(`${label}-cooldown`,retryAfterMs));
+        stateCache=undefined;
+        const after=await control();
+        if(['cancelled','complete','partial','failed'].includes(after.status)||Date.now()>=after.deadline)throw new Error('Firmable rate limit; research stopped during cooldown.');
+      }
       const result = JSON.parse(serialized);
       // Initialize from the durable initial control result too: on replay its
       // callback is skipped, so in-memory control() side effects do not run.
-      if (name === "control-start") telemetryBatching ??= researchPerformanceFlags((result as ResearchControl).config).telemetryBatching;
+      if (name === "control-start"||name==='f-control'||name==='e-control'||name==='d-control'||name==='corpus-route'){
+        adoptTrace(result as ResearchControl);
+        telemetryBatching ??= researchPerformanceFlags((result as ResearchControl).config).telemetryBatching;
+      }
       return result as T;
     };
     const pipelineControl = await control();
+    if(pipelineControl.config.nativeAgent?.providerAdmission==='public-fields-v1'){
+      const plan=await checkpoint('native-fields-plan',()=>callback(this.env,id,{action:'native-fields-plan'},requestBudget),false)as{targetIds:string[]};
+      if(!Array.isArray(plan.targetIds)||!plan.targetIds.length||plan.targetIds.length>5||new Set(plan.targetIds).size!==plan.targetIds.length||plan.targetIds.some(target=>!/^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i.test(target)))throw Error('Exact reviewed public-field companies required');
+      for(const targetId of plan.targetIds){if(Date.now()>=(pipelineControl.config.automaticDeadline||0))break;await checkpoint('native-fields-company-'+targetId,()=>callback(this.env,id,{action:'native-fields-company',targetId},requestBudget),false);}
+      return checkpoint('native-fields-finish',()=>callback(this.env,id,{action:'native-fields-finish'},requestBudget),false);
+    }
+    if(pipelineControl.config.nativeAgent?.providerAdmission==='firmable-people-v1'){
+      const plan=await checkpoint('native-people-plan',()=>callback(this.env,id,{action:'native-people-plan'},requestBudget),false) as {targetIds:string[]};
+      if(!Array.isArray(plan.targetIds)||plan.targetIds.length>5||plan.targetIds.some(value=>!/^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i.test(value)))throw new Error('Invalid reviewed people company plan');
+      for(const targetId of plan.targetIds){if(Date.now()>=(pipelineControl.config.automaticDeadline||0))break;await checkpoint('native-people-company-'+targetId,()=>callback(this.env,id,{action:'native-people-company',targetId},requestBudget),false);}
+      return checkpoint('native-people-finish',()=>callback(this.env,id,{action:'native-people-finish'},requestBudget),false);
+    }
     if (pipelineControl.config.companyBackgroundResearch) {
       if (["complete", "partial", "failed", "cancelled"].includes(pipelineControl.status)) return { stopped: true };
       try {
@@ -228,22 +285,33 @@ export class AcquireResearch extends WorkflowEntrypoint<
     }
     if(isHybridCompanyRoot(pipelineControl.config,id)){
       const initial=await checkpoint('f-control',control);
-      try{return await runHybridCompanyPipeline({checkpoint,now:()=>Date.now(),control:async()=>{const current=await control();return current.status!=='cancelled';},plan:()=>callback(this.env,id,{action:'e-plan'},requestBudget) as Promise<WebQuery[]>,firmableSearch:()=>callback(this.env,id,{action:'d-search',from:0},requestBudget) as Promise<CompanySearchPage>,webSearch:async(query,index)=>{
-        for(let searchAttempt=0;searchAttempt<3;searchAttempt++){
+      try{
+        // Persisted metadata never supplies executable provider rows. Resolve
+        // the reviewed original source through the existing authenticated
+        // callback; each later profile still checks current source authority.
+        const continuing=Object.hasOwn(initial.config,'companyContinuation');
+        if(continuing&&!initial.config.nativeAgent)throw Error('Saved candidate continuation requires native research authority');
+        const continuation=continuing?await checkpoint('f-continuation-plan',()=>callback(this.env,id,{action:'f-continuation-plan'},requestBudget)) as HybridCompanyContinuation:undefined;
+        return await runHybridCompanyPipeline({checkpoint,now:()=>Date.now(),control:async()=>{const current=await control();return current.status!=='cancelled';},plan:()=>callback(this.env,id,{action:'e-plan'},requestBudget) as Promise<WebQuery[]>,firmableSearch:(from=0,interpreted?:FirmableFilters,firmableAttempt?:number)=>callback(this.env,id,{action:'d-search',from,interpreted,...(firmableAttempt?{firmableAttempt}:{})},requestBudget) as Promise<CompanySearchPage>,webSearch:async(query,index)=>{
+        // V4 gives distinct supplemental queries their first pass before any
+        // optional retry could consume another query's physical allowance.
+        const searchAttempts=(initial.config.companyDiscoveryPolicy?.version===4||initial.config.companyDiscoveryPolicy?.version===5)?1:3;
+        for(let searchAttempt=0;searchAttempt<searchAttempts;searchAttempt++){
           if(Date.now()>=(initial.config.automaticDeadline||Infinity))break;
           const token=`${id}:f-search-${index}-${searchAttempt}`;
-          let result:{rows:WebCompany[];ok:boolean}|undefined;
+          let result:{rows:WebCompany[];ok:boolean;category?:string}|undefined;
           for(let attempt=0;attempt<10;attempt++){
             const permit=await checkpoint(`f-admit-${index}-${searchAttempt}-${attempt}`,()=>providerAction(this.env,id,{action:'provider-reserve',provider:'search',token},requestBudget)) as Admission;
-            if(permit.granted){const wait=Math.max(0,(permit.after||0)-Date.now());if(wait)await step.sleep(`f-reservation-wait-${index}-${searchAttempt}-${attempt}`,wait);try{result=await callback(this.env,id,{action:'e-search',query,index,browserReservation:token},requestBudget) as {rows:WebCompany[];ok:boolean};}finally{await providerAction(this.env,id,{action:'provider-release',token}).catch(()=>{});}break;}
+            if(permit.granted){const wait=Math.max(0,(permit.after||0)-Date.now());if(wait)await step.sleep(`f-reservation-wait-${index}-${searchAttempt}-${attempt}`,wait);try{result=await callback(this.env,id,{action:'e-search',query,index,browserReservation:token},requestBudget) as {rows:WebCompany[];ok:boolean;category?:string};}finally{await providerAction(this.env,id,{action:'provider-release',token},undefined,requestBudget.traceContext).catch(()=>{});}break;}
             await step.sleep(`f-wait-${index}-${searchAttempt}-${attempt}`,'2 seconds');
           }
           if(result?.ok)return result;
-          if(searchAttempt<2)await step.sleep(`f-search-retry-${index}-${searchAttempt}`,'3 seconds');
+          if(searchAttempts===1&&result)return result;
+          if(searchAttempt<searchAttempts-1)await step.sleep(`f-search-retry-${index}-${searchAttempt}`,'3 seconds');
         }
         return {rows:[],ok:false};
-      },profile:company=>callback(this.env,id,{action:company.firmableRow?'d-company':'e-company',row:company.firmableRow||company.webRow,expectedDomain:company.domain,sources:company.sources},requestBudget) as Promise<{ok:boolean;matched?:boolean}>,finish:result=>callback(this.env,id,{action:'f-finish',result},requestBudget)},{deadline:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:100,concurrency:2});}
-      catch(error){await checkpoint('f-fail',()=>callback(this.env,id,{action:'f-fail',result:{error:error instanceof Error?error.message:'F failed'}},requestBudget));return {failed:true};}
+      },profile:(company,firmableAttempt)=>callback(this.env,id,{action:company.firmableRow?'d-company':'e-company',row:company.firmableRow||company.webRow,expectedDomain:company.domain,...(company.candidateKey?{candidateKey:company.candidateKey}:{}),sources:company.sources,...(firmableAttempt?{firmableAttempt}:{})},requestBudget) as Promise<{ok:boolean;matched?:boolean}>,finish:result=>callback(this.env,id,{action:'f-finish',result},requestBudget)},{deadline:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:(initial.config.companyDiscoveryPolicy?.version===4||initial.config.companyDiscoveryPolicy?.version===5)?initial.config.companyDiscoveryPolicy.maxProfiledCompanies:initial.config.nativeAgent||initial.config.companyDiscoveryPolicy?.version===3?Math.min(initial.config.targetBusinesses||20,20):100,concurrency:2,traceContext:safeResearchTrace(requestBudget.traceContext),...(initial.config.companyDiscoveryPolicy&&(initial.config.nativeAgent||initial.config.companyDiscoveryPolicy.version>=3)?{discoveryPolicy:initial.config.companyDiscoveryPolicy}:{}),...(continuation?{continuation}:{})});}
+      catch(error){await checkpoint('f-fail',()=>callback(this.env,id,{action:'f-fail',result:{...(hybridCompanyPartialResult(error)??{}),error:error instanceof Error?error.message:'F failed'}},requestBudget));return {failed:true};}
       finally{await timing.flush(32);}
     }
     if(isWebFirmableRoot(pipelineControl.config,id)){
@@ -255,35 +323,34 @@ export class AcquireResearch extends WorkflowEntrypoint<
           let result:{rows:WebCompany[];ok:boolean}|undefined;
           for(let attempt=0;attempt<10;attempt++){
             const permit=await checkpoint(`e-admit-${index}-${searchAttempt}-${attempt}`,()=>providerAction(this.env,id,{action:'provider-reserve',provider:'search',token},requestBudget)) as Admission;
-            if(permit.granted){const wait=Math.max(0,(permit.after||0)-Date.now());if(wait)await step.sleep(`e-reservation-wait-${index}-${searchAttempt}-${attempt}`,wait);try{result=await callback(this.env,id,{action:'e-search',query,index,browserReservation:token},requestBudget) as {rows:WebCompany[];ok:boolean};}finally{await providerAction(this.env,id,{action:'provider-release',token}).catch(()=>{});}break;}
+            if(permit.granted){const wait=Math.max(0,(permit.after||0)-Date.now());if(wait)await step.sleep(`e-reservation-wait-${index}-${searchAttempt}-${attempt}`,wait);try{result=await callback(this.env,id,{action:'e-search',query,index,browserReservation:token},requestBudget) as {rows:WebCompany[];ok:boolean};}finally{await providerAction(this.env,id,{action:'provider-release',token},undefined,requestBudget.traceContext).catch(()=>{});}break;}
             await step.sleep(`e-wait-${index}-${searchAttempt}-${attempt}`,'2 seconds');
           }
           if(result?.ok)return result;
           if(searchAttempt<2)await step.sleep(`e-search-retry-${index}-${searchAttempt}`,'3 seconds');
         }
         return {rows:[],ok:false};
-      },profile:row=>callback(this.env,id,{action:'e-company',row},requestBudget) as Promise<{ok:boolean;matched?:boolean}>,finish:result=>callback(this.env,id,{action:'e-finish',result},requestBudget)},{deadline:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:100,concurrency:2});}
+      },profile:(row,firmableAttempt)=>callback(this.env,id,{action:'e-company',row,...(firmableAttempt?{firmableAttempt}:{})},requestBudget) as Promise<{ok:boolean;matched?:boolean}>,finish:result=>callback(this.env,id,{action:'e-finish',result},requestBudget)},{deadline:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:100,concurrency:2});}
       catch(error){await checkpoint('e-fail',()=>callback(this.env,id,{action:'e-fail',result:{error:error instanceof Error?error.message:'E failed'}},requestBudget));return {failed:true};}
       finally{await timing.flush(32);}
     }
     if(isFirmableCompanyRoot(pipelineControl.config,id)) {
       const initial=await checkpoint('d-control',control);
-      try {return await runFirmableCompanyPipeline({checkpoint,now:()=>Date.now(),search:(from:number,interpreted?:FirmableFilters)=>callback(this.env,id,{action:'d-search',from,interpreted},requestBudget) as Promise<CompanySearchPage>,profile:row=>callback(this.env,id,{action:'d-company',row},requestBudget) as Promise<{ok:boolean}>,finish:result=>callback(this.env,id,{action:'d-finish',result},requestBudget)},{deadline:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:100,pageSize:100,concurrency:2});}
+      try {return await runFirmableCompanyPipeline({checkpoint,now:()=>Date.now(),search:(from:number,interpreted?:FirmableFilters,firmableAttempt?:number)=>callback(this.env,id,{action:'d-search',from,interpreted,...(firmableAttempt?{firmableAttempt}:{})},requestBudget) as Promise<CompanySearchPage>,profile:(row,firmableAttempt)=>callback(this.env,id,{action:'d-company',row,...(firmableAttempt?{firmableAttempt}:{})},requestBudget) as Promise<{ok:boolean}>,finish:result=>callback(this.env,id,{action:'d-finish',result},requestBudget)},{deadline:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:initial.config.nativeAgent?Math.min(initial.config.targetBusinesses||20,20):100,pageSize:initial.config.nativeAgent?Math.min(initial.config.targetBusinesses||20,20):100,concurrency:2});}
       catch(error){await checkpoint('d-fail',()=>callback(this.env,id,{action:'d-fail',result:{error:error instanceof Error?error.message:'D failed'}},requestBudget));return {failed:true};}
     }
-    const ai = new FreeOpenRouter({
-      apiKey: this.env.OPENROUTER_API_KEY,
+    const ai = createResearchAi(this.env, {
       primaryRoute: this.env.RESEARCH_AI_PRIMARY_ROUTE === 'fast-paid' ? 'fast-paid' : 'free',
       freeAttemptTimeoutMs: Number(this.env.RESEARCH_AI_FREE_TIMEOUT_MS || 25000),
       extractionReasoning: this.env.RESEARCH_AI_EXTRACTION_REASONING === 'none' ? 'none' : this.env.RESEARCH_AI_EXTRACTION_REASONING === 'medium' ? 'medium' : undefined,
       fetch: researchFetch(this.env),
       jobId: id,
       onRequest: () => { requestBudget.used++; },
-      onUsage: usage => console.info("research-ai", JSON.stringify({ jobId: id, ...usage })),
+      onUsage: usage => console.info("research-ai", JSON.stringify({ ...safeResearchTrace(requestBudget.traceContext), ...usage })),
     });
-    const cacheEvent = (kind: 'page' | 'extraction', event: string) => console.info('research-cache', JSON.stringify({ timestamp: new Date().toISOString(), jobId: id, kind, event }));
+    const cacheEvent = (kind: 'page' | 'extraction', event: string) => console.info('research-cache', JSON.stringify({ timestamp: new Date().toISOString(), ...safeResearchTrace(requestBudget.traceContext), kind, event }));
     const completeExtraction = (input: FreeResearchRequest) => cachedResearchExtraction(caches.default, stateCache?.value.config.researchRunId || id, {
-      input, routing: { primaryRoute: this.env.RESEARCH_AI_PRIMARY_ROUTE || 'free', reasoning: this.env.RESEARCH_AI_EXTRACTION_REASONING || 'request', freeTimeout: this.env.RESEARCH_AI_FREE_TIMEOUT_MS || '25000' },
+      input, routing: { provider: this.env.RESEARCH_AI_PROVIDER || "openrouter", model: this.env.OPENAI_RESEARCH_MODEL || "gpt-6-luna", fallbackModel: this.env.OPENAI_RESEARCH_FALLBACK_MODEL || "gpt-5.6-luna", primaryRoute: this.env.RESEARCH_AI_PRIMARY_ROUTE || 'free', reasoning: this.env.RESEARCH_AI_EXTRACTION_REASONING || 'request', freeTimeout: this.env.RESEARCH_AI_FREE_TIMEOUT_MS || '25000' },
     }, () => ai.complete(input), event => cacheEvent('extraction', event));
     const execute = (runner: typeof runResearch) => runner(
       {
@@ -314,14 +381,14 @@ export class AcquireResearch extends WorkflowEntrypoint<
                 if (["cancelled", "complete", "partial", "failed"].includes(current.status) || Date.now() >= current.deadline) throw new BrowserAdmissionDeferred();
                 return await run({ reservation: provider === 'ai' ? undefined : token });
               } finally {
-                await providerAction(this.env, id, { action: 'provider-release', token }).catch(() => {});
+                await providerAction(this.env, id, { action: 'provider-release', token },undefined,requestBudget.traceContext).catch(() => {});
               }
             });
         },
         sleep: (name, ms) => timing.measure(name, () => step.sleep(name, ms)),
       },
       {
-        diagnostic: event => console.info("research-diagnostic", JSON.stringify({ ...event, timestamp: new Date().toISOString(), jobId: id })),
+        diagnostic: event => console.info("research-diagnostic", JSON.stringify({ ...event, timestamp: new Date().toISOString(), ...safeResearchTrace(requestBudget.traceContext) })),
         control,
         discoveryBatch: true,
         discoveryContext: () => callback(this.env, id, { action: "discovery-context" }, requestBudget) as Promise<DiscoveryContext>,
@@ -344,7 +411,8 @@ export class AcquireResearch extends WorkflowEntrypoint<
             telemetryBatching === true);
 
           stateCache = response.control ? { value: { ...response.control, findings: stateCache?.value.findings }, at: Date.now() } : undefined;
-          console.info("research-progress", JSON.stringify({ timestamp: new Date().toISOString(), jobId: id, status: event.status, revision: event.revision, pages: event.pages, modelCalls: event.modelCalls, savedPageFindings: event.page?.findings.length, remainingUrls: event.runtime?.remaining.length }));
+          if(stateCache)adoptTrace(stateCache.value);
+          console.info("research-progress", JSON.stringify({ timestamp: new Date().toISOString(), ...safeResearchTrace(requestBudget.traceContext), status: event.status, revision: event.revision, pages: event.pages, modelCalls: event.modelCalls, savedPageFindings: event.page?.findings.length, remainingUrls: event.runtime?.remaining.length }));
         },
         cachedPage: async (url) => lookupCachedPage(caches.default, stateCache?.value.config.researchRunId || id, url, event => cacheEvent('page', event)),
         pageLookahead: true,
@@ -461,13 +529,13 @@ export class AcquireResearch extends WorkflowEntrypoint<
       ? (async () => { const initial = await checkpoint('corpus-route', control); return execute(initial.config.researchTask === 'company' ? runCompanyCorpus : runResearch); })()
       : execute(runResearch)).finally(async () => {
       await timing.flush(32);
-      console.info("research-runtime", JSON.stringify({ jobId: id, requests: requestBudget.used, local: this.env.LOCAL_DEVELOPMENT === "true" }));
+      console.info("research-runtime", JSON.stringify({ ...safeResearchTrace(requestBudget.traceContext), requests: requestBudget.used, local: this.env.LOCAL_DEVELOPMENT === "true" }));
     });
     if (this.env.LOCAL_DEVELOPMENT === 'true' && ['balanced-v1','corpus-v1'].includes(this.env.RESEARCH_PIPELINE_DESIGN || '')) {
       const result = await execution;
       const config = stateCache?.value.config;
       if (config?.researchRunId === id) await balancedWakeups({ do: checkpoint, sleep: (name,ms) => step.sleep(name,ms) },
-        () => callback(this.env,id,{action:'balanced-wakeup'}) as Promise<{stop:boolean}>, config.automaticDeadline || Date.now());
+        () => callback(this.env,id,{action:'balanced-wakeup'},undefined,false,requestBudget.traceContext) as Promise<{stop:boolean}>, config.automaticDeadline || Date.now());
       return result;
     }
     return execution;
@@ -562,7 +630,9 @@ const worker = {
       try { body = rawBody ? JSON.parse(rawBody) : undefined; } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400 }); }
       if (method === 'POST' && (!body || typeof body !== 'object' || Array.isArray(body))) return Response.json({ error: 'Invalid body' }, { status: 400 });
       const account = env.PROVIDER_COORDINATOR.get(env.PROVIDER_COORDINATOR.idFromName('firmable-account'));
-      const result = await account.firmable({ path: servicePath, method, query: Object.fromEntries(new URL(request.url).searchParams), body });
+      const nativeJob=request.headers.get('x-acquire-native-research-job'),nativeKey=request.headers.get('x-acquire-native-research-key'),nativeTarget=request.headers.get('x-acquire-native-research-target');
+      if(nativeTarget&&!/^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i.test(nativeTarget)||(nativeJob===null)!==(nativeKey===null)||nativeJob&&(!/^[a-f\d]{8}-(?:[a-f\d]{4}-){3}[a-f\d]{12}$/i.test(nativeJob)||!nativeKey||nativeKey.length>100||!['/company/search','/company','/people/search','/people'].includes(servicePath)))return Response.json({error:'Invalid native research context'},{status:400});
+      const result = await account.firmable({ traceContext:researchTraceHeaders(request.headers),path: servicePath, method, query: Object.fromEntries(new URL(request.url).searchParams), body,...(nativeJob&&nativeKey?{nativeResearch:{jobId:nativeJob,key:nativeKey,...(nativeTarget?{targetId:nativeTarget}:{})}}:{}) });
       return Response.json(result.body, { status: result.status, headers: { 'Cache-Control': 'no-store', ...(result.retryAfter ? { 'Retry-After': String(result.retryAfter) } : {}) } });
     }
     if (firmableValidation) {
@@ -570,6 +640,12 @@ const worker = {
       return validateFirmableSession(env);
     }
     if (new URL(request.url).pathname === "/search" && request.method === "POST") {
+      let nativeSearch;try{nativeSearch=nativeSearchContext(request.headers);}catch{return Response.json({error:'Invalid native search context'},{status:400});}
+      const searchPhysical=nativeSearch?nativeSearchBudgetFetch(env,nativeSearch,researchFetch(env),researchFetch(env)):researchFetch(env);
+      // Diagnostic headers never replace the required legacy routing aliases.
+      const searchTrace=safeResearchTrace({...researchTraceHeaders(request.headers),
+        requestId:/^[0-9a-f-]{36}$/i.test(request.headers.get('x-research-request-id')||'')?request.headers.get('x-research-request-id')!:undefined,
+        jobId:/^[0-9a-f-]{36}$/i.test(request.headers.get('x-research-job-id')||'')?request.headers.get('x-research-job-id')!:undefined});
       const body = await request.json().catch(() => null) as { query?: unknown; page?: unknown; engine?: unknown } | null;
       if (typeof body?.query !== "string" || body.query.trim().length < 2 || body.query.length > 500)
         return Response.json({ error: "Invalid search" }, { status: 400 });
@@ -586,24 +662,22 @@ const worker = {
       let productionJobId: string | undefined;
       try {
         if (!productionPolicy(env)) {
-          const ids = {
-            requestId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-request-id") || "") ? request.headers.get("x-research-request-id")! : undefined,
-            jobId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-job-id") || "") ? request.headers.get("x-research-job-id")! : undefined,
-          };
+          const ids = searchTrace;
           if (!ids.jobId) return Response.json({ error: "A research job is required for rate-controlled search" }, { status: 400 });
           return await withLocalProvider('search', request.headers.get("x-research-browser-reservation") || undefined,
-            data => providerAction(env, ids.jobId!, data), async () => {
+            data => providerAction(env, ids.jobId!, data,undefined,ids), async () => {
               // OpenSERP returns full snippets; fall back to the rendered HTML endpoint when it is unavailable.
               try {
-                const local = await localSearch(env, query, { ...ids, start: (page - 1) * 10, engine: body.engine === "google" ? "google" : undefined }, researchFetch(env));
+                const local = await localSearch(env, query, { ...ids, start: (page - 1) * 10, engine: body.engine === "google" ? "google" : undefined }, searchPhysical);
                 if (local) return Response.json({ seeds: local.map(r => r.url).slice(0, 6), results: local });
-              } catch (error) { console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), ...ids, event: "local_search_fallback", reason: error instanceof Error ? error.message.slice(0, 120) : "unknown" })); }
+              } catch (error) {
+                if(['native_budget_admission_required','native_provider_reconciliation_required','native_budget_not_configured','native_search_upstream_not_allowed'].includes(providerFailure(error).category))throw error;
+                console.info("research-diagnostic", JSON.stringify({ timestamp: new Date().toISOString(), ...ids, event: "local_search_fallback", reason: error instanceof Error ? error.message.slice(0, 120) : "unknown" }));
+              }
               if (page > 1 || body.engine === "google") return Response.json({ error: "Requested search backend unavailable", category: "unsupported_search" }, { status: 502 });
-              const result = await withLocalProvider('page', undefined, data => providerAction(env, ids.jobId!, data), () => localRead(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
-                operation: "web_search",
-                requestId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-request-id") || "") ? request.headers.get("x-research-request-id")! : undefined,
-                jobId: /^[0-9a-f-]{36}$/i.test(request.headers.get("x-research-job-id") || "") ? request.headers.get("x-research-job-id")! : undefined,
-              }, researchFetch(env)));
+              const result = await withLocalProvider('page', undefined, data => providerAction(env, ids.jobId!, data,undefined,ids), () => localRead(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
+                ...ids, operation: "web_search",
+              }, searchPhysical));
               const results = searchResults(result.page.markdown);
               if (!results.length && !/no results found|no more results/i.test(result.page.markdown)) return Response.json({ error: "Local search could not be read" }, { status: 502 });
               return Response.json({ seeds: results.map(r => r.url).slice(0, 6), results });
@@ -613,19 +687,19 @@ const worker = {
         if (!/^[0-9a-f-]{36}$/i.test(jobId)) return Response.json({ error: "A research job is required for rate-controlled search" }, { status: 400 });
         productionJobId = jobId;
         const markdown = await browserMarkdown(env, `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
-          jobId, operation: "web_search", deadline,
-          cooldown: (retryAfterMs, domain) => providerAction(env, jobId, { action: "browser-cooldown", retryAfterMs, domain }),
+          ...searchTrace, jobId, operation: "web_search", deadline,
+          cooldown: (retryAfterMs, domain) => providerAction(env, jobId, { action: "browser-cooldown", retryAfterMs, domain },undefined,searchTrace),
           permit: async () => {
             if (!reserved) {
               // Synchronous field searches have no Workflow reservation. Book
               // through the same queue and let browserMarkdown bound retries.
-              const admission = await providerAction(env, jobId, { action: 'provider-reserve', provider: 'search', token: reservation, holdMs: 0 }) as Admission;
+              const admission = await providerAction(env, jobId, { action: 'provider-reserve', provider: 'search', token: reservation, holdMs: 0 },undefined,searchTrace) as Admission;
               if (!admission.granted) return { granted: false, retryAfterMs: admission.retryAfterMs };
               reserved = true;
             }
-            return providerAction(env, jobId, { action: 'browser-permit', token: reservation, url: `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}` }) as Promise<{ granted: boolean; retryAfterMs: number }>;
+            return providerAction(env, jobId, { action: 'browser-permit', token: reservation, url: `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}` },undefined,searchTrace) as Promise<{ granted: boolean; retryAfterMs: number }>;
           },
-        });
+        }, searchPhysical);
         const results = searchResults(markdown);
         const seeds = results.map(r => r.url).slice(0, 6);
         if (!seeds.length && !/no results found|no more results/i.test(markdown)) throw new Error("Search could not be read");
@@ -633,7 +707,7 @@ const worker = {
       } catch (error) { const failure = providerFailure(error); return Response.json({ error: failure.message, category: failure.category }, { status: failure.status >= 400 ? failure.status : 502 }); }
       finally {
         // Include admission failures: a queued reservation also needs cleanup.
-        if (productionJobId) await providerAction(env, productionJobId, { action: 'provider-release', token: reservation }).catch(() => {});
+        if (productionJobId) await providerAction(env, productionJobId, { action: 'provider-release', token: reservation },undefined,searchTrace).catch(() => {});
       }
     }
     const firmableMatch = new URL(request.url).pathname.match(/^\/firmable\/([0-9a-f-]{36})$/i);

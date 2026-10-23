@@ -7,6 +7,7 @@ import {messageDigest} from '../../../communications/packages/core/src/message-d
 import type {CommunicationsClient} from '../../../communications/packages/sdk/src';
 import type {CampaignDeliveryProvider,DeliveryInput,DeliveryLookupInput} from './delivery-provider';
 export interface CommunicationsDeliveryPorts {
+ recordSubmitted?(input:DeliveryLookupInput,lookup:ReceiptLookup,result:Extract<DeliveryOutcome,{status:'submitted'}>):Promise<void>;
  prepare(input:DeliveryInput):Promise<MessageSubmission>;
  original(input:DeliveryLookupInput):Promise<ReceiptLookup|null>;
  readiness(actor:CampaignActor):Promise<Readiness>;
@@ -41,10 +42,10 @@ export function createCommunicationsDeliveryProvider(channel:ReplyChannel,ports:
   async submit(value){const input=structuredClone(value),s=structuredClone(await prepare(structuredClone(input)));scoped(s.snapshot.binding,input.actor);
    const kind={email:'email',whatsapp:'phone',linkedin:'linkedin_profile'}[channel],recipient=channel==='email'?input.recipient.trim().toLowerCase():input.recipient;
    if(s.message.recipient.kind!==kind||s.message.recipient.value!==recipient||s.message.text!==input.text||s.message.subject!==input.subject||s.snapshot.operation!==(input.operation==='connect'?'invitation':'message')||messageDigest(s.snapshot.operation,s.message)!==s.snapshot.payloadDigest)throw new ReplyCheckReview('protocol',channel);
-   const api=await client(input.actor);try{const lookup={snapshot:s.snapshot,expectedRecipient:s.message.recipient};return translated(await supplemental(api,await api.submit(s),lookup),lookup)??{status:'unknown'};}catch{return {status:'unknown'};}
+   const api=await client(input.actor);try{const lookup={snapshot:s.snapshot,expectedRecipient:s.message.recipient};const result=await supplemental(api,await api.submit(s),lookup),outcome=translated(result,lookup);if(outcome?.status==='submitted'&&result?.status==='submitted'&&ports.recordSubmitted)await ports.recordSubmitted(input,lookup,result);return outcome??{status:'unknown'};}catch{return {status:'unknown'};}
   },
   async lookup(value){const input=structuredClone(value),lookup=structuredClone(await original(input));if(!lookup)return {status:'review',code:'unresolved_send'};scoped(lookup.snapshot.binding,input.actor);
-   const api=await client(input.actor);try{return translated(await supplemental(api,await api.lookup(lookup),lookup),lookup);}catch{return {status:'unknown'};}
+   const api=await client(input.actor);try{const result=await supplemental(api,await api.lookup(lookup),lookup),outcome=translated(result,lookup);if(outcome?.status==='submitted'&&result?.status==='submitted'&&ports.recordSubmitted)await ports.recordSubmitted(input,lookup,result);return outcome;}catch{return {status:'unknown'};}
   },
  };
 }

@@ -67,3 +67,10 @@ it('allows a separate loopback reader only for explicit benchmark mode', async (
  await expect(researchFetch({...env, LOCAL_CRAWL4AI_URL:'https://example.com'},fetcher)('https://example.com/crawl')).rejects.toThrow();
  await expect(researchFetch({...env, LOCAL_RESEARCH_BENCHMARK:undefined},fetcher)('http://127.0.0.1:18483/crawl')).rejects.toThrow();
 });
+
+it("permits only the exact direct OpenAI completion endpoint for configured local research",async()=>{
+ const fetcher=vi.fn<typeof fetch>().mockResolvedValue(Response.json({}));
+ await researchFetch(local,fetcher)('https://api.openai.com/v1/chat/completions');
+ for(const url of ['https://api.openai.com/v1/files','https://api.openai.com/redirect','https://api.openai.com.evil.invalid/v1/chat/completions'])await expect(researchFetch(local,fetcher)(url)).rejects.toThrow('blocked');
+ expect(fetcher).toHaveBeenCalledOnce();
+});

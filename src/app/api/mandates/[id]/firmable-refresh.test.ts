@@ -1,4 +1,4 @@
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { emptyBrief, initialAssessment } from "@/domain/acquisition";
 
 const mocks = vi.hoisted(() => ({
@@ -40,7 +40,9 @@ const context = { params: Promise.resolve({ id: mandateId }) };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  process.env.FIRMABLE_API_KEY = "test-only";
+  vi.stubEnv("FIRMABLE_API_KEY", "test-only");
+  vi.stubEnv("TARGET_DATA_PROVIDER", "live");
+  vi.stubEnv("FIRMABLE_TRANSPORT", "");
   mocks.session.mockResolvedValue({ user: { id: "user-a" }, session: { activeOrganizationId: "org-a" } });
   mocks.getMandate.mockResolvedValue({ id: mandateId, brief: emptyBrief() });
   mocks.memberships.mockResolvedValue([{ target: { id: targetId, companyName: "Example Industries", domain: "example.test", sourceData: {} }, assessment: initialAssessment, accreditations: [], researchFindings: [], version: 1 }]);
@@ -130,4 +132,18 @@ it("rejects people retrieval for companies outside the mandate", async () => {
   }), context);
   expect(response.status).toBe(404);
   expect(mocks.queueRun).not.toHaveBeenCalled();
+});
+
+afterEach(()=>vi.unstubAllEnvs());
+it.each(['load-people','enrich'])('admits normal %s through the configured session service without a legacy API key',async action=>{
+ vi.stubEnv('FIRMABLE_API_KEY','');vi.stubEnv('FIRMABLE_TRANSPORT','cloudflare-session');vi.stubEnv('FIRMABLE_SERVICE_URL','https://service.example.invalid/firmable');vi.stubEnv('FIRMABLE_SERVICE_SECRET','synthetic-service-secret');
+ mocks.queueRun.mockResolvedValue({id:runId,targetId,status:'queued',trigger:action==='load-people'?'people':'phones'});
+ const response=await POST(new Request(`http://localhost/api/mandates/${mandateId}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,targetIds:[targetId],requestId})}),context);
+ expect(response.status).toBe(202);expect(mocks.queueRun).toHaveBeenCalledExactlyOnceWith({organizationId:'org-a',actorId:'user-a',targetId,requestKey:`${requestId}:${targetId}`,trigger:action==='load-people'?'people':'phones'});
+ expect(mocks.worker).toHaveBeenCalledExactlyOnceWith(`/firmable/${runId}`,'POST',{mandateId},4000);
+});
+it.each(['FIRMABLE_SERVICE_URL','FIRMABLE_SERVICE_SECRET'])('rejects missing session %s without falling back to an inherited API key',async missing=>{
+ vi.stubEnv('FIRMABLE_TRANSPORT','cloudflare-session');vi.stubEnv('FIRMABLE_SERVICE_URL','https://service.example.invalid/firmable');vi.stubEnv('FIRMABLE_SERVICE_SECRET','synthetic-service-secret');vi.stubEnv(missing,'');
+ const response=await POST(new Request(`http://localhost/api/mandates/${mandateId}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'load-people',targetIds:[targetId],requestId})}),context);
+ expect(response.status).toBe(503);expect(mocks.queueRun).not.toHaveBeenCalled();expect(mocks.worker).not.toHaveBeenCalled();
 });

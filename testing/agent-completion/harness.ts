@@ -1,0 +1,22 @@
+import{randomUUID}from'node:crypto';import type{Pool}from'pg';import type{createAgentCompletionRuntime,AgentCompletionOptions,CompletionClockPort}from'./composition';import{createAgentCompletionRuntime as createRuntime}from'./composition';import{readCompletionSchedule}from'./scheduling';import{startCompletionListeners}from'./owned-listeners';
+type Clock={runId:string;now():number;operation<T>(work:()=>Promise<T>):Promise<T>};
+export type CompletionSharedHost={clock:Clock;participantClient:CompletionClockPort;origin:string;clockOrigin:string;participantOrigin:string;participantTokenFile:string;close():Promise<void>};
+export type CompletionSharedHostOptions={organizationId:string;userId:string;port:5990;clockPort:5992;participantPort:5993;tls:{key:Buffer;cert:Buffer};localSyncEvents?:AgentCompletionOptions['localSyncEvents'];nativeAgent:{nextWakeup():Promise<string|null>;drain():Promise<{quiescent:boolean}>};assertQuiescent():Promise<{quiescent:boolean}>;integrations:{application:true;postgres:true;nativeCommunications:true;agentWorker:true}};
+/** Owns only the new process/run. The shared host is the reviewed sibling
+ * controller/provider; normal native commands remain explicit caller actions. */
+export async function startAgentCompletionHarness(input:{scope:AgentCompletionOptions['scope'];runtimeId:string;mandateId:string;environment:AgentCompletionOptions['environment'];pools:{application:Pool;service:Pool};tls:{key:Buffer;cert:Buffer};model:AgentCompletionOptions['model'];localSyncEvents?:AgentCompletionOptions['localSyncEvents'];startSharedHost:(options:CompletionSharedHostOptions)=>Promise<CompletionSharedHost>;deliverPending:()=>Promise<unknown>;beforeServiceRequest?:Parameters<typeof startCompletionListeners>[0]['beforeServiceRequest']}){
+ let runtime:ReturnType<typeof createAgentCompletionRuntime>|undefined,host:CompletionSharedHost|undefined,listeners:Awaited<ReturnType<typeof startCompletionListeners>>|undefined;
+ const requireRuntime=()=>{if(!runtime)throw Error('Completion runtime not ready');return runtime;};
+ const scheduling=async()=>{requireRuntime();if(!host)throw Error('Completion host not ready');return readCompletionSchedule({pool:input.pools.application,servicePool:input.pools.service,integrationId:input.environment.COMMUNICATIONS_INTEGRATION_ID??'',scope:input.scope,mandateId:input.mandateId,now:host.clock.now()});};
+ const drain=async()=>{for(let i=0;i<20;i++){const outcome=await requireRuntime().operation('native:'+randomUUID(),async view=>{await view.serviceTick();await input.deliverPending();await view.serviceTick();return view.runEvent(input.mandateId);});if(outcome==='idle')break;}const state=await scheduling();return{quiescent:state.due===0&&state.active===0};};
+ try{
+  host=await input.startSharedHost({organizationId:input.scope.organizationId,userId:input.scope.userId,port:5990,clockPort:5992,participantPort:5993,tls:input.tls,localSyncEvents:input.localSyncEvents,nativeAgent:{nextWakeup:async()=>(await scheduling()).nextAt,drain},assertQuiescent:async()=>{const state=await scheduling();return{quiescent:state.due===0&&state.active===0};},integrations:{application:true,postgres:true,nativeCommunications:true,agentWorker:true}});
+  const local=host;
+  if(local.clock.runId!==input.scope.runId||local.origin!=='https://127.0.0.1:5990'||local.clockOrigin!=='https://127.0.0.1:5992'||local.participantOrigin!=='http://127.0.0.1:5993')throw Error('Completion shared host differs');
+  runtime=createRuntime({scope:input.scope,runtimeId:input.runtimeId,environment:input.environment,pools:input.pools,model:input.model,localSyncEvents:input.localSyncEvents,remoteClock:local.participantClient});
+  const service=await runtime.operation('service:'+randomUUID(),async view=>view.service());
+  listeners=await startCompletionListeners({service,tls:input.tls,startProvider:async()=>local,beforeServiceRequest:input.beforeServiceRequest});
+  const thread=await runtime.operation('thread:'+randomUUID(),async view=>view.store.openThread(input.mandateId));
+  let closed=false;return{runtime,host,actor:{organizationId:input.scope.organizationId,userId:input.scope.userId},mandateId:input.mandateId,threadId:thread.id,applicationPool:input.pools.application,async close(){if(closed)return;closed=true;await listeners!.close();await runtime!.close();}};
+ }catch(error){try{if(listeners)await listeners.close();else if(host)await host.close();}finally{await runtime?.close();}throw error;}
+}

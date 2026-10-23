@@ -1,3 +1,4 @@
+import{reportDispatchDiagnostic,type DispatchDiagnosticPort}from'./dispatch-diagnostic';
 import { isDeepStrictEqual, types } from "node:util";
 import { assertOperationMatches, assertSameBinding, assertSubmissionReceiptMatches, ContractError } from "../../contracts/src";
 import type { CanonicalIdentity, ConnectionBinding, DeliveryOutcome, MessageSubmission, MessagingAdapter, OperationSnapshot, ProviderReference, Readiness } from "../../contracts/src";
@@ -26,6 +27,7 @@ export interface DispatchJournalPort {
   reconcile(input: { record: DispatchRecord; outcome: DeliveryOutcome }): Promise<DispatchRecord>;
 }
 export interface DispatchCoordinatorOptions {
+  diagnostic?:DispatchDiagnosticPort;
   /** Trusted server composition only: a committed tracking ACK and authenticated,
    * read-verified association must identify the original email. No caller ID/search.
    * The journal independently verifies this proposal before durable reconciliation. */
@@ -75,12 +77,13 @@ function assertSnapshot(binding: ConnectionBinding, snapshot: OperationSnapshot)
 function assertSubmission(binding: ConnectionBinding, input: MessageSubmission): void {
   if (!object(input) || !fields(input, ["snapshot", "message"])) fail();
   assertSnapshot(binding, input.snapshot);
-  if (!object(input.message) || !fields(input.message, ["recipient", "text", "subject", "conversation", "rfcMessageId", "replyTo"]) ||
+  if (!object(input.message) || !fields(input.message, ["recipient", "text", "subject", "conversation", "rfcMessageId", "replyTo", "replyParent"]) ||
       !validRecipient(binding, input.message.recipient) || typeof input.message.text !== "string" || input.message.text.length > 100_000 ||
       (input.message.subject !== undefined && (typeof input.message.subject !== "string" || input.message.subject.length > 1000)) ||
       (input.message.rfcMessageId !== undefined && !text(input.message.rfcMessageId)) ||
       (input.message.replyTo !== undefined && !text(input.message.replyTo)) ||
       (input.message.conversation !== undefined && !validReference(binding, input.message.conversation)) ||
+      (input.message.replyParent !== undefined && (binding.channel!=='email'||input.message.conversation!==undefined||!object(input.message.replyParent)||!fields(input.message.replyParent,['message','contentDigest'])||!validReference(binding,input.message.replyParent.message)||typeof input.message.replyParent.contentDigest!=='string'||!/^[a-f0-9]{64}$/.test(input.message.replyParent.contentDigest))) ||
       messageDigest(input.snapshot.operation, input.message) !== input.snapshot.payloadDigest) fail();
 }
 function readiness(value: unknown): value is Readiness {
@@ -149,9 +152,9 @@ export function createDispatchCoordinator(expectedBinding: ConnectionBinding, ad
   try {
     if (!options || types.isProxy(options) || Object.getPrototypeOf(options)!==Object.prototype) fail();
     const d=Object.getOwnPropertyDescriptors(options);
-    if(Reflect.ownKeys(d).some(k=>typeof k!=='string'||!['recoverUnknownEmail','recoveryTimeoutMs'].includes(k)||!('value'in d[k]))) fail();
+    if(Reflect.ownKeys(d).some(k=>typeof k!=='string'||!['recoverUnknownEmail','recoveryTimeoutMs','diagnostic'].includes(k)||!('value'in d[k]))) fail();
     for(const descriptor of Object.values(d))if(types.isPromise(descriptor.value)){void Promise.prototype.then.call(descriptor.value,undefined,()=>{});fail();}
-    const fn=d.recoverUnknownEmail?.value;
+    const fn=d.recoverUnknownEmail?.value;if(d.diagnostic?.value!==undefined&&typeof d.diagnostic.value!=='function')fail();
     recoveryTimeout=d.recoveryTimeoutMs?.value??10000;
     if(fn!==undefined&&(typeof fn!=='function'||types.isProxy(fn))||!Number.isSafeInteger(recoveryTimeout)||recoveryTimeout<1||recoveryTimeout>10000)fail();
     recover=fn===undefined?undefined:Function.prototype.bind.call(fn,options);
@@ -189,7 +192,7 @@ export function createDispatchCoordinator(expectedBinding: ConnectionBinding, ad
       if (record.message && !isDeepStrictEqual(result.message, record.message)) return unknown();
       if ((outcome.status === "unknown" ? result.state !== "unknown" : result.state !== "completed") || !isDeepStrictEqual(result.outcome, outcome)) return unknown();
       return structuredClone(outcome);
-    } catch { return unknown(); }
+    } catch(error) {reportDispatchDiagnostic(options.diagnostic,'coordinator.persist','error',error);return unknown(); }
   }
   return {
     async ready(requested) {
@@ -208,23 +211,23 @@ export function createDispatchCoordinator(expectedBinding: ConnectionBinding, ad
         ...(input.message.conversation ? { conversation: input.message.conversation } : {}),
         ...(input.message.rfcMessageId ? { rfcMessageId: input.message.rfcMessageId } : {}),
       }))); }
-      catch (error) { if (error instanceof ContractError) throw error; return unknown(); }
+      catch (error) {reportDispatchDiagnostic(options.diagnostic,'coordinator.claim','error',error); if (error instanceof ContractError) throw error; return unknown(); }
       if (decision?.kind === "blocked") return block(decision.outcome, input.snapshot, input.message.recipient) ? structuredClone(decision.outcome) : unknown();
       if (decision?.kind === "existing") { assertRecord(decision.record, input.snapshot, input.message.recipient, input.message); return replay(decision.record); }
       if (decision?.kind !== "claimed" || !text(decision.token)) return unknown();
-      try { assertRecord(decision.record, input.snapshot, input.message.recipient, input.message); } catch { return unknown(); }
+      try { assertRecord(decision.record, input.snapshot, input.message.recipient, input.message); } catch(error) {reportDispatchDiagnostic(options.diagnostic,'coordinator.record','error',error);return unknown(); }
       if (decision.record.state !== "claimed") return unknown();
       let preflight: Readiness;
       try { preflight = structuredClone(await adapterReady(structuredClone(binding))); }
-      catch { return persist(decision.token, decision.record, unknown()); }
-      if (!readiness(preflight)) return persist(decision.token, decision.record, unknown());
+      catch(error) {reportDispatchDiagnostic(options.diagnostic,'coordinator.ready','error',error);return persist(decision.token, decision.record, unknown()); }
+      if (!readiness(preflight)){reportDispatchDiagnostic(options.diagnostic,'coordinator.preflight','blocked');return persist(decision.token, decision.record, unknown());}
       if (preflight.status !== "ready") return persist(decision.token, decision.record, preflight);
       let admission: BeginDispatchDecision;
       try { admission = structuredClone(await beginDispatch(structuredClone({ token: decision.token, record: decision.record }))); }
-      catch { return unknown(); }
+      catch(error) {reportDispatchDiagnostic(options.diagnostic,'coordinator.begin','error',error);return unknown(); }
       if (admission?.kind === "blocked") return block(admission.outcome, input.snapshot, input.message.recipient) ? persist(decision.token, decision.record, admission.outcome) : unknown();
-      if (admission?.kind !== "admitted") return unknown();
-      try { assertRecord(admission.record, input.snapshot, input.message.recipient, input.message); } catch { return unknown(); }
+      if (admission?.kind !== "admitted"){reportDispatchDiagnostic(options.diagnostic,'coordinator.begin','blocked');return unknown();}
+      try { assertRecord(admission.record, input.snapshot, input.message.recipient, input.message); } catch(error) {reportDispatchDiagnostic(options.diagnostic,'coordinator.admitted_record','error',error);return unknown(); }
       if (admission.record.state !== "dispatching") return unknown();
       let outcome: DeliveryOutcome;
       try {

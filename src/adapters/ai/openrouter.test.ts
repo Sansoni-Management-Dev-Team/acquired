@@ -29,7 +29,7 @@ describe("OpenRouterAiProvider", () => {
       model: "qwen/qwen3.8-flash",
       messages: [{ role: "system", content: "System instructions" }, { role: "user", content: "User context" }],
       response_format: { type: "json_schema", json_schema: { name: "test_response", strict: true } },
-      provider: { require_parameters: true, data_collection: "deny" },
+      provider: { require_parameters: true, data_collection: "allow" },
       reasoning: { effort: "none", exclude: true },
     });
   });

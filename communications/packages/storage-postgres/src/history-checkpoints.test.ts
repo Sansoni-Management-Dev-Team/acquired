@@ -11,6 +11,7 @@ function fixture() {
     const statements: string[] = [];
     const client = { release: vi.fn(), query: vi.fn(async (sql: string): Promise<SqlResult> => {
             statements.push(sql);
+            if(sql.includes('AS history_replies_pending'))return{rows:[{history_replies_pending:false}]};
             if (sql.includes('pg_roles'))
                 return { rows: [{ role: 'communications_control', rolsuper: false, rolbypassrls: false, rolcanlogin: false }] };
             if (sql.includes('advance_reply_barrier'))
@@ -130,3 +131,18 @@ it('verified original-journal matching outbound can pass within held transaction
 it('holds service coverage/gates until application projection revalidation and definite callback completion', async () => { const f = admissionWithOutbound('other@example.com', false), base = f.client.query.getMockImplementation()!; f.client.query.mockImplementation(async (sql) => sql.includes('assert_dispatch_reply_barrier') ? { rows: [{ revision: '3' }] } : sql.includes('SELECT coverage_from,coverage_through,observed_at FROM') ? { rows: [{ coverage_from: at, coverage_through: at, observed_at: at }] } : base(sql)); let alive: (() => Promise<void>) | undefined; expect(await f.repo.withCoverage(query, async (snapshot) => { expect(f.statements).not.toContain('COMMIT'); expect(snapshot.coverage.complete).toBe(true); alive = snapshot.revalidate; await snapshot.revalidate(); return 'app-definitely-committed'; })).toBe('app-definitely-committed'); expect(f.statements.at(-1)).toBe('COMMIT'); await expect(alive!()).rejects.toThrow(); });
 it('scope HMAC version can remain pinned when checkpoint encryption rotates', () => { const f = fixture(), rotated = new HistoryCheckpointCodec({ activeVersion: 'v2', keys: [{ version: 'v1', encryptionKey: Buffer.alloc(32, 1), digestKey: Buffer.alloc(32, 2) }, { version: 'v2', encryptionKey: Buffer.alloc(32, 5), digestKey: Buffer.alloc(32, 6) }] }); const repo = createPostgresHistoryCheckpoints({ ...f.options, codec: rotated, scopeKeyVersion: 'v1' }); expect(repo.scopeDigest('all')).toBe(codec.digest(binding, 'all')); expect(rotated.seal(binding, repo.scopeDigest('all'), {}).keyVersion).toBe('v2'); });
 it('outbound provenance outside the scanned window cannot commit complete coverage', async () => { const f = await committing(); f.pool.connect.mockClear(); const outsidePage = { ...completePage, provenance: { ...proof, outbound: [{ binding, reference: { binding, id: 'manual' }, recipient: { kind: 'email' as const, value: 'peer@example.com' }, occurredAt: '2026-10-14T09:00:00.001Z' }] } }; await expect(f.repo.commit(f.ticket, outsidePage)).rejects.toThrow(); expect(f.pool.connect).not.toHaveBeenCalled(); });
+
+it('keeps real refresh leases separate from selected business scan anchors',async()=>{
+ const f=fixture(),repo=createPostgresHistoryCheckpoints({...f.options,businessClock:{now:()=>Date.parse(at)}});
+ await repo.begin(query);
+ const insert=f.statements.find(q=>q.startsWith('INSERT INTO communications.history_refreshes'))!;
+ expect(insert).toContain('business_started_at');expect(insert).toContain('public.local_simulator_business_now()');expect(insert).toContain("clock_timestamp()+interval '60 seconds'");expect(insert).toContain('RETURNING business_started_at AS started_at');
+ expect(f.statements.find(q=>q.includes('JOIN communications.access_grants'))).toContain('ag.expires_at>clock_timestamp()');
+});
+
+it.each(['valid','missing-business','changed-original'] as const)('maps verified genuine sync completion to separate business anchor: %s',async variant=>{
+ const f=fixture(),b={...binding,channel:'linkedin' as const,platform:'linkedin' as const},r={...record,binding:b,ownerIdentity:{namespace:'unipile.v1.linkedin.im.id',value:'owner'}},business='2031-01-01T00:00:00.000Z',sync={kind:'provider_sync_success',record:r,completedAt:at,evidenceId:'a'.repeat(64)},sealed=codec.seal(b,codec.digest(b,'history-initial-sync'),sync),base=f.client.query.getMockImplementation()!;
+ f.client.query.mockImplementation(async sql=>sql.includes('FROM communications.history_initial_sync')?{rows:[{encrypted_evidence:JSON.stringify(sealed),key_version:sealed.keyVersion,digest_key_version:'v1',webhook_inbox_id:sync.evidenceId,completed_at:variant==='changed-original'?'2026-10-14T09:00:01.000Z':at,business_completed_at:variant==='missing-business'?null:business,time_valid:true}]}:base(sql));
+ const repo=createPostgresHistoryCheckpoints({...f.options,binding:b,record:r,businessClock:{now:()=>Date.parse(business)}});
+ if(variant==='valid')expect(await repo.initialSync()).toMatchObject({completedAt:business,evidenceId:sync.evidenceId});else await expect(repo.initialSync()).rejects.toThrow();
+});

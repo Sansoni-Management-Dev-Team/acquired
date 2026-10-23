@@ -1,12 +1,15 @@
+import{businessNow,type BusinessClock}from'../../core/src/business-clock';
 import {
   COMMUNICATIONS_CONTRACT_VERSION,
   type ConnectionBinding, type DeliveryOutcome, type MessageSubmission,
   type Readiness, type ReceiptLookup, type AccessScope, type CanonicalIdentity, type RelationshipStatus,
 } from "../../contracts/src/index";
-import { assertManagedConnection, assertManagementBinding, assertManagementSnapshot, type ManagedConnection, type ConnectionManagementSnapshot, type ConnectionSetupRequest, type ConnectionSetupResponse, type ConnectionDisconnectResponse } from '../../contracts/src/management';
+import { assertManagedConnection, assertManagementBinding, assertManagementSnapshot, assertManagementSetupResponse, localSimulatorHostedOrigin, captureHostedDemoCapability, type HostedDemoCapability, type ManagedConnection, type ConnectionManagementSnapshot, type ConnectionSetupRequest, type ConnectionSetupResponse, type ConnectionDisconnectResponse } from '../../contracts/src/management';
 import { isDeliveryOutcome, isReadiness } from "./validation";
 
 export interface CommunicationsClientConfig {
+  /** Trusted observation clock only; hosted auth expiry and transport stay real. */
+  businessClock?:BusinessClock;
   baseUrl: string;
   contractVersion: "1";
   apiKey: string;
@@ -14,6 +17,8 @@ export interface CommunicationsClientConfig {
   timeoutMs?: number;
   maxResponseBytes?: number;
   allowLoopbackHttp?: boolean;
+  localSimulatorOrigin?: string;
+  hostedDemo?:HostedDemoCapability;
 }
 export class CommunicationsClientError extends Error {
   constructor(readonly code: string, readonly status?: number) { super(code); this.name = "CommunicationsClientError"; }
@@ -61,6 +66,9 @@ export class CommunicationsClient {
   #fetch: typeof globalThis.fetch;
   #timeout: number;
   #maxBytes: number;
+  #localSimulatorOrigin?: string;
+  #hostedDemo?:HostedDemoCapability;
+  #businessClock?:BusinessClock;
   constructor(config: CommunicationsClientConfig) {
     let url: URL;
     try { url = new URL(config.baseUrl); } catch { throw new Error("Invalid communications client configuration"); }
@@ -73,8 +81,14 @@ export class CommunicationsClient {
         !Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 1_048_576) {
       throw new Error("Invalid communications client configuration");
     }
+    this.#businessClock=config.businessClock;
     this.#baseUrl = url; this.#key = config.apiKey; this.#fetch = config.fetch ?? globalThis.fetch;
     this.#timeout = timeout; this.#maxBytes = maxBytes;
+    if(config.hostedDemo!==undefined){if(config.localSimulatorOrigin!==undefined)throw new Error('Invalid hosted demo client configuration');this.#hostedDemo=captureHostedDemoCapability(config.hostedDemo);}
+    if(config.localSimulatorOrigin!==undefined){
+      if(!loopback||url.protocol!=='https:'||typeof process!=='undefined'&&process.env.NODE_ENV==='production')throw new Error('Invalid local simulator client configuration');
+      this.#localSimulatorOrigin=localSimulatorHostedOrigin(config.localSimulatorOrigin);
+    }
   }
   async health(): Promise<{ contractVersion: "1" }> {
     const data = await this.#request("/health");
@@ -88,6 +102,8 @@ export class CommunicationsClient {
     const captured = structuredClone(input); if (captured.reconnectBinding) assertManagementBinding(captured.reconnectBinding, scope);
     try {
       const data = await this.#request('/v1/connections/setup', captured);
+      if(this.#hostedDemo!==undefined){assertManagementSetupResponse(data,{hostedDemo:this.#hostedDemo});return data;}
+      if(this.#localSimulatorOrigin!==undefined){assertManagementSetupResponse(data,{localSimulatorOrigin:this.#localSimulatorOrigin});return data;}
       if (!object(data)) throw new CommunicationsClientError('protocol');
       if (data.status === 'redirect' && Object.keys(data).length === 2 && object(data.action) && Object.keys(data.action).sort().join(',') === 'expiresAt,type,url' && data.action.type === 'redirect' && typeof data.action.url === 'string' && typeof data.action.expiresAt === 'string') {
         const url = new URL(data.action.url);
@@ -146,7 +162,7 @@ export class CommunicationsClient {
   async inspectRelationship(binding:ConnectionBinding,profile:CanonicalIdentity):Promise<{status:RelationshipStatus;canMessage:boolean|null;observedAt:string}> {
     assertManagementBinding(binding,binding);if(binding.channel!=='linkedin'||profile.kind!=='linkedin_profile')throw new CommunicationsClientError('invalid_request');
     const data=await this.#request('/v1/relationships/inspect',{binding:structuredClone(binding),profile:structuredClone(profile),refresh:true});
-    if(!object(data)||Object.keys(data).sort().join(',')!=='canMessage,observedAt,status'||!['connected','invitation_pending','not_connected','unknown'].includes(String(data.status))||!(data.canMessage===null||typeof data.canMessage==='boolean')||typeof data.observedAt!=='string'||!Number.isFinite(Date.parse(data.observedAt))||Date.parse(data.observedAt)>Date.now())throw new CommunicationsClientError('protocol');
+    if(!object(data)||Object.keys(data).sort().join(',')!=='canMessage,observedAt,status'||!['connected','invitation_pending','not_connected','unknown'].includes(String(data.status))||!(data.canMessage===null||typeof data.canMessage==='boolean')||typeof data.observedAt!=='string'||!Number.isFinite(Date.parse(data.observedAt))||Date.parse(data.observedAt)>businessNow(this.#businessClock))throw new CommunicationsClientError('protocol');
     return data as {status:RelationshipStatus;canMessage:boolean|null;observedAt:string};
   }
   async #request(path: string, body?: unknown): Promise<unknown> {

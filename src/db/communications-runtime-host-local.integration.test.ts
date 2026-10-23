@@ -163,7 +163,7 @@ describe.skipIf(!enabled)('two-database configured Acquire communications host (
         };
         const runtime = createConfiguredUnipileV1Runtime(options);
         const host = createAcquireCommunicationsRuntime({ unipile: runtime, serviceOptions: options, applicationPool: app.driver, applicationCodec: appCodec, scopedAuthKey, subscriberId: `host-subscriber-${run}`, quota: { account: { hour: 10, day: 20 }, application: { hour: 100, day: 200 } } });
-        const actualService = await createAcquireCommunicationsService({ host, unipile: runtime, options });
+        const actualService = await createAcquireCommunicationsService({ host, unipile: runtime, options, applicationCodec: appCodec });
         actualService.server.listen(0, '127.0.0.1');
         await once(actualService.server, 'listening');
         const address = actualService.server.address();

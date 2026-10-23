@@ -3,9 +3,14 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, expect, it, vi } from "vitest";
 import { ChannelConnections } from "./channel-connections";
 afterEach(() => vi.unstubAllEnvs());
+it.each([['incomplete','Connected · Checking history'],['unavailable','Connected · History check unavailable']] as const)('distinguishes a connected mailbox from an unfinished %s history check',(code,label)=>{
+ const binding={applicationId:'acquire',tenantId:'org',ownerId:'owner',connectionId:'c',accountId:'a',generation:1,channel:'email' as const,platform:'gmail' as const,backend:'unipile' as const};
+ const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,checkedAt:'2026-10-14T00:00:00.000Z',connections:[{binding,active:true,label:'owner@example.test',status:'connected',capabilities:{messaging:{send:true,durableIdempotency:true,receiptLookup:true},events:{read:true,history:true,realtime:true}},readiness:{status:'waiting',code},isDefault:false}]}}/>);
+ expect(html).toContain(label);expect(html).not.toContain('Syncing');expect(html).not.toContain('>Ready<');
+});
 it('offers configured Unipile setup and distinguishes syncing from send readiness', () => {
  const binding={applicationId:'acquire',tenantId:'org',ownerId:'owner',connectionId:'c',accountId:'a',generation:1,channel:'email' as const,platform:'gmail' as const,backend:'unipile' as const};
- const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,checkedAt:'2026-10-14T00:00:00.000Z',connections:[{binding,label:'owner@example.test',status:'syncing',capabilities:{messaging:{send:true,durableIdempotency:true,receiptLookup:true},events:{read:true,history:true,realtime:true}},readiness:{status:'waiting',code:'incomplete'},isDefault:false}]}}/>);
+ const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,checkedAt:'2026-10-14T00:00:00.000Z',connections:[{binding,active:true,label:'owner@example.test',status:'syncing',capabilities:{messaging:{send:true,durableIdempotency:true,receiptLookup:true},events:{read:true,history:true,realtime:true}},readiness:{status:'waiting',code:'incomplete'},isDefault:false}]}}/>);
  expect(html).toContain('owner@example.test');expect(html).toContain('Syncing');expect(html).toContain('Use for new work');expect(html).toContain('Disconnect');expect(html).not.toContain('Setup unavailable');expect(html).not.toContain('>Ready<');
 });
 it("uses channel names without exposing the internal supplier", () => {
@@ -41,7 +46,7 @@ it('marks IMAP unavailable while configured Gmail and Outlook remain selectable'
 
 it.each(['connecting','syncing','connected'] as const)('shows an accessible loading icon for %s with incomplete connection checks',status=>{
  const binding={applicationId:'acquire',tenantId:'org',ownerId:'owner',connectionId:'pending',accountId:'account',generation:1,channel:'linkedin' as const,platform:'linkedin' as const,backend:'unipile' as const};
- const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,checkedAt:'2026-10-14T00:00:00.000Z',connections:[{binding,label:'Synthetic LinkedIn account',status,capabilities:{messaging:{send:true,durableIdempotency:true,receiptLookup:true},events:{read:true,history:true,realtime:true}},readiness:{status:'waiting',code:'incomplete'},isDefault:false}]}}/>);
+ const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,checkedAt:'2026-10-14T00:00:00.000Z',connections:[{binding,active:true,label:'Synthetic LinkedIn account',status,capabilities:{messaging:{send:true,durableIdempotency:true,receiptLookup:true},events:{read:true,history:true,realtime:true}},readiness:{status:'waiting',code:'incomplete'},isDefault:false}]}}/>);
  expect(html).toContain('aria-label="LinkedIn connection pending"');
  expect(html).toContain('aria-busy="true"');expect(html).toContain('animate-spin');
  expect(html).toContain('motion-reduce:animate-none');
@@ -49,7 +54,7 @@ it.each(['connecting','syncing','connected'] as const)('shows an accessible load
 it.each(['disconnected','failed','verification_required','connected'] as const)('does not animate a settled %s connection',status=>{
  const binding={applicationId:'acquire',tenantId:'org',ownerId:'owner',connectionId:'settled',accountId:'account',generation:1,channel:'linkedin' as const,platform:'linkedin' as const,backend:'unipile' as const};
  const readiness=status==='connected'?{status:'ready' as const}:{status:'review' as const,code:'reconnect' as const};
- const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,checkedAt:'2026-10-14T00:00:00.000Z',connections:[{binding,label:'Synthetic LinkedIn account',status,capabilities:{messaging:{send:true,durableIdempotency:true,receiptLookup:true},events:{read:true,history:true,realtime:true}},readiness,isDefault:false}]}}/>);
+ const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,checkedAt:'2026-10-14T00:00:00.000Z',connections:[{binding,active:true,label:'Synthetic LinkedIn account',status,capabilities:{messaging:{send:true,durableIdempotency:true,receiptLookup:true},events:{read:true,history:true,realtime:true}},readiness,isDefault:false}]}}/>);
  expect(html).not.toContain('connection pending');expect(html).not.toContain('animate-spin');
 });
 it('shows callback waiting feedback immediately after returning from account setup',()=>{
@@ -59,6 +64,25 @@ it('shows callback waiting feedback immediately after returning from account set
 
 it.each([['disconnected','Disconnected'],['failed','Connection failed']] as const)('keeps terminal %s status ahead of stale incomplete readiness',(status,label)=>{
  const binding={applicationId:'acquire',tenantId:'org',ownerId:'owner',connectionId:'terminal',accountId:'account',generation:1,channel:'linkedin' as const,platform:'linkedin' as const,backend:'unipile' as const};
- const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,checkedAt:'2026-10-14T00:00:00.000Z',connections:[{binding,label:'Synthetic account',status,capabilities:{messaging:{send:true,durableIdempotency:true,receiptLookup:true},events:{read:true,history:true,realtime:true}},readiness:{status:'waiting',code:'incomplete'},isDefault:false}]}}/>);
+ const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,checkedAt:'2026-10-14T00:00:00.000Z',connections:[{binding,active:true,label:'Synthetic account',status,capabilities:{messaging:{send:true,durableIdempotency:true,receiptLookup:true},events:{read:true,history:true,realtime:true}},readiness:{status:'waiting',code:'incomplete'},isDefault:false}]}}/>);
  expect(html).toContain(label);expect(html).not.toContain('Syncing');expect(html).not.toContain('animate-spin');
+});
+
+it.each([false,undefined])('retired or unknown lifecycle never offers reconnect, default or disconnect actions: %s',active=>{
+ const binding={applicationId:'acquire',tenantId:'org',ownerId:'owner',connectionId:'retired',accountId:'physical',generation:1,channel:'whatsapp' as const,platform:'whatsapp' as const,backend:'unipile' as const};
+ const connection={binding,label:'Historical local account',status:'disconnected' as const,capabilities:{messaging:{send:true,durableIdempotency:true,receiptLookup:true},events:{read:true,history:true,realtime:true}},readiness:{status:'review' as const,code:'reconnect' as const},isDefault:false,...(active===undefined?{}:{active})};
+ const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,checkedAt:'2026-10-18T00:00:00.000Z',connections:[connection]}}/>);
+ expect(html).toContain(active===false?'Retired connection':'Connection status unavailable');expect(html).toContain('Check status');
+ for(const action of ['Reconnect','Use for new work','Disconnect'])expect(html).not.toContain('>'+action+'</button>');
+ expect(html).toContain('Connect WhatsApp');
+});
+it('an active provider-disconnected account still offers reconnect using its original recorded binding',()=>{
+ const binding={applicationId:'acquire',tenantId:'org',ownerId:'owner',connectionId:'active',accountId:'physical',generation:2,channel:'linkedin' as const,platform:'linkedin' as const,backend:'unipile' as const};
+ const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,checkedAt:'2026-10-18T00:00:00.000Z',connections:[{binding,active:true,label:'Owned local account',status:'disconnected',capabilities:{messaging:{send:true,durableIdempotency:true,receiptLookup:true},events:{read:true,history:true,realtime:true}},readiness:{status:'review',code:'reconnect'},isDefault:false}]}}/>);
+ expect(html).toContain('>Reconnect</button>');expect(html).not.toContain('Retired connection');expect(html).not.toContain('>Use for new work</button>');
+});
+it('retired records cannot retain a pending spinner or mutate a historical default',()=>{
+ const binding={applicationId:'acquire',tenantId:'org',ownerId:'owner',connectionId:'retired',accountId:'physical',generation:1,channel:'email' as const,platform:'gmail' as const,backend:'unipile' as const};
+ const html=renderToStaticMarkup(<ChannelConnections initialSnapshot={{available:true,checkedAt:'2026-10-18T00:00:00.000Z',connections:[{binding,active:false,label:'Retired mailbox',status:'connected',capabilities:{messaging:{send:true,durableIdempotency:true,receiptLookup:true},events:{read:true,history:true,realtime:true}},readiness:{status:'waiting',code:'incomplete'},isDefault:true}]}}/>);
+ expect(html).toContain('Retired connection');expect(html).not.toContain('Default for new work');expect(html).not.toContain('aria-busy="true"');expect(html).not.toContain('>Disconnect</button>');
 });

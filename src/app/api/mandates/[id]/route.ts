@@ -1,5 +1,8 @@
+import type {CompanyProjectionRefreshResult} from '@/domain/company-projection-refresh';
+import { firmableEnrichmentConfigured } from '@/domain/firmable-readiness';
+import { acquireCommands } from '@/lib/acquire-commands';
+import { AcquireCommandError } from '@/domain/acquire-commands';
 import { contactCompanyEligible } from '@/domain/company-contact-policy';
-import {recoverFirmableRefreshes} from '@/lib/firmable-run-recovery';
 import { researchJsonResponse, researchRequestJson } from "@/lib/research-request-observability";
 import { observeResearchRequest } from "@/lib/research-request-observability";
 import { z } from "zod";
@@ -26,8 +29,8 @@ export const maxDuration = 300;
 
 const importedRecord = z.object({ name: z.string().trim().min(1).max(300), website: z.union([z.string().url(), z.literal("")]), abn: z.string().regex(/^(\d{11})?$/), state: z.string().max(30), description: z.string().max(3000), source: z.string().trim().min(1).max(200), sourceUrl: z.string().url(), sourceId: z.string().trim().min(1).max(200) });
 const actionSchema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("brief"), brief: briefSchema }),
-  z.object({ action: z.literal("brief-description"), description: z.string().trim().min(10).max(10000) }),
+  z.object({ action: z.literal("brief"), brief: briefSchema, expectedRevision:z.string().regex(/^\d{1,30}$/) }),
+  z.object({ action: z.literal("brief-description"), description: z.string().trim().min(10).max(10000), expectedRevision:z.string().regex(/^\d{1,30}$/) }),
   z.object({ action: z.literal("discover") }),
   z.object({ action: z.literal("import"), records: z.array(importedRecord).min(1).max(1000) }),
   z.object({ action: z.literal("load-people"), targetIds: z.array(z.string().uuid()).min(1).max(20), requestId: z.string().uuid().optional() }),
@@ -45,18 +48,23 @@ async function getMandateWorkspace(request: Request, context: { params: Promise<
   const { id } = await context.params;
   if (!z.string().uuid().safeParse(id).success) return researchJsonResponse({ error: "Invalid mandate" }, { status: 400 });
   const repo = new AcquisitionRepository(org);
-  const mandate = await repo.getMandate(id);
+  let mandate;
+  try {
+    const result = await acquireCommands.execute({ organizationId: org, userId: session!.user.id }, { name: 'mandate.read', input: { mandateId: id } });
+    if (result.name !== 'mandate.read') throw new Error('Unexpected command result');
+    mandate = result.value;
+  } catch (cause) {
+    if (cause instanceof AcquireCommandError) return researchJsonResponse({ error: cause.message }, { status: cause.status });
+    throw cause;
+  }
   if (!mandate) return researchJsonResponse({ error: "Mandate not found" }, { status: 404 });
+  if(new URL(request.url).searchParams.get('briefOnly')==='true')return researchJsonResponse({mandate},{headers:{'Cache-Control':'private, no-store'}});
   const [memberships, coverage, valuations, orgRows] = await Promise.all([repo.memberships(id), repo.coverage(id), repo.valuations(id), requireDb().select({ metadata: organization.metadata }).from(organization).where(eq(organization.id, org))]);
   const history = new FirmableHistoryRepository(requireDb());
   const rawRunIds = new URL(request.url).searchParams.get("enrichmentRuns");
   const runIds = rawRunIds === null ? undefined : rawRunIds.split(",");
   if (runIds && (!runIds.length || runIds.length > 20 || runIds.some(runId => !z.uuid().safeParse(runId).success))) return researchJsonResponse({ error: "Invalid enrichment runs" }, { status: 400 });
-  let firmableRefreshes = await history.latestRuns(org, memberships.map(item => item.target.id), runIds);
-  if (researchEnabled()) {
-    await recoverFirmableRefreshes(history, firmableRefreshes, id);
-    firmableRefreshes = await history.latestRuns(org, memberships.map(item => item.target.id), runIds);
-  }
+  const firmableRefreshes = await history.latestRuns(org, memberships.map(item => item.target.id), runIds);
   return researchJsonResponse({ mandate, memberships, coverage, valuations, buyerProfile: buyerProfileFromMetadata(orgRows[0]?.metadata), contacts: await loadWorkspaceContacts(requireDb(), org, memberships), firmableRefreshes });
 }
 
@@ -73,17 +81,24 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
   const mandate = await repo.getMandate(id);
   if (!mandate) return researchJsonResponse({ error: "Mandate not found" }, { status: 404 });
   let release: (() => void) | undefined;
+  let companyProjectionRefresh:CompanyProjectionRefreshResult|undefined;
   try {
+    if((action.action==='brief'||action.action==='brief-description')&&action.expectedRevision!==mandate.revision)return researchJsonResponse({error:'The saved brief changed. Reload it before saving your changes.'},{status:409});
     if (action.action === "brief-description") {
-      if (action.description === mandate.brief.naturalLanguage) return researchJsonResponse({ ok: true, brief: mandate.brief });
+      if (action.description === mandate.brief.naturalLanguage) return researchJsonResponse({ ok: true, brief: mandate.brief, revision:mandate.revision });
       let generated;
       try { generated = await generateMandate(action.description); }
       catch { return researchJsonResponse({ error: "Could not update the search from your description. Please try again." }, { status: 503 }); }
       const brief = { ...generated, financialScope: mandate.brief.financialScope, naturalLanguage: action.description, researchSources: mandate.brief.researchSources, disclosureApproved: mandate.brief.disclosureApproved };
-      await repo.saveBrief(brief, session.user.id, id);
-      return researchJsonResponse({ ok: true, brief });
+      const result=await acquireCommands.execute({organizationId:org,userId:session.user.id},{name:'mandate.update',input:{mandateId:id,brief,expectedRevision:action.expectedRevision}});
+      if(result.name!=='mandate.update')throw new Error('Unexpected command result');
+      return researchJsonResponse({ ok: true, brief:result.value.brief, revision:result.value.revision,companyProjectionRefresh:result.value.companyProjectionRefresh });
     }
-    if (action.action === "brief") await repo.saveBrief(action.brief, session.user.id, id);
+    if (action.action === "brief") {
+      const result=await acquireCommands.execute({organizationId:org,userId:session.user.id},{name:'mandate.update',input:{mandateId:id,brief:action.brief,expectedRevision:action.expectedRevision}});
+      if(result.name!=='mandate.update')throw new Error('Unexpected command result');
+      return researchJsonResponse({ok:true,brief:result.value.brief,revision:result.value.revision,companyProjectionRefresh:result.value.companyProjectionRefresh});
+    }
     if (action.action === "assessment") {
       const errors = transitionErrors(mandate.brief, action.assessment);
       if (action.assessment.stage === "qualified") {
@@ -95,10 +110,12 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
         if (!drafts.some(d => enrolments.some(e => e.id === d.enrolmentId) && d.state === "approved")) errors.push("Approve an outreach draft before selecting this stage.");
       }
       if (errors.length) return researchJsonResponse({ error: errors.join(" ") }, { status: 409 });
-      await repo.saveAssessment(id, action.targetId, {...action.assessment,decisionOrigin:"manual"}, action.version, session.user.id);
+      const saved=await repo.saveAssessment(id, action.targetId, {...action.assessment,decisionOrigin:"manual"}, action.version, session.user.id);
+      companyProjectionRefresh=saved?.companyProjectionRefresh;
     }
     if (action.action === "accreditations") {
-      await repo.saveAccreditations(id, action.targetId, action.accreditations);
+      const saved=await repo.saveAccreditations(id, action.targetId, action.accreditations,session.user.id);
+      companyProjectionRefresh=saved?.companyProjectionRefresh;
       await new OrganizationRepository(requireDb(), org).appendAudit({ actorId: session.user.id, action: "target.accreditations_saved", entityType: "target", entityId: action.targetId, metadata: { mandateId: id, count: action.accreditations.length } });
     }
     if (action.action === "identity") {
@@ -166,7 +183,7 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     if (action.action === "enrich" || action.action === "load-people") {
       const trigger = action.action === "load-people" ? "people" : "phones";
       if (!researchEnabled()) return researchJsonResponse({ error: "Company data refresh is awaiting service activation" }, { status: 503 });
-      if (process.env.TARGET_DATA_PROVIDER !== "fixture" && !process.env.FIRMABLE_API_KEY) return researchJsonResponse({ error: "Company data enrichment is not configured" }, { status: 503 });
+      if (!firmableEnrichmentConfigured(process.env)) return researchJsonResponse({ error: "Company data enrichment is not configured" }, { status: 503 });
       const memberships = await repo.memberships(id);
       if (action.targetIds.some(targetId => !memberships.some(m => m.target.id === targetId))) return researchJsonResponse({ error: "A target does not belong to this mandate" }, { status: 404 });
       const history = new FirmableHistoryRepository(requireDb());
@@ -197,8 +214,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
       });
       return researchJsonResponse({ ok: true, warnings, messages: [`${runs.length} company data refresh${runs.length === 1 ? "" : "es"} queued.`], refresh: { runs } }, { status: 202 });
     }
-    return researchJsonResponse({ ok: true });
+    return researchJsonResponse({ ok: true,...(companyProjectionRefresh?{companyProjectionRefresh}:{}) });
   } catch (error) {
+    if(action.action==='brief'||action.action==='brief-description')return researchJsonResponse({error:'The brief could not be saved. It may have changed; reload the saved brief before trying again.'},{status:409});
     return researchJsonResponse({ error: error instanceof Error ? error.message : "Unable to save changes" }, { status: error instanceof TargetSearchRateLimitError ? 429 : 409 });
   } finally { release?.(); }
 }

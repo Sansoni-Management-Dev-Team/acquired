@@ -1,5 +1,9 @@
+import type { PersonCandidate, PersonDetail } from "@/adapters/source-contracts";
 import { COMPANY_CONTACT_POLICY } from '@/domain/company-contact-policy';
+import {companyDiscoveryPolicySchema} from '@/domain/research-discovery-policy';
+import type {ResearchConfig} from '@/domain/research';
 import "server-only";
+import {researchTraceContext} from './research-request-observability';
 
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { FirmableClient, FirmableError, mapFirmablePerson } from "@/adapters/firmable-client";
@@ -8,12 +12,15 @@ import { mapFirmableCompany } from "@/adapters/firmable-mapper";
 import { upsertFirmableContact } from "@/db/firmable-contacts";
 import { FirmableHistoryRepository } from "@/db/firmable-history-repository";
 import { requireDb } from "@/db/client";
-import { contacts, mandateTargets, targets, firmableSyncRuns } from "@/db/schema";
+import { contacts, mandateTargets, targets, firmableSyncRuns, researchJobs } from "@/db/schema";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { OrganizationRepository } from "@/db/repositories";
 import { briefToMandate } from "@/domain/acquisition";
 import { rankTarget } from "@/domain/scoring";
 import { validateCompanyWebsite } from "@/lib/company-website";
+
+import {appendFirmableSyncCompanyObservation} from '@/db/company-sync-observation-store';
+import {companyIdentityDrizzleClient,CompanyIdentityReviewError} from '@/db/company-identity-store';
 
 const PAGE_SIZE = 100;
 const PROFILE_BATCH_SIZE = 5;
@@ -39,8 +46,25 @@ async function context(runId: string, mandateId?: string) {
   return { database, history, run };
 }
 
+/** Original discovery root owns this bound; request input cannot expand it. */
+async function automaticPeopleLimits(database:ReturnType<typeof requireDb>,run:typeof firmableSyncRuns.$inferSelect){
+ const legacy={maxProfiles:COMPANY_CONTACT_POLICY.maxProfiles as number,maxSearchPages:COMPANY_CONTACT_POLICY.maxSearchPages as number,pageSize:PAGE_SIZE as number,profileLimit:Infinity,frozen:false};
+ if(run.trigger!=='discovery')return legacy;
+ const source=run.requestKey?.match(/^discovery:([0-9a-f-]{36}):([0-9a-f-]{36})$/i);
+ if(!source)return legacy;
+ const [root]=await database.select().from(researchJobs).where(and(eq(researchJobs.id,source[1]),eq(researchJobs.organizationId,run.organizationId))).limit(1);
+ if(!root||root.organizationId!==run.organizationId||root.createdBy!==run.actorId||source[2]!==run.targetId)throw Error('Automatic People source is no longer current');
+ const config=root.config as ResearchConfig;
+ if(config.companyDiscoveryPolicy?.version!==5)return legacy;
+ if(config.nativeAgent)throw Error('Native People requires its original metered authority');
+ const policy=companyDiscoveryPolicySchema.parse(config.companyDiscoveryPolicy);
+ if(policy.version!==5||config.companyIdentityPolicyVersion!==1||config.includeCompanyPeople!==true||config.includePhones!==false||config.findPeople!==false||config.companyOnly!==undefined||!config.companyPeopleRunIds?.includes(run.id)||['failed','cancelled'].includes(root.status))throw Error('Automatic People source scope changed');
+ return {maxProfiles:policy.automaticPeople.maxContactsPerCompany,maxSearchPages:policy.automaticPeople.maxSearchPagesPerCompany,pageSize:policy.automaticPeople.searchPageSize,profileLimit:policy.automaticPeople.maxContactsPerCompany,frozen:true};
+}
+
 function client(history: FirmableHistoryRepository, runId: string) {
   return createTargetDataProvider(undefined, {
+    traceContext:{...researchTraceContext(),runId},
     onObservation: observation => history.recordObservation(runId, observation, {
       retainPersonalData: process.env.ALLOW_REAL_PERSONAL_DATA === "true",
     }),
@@ -107,6 +131,20 @@ export async function refreshFirmableCompany(runId: string, mandateId: string) {
     manufacturingDirectory: target.sourceData?.manufacturingDirectory,
     discoverySource: target.sourceData?.manufacturingDirectory ? "manufacturing-directory" : "google-places",
   }, filters, run.organizationId);
+  const currentRun=await history.run(runId);
+  if(!currentRun)throw new CompanyIdentityReviewError('Company refresh source unavailable.',404);
+  const firmable=enriched.sourceData?.firmable;
+  const observedAbn=firmable?.abn?.replace(/\D/g,'');
+  const companyId=String(company.id);
+  const accepted=await database.transaction(tx=>appendFirmableSyncCompanyObservation(companyIdentityDrizzleClient(tx),{organizationId:run.organizationId,userId:run.actorId},{
+    runId,mandateId,targetId:run.targetId,expectedGeneration:currentRun.generation,
+    source:{companyName:enriched.companyName,domain:enriched.domain,firmableId:companyId,...(observedAbn?{abn:observedAbn}:{})},
+    sourceFacts:{firmableCompanyId:companyId,identifiers:{firmableId:companyId,...(observedAbn?{abn:observedAbn}:{}),...(firmable?.acn?{acn:firmable.acn}:{}),...(firmable?.anzsic?{anzsic:firmable.anzsic}:{})},firmographics:{suburb:enriched.suburb,state:enriched.state,sector:enriched.sector,revenue:enriched.revenue,ebitda:enriched.ebitda,headcount:enriched.headcount,headcountBand:enriched.headcountBand,establishedYear:enriched.establishedYear,firmable,...(enriched.sourceData?.manufacturingDirectory?{manufacturingDirectory:enriched.sourceData.manufacturingDirectory}:{})}},
+  }));
+  if(accepted.handled){
+    await history.updateProgress(runId,{companyStatus:'complete',searchStatus:'running',message:'Current company facts saved; finding people'});
+    return {companyId};
+  }
   enriched.domain = target.domain || enriched.domain;
   if (enriched.domain && enriched.domain !== target.domain && !fixtureMode) {
     const validation = await validateCompanyWebsite(`https://${enriched.domain}/`, { timeoutMs: 3_000, maxRedirects: 2 });
@@ -115,20 +153,21 @@ export async function refreshFirmableCompany(runId: string, mandateId: string) {
   const companyRepo = new OrganizationRepository(database, run.organizationId);
   const saved = await companyRepo.upsertEnrichedTarget({ target: rankTarget(enriched, filters), mandateId, actorId: run.actorId, existingTargetId: run.targetId });
   if (saved) await repo.attach(mandateId, saved.id);
-  const companyId = String(company.id);
   await history.updateProgress(runId, { companyStatus: "complete", searchStatus: "running", message: "Company saved; finding people" });
   return { companyId };
 }
 
 export async function refreshFirmablePeoplePage(runId: string, offset: number) {
   if (!Number.isInteger(offset) || offset < 0 || offset >= 10_000 || offset % PAGE_SIZE) throw new Error("Invalid people search offset");
-  const { history, run } = await context(runId);
+  const { database, history, run } = await context(runId);
   if (['failed', 'complete', 'partial', 'cancelled'].includes(run.status)) throw new Error('Contact run is terminal; no new work admitted');
   if (!run.firmableCompanyId) throw new Error("Company data has not been saved");
+  const limits=await automaticPeopleLimits(database,run);
+  if(limits.frozen&&offset>=limits.maxSearchPages*limits.pageSize)throw Error('Frozen People search scope exhausted');
   const before = await history.searchCandidates(runId, offset);
   let page = await history.successfulSearchPage(runId, offset);
   if (!page) {
-    await client(history, runId).searchPeoplePage(run.firmableCompanyId, { max: PAGE_SIZE, from: offset });
+    await client(history, runId).searchPeoplePage(run.firmableCompanyId, { max: limits.pageSize, from: offset });
     page = await history.successfulSearchPage(runId, offset);
   }
   if (!page) throw new Error("People search page was not persisted");
@@ -138,7 +177,7 @@ export async function refreshFirmablePeoplePage(runId: string, offset: number) {
   if (progress.malformedCount > 0) throw new Error("People search returned records without person IDs");
   if (progress.reportedTotal !== undefined && (progress.discoveredCount ?? progress.candidates.length) > progress.reportedTotal) throw new Error("People search returned more unique people than its reported total");
   const complete = ['discovery', 'people', 'manual'].includes(run.trigger)
-    ? progress.candidates.length >= COMPANY_CONTACT_POLICY.maxProfiles || returned < PAGE_SIZE || offset / PAGE_SIZE + 1 >= COMPANY_CONTACT_POLICY.maxSearchPages
+    ? progress.candidates.length >= limits.maxProfiles || returned < limits.pageSize || offset / limits.pageSize + 1 >= limits.maxSearchPages
     : progress.reportedTotal !== undefined
     ? progress.candidates.length === progress.reportedTotal
     : returned < PAGE_SIZE;
@@ -149,15 +188,17 @@ export async function refreshFirmablePeoplePage(runId: string, offset: number) {
     profilesFound: progress.discoveredCount ?? progress.candidates.length,
     message: complete ? `Found ${progress.candidates.length} people` : `Finding people (${progress.candidates.length} found)`,
   });
-  return { complete, nextOffset: offset + PAGE_SIZE, found: progress.candidates.length };
+  return { complete, nextOffset: offset + limits.pageSize, found: progress.candidates.length };
 }
 
 export async function finalizeFirmablePeopleSearch(runId: string, offset = 0) {
   if (!Number.isInteger(offset) || offset < 0 || offset >= 10_000) throw new Error("Invalid relationship offset");
-  const { history, run } = await context(runId);
+  const { database, history, run } = await context(runId);
   if (['failed', 'complete', 'partial', 'cancelled'].includes(run.status)) throw new Error('Contact run is terminal; no new work admitted');
   if (!run.firmableCompanyId) throw new Error("Company data has not been saved");
-  const progress = await history.searchCandidates(runId);
+  const limits=await automaticPeopleLimits(database,run);
+  const found = await history.searchCandidates(runId);
+  const progress={...found,candidates:found.candidates.slice(0,limits.profileLimit)};
   const nextOffset = Math.min(offset + RELATIONSHIP_BATCH_SIZE, progress.candidates.length);
   const complete = nextOffset >= progress.candidates.length;
   await history.reconcilePeople(runId, run.firmableCompanyId, progress.candidates.slice(offset, nextOffset), false, process.env.ALLOW_REAL_PERSONAL_DATA === "true");
@@ -167,12 +208,73 @@ export async function finalizeFirmablePeopleSearch(runId: string, offset = 0) {
   return { found: progress.candidates.length, nextOffset, complete };
 }
 
+/** Shared bounded People execution. Callers retain their original authority,
+ * durable receipts, source checks and persistence transactions. This capability
+ * owns profile reuse/admission/fetch/save and phone suppression in both modes. */
+export async function executeFirmablePeopleProfiles(input: {
+  candidates: PersonCandidate[];
+  includePhones: boolean;
+  concurrency: 'serial' | 'parallel';
+  recorded(candidate: PersonCandidate): Promise<
+    { kind: 'saved'; saved: boolean } | { kind: 'profile'; person: PersonDetail } | undefined
+  >;
+  admissible?(candidate: PersonCandidate): Promise<boolean>;
+  enrich(id: { id: string }, options: { includePhones: boolean }): Promise<PersonDetail>;
+  persist(person: PersonDetail, candidate: PersonCandidate): Promise<boolean>;
+  failure(error: unknown): void;
+  settled?(): Promise<unknown>;
+}) {
+  let saved = 0, needsReview = 0;
+  const context = researchTraceContext(), started = performance.now();
+  const trace = (event: string, details: Record<string, string | number | boolean>) => console.info('research-pipeline', JSON.stringify({
+    event, module: 'people.profiles', timestamp: new Date().toISOString(), ...context, ...details,
+  }));
+  trace('people_profiles_started', { candidates: input.candidates.length, includePhones: input.includePhones, concurrency: input.concurrency });
+  const execute = async (candidate: PersonCandidate) => {
+    try {
+      const recorded = await input.recorded(candidate);
+      if (recorded?.kind === 'saved') {
+        if (recorded.saved) saved++;
+        return;
+      }
+      if (input.admissible && !await input.admissible(candidate)) { needsReview++; return; }
+      const profile = recorded?.kind === 'profile' ? recorded.person
+        : await input.enrich({ id: candidate.id }, { includePhones: input.includePhones });
+      // Never carry provider-returned phone data through a phone-free action.
+      const person = input.includePhones ? profile
+        : { ...profile, phone: undefined, phoneAvailable: false, phoneLookupStatus: 'not_requested' as const };
+      if (await input.persist(person, candidate)) saved++; else needsReview++;
+    } catch (error) {
+      needsReview++;
+      trace('people_profile_failed', { needsReview });
+      input.failure(error);
+    } finally { await input.settled?.(); }
+  };
+  let completed = false;
+  try {
+    if (input.concurrency === 'serial') {
+      for (const candidate of input.candidates) await execute(candidate);
+    } else {
+      // Drain admitted work before propagating an infrastructure failure.
+      const results = await Promise.allSettled(input.candidates.map(execute));
+      const failed = results.find(result => result.status === 'rejected');
+      if (failed?.status === 'rejected') throw failed.reason;
+    }
+    completed = true;
+    return { saved, needsReview };
+  } finally {
+    trace('people_profiles_finished', { saved, needsReview, outcome: completed ? 'settled' : 'failed', elapsedMs: performance.now() - started });
+  }
+}
+
 export async function refreshFirmableProfileBatch(runId: string, offset: number) {
   if (!Number.isInteger(offset) || offset < 0 || offset >= 10_000) throw new Error("Invalid profile offset");
   const { database, history, run } = await context(runId);
   if (['failed', 'complete', 'partial', 'cancelled'].includes(run.status)) throw new Error('Contact run is terminal; no new work admitted');
   if (!run.firmableCompanyId) throw new Error("Company data has not been saved");
-  const { candidates } = await history.searchCandidates(runId);
+  const limits=await automaticPeopleLimits(database,run);
+  const found = await history.searchCandidates(runId);
+  const candidates=found.candidates.slice(0,limits.profileLimit);
   const batch = candidates.slice(offset, offset + PROFILE_BATCH_SIZE);
   const existingContacts = batch.length ? await database.select({ personId: contacts.firmablePersonId }).from(contacts).where(and(
     eq(contacts.organizationId, run.organizationId),
@@ -181,25 +283,27 @@ export async function refreshFirmableProfileBatch(runId: string, offset: number)
   )) : [];
   const existingIds = new Set(existingContacts.flatMap(row => row.personId ? [row.personId] : []));
   const provider = client(history, runId);
-  const results = await Promise.allSettled(batch.map(async candidate => {
-    try {
+  await executeFirmablePeopleProfiles({
+    candidates: batch,
+    includePhones: !['discovery', 'people'].includes(run.trigger),
+    concurrency: 'parallel',
+    recorded: async candidate => {
       const stored = await history.successfulPersonResponse(runId, candidate.id);
       const raw = record(stored?.response);
-      if (stored && !raw && existingIds.has(candidate.id)) return;
-      const person = raw
-        ? mapFirmablePerson(raw, { id: candidate.id }, process.env.ALLOW_REAL_PERSONAL_DATA !== "true")
-        : await provider.enrichPerson({ id: candidate.id }, { includePhones: !['discovery', 'people'].includes(run.trigger) });
-      if (['discovery', 'people'].includes(run.trigger)) { person.phone = undefined; person.phoneAvailable = false; person.phoneLookupStatus = 'not_requested'; }
+      if (stored && !raw && existingIds.has(candidate.id)) return { kind: 'saved', saved: true };
+      return raw ? { kind: 'profile', person: mapFirmablePerson(raw, { id: candidate.id }, process.env.ALLOW_REAL_PERSONAL_DATA !== 'true') } : undefined;
+    },
+    enrich: (identifier, options) => provider.enrichPerson(identifier, options),
+    persist: async (person, candidate) => {
       await upsertFirmableContact({ database, organizationId: run.organizationId, targetId: run.targetId, companyId: run.firmableCompanyId!, person, candidate });
-    } catch (error) {
+      return true;
+    },
+    failure: error => {
       if (error instanceof FirmableError && ![401, 402, 403].includes(error.status)) return;
       throw error;
-    } finally {
-      await history.reconcileProfileProgress(runId);
-    }
-  }));
-  const infrastructureFailure = results.find(result => result.status === "rejected");
-  if (infrastructureFailure?.status === "rejected") throw infrastructureFailure.reason;
+    },
+    settled: () => history.reconcileProfileProgress(runId),
+  });
   const counts = await history.profileProgress(runId, candidates.map(candidate => candidate.id));
   const nextOffset = Math.min(offset + PROFILE_BATCH_SIZE, candidates.length);
   await history.updateProgress(runId, {
@@ -210,7 +314,9 @@ export async function refreshFirmableProfileBatch(runId: string, offset: number)
 
 export async function completeFirmableRefresh(runId: string, mandateId: string) {
   const { database, history, run } = await context(runId, mandateId);
-  const { candidates } = await history.searchCandidates(runId);
+  const limits=await automaticPeopleLimits(database,run);
+  const found = await history.searchCandidates(runId);
+  const candidates=found.candidates.slice(0,limits.profileLimit);
   const counts = await history.profileProgress(runId, candidates.map(candidate => candidate.id));
   if (counts.pending) throw new Error(`${counts.pending} profiles were not attempted`);
   const successfulIds = new Set((await Promise.all(candidates.map(async candidate => await history.successfulPersonResponse(runId, candidate.id) ? candidate.id : undefined))).filter((id): id is string => Boolean(id)));
@@ -230,7 +336,7 @@ export async function completeFirmableRefresh(runId: string, mandateId: string) 
       ? "People refreshed from the last known company profile; the company refresh failed"
       : counts.found === 0
         ? "Company data saved; no decision makers found within contact search budget"
-        : `Decision maker contacts saved (${counts.saved}/${counts.found}); at most ${COMPANY_CONTACT_POLICY.maxProfiles} selected from ${COMPANY_CONTACT_POLICY.maxSearchPages} search pages`,
+        : `Decision maker contacts saved (${counts.saved}/${counts.found}); at most ${limits.maxProfiles} selected from ${limits.maxSearchPages} search pages`,
   });
   await history.reconcileProfileProgress(runId);
   await new OrganizationRepository(database, run.organizationId).appendAudit({
@@ -258,7 +364,7 @@ export async function refreshFirmablePhoneBatch(runId: string, offset: number) {
   if (run.trigger !== 'phones') throw Error('Phone lookup requires explicit manual enrichment');
   const all = await database.select().from(contacts).where(and(eq(contacts.organizationId, run.organizationId), eq(contacts.targetId, run.targetId))).orderBy(contacts.createdAt, contacts.id);
   const batch = all.slice(offset, offset + 5);
-  const provider = new FirmableClient({ retries: 0 });
+  const provider = new FirmableClient({ retries: 0,traceContext:{...researchTraceContext(),runId} });
   for (const contact of batch) {
     const data = contact.personalData as Record<string, unknown>;
     const provenance = contact.provenance as Record<string, unknown>;

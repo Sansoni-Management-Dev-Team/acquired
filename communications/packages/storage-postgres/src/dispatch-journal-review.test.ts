@@ -171,9 +171,12 @@ describe('independent gated journal deadline/session review (no database durabil
             const fs=require('node:fs'),ts=require('typescript');
             require.extensions['.ts']=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,file);
             const {createPostgresDispatchJournal}=require(process.argv[1]),{JournalCodec}=require(process.argv[2]);
+            // Advance only this child's monotonic clock inside connect. A busy
+            // machine must not expire the 5ms fixture before its target path.
+            let monotonicNow=0;Object.defineProperty(require('node:perf_hooks').performance,'now',{value:()=>monotonicNow});
             const binding={applicationId:'review-app',tenantId:'review-tenant',ownerId:'review-owner',connectionId:'review-connection',accountId:'review-account',generation:1,channel:'whatsapp',platform:'whatsapp',backend:'unipile'};
             let connects=0;const journal=createPostgresDispatchJournal({binding,integrationId:'review-integration',providerConfigurationReference:'review-configuration',providerApiVersion:'v1',authority:'service',leaseOwnerToken:'review-worker',transactionTimeoutMs:5,statementTimeoutMs:4,lockTimeoutMs:1,
-              pool:{connect(){connects++;const end=performance.now()+20;while(performance.now()<end){}return Promise.reject(Error('Synthetic late rejected connection'));}},codec:new JournalCodec({activeVersion:'review-journal-v1',keys:[{version:'review-journal-v1',encryptionKey:Buffer.alloc(32,231),digestKey:Buffer.alloc(32,232)}]}),recipientDigest:{keyVersion:'review-recipient-v1',digest:()=> 'b'.repeat(64)}});
+              pool:{connect(){connects++;monotonicNow+=20;return Promise.reject(Error('Synthetic late rejected connection'));}},codec:new JournalCodec({activeVersion:'review-journal-v1',keys:[{version:'review-journal-v1',encryptionKey:Buffer.alloc(32,231),digestKey:Buffer.alloc(32,232)}]}),recipientDigest:{keyVersion:'review-recipient-v1',digest:()=> 'b'.repeat(64)}});
             journal.get({binding,key:'review-operation',operation:'message',payloadDigest:'a'.repeat(64)}).then(()=>process.exitCode=2,()=>setTimeout(()=>process.stdout.write(JSON.stringify({connects})),40));
         `;
         const result = spawnSync(process.execPath, ['--unhandled-rejections=strict', '-e', script, fileURLToPath(new URL('./dispatch-journal.ts', import.meta.url)), fileURLToPath(new URL('../../core/src/journal-codec.ts', import.meta.url))], { cwd: process.cwd(), encoding: 'utf8', timeout: 3000 });

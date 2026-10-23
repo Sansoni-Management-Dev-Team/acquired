@@ -70,3 +70,16 @@ describe('standalone service webhook event transaction',()=>{
     expect(await api.process('receipt')).toEqual({status:'processed'});expect(f.finish).toHaveBeenCalledOnce();expect(f.normalize).toHaveBeenCalledOnce();
   });
 });
+it('persists a delivery failure under a separate semantic fingerprint without resolving a human reply',async()=>{
+ const f=fixture(),b={...binding,channel:'email' as const,platform:'gmail' as const};f.record.binding=b;f.options.binding=b;
+ const event={type:'email_change' as const,change:'bounce' as const,reference:{binding:b,id:'dsn'},recipient:{kind:'email' as const,value:'peer@example.com'},occurredAt:'2026-10-12T09:59:00Z'};f.normalize.mockResolvedValue({kind:'event',event} as never);
+ await createWebhookEventProcessor(f.options).process('receipt');expect(f.finish.mock.calls[0][0].outcome).toMatchObject({kind:'event',event});
+});
+
+it('validates event occurrence in the selected business domain and retains original real capture bytes',async()=>{
+ const e=message();e.occurredAt='2031-01-01T00:00:00.000Z';const f=fixture({kind:'event',event:e});
+ await createWebhookEventProcessor({...f.options,businessClock:{now:()=>Date.parse(e.occurredAt)}}).process('receipt');
+ expect(f.finish.mock.calls[0][0]).toMatchObject({record:{receivedAt:f.record.receivedAt},outcome:{kind:'event',event:e}});
+ const future=fixture({kind:'event',event:e});await createWebhookEventProcessor({...future.options,businessClock:{now:()=>Date.parse(e.occurredAt)-1}}).process('receipt');
+ expect(future.finish.mock.calls[0][0].outcome).toEqual({kind:'review',code:'protocol'});
+});

@@ -103,7 +103,8 @@ export function createReplyWebhookServer(deps: ReplyWebhookServerDependencies) {
   const authenticate = deps.ingress.authenticate.bind(ingress);
   const capture = deps.ingress.capture.bind(ingress);
   const server = createServer((request, response) => {
-    void (async () => {
+    let pending:Promise<unknown>|undefined;
+    return (async () => {
       if (request.method !== "POST" || request.url !== "/v1/webhook") throw new RequestFailure(404, "not_found");
       const rawHeaders = Object.freeze([...request.rawHeaders]);
       if (authenticate(rawHeaders) !== true) throw new RequestFailure(401, "unauthorized");
@@ -112,8 +113,9 @@ export function createReplyWebhookServer(deps: ReplyWebhookServerDependencies) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       let captured: unknown;
       try {
+        pending=Promise.resolve().then(()=>capture({rawHeaders,rawBody}));
         captured = await Promise.race([
-          capture({ rawHeaders, rawBody }),
+          pending,
           new Promise<never>((_resolve, reject) => {
             timer = setTimeout(() => reject(new RequestFailure(503, "retry")), captureTimeoutMs);
           }),
@@ -134,7 +136,7 @@ export function createReplyWebhookServer(deps: ReplyWebhookServerDependencies) {
       request.resume();
       if (error instanceof RequestFailure) respond(response, error.status, { error: { code: error.code } });
       else respond(response, 503, { error: { code: "retry" } });
-    });
+    }).finally(async()=>{await pending?.then(()=>undefined,()=>undefined);});
   });
   // Body and capture timing are enforced above; timeout never fabricates persistence success.
   server.requestTimeout = 0;

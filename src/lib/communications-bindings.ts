@@ -2,6 +2,7 @@ import 'server-only';
 import {withCampaignDb,type CampaignActor} from '@/db/campaign-client';
 import {assertManagedConnection,assertManagementBinding,type ManagedConnection} from '../../communications/packages/contracts/src/management';
 import type {Channel,ConnectionBinding} from '../../communications/packages/contracts/src';
+import type {PoolClient} from 'pg';
 export interface RecordedApplicationConnection { bindingId:string;binding:ConnectionBinding;recoveryOnly:boolean }
 export async function resolveRecordedApplicationConnection(actor:CampaignActor,channel:Channel,source:{enrolmentId?:string;draftId?:string}):Promise<RecordedApplicationConnection|null>{
  if(!!source.enrolmentId===!!source.draftId||!['email','whatsapp','linkedin'].includes(channel)||source.draftId&&channel!=='email')throw Error('Invalid recorded work');
@@ -15,17 +16,29 @@ export async function resolveRecordedApplicationConnection(actor:CampaignActor,c
   return {bindingId:r.id,binding,recoveryOnly:r.recovery_only};
  });
 }
+async function recordConnection(client:PoolClient,b:ConnectionBinding):Promise<string>{
+  let {rows:[row]}=await client.query<{id:string;service_account_id:string;platform:string;backend:string;authority:string;channel:string}>(`SELECT id,service_account_id,platform,backend,authority,channel FROM public.communication_bindings WHERE application_id=$1 AND organization_id=$2 AND owner_user_id=$3 AND service_connection_id=$4 AND generation=$5`,[b.applicationId,b.tenantId,b.ownerId,b.connectionId,b.generation]);
+  if(row&&(row.service_account_id!==b.accountId||row.platform!==b.platform||row.backend!==b.backend||row.authority!=='service'||row.channel!==b.channel))throw Error('Original connection binding changed');
+  if(!row){const inserted=await client.query(`INSERT INTO public.communication_bindings(application_id,organization_id,owner_user_id,service_connection_id,service_account_id,generation,channel,platform,backend,authority) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'service') RETURNING id`,[b.applicationId,b.tenantId,b.ownerId,b.connectionId,b.accountId,b.generation,b.channel,b.platform,b.backend]);row=inserted.rows[0];}
+  if(!row?.id)throw Error('Connection binding unavailable');
+  return row.id;
+}
+/** Register a normal SDK-verified connection independently of choosing a
+ * default. Multiple runtimes can coexist without moving existing work or the
+ * primary new-work selection. The caller obtains input from the server SDK. */
+export async function recordManagedConnection(actor:CampaignActor,input:ManagedConnection,options?:Parameters<typeof withCampaignDb>[2]):Promise<string>{
+ const connection=structuredClone(input),scope={applicationId:'acquire',tenantId:actor.organizationId,ownerId:actor.userId};assertManagedConnection(connection,scope);
+ if(!['connected','syncing'].includes(connection.status))throw Error('Current connection required');
+ const work=(client:PoolClient)=>recordConnection(client,connection.binding);return options?withCampaignDb(actor,work,options):withCampaignDb(actor,work);
+}
 /** This changes NEW-work selection only; enrolment/attempt/draft bindings are immutable. */
 export async function saveManagedDefault(actor:CampaignActor,input:ManagedConnection):Promise<void>{
  const connection=structuredClone(input),scope={applicationId:'acquire',tenantId:actor.organizationId,ownerId:actor.userId};assertManagedConnection(connection,scope);
  if(!connection.isDefault||!['connected','syncing'].includes(connection.status))throw Error('Connection cannot be selected');
  const b=connection.binding;
  await withCampaignDb(actor,async client=>{
-  let {rows:[row]}=await client.query<{id:string;service_account_id:string;platform:string;backend:string;authority:string;channel:string}>(`SELECT id,service_account_id,platform,backend,authority,channel FROM public.communication_bindings WHERE application_id=$1 AND organization_id=$2 AND owner_user_id=$3 AND service_connection_id=$4 AND generation=$5`,[b.applicationId,b.tenantId,b.ownerId,b.connectionId,b.generation]);
-  if(row&&(row.service_account_id!==b.accountId||row.platform!==b.platform||row.backend!==b.backend||row.authority!=='service'||row.channel!==b.channel))throw Error('Original connection binding changed');
-  if(!row){const inserted=await client.query(`INSERT INTO public.communication_bindings(application_id,organization_id,owner_user_id,service_connection_id,service_account_id,generation,channel,platform,backend,authority) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,'service') RETURNING id`,[b.applicationId,b.tenantId,b.ownerId,b.connectionId,b.accountId,b.generation,b.channel,b.platform,b.backend]);row=inserted.rows[0];}
-  if(!row?.id)throw Error('Connection binding unavailable');
-  await client.query(`INSERT INTO public.communication_defaults(organization_id,owner_user_id,channel,binding_id) VALUES($1,$2,$3,$4) ON CONFLICT(organization_id,owner_user_id,channel) DO UPDATE SET binding_id=EXCLUDED.binding_id,updated_at=clock_timestamp()`,[b.tenantId,b.ownerId,b.channel,row.id]);
+  const id=await recordConnection(client,b);
+  await client.query(`INSERT INTO public.communication_defaults(organization_id,owner_user_id,channel,binding_id) VALUES($1,$2,$3,$4) ON CONFLICT(organization_id,owner_user_id,channel) DO UPDATE SET binding_id=EXCLUDED.binding_id,updated_at=clock_timestamp()`,[b.tenantId,b.ownerId,b.channel,id]);
  });
 }
 export async function readManagedDefaults(actor:CampaignActor):Promise<Array<{channel:string;connectionId:string;generation:number;accountId:string}>>{

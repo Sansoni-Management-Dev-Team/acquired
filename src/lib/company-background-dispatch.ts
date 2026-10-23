@@ -1,3 +1,4 @@
+import {lockResearchPersistence} from './research-persistence-lock';
 import {and,eq,notInArray,sql} from 'drizzle-orm';
 import {requireDb} from '@/db/client';
 import {researchJobs} from '@/db/schema';
@@ -8,10 +9,11 @@ import {COMPANY_BACKGROUND_BUDGET,persistCompanyBackgroundResult} from './compan
 export async function dispatchCompanyBackground(organizationId:string,mandateId:string){
  const db=requireDb();
  const claimed=await db.transaction(async tx=>{
+  await lockResearchPersistence(tx,organizationId);
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`company-background:${organizationId}`}))`);
-  const active=await tx.select({id:researchJobs.id}).from(researchJobs).where(and(eq(researchJobs.organizationId,organizationId),sql`${researchJobs.config}->'companyBackgroundResearch' IS NOT NULL`,sql`${researchJobs.status} NOT IN ('queued','complete','partial','failed','cancelled')`));
+  const active=await tx.select({id:researchJobs.id}).from(researchJobs).where(and(eq(researchJobs.organizationId,organizationId),sql`${researchJobs.config}->'companyBackgroundResearch' IS NOT NULL`,sql`${researchJobs.config}->'nativeAgent' IS NULL`,sql`${researchJobs.status} NOT IN ('queued','complete','partial','failed','cancelled')`));
   const slots=Math.max(0,2-active.length);if(!slots)return[];
-  const queued=await tx.select().from(researchJobs).where(and(eq(researchJobs.organizationId,organizationId),eq(researchJobs.mandateId,mandateId),eq(researchJobs.status,'queued'),sql`${researchJobs.config}->'companyBackgroundResearch' IS NOT NULL`,sql`COALESCE((${researchJobs.config}->'companyBackgroundDispatch'->>'nextAttemptAt')::bigint,0) <= ${Date.now()}`)).orderBy(researchJobs.createdAt).limit(slots).for('update',{skipLocked:true});
+  const queued=await tx.select().from(researchJobs).where(and(eq(researchJobs.organizationId,organizationId),eq(researchJobs.mandateId,mandateId),eq(researchJobs.status,'queued'),sql`${researchJobs.config}->'companyBackgroundResearch' IS NOT NULL`,sql`${researchJobs.config}->'nativeAgent' IS NULL`,sql`COALESCE((${researchJobs.config}->'companyBackgroundDispatch'->>'nextAttemptAt')::bigint,0) <= ${Date.now()}`)).orderBy(researchJobs.createdAt).limit(slots).for('update',{skipLocked:true});
   const result=[];
   for(const job of queued){
    const config=job.config as ResearchConfig;
@@ -32,11 +34,12 @@ export async function dispatchCompanyBackground(organizationId:string,mandateId:
  return claimed.length;
 }
 /** Unattended retries and refills are driven by the existing Worker's periodic recovery. */
-export async function recoverCompanyBackground(){
+export async function recoverCompanyBackground(deadline=Infinity){
  const db=requireDb();
- const stalled=await db.select().from(researchJobs).where(and(sql`${researchJobs.config}->'companyBackgroundResearch' IS NOT NULL`,notInArray(researchJobs.status,terminalResearchStates),sql`${researchJobs.status} <> 'queued'`,sql`${researchJobs.updatedAt} < NOW() - INTERVAL '150 seconds'`)).limit(50);
- for(const job of stalled)await persistCompanyBackgroundResult({organizationId:job.organizationId,jobId:job.id,result:{facts:[],fields:Object.fromEntries((job.config as ResearchConfig).companyBackgroundResearch!.fields.map(field=>[field,{status:'research_incomplete',reason:'Background execution stopped; prior evidence retained'}])),attempts:[],registryContacts:[]}});
- const pending=await db.selectDistinct({organizationId:researchJobs.organizationId,mandateId:researchJobs.mandateId}).from(researchJobs).where(and(eq(researchJobs.status,'queued'),sql`${researchJobs.config}->'companyBackgroundResearch' IS NOT NULL`)).limit(50);
- for(const item of pending)await dispatchCompanyBackground(item.organizationId,item.mandateId);
- return pending.length;
+ const stalled=await db.select().from(researchJobs).where(and(sql`${researchJobs.config}->'companyBackgroundResearch' IS NOT NULL`,sql`${researchJobs.config}->'nativeAgent' IS NULL`,notInArray(researchJobs.status,terminalResearchStates),sql`${researchJobs.status} <> 'queued'`,sql`${researchJobs.updatedAt} < NOW() - INTERVAL '150 seconds'`)).limit(50);
+ for(const job of stalled){if(performance.now()>=deadline)break;await persistCompanyBackgroundResult({organizationId:job.organizationId,jobId:job.id,result:{facts:[],fields:Object.fromEntries((job.config as ResearchConfig).companyBackgroundResearch!.fields.map(field=>[field,{status:'research_incomplete',reason:'Background execution stopped; prior evidence retained'}])),attempts:[],registryContacts:[]}});}
+ const pending=await db.selectDistinct({organizationId:researchJobs.organizationId,mandateId:researchJobs.mandateId}).from(researchJobs).where(and(eq(researchJobs.status,'queued'),sql`${researchJobs.config}->'companyBackgroundResearch' IS NOT NULL`,sql`${researchJobs.config}->'nativeAgent' IS NULL`)).limit(50);
+ let dispatched=0;
+ for(const item of pending){if(performance.now()>=deadline)break;await dispatchCompanyBackground(item.organizationId,item.mandateId);dispatched++;}
+ return dispatched;
 }

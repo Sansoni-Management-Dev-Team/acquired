@@ -18,7 +18,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <script dangerouslySetInnerHTML={{ __html: `try{if(localStorage.getItem("acquired-theme")==="light")document.documentElement.dataset.theme="light"}catch{}` }} />
       </head>
       <body className={`${displayFont.variable} ${bodyFont.variable}`}>
-        <AppShell>{children}</AppShell>
+        <AppShell firmablePaused={process.env.LOCAL_DEVELOPMENT==='true'&&process.env.LOCAL_FIRMABLE_MODE==='disabled'}>{children}</AppShell>
       </body>
     </html>
   );
