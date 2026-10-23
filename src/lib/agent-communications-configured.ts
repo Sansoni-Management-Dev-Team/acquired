@@ -102,7 +102,7 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
    for(const {row,route}of selected)await observe('refresh.save_identity',()=>registerNativeReplyIdentity(actor,{threadId,conversationId,routeId:route.id,bindingId:route.bindingId,identity:{contactId:row.contact_id,email:row.recipient_email??null,channel:route.channel,identity:route.recipient.value,sourceIdentity:route.recipient.value,since:new Date('1970-01-01T00:00:00.000Z'),authority:'service'}},dbOptions));
    const coverage:Array<{bindingId:string;scopeDigest:string}>=[];
    for(const {route,binding,host,bindingId,client}of selected){
-    const history=await observe('refresh.read_history',()=>host.readAgentChannelConversation(binding,route.recipient));
+    const history=await observe('refresh.read_history',()=>signal?host.readAgentChannelConversation(binding,route.recipient,signal):host.readAgentChannelConversation(binding,route.recipient));
     assertSameBinding(binding,history.binding);
     const normalized:NativeHistory={source:history.source,observedAt:history.observedAt,complete:history.complete,messages:history.messages.map(m=>({...m,id:'channel-message:'+createHash('sha256').update(JSON.stringify([route.bindingDigest,m.id])).digest('hex'),providerMessageId:m.id,routeId:route.id,channel:route.channel,bindingDigest:route.bindingDigest})),...('deliveryFailures'in history&&history.deliveryFailures?.length?{deliveryFailures:history.deliveryFailures}:{})};
     const ingested=await observe('refresh.ingest',()=>store.ingestChannelHistory!(threadId,conversationId,route.id,normalized));
@@ -118,13 +118,13 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
    }
    // Each completed account scan advances the shared reply barrier. Catch up
    // every original encrypted coverage proof after the final scan, provider-free.
-   const caughtUp=await observe('refresh.coverage_revalidate',()=>selected[0].host.revalidateAgentChannelCoverage(selected.map(({binding,bindingId},i)=>({binding,bindingId,scopeDigest:coverage[i].scopeDigest}))));
+   const caughtUp=await observe('refresh.coverage_revalidate',()=>selected[0].host.revalidateAgentChannelCoverage(selected.map(({binding,bindingId},i)=>({binding,bindingId,scopeDigest:coverage[i].scopeDigest})),...(signal?[signal]:[])));
    if(caughtUp.length!==coverage.length||coverage.some(expected=>!caughtUp.some(actual=>actual.bindingId===expected.bindingId&&actual.scopeDigest===expected.scopeDigest)))throw new AgentDecisionReviewError('Original channel coverage changed before admission');
    return caughtUp;
   }
   const {row,binding,host}=await observe('refresh.ports',()=>ports(threadId,conversationId,undefined,undefined,signal));
   await observe('refresh.save_identity',()=>registerNativeReplyIdentity(actor,{threadId,conversationId,bindingId:row.binding_id as string,identity:{contactId:row.contact_id,email:row.recipient_email,channel:'email',identity:row.recipient_email,sourceIdentity:row.recipient_email,since:new Date('1970-01-01T00:00:00.000Z'),authority:'service'}},dbOptions));
-  const history=await observe('refresh.read_history',()=>host.readAgentConversation(binding,row.recipient_email));
+  const history=await observe('refresh.read_history',()=>signal?host.readAgentConversation(binding,row.recipient_email,signal):host.readAgentConversation(binding,row.recipient_email));
   if('deliveryFailures'in history&&history.deliveryFailures?.length)await observe('refresh.ingest',()=>store.ingestHistory(threadId,conversationId,{source:history.source,observedAt:history.observedAt,complete:false,messages:history.messages,deliveryFailures:history.deliveryFailures}));
   if(!history.complete)throw new AgentDecisionReviewError('Full recorded-account conversation history needs human review');
   await observe('refresh.ingest',()=>store.ingestHistory(threadId,conversationId,{source:history.source,observedAt:history.observedAt,complete:true,messages:history.messages}));
