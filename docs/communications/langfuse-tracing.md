@@ -12,7 +12,7 @@ LANGFUSE_TRACING_ENVIRONMENT=production
 LANGFUSE_RELEASE=<released source revision>
 ```
 
-Credentials automatically enable tracing unless `LANGFUSE_ENABLED=false`. Missing credentials disable tracing. Builds do not initialize it. The keys are server-only; never use `NEXT_PUBLIC_` names. Restart the persistent app after changing runtime configuration. The user's supplied keys are saved in ignored mode0600 `.env.local` files in the main and tracing worktrees; they are not committed or installed on the production Droplet by this change.
+Credentials automatically enable tracing unless `LANGFUSE_ENABLED=false`. Missing credentials disable tracing. Builds do not initialize it. The keys are server-only; never use `NEXT_PUBLIC_` names. Restart the persistent app after changing runtime configuration. The user's supplied keys are saved in ignored mode0600 `.env.local` files in the main and tracing worktrees; they are not committed. Production activation on23October2026 installed them privately on DigitalOcean with tracing environment `production` and release `29d2af33765f0cd5ea550ef8111fc9cb49093c3d`.
 
 The dependency lock uses the latest Langfuse6.0.2 and compatible OpenTelemetry2.12.0 / Node SDK0.223.0 / API1.9.1. OpenTelemetry Node0.300.0 uses a different major and conflicts with Langfuse's current core peer contract. Explicit peer dependencies prevent the package manager from choosing that incompatible combination. The new protobuf dependency's install script is disabled; no new dependency build script was approved or executed.
 
@@ -43,4 +43,4 @@ Executed tests cover exactly-once effects despite tracing failure, unchanged ori
 
 Actual Langfuse project authentication passed. A private integration script exercised the normal hosted history RPC and one tiny synthetic OpenAI request, with no outreach or database migration. The final standalone trace has four nested observations in environment `integration-test`, session tied to the original diagnostic conversation, service name `acquire`, and genuine model usage44input/11output tokens. The first trace captured hosted history401; the next history read passed. Neither is a send/reply acceptance test. Returned observation payloads were inspected via the current v2 observations CLI for hierarchy, model, usage, session/environment, service name and exclusion of credentials/content. Private evidence is `.local-data/langfuse/`.
 
-Follow [the RCA](hosted-retry-rca-2026-10-23.md) for the separate hosted authorization/locking defects. Instrumentation does not repair or bypass them. Production activation and any simulator instrumentation remain distinct release tasks.
+Follow [the RCA](hosted-retry-rca-2026-10-23.md) for the separate hosted authorization/locking defects. Instrumentation does not repair or bypass them. Production application tracing was activated on23October2026 by direct DigitalOcean rollout. Simulator instrumentation remains a separate release task.
