@@ -206,3 +206,30 @@ it('selects the provider-free hosted native facade only for the exact private or
  const x=fixture();await x.service.refresh('thread',conversation);expect(f.hosted).toHaveBeenCalledOnce();expect(f.localConfig).not.toHaveBeenCalled();expect(f.read).toHaveBeenCalledOnce();expect(f.admission).toHaveBeenCalledOnce();
  vi.stubEnv('AGENT_HOSTED_DEMO_COMMUNICATIONS_DESCRIPTOR_JSON',JSON.stringify({...descriptor,bindings:[{...descriptor.bindings[0],generation:2}]}));await expect(x.service.refresh('thread',conversation)).rejects.toThrow('Original hosted account changed');expect(f.localConfig).not.toHaveBeenCalled();
 });
+
+it.each(['email','whatsapp','linkedin']as const)('uses the invocation-local %s account snapshot without duplicate conversation/binding transactions',async channel=>{
+ const x=recordedDispatchFixture(channel),route=x.routes[0],original={...binding,id:route.bindingId,channel,platform:channel==='email'?'gmail':channel};
+ const prior=await x.store.channelDispatchRecord();x.store.channelDispatchRecord.mockResolvedValue(Object.assign(prior,{originalAccount:original}));
+ await x.service.dispatch('thread',conversation,operation);
+ expect(x.store.channelDispatchRecord).toHaveBeenLastCalledWith('thread',operation,{includeOriginalAccount:true});expect(x.store.conversation).not.toHaveBeenCalled();expect(f.query.mock.calls.some(([sql])=>sql.includes('FROM public.communication_bindings'))).toBe(false);
+ expect(x.store.channelRoutes).toHaveBeenCalledOnce();expect(f.read).toHaveBeenCalledOnce();expect(f.catchup).toHaveBeenCalledOnce();expect(x.store.beginNativeCommunicationsMessage).toHaveBeenCalledOnce();expect(f.query.mock.calls.some(([sql])=>sql.includes('agent_channel_communications_source'))).toBe(true);expect(f.dispatch).toHaveBeenCalledOnce();
+});
+
+async function capturedAccountFixture(channel:'email'|'whatsapp'|'linkedin'='email'){
+ const x=recordedDispatchFixture(channel),route=x.routes[0],original={...binding,id:route.bindingId,channel,platform:channel==='email'?'gmail':channel},record=Object.assign(await x.store.channelDispatchRecord(),{originalAccount:original});x.store.channelDispatchRecord.mockResolvedValue(record);x.store.channelDispatchRecord.mockClear();return{...x,record};
+}
+it('reads a new original account on each invocation and refuses a changed generation rather than reusing the first capture',async()=>{
+ const x=await capturedAccountFixture();await x.service.dispatch('thread',conversation,operation);x.record.originalAccount={...x.record.originalAccount,generation:2};
+ await expect(x.service.dispatch('thread',conversation,operation)).rejects.toThrow('Original native account changed');expect(x.store.channelDispatchRecord).toHaveBeenCalledTimes(2);expect(f.status).toHaveBeenCalledOnce();expect(f.dispatch).toHaveBeenCalledOnce();
+});
+it('does not fall back after a captured account is foreign or absent',async()=>{
+ for(const patch of [{owner_user_id:'foreign'},null]){const x=await capturedAccountFixture();Object.assign(x.record,{originalAccount:patch===null?null:{...x.record.originalAccount,...patch}});f.status.mockClear();await expect(x.service.dispatch('thread',conversation,operation)).rejects.toThrow('Original native account changed');expect(x.store.conversation).not.toHaveBeenCalled();expect(f.status).not.toHaveBeenCalled();}
+});
+it('retains final source/CAS refusal after the invocation-local account capture without dispatching or retrying',async()=>{
+ const x=await capturedAccountFixture('whatsapp'),prior=f.query.getMockImplementation()!,cause=Error('Current reviewed source changed');f.query.mockImplementation(async(sql,...args)=>{if(sql.includes('agent_channel_communications_source'))throw cause;return prior(sql,...args);});
+ await expect(x.service.dispatch('thread',conversation,operation)).rejects.toBe(cause);expect(x.store.channelRoutes).toHaveBeenCalledOnce();expect(f.catchup).toHaveBeenCalledOnce();expect(x.store.beginNativeCommunicationsMessage).toHaveBeenCalledOnce();expect(f.dispatch).not.toHaveBeenCalled();
+});
+it('rereads current route identity after receipt recovery even when original metadata was captured together',async()=>{
+ const x=await capturedAccountFixture('linkedin');f.recover.mockImplementationOnce(async()=>{x.routes[0]={...x.routes[0],bindingDigest:'b'.repeat(64)};return{found:false};});
+ await expect(x.service.dispatch('thread',conversation,operation)).rejects.toThrow('before outbound admission');expect(x.store.channelRoutes).toHaveBeenCalledOnce();expect(f.read).not.toHaveBeenCalled();expect(x.store.beginNativeCommunicationsMessage).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+});
