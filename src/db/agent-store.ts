@@ -265,8 +265,10 @@ export class AgentStore {
       if(prior)return {kind:'started',runId:prior.id};
       await c.query("UPDATE agent_runs SET state='uncertain',stop_reason='interrupted_event',updated_at=now() WHERE thread_id=$1 AND state='running' AND lease_until<=clock_timestamp()",[t.id]);
       if((await c.query("SELECT id FROM agent_runs WHERE thread_id=$1 AND state='running'",[t.id])).rowCount)return {kind:'busy'};
-      const run=(await c.query(`INSERT INTO agent_runs(thread_id,organization_id,mandate_id,owner_user_id,trigger_event_id,state,lease_owner,lease_until,fence,model_config)
-       VALUES($1,$2,$3,$4,$5,'running',$6,$7,$8::bigint,'{"nativeLimits":{"version":1,"maxToolSteps":32,"maxDurationMs":45000}}'::jsonb) RETURNING id`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,event.id,event.lease_owner,current.lease_until,event.fence])).rows[0];
+      // Transaction-start now() includes lock waits before a run exists. Start
+      // its duration at insertion; retain the original event lease unchanged.
+      const run=(await c.query(`INSERT INTO agent_runs(thread_id,organization_id,mandate_id,owner_user_id,trigger_event_id,state,lease_owner,lease_until,fence,model_config,created_at)
+       VALUES($1,$2,$3,$4,$5,'running',$6,$7,$8::bigint,'{"nativeLimits":{"version":1,"maxToolSteps":32,"maxDurationMs":45000}}'::jsonb,clock_timestamp()) RETURNING id`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,event.id,event.lease_owner,current.lease_until,event.fence])).rows[0];
       return {kind:'started',runId:run.id};
     });
   }

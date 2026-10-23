@@ -42,6 +42,17 @@ describe.runIf(enabled)('native due-event runs and recovery',()=>{
   expect((await store.beginConversationTurn(thread,randomUUID(),'Chat during background work')).kind).toBe('busy');
   expect(await store.eventRunCurrent(run.runId,event)).toBe(true);expect(await store.finishEventRun(run.runId,event,{kind:'complete'})).toBe(true);expect(await store.eventRunCurrent(run.runId,event)).toBe(false);
  });
+ it('starts the run duration clock after acquisition waits without renewing the event lease',async()=>{
+  await store.enqueueEvent(thread,randomUUID(),'conversation.reassess',{});const event=await claim();
+  const lease=(await pool.query('SELECT lease_until FROM agent_events WHERE id=$1',[event.id])).rows[0].lease_until;
+  const lock=await pool.connect();await lock.query('BEGIN');await lock.query('SELECT id FROM agent_threads WHERE id=$1 FOR UPDATE',[thread]);
+  const starting=store.beginEventRun(event);let releasedAt:Date;
+  try{await new Promise(resolve=>setTimeout(resolve,300));releasedAt=(await lock.query('SELECT clock_timestamp() AS instant')).rows[0].instant;await lock.query('COMMIT');}
+  finally{await lock.query('ROLLBACK');lock.release();}
+  const run=await starting;if(run.kind!=='started')throw Error();
+  try{const saved=(await pool.query('SELECT created_at,lease_until FROM agent_runs WHERE id=$1',[run.runId])).rows[0];expect(saved.created_at.getTime()).toBeGreaterThanOrEqual(releasedAt!.getTime());expect(saved.lease_until).toEqual(lease);expect(await store.beginEventRun(event)).toEqual(run);expect((await pool.query('SELECT created_at FROM agent_runs WHERE id=$1',[run.runId])).rows[0].created_at).toEqual(saved.created_at);}
+  finally{await store.finishEventRun(run.runId,event,{kind:'complete'});}
+ });
  it('recovers expired leases while fencing the old worker and retaining its interrupted run',async()=>{
   await store.enqueueEvent(thread,randomUUID(),'conversation.reassess',{});const old=await claim(),run=await store.beginEventRun(old);if(run.kind!=='started')throw Error();
   await pool.query("UPDATE agent_events SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1",[old.id]);await pool.query("UPDATE agent_runs SET lease_until=clock_timestamp()-interval '1 second' WHERE id=$1",[run.runId]);
