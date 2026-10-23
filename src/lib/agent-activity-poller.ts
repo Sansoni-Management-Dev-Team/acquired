@@ -11,8 +11,8 @@ export function startAgentActivityPolling<T>(options:{load:(signal:AbortSignal)=
   try{
    const value=await options.load(signal);failures=0;
    if(!stopped&&!signal.aborted&&!options.isBusy()&&options.isVisible()&&options.version()===version)options.apply(value);
-  }catch{if(!stopped&&!signal.aborted)options.onFailure?.(++failures);}
-  finally{schedule();}
+  }catch{if(!stopped&&!signal.aborted){failures++;options.onFailure?.(failures);}}
+  finally{schedule(Math.min(60000,interval*2**Math.min(6,Math.max(0,failures-1))));}
  }
  schedule(0);
  return ()=>{stopped=true;if(timer)clearTimeout(timer);controller?.abort();};

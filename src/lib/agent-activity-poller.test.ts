@@ -17,3 +17,12 @@ it('skips active turns and hidden tabs, then catches up when visible and idle',a
 it('survives transient request failures without abandoning future updates',async()=>{
  vi.useFakeTimers();const load=vi.fn().mockRejectedValueOnce(Error('temporary')).mockResolvedValue('recovered'),apply=vi.fn(),onFailure=vi.fn();const stop=startAgentActivityPolling({load,apply,onFailure,isBusy:()=>false,isVisible:()=>true,version:()=>0,intervalMs:1000});await vi.advanceTimersByTimeAsync(0);expect(onFailure).toHaveBeenCalledWith(1);await vi.advanceTimersByTimeAsync(1000);expect(apply).toHaveBeenCalledWith('recovered');stop();
 });
+
+it('backs off repeated failures and returns to the normal interval after recovery',async()=>{
+ vi.useFakeTimers();const load=vi.fn().mockRejectedValueOnce(Error('down')).mockRejectedValueOnce(Error('down')).mockResolvedValue('ok');
+ const stop=startAgentActivityPolling({load,apply:vi.fn(),isBusy:()=>false,isVisible:()=>true,version:()=>0,intervalMs:1000});
+ await vi.advanceTimersByTimeAsync(0);await vi.advanceTimersByTimeAsync(1000);expect(load).toHaveBeenCalledTimes(2);
+ await vi.advanceTimersByTimeAsync(1000);expect(load).toHaveBeenCalledTimes(2);
+ await vi.advanceTimersByTimeAsync(1000);expect(load).toHaveBeenCalledTimes(3);
+ await vi.advanceTimersByTimeAsync(1000);expect(load).toHaveBeenCalledTimes(4);stop();
+});
