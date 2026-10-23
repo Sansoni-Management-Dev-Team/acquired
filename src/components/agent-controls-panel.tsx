@@ -242,7 +242,7 @@ export function AgentControlsPanel({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...command, requestKey }),
-          signal: AbortSignal.timeout(kind === "demo" && command.action === "start" ? 90000 : 15000),
+          signal: AbortSignal.timeout(kind === "demo" && command.action === "start" ? 150000 : 15000),
         }),
         result = await readJsonResponse(response, 'Could not confirm this action. Check saved progress before trying again.');
       if (!response.ok)
@@ -253,7 +253,7 @@ export function AgentControlsPanel({
         );
       retryKeys.current.delete(identity);
       try {
-        const current = await load(AbortSignal.timeout(15000));
+        const current = await load(AbortSignal.timeout(60000));
         if (mounted.current) {
           setData(current);
           setPollUnavailable(false);

@@ -1,4 +1,5 @@
 "use client";
+import {readAgentStatus} from '@/lib/agent-read-request';
 import {readJsonResponse} from '@/lib/read-json-response';
 import {isAgentMessageReviewOperation} from '@/domain/agent-operation-classifications';
 
@@ -98,9 +99,7 @@ function ResearchConversation({ agent,initial,persisted,learningEnabled,initialG
     return startAgentActivityPolling({
       isBusy:()=>lock.current,isVisible:()=>document.visibilityState!=='hidden',version:()=>activityVersion.current,
       load:async signal=>{
-        const response=await fetch(`/api/mandates/${initial.mandate.id}/agent/activity`,{cache:'no-store',signal:AbortSignal.any([signal,AbortSignal.timeout(15000)])});
-        if(!response.ok)throw new Error('Saved activity unavailable');
-        return await readJsonResponse(response,'Could not confirm the response. Check saved progress before retrying.') as {conversation:SavedConversation;batches:AgentReviewBatchView[];guidance:AgentGuidanceView[];initialResearch?:AgentSnapshot['initialResearch']};
+        return await readAgentStatus(`/api/mandates/${initial.mandate.id}/agent/activity`,signal) as {conversation:SavedConversation;batches:AgentReviewBatchView[];guidance:AgentGuidanceView[];initialResearch?:AgentSnapshot['initialResearch']};
       },
       apply:data=>{
         const displayed=agent.messages.filter(message=>message.role==='user'||message.role==='assistant').map(message=>({id:message.id,role:message.role,content:message.content,...('noticeKind' in message?{noticeKind:message.noticeKind}:{}),...('lead' in message?{lead:message.lead}:{})}));
