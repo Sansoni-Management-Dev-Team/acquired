@@ -33,3 +33,4 @@ describe('optional operation tracing',()=>{
   expect(()=>updateOperationTrace({httpStatus:500})).not.toThrow();
  });
 });
+it('retains only reviewed provider accounting and failure categories',async()=>{const update=vi.fn();dispose=installOperationTrace({run:async(_n,_m,w)=>w(),update});updateOperationTrace({provider:'anthropic',cacheWrite5mTokens:12,cacheWrite1hTokens:3,failureCategory:'credits',body:'secret'});expect(update).toHaveBeenCalledWith({provider:'anthropic',cacheWrite5mTokens:12,cacheWrite1hTokens:3,failureCategory:'credits'});});

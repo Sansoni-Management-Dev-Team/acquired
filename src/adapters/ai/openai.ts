@@ -1,5 +1,6 @@
 import {traceOperation,updateOperationTrace} from '../../../communications/packages/core/src/operation-trace';
 import { providerJsonRequest } from "../observability/provider-request";
+import {AiCompletionError} from "./errors";
 import { z } from "zod";
 import type { FreeResearchRequest, FreeResearchUsage } from "./free-openrouter";
 import { ResearchAiError } from "../../domain/research-ai-error";
@@ -31,15 +32,17 @@ export type OpenAiJsonRequest = {
   max_tokens: number;
   timeoutMs?: number;
   requireUsage?: boolean;
+  signal?: AbortSignal;
   reasoning_effort?: 'none'|'minimal';
 };
 
 /** One structured-output request to OpenAI; the caller validates the parsed JSON. */
 export async function completeOpenAiJson(input: OpenAiJsonRequest, options: { apiKey?: string; model?: string; fetch?: typeof globalThis.fetch; jobId?: string; verbose?: boolean; onUsage?: (usage: OpenAiUsage, model: string) => void } = {}): Promise<{ response: unknown; model: string; usage: OpenAiUsage }> {
+  if(input.signal?.aborted)throw new AiCompletionError('cancelled');
   const apiKey = options.apiKey ?? process.env.OPENAI_API_KEY ?? "";
-  if (!apiKey) throw new ResearchAiError("OpenAI fallback unavailable: OPENAI_API_KEY is not configured");
+  if (!apiKey) {if(input.requireUsage)throw new AiCompletionError('authentication','rejected');throw new ResearchAiError("OpenAI fallback unavailable: OPENAI_API_KEY is not configured");}
   const model = options.model ?? process.env.OPENAI_MANDATE_MODEL ?? OPENAI_FALLBACK_MODEL;
-  return traceOperation('acquire.model.completion',{kind:'generation',model,...(options.jobId?{jobId:options.jobId}:{}),messageCount:input.messages.length,inputBytes:new TextEncoder().encode(JSON.stringify(input.messages)).byteLength},async()=>{
+  return traceOperation('acquire.model.completion',{kind:'generation',provider:'openai',model,...(options.jobId?{jobId:options.jobId}:{}),messageCount:input.messages.length,inputBytes:new TextEncoder().encode(JSON.stringify(input.messages)).byteLength},async()=>{
   const requestId = crypto.randomUUID();
   let payload: { model?: string; usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?:number }; completion_tokens_details?: { reasoning_tokens?: number } }; error?: { code?: string; type?:string; param?:string }; choices?: { finish_reason?: string; message?: { content?: string } }[] };
   let response: Response;
@@ -56,12 +59,21 @@ export async function completeOpenAiJson(input: OpenAiJsonRequest, options: { ap
         // Non-strict: zod length constraints are not accepted by strict mode, and the caller validates anyway.
         response_format: { type: "json_schema", json_schema: { name: "result", strict: false, schema: input.json_schema } },
       }),
-      signal: AbortSignal.timeout(input.timeoutMs ?? 40000),
+      signal: input.signal?AbortSignal.any([input.signal,AbortSignal.timeout(input.timeoutMs ?? 40000)]):AbortSignal.timeout(input.timeoutMs ?? 40000),
     }, { provider: "openai", operation: input.operation, requestId, jobId: options.jobId, verbose: options.verbose, modelCandidates: [model] });
     response = result.response;
     payload = result.data;
-  } catch {
-    throw new OpenAiRequestError("OpenAI request timed out or transport failed", true);
+  } catch (error) {
+    if(!input.requireUsage)throw new OpenAiRequestError("OpenAI request timed out or transport failed",true);
+    if(input.signal?.aborted)throw new AiCompletionError("cancelled");
+    if(error instanceof SyntaxError)throw new AiCompletionError("invalid_json");
+    if(error instanceof Error && ["TimeoutError","AbortError"].includes(error.name))throw new AiCompletionError("timeout");
+    throw new AiCompletionError("transport");
+  }
+  if(input.requireUsage && response.status===429 && payload.error && !payload.usage && !payload.choices?.length){
+    const category=['insufficient_quota','credit_balance_exhausted'].includes(payload.error.code??'')||payload.error.type==='insufficient_quota'?'credits':'rate_limit';
+    const definite=payload.usage===undefined&&payload.choices===undefined&&(category==='credits'||payload.error.type==='rate_limit_error');
+    throw new AiCompletionError(category,definite?'rejected':'unknown',definite?{httpStatus:429,category,code:'other',parameter:'other'}:undefined);
   }
   // Do not log provider bodies: they can echo prompts or credentials.
   if (!response.ok && [400,401,403,404,422].includes(response.status) && payload.error && !payload.usage && !payload.choices?.length && ['invalid_request_error','authentication_error','permission_error','not_found_error'].includes(payload.error.type??'')) {
@@ -70,14 +82,16 @@ export async function completeOpenAiJson(input: OpenAiJsonRequest, options: { ap
   }
   if (!response.ok || payload.error) throw new OpenAiRequestError(`OpenAI unavailable (HTTP ${response.status}).`,
     payload.error?.code !== "insufficient_quota" && ([404, 408, 429].includes(response.status) || response.status >= 500));
+  if(input.requireUsage&&typeof payload.model!=='string')throw new OpenAiResponseFailure('usage_invalid');
   const actualModel = payload.model || model;
+  if(input.requireUsage&&(!Number.isSafeInteger(payload.usage?.prompt_tokens)||!Number.isSafeInteger(payload.usage?.completion_tokens)||payload.usage?.prompt_tokens_details?.cached_tokens!==undefined&&!Number.isSafeInteger(payload.usage.prompt_tokens_details.cached_tokens)||payload.usage?.completion_tokens_details?.reasoning_tokens!==undefined&&!Number.isSafeInteger(payload.usage.completion_tokens_details.reasoning_tokens)))throw new OpenAiResponseFailure('usage_invalid');
   const writes=payload.usage?.prompt_tokens_details?.cache_write_tokens;
   const usage = { ...(writes===undefined?{}:{cacheWriteTokens:writes}), inputTokens: payload.usage?.prompt_tokens ?? 0, cachedInputTokens: payload.usage?.prompt_tokens_details?.cached_tokens ?? 0, outputTokens: payload.usage?.completion_tokens ?? 0, reasoningTokens: payload.usage?.completion_tokens_details?.reasoning_tokens ?? 0 };
   if(input.requireUsage&&(!payload.usage||!Number.isSafeInteger(usage.inputTokens)||usage.inputTokens<=0||!Number.isSafeInteger(usage.outputTokens)||usage.outputTokens<0||!Number.isSafeInteger(usage.cachedInputTokens)||usage.cachedInputTokens<0||usage.cachedInputTokens>usage.inputTokens||writes!==undefined&&(!Number.isSafeInteger(writes)||writes<0||writes+usage.cachedInputTokens>usage.inputTokens)||!Number.isSafeInteger(usage.reasoningTokens)||usage.reasoningTokens<0||usage.reasoningTokens>usage.outputTokens))throw new OpenAiResponseFailure("usage_invalid");
   updateOperationTrace({model:actualModel,...usage});
   options.onUsage?.(usage, actualModel);
   const choice = payload.choices?.[0];
-  if (!choice?.message?.content || choice.finish_reason === "length") throw new OpenAiResponseFailure("incomplete_response");
+  if (!choice?.message?.content || choice.finish_reason === "length" || input.requireUsage && choice.finish_reason !== "stop") throw new OpenAiResponseFailure("incomplete_response");
   try { return { response: JSON.parse(choice.message.content), model: actualModel, usage }; }
   catch { throw new OpenAiResponseFailure("invalid_json"); }
   });

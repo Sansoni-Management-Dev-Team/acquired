@@ -55,7 +55,7 @@ export function createNativeAgentHandlers(options:{store:AgentModelStore & {prop
   }
   const context=await store.nativeDecisionContext(threadId,trigger.conversationId);
   if(await store.pendingNativeEmail(threadId,trigger.conversationId,context.contextRevision))return {kind:'complete'};
-  const decide=options.decide?.({threadId,requestKey,authority})??createNativeModelDecision({store,threadId,requestKey,authority,now});
+  const decide=options.decide?.({threadId,requestKey,authority})??createNativeModelDecision({store,threadId,requestKey,authority,now,signal:input.signal});
   const outcome=await reassessAgentConversation({load:async()=>context,decide,now,commit:async(current,decision,key)=>{
    return withDispatchObservation({decisionAction:decision.action},()=>observeDispatchStage('native.decision',async()=>{
    await input.assertCurrent();
