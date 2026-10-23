@@ -4,7 +4,7 @@ Reviewed 2026-10-24. Scope P7.3/P7.4 and DBR-5/6. New worktree `project-acquire-
 
 The existing `src/adapters/ai/provider.ts` now exposes a single-attempt completion foundation for both native agent chat and outreach. HTTP payloads, error translation and provider token formats stay inside adapters. Agent calls reserve before inference, validate original schemas and model/accounting identity, then settle the original operation. Unknown outcomes remain uncertain, without retry or fallback. Completed cached operations can replay across a provider change only with identical semantic request/context/prompt; running or uncertain operations remain blocked. Approval, recipient, ownership and dispatch gates are unchanged.
 
-Production configuration is intended to set `AGENT_AI_PROVIDER=anthropic` and `AGENT_DECISION_MODEL=claude-haiku-5-5`, with `ANTHROPIC_API_KEY` in restricted runtime configuration. No proxy/intermediary is used. Generic `AI_PROVIDER=anthropic` is supported independently. Research settings are deliberately unchanged.
+Production configuration sets `AGENT_AI_PROVIDER=anthropic` and `AGENT_DECISION_MODEL=claude-haiku-5-5`, with `ANTHROPIC_API_KEY` in restricted runtime configuration. No proxy/intermediary is used. Generic `AI_PROVIDER=anthropic` is supported independently. Research settings are deliberately unchanged.
 
 ## Reviewed contract and pricing
 
@@ -38,3 +38,9 @@ Final full-suite, deployment and normal demo acceptance results are recorded in 
 ## Rollback
 
 Direct deployment retains the previous image, runtime and compose files under `/opt/acquire-app/ops/app/releases/`. Restore those three files and run `docker compose -f compose.hosted.yml up -d --wait --wait-timeout 120`, then authenticated readiness and campaign readiness checks. Do not alter data or reconcile uncertain operations by retrying them. The pre-release image is `acquire-app:dispatch-checkpoints-20261024`; its OpenAI credits were exhausted, so rollback restores that functional limitation too. Never prune either release image during acceptance. Restore only this release's temporary operator-IP SSH rule afterward.
+
+## Production acceptance status
+
+Deployed revision `a5532ac97c741c1f5d872743900f890aa650ca7f`, image `acquire-app:anthropic-haiku-20261024`, digest `sha256:86af82e9ec59e315d469c170daf9dff4060730534dee1f79fa626f7313488a47`. Readiness and campaign enforcement checks passed again after acceptance. Local validation: 6,724 Vitest passed / 956 skipped; 183 Node tests passed; TypeScript and ESLint passed.
+
+Saved production chat and matching Langfuse trace verified Anthropic usage 5,406 input / 205 output, exact settlement 644 micro-USD, latency 2.447 seconds. Normal Run demo contact selection/approval and simulator-route bindings were verified, but outreach inference was not reached: serial history refreshes expired in the five-contact queue; a fresh isolated history review completed but normal continuation rejected changed saved state. No model proposal, simulator submission or saved AI reply is claimed. Plane AI-12 is blocked and AI-14 records this reliability follow-up. No migration, real-recipient send or implicit paid retry occurred.
