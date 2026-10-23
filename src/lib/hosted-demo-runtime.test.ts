@@ -35,3 +35,11 @@ it('allows a complete six-second hosted history or coverage round trip, while re
   const parent=new AbortController();let aborted=false;void never(path,{},parent.signal).catch(()=>{aborted=true;});parent.abort();await vi.advanceTimersByTimeAsync(0);expect(aborted).toBe(true);
  }
 });
+
+it.each(['/v1/hosted-demo/coverage/revalidate','/v1/hosted-demo/events/revalidate'])('allows a six-second live proof revalidation on %s within its unchanged parent lifetime',async path=>{
+ vi.useFakeTimers();const fetcher=vi.fn(async()=>{await new Promise(resolve=>setTimeout(resolve,6000));return Response.json({verified:true});}),call=createHostedDemoServiceRequest(descriptor,key,fetcher);
+ const result=call(path,{},new AbortController().signal).then(value=>value,()=>null);await vi.advanceTimersByTimeAsync(6000);expect(await result).toEqual({verified:true});expect(fetcher).toHaveBeenCalledOnce();
+ const never=createHostedDemoServiceRequest(descriptor,key,vi.fn(()=>new Promise<Response>(()=>{}))),parent=new AbortController();let stopped=false;
+ void never(path,{},parent.signal).catch(()=>{stopped=true;});await vi.advanceTimersByTimeAsync(1000);parent.abort();await vi.advanceTimersByTimeAsync(0);expect(stopped).toBe(true);
+ let expired=false;void never(path,{},new AbortController().signal).catch(()=>{expired=true;});await vi.advanceTimersByTimeAsync(20001);expect(expired).toBe(true);
+});
