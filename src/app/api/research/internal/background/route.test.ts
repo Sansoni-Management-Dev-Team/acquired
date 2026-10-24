@@ -1,11 +1,12 @@
-import {beforeEach,expect,it,vi} from 'vitest';
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 const mocks=vi.hoisted(()=>({enabled:vi.fn(),authorized:vi.fn(),observe:vi.fn(),maintain:vi.fn(),legacy:vi.fn()}));
 vi.mock('@/lib/research-service',()=>({researchEnabled:mocks.enabled,researchServiceAuthorized:mocks.authorized}));
 vi.mock('@/lib/agent-initial-research-observer',()=>({observeScheduledInitialResearch:mocks.observe}));
 vi.mock('@/lib/research-maintenance',()=>({maintainScheduledResearch:mocks.maintain}));
 vi.mock('@/lib/company-background-dispatch',()=>({recoverCompanyBackground:mocks.legacy}));
 import {POST} from './route';
-beforeEach(()=>{vi.resetAllMocks();mocks.enabled.mockReturnValue(true);mocks.authorized.mockReturnValue(true);mocks.maintain.mockResolvedValue(3);mocks.observe.mockResolvedValue({checked:0,recovered:0,messages:0});});
+beforeEach(()=>{vi.resetAllMocks();vi.spyOn(Date,'now').mockReturnValue(0);vi.stubEnv('ACQUISITION_WORKFLOW_ENABLED','false');vi.stubEnv('ACQUISITION_WORKFLOW_SCHEMA_READY','false');mocks.enabled.mockReturnValue(true);mocks.authorized.mockReturnValue(true);mocks.maintain.mockResolvedValue(3);mocks.observe.mockResolvedValue({checked:0,recovered:0,messages:0});});
+afterEach(()=>{vi.useRealTimers();vi.restoreAllMocks();vi.unstubAllEnvs();});
 it('runs the existing shared maintenance capability without a browser read',async()=>{
  const response=await POST(new Request('http://example.test/api/research/internal/background',{method:'POST'}));
  expect(await response.json()).toEqual({pending:3});expect(mocks.maintain).toHaveBeenCalledExactlyOnceWith();expect(mocks.legacy).not.toHaveBeenCalled();
@@ -75,7 +76,7 @@ it('records phase durations without logging private failure details',async()=>{
 });
 
 it('returns JSON before the scheduler timeout while retaining the guard for unfinished work',async()=>{
- vi.useFakeTimers({toFake:['setTimeout','clearTimeout','Date','performance']});const observation=deferred();mocks.observe.mockReturnValue(observation.promise);
+ vi.useFakeTimers({toFake:['setTimeout','clearTimeout','Date','performance']});vi.setSystemTime(0);const observation=deferred();mocks.observe.mockReturnValue(observation.promise);
  try{
   const first=POST(request());await vi.advanceTimersByTimeAsync(12001);expect((await first).status).toBe(503);
   const second=POST(request());expect(mocks.observe).toHaveBeenCalledTimes(1);
