@@ -362,15 +362,15 @@ export class AcquireResearch extends WorkflowEntrypoint<
           retry = true,
         ): Promise<T> => {
           const config = stateCache?.value.config;
-          if (/^targeted-search-1$/.test(name) && config && usesPublicAbnLookup(config, config.researchField || '')) return checkpoint(name, run, retry);
+          if (/^targeted-search-1$/.test(name) && config && usesPublicAbnLookup(config, config.researchField || '')) return checkpoint(name, () => run(), retry);
           // Site files need browser admission only when a local reader serves them.
           const provider: ResearchProvider | undefined = /^(read-people-|lookahead-read-)/.test(name) || (/^read-site-/.test(name) && this.env.LOCAL_DEVELOPMENT === "true") ? 'page'
             : /^(extract-|company-identity-|headcount-|discovery-plan-|targeted-plan$)/.test(name) ? 'ai'
             : /^(targeted-search-|people-followup$)/.test(name) || (/^discover(?:-|$)/.test(name) && config?.discover && !config.targetedFollowup) ? 'search' : undefined;
-          if (!provider) return checkpoint(name, run, retry);
+          if (!provider) return checkpoint(name, () => run(), retry);
           const exhausted = requestBudgetStop(requestBudget.used, !productionPolicy(this.env), true);
           if (exhausted) throw new BrowserAdmissionDeferred(exhausted);
-          return providerStep({ do: checkpoint, sleep: (label, ms) => timing.measure(label, () => step.sleep(label, ms)) }, name, provider,
+          return providerStep({ do: (label, work, retries) => checkpoint(label, () => work(), retries), sleep: (label, ms) => timing.measure(label, () => step.sleep(label, ms)) }, name, provider,
             async token => {
               const current = await control();
               if (["cancelled", "complete", "partial", "failed"].includes(current.status) || Date.now() >= current.deadline) return { managed: true, granted: false, queued: false, retryAfterMs: 0 };
