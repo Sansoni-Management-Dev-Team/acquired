@@ -56,8 +56,7 @@ async function connect(pool:Pool,admission:BackgroundAdmission):Promise<PoolClie
   try{const bounded={...config,query_timeout:Math.min(3500,backgroundRemaining())};return await Promise.race([raw.query(bounded),stopped]);}
   finally{report(budget.label,/lock_send_gate|lock_member/.test(config.text)?'gate_wait':'sql',before,closed?'retired':'settled');}
  };
- let appliedStatement=0;
- const limits=()=>{appliedStatement=Math.min(3000,backgroundRemaining());return execute({text:"SELECT set_config('statement_timeout',$1,true),set_config('lock_timeout',$2,true),set_config('idle_in_transaction_session_timeout',$3,true)",values:[appliedStatement+'ms',Math.min(500,backgroundRemaining())+'ms',Math.min(10000,backgroundRemaining())+'ms']});};
+ const limits=()=>{const appliedStatement=Math.min(3000,backgroundRemaining());return execute({text:"SELECT set_config('statement_timeout',$1,true),set_config('lock_timeout',$2,true),set_config('idle_in_transaction_session_timeout',$3,true)",values:[appliedStatement+'ms',Math.min(500,backgroundRemaining())+'ms',Math.min(10000,backgroundRemaining())+'ms']});};
  const query=async(arg:string|QueryConfig,values?:unknown[])=>{
   const config=typeof arg==='string'?{text:arg,values}:{...arg,...(values?{values}:{})};
   const sql=config.text.trim();
@@ -70,8 +69,10 @@ async function connect(pool:Pool,admission:BackgroundAdmission):Promise<PoolClie
     const result=await execute(config);inTransaction=false;return result;
    }
    if(!inTransaction)throw Error('Background query requires a transaction');
-   // ROLLBACK TO SAVEPOINT must work even in a failed transaction.
-   if(!/^ROLLBACK TO\b/i.test(sql)&&backgroundRemaining()<appliedStatement)await limits();
+   // BEGIN sets the server cap (at most 3s). The absolute transaction timer
+   // retires this connection at the shared deadline and execute() bounds every
+   // client query by the remaining budget. Re-setting server limits before each
+   // late query adds a network round trip without extending these protections.
    const result=await execute(config);
    if(/statement_timeout|lock_timeout|idle_in_transaction_session_timeout/i.test(sql))await limits();
    return result;

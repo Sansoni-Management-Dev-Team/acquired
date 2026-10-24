@@ -59,3 +59,21 @@ it('reserves background capacity without sending interactive work to that pool',
  expect(interactive.connect).not.toHaveBeenCalled();expect(reserved.connect).toHaveBeenCalledOnce();
  expect((await pool.query('SELECT 1')).rows).toEqual([{lane:'interactive'}]);expect(reserved.connect).toHaveBeenCalledOnce();
 });
+it('completes bounded sequential work at 132ms RTT without redundant timeout-setting round trips',async()=>{
+ let elapsed=0;const clock=vi.spyOn(performance,'now').mockImplementation(()=>elapsed);const f=fixture();
+ f.query.mockImplementation(async arg=>{const config=arg as {text:string;query_timeout:number};expect(config.query_timeout).toBeLessThanOrEqual(8000-elapsed);elapsed+=132;return{rows:[{ok:1}]};});
+ try{await withBackgroundBudget('latency',8000,async()=>{const c=await f.pool.connect();try{await c.query('BEGIN');for(let i=0;i<50;i++)await c.query('SELECT 1');await c.query('COMMIT');}finally{c.release();}});
+ expect(f.query.mock.calls.filter(([arg])=>text(arg).includes("set_config('statement_timeout'"))).toHaveLength(1);expect(elapsed).toBe(6996);expect(f.release).toHaveBeenCalledExactlyOnceWith();
+ }finally{clock.mockRestore();}
+});
+it('restores server limits immediately after a caller attempts to override them',async()=>{
+ const f=fixture();await withBackgroundBudget('override',10000,async()=>{const c=await f.pool.connect();try{await c.query('BEGIN');await c.query("SET statement_timeout='120s'");await c.query('SELECT 1');await c.query('COMMIT');}finally{c.release();}});
+ const calls=f.query.mock.calls.map(([arg])=>arg as {text:string;values?:unknown[]});const index=calls.findIndex(c=>c.text.startsWith('SET statement_timeout'));
+ expect(calls[index+1].text).toContain("set_config('statement_timeout'");expect(parseInt(String(calls[index+1].values?.[0]))).toBeLessThanOrEqual(3000);
+});
+it('retires an in-flight query at the absolute deadline and prevents a later commit',async()=>{
+ vi.useFakeTimers();const f=fixture(),original=f.query.getMockImplementation()!;
+ f.query.mockImplementation(arg=>text(arg)==='SELECT hanging'?new Promise(()=>{}):original(arg));
+ await withBackgroundBudget('in-flight',50,async()=>{const c=await f.pool.connect();await c.query('BEGIN');const pending=expect(c.query('SELECT hanging')).rejects.toThrow();await vi.advanceTimersByTimeAsync(51);await pending;await expect(c.query('COMMIT')).rejects.toThrow();c.release();});
+ expect(f.release).toHaveBeenCalledExactlyOnceWith(expect.any(Error));expect(f.query.mock.calls.some(([arg])=>text(arg)==='COMMIT')).toBe(false);
+});
