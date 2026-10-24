@@ -59,6 +59,15 @@
       "applicationSha256": "54fecc7d6464de4ee709ba72174432d4a01037c4a605a8822dd4a4a8e72e0c73",
       "productionApplied": false,
       "scope": "Exact isolated runtime/actor/run/mapped synthetic route; no clocks or event times changed"
+    },
+    {
+      "file": "009-local-isolated-policy-binding.proposed.sql",
+      "sha256": "26f4fbf71ef21a03b0a5ef6edcff074f097fcf6677973b4b1df50584cf61f0ae",
+      "applied": true,
+      "evidence": "project-acquire-agent-mode/.local-data/local-alignment/workflow-reviewed-v2/009-apply.log",
+      "applicationSha256": "23959223f5293883906114184fe58c894082ec9f31875df19a8988e9df730235",
+      "productionApplied": false,
+      "scope": "Exact isolated runtime/actor/run/registered binding recognized by existing explicit accelerated policy; no policy or timestamp updates"
     }
   ],
   "revisionReason": "Remove only absent Supabase role names from REVOKE lists; retain PUBLIC and every existing application role prohibition.",
