@@ -391,3 +391,8 @@ it.each(['conversations','proposal','allocation'])('does not repeat demo onboard
  const html=renderToStaticMarkup(<AgentControlsPanel mandateId="mandate" initial={initial} initialResearchSource="cached" initialResearchStatus="complete" pendingContactReview={kind==='proposal'}>{setup=><article aria-label="Chat steps">{setup}</article>}</AgentControlsPanel>);
  expect(html).not.toContain('Hi, I’m Acquire');expect(html).not.toContain('Ready to begin?');expect(html).not.toMatch(/>Start<\/button>/);
 });
+it.each(['demo','live','live-research-test'] as const)('uses verified execution preset for automatic approval in a mixed runtime (%s)',preset=>{
+ const initial=preparedDemo();initial.configuration!.simulation=false;initial.state!.workflowPreset=preset;
+ let allowed:unknown;const html=renderToStaticMarkup(<AgentControlsPanel mandateId="mandate" initial={initial}>{(_setup,options)=>{allowed=options?.allowTestAutoApproval;return null;}}</AgentControlsPanel>);
+ expect(allowed).toBe(preset==='demo');if(preset==='demo')expect(html).toContain('Auto-approve');
+});

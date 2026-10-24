@@ -346,8 +346,8 @@ export function AgentControlsPanel({
       running &&
       data.state?.executionMode === "demo" &&
       data.state.demoContacts?.outreachReady &&
-      data.configuration?.simulation &&
-      data.configuration.scopeMode === "registered" &&
+      (data.state.workflowPreset==='demo'||(!data.state.workflowPreset&&data.configuration?.simulation)) &&
+      data.configuration?.scopeMode === "registered" &&
       data.readiness?.registered &&
       !setupNeeded &&
       !data.channelPolicyUnavailable &&

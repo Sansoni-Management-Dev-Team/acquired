@@ -1,6 +1,9 @@
+import {configuredAgentModelSpecification} from '@/adapters/ai/model-specification';
 export type AgentRuntimeReadiness={registered:boolean;runtimeId:string|null;responsibilityRevision:number|null;reason:string|null;budgets:{scope:string;unit:string;available:string;windowEnd:string}[];channels:{channel:string;bindingId:string|null;generationDigest:string|null;ready:boolean;reason:string|null;readiness?:'connected'|'setup_required'|'verification_required'|'unavailable'}[];defaults?:{calls:number;sends:number;usd_micro:string;windowHours:number}};
 export function agentRuntimeConfiguration(env:Record<string,string|undefined>){
- return {enabled:env.AGENT_NATIVE_EXECUTION_ENABLED==='true'&&env.AGENT_DURABLE_STATE_ENABLED==='true',scopeMode:env.AGENT_WORKER_SCOPE_MODE??'exact',modelConfigured:Boolean(env.OPENAI_API_KEY),researchConfigured:env.RESEARCH_ENABLED==='true'&&Boolean(env.RESEARCH_WORKER_URL&&env.RESEARCH_SERVICE_SECRET)&&env.FIRMABLE_TRANSPORT==='cloudflare-session'&&Boolean(env.FIRMABLE_SERVICE_URL&&env.FIRMABLE_SERVICE_SECRET),simulation:env.AGENT_MODE_COMMUNICATIONS_MODE==='simulator'};
+ let modelConfigured=false;
+ try{const specification=configuredAgentModelSpecification(env);modelConfigured=Boolean('provider' in specification&&specification.provider==='anthropic'?env.ANTHROPIC_API_KEY:env.OPENAI_API_KEY);}catch{/* Unreviewed provider/model combinations are not ready. */}
+ return {enabled:env.AGENT_NATIVE_EXECUTION_ENABLED==='true'&&env.AGENT_DURABLE_STATE_ENABLED==='true',scopeMode:env.AGENT_WORKER_SCOPE_MODE??'exact',modelConfigured,researchConfigured:env.RESEARCH_ENABLED==='true'&&Boolean(env.RESEARCH_WORKER_URL&&env.RESEARCH_SERVICE_SECRET)&&env.FIRMABLE_TRANSPORT==='cloudflare-session'&&Boolean(env.FIRMABLE_SERVICE_URL&&env.FIRMABLE_SERVICE_SECRET),simulation:env.AGENT_MODE_COMMUNICATIONS_MODE==='simulator'};
 }
 
 export function agentReadinessReason(reason:string|null|undefined):string{
