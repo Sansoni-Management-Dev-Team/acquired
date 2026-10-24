@@ -3,7 +3,7 @@ import {contactChannelReviewedNotice} from '@/domain/agent-chat-notice';
 import {plainAgentStatusText} from './agent-chat-status-copy';
 import {emptyAgentTargetNotice} from './agent-target-empty-notice';
 import type {AgentNoticeKind,AgentLeadUpdate} from '@/domain/agent-chat-notice';
-export type SavedAgentMessage={id:string;role:'user'|'assistant';content:string;noticeKind?:AgentNoticeKind;lead?:AgentLeadUpdate};
+export type SavedAgentMessage={id:string;role:'user'|'assistant';content:string;noticeKind?:AgentNoticeKind;lead?:AgentLeadUpdate;failure?:{eventId:string;runId:string}};
 const joinedLead=z.object({id:z.string().uuid(),name:z.string().trim().min(1).max(200),company:z.string().trim().min(1).max(300).optional()});
 const replyPreview=z.object({text:z.string().min(1).max(500),channel:z.enum(['email','whatsapp','linkedin']),at:z.string().datetime({offset:true})});
 const channelNoticeDetails=z.object({routeId:z.string().uuid(),conversationId:z.string().uuid(),bindingId:z.string().uuid(),channel:z.enum(['email','whatsapp','linkedin']),policyRevision:z.number().int().positive()});
@@ -43,7 +43,9 @@ export function savedAgentMessages(records:readonly unknown[]):SavedAgentMessage
    ||/^command-notice:[a-f0-9-]{36}$/i.test(key)&&details.status==='ready'&&display!==content.text
    ||/^initial-cached-demo-ready:v2:[a-f0-9-]{36}$/i.test(key)&&details.source==='cached'&&Number.isInteger(details.companies)&&Number.isInteger(details.people)
   ))noticeKind='setup_activity';
-  const message:SavedAgentMessage={id:row.id,role:row.role as 'user'|'assistant',content:display,...(noticeKind?{noticeKind}:{}),...(lead?{lead}:{})};
+  const failureIds=z.object({triggerEventId:z.string().uuid(),runId:z.string().uuid()}).safeParse(content);
+  const failure=row.role==='assistant'&&failureIds.success&&new RegExp('^event-review:'+failureIds.data.triggerEventId+':[1-9][0-9]*$','i').test(key)?{eventId:failureIds.data.triggerEventId,runId:failureIds.data.runId}:undefined;
+  const message:SavedAgentMessage={id:row.id,role:row.role as 'user'|'assistant',content:display,...(noticeKind?{noticeKind}:{}),...(lead?{lead}:{}),...(failure?{failure}:{})};
   return [message];
  });
 }

@@ -30,3 +30,11 @@ it('does not present an old draft milestone as an outstanding review',()=>{
  const html=renderToStaticMarkup(<AgentLeadActivity pendingDrafts={new Set()} mandateId="mandate" messages={[{id:'draft',role:'assistant',content:'Draft prepared.',lead:{...lead,kind:'draft',reply:undefined}}]} onReview={vi.fn()} onReviewDraft={vi.fn()}/>);
  expect(html).not.toContain('Review draft');expect(html).toContain('latest update');
 });
+it('shows durable failure references without claiming delivery or inviting blind resend',()=>{
+ const html=renderToStaticMarkup(<AgentLeadActivity mandateId="mandate" onReview={vi.fn()} messages={[{id:'failure',role:'assistant',content:'Background work was interrupted.',lead:{...lead,kind:'attention',reply:undefined},failure:{eventId:'event-reference',runId:'run-reference'}}]}/>);
+ expect(html).toContain('Failure details');expect(html).toContain('event-reference');expect(html).toContain('run-reference');expect(html).toContain('Delivery outcome has not been confirmed');expect(html).not.toContain('Nothing was sent');expect(html).not.toContain('Retry send');
+});
+it('retains failure references for earlier and non-person background notices',()=>{
+ const failure={eventId:'event-reference',runId:'run-reference'},html=renderToStaticMarkup(<AgentLeadActivity mandateId="mandate" onReview={vi.fn()} messages={[{id:'old',role:'assistant',content:'Interrupted.',lead:{...lead,kind:'attention'},failure},{id:'new',role:'assistant',content:'Later update.',lead},{id:'routine',role:'assistant',content:'Other background interruption.',failure}]}/>);
+ expect(html.match(/Failure details/g)).toHaveLength(2);expect(html).toContain('Other background interruption.');
+});

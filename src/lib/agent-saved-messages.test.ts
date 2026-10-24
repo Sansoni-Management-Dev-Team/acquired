@@ -54,3 +54,9 @@ it('preserves repeated user/model text, changed results and a new attempt after 
  expect(savedAgentMessages([{...a,role:'user'},{...b,role:'user'}])).toHaveLength(2);
  const malformed={...a,content:{...a.content,details:{}}};expect(savedAgentMessages([malformed])[0].content).toBe(a.content.text);
 });
+it('exposes only durable event-review correlation IDs, never guessed failure certainty',()=>{
+ const row={id:'failure',role:'assistant',request_key:`event-review:${id}:2`,content:{text:'Background work was interrupted.',triggerEventId:id,runId:other,stage:'PRIVATE_STAGE',operationId:'PRIVATE_OPERATION'},lead:{id,name:'Example'}};
+ expect(savedAgentMessages([row])[0]).toHaveProperty('failure',{eventId:id,runId:other});
+ for(const invalid of [{...row,role:'user'},{...row,request_key:`event-review:${other}:2`},{...row,content:{...row.content,runId:'bad'}},{...row,request_key:'turn:'+id}])expect(savedAgentMessages([invalid])[0]).not.toHaveProperty('failure');
+ expect(JSON.stringify(savedAgentMessages([row]))).not.toContain('PRIVATE');
+});
