@@ -1,3 +1,5 @@
+const workflow=vi.hoisted(()=>vi.fn());
+vi.mock('@/lib/acquisition-workflow-research',()=>({findMandateWorkflow:workflow}));
 const wake=vi.hoisted(()=>vi.fn());
 vi.mock('@/lib/agent-native-wake',()=>({wakeNativeAgentAfterCommit:wake}));
 vi.mock('@/lib/agent-start-outreach',()=>({initializeAgentChannelDefaults:vi.fn()}));
@@ -5,7 +7,7 @@ import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 const mock=vi.hoisted(()=>({scope:vi.fn(),state:vi.fn(),open:vi.fn(),control:vi.fn(),begin:vi.fn(),commit:vi.fn(),adopt:vi.fn(),projection:vi.fn()}));
 vi.mock('@/lib/agent-request-scope',()=>({agentRequestScope:mock.scope,agentResponseHeaders:{'Cache-Control':'private, no-store'},agentRequestError:(error:string,status:number)=>Response.json({error},{status}),agentRequestFailure:()=>Response.json({error:'Changed or unavailable'},{status:409})}));
 vi.mock('@/lib/company-projection-refresh',()=>({refreshCompanyProjectionsBeforeNativeControl:mock.projection}));
-vi.mock('@/lib/agent-runtime',()=>({nativeAgentEnabled:()=>process.env.AGENT_NATIVE_EXECUTION_ENABLED==='true'}));
+vi.mock('@/lib/agent-runtime',()=>({agentPool:()=>({}),nativeAgentEnabled:()=>process.env.AGENT_NATIVE_EXECUTION_ENABLED==='true'}));
 import {GET,POST} from './route';
 const id='00000000-0000-4000-8000-000000000001',conversationId='00000000-0000-4000-8000-000000000002',requestKey='00000000-0000-4000-8000-000000000003';
 const context={params:Promise.resolve({id})},url=`http://localhost/api/mandates/${id}/agent/execution`;
@@ -47,3 +49,17 @@ it('returns one scoped controls bundle only when requested and never starts work
 });
 
 it('wakes only after a confirmed control commit, never on rejected or ambiguous failure',async()=>{mock.control.mockRejectedValueOnce(Error('commit response unavailable'));expect((await POST(request(),context)).status).toBe(409);expect(wake).not.toHaveBeenCalled();expect((await POST(request(),context)).status).toBe(200);expect(wake).toHaveBeenCalledOnce();});
+
+it('projects an owned ready demo before a thread exists without creating work',async()=>{
+ const controlsSnapshot=vi.fn().mockResolvedValue({state:null,inbox:{tasks:[]},grants:[],targetOptions:{bindings:[]}});
+ mock.scope.mockResolvedValue({actor:{organizationId:'org',userId:'actor'},mandate:{revision:'123'},store:{...store,controlsSnapshot},thread:undefined});
+ workflow.mockResolvedValue({id:requestKey,mandateId:id,organizationId:'org',ownerUserId:'actor',preset:'demo',presentation:'agent',state:'ready'});
+ const result=await(await GET(new Request(url,{headers:{'X-Acquire-Control-Snapshot':'1'}}),context)).json();
+ expect(result.state).toMatchObject({executionMode:'demo',workflowPreset:'demo',workflowExecutionId:requestKey,mandateRevision:'123',responsibility:null,conversations:[]});expect(result.controls.state).toEqual(result.state);
+ expect(mock.open).not.toHaveBeenCalled();expect(mock.control).not.toHaveBeenCalled();expect(mock.state).not.toHaveBeenCalled();
+});
+it.each(['missing','foreign','other-mandate'])('does not project %s workflow as an owned demo',async kind=>{
+ mock.scope.mockResolvedValue({actor:{organizationId:'org',userId:'actor'},mandate:{revision:'123'},store,thread:undefined});
+ workflow.mockResolvedValue(kind==='missing'?undefined:{id:requestKey,mandateId:kind==='other-mandate'?conversationId:id,organizationId:'org',ownerUserId:kind==='foreign'?'other':'actor',preset:'demo',state:'ready'});
+ const result=await(await GET(new Request(url),context)).json();expect(result.state).toBeNull();expect(mock.open).not.toHaveBeenCalled();
+});

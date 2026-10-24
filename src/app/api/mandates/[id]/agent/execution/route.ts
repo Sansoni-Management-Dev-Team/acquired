@@ -2,7 +2,8 @@ import {wakeNativeAgentAfterCommit} from '@/lib/agent-native-wake';
 import {refreshCompanyProjectionsBeforeNativeControl} from '@/lib/company-projection-refresh';
 import {z} from 'zod';
 import {guardBrowserMutation} from '@/lib/browser-mutation';
-import {nativeAgentEnabled} from '@/lib/agent-runtime';
+import {findMandateWorkflow} from '@/lib/acquisition-workflow-research';
+import {agentPool,nativeAgentEnabled} from '@/lib/agent-runtime';
 import {initializeAgentChannelDefaults} from '@/lib/agent-start-outreach';
 import {agentDriverSchema} from '@/domain/agent-ownership';
 import {agentDemoPreparationReadiness,agentDemoProvisioningConfiguration} from '@/lib/agent-demo-configuration';
@@ -30,13 +31,20 @@ export async function GET(request:Request,context:Context){
   const data=await scope(request,context);if(data instanceof Response)return data;
   const controls=request.headers.get('X-Acquire-Control-Snapshot')==='1'
    ?await data.store.controlsSnapshot((await context.params).id,data.thread?.id):undefined;
-  const state=controls?controls.state:data.thread?await data.store.executionState(data.thread.id):null;
+  const savedState=controls?controls.state:data.thread?await data.store.executionState(data.thread.id):null;
+  // New shared demo runs reuse a saved mandate without creating a chat thread.
+  // Project owned workflow identity for display; only explicit Start creates work.
+  const mandateId=(await context.params).id;
+  const workflow=!data.thread&&data.actor&&data.mandate
+   ?await findMandateWorkflow(agentPool(),data.actor,mandateId):undefined;
+  const owned=workflow&&workflow.mandateId===mandateId&&workflow.organizationId===data.actor.organizationId&&workflow.ownerUserId===data.actor.userId?workflow:undefined;
+  const state=savedState??(owned?{executionMode:owned.preset==='demo'?'demo' as const:'real' as const,workflowPreset:owned.preset,workflowExecutionId:owned.id,mandateRevision:data.mandate!.revision,responsibility:null,conversations:[],demoContacts:undefined}:null);
   const config=agentDemoProvisioningConfiguration();
   const readiness=agentDemoPreparationReadiness(config,data.actor);
   // Existing prepared recipients retain their saved service and account bindings.
   const selectedTesting=process.env.AGENT_DEMO_TARGET==='testing'&&state?.executionMode==='demo'&&!state.demoContacts?.prepared;
   const demoService=selectedTesting?{communicationsApi:'https://127.0.0.1:5991',...readiness,...(!readiness.ready?{message:'The testing service on 5991 is not ready for this mandate yet. Your saved companies and people are available; simulated outreach has not started.'}:{})}:undefined;
-  return Response.json({enabled:nativeAgentEnabled(),state,mandateRevision:data.mandate?.revision,demoPreparationEnabled:readiness.ready,demoService,...(controls?{controls}:{})},{headers});
+  return Response.json({enabled:nativeAgentEnabled(),state,mandateRevision:data.mandate?.revision,demoPreparationEnabled:readiness.ready,demoService,...(controls?{controls:{...controls,state}}:{})},{headers});
  }catch(cause){return failure(cause);}
 }
 

@@ -3844,3 +3844,9 @@ Next: merge this source-only alignment, then review the runtime cutover against 
 Applied the four immutable local workflow-v2 derivations atomically to the standing-approved `acquire_agent_mode` database on 5437, after exact marker/system-identifier verification, full backup, and successful rollback rehearsal. Hashes and target are in `ops/agent-mode/migrations/workflow-v2/manifest.json`. Four journal entries committed; 366 existing conversations retained, zero workflow rows created, and 43 protected clock/service functions unchanged. No production or simulator database migration applied.
 
 The independent simulator main commit `81093de` adds effective mapping reads and separate workflow ownership checks; demo ID remains mandate ID. Its 2,458 tests and portable build passed. Runtime activation and fresh end-to-end acceptance are being verified separately.
+
+### Local shared-workflow pre-thread projection — 2026-10-24
+
+The existing local saved-data demo reached workflow `ready` without creating an agent thread, as designed. The execution GET returned null state and hid demo controls. It now projects the exact owned workflow identity before thread creation, including the requested controls snapshot bundle; explicit Start remains the only thread-creating action. Missing/foreign/other-mandate results are not projected. No schema, provider, sending authority or legacy effect scope changes.
+
+Validation: failing regression reproduced (1 failed/17 passed), then execution-route and controls-panel tests passed (109). Local source implementation verified; GUI continuation pending restart of the aligned app. Evidence: `.local-data/local-integration/prethread-{red,green,tsc}.log`.
