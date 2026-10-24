@@ -401,3 +401,11 @@ it('logs an exact intent workflow guard rejection without leaking SQL or changin
   expect(JSON.stringify(events)).not.toMatch(/PRIVATE|recipient@|Exact active/);expect(f.query.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO public.communication_dispatch_intents'))).toHaveLength(1);
  }finally{log.mockRestore();}
 });
+it('accepts an authenticated terminal prewrite review proof through existing resolution without preparing a replacement',async()=>{
+ const f=fixture(),first=await f.repo.prepare({source,message,coverageScopes:[{bindingId:'binding',scopeDigest:'a'.repeat(64)}]});
+ // Service owns the quota/boundary verification; the application receives the
+ // unchanged authenticated proof contract, not an untrusted quota flag.
+ const prove=vi.fn(async()=>({snapshot:first.submission.snapshot,journalId:'original-instrumented-journal',outcome:{status:'review',code:'protocol'},evidenceDigest:'b'.repeat(64),keyVersion:'service-proof'}));
+ const repo=createAcquireSendAdmission({...f.options,proveNoSubmission:prove});f.calls.length=0;
+ const resolution=await repo.resolveNoSubmission!(first.submission.snapshot);expect(resolution).toMatchObject({intentId:first.intentId,operationKey:first.submission.snapshot.key});expect(await repo.resolveNoSubmission!(first.submission.snapshot)).toEqual(resolution);expect(f.intents).toHaveLength(1);expect(f.calls.some(sql=>sql.includes('quota_buckets'))).toBe(false);
+});

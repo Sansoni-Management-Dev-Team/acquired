@@ -1,3 +1,4 @@
+import {markTransportBoundaryAdapter} from './transport-boundary';
 import { describe, expect, it, vi } from "vitest";
 import type { ConnectionBinding, DeliveryOutcome, MessageSubmission, MessagingAdapter, ReceiptLookup } from "../../contracts/src";
 import { messageDigest } from "./message-digest";
@@ -246,3 +247,9 @@ it('reports only the failed coordinator boundary with unchanged uncertainty and 
  if(boundary==='persist')vi.mocked(f.journal.complete).mockRejectedValue(error);
  expect(await createDispatchCoordinator(binding,f.adapter,f.journal,{diagnostic}as never).submit(submission())).toEqual({status:'unknown'});expect(diagnostic.mock.calls.some(([v])=>v.stage==='coordinator.'+boundary)).toBe(true);expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('private');if(!['persist'].includes(boundary))expect(f.adapter.submit).not.toHaveBeenCalled();}
 });
+
+describe('instrumented prewrite recovery',()=>{
+ it('closes a prewrite review through the original fenced journal',async()=>{const f=fixture();f.journal.startTransportWrite=vi.fn(async()=>{});vi.mocked(f.adapter.submit).mockResolvedValue({status:'review',code:'protocol'});const c=createDispatchCoordinator(binding,markTransportBoundaryAdapter(f.adapter),f.journal,{transportBoundary:true});expect(await c.submit(submission())).toEqual({status:'review',code:'protocol'});expect(f.journal.beginDispatch).toHaveBeenCalledWith(expect.objectContaining({transportBoundary:true}));expect(f.journal.complete).toHaveBeenCalledWith(expect.objectContaining({closeBeforeWrite:true,token:'fixture-token'}));expect(f.journal.startTransportWrite).not.toHaveBeenCalled();});
+ it('never marks a post-gate timeout as no-submission',async()=>{const {beforeTransportWrite}=await import('./transport-boundary');const f=fixture();f.journal.startTransportWrite=vi.fn(async()=>{});vi.mocked(f.adapter.submit).mockImplementation(async input=>{await beforeTransportWrite(input.snapshot);return{status:'unknown'};});const c=createDispatchCoordinator(binding,markTransportBoundaryAdapter(f.adapter),f.journal,{transportBoundary:true});expect(await c.submit(submission())).toEqual({status:'unknown'});expect(f.journal.complete).toHaveBeenCalledWith(expect.not.objectContaining({closeBeforeWrite:true}));expect(f.journal.startTransportWrite).toHaveBeenCalledOnce();});
+});
+it('refuses recovery opt-in for an uninstrumented third-party adapter',()=>{const f=fixture();f.journal.startTransportWrite=vi.fn(async()=>{});expect(()=>createDispatchCoordinator(binding,f.adapter,f.journal,{transportBoundary:true})).toThrow('Invalid dispatch recovery configuration');expect(f.journal.claim).not.toHaveBeenCalled();});

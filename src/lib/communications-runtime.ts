@@ -1,3 +1,4 @@
+import {supportsTransportBoundaryAdapter} from '../../communications/packages/core/src/transport-boundary';
 import {localHistoryTurn} from '../../communications/packages/storage-postgres/src/local-history-turn';
 import {businessNow} from '../../communications/packages/core/src/business-clock';
 import {isHistoryRefreshBusyError} from '../../communications/packages/core/src/history-refresh-busy';
@@ -101,7 +102,9 @@ export function createAcquireCommunicationsRuntime(options:AcquireCommunications
   const journal:ReturnType<typeof createPostgresDispatchJournal>=createPostgresDispatchJournal({...ports,businessClock:service.businessClock,diagnostic:options.diagnostic,pool:service.pool,binding,leaseOwnerToken:randomUUID(),admission:{application:admission,quota,coverage:{async assertCoverage(client,input){
    const source=histories.get(identity(input.binding));if(!source)throw Error('History authority unavailable');await source.repository.assertCoverage(client,input);
   }}}});
-  const raw=await runtime.providerFactory(binding,{lookupOnly}),coordinator=createDispatchCoordinator(binding,raw,journal,{diagnostic:options.diagnostic,recoverUnknownEmail:(record,signal)=>runtime.recoverUnknownEmail(record,signal)});
+  const raw=await runtime.providerFactory(binding,{lookupOnly});
+  const transportBoundary=supportsTransportBoundaryAdapter(raw)&&await runtimeTransaction(service.pool,3000,async c=>{const r=await c.query("SELECT to_regclass('communications.dispatch_transport_boundaries') IS NOT NULL AS present");if(r.rows.length!==1||typeof r.rows[0].present!=='boolean')throw Error('Transport boundary capability unavailable');return r.rows[0].present;});
+  const coordinator=createDispatchCoordinator(binding,raw,journal,{transportBoundary,diagnostic:options.diagnostic,recoverUnknownEmail:(record,signal)=>runtime.recoverUnknownEmail(record,signal)});
   const adapter:MessagingAdapter={
    async ready(requested){assertSameBinding(binding,requested);const active=await runtime.store.resolve(binding);if(!active||!active.active||active.status!=='connected')return {status:'review',code:'reconnect'};
     const proof=await (await history(binding)).repository.coverage({binding,scope:'account',since:new Date(businessNow(service.businessClock)-300000).toISOString(),cursor:null,refresh:true});
