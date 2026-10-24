@@ -1,3 +1,4 @@
+import {beforeTransportWrite} from '../../core/src/transport-boundary';
 import {businessNow,type BusinessClock} from '../../core/src/business-clock';
 import { types, isDeepStrictEqual } from 'node:util';
 import { assertSameBinding, ContractError, type MessagingAdapter, type ReceiptLookup, type SubmissionReceipt, type DeliveryOutcome, type CanonicalIdentity, type OperationSnapshot, type ProviderReference } from '../../contracts/src';
@@ -203,6 +204,8 @@ export function createV1SocialRuntime(options: V1SocialRuntimeOptions): Messagin
                     let response: UnipileHttpResult;
                     if (input.snapshot.operation === 'invitation') {
                         writing = true;
+                        await beforeTransportWrite(input.snapshot);
+                        check();
                         response = await transport.invite(o.providerAccountId, peerId, input.message.text, { signal });
                         check();
                         if (response.kind !== 'success')
@@ -227,6 +230,8 @@ export function createV1SocialRuntime(options: V1SocialRuntimeOptions): Messagin
                         await grant({...accessScope});
                         check();
                         writing = true;
+                        await beforeTransportWrite(input.snapshot);
+                        check();
                         response = await transport.sendMessage(o.providerAccountId, input.message.conversation.id, { text: input.message.text }, { signal });
                         check();
                     }
@@ -238,6 +243,8 @@ export function createV1SocialRuntime(options: V1SocialRuntimeOptions): Messagin
                         await grant({...accessScope});
                         check();
                         writing = true;
+                        await beforeTransportWrite(input.snapshot);
+                        check();
                         response = await http.request('POST', http.url('chats'), form, { signal });
                         check();
                     }

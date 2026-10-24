@@ -1,3 +1,4 @@
+import {runWithTransportBoundary} from '../../core/src/transport-boundary';
 import { describe, expect, it, vi } from 'vitest';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -104,3 +105,6 @@ it.each([{account_id:'foreign'},{body:'Changed body'},{to_attendees:[{identifier
 });
 it('keeps the ownership timeout real while selected business time is fixed years ahead',async()=>{const f=fixture({businessClock:{now:()=>Date.parse('2030-01-07T01:00:00.000Z')},timeoutMs:10,verifyOwner:()=>new Promise(()=>{})});expect(await f.adapter.submitAcknowledged(request())).toEqual({status:'waiting',code:'unavailable'});expect(f.transport.sendEmail).not.toHaveBeenCalled();});
 it('refuses an invalid explicit clock during construction',()=>{expect(()=>fixture({businessClock:{now:()=>NaN}})).toThrow('invalid_binding');});
+
+it('refuses email POST when the durable transport boundary fails',async()=>{const f=fixture(),input=request(),start=vi.fn(async()=>{throw Error('gate closed')});await runWithTransportBoundary(input.snapshot,start,()=>f.adapter.submitAcknowledged(input));expect(start).toHaveBeenCalledTimes(1);expect(f.transport.sendEmail).not.toHaveBeenCalled();});
+it('cannot POST after a delayed transport boundary outlives the email budget',async()=>{const f=fixture({timeoutMs:15}),input=request();let release!:()=>void;const gate=new Promise<void>(r=>release=r),start=vi.fn(()=>gate);await runWithTransportBoundary(input.snapshot,start,()=>f.adapter.submitAcknowledged(input));release();await new Promise(r=>setTimeout(r,5));expect(start).toHaveBeenCalledTimes(1);expect(f.transport.sendEmail).not.toHaveBeenCalled();});
