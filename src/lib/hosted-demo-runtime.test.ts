@@ -50,3 +50,8 @@ it.each([401,503])('reports coverage revalidation HTTP %s without response or au
  expect(log).toHaveBeenCalledWith('hosted-demo-revalidation',JSON.stringify({boundary:'coverage.revalidate',outcome:'http_error',httpStatus:status}));expect(JSON.stringify(log.mock.calls)).not.toMatch(/PRIVATE|Bearer|scope-v1/);
  }finally{log.mockRestore();}
 });
+it('backdates only outgoing hosted scoped issuance so a slightly slower service clock accepts it',async()=>{
+ vi.useFakeTimers();vi.setSystemTime(100010);const verifier=createScopedServiceAuth({key,applicationId:'acquire',audience:'communications',authorize:async()=>true,now:()=>100000});
+ const fetcher=vi.fn(async(_url:unknown,init?:RequestInit)=>{const header=new Headers(init?.headers).get('authorization')!;expect(await verifier.verify(header)).toEqual(d.actor);const claims=JSON.parse(Buffer.from(header.slice(7).split('.')[0],'base64url').toString());expect(claims.exp).toBe(159010);return Response.json({verified:false});});
+ expect(await createHostedDemoServiceRequest(descriptor,key,fetcher)('/v1/hosted-demo/coverage/revalidate',{},new AbortController().signal)).toEqual({verified:false});
+});
