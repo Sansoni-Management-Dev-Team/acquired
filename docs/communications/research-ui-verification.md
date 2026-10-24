@@ -22,3 +22,9 @@ Local app12353bc: normal workflow0606212f saved13 companies,4 people,7 findings;
 The initial b550 workflow exposed a development reload defect: globally cached pool wrappers retained an older module-local AsyncLocalStorage accessor. PostgreSQL correctly refused writes without explicit workflow authority. Commit12353bc shares the async storage across module reloads, retaining per-request isolation. Red regression reproduced undefined context;24 focused tests, TypeScript and ESLint passed. App-only restart replaced pre-fix cached wrappers. Failed original run retained, no SQL repair or migration.
 
 These are local UI/start/discovery/enrichment checks, not production acceptance or full natural completion. Agent presentation's initial shared workflow is not nativeAgent classification, so its desired count is also not a strict profile cap.
+
+## Production verification
+
+Production app e14ddc7 passed the same actual-browser entry checks on24 October2026. Normal workflow7c96b8a9 retained10 companies,1 person and2 findings. Agent presentation452577fd retained10 companies,1 person and4 findings, with progress visible in its conversation. Both executed live hybrid web/Firmable work, then normal Stop returned200 and final workflow state was cancelled/activefalse. No outreach controls were used; default research setting20 was restored. These are deliberately bounded partial runs, not claims of natural research completion. Some production GET/Stop requests took tens of seconds.
+
+Ignored release evidence and screenshots: `.local-data/release-e14ddc7/`. The later3dd1979 release changes communications composition and portable email verification; its research/UI code is unchanged from this verified release. No repeated paid research is needed merely to reverify that behavior-preserving communications extraction.
