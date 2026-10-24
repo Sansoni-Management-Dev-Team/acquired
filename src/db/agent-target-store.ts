@@ -98,12 +98,24 @@ export class AgentTargetStore extends AgentResearchStore{
   },authority);
  }
  protected async checkTargetSelectionGuidance(c:PoolClient,t:AgentThread,operationId:string){const op=(await c.query("SELECT input FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name='target.select'",[operationId,t.id])).rows[0];const current=await loadApprovedAgentGuidance(c,t,{categories:['qualification']});if(!op||digest(op.input.guidance??null)!==digest(current.items.length?current:null))throw new Error('Approved qualification guidance changed before allocation');}
+ /** Conversation receipts commit before this projection advances. Bind the recorded
+  * effect, never a later workflow selected for the same mandate. */
+ protected async markAllocatedWorkflowOutreach(c:PoolClient,op:{workflow_execution_id?:string|null;mandate_id?:string}){
+  if(!op.workflow_execution_id)return;
+  await this.bindOriginalWorkflow(c,op);
+  const row=(await c.query('SELECT state,revision,preset FROM acquisition_workflow_executions WHERE id=$1 AND organization_id=$2 AND owner_user_id=$3 AND mandate_id=$4',[op.workflow_execution_id,this.actor.organizationId,this.actor.userId,op.mandate_id])).rows[0];
+  if(!row)throw Error('Original allocation workflow unavailable');
+  if(row.preset==='live-research-test')throw Error('Research-only workflow cannot start outreach');
+  if(row.state==='outreach')return;
+  if(row.state!=='ready')throw Error('Original allocation workflow is not ready');
+  await c.query("SELECT * FROM public.acquisition_workflow_transition($1,$2,'outreach',NULL)",[op.workflow_execution_id,row.revision]);
+ }
  async allocateApprovedTargets(threadId:string,operationId:string,authority?:AgentExecutionFence,continuation?:{reviewBatchId:string}){
   if(continuation)uuid.parse(continuation.reviewBatchId);
   const plan=await this.nativeTransaction(async c=>{
    const t=await this.lockThread(c,threadId);await this.assertExecutionFence(c,t,authority);
    const op=(await c.query("SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name='target.select' AND state IN('approved','running','complete') FOR UPDATE",[uuid.parse(operationId),t.id])).rows[0];
-   if(!op)throw new Error('Approved target selection required');if(op.state==='complete')return {complete:true as const,result:op.result};
+   if(!op)throw new Error('Approved target selection required');if(op.state==='complete'){if(op.result?.allocated>0)await this.markAllocatedWorkflowOutreach(c,op);return {complete:true as const,result:op.result};}
    const value=op.input as ReturnType<typeof buildAgentTargetSelection>;if(digest({name:op.name,input:value})!==op.input_digest)throw new Error('Target proposal changed');
    if(value.delivery.mode==='local_sink'&&process.env.AGENT_LOCAL_SIMULATION_ENABLED!=='true')throw new Error('Explicit local simulation mode is disabled');
    if(continuation){
@@ -127,8 +139,9 @@ export class AgentTargetStore extends AgentResearchStore{
     try{console.warn(JSON.stringify({module:'agent-target-allocation',stage:'contact_allocation_failed',...plan.trace,category:failureCategory}));}catch{/* Diagnostics never change the saved allocation outcome. */}
    }
   }
-  return this.nativeTransaction(async c=>{const t=await this.lockThread(c,threadId);await this.assertExecutionFence(c,t,authority);const op=(await c.query("SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 FOR UPDATE",[operationId,t.id])).rows[0];if(op.state==='complete')return op.result;
+  return this.nativeTransaction(async c=>{const t=await this.lockThread(c,threadId);await this.assertExecutionFence(c,t,authority);const op=(await c.query("SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 FOR UPDATE",[operationId,t.id])).rows[0];if(op.state==='complete'){if(op.result?.allocated>0)await this.markAllocatedWorkflowOutreach(c,op);return op.result;}
    const result={results,allocated:results.filter(item=>item.status==='allocated').length,needsReview:results.filter(item=>item.status==='needs_review').length};
+   if(result.allocated>0)await this.markAllocatedWorkflowOutreach(c,op);
    if(continuation&&results.length<plan.value.selected.length){
     // The receipt for each contact is already durable. A crash before this
     // checkpoint reuses that exact command; no outreach is sent here.

@@ -1,6 +1,6 @@
 # Shared acquisition workflow
 
-2026-10-24. Plane WF-01/02. Working branch `codex/shared-acquisition-workflow`, based on reliability revision `f6f6b3d`. This branch is separate from the independently changing AI release. No feature deployment has occurred. Approved schema 001–004 is applied to isolated rehearsal and production; feature activation remains off.
+2026-10-24. Working branch `codex/shared-acquisition-workflow`. Approved schema 001–004 is applied to isolated rehearsal and production. Application implementation `33e0e25` has been released and production canaries have started. Follow-up `d74960e` passed local validation and is building; its deployment is not yet confirmed. Hosted message/reply acceptance remains incomplete.
 
 ## Fixed product behavior
 
@@ -43,7 +43,7 @@ Read-only inspection found `src/adapters/ai/provider.ts` exposes `completeAiJson
 
 ## Current handoff
 
-WF-01 source and production catalog audit is complete. WF-02 has a proposed three-file migration bundle and three rollback-only rehearsal assertions, with exact hashes and targets in `ops/agent-mode/production-proposals/workflow-modularity/approval-manifest.json`. SQL/PLpgSQL parsing passed. WF-03 awaits explicit approval before any application or database acceptance run. Application modules and local verification are now implemented; activation and live verification remain unfinished. The local simulator was not accessed.
+WF-05–09 implementation and local verification are complete. WF-10–14 remain In Progress for browser/journey, hosted simulator, production workload and release acceptance. The latest production evidence and limitations are below. The intervening migration and integration notes are historical records, not pending approval requests. No local simulator was accessed.
 
 ## Remote-main integration
 
@@ -67,3 +67,14 @@ Implemented shared immutable presets, atomic start/status commands, owned unused
 Local verification on 2026-10-24: 781 Vitest files passed, 6,807 tests passed and 956 opt-in tests skipped; TypeScript passed; 183 Node tests passed. Final rollback/reload regression adds focused coverage after this full run. Four actual PostgreSQL rehearsal scripts cover atomic creation/replay/ownership, research worker context, original event identity, and workflow simulator registration/mapping receipts. All use the approved network-none rehearsal database; no local simulator or external provider calls. Four simultaneous starts admitted one execution and returned three replays, 117–135ms in isolated emulated amd64 rehearsal with two pool clients. These timings are not production performance claims.
 
 Production read-only preflight found no lock waiters, healthy app/communications containers and zero workflow executions. Feature release, live research/provider verification and actual hosted simulator message/reply remain pending. The testing menu creates a research-only run from a description; the API also supports a supplied owned unused mandate. Research-only results open the company table, including when presentation was recorded as agent.
+
+
+## Latest release and acceptance status
+
+Application implementation `33e0e25` is released. Production demo admission, Start, and an outreach proposal have been persisted. This proves progress through those Acquire steps; it does not yet prove an outbound message was accepted or an AI reply returned from the hosted simulator.
+
+The bounded live-research canary is still in progress: 43 candidates discovered, with 4 companies and 3 people persisted at this checkpoint. These are interim results, not completed enrichment or research-only completion acceptance.
+
+Follow-up `d74960e` reduces pure-read gate contention and preserves bounded history continuation progress. Local validation: **6,825 Vitest tests passed / 956 skipped**. The image is building; deployment and post-release canary results remain pending. `controlsSnapshot` retains its required handoff authority gate and can still contend; that path was not weakened to improve apparent performance.
+
+Plane WF-10–14 remain In Progress. Remaining evidence includes actual browser journeys, a confirmed hosted send/reply, terminal live-research-only completion with zero outreach, bounded production workload performance, and verification of the follow-up release. Earlier local PostgreSQL timings are not production latency guarantees. See `docs/communications/progress.md` for the chronological operational record.

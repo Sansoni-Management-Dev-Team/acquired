@@ -26,17 +26,26 @@ async function runPass():Promise<number>{
   passDurationMs:Math.round(performance.now()-started),timestamp:new Date().toISOString(),
  }));
  try{
-  if(process.env.ACQUISITION_WORKFLOW_ENABLED==='true'||process.env.ACQUISITION_WORKFLOW_SCHEMA_READY==='true'){
+  const phases:Array<{name:string;run:()=>Promise<unknown>}>=[
+   {name:'observation',run:observeScheduledInitialResearch},
+   {name:'maintenance',run:maintainScheduledResearch},
+  ];
+  if(process.env.ACQUISITION_WORKFLOW_ENABLED==='true'||process.env.ACQUISITION_WORKFLOW_SCHEMA_READY==='true')phases.unshift({name:'workflow',run:async()=>{
    const [{recoverAcquisitionWorkflows},{agentPool}]=await Promise.all([import('./acquisition-workflow-recovery'),import('./agent-runtime')]);
-   await recoverAcquisitionWorkflows(agentPool());
+   return recoverAcquisitionWorkflows(agentPool());
+  }});
+  // The same bounded pass rotates its first phase each minute. A slow or
+  // failed projection cannot permanently prevent persisted-job maintenance.
+  // No additional worker, queue, concurrency or deadline is introduced.
+  const first=Math.floor(Date.now()/60000)%phases.length;
+  let pending=0;
+  for(let offset=0;offset<phases.length;offset++){
+   backgroundRemaining();if(backgroundBudget()?.failure)throw backgroundBudget()!.failure;
+   const current=phases[(first+offset)%phases.length];phase=current.name;phaseStarted=performance.now();
+   const result=await current.run();if(current.name==='maintenance')pending=Number(result)||0;
+   trace('phase_finished');
+   backgroundRemaining();if(backgroundBudget()?.failure)throw backgroundBudget()!.failure;
   }
-  await observeScheduledInitialResearch();
-  trace('phase_finished');
-  backgroundRemaining();if(backgroundBudget()?.failure)throw backgroundBudget()!.failure;
-  phase='maintenance';phaseStarted=performance.now();
-  const pending=await maintainScheduledResearch();
-  trace('phase_finished');
-  backgroundRemaining();if(backgroundBudget()?.failure)throw backgroundBudget()!.failure;
   return pending;
  }catch(error){
   // Do not log arbitrary errors: they can contain SQL, payloads or credentials.

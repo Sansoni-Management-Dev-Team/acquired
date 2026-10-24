@@ -3651,3 +3651,21 @@ Converted projection-only `executionState`, `channelPolicy`, `demoOutreachAccoun
 SQL dependency audit found `controlsSnapshot` cannot simply become read-only: `agent_handoff_inbox` and `agent_handoff_context` require `agent_assert_control_scope`, which checks the held send gate. That fixed bundle remains unchanged to preserve authority and snapshot consistency; its gate contention is an explicit remaining limitation. The standalone execution-state read avoids that gate. This batch is locally verified, not yet deployed or measured against production contention.
 
 Review qualification: combined controlsSnapshot retains its existing gated bundle because handoff SQL explicitly checks the gate; this release does not relax that DB authority contract. Standalone execution state, channel policy/defaults, demo accounts and thread lookup become read-only. Continuation lease check and enqueue remain separate transactions; a stale read checkpoint may be queued after lease expiry but cannot grant model/send authority, and epoch/final checks remain unchanged.
+
+
+### WF production follow-up correction
+
+Released d74960e directly; container, database and campaign readiness passed. Production route check caught standalone execution-state409/SQLSTATE25006 in5.1s while normal gated controls snapshot returned200 in12.5s. The read-only conversion of executionState was unsafe: nested populated-route permission checks require the original held execution gate. Restored that transaction in bfccb4d; safe thread/default/policy/account reads remain. Do not count the earlier mocked projection tests as proof of this SQL behavior. Exact25006 statement is not yet reproduced in isolated fixtures; a separate rehearsal audit is in progress.
+
+Commit291f06e additionally restores saved workflow context in automatic people recovery;38 targeted tests, TypeScript/lint and actual rehearsal recovery passed. Its standalone image was built but not deployed. Corrected combined bfccb4d image is being built for deployment. No schema changes. The original research canary's15-minute observer ended while researching, with saved partial results and operational gaps; no-outreach records were independently verified, but final research acceptance is pending.
+
+Actual PostgreSQL projection rehearsal subsequently reproduced SQLSTATE25006 exactly: agent_demo_execution_readiness calls agent_demo_contact_fingerprint, which uses SELECT contacts FOR SHARE. It is not a temporary-table write. The full real AgentInvitationStore projection with one populated conversation/three routes passes with the restored gated transaction, and forced read-only correctly fails. No schema/production/provider call was used for this regression proof.
+
+
+### WF lifecycle and scheduler acceptance fixes
+
+Corrected bfccb4d deployed directly as acquire-app:workflow-verified-20261024, manifest68323c7cf108c49b8047708f53f4bee44b6b9206a216abeb2fe2ff1723d7f966. Container/database/campaign checks passed; formerly failing standalone projection now200 in7.4s. No migration. Hosted acceptance resumed exact original request and recovered its persisted target-selection proposal through normal review API. Allocation committed its first conversation; no submitted message or inbound reply is claimed yet.
+
+Repeated Start exposed a separate55000: it attempted ready→outreach immediately after proposal, while database correctly requires a conversation. Removed premature transition and moved it to the original operation's committed allocation checkpoint. Red/green tests plus actual PostgreSQL establish rejection before conversation, success after allocation, and idempotent replay.
+
+Scheduled logs confirmed observation work could exhaust/fail the existing10s pass before maintenance. The same three phases now rotate first position by minute without raising budgets, adding a queue or increasing concurrency.18 scheduler/background tests pass with1 skipped; actual approved rehearsal expires queued people runs, settles progress and completes research-only through ordinary recovery. Production research canary remains partial/pending until the corrected scheduler runs.

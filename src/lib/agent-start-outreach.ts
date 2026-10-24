@@ -7,7 +7,6 @@ type Channel='email'|'whatsapp'|'linkedin';
 type Account={channel:Channel;bindingId:string;bindingDigest:string;eligibleForNewWork?:boolean;isDefault?:boolean};
 type Policy={revision:number;channelOrder:Channel[];bindings:{channel:Channel;bindingId:string;bindingDigest:string}[]};
 type Store={
- markWorkflowOutreach?(id:string):Promise<void>;
  executionState(threadId:string):Promise<{executionMode:'demo'|'real';workflowExecutionId?:string;workflowPreset?:'demo'|'live'|'live-research-test';mandateRevision:string;responsibility:null|{state:string;mandate_revision?:string};demoContacts?:{prepared:number;stale:number}}>;
  channelPolicy(threadId:string):Promise<{policy:Policy|null;accounts:Account[]}>;
  demoOutreachAccounts(threadId:string):Promise<{channel:Channel;bindingId:string;bindingDigest:string}[]>;
@@ -63,6 +62,7 @@ export async function startAgentOutreach({actor,mandateId,threadId,requestKey,st
  }
  observe('channel_defaults_saved');
  const result=await store.proposeTargetSelection(threadId,phaseKey(requestKey,'contacts'),{mode:'channels',policyRevision:revision!});
- if(state.workflowExecutionId){if(!store.markWorkflowOutreach)throw new AgentOutreachStartError('Workflow transition unavailable.');await store.markWorkflowOutreach(state.workflowExecutionId);}
+ // A proposed selection has no conversations yet. Allocation owns the
+ // transition to outreach once its durable conversation rows exist.
  observe('contact_selection_prepared');return result;
 }
