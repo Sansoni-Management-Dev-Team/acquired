@@ -1,8 +1,9 @@
-import type {AcquireIntentSource} from './campaign-send-admission';
+/** Only persisted source identity is needed; no execution fence is inferred here. */
+type WorkflowSource = {kind:'agent';operationId:string}|{kind:'campaign';attemptId:string;enrolmentId:string}|{kind:'draft';messageId:string};
 type Transaction={query(sql:string,values?:unknown[]):Promise<{rows:Record<string,unknown>[]}>};
 /** Bind only the persisted original effect. No ambient execution, latest mandate
  * lookup, request argument or simulator mode can substitute another workflow. */
-export async function bindCommunicationsWorkflowContext(tx:Transaction,actor:{organizationId:string;userId:string},source:AcquireIntentSource){
+export async function bindCommunicationsWorkflowContext(tx:Transaction,actor:{organizationId:string;userId:string},source:WorkflowSource){
  const installed=(await tx.query("SELECT to_regclass('public.acquisition_workflow_executions') IS NOT NULL AS installed")).rows;
  if(installed.length!==1||typeof installed[0].installed!=='boolean')throw Error('Workflow schema unavailable');
  let execution='';
