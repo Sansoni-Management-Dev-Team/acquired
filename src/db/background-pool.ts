@@ -1,8 +1,8 @@
 import type {Pool,PoolClient,QueryConfig,QueryResult} from 'pg';
 import {backgroundAdmission,backgroundBudget,backgroundRemaining,databaseUnavailable,BackgroundAdmission,BackgroundUnavailable} from '@/lib/background-workload';
 
-function report(label:string,stage:string,started:number,outcome:string){
- console.info('background-database',JSON.stringify({module:'database.background',label,stage,outcome,durationMs:Math.round(performance.now()-started)}));
+function report(label:string,stage:string,started:number,outcome:string,reason?:BackgroundUnavailable['reason']){
+ console.info('background-database',JSON.stringify({module:'database.background',label,stage,outcome,...(reason?{reason}:{}),durationMs:Math.round(performance.now()-started)}));
 }
 /** Applies only inside an explicit background budget. Preserves the original
  * pool for interactive work and the caller's role, scope and transaction SQL. */
@@ -28,7 +28,7 @@ export function backgroundPool(pool:Pool,admission:BackgroundAdmission=backgroun
 }
 async function connect(pool:Pool,admission:BackgroundAdmission):Promise<PoolClient>{
  const budget=backgroundBudget()!;backgroundRemaining();
- const admittedAt=performance.now();const free=await admission.acquire().catch(error=>{budget.failure??=error;throw error;});report(budget.label,'admission',admittedAt,'acquired');
+ const admittedAt=performance.now();const free=await admission.acquire().catch(error=>{budget.failure??=error;report(budget.label,'admission',admittedAt,'deferred',error instanceof BackgroundUnavailable?error.reason:undefined);throw error;});report(budget.label,'admission',admittedAt,'acquired');
  let client:PoolClient|undefined,closed=false,inTransaction=false,failed:unknown;
  const started=performance.now();
  const dispose=(error?:Error)=>{

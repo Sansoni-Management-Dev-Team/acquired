@@ -77,3 +77,10 @@ it('retires an in-flight query at the absolute deadline and prevents a later com
  await withBackgroundBudget('in-flight',50,async()=>{const c=await f.pool.connect();await c.query('BEGIN');const pending=expect(c.query('SELECT hanging')).rejects.toThrow();await vi.advanceTimersByTimeAsync(51);await pending;await expect(c.query('COMMIT')).rejects.toThrow();c.release();});
  expect(f.release).toHaveBeenCalledExactlyOnceWith(expect.any(Error));expect(f.query.mock.calls.some(([arg])=>text(arg)==='COMMIT')).toBe(false);
 });
+it('reports the allowlisted admission reason without logging private error data',async()=>{
+ vi.useFakeTimers();const log=vi.spyOn(console,'info').mockImplementation(()=>{});const gate=new BackgroundAdmission();const f=fixture();const pool=backgroundPool({connect:f.connect,query:f.query} as never,gate);
+ const release=await gate.acquire();
+ try{const pending=expect(withBackgroundBudget('research.scheduled',10000,()=>pool.query('SELECT private_payload'))).rejects.toMatchObject({reason:'busy'});await vi.advanceTimersByTimeAsync(1001);await pending;
+ const entries=log.mock.calls.filter(c=>c[0]==='background-database').map(c=>JSON.parse(c[1]));expect(entries).toContainEqual(expect.objectContaining({stage:'admission',outcome:'deferred',reason:'busy'}));expect(JSON.stringify(entries)).not.toContain('private_payload');expect(f.connect).not.toHaveBeenCalled();
+ }finally{release();log.mockRestore();}
+});
