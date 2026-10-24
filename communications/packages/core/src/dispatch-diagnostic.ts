@@ -1,3 +1,4 @@
+import {types} from 'node:util';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {traceOperation,updateOperationTrace} from './operation-trace';
 export type DispatchDiagnosticStage='coordinator.claim'|'coordinator.record'|'coordinator.ready'|'coordinator.preflight'|'coordinator.begin'|'coordinator.admitted_record'|'coordinator.persist'|'admission.open'|'admission.permit'|'admission.service_commit'|'admission.app_commit'|'application.session'|'application.commit'|'application.binding'|'application.source'|'application.intent'|'application.coverage'|'application.policy'|'application.permit'|'service.grant'|'service.generation'|'service.sql';
@@ -44,4 +45,17 @@ async function observeLoggedDispatchStage<T>(stage:ObservedDispatchStage,work:()
   console.info('agent-pipeline',JSON.stringify({stage,outcome,...metadata,...(outcome==='start'?{}:{durationMs:Math.min(86400000,Math.max(0,Math.round(performance.now()-started)))}),...(sqlState?{sqlState}:{}),...(errorClass?{errorClass}:{}),...(failureCode?{failureCode}:{})}));
  }catch{/*Logging never changes work, errors, authority or retries.*/}};
  emit('start');try{const value=await work();let outcome='complete';try{if(value&&typeof value==='object'){const d=Object.getOwnPropertyDescriptor(value,'kind')??Object.getOwnPropertyDescriptor(value,'status'),state=d&&'value'in d?d.value:undefined;if(state==='defer'||state==='waiting')outcome='wait';else if(state==='review')outcome='review';else if(state==='unknown')outcome='unknown';else if(state==='submitted')outcome='submitted';else if(state==='lost')outcome='lost';}}catch{}emit(outcome);return value;}catch(error){emit('error',error);throw error;}
+}
+
+/** Preparation never invokes a provider. This says nothing about an earlier
+ * attempt or existing intent; recovery must inspect the original operation. */
+export function reportAdmissionPreparationFailure(stage:DispatchDiagnosticStage|'application.prepare',error:unknown){
+ try{
+  const own=(key:string)=>{if(!error||typeof error!=='object'||types.isProxy(error))return;const d=Object.getOwnPropertyDescriptor(error,key);return d&&'value'in d?d.value:undefined;};
+  const code=own('code'),message=own('message');
+  const sqlState=typeof code==='string'&&['P0001','40001','40P01','55P03','57014','42501','23503','23505','23514'].includes(code)?code:undefined;
+  const category=code==='P0001'&&message==='Exact active outreach workflow required for new dispatch'?'workflow_dispatch_guard_rejected'
+   :code==='P0001'?'database_guard_rejected':code==='42501'?'authorization_rejected':code==='40001'||code==='40P01'||code==='55P03'?'database_contention':code==='57014'?'database_timeout':code==='23503'||code==='23505'||code==='23514'?'stored_state_conflict':'unclassified_preparation_failure';
+  console.warn('communications-admission-failure',JSON.stringify({module:'communications.application_admission',stage,outcome:'error',...safeObservation(observationScope.getStore()??{}),...(sqlState?{sqlState}:{}),category,submission:'not_attempted_by_this_prepare',intentPersistence:'not_confirmed',recovery:'reconcile_original_operation',automaticResend:false}));
+ }catch{/* Diagnostic failures never alter admission or recovery. */}
 }

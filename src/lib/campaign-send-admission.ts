@@ -2,7 +2,7 @@ import {businessSql,type BusinessClock} from '../../communications/packages/core
 import {mandateExecutionContextSchema,type MandateExecutionContext} from '../domain/mandate-execution-context';
 import{assertNewEffectPermitted}from'./mandate-execution-policy';
 import {agentTransactionRuntimeContext} from './agent-runtime-context';
-import {reportDispatchDiagnostic,type DispatchDiagnosticPort,type DispatchDiagnosticStage} from '../../communications/packages/core/src/dispatch-diagnostic';
+import {reportAdmissionPreparationFailure,reportDispatchDiagnostic,type DispatchDiagnosticPort,type DispatchDiagnosticStage} from '../../communications/packages/core/src/dispatch-diagnostic';
 import { createHash, randomUUID } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { isDeepStrictEqual, types } from 'node:util';
@@ -287,7 +287,7 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
                         fail();
                     inFlight++;
                     try {
-                        try{return await q<Row>(sql, values);}catch(error){if(!bootstrapComplete&&error&&typeof error==='object'&&!types.isProxy(error)&&['40001','55P03'].includes(Object.getOwnPropertyDescriptor(error,'code')?.value)){bootstrapSerialization=true;}const stage:DispatchDiagnosticStage=sql==='COMMIT'?'application.commit':sql.includes('agent_communications_source')?'application.source':sql.includes('communication_dispatch_permits')?'application.permit':sql.includes('communication_reply_monitors')?'application.coverage':sql.includes('communication_dispatch_intents')?'application.intent':sql.includes('communication_bindings')?'application.binding':'application.session';reportDispatchDiagnostic(diagnostic,stage,'error',error);throw error;}
+                        try{return await q<Row>(sql, values);}catch(error){if(!bootstrapComplete&&error&&typeof error==='object'&&!types.isProxy(error)&&['40001','55P03'].includes(Object.getOwnPropertyDescriptor(error,'code')?.value)){bootstrapSerialization=true;}const stage:DispatchDiagnosticStage=sql==='COMMIT'?'application.commit':sql.includes('agent_communications_source')?'application.source':sql.includes('communication_dispatch_permits')?'application.permit':sql.includes('communication_reply_monitors')?'application.coverage':sql.includes('communication_dispatch_intents')?'application.intent':sql.includes('communication_bindings')?'application.binding':'application.session';reportDispatchDiagnostic(diagnostic,stage,'error',error);if(sql.startsWith('INSERT INTO public.communication_dispatch_intents'))reportAdmissionPreparationFailure('application.intent',error);throw error;}
                     }
                     finally {
                         inFlight--;
@@ -698,7 +698,8 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
                 void work.catch(() => { });
                 return await Promise.race([work, stop]);
             }
-            catch {
+            catch (error) {
+                reportAdmissionPreparationFailure('application.prepare',error);
                 fail();
             }
             finally {

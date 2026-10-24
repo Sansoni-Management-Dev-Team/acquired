@@ -17,3 +17,13 @@ it('observes correlated stages with bounded timings and redacted failures withou
   log.mockImplementation(()=>{throw Error('logger failed');});await expect(observeDispatchStage('delivery.submit',async()=>42)).resolves.toBe(42);
  }finally{log.mockRestore();vi.unstubAllEnvs();}
 });
+it('reports safe workflow guard diagnostics with original stage and correlated identity even when the public error is generic',async()=>{
+ const {reportAdmissionPreparationFailure,withDispatchObservation}=await import('./dispatch-diagnostic');
+ const log=vi.spyOn(console,'warn').mockImplementation(()=>{}),getter=vi.fn(()=>{throw Error('PRIVATE');});
+ try{
+  withDispatchObservation({operationId:'22222222-2222-4222-8222-222222222222'},()=>reportAdmissionPreparationFailure('application.intent',Object.assign(Error('Exact active outreach workflow required for new dispatch'),{code:'P0001',detail:'PRIVATE'})));
+  const result=JSON.parse(log.mock.calls[0][1] as string);expect(result).toMatchObject({stage:'application.intent',sqlState:'P0001',category:'workflow_dispatch_guard_rejected',operationId:'22222222-2222-4222-8222-222222222222',submission:'not_attempted_by_this_prepare',recovery:'reconcile_original_operation'});
+  reportAdmissionPreparationFailure('application.prepare',Object.defineProperty({},'message',{get:getter}));expect(getter).not.toHaveBeenCalled();expect(JSON.stringify(log.mock.calls)).not.toContain('PRIVATE');expect(JSON.stringify(log.mock.calls)).not.toContain('Exact active');
+  log.mockImplementation(()=>{throw Error('sink');});expect(()=>reportAdmissionPreparationFailure('application.prepare',Error('anything'))).not.toThrow();
+ }finally{log.mockRestore();}
+});

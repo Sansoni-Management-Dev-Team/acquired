@@ -391,3 +391,13 @@ it.each(['stale revision','missing checkpoint'] as const)('final held admission 
  expect(result).toEqual({kind:'blocked',outcome:{status:'waiting',code:'incomplete'}});
  expect(f.calls.some(sql=>sql.startsWith('INSERT INTO public.communication_dispatch_permits'))).toBe(false);
 });
+it('logs an exact intent workflow guard rejection without leaking SQL or changing the public preparation error',async()=>{
+ const f=fixture(),original=f.query.getMockImplementation()!,log=vi.spyOn(console,'warn').mockImplementation(()=>{});
+ f.query.mockImplementation(async(sql,values)=>{if(sql.startsWith('INSERT INTO public.communication_dispatch_intents'))throw Object.assign(Error('Exact active outreach workflow required for new dispatch'),{code:'P0001',detail:'PRIVATE SQL body recipient@example.invalid'});return original(sql,values);});
+ try{
+  const repo=createAcquireSendAdmission(f.options as never);await expect(repo.prepare({source,message,coverageScopes:[{bindingId:'binding',scopeDigest:'a'.repeat(64)}]})).rejects.toThrow('Send authority unavailable');
+  const events=log.mock.calls.filter(call=>call[0]==='communications-admission-failure').map(call=>JSON.parse(call[1] as string));
+  expect(events).toContainEqual(expect.objectContaining({stage:'application.intent',category:'workflow_dispatch_guard_rejected',sqlState:'P0001',submission:'not_attempted_by_this_prepare',automaticResend:false}));
+  expect(JSON.stringify(events)).not.toMatch(/PRIVATE|recipient@|Exact active/);expect(f.query.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO public.communication_dispatch_intents'))).toHaveLength(1);
+ }finally{log.mockRestore();}
+});
