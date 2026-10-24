@@ -10,7 +10,7 @@ vi.mock('@/db/client',()=>({requireDb:()=>m.db}));
 vi.mock('@/db/research-repository',()=>({ResearchRepository:class{listReview=m.list;recoverStopped=m.recover;}}));
 vi.mock('@/db/firmable-history-repository',()=>({FirmableHistoryRepository:class{latestRuns=m.latest;}}));
 vi.mock('./firmable-run-recovery',()=>({recoverFirmableRefreshes:m.firmable}));
-import {maintainScheduledResearch,recoverMandateResearch} from './research-maintenance';
+import {maintainScheduledResearch,recoverMandateResearch,maintenanceRecoveryWindow} from './research-maintenance';
 beforeEach(()=>{
  vi.resetAllMocks();vi.stubEnv('DATABASE_DRIVER','neon');m.enabled=true;m.scopeRows=[];m.members=[];m.tables=[];
  m.list.mockResolvedValue([]);m.latest.mockResolvedValue([]);m.schedule.mockResolvedValue(false);
@@ -87,8 +87,8 @@ it.runIf(process.env.RUN_AGENT_EXECUTION_LOCAL_INTEGRATION==='true')('rotates re
    return client.query(text,query.params);
   });
   m.list.mockImplementation(async()=>{elapsed=10001;return[];});
-  expect(await maintainScheduledResearch(120000)).toBe(0);
-  elapsed=0;expect(await maintainScheduledResearch(180000)).toBe(0);
+  expect(await maintainScheduledResearch(0)).toBe(0);
+  elapsed=0;expect(await maintainScheduledResearch(360000)).toBe(0);
   expect(m.list.mock.calls.map(call=>call[0])).toEqual(['mandate-a','mandate-b']);
   expect(m.worker).not.toHaveBeenCalled();expect(m.recover).not.toHaveBeenCalled();expect(m.firmable).not.toHaveBeenCalled();
  }finally{await client.query('ROLLBACK').catch(()=>{});await client.end();vi.mocked(performance.now).mockRestore();}
@@ -101,4 +101,25 @@ it('does not overlap the global scan when another scheduled pass is still readin
 it('bounds the PostgreSQL scope scan in a read-only transaction and defers a cancelled read without changing any job',async()=>{
  vi.stubEnv('DATABASE_DRIVER','postgres');const execute=vi.fn().mockResolvedValueOnce({rows:[]}).mockRejectedValueOnce(Object.assign(Error('PRIVATE query'),{code:'57014'}));const transaction=vi.fn(async(work:(tx:{execute:typeof execute})=>Promise<unknown>)=>work({execute}));Object.assign(m.db!,{transaction});
  expect(await maintainScheduledResearch(1000)).toBe(0);expect(transaction).toHaveBeenCalledWith(expect.any(Function),{accessMode:'read only'});const budget=new PgDialect().sqlToQuery(execute.mock.calls[0][0]);expect(budget.sql).toContain("set_config('statement_timeout'");expect(Number(budget.params[0])).toBeGreaterThan(0);expect(Number(budget.params[0])).toBeLessThanOrEqual(10000);expect(budget.sql).toContain("set_config('lock_timeout'");expect(execute).toHaveBeenCalledTimes(2);expect(m.list).not.toHaveBeenCalled();expect(m.recover).not.toHaveBeenCalled();expect(m.worker).not.toHaveBeenCalled();expect(JSON.stringify(vi.mocked(console.info).mock.calls)).not.toContain('PRIVATE');
+});
+it('bounds historical JSON evaluation behind materialized recent and rotating narrow candidates',async()=>{
+ await maintainScheduledResearch(987654321);const query=new PgDialect().sqlToQuery(m.execute.mock.calls[0][0]);
+ expect(query.sql).toContain('recent_candidates AS MATERIALIZED');expect(query.sql).toContain('historical_candidates AS MATERIALIZED');expect(query.sql).toContain('LIMIT 100');expect(query.sql).toContain('INNER JOIN candidate_ids');expect(query.sql).toContain('candidate_jobs AS MATERIALIZED');
+ const recent=query.sql.split('recent_candidates AS MATERIALIZED')[1].split('historical_candidates AS MATERIALIZED')[0];expect(recent).not.toContain('config');expect(recent).toContain('updated_at');
+});
+it('includes current managed researching jobs without requiring a position in the historical batch',async()=>{
+ vi.stubEnv('ACQUISITION_WORKFLOW_SCHEMA_READY','true');await maintainScheduledResearch(987654321);const query=new PgDialect().sqlToQuery(m.execute.mock.calls[0][0]);
+ expect(query.sql).toContain('acquisition_workflow_executions');expect(query.sql).toContain("w.state IN ('accepted','researching')");expect(query.sql).toContain('j.organization_id=w.organization_id');expect(query.sql).toContain('j.mandate_id=w.mandate_id');expect(query.sql).toContain("->'nativeAgent' IS NULL");
+});
+
+it('visits every historical page/scope with a one-scope budget without phase-rotation aliasing',()=>{
+ const pages=130,scopesPerPage=100,currentScopes=7,seen=new Set<string>(),current=new Set<number>();
+ for(let opportunity=0;opportunity<2*pages*scopesPerPage;opportunity++){
+  // Even if only the maintenance-first minute in each three-minute window has budget.
+  const window=maintenanceRecoveryWindow(opportunity*180000+120000);
+  if(window.firstLane===0)current.add(window.turn%currentScopes);
+  else seen.add(`${window.turn%pages}:${Math.floor(window.turn/pages)%scopesPerPage}`);
+ }
+ expect(seen.size).toBe(pages*scopesPerPage);expect(current.size).toBe(currentScopes);
+ const oldSeen=new Set<string>();for(let minute=0;minute<2*pages*scopesPerPage;minute++)oldSeen.add(`${minute%pages}:${minute%scopesPerPage}`);expect(oldSeen.size).toBeLessThan(pages*scopesPerPage);
 });

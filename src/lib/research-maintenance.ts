@@ -91,17 +91,42 @@ export function maintainScheduledResearch(now=Date.now()):Promise<number>{
   // the existing pass instead of starting another global scan beside it.
   return scheduledResearchPass??=runScheduledResearch(now).finally(()=>{scheduledResearchPass=undefined;});
 }
+/** A window includes every phase position of the existing three-phase pass. */
+export function maintenanceRecoveryWindow(now:number){
+  const opportunity=Math.floor(now/180000);
+  return {opportunity,turn:Math.floor(opportunity/2),firstLane:opportunity%2};
+}
 async function runScheduledResearch(now:number){
   const deadline=performance.now()+Math.min(10000,backgroundRemaining());
   await recoverCompanyBackground(deadline);
   if(performance.now()>=deadline)return 0;
   const [{requireDb},{researchJobs,firmableSyncRuns,mandateTargets},{sql}]=await Promise.all([import('@/db/client'),import('@/db/schema'),import('drizzle-orm')]);
+  const {turn,firstLane}=maintenanceRecoveryWindow(now);
   const database=requireDb(),query=sql`
-    WITH pending_scopes AS (
-    SELECT organization_id, mandate_id, MIN(due_at) AS due_at
+    WITH historical_pages AS MATERIALIZED (
+      SELECT GREATEST(1,(count(*)+99)/100) AS pages FROM research_jobs WHERE status IN ('complete','partial')
+    ), recent_candidates AS MATERIALIZED (
+      SELECT id FROM research_jobs WHERE status IN ('complete','partial')
+      ORDER BY updated_at DESC,id LIMIT 100
+    ), historical_candidates AS MATERIALIZED (
+      SELECT id FROM research_jobs WHERE status IN ('complete','partial') ORDER BY id
+      OFFSET (${turn}::bigint % (SELECT pages FROM historical_pages))*100
+      LIMIT 100
+    ), current_ids AS MATERIALIZED (
+      SELECT id FROM recent_candidates
+      UNION SELECT id FROM research_jobs WHERE status NOT IN ('complete','partial','failed','cancelled')
+      ${process.env.ACQUISITION_WORKFLOW_ENABLED==='true'||process.env.ACQUISITION_WORKFLOW_SCHEMA_READY==='true'?sql`UNION SELECT j.id FROM acquisition_workflow_executions w INNER JOIN research_jobs j ON j.workflow_execution_id=w.id AND j.organization_id=w.organization_id AND j.mandate_id=w.mandate_id WHERE w.state IN ('accepted','researching')`:sql``}
+    ), candidate_ids AS MATERIALIZED (
+      SELECT id,0 AS lane FROM current_ids
+      UNION ALL SELECT id,1 AS lane FROM historical_candidates WHERE NOT EXISTS(SELECT 1 FROM current_ids c WHERE c.id=historical_candidates.id)
+    ), candidate_jobs AS MATERIALIZED (
+      SELECT candidate_ids.lane,j.id,j.organization_id,j.mandate_id,j.updated_at,j.status,j.config
+      FROM research_jobs j INNER JOIN candidate_ids ON candidate_ids.id=j.id
+    ), pending_scopes AS (
+    SELECT organization_id, mandate_id, MIN(due_at) AS due_at,MIN(lane) AS lane
     FROM (
-      SELECT ${researchJobs.organizationId} AS organization_id, ${researchJobs.mandateId} AS mandate_id, ${researchJobs.updatedAt} AS due_at
-      FROM ${researchJobs}
+      SELECT ${researchJobs.organizationId} AS organization_id, ${researchJobs.mandateId} AS mandate_id, ${researchJobs.updatedAt} AS due_at,lane
+      FROM candidate_jobs AS research_jobs
       WHERE ${researchJobs.config}->'nativeAgent' IS NULL AND (
         ${researchJobs.status} NOT IN ('complete','partial','failed','cancelled')
         OR (${researchJobs.status} IN ('complete','partial')
@@ -113,7 +138,7 @@ async function runScheduledResearch(now:number){
             AND NOT (COALESCE((${researchJobs.config}->>'parallelResearchSettled')::boolean,false)
               AND COALESCE((${researchJobs.config}->>'parallelResearchPendingTasks')::integer,-1) = 0)))))
       UNION ALL
-      SELECT ${firmableSyncRuns.organizationId}, ${mandateTargets.mandateId}, ${firmableSyncRuns.updatedAt}
+      SELECT ${firmableSyncRuns.organizationId}, ${mandateTargets.mandateId}, ${firmableSyncRuns.updatedAt},0 AS lane
       FROM ${firmableSyncRuns} INNER JOIN ${mandateTargets}
         ON ${mandateTargets.organizationId} = ${firmableSyncRuns.organizationId}
         AND ${mandateTargets.targetId} = ${firmableSyncRuns.targetId}
@@ -121,15 +146,16 @@ async function runScheduledResearch(now:number){
     ) AS pending_research
     GROUP BY organization_id, mandate_id
     ), ordered_scopes AS (
-      SELECT organization_id,mandate_id,
-        row_number() OVER(ORDER BY due_at,organization_id,mandate_id)-1 AS position,
-        count(*) OVER() AS total FROM pending_scopes
+      SELECT organization_id,mandate_id,lane,
+        row_number() OVER(PARTITION BY lane ORDER BY due_at,organization_id,mandate_id)-1 AS position,
+        count(*) OVER(PARTITION BY lane) AS total FROM pending_scopes
     )
     SELECT organization_id AS "organizationId",mandate_id AS "mandateId" FROM ordered_scopes
-    -- Advance the first scope every existing one-minute worker pass, even when
-    -- an unavailable old scope consumed the whole preceding pass. No synthetic
-    -- progress timestamp or process-local cursor is needed across cold starts.
-    ORDER BY (position - (${Math.floor(now/60000)}::bigint % total) + total) % total LIMIT 50`;
+    -- Each opportunity spans all three scheduler phase positions. Alternate
+    -- current/history first; advance a historical page only on its opportunity
+    -- and advance its scope cursor after every complete historical page cycle.
+    ORDER BY (lane-${firstLane}+2)%2,
+      (position-((CASE WHEN lane=0 THEN ${turn}::bigint ELSE ${turn}::bigint/(SELECT pages FROM historical_pages) END)%total)+total)%total LIMIT 50`;
   let result:unknown;
   try{
     // The loop deadline cannot interrupt a database read. PostgreSQL enforces
