@@ -2,7 +2,7 @@ import {reportHostedDemoFailure} from './hosted-demo-diagnostic';
 import type{HostedDemoCommunicationsDescriptor}from'./hosted-demo-communications-environment';
 import type{HostedRecipientQuery}from'./hosted-demo-recipient-context';
 import type{createHostedDemoAuthorityRegistry}from'./hosted-demo-authority-registry';
-import{createHash,timingSafeEqual}from'node:crypto';
+import{createHash,timingSafeEqual,randomUUID}from'node:crypto';
 import{parseRemoteAuthorityRequest,parseRemoteAuthorityResponse,parseAuthoritySnapshot}from'../../communications/packages/core/src/remote-application-authority';
 import{parseHostedCoverageProof,parseHostedEventDelivery}from'../../communications/packages/core/src/hosted-proof-sessions';
 import{isDeepStrictEqual}from'node:util';
@@ -33,14 +33,21 @@ export function createHostedDemoRequestHandler(options:HostedDemoApiOptions){
   if(request.method!=='POST')return respond({error:'Unsupported method'},405);
   const authorization=request.headers.get('authorization')??'',credential=authorization.startsWith('Bearer ')?authorization.slice(7):'';
   if(credential.length>128||!timingSafeEqual(digest(credential),expected)||request.headers.get('x-acquire-demo-run')!==descriptor.runId||request.headers.get('x-acquire-demo-audience')!=='acquire-hosted-demo-v1')return respond({error:'Not available'},403);
-  try{if(await options.authorizeCurrent()!==true)return respond({error:'Not available'},403);}catch(error){reportHostedDemoFailure('callback.access',error);return respond({error:'Hosted demo unavailable'},503);}
+  const callbackId=randomUUID(),started=Date.now();
+  const diagnostic=(stage:'access'|'response',outcome:'start'|'complete'|'denied'|'error',httpStatus?:number,requestId?:string)=>{
+   if(match[1]!=='authority')return;
+   try{console.info('hosted-authority-callback',JSON.stringify({timestamp:new Date().toISOString(),callbackId,stage,outcome,elapsedMs:Math.max(0,Date.now()-started),...(httpStatus===undefined?{}:{httpStatus}),...(requestId?{requestId}:{})}));}catch{/* Observability cannot affect authorization. */}
+  };
+  diagnostic('access','start');
+  try{if(await options.authorizeCurrent()!==true){diagnostic('access','denied',403);return respond({error:'Not available'},403);}diagnostic('access','complete');}catch(error){diagnostic('access','error',503);reportHostedDemoFailure('callback.access',error);return respond({error:'Hosted demo unavailable'},503);}
   if(match[1]!=='access'&&descriptor.phase!=='active')return respond({error:'Not available'},403);
   let raw:unknown;try{raw=await body(request);}catch{return respond({error:'Invalid request'},400);}
   const kind=match[1];
   if(kind==='access'){if(!raw||typeof raw!=='object'||Object.keys(raw).join(',')!=='version'||(raw as {version?:unknown}).version!==1)return respond({error:'Invalid request'},400);return respond({version:1,authorized:true,scope:descriptor.actor,runId:descriptor.runId,phase:descriptor.phase,authorityReady:descriptor.phase==='active'});}
   if(kind==='authority'){
    let command;try{command=parseRemoteAuthorityRequest(raw,descriptor.actor);}catch{return respond({error:'Invalid request'},400);}
-   try{return respond(parseRemoteAuthorityResponse(command,await options.authority.execute(command,request.signal),descriptor.actor));}catch{return respond({error:'Hosted demo unavailable'},503);}
+   const requestId=command.method==='session.open'?command.requestId:undefined;
+   try{const response=respond(parseRemoteAuthorityResponse(command,await options.authority.execute(command,request.signal),descriptor.actor));diagnostic('response','complete',200,requestId);return response;}catch{diagnostic('response','error',503,requestId);return respond({error:'Hosted demo unavailable'},503);}
   }
   if(kind==='recipient'){
    let query;try{query=parseHostedRecipientRequest(raw,descriptor);}catch{return respond({error:'Invalid request'},400);}
