@@ -40,11 +40,11 @@ function fixture() {
   });
   const client = { query } as unknown as PoolClient;
   class ChannelHarness extends AgentChannelStore {
-    protected override async nativeTransaction<T>(work: (c: PoolClient) => Promise<T>, _preset?: unknown, readOnly=false) { expect(readOnly).toBe(true); return work(client); }
+    protected override async nativeTransaction<T>(work: (c: PoolClient) => Promise<T>, _preset?: unknown, readOnly=false) { expect(readOnly).toBe(false); return work(client); }
     protected override async thread() { return thread; }
   }
   class InvitationHarness extends AgentInvitationStore {
-    protected override async nativeTransaction<T>(work: (c: PoolClient) => Promise<T>, _preset?: unknown, readOnly=false) { expect(readOnly).toBe(true); return work(client); }
+    protected override async nativeTransaction<T>(work: (c: PoolClient) => Promise<T>, _preset?: unknown, readOnly=false) { expect(readOnly).toBe(false); return work(client); }
     protected override async thread() { return thread; }
   }
   const actor = { organizationId: thread.organization_id, userId: thread.owner_user_id };

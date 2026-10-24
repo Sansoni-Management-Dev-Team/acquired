@@ -123,7 +123,7 @@ export class AgentExecutionStore extends AgentRuntimeRegistryStore{
     AND (o.input->>'mode'<>'channels' OR p.revision::text=o.input->>'policyRevision')
    ) AS selection_empty`,[t.id,mandate.revision])).rows[0]?.selection_empty===true;
    return {mandateRevision:mandate.revision as string,executionMode:mode,...(workflow?{workflowExecutionId:workflowExecutionId!,workflowPreset:workflow.preset as 'demo'|'live'|'live-research-test'}:{}),...(demoContacts?{demoContacts}:{}),...(contactAllocation?{contactAllocation}:{}),...(selectionEmpty?{contactSelectionEmpty:true}:{}),responsibility,conversations:await this.executionChannelProgress(c,t,conversations)};
-  },undefined,true);
+  });
  }
  protected async executionChannelProgress<T extends Record<string,unknown>>(_c:PoolClient,_t:AgentThread,conversations:T[]):Promise<T[]>{void _c;void _t;return conversations;}
  protected async invalidateNativeReviews(c:PoolClient,t:AgentThread,conversationId:string){
