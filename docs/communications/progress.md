@@ -3669,3 +3669,14 @@ Corrected bfccb4d deployed directly as acquire-app:workflow-verified-20261024, m
 Repeated Start exposed a separate55000: it attempted ready→outreach immediately after proposal, while database correctly requires a conversation. Removed premature transition and moved it to the original operation's committed allocation checkpoint. Red/green tests plus actual PostgreSQL establish rejection before conversation, success after allocation, and idempotent replay.
 
 Scheduled logs confirmed observation work could exhaust/fail the existing10s pass before maintenance. The same three phases now rotate first position by minute without raising budgets, adding a queue or increasing concurrency.18 scheduler/background tests pass with1 skipped; actual approved rehearsal expires queued people runs, settles progress and completes research-only through ordinary recovery. Production research canary remains partial/pending until the corrected scheduler runs.
+
+
+### WF hosted callbacks and research settlement — acceptance still open
+
+Released25cfce4 directly to the dedicated DigitalOcean app as acquire-app:workflow-callbacks-20261024 (manifest1aeba1ff8ff792785202c3b8ee622fd9ec3ece1a52ef8b5856fd59e0bdd895b8). Container, database and campaign readiness passed. This includes allocation lifecycle, original-context recovery, fair scheduled phases and hiding welcome/Start after saved outreach. No migrations.
+
+The same hosted demo has persisted conversations, but no submitted message or inbound reply is confirmed. Safe diagnostics establish coverage gate contention (55P03) and separate final proof-revalidation refusals. Read-only inspection confirms the suspected simulator authentication-lock correction is already deployed; it is not a missing simulator release. More precise HTTP/verification-result diagnostics are being added before changing behavior. The duplicate operator browser poll and test observer were stopped to reduce contention; native work continues.
+
+The original live research-only run remains partial with5 saved companies/6 people and2 expired queued enrichments. At01:23 UTC its workflow is still researching. Zero conversations, operations, events and dispatch intents are independently verified. Phase rotation does let maintenance run first, but maintenance fails before mandate recovery; this is not terminal acceptance.
+
+Commitf7c12e1 additionally uses the configured AI provider for readiness and owned demo execution identity for auto-approve eligibility, preserving live/research-only exclusion and existing backend guards.89 focused tests, scoped lint and TypeScript pass; not yet released. Latest broad suite before this small change:6,833 passed/956 skipped. Next: identify exact callback/maintenance failure, deploy reviewed fixes directly, resume original request identities, verify simulator reply and research-only terminal state, then close Plane/PR acceptance.
