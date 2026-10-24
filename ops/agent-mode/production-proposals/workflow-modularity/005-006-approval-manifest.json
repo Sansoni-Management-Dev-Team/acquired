@@ -1,5 +1,5 @@
 {
-  "status": "proposed-unapproved-unapplied",
+  "status": "approved-applied-rehearsal-and-production",
   "verifiedReadOnlyAt": "2026-10-24",
   "production": {
     "project": "njasjqpztiteionfxxul",
@@ -40,5 +40,15 @@
     "005",
     "006"
   ],
-  "productionCondition": "Apply exact approved production files only after exact rehearsal variants pass original-scope and incoming-reply regression checks. New transport recovery schema is not included."
+  "productionCondition": "Apply exact approved production files only after exact rehearsal variants pass original-scope and incoming-reply regression checks. New transport recovery schema is not included.",
+  "appliedAt": "2026-10-24",
+  "verification": {
+    "originalSource": "Actual acquire_campaign_user: original execution, legacy null clearing, no-gate/unowned/foreign denial; rollback-only",
+    "incoming": "Both ingress functions: 3 conversations, 2 original executions and 1 legacy null; dedup and caller scope preserved; rollback-only",
+    "productionInstalledHashes": {
+      "agent_channel_communications_change(jsonb)": "91fc6699087b8df34adcf96530324803",
+      "agent_communications_change(uuid,text,text,text,text,text,timestamp with time zone,boolean)": "c806be9a0a9d86cc506d5be697f45862"
+    },
+    "privateEvidence": ".local-data/workflow-modularity/production-next/"
+  }
 }

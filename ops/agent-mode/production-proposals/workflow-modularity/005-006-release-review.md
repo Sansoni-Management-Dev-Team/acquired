@@ -1,3 +1,7 @@
+## Applied 2026-10-24 after exact user approval
+
+The immutable files below were applied first to the verified isolated rehearsal and then conditionally to production after both actual-role rollback regressions passed. See the approval manifest for exact hashes and target identities. Production postchecks confirmed the helper exists and both revised ingress function hashes. No transport-boundary migration or deployment is included.
+
 # Original workflow dispatch and incoming reply context — production proposal
 
 Status: **not approved, not applied**. Production was inspected read-only on24 October2026. Both changes are prerequisites for deploying the latest Acquire workflow communications code. Existing local verification does not authorize production execution.
