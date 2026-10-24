@@ -47,13 +47,54 @@ export function createAcquireCommunicationsRuntime(options:AcquireCommunications
  if(applicationId!=='acquire'||!subscriberId||subscriberId.length>200)throw Error('Invalid Acquire communications host');
  const keyring={activeVersion:service.vault.activeVersion,keys:service.vault.keys};
  const historyCodec=new HistoryCheckpointCodec(keyring),eventCodec=new EventCodec(keyring),captureCodec=new WebhookCodec(keyring);
- const retainedTransport = new UnipileV1Transport(service.provider), retainedOwner = new UnipileV1OwnerReader(service.provider), retainedVault = new AccountRuntimeVault(service.vault);
- const retainedOutbound = createRetainedOutboundReview({ externalSent: { trackingDigests(row, raw) { return retainedVault.versions().map(version => retainedVault.trackingDigest({ integrationId: row.integration_id as string, providerConfigurationReference: row.provider_configuration_reference as string, providerAccountId: raw.account_id as string, trackingId: raw.tracking_id as string }, version)); }, verify(b, raw, signal) { return verifyUntrackedSentEmail(b, raw, async (binding, emailId, signal) => { const current = await runtime.store.resolve(binding, true); if (!current)
-            return null; const owner = await retainedOwner.verify({ platform: binding.platform, providerAccountId: current.owner.providerAccountId, sourceId: current.owner.sourceId }, signal); if (owner.kind !== 'verified' || !isDeepStrictEqual(owner.owner.physicalOwner, current.owner.physicalOwner) || !isDeepStrictEqual(owner.owner.providerOwner, current.owner.providerOwner) || !isDeepStrictEqual(owner.owner.aliases, current.owner.aliases))
-            return null; const message = await retainedTransport.getEmail(current.owner.providerAccountId, emailId, { signal }); await runtime.store.requireGrant({ applicationId: binding.applicationId, tenantId: binding.tenantId, ownerId: binding.ownerId }); return message.kind === 'success' && message.status === 200 ? { binding, providerAccountId: current.owner.providerAccountId, ownerAddresses: current.owner.aliases.filter(a => a.kind === 'email').map(a => a.value), raw: message.data } : null; }, signal); } }, pool: service.pool, captureCodec, eventCodec, subscriberId, providerDigest: (value, version) => new AccountRuntimeVault(service.vault).providerAccountDigest(value, version), providerAccount: (binding, encrypted, version) => (new AccountRuntimeVault(service.vault).open(binding, 'provider', { encrypted, keyVersion: version, digest: '' }) as {
-        providerAccountId: string;
-    }).providerAccountId, async authorize(scope) { await appRead(scope, async () => undefined); await runtime.store.requireGrant(scope); }, async withAuthority(scope, work) { return appRead(scope, async (c) => { await lockAcquireSendGate(c, scope.tenantId, { required: true }); const member = await c.query('SELECT public.communications_lock_reply_member($1,$2) AS allowed', [scope.tenantId, scope.ownerId]); if (member.rows[0]?.allowed !== true)
-        throw Error('Current member required'); return work(); }); } });
+ const retainedVault = () => new AccountRuntimeVault(service.vault);
+ const retainedOutbound = createRetainedOutboundReview({
+   pool: service.pool, captureCodec, eventCodec, subscriberId,
+   externalSent: {
+     recipientIdentity(raw) {
+       const vault = retainedVault();
+       const recipient = (raw.to_attendees as Array<{ identifier: string }>)[0].identifier.toLowerCase();
+       return { keyVersion: vault.identityKeyVersion, digest: vault.physicalIdentityDigest({ namespace: 'email', value: recipient }) };
+     },
+     trackingDigests(row, raw) {
+       const vault = retainedVault();
+       return vault.versions().map(version => vault.trackingDigest({
+         integrationId: row.integration_id as string,
+         providerConfigurationReference: row.provider_configuration_reference as string,
+         providerAccountId: raw.account_id as string, trackingId: raw.tracking_id as string,
+       }, version));
+     },
+     verify(binding, raw, signal) {
+       return verifyUntrackedSentEmail(binding, raw, async (binding, emailId, signal) => {
+         const current = await runtime.store.resolve(binding, true);
+         if (!current) return null;
+         const owner = await new UnipileV1OwnerReader(service.provider).verify({
+           platform: binding.platform, providerAccountId: current.owner.providerAccountId, sourceId: current.owner.sourceId,
+         }, signal);
+         if (owner.kind !== 'verified' || !isDeepStrictEqual(owner.owner.physicalOwner, current.owner.physicalOwner)
+           || !isDeepStrictEqual(owner.owner.providerOwner, current.owner.providerOwner)
+           || !isDeepStrictEqual(owner.owner.aliases, current.owner.aliases)) return null;
+         const message = await new UnipileV1Transport(service.provider).getEmail(current.owner.providerAccountId, emailId, { signal });
+         await runtime.store.requireGrant({ applicationId: binding.applicationId, tenantId: binding.tenantId, ownerId: binding.ownerId });
+         return message.kind === 'success' && message.status === 200 ? {
+           binding, providerAccountId: current.owner.providerAccountId,
+           ownerAddresses: current.owner.aliases.filter(a => a.kind === 'email').map(a => a.value), raw: message.data,
+         } : null;
+       }, signal);
+     },
+   },
+   providerDigest: (value, version) => retainedVault().providerAccountDigest(value, version),
+   providerAccount: (binding, encrypted, version) => (retainedVault().open(binding, 'provider', { encrypted, keyVersion: version, digest: '' }) as { providerAccountId: string }).providerAccountId,
+   async authorize(scope) { await appRead(scope, async () => undefined); await runtime.store.requireGrant(scope); },
+   async withAuthority(scope, work) {
+     return appRead(scope, async c => {
+       await lockAcquireSendGate(c, scope.tenantId, { required: true });
+       const member = await c.query('SELECT public.communications_lock_reply_member($1,$2) AS allowed', [scope.tenantId, scope.ownerId]);
+       if (member.rows[0]?.allowed !== true) throw Error('Current member required');
+       return work();
+     });
+   },
+ });
  const identity=(b:ConnectionBinding)=>JSON.stringify([b.applicationId,b.tenantId,b.ownerId,b.connectionId,b.accountId,b.generation,b.channel,b.platform,b.backend]);
  const histories=new Map<string,Awaited<ReturnType<typeof createConfiguredUnipileV1History>>>();
  const historyTurn=<T>(binding:ConnectionBinding,work:()=>Promise<T>,signal?:AbortSignal)=>service.localSimulatorOrigin?localHistoryTurn(service.pool,binding,work,signal):work();
