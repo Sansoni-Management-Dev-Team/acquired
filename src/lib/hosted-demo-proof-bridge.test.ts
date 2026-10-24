@@ -30,3 +30,7 @@ it('reports service revalidation separately from projector refusal without leaki
  ports.project.mockImplementation(async query=>ports.coverage!.withCoverage(query,async()=>{}));
  try{await expect(f.bridge.projectCoverage(f.proof,new AbortController().signal)).rejects.toThrow('Hosted proof unavailable');expect(log).toHaveBeenCalledWith('hosted-demo-failure',JSON.stringify({boundary:'bridge.revalidate'}));expect(JSON.stringify(log.mock.calls)).not.toContain('PRIVATE');}finally{log.mockRestore();vi.unstubAllEnvs();}
 });
+it('distinguishes an authenticated verified:false response from transport failure',async()=>{
+ vi.stubEnv('AGENT_VERBOSE_LOGGING','true');const log=vi.spyOn(console,'warn').mockImplementation(()=>{}),f=fixtures();f.serviceRequest.mockResolvedValue({verified:false});ports.project.mockImplementation(async query=>ports.coverage!.withCoverage(query,async()=>{}));
+ try{await expect(f.bridge.projectCoverage(f.proof,new AbortController().signal)).rejects.toThrow('Hosted proof unavailable');expect(log).toHaveBeenCalledWith('hosted-demo-revalidation',JSON.stringify({boundary:'coverage.revalidate',outcome:'verification_refused'}));}finally{log.mockRestore();vi.unstubAllEnvs();}
+});

@@ -39,3 +39,13 @@ it('revokes active service access when the owner disables hosted registration, e
  const active={...descriptor,phase:'active' as const},f=fixture(true,true,false);expect(await createHostedDemoAccessProbe(active,f.pool as never)()).toBe(false);expect(f.query.mock.calls.some(([sql,values])=>sql.includes('SELECT public.agent_hosted_demo_access_ready')&&JSON.stringify(values)===JSON.stringify([descriptor.runId,descriptor.integrationId,descriptor.configurationReference]))).toBe(true);expect(f.query.mock.calls.map(([sql])=>sql).join('\n')).not.toMatch(/communications_lock_send_gate|FOR UPDATE/);
  const absent=fixture();absent.query.mockImplementation(async sql=>({rows:sql.includes('current_user')?[{active_role:'acquire_campaign_user',rolsuper:false,rolbypassrls:false}]:sql.includes('FROM public.member')?[{allowed:true}]:sql.includes('agent_demo_runs')?[{id:'registered'}]:[]}));expect(await createHostedDemoAccessProbe(active,absent.pool as never)()).toBe(false);
 });
+
+it('logs only the failed access stage and allowlisted SQLSTATE',async()=>{
+ vi.stubEnv('AGENT_VERBOSE_LOGGING','true');const log=vi.spyOn(console,'warn').mockImplementation(()=>{}),f=fixture(),original=f.query.getMockImplementation()!;
+ f.query.mockImplementation(async(sql,values)=>{if(sql.includes('FROM public.member'))throw Object.assign(Error('PRIVATE'),{code:'57014'});return original(sql,values);});
+ try{await expect(createHostedDemoAccessProbe(descriptor,f.pool as never)()).rejects.toThrow('Hosted access unavailable');expect(log).toHaveBeenCalledWith('hosted-demo-failure',JSON.stringify({boundary:'access.membership',sqlState:'57014'}));expect(JSON.stringify(log.mock.calls)).not.toContain('PRIVATE');}finally{log.mockRestore();vi.unstubAllEnvs();}
+});
+it('logs a stalled pool deadline even before a connection arrives',async()=>{
+ vi.useFakeTimers();vi.stubEnv('AGENT_VERBOSE_LOGGING','true');const log=vi.spyOn(console,'warn').mockImplementation(()=>{}),f=fixture();f.pool.connect.mockImplementationOnce(()=>new Promise(()=>{}));
+ try{const failure=expect(createHostedDemoAccessProbe(descriptor,f.pool as never)()).rejects.toThrow('Hosted access unavailable');await vi.advanceTimersByTimeAsync(5000);await failure;expect(log).toHaveBeenCalledWith('hosted-demo-failure',JSON.stringify({boundary:'access.pool'}));}finally{log.mockRestore();vi.unstubAllEnvs();}
+});

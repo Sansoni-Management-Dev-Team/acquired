@@ -1,4 +1,4 @@
-import {reportHostedDemoFailure} from './hosted-demo-diagnostic';
+import {reportHostedDemoFailure,reportHostedCoverageRevalidation} from './hosted-demo-diagnostic';
 import{hostedProofDigest,parseHostedCoverageProof,parseHostedEventDelivery,type HostedCoverageProof,type HostedEventDelivery}from'../../communications/packages/core/src/hosted-proof-sessions';
 import type{SqlPool}from'../../communications/packages/storage-postgres/src/webhook-repository';
 import type{JournalCodec}from'../../communications/packages/core/src/journal-codec';
@@ -20,7 +20,7 @@ export function createHostedDemoProofBridge(options:HostedProofBridgeOptions){
   const controller=new AbortController();let rejectStopped!:(e:Error)=>void;const stopped=new Promise<never>((_,reject)=>{rejectStopped=reject;}),abort=()=>{controller.abort();rejectStopped(Error('Hosted proof unavailable'));};parent.addEventListener('abort',abort,{once:true});const timer=setTimeout(abort,remaining);
   try{if(parent.aborted)abort();const result=await Promise.race([work(controller.signal),stopped]);if(controller.signal.aborted||parent.aborted||Date.now()>=Date.parse(proof.expiresAt))fail();return result;}catch{return fail();}finally{clearTimeout(timer);parent.removeEventListener('abort',abort);controller.abort();}
  }
- async function verify(path:string,input:unknown,signal:AbortSignal){if(signal.aborted)fail();const result=await options.serviceRequest(path,input,signal);if(!result||typeof result!=='object'||Object.keys(result).join(',')!=='verified'||(result as {verified?:unknown}).verified!==true||signal.aborted)fail();}
+ async function verify(path:string,input:unknown,signal:AbortSignal){if(signal.aborted)fail();const result=await options.serviceRequest(path,input,signal);if(path==='/v1/hosted-demo/coverage/revalidate'&&result&&typeof result==='object'&&Object.keys(result).join(',')==='verified'&&(result as {verified?:unknown}).verified===false)reportHostedCoverageRevalidation('verification_refused');if(!result||typeof result!=='object'||Object.keys(result).join(',')!=='verified'||(result as {verified?:unknown}).verified!==true||signal.aborted)fail();}
  return{
   async projectCoverage(raw:HostedCoverageProof,parent:AbortSignal){const proof=parseHostedCoverageProof(raw,descriptor.actor);return held(proof,parent,async signal=>{
    const binding=proof.coverage.binding;let bindingId:string;try{bindingId=await options.localBinding(binding);}catch(error){reportHostedDemoFailure('bridge.local_binding',error);throw error;}const digest=hostedProofDigest(proof);

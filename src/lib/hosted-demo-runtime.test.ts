@@ -43,3 +43,10 @@ it.each(['/v1/hosted-demo/coverage/revalidate','/v1/hosted-demo/events/revalidat
  void never(path,{},parent.signal).catch(()=>{stopped=true;});await vi.advanceTimersByTimeAsync(1000);parent.abort();await vi.advanceTimersByTimeAsync(0);expect(stopped).toBe(true);
  let expired=false;void never(path,{},new AbortController().signal).catch(()=>{expired=true;});await vi.advanceTimersByTimeAsync(20001);expect(expired).toBe(true);
 });
+it.each([401,503])('reports coverage revalidation HTTP %s without response or authentication data',async status=>{
+ vi.stubEnv('AGENT_VERBOSE_LOGGING','true');const log=vi.spyOn(console,'warn').mockImplementation(()=>{});
+ try{const call=createHostedDemoServiceRequest(descriptor,key,vi.fn(async()=>new Response('PRIVATE response',{status})));
+ await expect(call('/v1/hosted-demo/coverage/revalidate',{private:'PRIVATE payload'},new AbortController().signal)).rejects.toThrow('Hosted demo runtime unavailable');
+ expect(log).toHaveBeenCalledWith('hosted-demo-revalidation',JSON.stringify({boundary:'coverage.revalidate',outcome:'http_error',httpStatus:status}));expect(JSON.stringify(log.mock.calls)).not.toMatch(/PRIVATE|Bearer|scope-v1/);
+ }finally{log.mockRestore();}
+});
