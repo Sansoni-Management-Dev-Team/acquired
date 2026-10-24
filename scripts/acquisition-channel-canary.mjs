@@ -95,7 +95,7 @@ export async function runAcquisitionChannelCanary(o) {
     s.keys ??= { prepare: randomUUID(), policy: randomUUID(), start: randomUUID() };
     await save();
     if (!s.prepared) {
-        await request(base + '/demo', { requestKey: s.keys.prepare }, v => v?.prepared === true);
+        await request(base + '/demo', { requestKey: s.keys.prepare }, v => Number.isSafeInteger(v?.prepared) && v.prepared > 0 && v.outreachReady === false && typeof v.replayed === 'boolean');
         s.prepared = true;
         await save();
     }

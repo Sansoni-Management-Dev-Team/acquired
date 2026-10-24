@@ -58,7 +58,7 @@ test('fresh setup persists one set of phase keys and saves a single exact channe
         if (r.path.endsWith('/execution') && !started) r.value.state.responsibility = null;
         if (r.path.endsWith('/demo')) {
             if (r.body.action === 'start') { started = true; r.value = { result: { status: 'accepted' } }; }
-            else { prepared = true; r.value = { prepared: true }; }
+            else { prepared = true; r.value = { prepared: 6, outreachReady:false, replayed:false }; }
         }
         if (r.path.endsWith('/channel-policy')) {
             if (r.body) { policySaved = true; r.value = { result: { status: 'accepted' } }; }
@@ -90,3 +90,5 @@ test('explicit buyer guidance uses normal feedback and decision without changing
 });
 for (const channel of ['email','whatsapp','linkedin']) test('accepts exact hosted demo run with reserved '+channel+' alias',async()=>{const f=fixture(channel),run='hosted-demo-production-20261021';f.options.simulatorRun=run;f.op.input.recipientKey=f.op.input.recipientKey.replaceAll('agent-test',run);f.conversation.channels[0].recipient=f.conversation.channels[0].recipient.replaceAll('agent-test',run);assert.equal((await runAcquisitionChannelCanary(f.options)).passed,true);});
 test('rejects malformed hosted run before any route request',async()=>{for(const run of ['hosted-demo-','hosted-demo-prod.example','hosted-demo-'+ 'x'.repeat(37)]){const f=fixture();f.options.simulatorRun=run;await assert.rejects(runAcquisitionChannelCanary(f.options));assert.equal(f.calls.length,0);}});
+test('accepts numeric normal demo preparation receipt before starting outreach',async()=>{const f=fixture('email',r=>{if(r.path.endsWith('/agent/demo'))r.value={prepared:6,outreachReady:false,replayed:false};});f.state.prepared=false;assert.equal((await runAcquisitionChannelCanary(f.options)).passed,true);assert.equal(f.state.prepared,true);assert.equal(f.state.pendingMutation,undefined);});
+test('refuses empty or malformed preparation without approving outreach',async()=>{for(const prepared of [0,-1,1.5,true,'6']){const f=fixture('email',r=>{if(r.path.endsWith('/agent/demo'))r.value={prepared,outreachReady:false,replayed:false};});f.state.prepared=false;await assert.rejects(runAcquisitionChannelCanary(f.options));assert.equal(f.calls.some(c=>c.body?.decision==='approved'),false);assert(f.state.pendingMutation);}});
