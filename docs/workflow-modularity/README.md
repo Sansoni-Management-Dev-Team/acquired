@@ -1,6 +1,6 @@
 # Shared acquisition workflow
 
-2026-10-24. Plane WF-01/02. Working branch `codex/shared-acquisition-workflow`, based on reliability revision `f6f6b3d`. This branch is separate from the independently changing AI release. No feature deployment or migration application has occurred.
+2026-10-24. Plane WF-01/02. Working branch `codex/shared-acquisition-workflow`, based on reliability revision `f6f6b3d`. This branch is separate from the independently changing AI release. No feature deployment has occurred. Approved schema 001–004 is applied to isolated rehearsal and production; feature activation remains off.
 
 ## Fixed product behavior
 
@@ -52,3 +52,9 @@ Merged remote main `6c0d90c` into this branch at `0bb930c`. Preserved both progr
 ## Migration package verification
 
 The fresh transitive catalog capture covers 117 functions. All 1,098 inventoried object records match rehearsal except the migration ledger RLS flag, which is intentionally untouched. The package has 119 parsed migration statements and 18 parsed rehearsal-test statements. Independent review corrected target NULL handling, alias-ID locking, write-lock ordering, terminal reactivation and live/workspace manual routing. These are static review results; real PostgreSQL acceptance, concurrency and existing-route compatibility still gate production application. Temporary SSH access was removed and verified.
+
+
+WF-03 update: exact001–004 approved/applied in isolated rehearsal. Eight rollback SQL suites, four concurrency scenarios,117 predecessor-function comparisons and50 mocked application dispatch/recovery tests pass. Application modules/activation remain unfinished. Production remains conditional on verified backup and fresh application checks; consult migration package evidence for final status.
+
+
+WF-03/04 completed2026-10-24: approved001–004 applied to production after rehearsal/backup gates.129 function hashes and privileges match rehearsal; authenticated readiness200. New workflow execution count0 and feature activation off. See package `application-record.json`. Next is WF-05 shared start/status; no application workflow release is claimed.

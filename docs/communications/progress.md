@@ -3616,3 +3616,12 @@ Next: obtain explicit approval for the three exact manifest files on existing is
 ### WF-03 approved rehearsal, correction pending
 
 User approved exact001–003 and conditional production on 2026-10-24. Reverified original SHA-256 hashes, network-none target, marker, schema owner and system identifier; saved a pre-application custom-format dump. All three committed only to acquire_hosted_demo_rehearsal. Initial test fixtures lacked the baseline membership-fence singleton; transaction-local seed fixes let identity/RLS and research-only suites pass. Restricted-role admission fails because workflow start/transition call the non-agent communications gate. Prepared separate004 using existing agent_lock_send_gate and avoiding redundant gate acquisition in three compatibility triggers. No applied migration edited, no production migration or simulator calls.004 exact manifest awaits specific approval; full concurrency/legacy compatibility gates remain outstanding.
+
+
+### WF-03/04 completed: approved shared-workflow schema released
+
+Exact004 approved and committed to rehearsal; all eight rollback SQL suites passed, along with four real two-session races,117 predecessor comparisons and50 mocked application dispatch/recovery tests. No simulator calls. Full details and exact receipts are in the workflow migration package.
+
+After fresh verified-TLS identity/catalog checks and a consistent67,690,873-byte backup (SHA2563c927a24a88a79e08104b7ae0787ec96ff52135888c0ba1ec6d31aaab6cd6743, inventory checked on/off host), applied approved001–004 to production.002 first rolled back at its3s lock timeout on active research_jobs; inspecting locks and retrying the same bytes as one SQL request succeeded. No timeout increase, backend termination or successful-file rerun.129 function hashes match rehearsal, forced RLS/privileges and6 associations verified,0 workflow executions. Authenticated app readiness200 ready; app/communications healthy.
+
+Feature activation remains off; this is schema release, not completion of WF-05 onward or end-to-end product verification. Next: implement fixed presets/shared start/status with the merged neutral AI module, then adapter modules and UI. Temporary operator SSH access removed after verification.

@@ -1,6 +1,6 @@
 # Shared workflow migration approval package
 
-Status: 001–003 approved and applied to isolated rehearsal on 2026-10-24; production not applied. Corrective 004 awaits specific approval. These files prepare database support only. They do not enable the new workflow, make provider requests, change account registrations or send outreach.
+Status: approved001–004 applied to isolated rehearsal and production on 2026-10-24; feature activation remains off. These files prepare database support only. They do not enable the new workflow, make provider requests, change account registrations or send outreach.
 
 ## Exact targets
 
@@ -66,3 +66,19 @@ Initial assertions stopped in fixture setup because the schema-only baseline has
 `004-workflow-agent-gate.proposed.sql` replaces those two calls with `agent_lock_send_gate()`, keeping role, membership and lock checks. Three compatibility triggers now avoid redundantly acquiring an organization gate already owned by the transaction. The general communications gate allowlist and grants remain unchanged. Exact predecessor checks protect all five replaced functions and the agent helper. See `correction-approval-manifest.json` for the new exact hash and same targets. Applied 001–003 remain byte-for-byte unchanged.
 
 004 has not been applied. Production remains blocked on this correction and all original compatibility/concurrency/security gates. The test files changed only to restore transaction-local baseline seed data; the original approval manifest is retained as the original receipt, with current test hashes in the correction manifest.
+
+## Correction 004 and extended rehearsal acceptance
+
+The user approved exact004 (SHA-256 `c698092533ece1b7f49c43435094a0bdff9b9b9cf6929255edf06b95c1bbf010`) for rehearsal then conditional production. It committed on the exact isolated target, and all three original suites passed. Additional rollback-only files cover legacy projection/mapping, security/manual parity, terminal history and dispatch recovery. Four actual two-session races passed (same-request replay, distinct requests, legacy research first, admission first); loser waits were approximately0.81s, without deadlock. Committed synthetic concurrency fixtures remain isolated because immutable history must not be bypassed for cleanup.
+
+All117 inventoried predecessor functions were checked:107 unchanged,10 changed only by effective-view substitutions. Mapping checks include registered synthetic three-channel identities, immutable receipt evidence, forward alias/UUID and reverse UUID collisions, and no real-recipient fallback. Dispatch tests cover original execution intent/permit binding, stale context denial, terminal receipt projection and legacy real intent/permit compatibility.50 application dispatch/recovery characterization tests across6 files passed with mocked dependencies.
+
+Limitations: fixture setup uses schema-owner privileges; restricted agent admission/lifecycle/RLS are separately exercised. Placeholder encrypted fixture values do not verify service signatures or live providers. No local simulator or hosted provider requests occurred. This is database compatibility acceptance, not complete product workflow release.
+
+## Production application complete
+
+All four exact approved files are committed on production system7678071634733212629. Unit002 initially hit its3s lock timeout while research jobs were active and rolled back completely. After inspecting the contention, the unchanged file was retried as one SQL protocol request, reducing client round trips; it committed, followed by003/004.001 was not repeated. No session was terminated, approval weakened or timeout increased.
+
+A fresh consistent public/drizzle custom backup completed on the app host and was copied off-host; SHA-256 matches and both archive inventories validate. The earlier local-transfer timeout is explicitly incomplete, not a backup.129 installed function hashes match rehearsal; execution RLS is forced, direct agent inserts/anonymous starts are denied, and all6 associations are present. Authenticated readiness returns200 ready and app/communications containers remain healthy. There are0 new workflow executions. See `application-record.json`; private logs/backup are retained under `.local-data/workflow-modularity/production-preflight/`.
+
+WF-03/04 complete: approval and compatible schema release only. Shared application start/status/modules and product end-to-end tests remain pending. No application image deployment or provider/simulator traffic occurred in this schema release.

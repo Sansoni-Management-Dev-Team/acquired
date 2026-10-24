@@ -1,0 +1,71 @@
+{
+  "status": "applied-rehearsal-and-production",
+  "at": "2026-10-24T00:13:20.479327+00:00",
+  "productionProject": "njasjqpztiteionfxxul",
+  "files": [
+    {
+      "at": "2026-10-24T00:11:05.876163+00:00",
+      "target": "njasjqpztiteionfxxul",
+      "systemIdentifier": "7678071634733212629",
+      "file": "001-workflow-executions.proposed.sql",
+      "sha256": "e76724aff90bf4cfee2aeb2272444a72f073a6afddde635a328a7be0d680c014",
+      "committed": true
+    },
+    {
+      "at": "2026-10-24T00:12:09.841515+00:00",
+      "target": "njasjqpztiteionfxxul",
+      "systemIdentifier": "7678071634733212629",
+      "file": "002-workflow-compatibility.proposed.sql",
+      "sha256": "e7702b78736fd95e5a7f14f13f4695bfe271e5d052c288558fb3cc04ab0d0c13",
+      "committed": true
+    },
+    {
+      "at": "2026-10-24T00:12:10.923097+00:00",
+      "target": "njasjqpztiteionfxxul",
+      "systemIdentifier": "7678071634733212629",
+      "file": "003-workflow-admission.proposed.sql",
+      "sha256": "5730433f56aa4a6fc2ecf700b7801008b15ec52d2cc0d7b5a3728d22c58e80ba",
+      "committed": true
+    },
+    {
+      "at": "2026-10-24T00:12:11.959186+00:00",
+      "target": "njasjqpztiteionfxxul",
+      "systemIdentifier": "7678071634733212629",
+      "file": "004-workflow-agent-gate.proposed.sql",
+      "sha256": "c698092533ece1b7f49c43435094a0bdff9b9b9cf6929255edf06b95c1bbf010",
+      "committed": true
+    }
+  ],
+  "verification": {
+    "at": "2026-10-24T00:12:35.419382+00:00",
+    "functionsMatchRehearsal": 129,
+    "checks": {
+      "executionCount": 0,
+      "rls": true,
+      "agentDirectInsert": false,
+      "agentStart": true,
+      "anonStart": false,
+      "associations": 6
+    },
+    "readOnly": true
+  },
+  "backup": {
+    "at": "2026-10-24T00:08:41.588651+00:00",
+    "systemIdentifier": "7678071634733212629",
+    "bytes": 67690873,
+    "sha256": "3c927a24a88a79e08104b7ae0787ec96ff52135888c0ba1ec6d31aaab6cd6743",
+    "inventoryVerified": true,
+    "readOnly": true,
+    "scope": [
+      "public",
+      "drizzle"
+    ]
+  },
+  "readiness": {
+    "httpStatus": 200,
+    "status": "ready"
+  },
+  "newWorkflowActivated": false,
+  "providerTraffic": false,
+  "note": "First002 production transaction rolled back at lock timeout. Exact unchanged002 retry committed;003 and004 followed. No successful file repeated."
+}
