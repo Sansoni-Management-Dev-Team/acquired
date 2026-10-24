@@ -322,6 +322,11 @@ export class AgentOutreachStore extends AgentLifecycleStore{
  async beginNativeCommunicationsMessage(threadId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number}){
   const record=await this.channelDispatchRecord(threadId,operationId);
   if(!record.route)return this.beginNativeCommunicationsEmail(threadId,operationId,authority,delegation);
+  return this.beginNativeRoutedCommunicationsMessage(threadId,operationId,authority,delegation);
+ }
+ /** Internal dispatch branch only. The earlier snapshot chooses a path; every
+  * source, route and authority is read and checked again under the final lock. */
+ protected async beginNativeRoutedCommunicationsMessage(threadId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number}){
   return this.nativeTransaction(async c=>{
    const t=await this.lockThread(c,threadId);await this.assertExecutionFence(c,t,authority,'message-authority:'+operationId);
    const op=(await c.query('SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 FOR UPDATE',[uuid.parse(operationId),t.id])).rows[0];

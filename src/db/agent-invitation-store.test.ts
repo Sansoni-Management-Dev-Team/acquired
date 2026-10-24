@@ -15,3 +15,22 @@ it('preserves the dispatch account snapshot request for ordinary messages throug
  expect(await s.channelDispatchRecord('thread','10000000-0000-4000-8000-000000000001',options)).toBe(record);
  expect(base).toHaveBeenCalledWith('thread','10000000-0000-4000-8000-000000000001',options);
 });
+
+it.each(['email.initial','whatsapp.initial','linkedin.initial'])('reads the original %s dispatch snapshot once before the final locked authority check',async name=>{
+ class GuardStore extends TestStore{
+  protected override async lockThread(){return t;}
+  protected override async assertExecutionFence(){throw Error('final authority check retained');}
+ }
+ const s=new GuardStore({}as Pool,{organizationId:'org',userId:'actor'});
+ const snapshot=vi.spyOn(s,'channelDispatchRecord').mockResolvedValue({operation:{name},conversation:{},route:{id:'route'},submitted:false,notSubmitted:false}as never);
+ await expect(s.beginNativeCommunicationsMessage('thread','operation')).rejects.toThrow('final authority check retained');
+ expect(snapshot).toHaveBeenCalledTimes(1);
+});
+
+it('keeps the original legacy email admission when the owned dispatch has no recorded route',async()=>{
+ const s=new TestStore({}as Pool,{organizationId:'org',userId:'actor'});
+ const snapshot=vi.spyOn(s,'channelDispatchRecord').mockResolvedValue({operation:{name:'email.initial'},conversation:{},route:null,submitted:false,notSubmitted:false}as never);
+ const legacy=vi.spyOn(s,'beginNativeCommunicationsEmail').mockRejectedValue(Error('original legacy authority'));
+ await expect(s.beginNativeCommunicationsMessage('thread','operation')).rejects.toThrow('original legacy authority');
+ expect(snapshot).toHaveBeenCalledTimes(1);expect(legacy).toHaveBeenCalledWith('thread','operation',undefined,undefined);
+});

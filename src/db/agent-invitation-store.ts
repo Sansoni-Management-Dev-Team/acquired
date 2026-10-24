@@ -74,7 +74,7 @@ export class AgentInvitationStore extends AgentChannelStore{
   return invitation??super.channelDispatchRecord(threadId,operationId,options);
  }
  override async beginNativeCommunicationsMessage(threadId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number}){
-  const record=await this.channelDispatchRecord(threadId,operationId);if(record.operation.name!=='linkedin.invitation')return super.beginNativeCommunicationsMessage(threadId,operationId,authority,delegation);
+  const record=await this.channelDispatchRecord(threadId,operationId);if(record.operation.name!=='linkedin.invitation')return record.route?this.beginNativeRoutedCommunicationsMessage(threadId,operationId,authority,delegation):this.beginNativeCommunicationsEmail(threadId,operationId,authority,delegation);
   if(delegation)throw Error('LinkedIn invitations require exact human review');
   return this.nativeTransaction(async c=>{const t=await this.lockThread(c,threadId);await this.assertExecutionFence(c,t,authority,'invitation-authority:'+operationId);
    const op=(await c.query("SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name='linkedin.invitation' FOR UPDATE",[operationId,t.id])).rows[0];if(!op||op.input.requiresHumanReview!==true)throw Error('Exact human-reviewed invitation required');
