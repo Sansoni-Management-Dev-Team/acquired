@@ -25,6 +25,7 @@ import { readFile, writeFile, mkdir, rename, open, unlink } from 'node:fs/promis
 import { resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 const channels = ['email', 'whatsapp', 'linkedin'], uuid = x => typeof x === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(x);
+export function channelCanaryRequestTimeoutMs(path, body, remainingMs) { return Math.max(1, Math.min(path.endsWith('/agent/demo') && body?.action === 'start' ? 150000 : 45000, remainingMs)); }
 /** One channel, one saved workflow and at most one initial message. No provider send endpoint. */
 export async function runAcquisitionChannelCanary(o) {
     assert(o.execute === true && uuid(o.requestId) && channels.includes(o.channel), 'Explicit execute, channel and request UUID required');
@@ -46,7 +47,7 @@ export async function runAcquisitionChannelCanary(o) {
         s.pendingMutation = { path, body };
         await save();
     } let r, text; try {
-        r = await fetcher(o.origin + path, { method: body ? 'POST' : 'GET', redirect: 'error', headers: { cookie: o.cookie, Origin: o.origin, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(Math.max(1, Math.min(45000, deadline - Date.now()))) });
+        r = await fetcher(o.origin + path, { method: body ? 'POST' : 'GET', redirect: 'error', headers: { cookie: o.cookie, Origin: o.origin, 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(channelCanaryRequestTimeoutMs(path, body, deadline - Date.now())) });
         text = await r.text();
     }
     catch {
