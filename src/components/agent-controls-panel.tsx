@@ -423,8 +423,9 @@ export function AgentControlsPanel({
   const initialResearchNeedsAttention = Boolean(
       running && ["partial", "failed"].includes(initialResearchStatus ?? ""),
     ),
+    outreachAlreadyStarted = Boolean(conversations.length || data?.state?.contactAllocation || pendingContactReview || pendingMessageReviews > 0 || pendingReviews?.some(batch=>batch.state==='pending')),
     cachedDemoReady = Boolean(
-      running &&
+      !outreachAlreadyStarted && running &&
         initialResearchSource === "cached" &&
         initialResearchStatus === "complete",
     );
@@ -876,7 +877,7 @@ export function AgentControlsPanel({
   const cachedDemo =
     data.state?.executionMode === "demo" && initialResearchSource === "cached";
   const awaitingStart =
-    initialResearchStatus === "awaiting_start" && !responsibility;
+    initialResearchStatus === "awaiting_start" && !responsibility && !outreachAlreadyStarted;
   const welcomeActions = (
     <div className="flex flex-wrap items-center gap-3">
       <button

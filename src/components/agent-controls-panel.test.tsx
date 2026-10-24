@@ -384,3 +384,10 @@ it('shows research-only results without outreach start or approval controls',()=
  const html=renderToStaticMarkup(<AgentControlsPanel mandateId="mandate" initial={{...data,enabled:true,state:{...data.state!,workflowPreset:'live-research-test',workflowExecutionId:'execution'}}}>{renderConversation}</AgentControlsPanel>);
  expect(html).toContain('Research only');expect(html).toContain('No outreach is sent.');expect(html).toContain('View companies');expect(html).toContain('View people');expect(html).not.toContain('Automatic sending');expect(html).not.toContain('Start agent');expect(html).not.toContain('Ready to begin');
 });
+it.each(['conversations','proposal','allocation'])('does not repeat demo onboarding after persisted %s on reload',kind=>{
+ const initial=preparedDemo();initial.readinessUnavailable=true;
+ if(kind==='conversations')initial.state!.conversations=[{id:'saved',revision:1,epoch:1,context_revision:'a'.repeat(64),driver_kind:'agent',phase:'active',recipient_email:'lead@example.test',engagement:'cold'}];
+ if(kind==='allocation')initial.state!.contactAllocation={state:'running',allocated:0,needsReview:0};
+ const html=renderToStaticMarkup(<AgentControlsPanel mandateId="mandate" initial={initial} initialResearchSource="cached" initialResearchStatus="complete" pendingContactReview={kind==='proposal'}>{setup=><article aria-label="Chat steps">{setup}</article>}</AgentControlsPanel>);
+ expect(html).not.toContain('Hi, I’m Acquire');expect(html).not.toContain('Ready to begin?');expect(html).not.toMatch(/>Start<\/button>/);
+});
