@@ -10,21 +10,21 @@ const rows=()=>routes.map(r=>({binding_id:r.bindingId,scope_digest:'a'.repeat(64
 beforeEach(()=>{vi.clearAllMocks();query.mockResolvedValue({rows:rows()});});
 it('returns exact coverage hints only after every original scope has caught up',async()=>{
  const result=await readAgentDispatchCoverage(actor,routes,'subscriber',now);
- expect(result).toEqual({scopes:routes.map(r=>({bindingId:r.bindingId,scopeDigest:'a'.repeat(64)})),pendingBindingIds:[]});
+ expect(result).toEqual({scopes:routes.map(r=>({bindingId:r.bindingId,scopeDigest:'a'.repeat(64)}))});
  expect(transaction).toHaveBeenCalledWith(actor,expect.any(Function),{readOnly:true});
  expect(query.mock.calls[0][1]).toEqual(['org','owner',['a','b'],'subscriber']);
 });
-it('selects one lagging projection without inventing a service revision',async()=>{
+it('accepts fresh scope hints at different service revisions without inventing authority',async()=>{
  const records=rows();records[0].revision='6';query.mockResolvedValue({rows:records});
- expect((await readAgentDispatchCoverage(actor,routes,'subscriber',now)).pendingBindingIds).toEqual(['a']);
+ expect((await readAgentDispatchCoverage(actor,routes,'subscriber',now)).scopes).toHaveLength(2);
  records[0].revision='7';records[0].updated_at=new Date(now-20000);
- expect((await readAgentDispatchCoverage(actor,routes,'subscriber',now)).pendingBindingIds).toEqual([]);
+ expect((await readAgentDispatchCoverage(actor,routes,'subscriber',now)).scopes).toHaveLength(2);
 });
 it.each(['missing','duplicate','foreign','stale','future','malformed']as const)('refuses %s scope hints rather than selecting another account',async kind=>{
  const records=rows();if(kind==='missing')records.pop();if(kind==='duplicate')records.push({...records[0]});if(kind==='foreign')records[0].binding_id='foreign';if(kind==='stale')records[0].observed_at=new Date(now-256000);if(kind==='future')records[0].coverage_through=new Date(now+1);if(kind==='malformed')records[0].scope_digest='invalid';query.mockResolvedValue({rows:records});
  await expect(readAgentDispatchCoverage(actor,routes,'subscriber',now)).rejects.toThrow();
 });
-it('returns both lagging original scopes as one bounded projection vector',async()=>{
+it('does not chase revisions advanced by background scans between original channel reads',async()=>{
  const three=[...routes,{bindingId:'c',historyObservedAt:new Date(now-1000).toISOString()}],records=[...rows(),{...rows()[0],binding_id:'c',revision:'9'}];records[0].revision='7';records[1].revision='8';query.mockResolvedValue({rows:records});
- expect((await readAgentDispatchCoverage(actor,three,'subscriber',now)).pendingBindingIds).toEqual(['a','b']);
+ expect((await readAgentDispatchCoverage(actor,three,'subscriber',now)).scopes).toHaveLength(3);
 });

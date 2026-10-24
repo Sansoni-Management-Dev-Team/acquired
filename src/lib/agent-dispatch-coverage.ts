@@ -4,7 +4,7 @@ import {withCampaignDb,type CampaignActor} from '@/db/campaign-client';
 /** Scheduling hints only. These rows cannot grant sending permission: the
  * service revalidates the exact scope and final admission retains its held
  * coverage barrier, encrypted intent, membership, source and reply checks. */
-export async function readAgentDispatchCoverage(actor:CampaignActor,routes:Array<{bindingId:string;historyObservedAt:string}>,subscriberId:string,now=Date.now(),options?:{pool:Pick<Pool,'connect'>}):Promise<{scopes:Array<{bindingId:string;scopeDigest:string}>;pendingBindingIds:string[]}>{
+export async function readAgentDispatchCoverage(actor:CampaignActor,routes:Array<{bindingId:string;historyObservedAt:string}>,subscriberId:string,now=Date.now(),options?:{pool:Pick<Pool,'connect'>}):Promise<{scopes:Array<{bindingId:string;scopeDigest:string}>}>{
  const fail=():never=>{throw Error('Original dispatch coverage checkpoints unavailable');};
  if(!Number.isFinite(now)||!subscriberId||routes.length<1||routes.length>3||new Set(routes.map(r=>r.bindingId)).size!==routes.length)fail();
  const latestHistory=Math.max(...routes.map(r=>Date.parse(r.historyObservedAt)));
@@ -21,6 +21,8 @@ export async function readAgentDispatchCoverage(actor:CampaignActor,routes:Array
   if(!/^[a-f0-9]{64}$/.test(row.scope_digest)||!/^(0|[1-9]\d{0,18})$/.test(row.revision)||![observed,through,updated].every(Number.isFinite)||through>observed||observed>now||updated>now||observed<now-255000||through<now-255000)fail();
   return {bindingId:route.bindingId,scopeDigest:row.scope_digest as string,revision:BigInt(row.revision),updated};
  });
- const maximum=selected.reduce((value,row)=>row.revision>value?row.revision:value,BigInt(0));
- return {scopes:selected.map(({bindingId,scopeDigest})=>({bindingId,scopeDigest})),pendingBindingIds:selected.filter(row=>row.revision!==maximum).map(row=>row.bindingId)};
+ // Account scans advance the shared service revision between channels. These
+ // scheduling hints cannot prove an atomic revision vector. Hosted submit
+ // projects every sealed scope under its history barrier before SQL admission.
+ return {scopes:selected.map(({bindingId,scopeDigest})=>({bindingId,scopeDigest}))};
 }

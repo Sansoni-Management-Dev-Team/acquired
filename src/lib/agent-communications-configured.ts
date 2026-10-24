@@ -189,23 +189,12 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
    signal?.throwIfAborted();
    const snapshot=originalSnapshot,routes=snapshot.routes;
    if(!snapshot||!routes?.length||routes.some(r=>!r.historyObservedAt))throw Error('Original dispatch route checkpoints unavailable');
-   const selected:Array<{route:RecordedRoute}&Awaited<ReturnType<typeof originalAccount>>>=[];
-   for(const route of routes){signal?.throwIfAborted();selected.push({route,...await originalAccount(threadId,conversationId,route,{conversation:snapshot.conversation,originalAccount:snapshot.accounts.find(a=>a.id===route.bindingId)})});}
+   for(const route of routes){signal?.throwIfAborted();await originalAccount(threadId,conversationId,route,{conversation:snapshot.conversation,originalAccount:snapshot.accounts.find(a=>a.id===route.bindingId)});}
    const coverage=await readAgentDispatchCoverage(actor,routes.map(r=>({bindingId:r.bindingId,historyObservedAt:r.historyObservedAt!})),process.env.AGENT_HOSTED_DEMO_SUBSCRIBER_ID??'acquire-hosted-demo-replies');
    signal?.throwIfAborted();
-   if(coverage.pendingBindingIds.length){
-    // At least one of the maximum three original scopes is current. Catch up
-    // both possible laggards in one bounded RPC instead of another worker turn.
-    if(coverage.pendingBindingIds.length>2||new Set(coverage.pendingBindingIds).size!==coverage.pendingBindingIds.length)throw Error('Original coverage scope unavailable');
-    const pending=coverage.pendingBindingIds.map(bindingId=>{
-     const item=selected.find(item=>item.bindingId===bindingId),scope=coverage.scopes.find(scope=>scope.bindingId===bindingId);
-     if(!item||!scope)throw Error('Original coverage scope unavailable');
-     return{binding:item.binding,...scope};
-    });
-    const runtime=configuredHostedDemoRuntime(),host=createHostedDemoNativeFacade(runtime);
-    await host.revalidateAgentChannelCoverage(pending,signal);
-    signal?.throwIfAborted();throw new AgentHistoryCheckpointPendingError();
-   }
+   // Fresh exact-scope hints are sufficient to enter normal submission. The
+   // service owns atomic coverage projection and final revision admission;
+   // chasing equal advisory revisions here races its background account scans.
    preparedCheckpoints.set(operationId,{threadId,conversationId,routes:structuredClone(routes),scopes:coverage.scopes});
   }catch(error){signal?.throwIfAborted();throw new AgentPreBeginHistoryError(threadId,conversationId,operationId,error);}
  }

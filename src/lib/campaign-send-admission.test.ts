@@ -373,3 +373,21 @@ it.each(['disabled','throwing'] as const)('keeps final coverage rejection unchan
   expect(f.calls.some(sql=>sql.startsWith('INSERT INTO public.communication_dispatch_permits'))).toBe(false);
  }finally{trace.mockRestore();vi.unstubAllEnvs();}
 });
+
+it.each(['stale revision','missing checkpoint'] as const)('final held admission rejects %s even after advisory scope preparation',async reason=>{
+ const f=fixture(),original=f.query.getMockImplementation()!;
+ f.query.mockImplementation(async(sql,values)=>{
+  if(sql.includes('communication_reply_monitors')){
+   expect(sql).toContain('p.observed_service_revision>=$7::bigint');
+   expect(values?.[6]).toBe('8186');
+   // PostgreSQL evaluates the exact sealed vector against the service-held
+   // revision; earlier advisory hints never substitute for this decision.
+   return {rows:[{ready:false,matched_scope_rows:reason==='missing checkpoint'?0:1}]};
+  }
+  return original(sql,values);
+ });
+ const prepared=await f.repo.prepare({source,message,coverageScopes:[{bindingId:'binding',scopeDigest:'a'.repeat(64)}]});
+ const result=await f.repo.open({record:{snapshot:prepared.submission.snapshot,recipient:message.recipient,state:'claimed'},claimToken:'claim',serviceRevision:'8186'},new AbortController().signal);
+ expect(result).toEqual({kind:'blocked',outcome:{status:'waiting',code:'incomplete'}});
+ expect(f.calls.some(sql=>sql.startsWith('INSERT INTO public.communication_dispatch_permits'))).toBe(false);
+});
