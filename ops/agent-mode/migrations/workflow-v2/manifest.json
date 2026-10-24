@@ -25,6 +25,14 @@
       "file": "004-workflow-agent-gate.local.proposed.sql",
       "sha256": "bda3530407f4775473e208faf30139848cd0753c5daaffddfc28a4633c4e5c47",
       "sourceSha256": "c698092533ece1b7f49c43435094a0bdff9b9b9cf6929255edf06b95c1bbf010"
+    },
+    {
+      "file": "005-communications-workflow-context.local.proposed.sql",
+      "sha256": "d1c6df6a1aad855b55225d19ac18a11c9077b0c389be65ab19108674343caed2",
+      "productionProposalSha256": "e61332a165e2acedd2f30c54a052e890ac6bd0433b297c106697799b10255327",
+      "applied": true,
+      "evidence": "project-acquire-agent-mode/.local-data/local-alignment/workflow-reviewed-v2/005-apply.log",
+      "productionApplied": false
     }
   ],
   "revisionReason": "Remove only absent Supabase role names from REVOKE lists; retain PUBLIC and every existing application role prohibition.",
