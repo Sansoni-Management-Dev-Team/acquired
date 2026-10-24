@@ -2,7 +2,8 @@ import {beforeEach,expect,it,vi} from 'vitest';
 import type {Pool} from 'pg';
 import type {AcquisitionWorkflowExecution} from '@/domain/acquisition-workflow';
 vi.mock('server-only',()=>({}));
-const mocks=vi.hoisted(()=>({start:vi.fn(),transition:vi.fn()}));
+const mocks=vi.hoisted(()=>({start:vi.fn(),transition:vi.fn(),reconcile:vi.fn()}));
+vi.mock('./acquisition-workflow-people-snapshots',()=>({reconcileWorkflowPeopleSnapshots:mocks.reconcile}));
 vi.mock('./start-mandate-research',()=>({startMandateResearch:mocks.start}));
 vi.mock('@/db/acquisition-workflow-store',()=>({AcquisitionWorkflowStore:class{transition=mocks.transition;}}));
 import {ensureWorkflowResearch,readWorkflowResearch} from './acquisition-workflow-research';
@@ -20,3 +21,5 @@ it('read projection does not schedule or transition',async()=>{const f=fixture('
 it('never reinterprets a job belonging to another execution',async()=>{const f=fixture('live',{job_id:execution.id,job_workflow_execution_id:execution.mandateId,job_status:'complete'});await expect(ensureWorkflowResearch(f.pool,actor,f.execution)).rejects.toThrow('original execution');expect(mocks.start).not.toHaveBeenCalled();});
 it('rejects actor ownership mismatch before any database/provider work',async()=>{const f=fixture();await expect(ensureWorkflowResearch(f.pool,{...actor,userId:'someone'},f.execution)).rejects.toThrow('Owned workflow');expect(f.pool.query).not.toHaveBeenCalled();});
 it('does not restart terminal failed executions',async()=>{const f=fixture('live',{state:'failed'});expect(await ensureWorkflowResearch(f.pool,actor,f.execution)).toMatchObject({status:'failed'});expect(mocks.start).not.toHaveBeenCalled();expect(mocks.transition).not.toHaveBeenCalled();});
+
+it('reconciles saved child people snapshots before projecting a settled partial root complete',async()=>{const f=fixture('live-research-test',{job_id:execution.id,job_workflow_execution_id:execution.id,job_status:'partial',job_config:{companyPeopleProgress:{settled:true}},pending_child_people:true});await ensureWorkflowResearch(f.pool,actor,f.execution);expect(mocks.reconcile).toHaveBeenCalledWith(f.pool,actor,f.execution);expect(mocks.reconcile.mock.invocationCallOrder[0]).toBeLessThan(mocks.transition.mock.invocationCallOrder[0]);});

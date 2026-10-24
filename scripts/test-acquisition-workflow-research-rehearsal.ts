@@ -50,13 +50,16 @@ async function main(){
  assert.equal((await base.query('SELECT status FROM firmable_sync_runs WHERE id=$1',[expiredRun])).rows[0].status,'cancelled');
  assert.equal((await base.query("SELECT config->'companyPeopleProgress'->>'settled' AS settled FROM research_jobs WHERE id=$1",[execution.id])).rows[0].settled,'true');
  await withAcquisitionWorkflowContext(scope,()=>pool.query("UPDATE research_jobs SET status='complete' WHERE id=$1",[execution.id]));
+ const staleChild=randomUUID();
+ await withAcquisitionWorkflowContext(scope,()=>pool.query("INSERT INTO research_jobs(id,organization_id,mandate_id,created_by,status,config) VALUES($1,$2,$3,$4,'complete',jsonb_build_object('researchRunId',$5::text,'companyPeopleRunIds',jsonb_build_array($6::text),'companyPeopleProgress',jsonb_build_object('settled',false,'queued',1)))",[staleChild,org,execution.mandateId,user,execution.id,expiredRun]));
  const view=await ensureWorkflowResearch(base,actor,(await store.read(execution.id))!,ports);assert.equal(view.status,'complete');assert.equal((await store.read(execution.id))?.state,'complete');
+ assert.equal((await base.query("SELECT config->'companyPeopleProgress'->>'settled' AS settled FROM research_jobs WHERE id=$1",[staleChild])).rows[0].settled,'true');
  const legacy=randomUUID(),legacyMandate=randomUUID();
  await base.query('INSERT INTO mandates(id,organization_id,created_by,natural_language,filters,provenance) VALUES($1,$2,$3,$4,$5,$6)',[legacyMandate,org,user,'Legacy source',JSON.stringify({brief:emptyBrief()}),'{}']);
  await base.query("INSERT INTO research_jobs(id,organization_id,mandate_id,created_by,status,config) VALUES($1,$2,$3,$4,'complete','{}')",[legacy,org,legacyMandate,user]);
  await assert.rejects(()=>withAcquisitionWorkflowContext(scope,()=>pool.query('UPDATE research_jobs SET workflow_execution_id=$1 WHERE id=$2',[execution.id,legacy])));
  assert.equal((await base.query('SELECT workflow_execution_id FROM research_jobs WHERE id=$1',[legacy])).rows[0].workflow_execution_id,null);
  const emptyContext=await base.query("SELECT nullif(current_setting('app.acquire_workflow_execution',true),'') AS execution");assert.equal(emptyContext.rows[0].execution,null);
- console.log(JSON.stringify({passed:true,actualResearchAdapter:true,actualScopedPool:true,explicitTransaction:true,firmableParentContext:true,automaticPeopleRecovery:true,expiredQueuedSettled:true,jobAssociation:true,replayNoSecondStart:true,unscopedWriteRejected:true,researchOnlyStops:true,legacyCannotAdopt:true,poolContextReset:true,noExternalCalls:true,concurrentReplayCount:concurrent.length,startLatencyMs:timings,fixtureRetained:true}));
+ console.log(JSON.stringify({passed:true,actualResearchAdapter:true,actualScopedPool:true,explicitTransaction:true,firmableParentContext:true,automaticPeopleRecovery:true,expiredQueuedSettled:true,staleTerminalChildReconciled:true,jobAssociation:true,replayNoSecondStart:true,unscopedWriteRejected:true,researchOnlyStops:true,legacyCannotAdopt:true,poolContextReset:true,noExternalCalls:true,concurrentReplayCount:concurrent.length,startLatencyMs:timings,fixtureRetained:true}));
 }
 main().catch(error=>{console.error(error);process.exitCode=1}).finally(()=>base.end());
