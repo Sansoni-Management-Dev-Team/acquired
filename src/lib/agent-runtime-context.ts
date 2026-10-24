@@ -7,6 +7,6 @@ export function configuredAgentRegisteredRuntime(env:Record<string,string|undefi
 }
 export function agentTransactionRuntimeContext(env:Record<string,string|undefined>=process.env){
  const runtimeId=configuredAgentRegisteredRuntime(env);
- const channelSimulation=runtimeId==='agent-multichannel-20261017'&&env.AGENT_LOCAL_SIMULATION_ENABLED==='true'&&localSimulatorTestPolicy(env);
+ const channelSimulation=(runtimeId==='agent-multichannel-20261017'||runtimeId==='acquire-isolated-20261024')&&env.AGENT_LOCAL_SIMULATION_ENABLED==='true'&&localSimulatorTestPolicy(env);
  return {runtimeId,channelSimulation};
 }
