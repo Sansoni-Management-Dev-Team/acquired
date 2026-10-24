@@ -302,7 +302,7 @@ async function preparedDispatchFixture(){
  const descriptor={version:1,mode:'hosted-demo',phase:'active',runId:'hosted-demo-example',integrationId:'sim-hosted-demo-example',configurationReference:'sim-hosted-demo-example-v1',applicationOrigin:'https://acquire.example.invalid',serviceOrigin:'https://simulator.example.invalid',setupOrigin:'https://simulator.example.invalid',actor:{applicationId:'acquire',tenantId:actor.organizationId,ownerId:actor.userId},capabilities:{dynamicRecipients:true,recipientContextLookup:true,remoteApplicationAuthority:true,durableEvents:true},bindings:[{applicationId:binding.application_id,tenantId:binding.organization_id,ownerId:binding.owner_user_id,connectionId:binding.service_connection_id,accountId:binding.service_account_id,generation:binding.generation,channel:binding.channel,platform:binding.platform,backend:binding.backend}]};
  for(const[k,v]of Object.entries({NODE_ENV:'production',APP_URL:descriptor.applicationOrigin,AGENT_HOSTED_DEMO_COMMUNICATIONS_ENABLED:'true',AGENT_HOSTED_DEMO_COMMUNICATIONS_DESCRIPTOR_JSON:JSON.stringify(descriptor)}))vi.stubEnv(k,v);
  const store={...x.store,historyAccountSnapshot:vi.fn(async()=>({conversation:x.record.conversation,accounts:[x.record.originalAccount],routes:x.routes}))};
- f.coverageCheckpoints.mockResolvedValue({scopes:[{bindingId:x.routes[0].bindingId,scopeDigest:'a'.repeat(64)}],pendingBindingId:null});
+ f.coverageCheckpoints.mockResolvedValue({scopes:[{bindingId:x.routes[0].bindingId,scopeDigest:'a'.repeat(64)}],pendingBindingIds:[]});
  return {...x,store,service:configuredAgentCommunications(actor,store as never)};
 }
 it('uses fresh durable coverage hints for final dispatch without another provider scan',async()=>{
@@ -312,7 +312,7 @@ it('uses fresh durable coverage hints for final dispatch without another provide
  expect(f.read).not.toHaveBeenCalled();expect(f.catchup).not.toHaveBeenCalled();expect(f.dispatch).toHaveBeenCalledOnce();expect(x.store.beginNativeCommunicationsMessage).toHaveBeenCalledOnce();
 });
 it('projects one lagging scope as a separate checkpoint before any admission',async()=>{
- const x=await preparedDispatchFixture();f.coverageCheckpoints.mockResolvedValue({scopes:[{bindingId:x.routes[0].bindingId,scopeDigest:'a'.repeat(64)}],pendingBindingId:x.routes[0].bindingId});
+ const x=await preparedDispatchFixture();f.coverageCheckpoints.mockResolvedValue({scopes:[{bindingId:x.routes[0].bindingId,scopeDigest:'a'.repeat(64)}],pendingBindingIds:[x.routes[0].bindingId]});
  await expect(x.service.prepareDispatch('thread',conversation,operation)).rejects.toMatchObject({historyError:{name:'AgentHistoryCheckpointPendingError'}});
  expect(f.catchup).toHaveBeenCalledOnce();expect(f.read).not.toHaveBeenCalled();expect(x.store.beginNativeCommunicationsMessage).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
 });
@@ -346,5 +346,38 @@ it('finishes missing channel checkpoints before rereading stale early channels u
  clock.mockReturnValue(instant+360000);await expect(service.refreshCheckpoint('thread',conversation,new Date(Date.now()-255000).toISOString())).rejects.toMatchObject({name:'AgentHistoryCheckpointPendingError'});expect(f.relationship).toHaveBeenCalledOnce();expect(f.read).toHaveBeenCalledTimes(1);
  // Freshness is still enforced: completing missing work does not admit old email history.
  await expect(service.refreshCheckpoint('thread',conversation,new Date(Date.now()-255000).toISOString())).rejects.toMatchObject({name:'AgentHistoryCheckpointPendingError'});expect(f.read.mock.calls[1][0].channel).toBe('email');expect(f.dispatch).not.toHaveBeenCalled();
+ }finally{clock.mockRestore();}
+});
+async function twoLaggingScopeFixture(){
+ const x=await preparedDispatchFixture(),first=x.routes[0],account=x.record.originalAccount;
+ const secondAccount={...account,id:'40000000-0000-4000-8000-000000000009',channel:'whatsapp' as const,platform:'whatsapp',service_connection_id:'other-connection',service_account_id:'other-account'};
+ const second={...first,id:'40000000-0000-4000-8000-000000000008',channel:'whatsapp',bindingId:secondAccount.id,bindingDigest:recordedAgentBindingDigest(secondAccount as never),recipient:{kind:'phone',value:'+61412345678'}};
+ x.routes.push(second as never);x.store.historyAccountSnapshot.mockResolvedValue({...await x.store.historyAccountSnapshot(),accounts:[account,secondAccount]});
+ const descriptor=JSON.parse(process.env.AGENT_HOSTED_DEMO_COMMUNICATIONS_DESCRIPTOR_JSON!);descriptor.bindings.push({...descriptor.bindings[0],connectionId:secondAccount.service_connection_id,accountId:secondAccount.service_account_id,channel:'whatsapp',platform:'whatsapp'});vi.stubEnv('AGENT_HOSTED_DEMO_COMMUNICATIONS_DESCRIPTOR_JSON',JSON.stringify(descriptor));
+ return x;
+}
+it('projects both lagging channels together and keeps checkpointing before final admission',async()=>{
+ const x=await twoLaggingScopeFixture();
+ const scopes=x.routes.map(route=>({bindingId:route.bindingId,scopeDigest:'a'.repeat(64)}));f.coverageCheckpoints.mockResolvedValue({scopes,pendingBindingIds:scopes.map(s=>s.bindingId)});
+ await expect(x.service.prepareDispatch('thread',conversation,operation)).rejects.toMatchObject({historyError:{name:'AgentHistoryCheckpointPendingError'}});
+ expect(f.catchup).toHaveBeenCalledOnce();expect(f.catchup.mock.calls[0][0].map((s:{bindingId:string})=>s.bindingId)).toEqual(scopes.map(s=>s.bindingId));expect(f.dispatch).not.toHaveBeenCalled();expect(f.read).not.toHaveBeenCalled();
+ f.catchup.mockRejectedValueOnce(Error('Projection refused'));await expect(x.service.prepareDispatch('thread',conversation,operation)).rejects.toMatchObject({historyError:{message:'Projection refused'}});expect(f.dispatch).not.toHaveBeenCalled();
+ const controller=new AbortController();f.catchup.mockImplementationOnce(async()=>{controller.abort();return scopes;});await expect(x.service.prepareDispatch('thread',conversation,operation,controller.signal)).rejects.toThrow();expect(x.store.beginNativeCommunicationsMessage).not.toHaveBeenCalled();
+ f.catchup.mockClear();f.coverageCheckpoints.mockResolvedValue({scopes,pendingBindingIds:['foreign-binding']});await expect(x.service.prepareDispatch('thread',conversation,operation)).rejects.toThrow();expect(f.catchup).not.toHaveBeenCalled();
+});
+
+it('reaches the unchanged final freshness guard under measured multi-turn latency after batching',async()=>{
+ const x=await twoLaggingScopeFixture(),instant=Date.now();let now=instant+175000;const clock=vi.spyOn(Date,'now').mockImplementation(()=>now);
+ try{
+  for(const route of x.routes)Object.assign(route,{historyObservedAt:new Date(instant).toISOString()});
+  const snapshot=await x.store.historyAccountSnapshot();x.store.historyAccountSnapshot.mockImplementation(async()=>{now+=15000;return snapshot;});
+  const scopes=x.routes.map(route=>({bindingId:route.bindingId,scopeDigest:'a'.repeat(64)}));f.coverageCheckpoints.mockResolvedValue({scopes,pendingBindingIds:scopes.map(s=>s.bindingId)});
+  f.catchup.mockImplementationOnce(async()=>{now+=18000;return scopes;});
+  await expect(x.service.prepareDispatch('thread',conversation,operation)).rejects.toMatchObject({historyError:{name:'AgentHistoryCheckpointPendingError'}});
+  expect(f.catchup.mock.calls[0][0]).toHaveLength(2);
+  now+=15000;f.coverageCheckpoints.mockResolvedValue({scopes,pendingBindingIds:[]});await x.service.prepareDispatch('thread',conversation,operation);
+  now+=15000;expect(now-instant).toBe(253000);await x.service.dispatch('thread',conversation,operation);expect(f.dispatch).toHaveBeenCalledOnce();
+  // Another35second coverage-only worker turn would cross the same hard guard.
+  now=instant+240000;await x.service.prepareDispatch('thread',conversation,operation);now+=35000;await expect(x.service.dispatch('thread',conversation,operation)).rejects.toThrow();expect(f.dispatch).toHaveBeenCalledOnce();
  }finally{clock.mockRestore();}
 });

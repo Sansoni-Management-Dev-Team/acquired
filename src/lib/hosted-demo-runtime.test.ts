@@ -55,3 +55,12 @@ it('backdates only outgoing hosted scoped issuance so a slightly slower service 
  const fetcher=vi.fn(async(_url:unknown,init?:RequestInit)=>{const header=new Headers(init?.headers).get('authorization')!;expect(await verifier.verify(header)).toEqual(d.actor);const claims=JSON.parse(Buffer.from(header.slice(7).split('.')[0],'base64url').toString());expect(claims.exp).toBe(159010);return Response.json({verified:false});});
  expect(await createHostedDemoServiceRequest(descriptor,key,fetcher)('/v1/hosted-demo/coverage/revalidate',{},new AbortController().signal)).toEqual({verified:false});
 });
+
+it('fits two serial coverage callbacks in the unchanged24second RPC budget and still cancels over-budget work',async()=>{
+ vi.useFakeTimers();
+ const scopes=[{binding:{channel:'email'},scopeDigest:'a'.repeat(64)},{binding:{channel:'whatsapp'},scopeDigest:'b'.repeat(64)}];
+ const fetcher=vi.fn(async()=>{await new Promise(resolve=>setTimeout(resolve,2000));for(const _scope of scopes){void _scope;await new Promise(resolve=>setTimeout(resolve,8000));}return Response.json({serviceRevision:'7',scopes});});
+ const call=createHostedDemoServiceRequest(descriptor,key,fetcher),result=call('/v1/hosted-demo/coverage/project',{scopes},new AbortController().signal);
+ await vi.advanceTimersByTimeAsync(18000);expect(await result).toEqual({serviceRevision:'7',scopes});expect(fetcher).toHaveBeenCalledOnce();
+ const slow=createHostedDemoServiceRequest(descriptor,key,vi.fn(()=>new Promise<Response>(()=>{}))),failure=expect(slow('/v1/hosted-demo/coverage/project',{scopes},new AbortController().signal)).rejects.toThrow('Hosted demo runtime unavailable');await vi.advanceTimersByTimeAsync(24000);await failure;
+});

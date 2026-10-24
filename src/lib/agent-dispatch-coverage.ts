@@ -4,7 +4,7 @@ import {withCampaignDb,type CampaignActor} from '@/db/campaign-client';
 /** Scheduling hints only. These rows cannot grant sending permission: the
  * service revalidates the exact scope and final admission retains its held
  * coverage barrier, encrypted intent, membership, source and reply checks. */
-export async function readAgentDispatchCoverage(actor:CampaignActor,routes:Array<{bindingId:string;historyObservedAt:string}>,subscriberId:string,now=Date.now(),options?:{pool:Pick<Pool,'connect'>}):Promise<{scopes:Array<{bindingId:string;scopeDigest:string}>;pendingBindingId:string|null}>{
+export async function readAgentDispatchCoverage(actor:CampaignActor,routes:Array<{bindingId:string;historyObservedAt:string}>,subscriberId:string,now=Date.now(),options?:{pool:Pick<Pool,'connect'>}):Promise<{scopes:Array<{bindingId:string;scopeDigest:string}>;pendingBindingIds:string[]}>{
  const fail=():never=>{throw Error('Original dispatch coverage checkpoints unavailable');};
  if(!Number.isFinite(now)||!subscriberId||routes.length<1||routes.length>3||new Set(routes.map(r=>r.bindingId)).size!==routes.length)fail();
  const latestHistory=Math.max(...routes.map(r=>Date.parse(r.historyObservedAt)));
@@ -22,5 +22,5 @@ export async function readAgentDispatchCoverage(actor:CampaignActor,routes:Array
   return {bindingId:route.bindingId,scopeDigest:row.scope_digest as string,revision:BigInt(row.revision),updated};
  });
  const maximum=selected.reduce((value,row)=>row.revision>value?row.revision:value,BigInt(0));
- return {scopes:selected.map(({bindingId,scopeDigest})=>({bindingId,scopeDigest})),pendingBindingId:selected.find(row=>row.revision!==maximum)?.bindingId??null};
+ return {scopes:selected.map(({bindingId,scopeDigest})=>({bindingId,scopeDigest})),pendingBindingIds:selected.filter(row=>row.revision!==maximum).map(row=>row.bindingId)};
 }
