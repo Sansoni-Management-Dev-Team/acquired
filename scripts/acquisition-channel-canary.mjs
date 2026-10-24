@@ -25,6 +25,7 @@ import { readFile, writeFile, mkdir, rename, open, unlink } from 'node:fs/promis
 import { resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 const channels = ['email', 'whatsapp', 'linkedin'], uuid = x => typeof x === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(x);
+export function channelCanaryCreationScope(o){return{kind:o.legacySource?'legacy_cached_demo':'workflow_v2',...(o.legacySource?{sourceMandateId:o.legacySource.mandateId,briefDigest:createHash('sha256').update(JSON.stringify(o.legacySource.brief)).digest('hex')}:{})};}
 export function channelCanaryRequestTimeoutMs(path, body, remainingMs) { return Math.max(1, Math.min(path.endsWith('/agent/demo') && body?.action === 'start' ? 150000 : 45000, remainingMs)); }
 /** One channel, one saved workflow and at most one initial message. No provider send endpoint. */
 export async function runAcquisitionChannelCanary(o) {
@@ -34,7 +35,7 @@ export async function runAcquisitionChannelCanary(o) {
     assert(/^__Secure-better-auth\.session_token=[^;\r\n]+$/.test(o.cookie), 'One Acquire session cookie required');
     assert(o.expectedOwnerId && o.expectedOrganizationId && uuid(o.expectedBindingId) && (/^(?:agent-[a-z0-9-]+|hosted-demo-[a-z0-9][a-z0-9-]{0,35})$/.test(o.simulatorRun)), 'Explicit owner, workspace, binding and simulator run required');
     const s = o.state;
-    const creation={kind:o.legacySource?'legacy_cached_demo':'workflow_v2',...(o.legacySource?{sourceMandateId:o.legacySource.mandateId,briefDigest:createHash('sha256').update(JSON.stringify(o.legacySource.brief)).digest('hex')}:{})};
+    const creation=channelCanaryCreationScope(o);
     if(s?.creation)assert.deepEqual(s.creation,creation,'Creation strategy changed');
     else if(s?.legacyCreation)assert(s.sourceMandateId===o.legacySource?.mandateId,'Saved source changed');
     if(s)s.creation=creation;

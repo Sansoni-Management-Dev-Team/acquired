@@ -5,17 +5,18 @@ import{randomUUID}from'node:crypto';
 import{mkdir,readFile,writeFile,rename,open,unlink}from'node:fs/promises';
 import{resolve}from'node:path';
 import{pathToFileURL}from'node:url';
-import{runAcquisitionChannelCanary}from'./acquisition-channel-canary.mjs';
+import{channelCanaryCreationScope,runAcquisitionChannelCanary}from'./acquisition-channel-canary.mjs';
 export async function runThreeChannelCanaries({config,load,save,record,lockChannel=async()=>async()=>{},runner=runAcquisitionChannelCanary}){
  const results=[];
  for(const channel of['email','whatsapp','linkedin']){
   const release=await lockChannel(channel);try{
   const state=await load(channel)??{channel,requestId:randomUUID()};
   const expectedScope={origin:config.origin,owner:config.expectedOwnerId,organization:config.expectedOrganizationId,binding:config.bindings[channel],run:config.simulatorRun};
+  if(state.creation)assert.deepEqual(state.creation,channelCanaryCreationScope(config),'Completed creation strategy changed');
   if(state.scope)assert.deepEqual(state.scope,expectedScope,'Completed journal scope changed');
   await save(channel,state);
   assert(!state.pendingMutation&&!state.pendingAcceptance,'Unresolved channel mutation requires inspection');
-  if(state.verifiedResult){assert(state.verifiedResult.passed===true&&state.verifiedResult.channel===channel&&state.verifiedResult.mandateId===state.mandateId,'Saved result identity mismatch');results.push(state.verifiedResult);continue;}
+  if(state.verifiedResult){assert(state.verifiedResult.passed===true&&state.verifiedResult.channel===channel&&state.verifiedResult.mandateId===state.mandateId&&state.verifiedResult.operationId===state.messageOperationId&&state.verifiedResult.conversationId===state.conversationId,'Saved result identity mismatch');results.push(state.verifiedResult);continue;}
   const result=await runner({...config,execute:true,channel,requestId:state.requestId,state,expectedBindingId:config.bindings[channel],saveState:s=>save(channel,s),record:e=>record(channel,e)});
   await record(channel,result);results.push(result);
   if(!result.passed)return{passed:false,results};
