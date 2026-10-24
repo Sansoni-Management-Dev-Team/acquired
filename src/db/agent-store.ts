@@ -1,3 +1,4 @@
+import {agentNativeDispatchSqlNames} from './agent-operation-sql';
 import {acquisitionWorkflowContext,withAcquisitionWorkflowContext} from '@/lib/acquisition-workflow-context';
 import {bindAgentWorkflowContext,resolveAgentWorkflowContext} from './agent-workflow-context';
 import {AsyncLocalStorage} from 'node:async_hooks';
@@ -126,6 +127,25 @@ export class AgentStore {
   }
   protected workflowId(client:PoolClient){return this.workflowClients.get(client)?.id??null;}
   protected workflowModeTable(client:PoolClient){return this.workflowClients.get(client)?.id?'agent_effective_execution_modes':'agent_mandate_execution_modes';}
+  /** Saved display data only: no context digest, row lock or sending authority. */
+  async operationDisplayRecord(threadId:string,operationId:string){
+    uuid.parse(threadId);uuid.parse(operationId);
+    return this.transaction(async c=>{
+      const row=(await c.query(`SELECT
+        jsonb_build_object('id',o.id,'name',o.name,'state',o.state,'result',o.result) AS operation,
+        jsonb_build_object('id',c.id,'phase',c.phase,'pause_reason',c.pause_reason,
+          'history_complete',c.history_complete,'history_observed_at',c.history_observed_at,'history',c.history) AS conversation,
+        CASE WHEN r.id IS NULL THEN NULL ELSE jsonb_build_object('id',r.id,'channel',r.channel) END AS route
+        FROM agent_operations o
+        INNER JOIN agent_threads t ON t.id=o.thread_id AND o.organization_id=t.organization_id AND o.owner_user_id=t.owner_user_id AND o.mandate_id=t.mandate_id
+        INNER JOIN agent_conversations c ON c.id=o.conversation_id AND c.thread_id=t.id AND c.organization_id=t.organization_id AND c.owner_user_id=t.owner_user_id AND c.mandate_id=t.mandate_id
+        LEFT JOIN agent_conversation_channels r ON r.id::text=o.input->>'routeId' AND r.conversation_id=c.id AND r.thread_id=t.id AND r.organization_id=t.organization_id AND r.owner_user_id=t.owner_user_id AND r.mandate_id=t.mandate_id
+        WHERE o.id=$1 AND t.id=$2 AND t.organization_id=$3 AND t.owner_user_id=$4
+          AND o.name IN(${agentNativeDispatchSqlNames})`,[operationId,threadId,this.actor.organizationId,this.actor.userId])).rows[0];
+      if(!row)throw Error('Owned operation display unavailable');
+      return {operation:row.operation,conversation:row.conversation,route:row.route};
+    },undefined,true);
+  }
   async openThread(mandateId: string): Promise<AgentThread> {
     return this.transaction(async c => {
       const values=[this.actor.organizationId,uuid.parse(mandateId),this.actor.userId];

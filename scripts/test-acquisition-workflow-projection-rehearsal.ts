@@ -27,7 +27,21 @@ const full=await agent.executionState(thread.id);assert.equal(full.conversations
 const defaults=await readManagedDefaults(actor);assert.deepEqual(defaults,[]);
 const policy=await agent.channelPolicy(thread.id);assert.equal(policy.accounts.length,3);assert.equal(policy.policy?.bindings.length,3);
 const accounts=await agent.demoOutreachAccounts(thread.id);assert.equal(accounts.length,3);assert.deepEqual(accounts,planned.run.senders.map(({channel,bindingId,bindingDigest})=>({channel,bindingId,bindingDigest})));
+// Actual read-only operations display with populated route, receipt and history.
+const operationId=randomUUID(),syntheticHistory=[{id:'synthetic-reply',direction:'inbound',text:'Synthetic rehearsal reply',at:new Date().toISOString()}],syntheticDelivery={status:'submitted',submittedAt:new Date().toISOString(),receipt:{id:'synthetic-receipt'}};
+const seed=await pool.connect();try{
+ await seed.query('BEGIN');await seed.query("SELECT set_config('app.acquire_org',$1,true),set_config('app.acquire_user',$2,true),set_config('app.acquire_workflow_version','1',true),set_config('app.acquire_workflow_execution',$3,true)",[actor.organizationId,actor.userId,w.id]);
+ await seed.query('SET LOCAL ROLE acquire_agent_user');await seed.query('SELECT public.agent_lock_send_gate()');
+ const route=(await seed.query("SELECT * FROM agent_conversation_channels WHERE conversation_id=$1 AND channel='email'",[person!])).rows[0];
+ await seed.query("INSERT INTO agent_operations(id,thread_id,organization_id,mandate_id,owner_user_id,request_key,name,input,input_digest,conversation_id,state,result,workflow_execution_id) VALUES($1::uuid,$2,$3,$4,$5,$1::text,'email.initial',$6::jsonb,$7,$8,'proposed',$9::jsonb,$10)",[operationId,thread.id,actor.organizationId,f.mandateId,actor.userId,JSON.stringify({routeId:route.id,bindingDigest:route.binding_digest,identityRevision:route.identity_revision,recipientKey:route.channel+':'+route.recipient_value}),'a'.repeat(64),person!,JSON.stringify({delivery:syntheticDelivery}),w.id]);
+ await seed.query('UPDATE agent_conversations SET history=$2::jsonb,revision=revision+1 WHERE id=$1',[person!,JSON.stringify(syntheticHistory)]);await seed.query('COMMIT');
+}catch(e){await seed.query('ROLLBACK');throw e;}finally{seed.release();}
+const display=await agent.operationDisplayRecord(thread.id,operationId);assert.equal(display.operation.id,operationId);assert.deepEqual(display.operation.result.delivery,syntheticDelivery);assert.deepEqual(display.conversation.history,syntheticHistory);assert.equal(display.route.channel,'email');
+const foreign=new ProjectionStore(pool,{organizationId:actor.organizationId,userId:randomUUID()});await assert.rejects(foreign.operationDisplayRecord(thread.id,operationId));
+await assert.rejects(agent.operationDisplayRecord(randomUUID(),operationId));
 let denied;try{await agent.forceReadOnly(thread.id);}catch(e){denied=e;}
-assert.equal((denied as {code?:string})?.code,'25006');console.log(JSON.stringify({passed:true,fullRealStoreProjection:true,allocatedWorkflowTransition:true,populatedConversations:1,channels:3,realReadManagedDefaults:true,readOnlyChannelPolicyAccounts:policy.accounts.length,readOnlyDemoOutreachAccounts:accounts.length,readOnlyRejected:(denied as {message?:string}).message,where:(denied as {where?:string}).where}));
+assert.equal((denied as {code?:string})?.code,'25006');
+await pool.query('DELETE FROM public.member WHERE organization_id=$1 AND user_id=$2',[actor.organizationId,actor.userId]);await assert.rejects(agent.operationDisplayRecord(thread.id,operationId));
+console.log(JSON.stringify({passed:true,realReadOnlyOperationDisplay:true,foreignOperationDisplayDenied:true,revokedOperationDisplayDenied:true,fullRealStoreProjection:true,allocatedWorkflowTransition:true,populatedConversations:1,channels:3,realReadManagedDefaults:true,readOnlyChannelPolicyAccounts:policy.accounts.length,readOnlyDemoOutreachAccounts:accounts.length,readOnlyRejected:(denied as {message?:string}).message,where:(denied as {where?:string}).where}));
 }
 main().catch(e=>{console.error(e);process.exitCode=1}).finally(async()=>{await pool.end();await (globalThis as typeof globalThis & {acquireCampaignPool?:Pool}).acquireCampaignPool?.end();});
