@@ -432,6 +432,22 @@ export function createPostgresHistoryCheckpoints(options: HistoryCheckpointOptio
                 return { committed: true, coverage: finalCoverage };
             });
         },
+        async abandon(input) {
+            const ticket = structuredClone(input);
+            assertSameBinding(b, ticket.binding);
+            if (!id(ticket.scope) || !date(ticket.since) || !date(ticket.startedAt) || !/^\d+$/.test(ticket.revision) || typeof ticket.token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(ticket.token)) fail();
+            await tx(undefined, async c => {
+                await fence(c); await authority(c);
+                // A late failure cannot expire a replacement lease or invalidate
+                // coverage that already committed (including uncertain COMMIT).
+                const owned = await c.query(`UPDATE communications.history_refreshes SET lease_until=clock_timestamp() WHERE connection_id=$1 AND generation=$2 AND scope_digest=$3 AND token_hash=$4 AND capture_revision=$5 AND required_since=$6 AND finished_at IS NULL RETURNING connection_id`, [b.connectionId,b.generation,scopeDigest(ticket.scope),hash(ticket.token),ticket.revision,ticket.since]);
+                if (!owned.rows.length) return;
+                if (owned.rows.length !== 1) fail();
+                await c.query(`UPDATE communications.event_cursors SET invalidated=true,complete=false WHERE connection_id=$1 AND generation=$2 AND scope_digest=$3`, [b.connectionId,b.generation,scopeDigest(ticket.scope)]);
+                await c.query(`SELECT communications.advance_reply_barrier($1,$2)`, bind.slice(0,2));
+                await grant(c);
+            });
+        },
         async invalidate(input, signal) { validate(input); const q = structuredClone(input); await tx(signal, async (c) => { await fence(c); await authority(c); await c.query(`UPDATE communications.event_cursors SET invalidated=true,complete=false WHERE connection_id=$1 AND generation=$2 AND scope_digest=$3`, [b.connectionId, b.generation, scopeDigest(q.scope)]); await c.query(`SELECT communications.advance_reply_barrier($1,$2)`, bind.slice(0, 2)); await grant(c); }); },
         async coverage(input, signal) {
             validate(input);

@@ -1,3 +1,4 @@
+import {localHistoryTurn} from '../../communications/packages/storage-postgres/src/local-history-turn';
 import {businessNow} from '../../communications/packages/core/src/business-clock';
 import {isHistoryRefreshBusyError} from '../../communications/packages/core/src/history-refresh-busy';
 import 'server-only';
@@ -45,6 +46,7 @@ export function createAcquireCommunicationsRuntime(options:AcquireCommunications
  const retainedOutbound=createRetainedOutboundReview({pool:service.pool,captureCodec,eventCodec,subscriberId,providerDigest:(value,version)=>new AccountRuntimeVault(service.vault).providerAccountDigest(value,version),providerAccount:(binding,encrypted,version)=>(new AccountRuntimeVault(service.vault).open(binding,'provider',{encrypted,keyVersion:version,digest:''})as{providerAccountId:string}).providerAccountId,async authorize(scope){await appRead(scope,async()=>undefined);await runtime.store.requireGrant(scope);},async withAuthority(scope,work){return appRead(scope,async c=>{await lockAcquireSendGate(c,scope.tenantId,{required:true});const member=await c.query('SELECT public.communications_lock_reply_member($1,$2) AS allowed',[scope.tenantId,scope.ownerId]);if(member.rows[0]?.allowed!==true)throw Error('Current member required');return work();});}});
  const identity=(b:ConnectionBinding)=>JSON.stringify([b.applicationId,b.tenantId,b.ownerId,b.connectionId,b.accountId,b.generation,b.channel,b.platform,b.backend]);
  const histories=new Map<string,Awaited<ReturnType<typeof createConfiguredUnipileV1History>>>();
+ const historyTurn=<T>(binding:ConnectionBinding,work:()=>Promise<T>,signal?:AbortSignal)=>service.localSimulatorOrigin?localHistoryTurn(service.pool,binding,work,signal):work();
  const channels=new Map<string,Promise<Awaited<ReturnType<typeof compose>>>>();
  const readTimeout=options.applicationReadTimeoutMs??5000;if(!Number.isSafeInteger(readTimeout)||readTimeout<1||readTimeout>5000)throw Error('Invalid application read deadline');
  async function appRead<T>(scope:AccessScope,work:(client:import('../../communications/packages/storage-postgres/src/webhook-repository').SqlClient)=>Promise<T>):Promise<T>{
@@ -87,7 +89,7 @@ export function createAcquireCommunicationsRuntime(options:AcquireCommunications
  }
  async function history(b:ConnectionBinding){
   const k=identity(b),saved=histories.get(k);if(saved)return saved;
-  const result=await createConfiguredUnipileV1History({businessClock:service.businessClock,binding:b,runtime,pool:service.pool,provider:service.provider,integrationId:service.integrationId,providerConfigurationReference:service.providerConfigurationReference,subscriberId,codec:historyCodec,eventCodec,captureCodec,...(b.channel==='linkedin'?{expectedSyncProduct:'classic'}:{}),async dispatchInvitation(input,signal){if(signal.aborted)throw Error('Invitation cancelled');return (await channel(b)).adapter.submit(input);}});
+  const result=await createConfiguredUnipileV1History({businessClock:service.businessClock,...(service.localSimulatorOrigin?{historyTurn:<T>(work:()=>Promise<T>,signal?:AbortSignal)=>historyTurn(b,work,signal)}:{}),binding:b,runtime,pool:service.pool,provider:service.provider,integrationId:service.integrationId,providerConfigurationReference:service.providerConfigurationReference,subscriberId,codec:historyCodec,eventCodec,captureCodec,...(b.channel==='linkedin'?{expectedSyncProduct:'classic'}:{}),async dispatchInvitation(input,signal){if(signal.aborted)throw Error('Invitation cancelled');return (await channel(b)).adapter.submit(input);}});
   histories.set(k,result);return result;
  }
  async function compose(b:ConnectionBinding){
@@ -162,7 +164,8 @@ export function createAcquireCommunicationsRuntime(options:AcquireCommunications
   const deliveries=[];for(let i=0;i<maxDeliveries;i++){const r=await worker.run();deliveries.push(r);if(!['delivered','duplicate'].includes(r.status))break;}
   return {bindingId,deliveries};
  }
- async function readAgentChannelConversation(binding:ConnectionBinding,recipient:CanonicalIdentity,signal?:AbortSignal){
+ async function readAgentChannelConversation(binding:ConnectionBinding,recipient:CanonicalIdentity,signal?:AbortSignal){return historyTurn(binding,()=>readAgentChannelConversationHeld(binding,recipient,signal),signal);}
+ async function readAgentChannelConversationHeld(binding:ConnectionBinding,recipient:CanonicalIdentity,signal?:AbortSignal){
   const b=structuredClone(binding),scope={applicationId:b.applicationId,tenantId:b.tenantId,ownerId:b.ownerId};
   if(signal?.aborted||b.channel==='email'&&recipient.kind!=='email'||b.channel==='whatsapp'&&recipient.kind!=='phone'||b.channel==='linkedin'&&recipient.kind!=='linkedin_profile')throw Error('Recorded channel history unavailable');
   await appRead(scope,async()=>undefined);await runtime.store.requireGrant(scope);
@@ -180,6 +183,10 @@ export function createAcquireCommunicationsRuntime(options:AcquireCommunications
  /** Provider-free catch-up after sequential account scans. Each projection uses
   * the original encrypted coverage under current authority; no revision is stamped. */
  async function revalidateAgentChannelCoverage(raw:ReadonlyArray<{binding:ConnectionBinding;bindingId:string;scopeDigest:string}>,signal?:AbortSignal){
+  if(!Array.isArray(raw)||!raw.length)throw Error('Original channel coverage unavailable');
+  return historyTurn(raw[0].binding,()=>revalidateAgentChannelCoverageHeld(raw,signal),signal);
+ }
+ async function revalidateAgentChannelCoverageHeld(raw:ReadonlyArray<{binding:ConnectionBinding;bindingId:string;scopeDigest:string}>,signal?:AbortSignal){
   if(!Array.isArray(raw)||raw.length<1||raw.length>3)throw Error('Original channel coverage unavailable');
   const selected=structuredClone(raw),first=selected[0].binding;
   if(new Set(selected.map(x=>x.binding.channel)).size!==selected.length||new Set(selected.map(x=>x.bindingId)).size!==selected.length)throw Error('Original channel coverage unavailable');
@@ -215,7 +222,7 @@ export function createAcquireCommunicationsRuntime(options:AcquireCommunications
    if(binding.channel!=='email')throw Error('Recorded email history unavailable');
    return readAgentChannelConversation(binding,{kind:'email',value:recipient},signal);
   },
-  async refreshAndConsume(query:EventQuery,maxDeliveries=100){
+  async refreshAndConsume(query:EventQuery,maxDeliveries=100){return historyTurn(query.binding,async()=>{
    if(!Number.isSafeInteger(maxDeliveries)||maxDeliveries<1||maxDeliveries>1000)throw Error('Invalid delivery bound');
    const b=structuredClone(query.binding),scope={applicationId:b.applicationId,tenantId:b.tenantId,ownerId:b.ownerId};
    await appRead(scope,async()=>undefined);await runtime.store.requireGrant(scope);const source=await history(b),result=await source.refresh(query);
@@ -223,6 +230,6 @@ export function createAcquireCommunicationsRuntime(options:AcquireCommunications
    const projector=createAcquireCoverageProjector({businessClock:service.businessClock,pool:applicationPool,binding:b,bindingId,subscriberId,codec:appCodec,withCoverage:source.repository.withCoverage.bind(source.repository)});
    await projector.project(query);
    return {result,deliveries};
-  }
+  });}
  };
 }

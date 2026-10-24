@@ -36,6 +36,9 @@ export interface HistoryRefreshTicket {
     revision: string;
 }
 export interface HistoryCheckpointPort {
+    /** Release a failed claim only if this exact ticket still owns it. Cleanup
+     * has its own storage deadline; an aborted provider signal cannot skip it. */
+    abandon?(ticket: HistoryRefreshTicket): Promise<void>;
     begin(query: EventQuery, signal?: AbortSignal): Promise<HistoryRefreshTicket | null>;
     commit(ticket: HistoryRefreshTicket, page: EventPage, signal?: AbortSignal): Promise<{
         committed: boolean;
@@ -63,6 +66,7 @@ export function createHistoryBackfillWorker(options: {
     const read = Function.prototype.bind.call(options.source.read, options.source), begin = Function.prototype.bind.call(options.repository.begin, options.repository), commit = Function.prototype.bind.call(options.repository.commit, options.repository), invalidate = Function.prototype.bind.call(options.repository.invalidate, options.repository);
     return { async refresh(input, request) {
             const query = structuredClone(input), signal = request?.signal;
+            let owned: HistoryRefreshTicket | undefined;
             try {
                 assertSameBinding(query.binding, query.binding);
                 if (query.cursor !== null || query.refresh !== true || signal?.aborted)
@@ -70,6 +74,7 @@ export function createHistoryBackfillWorker(options: {
                 const ticket = structuredClone(await begin(structuredClone(query), signal));
                 if (!ticket)
                     return { status: 'busy' };
+                owned = ticket;
                 assertSameBinding(query.binding, ticket.binding);
                 if (ticket.scope !== query.scope || ticket.since !== query.since || signal?.aborted)
                     throw Error();
@@ -79,7 +84,7 @@ export function createHistoryBackfillWorker(options: {
                     throw Error();
                 const result = structuredClone(await commit(structuredClone(ticket), structuredClone(page), signal));
                 if (result.committed !== true)
-                    return { status: 'retry' };
+                    throw Error('History commit not confirmed');
                 assertSameBinding(query.binding, result.coverage.binding);
                 if (result.coverage.scope !== query.scope)
                     return { status: 'retry' };
@@ -87,10 +92,21 @@ export function createHistoryBackfillWorker(options: {
             }
             catch {
                 try {
-                    await invalidate(structuredClone(query), signal);
+                    if (owned) {
+                        if (options.repository.abandon) await options.repository.abandon(structuredClone(owned));
+                        else await invalidate(structuredClone(query), signal);
+                    }
                 }
                 catch { /* A failed invalidation cannot authorize readiness; claim began by invalidating durable coverage. */ }
                 return { status: 'retry' };
             }
         } };
+}
+
+/** Only a completed read invalidated by concurrent activity is eligible for a
+ * fresh scan. Never retry dispatch, busy leases or transport failures here. */
+export async function refreshInvalidatedHistory(refresh:()=>Promise<Awaited<ReturnType<ReturnType<typeof createHistoryBackfillWorker>['refresh']>>>,signal?:AbortSignal){
+ let result=await refresh();
+ for(let attempt=1;attempt<3&&!signal?.aborted&&result.status==='pending'&&result.coverage?.invalidated===true;attempt++)result=await refresh();
+ return result;
 }
