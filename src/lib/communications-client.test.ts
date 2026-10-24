@@ -3,7 +3,7 @@ vi.mock('server-only',()=>({}));const m=vi.hoisted(()=>({db:vi.fn(),config:vi.fn
 vi.mock('./communications-routing',async importOriginal=>({...await importOriginal<object>(),resolveOwnedCommunicationsLane:m.route}));
 import {actorCommunicationsClient} from './communications-client';
 import {createScopedServiceAuth} from '../../communications/packages/core/src/scoped-service-auth';
-afterEach(()=>vi.unstubAllEnvs());
+afterEach(()=>{vi.unstubAllEnvs();vi.restoreAllMocks();});
 it('issues a short-lived service credential only after current owner membership commits',async()=>{
  vi.stubEnv('COMMUNICATIONS_RUNTIME_ENABLED','true');vi.stubEnv('COMMUNICATIONS_SERVICE_URL','https://service.example');vi.stubEnv('COMMUNICATIONS_SCOPED_AUTH_KEY',Buffer.alloc(32,7).toString('base64'));m.db.mockImplementation(async(_actor,work)=>work({}));await actorCommunicationsClient({organizationId:'org',userId:'owner'});expect(m.db).toHaveBeenCalledWith({organizationId:'org',userId:'owner'},expect.any(Function),{readOnly:true});const config=m.config.mock.lastCall?.[0];expect(config.baseUrl).toBe('https://service.example');const auth=createScopedServiceAuth({key:Buffer.alloc(32,7),audience:'communications',applicationId:'acquire',authorize:async()=>true});expect(await auth.verify('Bearer '+config.apiKey)).toEqual({applicationId:'acquire',tenantId:'org',ownerId:'owner'});
 });
@@ -33,11 +33,13 @@ it('never sends an old testing binding to primary after optional lane configurat
 });
 
 it('uses the authenticated independent hosted service only for explicit setup or original hosted bindings without local-mode overrides',async()=>{
+ const clock=1792800000010;vi.spyOn(Date,'now').mockReturnValue(clock);
  const runId='hosted-demo-example',actor={organizationId:'org',userId:'owner'},binding={applicationId:'acquire',tenantId:'org',ownerId:'owner',connectionId:'original',accountId:'account',generation:1,channel:'email',platform:'gmail',backend:'unipile'},descriptor={version:1,mode:'hosted-demo',phase:'active',runId,integrationId:'sim-'+runId,configurationReference:'sim-'+runId+'-v1',applicationOrigin:'https://acquire.example.invalid',serviceOrigin:'https://simulator.example.invalid',setupOrigin:'https://simulator.example.invalid',actor:{applicationId:'acquire',tenantId:'org',ownerId:'owner'},capabilities:{dynamicRecipients:true,recipientContextLookup:true,remoteApplicationAuthority:true,durableEvents:true},bindings:[binding]};
  for(const[k,v]of Object.entries({NODE_ENV:'production',APP_URL:descriptor.applicationOrigin,COMMUNICATIONS_RUNTIME_ENABLED:'true',COMMUNICATIONS_SERVICE_URL:'https://primary.example',COMMUNICATIONS_SCOPED_AUTH_KEY:Buffer.alloc(32,7).toString('base64'),AGENT_HOSTED_DEMO_COMMUNICATIONS_ENABLED:'true',AGENT_HOSTED_DEMO_COMMUNICATIONS_DESCRIPTOR_JSON:JSON.stringify(descriptor),AGENT_HOSTED_DEMO_SERVICE_AUTH_KEY:Buffer.alloc(32,9).toString('base64url')}))vi.stubEnv(k,v);
  m.db.mockImplementation(async(_actor,work)=>work({}));m.route.mockResolvedValue('hosted');m.call.mockClear();m.config.mockClear();
  const setup=await actorCommunicationsClient(actor,{setupLane:'hosted'});await setup.setupConnection(descriptor.actor,{channel:'email',platform:'gmail'});const configured=m.config.mock.lastCall?.[0];expect(configured).toMatchObject({baseUrl:descriptor.serviceOrigin,hostedDemo:{capability:'hosted-demo',origin:descriptor.setupOrigin},allowLoopbackHttp:false});expect(configured).not.toHaveProperty('localSimulatorOrigin');
- const verifier=createScopedServiceAuth({key:Buffer.alloc(32,9),audience:'communications',applicationId:'acquire',authorize:async()=>true});expect(await verifier.verify('Bearer '+configured.apiKey)).toEqual(descriptor.actor);
+ const verifier=createScopedServiceAuth({key:Buffer.alloc(32,9),audience:'communications',applicationId:'acquire',authorize:async()=>true,now:()=>clock-10});expect(await verifier.verify('Bearer '+configured.apiKey)).toEqual(descriptor.actor);
+ const claims=JSON.parse(Buffer.from(configured.apiKey.split('.')[0],'base64url').toString());expect(claims.iat).toBe(clock-1000);expect(claims.exp).toBe(clock+59000);
  const client=await actorCommunicationsClient(actor);await client.connectionStatus(binding as never);expect(m.call.mock.lastCall?.[1]).toBe(descriptor.serviceOrigin);await client.connections(descriptor.actor);expect(m.call.mock.lastCall?.[1]).toBe('https://primary.example');
  await expect(actorCommunicationsClient({...actor,userId:'foreign'},{setupLane:'hosted'})).rejects.toThrow();
 });
