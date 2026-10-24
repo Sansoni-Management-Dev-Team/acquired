@@ -112,10 +112,14 @@ export class AgentStore {
   protected async thread(client: PoolClient, id: string): Promise<AgentThread> {
     const row = (await client.query<AgentThread>('SELECT * FROM agent_threads WHERE id=$1',[uuid.parse(id)])).rows[0];
     if (!row) throw new Error('Agent thread not found');
-    const original=this.workflowClients.get(client);
-    if(!original){const id=await resolveAgentWorkflowContext(client,this.actor,row.mandate_id);this.workflowClients.set(client,{id,mandateId:row.mandate_id});}
-    else if(original.id!==null&&original.mandateId!==row.mandate_id){await bindAgentWorkflowContext(client,this.actor,original.id,row.mandate_id);original.mandateId=row.mandate_id;}
+    await this.bindMandateWorkflow(client,row.mandate_id);
     return row;
+  }
+  /** Read projection and new-command scope also exists before a chat thread. */
+  protected async bindMandateWorkflow(client:PoolClient,mandateId:string){
+    const original=this.workflowClients.get(client);
+    if(!original){const id=await resolveAgentWorkflowContext(client,this.actor,mandateId);this.workflowClients.set(client,{id,mandateId});}
+    else if(original.id!==null&&original.mandateId!==mandateId){await bindAgentWorkflowContext(client,this.actor,original.id,mandateId);original.mandateId=mandateId;}
   }
   /** Async request scope follows the persisted event/effect, never a thread's later execution. */
   withWorkflowExecution<T>(id:string|null,work:()=>Promise<T>){return withAcquisitionWorkflowContext({id,organizationId:this.actor.organizationId,ownerUserId:this.actor.userId},work);}

@@ -7,7 +7,7 @@ const mandate='00000000-0000-4000-8000-000000000001',actor={organizationId:'org'
 const binding={id:'00000000-0000-4000-8000-000000000002',organization_id:'org',owner_user_id:'owner',application_id:'acquire',service_connection_id:'current-connection',service_account_id:'current-account',generation:2,channel:'email',platform:'gmail',backend:'unipile',eligible_for_new_work:true};
 function fixture(){
  const calls:string[]=[],query=vi.fn(async(text:string,values?:unknown[])=>{void values;calls.push(text);return{rowCount:1,rows:text.includes('to_regclass')?[{installed:true}]:text.includes('FROM mandates')?[{id:mandate}]:text.includes('FROM agent_threads')?[]:text.includes('FROM communication_bindings')?[binding,{...binding,id:'old',generation:1,eligible_for_new_work:false}]:[]};});
- class Harness extends AgentChannelStore{protected override async nativeTransaction<T>(work:(c:PoolClient)=>Promise<T>){expect(m.defaults).toHaveBeenCalled();return work({query} as unknown as PoolClient);}}
+ class Harness extends AgentChannelStore{protected override async nativeTransaction<T>(work:(c:PoolClient)=>Promise<T>,_preset?:unknown,readOnly=false){expect(readOnly).toBe(true);expect(m.defaults).toHaveBeenCalled();return work({query} as unknown as PoolClient);}}
  return {query,calls,store:new Harness({} as Pick<Pool,'connect'>,actor)};
 }
 beforeEach(()=>{vi.resetAllMocks();m.defaults.mockResolvedValue([{channel:'email',connectionId:'current-connection',accountId:'current-account',generation:2}]);});
@@ -38,4 +38,11 @@ it('reads the thread channel policy through a read-only transaction',async()=>{
  const query=vi.fn(async()=>({rows:[],rowCount:0}));
  class Harness extends AgentChannelStore{protected override async nativeTransaction<T>(work:(c:PoolClient)=>Promise<T>,_preset?:unknown,readOnly=false){expect(readOnly).toBe(true);return work({query}as unknown as PoolClient);}protected override async thread(){return{id:mandate,mandate_id:mandate,organization_id:'org',owner_user_id:'owner'}as never;}}
  await new Harness({}as Pick<Pool,'connect'>,actor).channelPolicy(mandate);
+});
+it('binds the owned mandate workflow before pre-thread account projection without creating a thread',async()=>{
+ let bound=false;const calls:string[]=[];
+ const query=vi.fn(async(sql:string)=>{calls.push(sql);if(sql.includes('FROM communication_bindings'))return{rows:bound?[binding]:[]};return{rows:sql.includes('FROM mandates')?[{id:mandate}]:[]};});
+ class Harness extends AgentChannelStore{protected override async nativeTransaction<T>(work:(c:PoolClient)=>Promise<T>){return work({query}as unknown as PoolClient);}protected async bindMandateWorkflow(_c:PoolClient,id:string){expect(id).toBe(mandate);bound=true;}}
+ const result=await new Harness({}as Pick<Pool,'connect'>,actor).channelPolicyForMandate(mandate);
+ expect(result.accounts).toHaveLength(1);expect(calls.every(sql=>sql.startsWith('SELECT'))).toBe(true);expect(calls.some(sql=>sql.includes('INSERT'))).toBe(false);
 });

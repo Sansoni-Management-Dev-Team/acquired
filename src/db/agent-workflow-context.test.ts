@@ -23,3 +23,9 @@ it('new mandate commands can discover an owned workflow without changing stored 
 it('legacy schema has no new relation lookup',async()=>{
  const query=vi.fn().mockResolvedValue({rows:[{installed:false}]});expect(await resolveAgentWorkflowContext({query},actor,mandate)).toBeNull();expect(query).toHaveBeenCalledTimes(1);
 });
+it.each(['owner_user_id','organization_id','mandate_id'] as const)('rejects mismatched %s before setting workflow context',async field=>{
+ const query=vi.fn().mockResolvedValue({rows:[{id,organization_id:'org',owner_user_id:'owner',mandate_id:mandate,[field]:'foreign'}]});await expect(bindAgentWorkflowContext({query},actor,id,mandate)).rejects.toThrow('Original workflow execution unavailable');expect(query).toHaveBeenCalledTimes(1);
+});
+it('clears workflow context when an owned mandate has no saved workflow',async()=>{
+ const query=vi.fn().mockResolvedValueOnce({rows:[{installed:true}]}).mockResolvedValue({rows:[]});expect(await resolveAgentWorkflowContext({query},actor,mandate)).toBeNull();expect(query.mock.calls.at(-1)?.[1]).toEqual(['']);
+});

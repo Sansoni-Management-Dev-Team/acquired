@@ -123,8 +123,9 @@ export class AgentChannelStore extends AgentChatStore{
   uuid.parse(mandateId);const defaults=await readManagedDefaults(this.actor);return this.nativeTransaction(async c=>{
    const mandate=(await c.query('SELECT id FROM mandates WHERE id=$1 AND organization_id=$2',[mandateId,this.actor.organizationId])).rows[0];if(!mandate)throw Error('Mandate not found');
    const t=(await c.query('SELECT id FROM agent_threads WHERE mandate_id=$1 AND organization_id=$2 AND owner_user_id=$3',[mandateId,this.actor.organizationId,this.actor.userId])).rows[0];
+   await this.bindMandateWorkflow(c,mandateId);
    return this.policyProjection(c,mandateId,t?.id,defaults);
-  });
+  },undefined,true);
  }
  async saveChannelPolicy(threadId:string,key:string,raw:unknown){
   const input=agentChannelPolicyInputSchema.parse(raw);
