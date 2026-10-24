@@ -95,7 +95,7 @@ export class AgentChannelStore extends AgentChatStore{
   const canConfigureBudgets=(await c.query("SELECT 1 FROM member WHERE organization_id=$1 AND user_id=$2 AND role IN('owner','admin')",[this.actor.organizationId,this.actor.userId])).rowCount===1;
   return {mandateId,policy,accounts,canConfigureBudgets};
  }
- async channelPolicy(threadId:string){const defaults=await readManagedDefaults(this.actor);return this.nativeTransaction(async c=>{const t=await this.thread(c,threadId);return this.policyProjection(c,t.mandate_id,t.id,defaults);});}
+ async channelPolicy(threadId:string){const defaults=await readManagedDefaults(this.actor);return this.nativeTransaction(async c=>{const t=await this.thread(c,threadId);return this.policyProjection(c,t.mandate_id,t.id,defaults);},undefined,true);}
  /** The prepared recipient run is the source of demo routing defaults, never
   * whichever test account happens to appear first or be globally selected. */
  async demoOutreachAccounts(threadId:string){return this.nativeTransaction(async c=>{
@@ -106,7 +106,7 @@ export class AgentChannelStore extends AgentChatStore{
    WHERE mapping.mandate_id=$1 AND mapping.organization_id=$2 AND mapping.created_by=$3 AND mode.mode='demo' AND mode.created_by=$3`,[t.mandate_id,t.organization_id,t.owner_user_id])).rows;
   if(runs.length!==1)throw Error('One saved demo recipient run is required');
   return z.array(z.object({channel:z.enum(['email','whatsapp','linkedin']),bindingId:uuid,bindingDigest:z.string().regex(/^[a-f0-9]{64}$/)})).length(3).parse(runs[0].senders);
- });}
+ },undefined,true);}
  /** Read-only timing exception. Final SQL admission independently rechecks the
   * same exact registered demo run; this supplies no approval or provider authority. */
  async testingSendWindowExempt(threadId:string,routeId:string){

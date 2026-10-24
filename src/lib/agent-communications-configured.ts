@@ -117,7 +117,10 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
     for(const route of routes){signal?.throwIfAborted();checkpointIdentities.push({route,...await originalAccount(threadId,conversationId,route,{conversation:snapshot.conversation,originalAccount:snapshot.accounts.find(account=>account.id===route.bindingId)})});}
     if(!pending.length)return [];
    }
-   const working=checkpointAt===undefined?routes:pending.slice(0,1);
+   // Complete never-observed work before cycling expired early channels. The
+   // original freshness predicate remains mandatory for final completion.
+   const progressRank=(route:RecordedRoute)=>!route.historyComplete||!route.historyObservedAt?0:route.channel==='linkedin'&&store.ingestChannelRelationship&&!route.relationshipObservedAt?1:2;
+   const working=checkpointAt===undefined?routes:[...pending].sort((a,b)=>progressRank(a)-progressRank(b)).slice(0,1);
    for(const route of working){
     const captured=snapshot?{conversation:snapshot.conversation,originalAccount:snapshot.accounts.find(account=>account.id===route.bindingId)}:undefined;
     selected.push({route,...await observe('refresh.ports',()=>prepared&&sameRoute(prepared.route,route)?Promise.resolve(prepared.ports):ports(threadId,conversationId,route,captured,signal))});

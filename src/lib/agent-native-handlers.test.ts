@@ -265,3 +265,24 @@ it('continues only a successful pre-begin history checkpoint and retains ordinar
  continuation.mockClear();dispatch.mockRejectedValue(new AgentPreBeginHistoryError(id,id,id,Error('transport')));
  expect(await handlers['review.approved'](input)).toMatchObject({kind:'defer'});expect(continuation).not.toHaveBeenCalled();
 });
+
+it('moves successful history progress to a bounded continuation even on the fifth attempt, but retains failed-read limits',async()=>{
+ const {AgentHistoryCheckpointPendingError}=await import('./agent-history-checkpoint');const f=fixture(),enqueueEvent=vi.fn();f.mock.nativeDecisionContext.mockResolvedValue({...context,deliveryMode:'communications'});
+ const refreshProviderHistory=vi.fn().mockRejectedValue(new AgentHistoryCheckpointPendingError());
+ const handlers=createNativeAgentHandlers({store:{...f.mock,enqueueEvent} as unknown as AgentModelStore,decide:()=>f.decide,refreshProviderHistory});
+ expect(await handlers['conversation.reassess']({...execution,event:{...event,attempts:5}})).toEqual({kind:'complete'});
+ expect(enqueueEvent).toHaveBeenCalledWith(id,'history-preparation:'+id+':1','conversation.reassess',{...event.payload,historyRoot:id,historyStep:1});expect(f.decide).not.toHaveBeenCalled();
+ enqueueEvent.mockClear();refreshProviderHistory.mockRejectedValue(Error('Provider unavailable'));
+ expect(await handlers['conversation.reassess']({...execution,event:{...event,attempts:3}})).toMatchObject({kind:'review'});expect(enqueueEvent).not.toHaveBeenCalled();expect(f.decide).not.toHaveBeenCalled();
+});
+it('uses the persisted history-only anchor after a continuation event is created later',async()=>{
+ const f=fixture(),anchor='2026-10-24T00:00:00.000Z',refreshProviderHistory=vi.fn(),conversation=vi.fn(async()=>({history_complete:true}));const handlers=createNativeAgentHandlers({store:{...f.mock,conversation} as unknown as AgentModelStore,refreshProviderHistory});
+ await handlers['conversation.history_changed']({...execution,event:{...event,kind:'conversation.history_changed',created_at:'2026-10-24T00:05:00.000Z',payload:{conversationId:id,historyRoot:id,historyStep:3,historyAnchor:anchor}}});
+ expect(refreshProviderHistory).toHaveBeenCalledWith(id,id,execution.signal,anchor);
+});
+it('carries the eligible channel-due trigger into a bounded reassessment without copying the route payload',async()=>{
+ const {AgentHistoryCheckpointPendingError}=await import('./agent-history-checkpoint'),f=fixture(),enqueueEvent=vi.fn(),channelDue=vi.fn(async()=>({conversationId:id,epoch:1,reminderGeneration:1}));f.mock.nativeDecisionContext.mockResolvedValue({...context,deliveryMode:'communications'});
+ const handlers=createNativeAgentHandlers({store:{...f.mock,enqueueEvent} as unknown as AgentModelStore,channelDue,refreshProviderHistory:async()=>{throw new AgentHistoryCheckpointPendingError();}}),payload={conversationId:id,routeId:id,policyRevision:7,scheduledAt:'2026-10-24T00:00:00.000Z'};
+ expect(await handlers['channel.due']({...execution,event:{...event,kind:'channel.due',payload}})).toEqual({kind:'complete'});expect(channelDue).toHaveBeenCalledWith(id,payload);expect(enqueueEvent).toHaveBeenCalledWith(id,'history-preparation:'+id+':1','conversation.reassess',{conversationId:id,epoch:1,reminderGeneration:1,historyRoot:id,historyStep:1});
+ enqueueEvent.mockClear();expect(await handlers['conversation.reassess']({...execution,event:{...event,payload:{...event.payload,historyRoot:id,historyStep:12}}})).toMatchObject({kind:'review'});expect(enqueueEvent).not.toHaveBeenCalled();
+});

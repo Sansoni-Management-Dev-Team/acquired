@@ -27,9 +27,15 @@ it('does not project another account generation or a real default absent from th
 it('derives demo defaults from one immutable prepared recipient run using owned read-only queries',async()=>{
  const senders=(['email','whatsapp','linkedin']as const).map((channel,i)=>({channel,bindingId:`00000000-0000-4000-8000-00000000000${i+3}`,bindingDigest:'a'.repeat(64),accountId:'private-service-reference'}));
  const query=vi.fn(async(sql:string)=>({rows:sql.includes('SELECT DISTINCT run.id,run.senders')?[{id:mandate,senders}]:[]}));
- class Harness extends AgentChannelStore{protected override async nativeTransaction<T>(work:(c:PoolClient)=>Promise<T>){return work({query}as unknown as PoolClient);}protected override async thread(){return{id:mandate,mandate_id:mandate,organization_id:'org',owner_user_id:'owner'} as never;}}
+ class Harness extends AgentChannelStore{protected override async nativeTransaction<T>(work:(c:PoolClient)=>Promise<T>,_preset?:unknown,readOnly=false){expect(readOnly).toBe(true);return work({query}as unknown as PoolClient);}protected override async thread(){return{id:mandate,mandate_id:mandate,organization_id:'org',owner_user_id:'owner'} as never;}}
  const store=new Harness({}as Pick<Pool,'connect'>,actor);expect(await store.demoOutreachAccounts(mandate)).toEqual(senders.map(({channel,bindingId,bindingDigest})=>({channel,bindingId,bindingDigest})));
  const [sql,params]=query.mock.calls[0] as unknown as [string,string[]];expect(params).toEqual([mandate,'org','owner']);for(const guard of ["mode.mode='demo'",'mode.created_by=$3','mapping.created_by=$3','mapping.organization_id=$2'])expect(sql).toContain(guard);expect(sql.startsWith('SELECT')).toBe(true);
  query.mockResolvedValueOnce({rows:[]});await expect(store.demoOutreachAccounts(mandate)).rejects.toThrow('One saved demo');
  query.mockResolvedValueOnce({rows:[{id:mandate,senders},{id:'other',senders}]});await expect(store.demoOutreachAccounts(mandate)).rejects.toThrow('One saved demo');
+});
+
+it('reads the thread channel policy through a read-only transaction',async()=>{
+ const query=vi.fn(async()=>({rows:[],rowCount:0}));
+ class Harness extends AgentChannelStore{protected override async nativeTransaction<T>(work:(c:PoolClient)=>Promise<T>,_preset?:unknown,readOnly=false){expect(readOnly).toBe(true);return work({query}as unknown as PoolClient);}protected override async thread(){return{id:mandate,mandate_id:mandate,organization_id:'org',owner_user_id:'owner'}as never;}}
+ await new Harness({}as Pick<Pool,'connect'>,actor).channelPolicy(mandate);
 });

@@ -32,3 +32,9 @@ it('resolves an immutable work binding and leaves an unbound historical enrolmen
 });
 
 it('records the same verified immutable generation through an explicit scoped pool without selecting defaults',async()=>{const pool={connect:vi.fn()},options={pool};m.db.mockImplementation(async(_actor,work)=>work({query:m.query}));m.query.mockImplementation(async(sql:string)=>({rows:sql.includes('FROM public.communication_bindings')?[{id:'owned-original',service_account_id:'a',platform:'gmail',backend:'unipile',authority:'service',channel:'email'}]:[]}));expect(await recordManagedConnection(actor,{...connection,isDefault:false},options)).toBe('owned-original');expect(m.db).toHaveBeenLastCalledWith(actor,expect.any(Function),options);expect(m.query.mock.lastCall?.[0]).not.toMatch(/INSERT|UPDATE|DELETE/);});
+it('reads defaults without the mutation send gate while preserving the scoped actor',async()=>{
+ m.db.mockClear();m.query.mockClear();m.db.mockImplementation(async(_actor,work)=>work({query:m.query}));m.query.mockResolvedValue({rows:[]});
+ await readManagedDefaults(actor);
+ expect(m.db).toHaveBeenCalledWith(actor,expect.any(Function),{readOnly:true});
+ expect(m.query.mock.calls.every(([sql])=>/^SELECT /.test(sql))).toBe(true);
+});

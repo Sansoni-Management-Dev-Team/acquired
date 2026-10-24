@@ -1,3 +1,5 @@
+import {drizzle} from 'drizzle-orm/node-postgres';
+import {FirmableHistoryRepository} from '../src/db/firmable-history-repository';
 import {Pool} from 'pg';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
@@ -33,6 +35,13 @@ async function main(){
  await withAcquisitionWorkflowContext(scope,async()=>{
   const client=await pool.connect();try{await client.query('BEGIN');await client.query("UPDATE research_jobs SET status='extracting' WHERE id=$1",[execution.id]);await client.query('COMMIT');}finally{client.release();}
  });
+ const company=randomUUID(),peopleRun=randomUUID();
+ await base.query("INSERT INTO targets(id,organization_id,company_name,firmographics) VALUES($1,$2,'Synthetic reconciliation company','{}')",[company,org]);
+ await base.query("INSERT INTO firmable_sync_runs(id,organization_id,actor_id,target_id,request_key,trigger,status) VALUES($1::uuid,$2,$3,$4,$1::text,'people','complete')",[peopleRun,org,user,company]);
+ await withAcquisitionWorkflowContext(scope,()=>pool.query("UPDATE research_jobs SET config=jsonb_build_object('companyPeopleRunIds',jsonb_build_array($2::text)) WHERE id=$1",[execution.id,peopleRun]));
+ const history=new FirmableHistoryRepository(drizzle(pool) as never);
+ assert.deepEqual(await history.reconcileProfileProgress(peopleRun),{found:0,saved:0,failed:0,attempted:0,pending:0});
+ assert.equal((await base.query("SELECT config->'companyPeopleProgress'->>'settled' AS settled FROM research_jobs WHERE id=$1",[execution.id])).rows[0].settled,'true');
  await withAcquisitionWorkflowContext(scope,()=>pool.query("UPDATE research_jobs SET status='complete' WHERE id=$1",[execution.id]));
  const view=await ensureWorkflowResearch(base,actor,(await store.read(execution.id))!,ports);assert.equal(view.status,'complete');assert.equal((await store.read(execution.id))?.state,'complete');
  const legacy=randomUUID(),legacyMandate=randomUUID();
@@ -41,6 +50,6 @@ async function main(){
  await assert.rejects(()=>withAcquisitionWorkflowContext(scope,()=>pool.query('UPDATE research_jobs SET workflow_execution_id=$1 WHERE id=$2',[execution.id,legacy])));
  assert.equal((await base.query('SELECT workflow_execution_id FROM research_jobs WHERE id=$1',[legacy])).rows[0].workflow_execution_id,null);
  const emptyContext=await base.query("SELECT nullif(current_setting('app.acquire_workflow_execution',true),'') AS execution");assert.equal(emptyContext.rows[0].execution,null);
- console.log(JSON.stringify({passed:true,actualResearchAdapter:true,actualScopedPool:true,explicitTransaction:true,jobAssociation:true,replayNoSecondStart:true,unscopedWriteRejected:true,researchOnlyStops:true,legacyCannotAdopt:true,poolContextReset:true,noExternalCalls:true,concurrentReplayCount:concurrent.length,startLatencyMs:timings,fixtureRetained:true}));
+ console.log(JSON.stringify({passed:true,actualResearchAdapter:true,actualScopedPool:true,explicitTransaction:true,firmableParentContext:true,jobAssociation:true,replayNoSecondStart:true,unscopedWriteRejected:true,researchOnlyStops:true,legacyCannotAdopt:true,poolContextReset:true,noExternalCalls:true,concurrentReplayCount:concurrent.length,startLatencyMs:timings,fixtureRetained:true}));
 }
 main().catch(error=>{console.error(error);process.exitCode=1}).finally(()=>base.end());

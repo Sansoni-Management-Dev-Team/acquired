@@ -334,3 +334,17 @@ it('does not retain successful checkpoint hints for another dispatch call',async
  const x=await preparedDispatchFixture();await x.service.prepareDispatch('thread',conversation,operation);await x.service.dispatch('thread',conversation,operation);
  expect(f.read).not.toHaveBeenCalled();await x.service.dispatch('thread',conversation,operation);expect(f.read).toHaveBeenCalledOnce();
 });
+
+it('finishes missing channel checkpoints before rereading stale early channels under interleaved latency',async()=>{
+ const x=fixture(),instant=Date.parse('2026-10-24T00:00:00Z'),clock=vi.spyOn(Date,'now').mockReturnValue(instant+270000);
+ const accounts=['email','whatsapp','linkedin'].map((channel,i)=>({...binding,id:`40000000-0000-4000-8000-00000000000${i+1}`,channel,platform:channel==='email'?'gmail':channel,service_connection_id:'connection-'+channel,service_account_id:'account-'+channel}));
+ const routes=accounts.map((b,i)=>({id:`50000000-0000-4000-8000-00000000000${i+1}`,conversationId:conversation,channel:b.channel,bindingId:b.id,bindingDigest:recordedAgentBindingDigest(b),recipient:{kind:b.channel==='email'?'email':b.channel==='whatsapp'?'phone':'linkedin_profile',value:b.channel==='email'?'person@example.invalid':b.channel==='whatsapp'?'+61400000002':'https://www.linkedin.com/in/peer'},historyComplete:i<2,historyObservedAt:i<2?new Date(instant+i*90000).toISOString():null,relationshipObservedAt:null as string|null}));
+ const store={...x.store,historyAccountSnapshot:vi.fn(async()=>({conversation:x.row,accounts,routes:structuredClone(routes)})),channelRoutes:vi.fn(async()=>structuredClone(routes)),ingestChannelHistory:vi.fn(async(_t:string,_c:string,id:string)=>{const r=routes.find(r=>r.id===id)!;r.historyComplete=true;r.historyObservedAt=new Date(Date.now()).toISOString();}),ingestChannelRelationship:vi.fn(async(_t:string,_c:string,id:string)=>{routes.find(r=>r.id===id)!.relationshipObservedAt=new Date(Date.now()).toISOString();})};
+ f.read.mockImplementation(async(selected)=>({binding:selected,source:'communications',complete:true,observedAt:new Date(Date.now()).toISOString(),messages:[],scopeDigest:'a'.repeat(64)}));f.relationship.mockImplementation(async()=>({status:'connected',observedAt:new Date(Date.now()).toISOString()}));
+ const service=configuredAgentCommunications(actor,store as never);
+ try{await expect(service.refreshCheckpoint('thread',conversation,new Date(Date.now()-255000).toISOString())).rejects.toMatchObject({name:'AgentHistoryCheckpointPendingError'});expect(f.read.mock.calls[0][0].channel).toBe('linkedin');
+ clock.mockReturnValue(instant+360000);await expect(service.refreshCheckpoint('thread',conversation,new Date(Date.now()-255000).toISOString())).rejects.toMatchObject({name:'AgentHistoryCheckpointPendingError'});expect(f.relationship).toHaveBeenCalledOnce();expect(f.read).toHaveBeenCalledTimes(1);
+ // Freshness is still enforced: completing missing work does not admit old email history.
+ await expect(service.refreshCheckpoint('thread',conversation,new Date(Date.now()-255000).toISOString())).rejects.toMatchObject({name:'AgentHistoryCheckpointPendingError'});expect(f.read.mock.calls[1][0].channel).toBe('email');expect(f.dispatch).not.toHaveBeenCalled();
+ }finally{clock.mockRestore();}
+});

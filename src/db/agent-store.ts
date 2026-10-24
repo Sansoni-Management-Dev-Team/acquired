@@ -485,7 +485,7 @@ export class AgentStore {
     });
   }
   async findThread(mandateId:string):Promise<AgentThread|undefined>{
-    return this.transaction(async c=>(await c.query<AgentThread>('SELECT * FROM agent_threads WHERE organization_id=$1 AND mandate_id=$2 AND owner_user_id=$3',[this.actor.organizationId,uuid.parse(mandateId),this.actor.userId])).rows[0]);
+    return this.transaction(async c=>(await c.query<AgentThread>('SELECT * FROM agent_threads WHERE organization_id=$1 AND mandate_id=$2 AND owner_user_id=$3',[this.actor.organizationId,uuid.parse(mandateId),this.actor.userId])).rows[0],undefined,true);
   }
   async beginConversationTurn(threadId:string,requestKey:string,text:string):Promise<{kind:'started'|'busy'|'complete'|'failed';operationId:string;messageId?:string;text?:string}>{
     const request=key.parse(requestKey),question=z.string().trim().min(1).max(5000).parse(text);
