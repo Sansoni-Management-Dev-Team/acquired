@@ -409,3 +409,22 @@ it('accepts an authenticated terminal prewrite review proof through existing res
  const repo=createAcquireSendAdmission({...f.options,proveNoSubmission:prove});f.calls.length=0;
  const resolution=await repo.resolveNoSubmission!(first.submission.snapshot);expect(resolution).toMatchObject({intentId:first.intentId,operationKey:first.submission.snapshot.key});expect(await repo.resolveNoSubmission!(first.submission.snapshot)).toEqual(resolution);expect(f.intents).toHaveLength(1);expect(f.calls.some(sql=>sql.includes('quota_buckets'))).toBe(false);
 });
+
+it.each([true,false])('sets actor and optional runtime scope in one statement before authority locks (registered=%s)',async registered=>{
+ vi.stubEnv('AGENT_WORKER_SCOPE_MODE',registered?'registered':'global');vi.stubEnv('AGENT_WORKER_RUNTIME_ID','hosted-session-test');
+ try{
+  const f=fixture();await expect(f.repo.getPreparedIntent({sourceKind:'agent',sourceId:'operation'})).resolves.toBeNull();
+  const settings=f.query.mock.calls.filter(([sql])=>sql.includes('set_config'));
+  expect(settings).toHaveLength(1);
+  expect(settings[0][0]).toContain("set_config('app.acquire_org',$3,true)");
+  expect(settings[0][1]?.slice(2,4)).toEqual(['org','owner']);
+  if(registered){expect(settings[0][0]).toContain("set_config('app.acquire_runtime_id',$5,true)");expect(settings[0][1]?.slice(4)).toEqual(['hosted-session-test','false']);}
+  else{expect(settings[0][0]).not.toContain('app.acquire_runtime_id');expect(settings[0][1]).toHaveLength(4);}
+  expect(f.calls[0]).toBe('BEGIN ISOLATION LEVEL SERIALIZABLE');
+  expect(f.calls.indexOf('SET LOCAL ROLE acquire_campaign_user')).toBeLessThan(f.calls.indexOf(settings[0][0]));
+  expect(f.calls.findIndex(sql=>sql.includes('pg_roles'))).toBeLessThan(f.calls.indexOf(settings[0][0]));
+  expect(f.calls.indexOf(settings[0][0])).toBeLessThan(f.calls.findIndex(sql=>sql.includes('communications_lock_send_gate')));
+  expect(f.calls.some(sql=>sql.includes('communications_lock_send_member'))).toBe(true);
+  expect(f.calls.at(-1)).toBe('COMMIT');
+ }finally{vi.unstubAllEnvs();}
+});

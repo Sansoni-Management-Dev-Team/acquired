@@ -298,9 +298,10 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
             const roles = await tx.query('SELECT current_user AS role_name,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user');
             if (roles.rows.length !== 1 || roles.rows[0].role_name !== 'acquire_campaign_user' || roles.rows[0].rolsuper !== false || roles.rows[0].rolbypassrls !== false)
                 fail();
-            await tx.query("SELECT set_config('statement_timeout',$1,true),set_config('lock_timeout',$2,true),set_config('app.acquire_org',$3,true),set_config('app.acquire_user',$4,true)", [`${Math.min(timeout, 5000)}ms`, `${Math.min(timeout, 1000)}ms`, ...scope]);
             const runtime=agentTransactionRuntimeContext();
-            if(runtime.runtimeId)await tx.query("SELECT set_config('app.acquire_runtime_id',$1,true),set_config('app.acquire_channel_simulation',$2,true)",[runtime.runtimeId,runtime.channelSimulation?'true':'false']);
+            // These independent transaction-local settings must all precede the
+            // authority gate. One round trip retains the same role and lock fences.
+            await tx.query("SELECT set_config('statement_timeout',$1,true),set_config('lock_timeout',$2,true),set_config('app.acquire_org',$3,true),set_config('app.acquire_user',$4,true)"+(runtime.runtimeId?",set_config('app.acquire_runtime_id',$5,true),set_config('app.acquire_channel_simulation',$6,true)":""), [`${Math.min(timeout, 5000)}ms`, `${Math.min(timeout, 1000)}ms`, ...scope,...(runtime.runtimeId?[runtime.runtimeId,runtime.channelSimulation?'true':'false']:[])]);
             const revision = await lockAcquireSendGate(tx, binding.tenantId, { required: true });
             const member = async () => {
                 const r = await tx.query('SELECT public.communications_lock_send_member($1,$2) AS allowed', scope);
