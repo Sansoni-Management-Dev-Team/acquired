@@ -4115,3 +4115,12 @@ Implemented a narrow duplicate-read correction: the invitation-aware store previ
 - TDD: initial three selection/native-admission regressions failed; separate outer fetch-policy regression failed; final focused suite 37 passed. ESLint passed. Worker-specific TypeScript check still reports three existing callback-signature mismatches at index.ts365/370/373, unrelated to this option; no claim of a clean worker typecheck.
 - Added sanitized `ops/agent-mode/compose.isolated-research.yml` and `isolated-research.md` to reproduce sidecars without touching original app/simulator services or storing credentials. Private state persists across restarts.
 - Not yet activated in the isolated worker; normal workflow acceptance with Bing remains the next check. No production change or migration.
+
+### Isolated Bing normal-route acceptance
+
+- Activated reviewed c2a41d2 from main in the isolated research sidecar only. Existing original runtime, simulator, database and production deployments unchanged.
+- Normal authenticated `live-research-test` fc70757e-a91c-4ded-aa14-ab31781bbb7a ran the hybrid web/Firmable pathway on the verified `acquire_agent_mode` / `acquire-agent-mode-local-only` database. Default target was temporarily one, persisted in its root job, then restored to the saved setting.
+- Physical Bing search returned HTTP200 (~3.1s/~2.6s); normal Firmable company and people search/profile calls returned200 and callbacks persisted 19 company memberships, 17 linked people and14 findings. Some company lookups legitimately returned404.
+- Bounded acceptance ended with normal cancellation HTTP200, preserving evidence: final research-job status counts20 complete,2 partial,18 cancelled. This proves functioning local search/enrichment/callback integration, NOT natural completion of the whole workflow. No outreach approved or sent.
+- Private receipts/config backups: independent simulator `.local-data/isolated-workspace/research/bing-canary.private.json`; safe backend evidence release `.local-data/bing-runtime.private.log`. Clean detached102884f independently reproduced the same three pre-existing worker type errors (`.local-data/bing-baseline-types.log`).
+- View saved local results: https://acquire-isolated.orb.local/mandates/fc70757e-a91c-4ded-aa14-ab31781bbb7a . Use the isolated test account. This result is independent of the production communications canary still under investigation.
