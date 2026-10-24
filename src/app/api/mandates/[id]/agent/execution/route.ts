@@ -1,3 +1,4 @@
+import {wakeNativeAgentAfterCommit} from '@/lib/agent-native-wake';
 import {refreshCompanyProjectionsBeforeNativeControl} from '@/lib/company-projection-refresh';
 import {z} from 'zod';
 import {guardBrowserMutation} from '@/lib/browser-mutation';
@@ -66,6 +67,7 @@ export async function POST(request:Request,context:Context){
   if(action==='start'||action==='resume')try{await initializeAgentChannelDefaults(data.store,thread.id,requestKey);}catch{
    console.info('agent-channel-defaults',JSON.stringify({module:'agent-channel-defaults',mandateId:(await context.params).id,stage:'settings_not_ready',timestamp:new Date().toISOString()}));
   }
+  if(['start','resume','resume_held','refresh_held_history','refresh_review_history','reassess_conversation'].includes(action))wakeNativeAgentAfterCommit();
   return Response.json({result},{headers});
  }catch(cause){return failure(cause);}
 }

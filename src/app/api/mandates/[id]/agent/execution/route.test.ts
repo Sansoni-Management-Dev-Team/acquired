@@ -1,3 +1,5 @@
+const wake=vi.hoisted(()=>vi.fn());
+vi.mock('@/lib/agent-native-wake',()=>({wakeNativeAgentAfterCommit:wake}));
 vi.mock('@/lib/agent-start-outreach',()=>({initializeAgentChannelDefaults:vi.fn()}));
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 const mock=vi.hoisted(()=>({scope:vi.fn(),state:vi.fn(),open:vi.fn(),control:vi.fn(),begin:vi.fn(),commit:vi.fn(),adopt:vi.fn(),projection:vi.fn()}));
@@ -43,3 +45,5 @@ it('returns one scoped controls bundle only when requested and never starts work
  expect(response.status).toBe(200);expect(controlsSnapshot).toHaveBeenCalledWith(id,'owned-thread');expect(mock.state).not.toHaveBeenCalled();expect(mock.control).not.toHaveBeenCalled();
  expect(await response.json()).toMatchObject({state:{mandateRevision:'123'},controls:{grants:[],inbox:{tasks:[]}}});
 });
+
+it('wakes only after a confirmed control commit, never on rejected or ambiguous failure',async()=>{mock.control.mockRejectedValueOnce(Error('commit response unavailable'));expect((await POST(request(),context)).status).toBe(409);expect(wake).not.toHaveBeenCalled();expect((await POST(request(),context)).status).toBe(200);expect(wake).toHaveBeenCalledOnce();});
