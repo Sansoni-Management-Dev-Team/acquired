@@ -55,6 +55,8 @@ export interface AcquireSendAdmissionOptions {
         keyVersion: string;
     } | null>;
     timeoutMs?: number;
+    /** Trusted hosted composition only: absolute open + held transaction budget. */
+    heldSessionTimeoutMs?: number;
     coverageMaxAgeSeconds?: number;
 }
 export interface PreparedAcquireIntent {
@@ -178,7 +180,7 @@ export const acquireSourceDigest = (v: unknown) => createHash('sha256').update(J
 const timestamp = (v: unknown) => v instanceof Date ? Date.prototype.toISOString.call(v) : typeof v === 'string' && Number.isFinite(Date.parse(v)) ? new Date(v).toISOString() : fail();
 export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOptions): AcquireSendAdmission {
     let diagnostic:DispatchDiagnosticPort|undefined;
-    let binding: ConnectionBinding, bindingId: string, connect: SqlPool['connect'], encode: AcquireSendAdmissionOptions['codec']['encode'], decode: AcquireSendAdmissionOptions['codec']['decode'], digest: AcquireSendAdmissionOptions['codec']['digest'], verify: AcquireSendAdmissionOptions['verifyServiceAdmission'], keyVersion: string, timeout: number, maxAge: number, prove: AcquireSendAdmissionOptions['proveNoSubmission'],loadContext:AcquireSendAdmissionOptions['loadExecutionContext'];
+    let binding: ConnectionBinding, bindingId: string, connect: SqlPool['connect'], encode: AcquireSendAdmissionOptions['codec']['encode'], decode: AcquireSendAdmissionOptions['codec']['decode'], digest: AcquireSendAdmissionOptions['codec']['digest'], verify: AcquireSendAdmissionOptions['verifyServiceAdmission'], keyVersion: string, timeout: number, heldTimeout:number, maxAge: number, prove: AcquireSendAdmissionOptions['proveNoSubmission'],loadContext:AcquireSendAdmissionOptions['loadExecutionContext'];
     try {
         const o = plain(inputOptions);
         if(o.diagnostic!==undefined&&(typeof o.diagnostic!=='function'||types.isProxy(o.diagnostic)))fail();
@@ -192,8 +194,9 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
         const c = pool.connect, e = codec.encode, d = codec.decode, h = codec.digest, v = o.verifyServiceAdmission;
         keyVersion = codec.keyVersion;
         timeout = Number(o.timeoutMs ?? 20000);
+        heldTimeout=Number(o.heldSessionTimeoutMs??timeout);
         maxAge = Number(o.coverageMaxAgeSeconds ?? 300);
-        if (binding.applicationId !== 'acquire' || binding.backend !== 'unipile' || !id(bindingId) || !id(keyVersion, 64) || [c, e, d, h, v].some(fn => typeof fn !== 'function') || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 25000 || !Number.isSafeInteger(maxAge) || maxAge < 1 || maxAge > 300)
+        if (binding.applicationId !== 'acquire' || binding.backend !== 'unipile' || !id(bindingId) || !id(keyVersion, 64) || [c, e, d, h, v].some(fn => typeof fn !== 'function') || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 25000 || !Number.isSafeInteger(heldTimeout)||heldTimeout<1||heldTimeout>45000 || !Number.isSafeInteger(maxAge) || maxAge < 1 || maxAge > 300)
             fail();
         connect = Function.prototype.bind.call(c, pool);
         encode = Function.prototype.bind.call(e, codec);
@@ -217,11 +220,11 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
             fail();
         return { json: JSON.stringify(e), version: e.keyVersion, digest: digest(structuredClone(s), 'context', structuredClone(v), e.keyVersion) };
     }
-    async function session(signal?:AbortSignal,operationDeadline?:number){
-        const deadline=Math.min(performance.now()+timeout,operationDeadline??Number.POSITIVE_INFINITY);
+    async function session(signal?:AbortSignal,operationDeadline?:number,sessionTimeout=timeout){
+        const deadline=Math.min(performance.now()+sessionTimeout,operationDeadline??Number.POSITIVE_INFINITY);
         for(let attempt=0;attempt<10;attempt++){
             let serialization=false;
-            try{return await sessionOnce(signal,deadline,()=>{serialization=true;});}
+            try{return await sessionOnce(signal,deadline,()=>{serialization=true;},sessionTimeout);}
             catch(error){
                 if(!serialization||attempt===9||signal?.aborted||performance.now()>=deadline)throw error;
                 // A retired, rolled-back bootstrap has no intent or external effect.
@@ -239,10 +242,10 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
         }
         return fail();
     }
-    async function sessionOnce(signal?: AbortSignal, operationDeadline?: number,onSerialization?:()=>void) {
+    async function sessionOnce(signal?: AbortSignal, operationDeadline?: number,onSerialization?:()=>void,sessionTimeout=timeout) {
         let bootstrapComplete=false,bootstrapSerialization=false;
         let client: SqlClient | undefined, closed = false, committing = false, committed = false, inFlight = 0;
-        const deadline = Math.min(performance.now() + timeout, operationDeadline ?? Number.POSITIVE_INFINITY);
+        const deadline = Math.min(performance.now() + sessionTimeout, operationDeadline ?? Number.POSITIVE_INFINITY);
         let stoppedReject!: (e: Error) => void;
         const stopped = new Promise<never>((_, reject) => { stoppedReject = reject; });
         void stopped.catch(() => { });
@@ -716,7 +719,7 @@ export function createAcquireSendAdmission(inputOptions: AcquireSendAdmissionOpt
                 assertSameBinding(binding, captured.record.snapshot.binding);
                 if (captured.record.state !== 'claimed' || !id(captured.claimToken) || !/^\d+$/.test(captured.serviceRevision))
                     fail();
-                s = await session(signal);
+                s = await session(signal,undefined,heldTimeout);
 
                 const row = await stored(s.tx, captured.record.snapshot.key);
                 if (!row)

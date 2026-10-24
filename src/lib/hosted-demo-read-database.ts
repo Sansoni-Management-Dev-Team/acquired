@@ -15,18 +15,19 @@ export function createHostedDemoReadPool(env:Readonly<Record<string,string|undef
 
 /** Scoped lookup only. The real projector/admission still rechecks the binding,
  * membership, writer gate and original proof inside its retained transaction. */
-export function createHostedDemoReadSession(input:AccessScope,pool:SqlPool,options:{allowRowLocks?:boolean}={}){
- const scope=structuredClone(input);
+export function createHostedDemoReadSession(input:AccessScope,pool:SqlPool,options:{allowRowLocks?:boolean;timeoutMs?:number}={}){
+ const scope=structuredClone(input),timeout=options.timeoutMs??5000;
+ if(!Number.isSafeInteger(timeout)||timeout<1||timeout>10000)unavailable();
  // The existing effective-contact definer takes FOR SHARE to preserve source
  // CAS. Its trusted read-only lookup needs a locking transaction, without the
  // unrelated organization writer gate held by the original send admission.
  const begin=options.allowRowLocks===true?'BEGIN':'BEGIN READ ONLY';
  return async function read<T>(work:(client:SqlClient)=>Promise<T>):Promise<T>{
-  let physical:SqlClient|undefined,closed=false;const deadline=performance.now()+5000;
+  let physical:SqlClient|undefined,closed=false;const deadline=performance.now()+timeout;
   const dispose=(error?:Error)=>{if(closed)return;closed=true;physical?.release(error);};
   const live=()=>{if(closed||performance.now()>=deadline)unavailable();};
   let timer:ReturnType<typeof setTimeout>;
-  const stopped=new Promise<never>((_,reject)=>{timer=setTimeout(()=>{dispose(Error('Hosted read retired'));reject(Error('Hosted read unavailable'));},5000);});
+  const stopped=new Promise<never>((_,reject)=>{timer=setTimeout(()=>{dispose(Error('Hosted read retired'));reject(Error('Hosted read unavailable'));},timeout);});
   const run=(async()=>{try{
    const acquired=await pool.connect();if(closed){acquired.release(Error('Hosted read retired'));return unavailable();}physical=acquired;
    const query:SqlClient['query']=async(text,values)=>{live();const result=await acquired.query(text,values);live();return result as never;};

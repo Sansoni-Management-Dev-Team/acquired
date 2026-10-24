@@ -428,3 +428,14 @@ it.each([true,false])('sets actor and optional runtime scope in one statement be
   expect(f.calls.at(-1)).toBe('COMMIT');
  }finally{vi.unstubAllEnvs();}
 });
+it('uses the explicit held-session budget only for open and never renews it at permit creation',async()=>{
+ const f=fixture(),p=await f.repo.prepare({source,message,coverageScopes:[{bindingId:'binding',scopeDigest:'a'.repeat(64)}]});
+ vi.useFakeTimers();try{
+ const original=f.query.getMockImplementation()!;let delay=true;f.query.mockImplementation(async(sql,args)=>{if(delay&&sql.includes('FROM public.communication_dispatch_intents')){delay=false;await new Promise(r=>setTimeout(r,25000));}return original(sql,args);});
+ const repo=createAcquireSendAdmission({...f.options,heldSessionTimeoutMs:45000});
+ const pending=repo.open({record:{snapshot:p.submission.snapshot,recipient:message.recipient,state:'claimed'},claimToken:'claim',serviceRevision:'1'},new AbortController().signal);
+ await vi.advanceTimersByTimeAsync(25000);const held=await pending;expect(held.kind).toBe('held');if(held.kind!=='held')throw Error('Expected held');
+ await vi.advanceTimersByTimeAsync(20001);expect(f.release).toHaveBeenLastCalledWith(expect.any(Error));
+ await expect(held.permit.commit({permitId:held.permit.permitId,intentDigest:held.permit.intentDigest,journalId:'journal',admissionId:'admission',snapshot:p.submission.snapshot,fencingToken:'1',serviceRevision:'1'},new AbortController().signal)).rejects.toThrow();
+ }finally{vi.useRealTimers();}
+});

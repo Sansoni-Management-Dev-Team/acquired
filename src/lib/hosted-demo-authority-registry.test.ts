@@ -80,3 +80,11 @@ it('does not change held authority when diagnostic output fails',async()=>{
  try{await expect(f.registry.execute(request,signal())).resolves.toMatchObject({kind:'held'});expect(f.open).toHaveBeenCalledOnce();}
  finally{await f.registry.close();log.mockRestore();}
 });
+it('allows bounded thirty-second opening separately from the fifteen-second held window',async()=>{
+ vi.useFakeTimers();const f=fixture({openingTimeoutMs:30000});f.open.mockImplementation(async()=>{await new Promise(r=>setTimeout(r,25000));return{kind:'held',permit:f.permit};});
+ try{const pending=f.registry.execute(request,signal());await vi.advanceTimersByTimeAsync(25000);const value=await pending as {expiresAt:string;sessionId:string};expect(Date.parse(value.expiresAt)-Date.now()).toBe(15000);await vi.advanceTimersByTimeAsync(15001);expect(f.abort).toHaveBeenCalledOnce();await expect(f.registry.execute({method:'session.commit',sessionId:value.sessionId,receipt},signal())).rejects.toThrow();}finally{await f.registry.close();}
+});
+it('aborts a late permit after the opening deadline without restarting its authority',async()=>{
+ vi.useFakeTimers();const f=fixture({openingTimeoutMs:30000});f.open.mockImplementation(async()=>{await new Promise(r=>setTimeout(r,31000));return{kind:'held',permit:f.permit};});
+ try{const pending=expect(f.registry.execute(request,signal())).rejects.toThrow();await vi.advanceTimersByTimeAsync(31000);await pending;expect(f.abort).toHaveBeenCalledOnce();expect(f.open).toHaveBeenCalledOnce();}finally{await f.registry.close();}
+});

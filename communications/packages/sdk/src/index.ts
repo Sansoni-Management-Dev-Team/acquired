@@ -23,6 +23,8 @@ export interface CommunicationsClientConfig {
   apiKey: string;
   fetch?: typeof globalThis.fetch;
   timeoutMs?: number;
+  /** Bounded submit-only transport budget; other calls retain timeoutMs. */
+  submitTimeoutMs?:number;
   maxResponseBytes?: number;
   allowLoopbackHttp?: boolean;
   localSimulatorOrigin?: string;
@@ -73,6 +75,7 @@ export class CommunicationsClient {
   #key: string;
   #fetch: typeof globalThis.fetch;
   #timeout: number;
+  #submitTimeout:number;
   #maxBytes: number;
   #localSimulatorOrigin?: string;
   #hostedDemo?:HostedDemoCapability;
@@ -83,17 +86,19 @@ export class CommunicationsClient {
     try { url = new URL(config.baseUrl); } catch { throw new Error("Invalid communications client configuration"); }
     const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
     const timeout = config.timeoutMs ?? 15_000;
+    const submitTimeout=config.submitTimeoutMs??timeout;
     const maxBytes = config.maxResponseBytes ?? 262_144;
     if (config.contractVersion !== COMMUNICATIONS_CONTRACT_VERSION || url.username || url.password || url.search || url.hash ||
         url.pathname !== "/" || (url.protocol !== "https:" && !(url.protocol === "http:" && loopback && config.allowLoopbackHttp === true)) ||
         !config.apiKey || config.apiKey.trim() !== config.apiKey || /[\r\n]/.test(config.apiKey) || !Number.isSafeInteger(timeout) || timeout < 1 || timeout > 60_000 ||
+        !Number.isSafeInteger(submitTimeout)||submitTimeout<1||submitTimeout>60000||
         !Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 1_048_576) {
       throw new Error("Invalid communications client configuration");
     }
     this.#businessClock=config.businessClock;
     this.#submitDiagnostic=config.submitDiagnostic;
     this.#baseUrl = url; this.#key = config.apiKey; this.#fetch = config.fetch ?? globalThis.fetch;
-    this.#timeout = timeout; this.#maxBytes = maxBytes;
+    this.#timeout = timeout; this.#submitTimeout=submitTimeout; this.#maxBytes = maxBytes;
     if(config.hostedDemo!==undefined){if(config.localSimulatorOrigin!==undefined)throw new Error('Invalid hosted demo client configuration');this.#hostedDemo=captureHostedDemoCapability(config.hostedDemo);}
     if(config.localSimulatorOrigin!==undefined){
       if(!loopback||url.protocol!=='https:'||typeof process!=='undefined'&&process.env.NODE_ENV==='production')throw new Error('Invalid local simulator client configuration');
@@ -162,7 +167,7 @@ export class CommunicationsClient {
   async submit(input: MessageSubmission): Promise<DeliveryOutcome> {
     try {
       const captured = structuredClone(input);
-      const data = await this.#request("/v1/submit", captured);
+      const data = await this.#request("/v1/submit", captured,this.#submitTimeout);
       if (!isDeliveryOutcome(data, captured.snapshot, captured.message.recipient) || data === null) {
         this.#reportSubmit('invalid_receipt'); return { status: "unknown" };
       }
@@ -192,9 +197,9 @@ export class CommunicationsClient {
     if(!object(data)||Object.keys(data).sort().join(',')!=='canMessage,observedAt,status'||!['connected','invitation_pending','not_connected','unknown'].includes(String(data.status))||!(data.canMessage===null||typeof data.canMessage==='boolean')||typeof data.observedAt!=='string'||!Number.isFinite(Date.parse(data.observedAt))||Date.parse(data.observedAt)>businessNow(this.#businessClock))throw new CommunicationsClientError('protocol');
     return data as {status:RelationshipStatus;canMessage:boolean|null;observedAt:string};
   }
-  async #request(path: string, body?: unknown): Promise<unknown> {
+  async #request(path: string, body?: unknown, timeout=this.#timeout): Promise<unknown> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), this.#timeout);
+    const timer = setTimeout(() => controller.abort(), timeout);
     try {
       const response = await abortable(this.#fetch(new URL(path, this.#baseUrl), {
         method: body === undefined ? "GET" : "POST", redirect: "error", signal: controller.signal,

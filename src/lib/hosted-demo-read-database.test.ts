@@ -29,3 +29,10 @@ it('never commits a lookup which completes after its original deadline',async()=
  const failed=expect(f.read(async()=>{await gate;return'late';})).rejects.toThrow('Hosted read unavailable');await vi.advanceTimersByTimeAsync(5000);await failed;finish();await vi.advanceTimersByTimeAsync(0);
  expect(f.query.mock.calls.map(([sql])=>sql)).not.toContain('COMMIT');expect(f.release).toHaveBeenCalledOnce();
 });
+it('permits an explicitly bounded ten-second authority read aggregate without changing SQL limits',async()=>{
+ vi.useFakeTimers();const f=fixture(),original=f.query.getMockImplementation()!;f.query.mockImplementation(async(sql,args)=>{await new Promise(r=>setTimeout(r,1000));return original(sql,args);});
+ const read=createHostedDemoReadSession(scope,f.pool as never,{timeoutMs:10000});const result=read(async tx=>{await tx.query('SELECT synthetic');return'ok';});await vi.advanceTimersByTimeAsync(7000);expect(await result).toBe('ok');expect(f.query.mock.calls.some(([sql])=>sql.includes("'statement_timeout','5000ms'")&&sql.includes("'lock_timeout','1000ms'"))).toBe(true);
+});
+it('retires a ten-second authority read at its absolute deadline',async()=>{
+ vi.useFakeTimers();const f=fixture(),read=createHostedDemoReadSession(scope,f.pool as never,{timeoutMs:10000});const result=expect(read(async()=>new Promise(()=>{}))).rejects.toThrow();await vi.advanceTimersByTimeAsync(10001);await result;expect(f.release).toHaveBeenLastCalledWith(expect.any(Error));expect(f.query.mock.calls.some(([sql])=>sql==='COMMIT')).toBe(false);
+});
