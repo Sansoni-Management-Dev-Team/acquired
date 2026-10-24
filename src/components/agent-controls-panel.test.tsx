@@ -176,9 +176,10 @@ it('shows a ready cached demo without claiming it ran live research or removing 
  const initial=selectedEmailReadiness();initial.channelPolicy!.enabled=true;initial.channelPolicy!.policy=null;
  const html=renderToStaticMarkup(<AgentControlsPanel mandateId="mandate" initial={initial} initialResearchStatus="complete" initialResearchSource="cached">{setup=><article>{setup}</article>}</AgentControlsPanel>);expect(html).toContain('>Demo ready<');expect(html).not.toContain('>Agent needs setup<');expect(html).toContain('aria-label="Welcome to Acquire"');expect(html).toContain('Pause agent');
 });
-it('starts a cached demo in one click using server defaults instead of showing setup forms',async()=>{
+it.each(['registered','pre-thread'] as const)('starts a %s cached demo in one click using server defaults instead of showing setup forms',async phase=>{
  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('document',{visibilityState:'visible'});vi.useFakeTimers();const{create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;
  const initial=selectedEmailReadiness();initial.channelPolicy!.enabled=true;initial.channelPolicy!.policy=null;initial.state!.executionMode='demo';initial.demoPreparationEnabled=true;
+ if(phase==='pre-thread'){initial.state!.responsibility=null;initial.state!.workflowPreset='demo';initial.state!.workflowExecutionId='owned-workflow';initial.readiness!.registered=false;}
  const posts:{url:string;body:unknown}[]=[],saved=vi.fn().mockResolvedValue(undefined);
  const fetcher=vi.fn((url:string,options?:RequestInit)=>{if(options?.method==='POST'){posts.push({url,body:JSON.parse(options.body as string)});return Promise.resolve(Response.json({result:{status:'proposed'}}));}return Promise.resolve(Response.json(url.endsWith('/execution')?{enabled:true,state:initial.state}:url.endsWith('/handoffs')?initial.inbox:url.endsWith('/readiness')?{configuration:initial.configuration,readiness:initial.readiness}:url.endsWith('/channel-policy')?initial.channelPolicy:{grants:[]}));});vi.stubGlobal('fetch',fetcher);
  try{await act(()=>{tree=create(<AgentControlsPanel mandateId="mandate" initial={initial} initialResearchStatus="complete" initialResearchSource="cached" onActionSaved={saved}>{setup=><article aria-label="Cached demo setup">{setup}</article>}</AgentControlsPanel>);});
@@ -395,4 +396,10 @@ it.each(['demo','live','live-research-test'] as const)('uses verified execution 
  const initial=preparedDemo();initial.configuration!.simulation=false;initial.state!.workflowPreset=preset;
  let allowed:unknown;const html=renderToStaticMarkup(<AgentControlsPanel mandateId="mandate" initial={initial}>{(_setup,options)=>{allowed=options?.allowTestAutoApproval;return null;}}</AgentControlsPanel>);
  expect(allowed).toBe(preset==='demo');if(preset==='demo')expect(html).toContain('Auto-approve');
+});
+
+it.each(['live','live-research-test',undefined] as const)('does not infer pre-thread demo Start from cached data for %s',preset=>{
+ const initial=selectedEmailReadiness();initial.state!.responsibility=null;initial.state!.workflowPreset=preset;initial.state!.executionMode='demo';initial.demoPreparationEnabled=true;initial.readiness!.registered=false;
+ const html=renderToStaticMarkup(<AgentControlsPanel mandateId="mandate" initial={initial} initialResearchStatus="complete" initialResearchSource="cached">{renderConversation}</AgentControlsPanel>);
+ expect(html).not.toContain('Ready to begin?');expect(html).not.toContain('>Start</button>');
 });

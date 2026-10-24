@@ -424,8 +424,13 @@ export function AgentControlsPanel({
       running && ["partial", "failed"].includes(initialResearchStatus ?? ""),
     ),
     outreachAlreadyStarted = Boolean(conversations.length || data?.state?.contactAllocation || pendingContactReview || pendingMessageReviews > 0 || pendingReviews?.some(batch=>batch.state==='pending')),
+    workflowDemoAwaitingStart = Boolean(
+      !responsibility && !outreachAlreadyStarted &&
+      data?.state?.executionMode === "demo" && data.state.workflowPreset === "demo" &&
+      initialResearchSource === "cached" && initialResearchStatus === "complete",
+    ),
     cachedDemoReady = Boolean(
-      !outreachAlreadyStarted && running &&
+      !outreachAlreadyStarted && (running || workflowDemoAwaitingStart) &&
         initialResearchSource === "cached" &&
         initialResearchStatus === "complete",
     );
@@ -843,7 +848,7 @@ export function AgentControlsPanel({
       !initialResearchNeedsAttention &&
       !fundingWaiting &&
       data.enabled &&
-      responsibility &&
+      (responsibility || workflowDemoAwaitingStart) &&
       (channelsNeedReview ||
         demoNeedsPreparation ||
         setupNeeded ||
