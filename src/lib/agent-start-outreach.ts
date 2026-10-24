@@ -32,7 +32,7 @@ export async function initializeAgentChannelDefaults(store:Pick<Store,'channelPo
 }
 /** Separate deterministic phase keys retain existing command replay and contact
  * preparation receipts after a lost response. No dispatch or approval here. */
-function phaseKey(key:string,phase:string){
+export function phaseKey(key:string,phase:string){
  const b=createHash('sha256').update(`acquire.outreach-start.v1:${key}:${phase}`).digest().subarray(0,16);
  b[6]=(b[6]&15)|128;b[8]=(b[8]&63)|128;const h=b.toString('hex');
  return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;

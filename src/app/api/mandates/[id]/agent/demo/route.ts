@@ -1,8 +1,11 @@
 import {z} from 'zod';
 import {guardBrowserMutation} from '@/lib/browser-mutation';
-import {nativeAgentEnabled} from '@/lib/agent-runtime';
+import {findMandateWorkflow} from '@/lib/acquisition-workflow-research';
+import {refreshCompanyProjectionsBeforeNativeControl} from '@/lib/company-projection-refresh';
+import {wakeNativeAgentAfterCommit} from '@/lib/agent-native-wake';
+import {agentPool,nativeAgentEnabled} from '@/lib/agent-runtime';
 import {prepareMandateDemoContacts} from '@/lib/agent-demo-command';
-import {startAgentOutreach,AgentOutreachStartError} from '@/lib/agent-start-outreach';
+import {startAgentOutreach,AgentOutreachStartError,phaseKey} from '@/lib/agent-start-outreach';
 import {AgentDemoProvisioningError} from '@/db/agent-demo-provisioning-store';
 import {AgentDemoRecipientError} from '@/lib/agent-demo-client';
 import {agentRequestScope,agentRequestError,agentResponseHeaders,type AgentRequestContext} from '@/lib/agent-request-scope';
@@ -18,8 +21,23 @@ export async function POST(request:Request,context:AgentRequestContext){
  try{
   const scoped=await agentRequestScope(request,context);if(scoped instanceof Response)return scoped;
   if(parsed.data.action==='start'){
-   if(process.env.AGENT_WORKER_SCOPE_MODE!=='registered'||!scoped.thread)return agentRequestError('Start the agent before outreach.',409);
-   const result=await startAgentOutreach({actor:scoped.actor,mandateId:(await context.params).id,threadId:scoped.thread.id,requestKey:parsed.data.requestKey,store:scoped.store,prepare:prepareMandateDemoContacts});
+   if(process.env.AGENT_WORKER_SCOPE_MODE!=='registered')return agentRequestError('Start the agent before outreach.',409);
+   const mandateId=(await context.params).id;
+   const workflow=await findMandateWorkflow(agentPool(),scoped.actor,mandateId);
+   const bootstrap=workflow?.state==='ready'&&workflow.preset==='demo'&&workflow.mandateId===mandateId&&workflow.organizationId===scoped.actor.organizationId&&workflow.ownerUserId===scoped.actor.userId;
+   let thread=scoped.thread;
+   if(!thread&&!bootstrap)return agentRequestError('Start the agent before outreach.',409);
+   if(bootstrap){
+    await refreshCompanyProjectionsBeforeNativeControl(scoped.actor,mandateId);
+    thread??=await scoped.store.openThread(mandateId);
+    const state=await scoped.store.executionState(thread.id);
+    if(state.workflowExecutionId!==workflow.id||state.executionMode!=='demo')return agentRequestError('This demo changed. Refresh before starting.',409);
+    if(!state.responsibility){
+     await scoped.store.controlResponsibility(thread.id,phaseKey(parsed.data.requestKey,'responsibility'),{action:'start',expectedRevision:0,mandateRevision:state.mandateRevision});
+     wakeNativeAgentAfterCommit();
+    }
+   }
+   const result=await startAgentOutreach({actor:scoped.actor,mandateId,threadId:thread!.id,requestKey:parsed.data.requestKey,store:scoped.store,prepare:prepareMandateDemoContacts});
    return Response.json({result},{headers:agentResponseHeaders});
   }
   const {kind,...result}=await prepareMandateDemoContacts(scoped.actor,(await context.params).id,parsed.data.requestKey);
