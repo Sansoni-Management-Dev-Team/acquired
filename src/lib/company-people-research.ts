@@ -1,3 +1,4 @@
+import {withResearchJobWorkflow} from './acquisition-workflow-context';
 import {AcquisitionRepository} from '@/db/acquisition-repository';
 import {lockResearchPersistence} from './research-persistence-lock';
 import { contactCompanyEligible, contactDeadlineAdmits } from '@/domain/company-contact-policy';
@@ -120,5 +121,5 @@ export async function queueCompanyPeople(job: Job, targetId: string, companyId: 
 /** All recovery entry points share the root's locked admission policy. */
 export async function recoverAutomaticCompanyPeople(organizationId: string, mandateId: string) {
   const roots = await requireDb().select().from(researchJobs).where(and(eq(researchJobs.organizationId, organizationId), eq(researchJobs.mandateId, mandateId), sql`jsonb_array_length(COALESCE(${researchJobs.config}->'companyPeopleRunIds', '[]'::jsonb)) > 0`, sql`${researchJobs.config}->>'parentJobId' IS NULL`));
-  for (const root of roots) await tickCompanyPeople(root);
+  for (const root of roots) await withResearchJobWorkflow(root,()=>tickCompanyPeople(root));
 }
