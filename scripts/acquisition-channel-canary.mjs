@@ -31,7 +31,7 @@ export async function runAcquisitionChannelCanary(o) {
     const origin = new URL(o.origin);
     assert(origin.origin === o.origin && origin.protocol === 'https:', 'Exact HTTPS origin required');
     assert(/^__Secure-better-auth\.session_token=[^;\r\n]+$/.test(o.cookie), 'One Acquire session cookie required');
-    assert(o.expectedOwnerId && o.expectedOrganizationId && uuid(o.expectedBindingId) && /^agent-[a-z0-9-]+$/.test(o.simulatorRun), 'Explicit owner, workspace, binding and simulator run required');
+    assert(o.expectedOwnerId && o.expectedOrganizationId && uuid(o.expectedBindingId) && (/^(?:agent-[a-z0-9-]+|hosted-demo-[a-z0-9][a-z0-9-]{0,35})$/.test(o.simulatorRun)), 'Explicit owner, workspace, binding and simulator run required');
     const s = o.state;
     assert(s?.requestId === o.requestId && s.channel === o.channel, 'Separate original channel journal required');
     assert(!s.pendingMutation && !s.pendingAcceptance, 'An unresolved mutation requires inspection');

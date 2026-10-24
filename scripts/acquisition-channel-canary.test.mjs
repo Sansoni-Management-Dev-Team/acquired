@@ -88,3 +88,5 @@ test('explicit buyer guidance uses normal feedback and decision without changing
     assert.deepEqual(calls[0].body.input.source, { kind: 'operation', id, revision: 1 });
     assert.equal(calls[1].body.confirmed, true);
 });
+for (const channel of ['email','whatsapp','linkedin']) test('accepts exact hosted demo run with reserved '+channel+' alias',async()=>{const f=fixture(channel),run='hosted-demo-production-20261021';f.options.simulatorRun=run;f.op.input.recipientKey=f.op.input.recipientKey.replaceAll('agent-test',run);f.conversation.channels[0].recipient=f.conversation.channels[0].recipient.replaceAll('agent-test',run);assert.equal((await runAcquisitionChannelCanary(f.options)).passed,true);});
+test('rejects malformed hosted run before any route request',async()=>{for(const run of ['hosted-demo-','hosted-demo-prod.example','hosted-demo-'+ 'x'.repeat(37)]){const f=fixture();f.options.simulatorRun=run;await assert.rejects(runAcquisitionChannelCanary(f.options));assert.equal(f.calls.length,0);}});
