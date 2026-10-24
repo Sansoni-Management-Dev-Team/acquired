@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "requires": {
+    "contractVersion": "1",
+    "appSchemaProfile": "app-REPLACE_WITH_REVIEWED_CATALOG_PROFILE",
+    "simulatorSchemaProfile": "simulator-REPLACE_WITH_REVIEWED_CATALOG_PROFILE"
+  },
+  "components": {
+    "app": {
+      "revision": "REPLACE_WITH_COMMITTED_GIT_REVISION",
+      "buildRecipe": "ops/app/Dockerfile",
+      "lockfile": "pnpm-lock.yaml",
+      "inputs": {
+        "ops/app/Dockerfile": "REPLACE_WITH_SHA256",
+        "pnpm-lock.yaml": "REPLACE_WITH_SHA256"
+      },
+      "dependencyInputs": {},
+      "artifact": {
+        "path": "app.artifact",
+        "sha256": "REPLACE_WITH_SHA256"
+      },
+      "buildManifest": "app.build.json",
+      "schemaProfile": "app-REPLACE_WITH_REVIEWED_CATALOG_PROFILE",
+      "contractVersion": "1",
+      "imageDigest": "sha256:REPLACE_WITH_BUILT_IMAGE_DIGEST"
+    },
+    "simulator": {
+      "revision": "REPLACE_WITH_COMMITTED_GIT_REVISION",
+      "buildRecipe": "scripts/build-hosted-simulator.mjs",
+      "lockfile": "pnpm-lock.yaml",
+      "inputs": {
+        "scripts/build-hosted-simulator.mjs": "REPLACE_WITH_SHA256",
+        "pnpm-lock.yaml": "REPLACE_WITH_SHA256"
+      },
+      "dependencyInputs": {},
+      "artifact": {
+        "path": "simulator.artifact",
+        "sha256": "REPLACE_WITH_SHA256"
+      },
+      "buildManifest": "simulator.build.json",
+      "schemaProfile": "simulator-REPLACE_WITH_REVIEWED_CATALOG_PROFILE",
+      "contractVersion": "1",
+      "imageDigest": "sha256:REPLACE_WITH_BUILT_IMAGE_DIGEST"
+    }
+  }
+}
