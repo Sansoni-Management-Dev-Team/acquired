@@ -74,3 +74,9 @@ it("permits only the exact direct OpenAI completion endpoint for configured loca
  for(const url of ['https://api.openai.com/v1/files','https://api.openai.com/redirect','https://api.openai.com.evil.invalid/v1/chat/completions'])await expect(researchFetch(local,fetcher)(url)).rejects.toThrow('blocked');
  expect(fetcher).toHaveBeenCalledOnce();
 });
+it('permits configured Bing only through the development loopback search allowlist',async()=>{
+ const fetcher=vi.fn<typeof fetch>().mockResolvedValue(Response.json({})),env={...local,LOCAL_RESEARCH_POLICY:'development',LOCAL_SEARCH_ENGINE:'bing'};
+ await researchFetch(env,fetcher)('http://127.0.0.1:7000/bing/search?text=public');
+ for(const settings of [{...env,LOCAL_SEARCH_ENGINE:undefined},{...env,LOCAL_RESEARCH_POLICY:'production'}])await expect(researchFetch(settings,fetcher)('http://127.0.0.1:7000/bing/search')).rejects.toThrow('blocked');
+ await expect(researchFetch(env,fetcher)('http://127.0.0.1:7001/bing/search')).rejects.toThrow('blocked');expect(fetcher).toHaveBeenCalledOnce();
+});

@@ -71,6 +71,7 @@ interface Env extends FirmableSessionEnv {
   LOCAL_CRAWL4AI_URL?: string;
   LOCAL_RESEARCH_BENCHMARK?: string;
   LOCAL_SEARCH_URL?: string;
+  LOCAL_SEARCH_ENGINE?: string;
   CRAWL4AI_URL?: string;
   CRAWL4AI_SECRET?: string;
   RESEARCH_PIPELINE_DESIGN?: string;

@@ -1,0 +1,41 @@
+# Overlay on the existing private isolated-lane Compose file. No published ports.
+# Set absolute ACQUIRE_SOURCE_ROOT and ISOLATED_RESEARCH_DIRECTORY before use.
+services:
+  research:
+    image: node:22.12.0
+    network_mode: service:network
+    working_dir: /workspace
+    command: [node, node_modules/wrangler/bin/wrangler.js, dev, --local, --config, /config/wrangler.json, --ip, 127.0.0.1, --port, '8787', --inspector-port, '0', --persist-to, /state, --show-interactive-dev-session=false]
+    environment:
+      CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: 'false'
+      CLOUDFLARE_INCLUDE_PROCESS_ENV: 'false'
+      WRANGLER_SEND_METRICS: 'false'
+    volumes:
+      - ${ACQUIRE_SOURCE_ROOT:?required}:/workspace:ro
+      - aligned-node-modules:/workspace/node_modules:ro
+      - ${ISOLATED_RESEARCH_DIRECTORY:?required}/wrangler.json:/config/wrangler.json:ro
+      - ${ISOLATED_RESEARCH_DIRECTORY:?required}/worker.env:/config/.dev.vars:ro
+      - isolated-research-state:/state
+    restart: unless-stopped
+  reader:
+    image: acquire-agent-reader:dev
+    platform: linux/amd64
+    network_mode: service:network
+    environment:
+      CRAWL4AI_PORT: '18084'
+      CRAWL4AI_CONCURRENCY: '2'
+    volumes:
+      - ${ACQUIRE_SOURCE_ROOT:?required}/cloudflare/crawl4ai/server.py:/app/server.py:ro
+    shm_size: 1gb
+    restart: unless-stopped
+  search:
+    image: sha256:9f5c5736fc7434862fa23dd0955e53d4003ffe42f151a5e1297085decf3100b7
+    network_mode: service:network
+    command: [serve, -a, 127.0.0.1, -p, '7000']
+    shm_size: 8gb
+    restart: unless-stopped
+volumes:
+  aligned-node-modules:
+    external: true
+    name: ${ACQUIRE_NODE_MODULES_VOLUME:?required}
+  isolated-research-state:

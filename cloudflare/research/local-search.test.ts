@@ -22,3 +22,14 @@ it('correlates every bounded search-engine attempt with the safe research trace 
  log.mockClear();const safe=vi.fn<typeof fetch>(async()=>Response.json([{url:'https://example.com',title:'PRIVATE response'}]));await localSearch(env,'PRIVATE search query',{mandateId:'private@example.invalid',runId:'PRIVATE_RUN\nvalue',operationId:'PRIVATE_OPERATION?secret',requestId:'request-12345',engine:'google'},safe);const unsafeEvents=log.mock.calls.filter(([tag])=>tag==='research-provider').map(([,body])=>JSON.parse(String(body)));for(const event of unsafeEvents){expect(event).not.toHaveProperty('mandateId');expect(event).not.toHaveProperty('runId');expect(event).not.toHaveProperty('operationId');}expect(JSON.stringify(log.mock.calls)).not.toMatch(/PRIVATE|private@example/);expect(new URL(String(safe.mock.calls[0][0])).pathname).toBe('/google/search');expect(safe).toHaveBeenCalledOnce();
  }finally{log.mockRestore();}
 });
+it('uses only explicitly configured local Bing and labels its physical attempt',async()=>{
+ const log=vi.spyOn(console,'info').mockImplementation(()=>{}),fetcher=vi.fn<typeof fetch>().mockResolvedValue(Response.json({results:[{url:'https://example.com',title:'Company',snippet:'Saved web evidence'}]}));
+ try{await localSearch({LOCAL_DEVELOPMENT:'true',LOCAL_SEARCH_URL:'http://127.0.0.1:7000',LOCAL_SEARCH_ENGINE:'bing'},'public query',{},fetcher);
+ expect(fetcher).toHaveBeenCalledOnce();expect(new URL(String(fetcher.mock.calls[0][0])).pathname).toBe('/bing/search');
+ expect(JSON.stringify(log.mock.calls)).toContain('web_search_bing');
+ }finally{log.mockRestore();}
+});
+it('rejects unsupported local engine configuration and does not activate Bing outside local development',async()=>{
+ const fetcher=vi.fn();await expect(localSearch({LOCAL_DEVELOPMENT:'true',LOCAL_SEARCH_URL:'http://127.0.0.1:7000',LOCAL_SEARCH_ENGINE:'arbitrary'},'query',{},fetcher)).rejects.toThrow();
+ expect(await localSearch({LOCAL_DEVELOPMENT:'false',LOCAL_SEARCH_URL:'http://127.0.0.1:7000',LOCAL_SEARCH_ENGINE:'bing'},'query',{},fetcher)).toBeNull();expect(fetcher).not.toHaveBeenCalled();
+});
