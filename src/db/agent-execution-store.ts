@@ -1,4 +1,4 @@
-import {runDurationSql,dispatchRunSql} from './agent-dispatch-budget';
+import {runDurationSql,dispatchRunSql,operationLeaseSql} from './agent-dispatch-budget';
 import {AcquisitionWorkflowStore} from './acquisition-workflow-store';
 import {agentChannelMessageSqlNames} from './agent-operation-sql';
 import type {AgentTransactionPreset} from './agent-read-budget';
@@ -42,7 +42,7 @@ export class AgentExecutionStore extends AgentRuntimeRegistryStore{
   * Existing running operations never have their lease renewed by another call. */
  protected async constrainNativeOperationLease(c:PoolClient,operationId:string,authority:AgentExecutionFence,started:boolean){
   await c.query(`UPDATE agent_operations o SET lease_until=LEAST(
-   CASE WHEN $3::boolean AND ${dispatchRunSql('r')} THEN o.updated_at+interval '60 seconds' ELSE o.lease_until END,
+   CASE WHEN $3::boolean AND ${dispatchRunSql('r')} THEN o.updated_at+${operationLeaseSql('r')} ELSE o.lease_until END,
    r.created_at+${runDurationSql('r')},r.lease_until)
    FROM agent_runs r WHERE o.id=$1 AND r.id=$2 AND o.thread_id=r.thread_id`,[operationId,authority.runId,started]);
  }

@@ -86,7 +86,7 @@ it('aborts at the remaining saved deadline and never retries the effect',async()
  handler.mockImplementation(()=>new Promise(()=>{}));const work=runAgentEvent({store:port,workerId:'worker',handlers:{'conversation.reassess':handler}});await vi.advanceTimersByTimeAsync(12001);expect(await work).toBe('review');expect(handler).toHaveBeenCalledOnce();expect(handler.mock.calls[0][0].signal.aborted).toBe(true);
  }finally{vi.useRealTimers();}
 });
-it.each([{durationMs:90000,deadlineMs:90000},{durationMs:45000,deadlineMs:45000},{durationMs:999999,deadlineMs:45000}])('keeps the bounded worker deadline at $deadlineMs ms',async({durationMs,deadlineMs})=>{
+it.each([{durationMs:120000,deadlineMs:120000},{durationMs:90000,deadlineMs:90000},{durationMs:45000,deadlineMs:45000},{durationMs:999999,deadlineMs:45000}])('keeps the bounded worker deadline at $deadlineMs ms',async({durationMs,deadlineMs})=>{
  vi.useFakeTimers();try{const {port,mocks,handler}=fixture();mocks.beginEventRun.mockResolvedValue({kind:'started',runId:'run',durationMs,deadlineAt:new Date(Date.now()+durationMs).toISOString()}as never);
  handler.mockImplementation(()=>new Promise(()=>{}));const work=runAgentEvent({store:port,workerId:'worker',handlers:{'conversation.reassess':handler}});await vi.advanceTimersByTimeAsync(deadlineMs-1);expect(mocks.finishEventRun).not.toHaveBeenCalled();await vi.advanceTimersByTimeAsync(2);expect(await work).toBe('review');expect(handler.mock.calls[0][0].signal.aborted).toBe(true);
  }finally{vi.useRealTimers();}

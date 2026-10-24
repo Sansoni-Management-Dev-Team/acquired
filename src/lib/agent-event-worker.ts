@@ -40,7 +40,7 @@ export async function runAgentEvent(options:{store:AgentEventWorkerPort;workerId
   if(event.kind==='agent.review_required')outcome={kind:'complete'};
   else if(!handler||event.attempts>attempts){log('review_failure',{outcome:'review',reason:!handler?'handler_missing':'attempt_limit'});outcome={kind:'review',message:'Background work needs review before it can continue. No automatic retry was started.'};}
   else{
-   const cap=run.durationMs===90000?90000:45000;
+   const cap=run.durationMs===120000?120000:run.durationMs===90000?90000:45000;
    const remaining=run.deadlineAt===undefined?cap:Date.parse(run.deadlineAt)-Date.now();
    if(!Number.isFinite(remaining)||remaining<=0)throw new AgentRunLimitError('run_duration_limit');
    const deadline=Math.max(1,Math.min(cap,options.deadlineMs??cap,remaining));

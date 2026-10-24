@@ -3,7 +3,7 @@ import type { PoolClient } from 'pg';
 import type { AgentEvent } from './agent-store';
 import { reviewItemSchema } from '@/domain/agent-authority';
 
-export const dispatchRunLimits = {
+export const dispatchRunLimitsV2 = {
   version: 2,
   kind: 'reviewed_dispatch',
   maxToolSteps: 32,
@@ -11,6 +11,12 @@ export const dispatchRunLimits = {
   operationLeaseMs: 60000,
   eventLeaseMs: 120000,
 } as const;
+/** New dispatches only. Existing v2 rows retain their original deadlines. */
+export const dispatchRunLimits = {
+  version: 3, kind: 'reviewed_dispatch', maxToolSteps: 32,
+  maxDurationMs: 120000, operationLeaseMs: 90000, eventLeaseMs: 150000,
+} as const;
+const dispatchPolicies = [dispatchRunLimits, dispatchRunLimitsV2] as const;
 export const legacyRunLimits = { version: 1, maxToolSteps: 32, maxDurationMs: 45000 } as const;
 const names = new Set([
   'email.initial', 'email.reply', 'email.follow_up',
@@ -55,21 +61,26 @@ export async function approvedDispatchEvent(
 }
 
 export function runDurationMs(value: unknown) {
-  return value && typeof value === 'object'
-    && Object.keys(value).length === Object.keys(dispatchRunLimits).length
-    && Object.entries(dispatchRunLimits).every(([key, expected]) => Object.getOwnPropertyDescriptor(value, key)?.value === expected)
-    ? 90000 : 45000;
+  const policy = dispatchPolicies.find(candidate => value && typeof value === 'object'
+    && Object.keys(value).length === Object.keys(candidate).length
+    && Object.entries(candidate).every(([key, expected]) => Object.getOwnPropertyDescriptor(value, key)?.value === expected));
+  return policy?.maxDurationMs ?? 45000;
 }
 
-/** SQL and JS accept the same frozen policy; malformed/legacy runs keep45s.
- * Even a malformed saved policy cannot extend model or reconciliation events. */
-export function dispatchRunSql(alias: string) {
+function policySql(alias: string, policy: typeof dispatchPolicies[number]) {
   if (!/^[a-z]+$/.test(alias)) throw Error('Invalid run SQL alias');
-  return `(${alias}.model_config->'nativeLimits'='${JSON.stringify(dispatchRunLimits)}'::jsonb
+  return `(${alias}.model_config->'nativeLimits'='${JSON.stringify(policy)}'::jsonb
     AND EXISTS(SELECT 1 FROM agent_events budget_event
       WHERE budget_event.id=${alias}.trigger_event_id AND budget_event.thread_id=${alias}.thread_id
         AND budget_event.kind='review.approved'))`;
 }
+/** Both JS and SQL match the entire persisted policy; no saved run is upgraded. */
+export function dispatchRunSql(alias: string) {
+  return `(${dispatchPolicies.map(policy => policySql(alias, policy)).join(' OR ')})`;
+}
 export function runDurationSql(alias: string) {
-  return `(CASE WHEN ${dispatchRunSql(alias)} THEN 90000 ELSE 45000 END * interval '1 millisecond')`;
+  return `(CASE ${dispatchPolicies.map(policy => `WHEN ${policySql(alias, policy)} THEN ${policy.maxDurationMs}`).join(' ')} ELSE 45000 END * interval '1 millisecond')`;
+}
+export function operationLeaseSql(alias: string) {
+  return `(CASE ${dispatchPolicies.map(policy => `WHEN ${policySql(alias, policy)} THEN ${policy.operationLeaseMs}`).join(' ')} ELSE 30000 END * interval '1 millisecond')`;
 }
