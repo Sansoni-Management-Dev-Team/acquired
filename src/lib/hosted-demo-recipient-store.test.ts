@@ -21,3 +21,13 @@ it('checks an optional operation key against its exact original persisted demo i
 });
 
 it('resolves both legacy and workflow-owned demo mappings through the effective read view',async()=>{const f=fixture();await f.resolve(query);expect(f.call.mock.calls[0][0]).toContain('FROM public.agent_effective_demo_contact_mappings m');});
+it('characterizes raw email provider deduplication keys as distinct from optional application dispatch identity',async()=>{
+ const emailDescriptor={...descriptor,bindings:descriptor.bindings.map(b=>({...b,channel:'email' as const,platform:'gmail' as const}))};
+ const saved=row();saved.binding={...saved.binding,channel:'email',platform:'gmail'};saved.sender={...saved.sender,channel:'email',providerAccountId:'sim-'+d.runId+'-email'};
+ const request={accountId:saved.sender.providerAccountId,channel:'email' as const,kind:'email' as const,value:aliases.email};
+ const call=vi.fn(async(sql:string)=>({rows:sql.includes('communication_dispatch_intents')?[]:[saved]}));
+ const resolve=createHostedDemoRecipientResolver(emailDescriptor,async work=>work({query:call}as never));
+ await expect(resolve({...request,operationKey:'10000000-0000-4000-8000-000000000099'})).rejects.toThrow('Hosted recipient unavailable');
+ call.mockClear();await expect(resolve(request)).resolves.toMatchObject({personId:id,aliases});
+ expect(call).toHaveBeenCalledOnce();expect(call.mock.calls[0][0]).toContain('agent_effective_demo_contact_mappings');
+});
