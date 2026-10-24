@@ -68,6 +68,15 @@
       "applicationSha256": "23959223f5293883906114184fe58c894082ec9f31875df19a8988e9df730235",
       "productionApplied": false,
       "scope": "Exact isolated runtime/actor/run/registered binding recognized by existing explicit accelerated policy; no policy or timestamp updates"
+    },
+    {
+      "file": "010-local-isolated-reserved-recipient.proposed.sql",
+      "sha256": "3338d904bf481562ae32717545a3633e2b1a8d6d4c75d17c513ce429e5f4798f",
+      "applied": true,
+      "evidence": "project-acquire-agent-mode/.local-data/local-alignment/workflow-reviewed-v2/010-apply.log",
+      "applicationSha256": "29428a7fde67c4c01afcdb3f5a26fce72b5c58e274669d938cd6a65aeea91835",
+      "productionApplied": false,
+      "scope": "One exact reserved email and LinkedIn namespace; WhatsApp unchanged, no policy or timestamps changed"
     }
   ],
   "revisionReason": "Remove only absent Supabase role names from REVOKE lists; retain PUBLIC and every existing application role prohibition.",
