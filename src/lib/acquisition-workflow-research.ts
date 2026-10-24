@@ -16,7 +16,7 @@ async function context(pool:Pool,rawActor:AgentActor,execution:AcquisitionWorkfl
  if(execution.organizationId!==actor.organizationId||execution.ownerUserId!==actor.userId)throw Error('Owned workflow unavailable');
  const row=(await pool.query(`SELECT w.*,m.xmin::text AS mandate_revision,
   j.id AS job_id,j.workflow_execution_id AS job_workflow_execution_id,j.status AS job_status,j.config AS job_config,
-  EXISTS(SELECT 1 FROM research_jobs child WHERE child.workflow_execution_id=w.id AND child.organization_id=w.organization_id AND child.mandate_id=w.mandate_id AND child.created_by=w.owner_user_id AND child.id<>w.id AND child.config->>'researchRunId'=w.id::text AND child.status IN('complete','partial') AND child.config->'nativeAgent' IS NULL AND child.config->'companyPeopleProgress'->>'settled'='false') AS pending_child_people,
+  EXISTS(SELECT 1 FROM research_jobs child WHERE child.workflow_execution_id=w.id AND child.organization_id=w.organization_id AND child.mandate_id=w.mandate_id AND child.created_by=w.owner_user_id AND child.id<>w.id AND child.config->>'researchRunId'=w.id::text AND child.status IN('complete','partial','cancelled') AND child.config->'nativeAgent' IS NULL AND child.config->'companyPeopleProgress'->>'settled'='false') AS pending_child_people,
   (SELECT count(*)::int FROM mandate_targets mt WHERE mt.mandate_id=m.id AND mt.organization_id=m.organization_id) AS company_count,
   (SELECT count(DISTINCT c.id)::int FROM contacts c JOIN mandate_targets mt ON mt.target_id=c.target_id AND mt.organization_id=c.organization_id WHERE mt.mandate_id=m.id AND mt.organization_id=m.organization_id) AS people_count
   FROM acquisition_workflow_executions w JOIN mandates m ON m.id=w.mandate_id AND m.organization_id=w.organization_id AND m.created_by=w.owner_user_id
@@ -55,7 +55,7 @@ export async function ensureWorkflowResearch(pool:Pool,actor:AgentActor,executio
    if(row.pending_child_people)await reconcileWorkflowPeopleSnapshots(pool,actor,execution);
    await advance(execution.preset==='live-research-test'?'complete':'ready');
   }
-  else if(['failed','cancelled'].includes(view.status))await advance(view.status as 'failed'|'cancelled');
+  else if(['failed','cancelled'].includes(view.status)){if(view.status==='cancelled'&&row.pending_child_people)await reconcileWorkflowPeopleSnapshots(pool,actor,execution);await advance(view.status as 'failed'|'cancelled');}
   else await advance('researching');
   return view;
  }
