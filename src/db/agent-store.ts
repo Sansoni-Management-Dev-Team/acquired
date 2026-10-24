@@ -1,3 +1,4 @@
+import {approvedDispatchEvent,dispatchRunLimits,legacyRunLimits,runDurationSql,runDurationMs} from './agent-dispatch-budget';
 import {agentNativeDispatchSqlNames} from './agent-operation-sql';
 import {acquisitionWorkflowContext,withAcquisitionWorkflowContext} from '@/lib/acquisition-workflow-context';
 import {bindAgentWorkflowContext,resolveAgentWorkflowContext} from './agent-workflow-context';
@@ -272,7 +273,7 @@ export class AgentStore {
        FOR UPDATE SKIP LOCKED LIMIT 1`,[mandateId??null])).rows[0];
       if(!event)return undefined;
       await this.bindOriginalWorkflow(c,event);
-      return (await c.query<AgentEvent>(`UPDATE agent_events SET state='leased',lease_owner=$1,lease_until=clock_timestamp()+($2::int*interval '1 millisecond'),fence=fence+1,attempts=attempts+1 WHERE id=$3 RETURNING *`,[workerId,leaseMs,event.id])).rows[0];
+      return (await c.query<AgentEvent>(`UPDATE agent_events SET state='leased',lease_owner=$1,lease_until=clock_timestamp()+($2::int*interval '1 millisecond'),fence=fence+1,attempts=attempts+1 WHERE id=$3 RETURNING *`,[workerId,leaseMs===60000&&await approvedDispatchEvent(c,event)?dispatchRunLimits.eventLeaseMs:leaseMs,event.id])).rows[0];
     });
   }
   async completeEvent(eventId: string, workerId: string, fence: string) {
@@ -301,28 +302,29 @@ export class AgentStore {
     uuid.parse(event.id);uuid.parse(event.thread_id);uuid.parse(event.lease_owner);z.string().regex(/^\d+$/).parse(event.fence);
     return [event.id,event.thread_id,event.lease_owner,event.fence];
   }
-  async beginEventRun(event:AgentEvent):Promise<{kind:'started';runId:string}|{kind:'busy'}|{kind:'lost'}>{
+  async beginEventRun(event:AgentEvent):Promise<{kind:'started';runId:string;deadlineAt?:string;durationMs?:number}|{kind:'busy'}|{kind:'lost'}>{
     const identity=this.eventIdentity(event);
     return this.transaction(async c=>{
       const t=await this.lockThread(c,event.thread_id);
       const current=(await c.query("SELECT * FROM agent_events WHERE id=$1 AND thread_id=$2 AND lease_owner=$3 AND fence=$4::bigint AND state='leased' AND lease_until>clock_timestamp() FOR UPDATE",identity)).rows[0];
       if(!current||!await this.eventIsEligible(c,t.id,current.kind))return {kind:'lost'};
-      const prior=(await c.query("SELECT id FROM agent_runs WHERE trigger_event_id=$1 AND state='running' AND lease_owner=$2 AND fence=$3::bigint AND lease_until>clock_timestamp()",[event.id,event.lease_owner,event.fence])).rows[0];
-      if(prior)return {kind:'started',runId:prior.id};
+      const prior=(await c.query("SELECT id,created_at,lease_until,model_config FROM agent_runs WHERE trigger_event_id=$1 AND state='running' AND lease_owner=$2 AND fence=$3::bigint AND lease_until>clock_timestamp()",[event.id,event.lease_owner,event.fence])).rows[0];
+      if(prior){const durationMs=current.kind==='review.approved'?runDurationMs(prior.model_config?.nativeLimits):45000;return {kind:'started',runId:prior.id,durationMs,deadlineAt:new Date(Math.min(new Date(prior.created_at).getTime()+durationMs,new Date(prior.lease_until).getTime()-10000)).toISOString()};}
       await c.query("UPDATE agent_runs SET state='uncertain',stop_reason='interrupted_event',updated_at=now() WHERE thread_id=$1 AND state='running' AND lease_until<=clock_timestamp()",[t.id]);
       if((await c.query("SELECT id FROM agent_runs WHERE thread_id=$1 AND state='running'",[t.id])).rowCount)return {kind:'busy'};
       // Transaction-start now() includes lock waits before a run exists. Start
       // its duration at insertion; retain the original event lease unchanged.
+      const limits=await approvedDispatchEvent(c,current)?dispatchRunLimits:legacyRunLimits;
       const run=(await c.query(`INSERT INTO agent_runs(thread_id,organization_id,mandate_id,owner_user_id,trigger_event_id,state,lease_owner,lease_until,fence,model_config,created_at)
-       VALUES($1,$2,$3,$4,$5,'running',$6,$7,$8::bigint,'{"nativeLimits":{"version":1,"maxToolSteps":32,"maxDurationMs":45000}}'::jsonb,clock_timestamp()) RETURNING id`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,event.id,event.lease_owner,current.lease_until,event.fence])).rows[0];
-      return {kind:'started',runId:run.id};
+       VALUES($1,$2,$3,$4,$5,'running',$6,$7,$8::bigint,$9::jsonb,clock_timestamp()) RETURNING id,created_at,lease_until`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,event.id,event.lease_owner,current.lease_until,event.fence,JSON.stringify({nativeLimits:limits})])).rows[0];
+      return {kind:'started',runId:run.id,durationMs:limits.maxDurationMs,deadlineAt:new Date(Math.min(new Date(run.created_at).getTime()+limits.maxDurationMs,new Date(run.lease_until).getTime()-10000)).toISOString()};
     });
   }
   async eventRunCurrent(runId:string,event:AgentEvent){
     uuid.parse(runId);const identity=this.eventIdentity(event);
     return this.transaction(async c=>{const eligible=await this.eventEligibilityPredicate(c);return !!(await c.query(`SELECT r.id FROM agent_runs r JOIN agent_events e ON e.id=r.trigger_event_id
       WHERE ${eligible} AND e.id=$1 AND e.thread_id=$2 AND e.lease_owner=$3 AND e.fence=$4::bigint AND e.state='leased' AND e.lease_until>clock_timestamp()
-      AND r.id=$5 AND r.state='running' AND r.lease_owner=e.lease_owner AND r.fence=e.fence AND r.lease_until>clock_timestamp() AND r.created_at>clock_timestamp()-interval '45 seconds'`,[...identity,runId])).rowCount;},undefined,true);
+      AND r.id=$5 AND r.state='running' AND r.lease_owner=e.lease_owner AND r.fence=e.fence AND r.lease_until>clock_timestamp() AND r.created_at+${runDurationSql('r')}>clock_timestamp()`,[...identity,runId])).rowCount;},undefined,true);
   }
   async deferEvent(event:AgentEvent,wakeAt:string){
     const identity=this.eventIdentity(event);z.string().datetime({offset:true}).parse(wakeAt);

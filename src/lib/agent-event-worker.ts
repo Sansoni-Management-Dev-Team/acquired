@@ -6,7 +6,7 @@ import {withResearchDatabaseContext} from './research-request-observability';
 export interface AgentEventWorkerPort{
  withWorkflowExecution?<T>(id:string|null,work:()=>Promise<T>):Promise<T>;
  claimEvent(workerId:string,leaseMs?:number,mandateId?:string):Promise<AgentEvent|undefined>;
- beginEventRun(event:AgentEvent):Promise<{kind:'started';runId:string}|{kind:'busy'}|{kind:'lost'}>;
+ beginEventRun(event:AgentEvent):Promise<{kind:'started';runId:string;deadlineAt?:string;durationMs?:number}|{kind:'busy'}|{kind:'lost'}>;
  eventRunCurrent(runId:string,event:AgentEvent):Promise<boolean>;
  finishEventRun(runId:string,event:AgentEvent,outcome:AgentEventOutcome):Promise<boolean>;
  deferEvent(event:AgentEvent,wakeAt:string):Promise<boolean>;
@@ -40,7 +40,10 @@ export async function runAgentEvent(options:{store:AgentEventWorkerPort;workerId
   if(event.kind==='agent.review_required')outcome={kind:'complete'};
   else if(!handler||event.attempts>attempts){log('review_failure',{outcome:'review',reason:!handler?'handler_missing':'attempt_limit'});outcome={kind:'review',message:'Background work needs review before it can continue. No automatic retry was started.'};}
   else{
-   const deadline=Math.max(1,Math.min(45000,options.deadlineMs??45000));
+   const cap=run.durationMs===90000?90000:45000;
+   const remaining=run.deadlineAt===undefined?cap:Date.parse(run.deadlineAt)-Date.now();
+   if(!Number.isFinite(remaining)||remaining<=0)throw new AgentRunLimitError('run_duration_limit');
+   const deadline=Math.max(1,Math.min(cap,options.deadlineMs??cap,remaining));
    const timeout=new Promise<never>((_resolve,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new AgentRunLimitError('run_duration_limit'));},deadline);});
    const work=Promise.resolve().then(()=>withResearchDatabaseContext({mandateId:trace.mandateId,runId:diagnosticRunId,stage:'native-event',action:eventKind},()=>handler({event,runId,signal:controller.signal,assertCurrent:async()=>{if(controller.signal.aborted||!await store.eventRunCurrent(runId,event))throw new Error('Agent event authority lost');}})));
    outcome=agentEventOutcomeSchema.parse(await Promise.race([work,timeout]));

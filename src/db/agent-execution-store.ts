@@ -1,3 +1,4 @@
+import {runDurationSql,dispatchRunSql} from './agent-dispatch-budget';
 import {AcquisitionWorkflowStore} from './acquisition-workflow-store';
 import {agentChannelMessageSqlNames} from './agent-operation-sql';
 import type {AgentTransactionPreset} from './agent-read-budget';
@@ -37,6 +38,14 @@ export class AgentExecutionStore extends AgentRuntimeRegistryStore{
    return work(c);
   },preset,readOnly);
  }
+ /** A newly admitted reviewed dispatch gets its frozen operation budget once.
+  * Existing running operations never have their lease renewed by another call. */
+ protected async constrainNativeOperationLease(c:PoolClient,operationId:string,authority:AgentExecutionFence,started:boolean){
+  await c.query(`UPDATE agent_operations o SET lease_until=LEAST(
+   CASE WHEN $3::boolean AND ${dispatchRunSql('r')} THEN o.updated_at+interval '60 seconds' ELSE o.lease_until END,
+   r.created_at+${runDurationSql('r')},r.lease_until)
+   FROM agent_runs r WHERE o.id=$1 AND r.id=$2 AND o.thread_id=r.thread_id`,[operationId,authority.runId,started]);
+ }
  protected async emit(c:PoolClient,t:AgentThread,key:string,kind:string,value:unknown,availableAt?:string){
   const data=payload(value);
   await c.query(`INSERT INTO agent_events(thread_id,organization_id,mandate_id,owner_user_id,event_key,kind,payload,payload_digest,available_at)
@@ -58,7 +67,7 @@ export class AgentExecutionStore extends AgentRuntimeRegistryStore{
  protected async assertExecutionFence(c:PoolClient,t:AgentThread,authority?:AgentExecutionFence,stepKey?:string){
   if(!authority)return;
   uuid.parse(authority.runId);uuid.parse(authority.eventId);uuid.parse(authority.leaseOwner);z.string().regex(/^\d+$/).parse(authority.fence);
-  const row=(await c.query(`SELECT r.id,r.usage,e.kind,e.workflow_execution_id,e.mandate_id,r.created_at+interval '45 seconds'>clock_timestamp() AS within_duration FROM agent_runs r JOIN agent_events e ON e.id=r.trigger_event_id
+  const row=(await c.query(`SELECT r.id,r.usage,e.kind,e.workflow_execution_id,e.mandate_id,r.created_at+${runDurationSql('r')}>clock_timestamp() AS within_duration FROM agent_runs r JOIN agent_events e ON e.id=r.trigger_event_id
    WHERE r.id=$1 AND e.id=$2 AND r.thread_id=$3 AND e.thread_id=$3 AND r.state='running' AND e.state='leased'
    AND r.lease_owner=$4 AND e.lease_owner=$4 AND r.fence=$5::bigint AND e.fence=$5::bigint
    AND r.lease_until>clock_timestamp() AND e.lease_until>clock_timestamp() FOR UPDATE OF r,e`,[authority.runId,authority.eventId,t.id,authority.leaseOwner,authority.fence])).rows[0];

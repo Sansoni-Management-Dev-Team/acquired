@@ -304,7 +304,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
     batch=(await c.query("SELECT id FROM agent_review_batches WHERE thread_id=$1 AND state='approved' AND manifest @> $2::jsonb ORDER BY created_at,id LIMIT 1",[t.id,JSON.stringify([item])])).rows[0];
     if(!batch)throw new Error('Exact approved review batch required');
    }else if(op.state!=='proposed')throw new Error('Delegated work must be a current unapproved proposal');
-   const running=(await c.query("UPDATE agent_operations SET state='running',fence=fence+1,lease_until=clock_timestamp()+interval '30 seconds',updated_at=now() WHERE id=$1 RETURNING *",[op.id])).rows[0];
+   const running=(await c.query("UPDATE agent_operations SET state='running',fence=fence+1,lease_until=clock_timestamp()+interval '30 seconds',updated_at=clock_timestamp() WHERE id=$1 RETURNING *",[op.id])).rows[0];
    const scopeKeys=['organization:sends','user:'+t.owner_user_id+':sends','mandate:'+t.mandate_id+':sends'];
    if(route)scopeKeys.push('binding:'+route.bindingDigest+':sends');
    const accounts=(await c.query("SELECT DISTINCT ON(scope_key) id,scope_key FROM agent_budget_accounts WHERE organization_id=$1 AND unit='sends' AND scope_key=ANY($2::text[]) AND window_start<=clock_timestamp() AND window_end>clock_timestamp() ORDER BY scope_key,window_start DESC,id",[t.organization_id,scopeKeys])).rows;
@@ -334,7 +334,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
    if(expectedRoute&&(route.id!==expectedRoute.id||route.bindingDigest!==expectedRoute.bindingDigest))throw Error('Original dispatch route changed before final admission');
    let row=await this.lockConversation(c,t,op.conversation_id),running=op;
    if(op.state!=='running')({row,running}=await this.prepareNativeEmailAuthority(c,t,op,delegation,route));
-   if(authority)await c.query("UPDATE agent_operations o SET lease_until=LEAST(o.lease_until,r.created_at+interval '45 seconds',r.lease_until) FROM agent_runs r WHERE o.id=$1 AND r.id=$2",[op.id,authority.runId]);
+   if(authority)await this.constrainNativeOperationLease(c,op.id,authority,op.state!=='running');
    if((await c.query('SELECT agent_operation_authorised($1::uuid) AS allowed',[op.id])).rows[0]?.allowed!==true)throw Error('Current native channel authority or policy unavailable');
    await this.emitOperational(c,t,'provider-reconcile:'+op.id,route.channel+'.reconcile',{operationId:op.id},new Date(Date.now()+30000).toISOString());
    return {operationId:op.id as string,conversationId:row.id as string,routeId:route.id,epoch:Number(row.epoch),fence:String(running.fence),bindingId:route.bindingId,recipient:route.recipient,channel:route.channel,subject:op.input.subject as string,body:op.input.body as string};
@@ -398,7 +398,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
    if(conversation.delivery_mode!=='communications')throw new Error('The recorded communications delivery mode is required');
    let row=conversation,running=op;
    if(op.state!=='running')({row,running}=await this.prepareNativeEmailAuthority(c,t,op,delegation));
-   if(authority)await c.query("UPDATE agent_operations o SET lease_until=LEAST(o.lease_until,r.created_at+interval '45 seconds',r.lease_until) FROM agent_runs r WHERE o.id=$1 AND r.id=$2",[op.id,authority.runId]);
+   if(authority)await this.constrainNativeOperationLease(c,op.id,authority,op.state!=='running');
    if((await c.query('SELECT agent_operation_authorised($1::uuid) AS allowed',[op.id])).rows[0]?.allowed!==true)throw new Error('Current native sending authority or policy unavailable');
    await this.emitOperational(c,t,'provider-reconcile:'+op.id,'email.reconcile',{operationId:op.id},new Date(Date.now()+30000).toISOString());
    return {operationId:op.id as string,conversationId:row.id as string,epoch:Number(row.epoch),fence:String(running.fence),bindingId:row.binding_id as string,recipient:row.recipient_email as string,subject:op.input.subject as string,body:op.input.body as string,contextRevision:row.context_revision as string,inputDigest:op.input_digest as string};

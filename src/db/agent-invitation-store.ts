@@ -98,7 +98,7 @@ export class AgentInvitationStore extends AgentChannelStore{
    const op=(await c.query("SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name='linkedin.invitation' FOR UPDATE",[operationId,t.id])).rows[0];if(!op||op.input.requiresHumanReview!==true)throw Error('Exact human-reviewed invitation required');
    const route=await this.nativeOperationRoute(c,t,op);if(!route||route.channel!=='linkedin')throw Error('Original reviewed invitation route required');
    let row=await this.lockConversation(c,t,op.conversation_id),running=op;if(op.state!=='running')({row,running}=await this.prepareNativeEmailAuthority(c,t,op,undefined,route));
-   if(authority)await c.query("UPDATE agent_operations o SET lease_until=LEAST(o.lease_until,r.created_at+interval '45 seconds',r.lease_until) FROM agent_runs r WHERE o.id=$1 AND r.id=$2",[op.id,authority.runId]);
+   if(authority)await this.constrainNativeOperationLease(c,op.id,authority,op.state!=='running');
    if((await c.query('SELECT agent_operation_authorised($1::uuid) AS allowed',[op.id])).rows[0]?.allowed!==true)throw Error('Current invitation authority or policy unavailable');
    await this.emitOperational(c,t,'provider-reconcile:'+op.id,'linkedin.reconcile',{operationId:op.id},new Date(Date.now()+30000).toISOString());
    return {operationId:op.id as string,conversationId:row.id as string,routeId:route.id,epoch:Number(row.epoch),fence:String(running.fence),bindingId:route.bindingId,recipient:route.recipient,channel:'linkedin' as const,subject:'',body:op.input.body as string,effect:'invitation' as const};
