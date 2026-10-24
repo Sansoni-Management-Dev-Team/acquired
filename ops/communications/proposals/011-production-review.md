@@ -1,3 +1,7 @@
+## Applied after exact user approval — 2026-10-24
+
+Exact schema-only rehearsal bootstrap and011 passed both actual-role repository/proof and two-session race tests. Fresh production schema capture matched the reviewed baseline. Conditional production011 committed; postcheck boundary0rows, FORCE RLS enabled, no lock waits or idle transactions. No code deployed and no sends. Appauthenticatedreadiness200; servicecontainershealthy. A subsequent hosted simulator readiness sample had bindingsVerified=false and is being rechecked independently. Approval/application evidence in `rehearsal-011/manifest.json`; original proposal follows.
+
 # Transport boundary: production proposal, not approved or applied
 
 Read-only inventory on 2026-10-24 identified a **separate communications database**, not Acquire's Supabase database:
