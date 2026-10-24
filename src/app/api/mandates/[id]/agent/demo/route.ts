@@ -24,6 +24,10 @@ export async function POST(request:Request,context:AgentRequestContext){
   if(parsed.data.action==='start'){
    if(process.env.AGENT_WORKER_SCOPE_MODE!=='registered')return agentRequestError('Start the agent before outreach.',409);
    const mandateId=(await context.params).id;
+   if(scoped.thread){
+    const result=await scoped.store.completedOutreachStart(scoped.thread.id,mandateId,phaseKey(parsed.data.requestKey,'contacts'));
+    if(result)return Response.json({result},{headers:agentResponseHeaders});
+   }
    const workflow=await findMandateWorkflow(agentPool(),scoped.actor,mandateId);
    const bootstrap=workflow?.state==='ready'&&workflow.preset==='demo'&&workflow.mandateId===mandateId&&workflow.organizationId===scoped.actor.organizationId&&workflow.ownerUserId===scoped.actor.userId;
    let thread=scoped.thread;

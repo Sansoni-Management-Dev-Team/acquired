@@ -4057,3 +4057,11 @@ After the per-target transaction fix retained every freshness/ownership check an
 - After deploying the per-target refresh fix, Start progressed to a ready responsibility and pending target-selection review. The canary's45-second client timeout expired before the full route response; no review/send was approved. This is distinct from the earlier projection rollback.
 - Aligned only the canary's demo Start request with the existing UI150-second request window. Other requests remain45seconds and all requests remain bounded by the overall canary deadline. Timeout regression retains the original pending key and rejects automatic resend. All22 harness tests pass.
 - Start latency exceeding45seconds remains an observed limitation; this is not a claim that the entire startup flow is fast. Original command evidence and exact-key replay are required before resuming the retained journal.
+
+### 2026-10-24 — Completed Start receipt replay (implemented, not released)
+
+Production app `0b5fcf8` completed the original demo Start contacts command, but its same-key HTTP replay unnecessarily ran current company projection refresh before reading that receipt. Exact replay diagnostic at07:21:32.538Z reported `before_native_control`, category `unavailable`, duration9107ms; SQLSTATE/count fields were absent. This does not establish a new batch deadline or lock cause. Private bounded log evidence: `.local-data/workflow-modularity/production-next/start-replay-long.private.log`; temporary owned SSH access removed and verified.
+
+Added a read-only exact actor/thread/mandate/request-key completed contacts-command receipt lookup before the Start bootstrap refresh. It validates command name, completed state, original stored input digest and result schema; historical replay neither binds a newer workflow nor renews send authority. Missing keys retain all normal freshness/bootstrap checks. Unfinished, mismatched and malformed receipts fail closed. Authentication/current membership remain required. No migrations, sends, worker changes or deployment.
+
+TDD: route regression first1failed/14passed, then15passed. Store/route/outreach focused suite38passed; TypeScript and ESLint passed. Next: parent review, broader regression and conditional release; continue original simulator canary without another Start mutation.

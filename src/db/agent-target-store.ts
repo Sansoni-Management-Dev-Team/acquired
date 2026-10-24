@@ -1,3 +1,4 @@
+import {nativeControlReceiptSchema} from '@/domain/agent-execution';
 import type {AgentReviewContextOperation} from './agent-review-context';
 import {loadMandateExecutionContext} from '@/lib/mandate-execution-context';
 import {agentPersonChannelRecipientSchema} from '@/domain/agent-person-channel';
@@ -28,6 +29,24 @@ function allocationFailureCategory(cause:unknown):AllocationFailureCategory{
  return 'allocation_needs_review';
 }
 export class AgentTargetStore extends AgentResearchStore{
+ /** Historical completion is a receipt, not renewed authority. Read only the
+  * original owned command; never acquire today's workflow/send gate to replay it. */
+ async completedOutreachStart(threadId:string,mandateId:string,key:string){
+  const request='control:'+digest(z.string().trim().min(1).max(200).parse(key));
+  return this.transaction(async c=>{
+   const row=(await c.query(`SELECT o.name,o.state,o.input,o.input_digest,o.result
+    FROM agent_operations o JOIN agent_threads t ON t.id=o.thread_id
+    WHERE t.id=$1 AND t.mandate_id=$2 AND t.organization_id=$3 AND t.owner_user_id=$4
+     AND o.mandate_id=t.mandate_id AND o.organization_id=t.organization_id AND o.owner_user_id=t.owner_user_id
+     AND o.request_key=$5`,[uuid.parse(threadId),uuid.parse(mandateId),this.actor.organizationId,this.actor.userId,request])).rows[0];
+   if(!row)return null;
+   if(row.name!=='target.selection_plan'||row.state!=='complete')throw Error('Start key has different or unfinished work');
+   const input=z.object({mode:z.literal('channels'),policyRevision:z.number().int().positive()}).strict().parse(row.input);
+   if(row.input_digest!==digest({name:row.name,input}))throw Error('Saved Start command integrity changed');
+   return nativeControlReceiptSchema.parse(row.result);
+  },undefined,true);
+ }
+
  private async targetContext(c:PoolClient,t:AgentThread,ids?:string[]):Promise<AgentTargetContext>{
   const context=(await c.query('SELECT agent_owned_target_snapshot($1::uuid,$2::uuid[]) AS snapshot',[t.id,ids??null])).rows[0].snapshot;
   const guidance=await loadApprovedAgentGuidance(c,t,{categories:['qualification']});
