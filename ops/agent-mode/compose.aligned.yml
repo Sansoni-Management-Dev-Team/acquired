@@ -1,0 +1,18 @@
+# Append LAST after local/multichannel/demos/testing for the source alignment.
+# Only app/agent consume these new dependencies. Existing communications and
+# research services retain their original dependency volume and namespace.
+services:
+  dependencies:
+    volumes:
+      - agent-aligned-node-modules:/install/node_modules
+  app:
+    volumes:
+      - agent-aligned-node-modules:/workspace/node_modules
+      - agent-aligned-next:/workspace/.next
+  agent:
+    volumes:
+      - agent-aligned-node-modules:/workspace/node_modules
+      - agent-aligned-next:/workspace/.next
+volumes:
+  agent-aligned-node-modules:
+  agent-aligned-next:
