@@ -95,3 +95,8 @@ it('reports fixed coverage SQL boundaries and an allowlisted failure code withou
  const restore=installOperationTrace({async run(name,metadata,work){const prior=current,row={name,metadata};rows.push(row);current=row;try{return await work();}finally{current=prior;}},update(metadata){if(current)Object.assign(current.metadata,metadata);}});
  try{const f=fixture(),old=f.sql.getMockImplementation()!;f.sql.mockImplementation(async text=>{if(text.startsWith('SELECT public.communications_lock_send_gate'))throw Object.assign(Error('PRIVATE SQL recipient and credential'),{code:'55P03'});return old(text);});await expect(f.repo.project(query)).rejects.toThrow('Coverage projection unavailable');expect(rows).toContainEqual({name:'acquire.coverage.sql.gate',metadata:expect.objectContaining({failureCode:'55P03'})});expect(JSON.stringify(rows)).not.toMatch(/PRIVATE|SELECT|recipient|credential|tenantId|ownerId/);}finally{restore();}
 });
+it('reports the exact failed SQL boundary without private exception details',async()=>{
+ vi.stubEnv('AGENT_VERBOSE_LOGGING','true');const log=vi.spyOn(console,'warn').mockImplementation(()=>{}),f=fixture(),original=f.sql.getMockImplementation()!;
+ f.sql.mockImplementation(async text=>{if(text.includes('FROM public.communication_bindings'))throw Object.assign(Error('PRIVATE SQL payload'),{code:'42501'});return original(text);});
+ try{await expect(f.repo.project(query)).rejects.toThrow('Coverage projection unavailable');expect(log).toHaveBeenCalledWith('hosted-demo-failure',JSON.stringify({boundary:'coverage.sql.binding',sqlState:'42501'}));expect(JSON.stringify(log.mock.calls)).not.toContain('PRIVATE');}finally{log.mockRestore();vi.unstubAllEnvs();}
+});

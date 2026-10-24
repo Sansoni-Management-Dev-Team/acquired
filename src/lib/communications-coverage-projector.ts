@@ -1,3 +1,4 @@
+import {reportHostedDemoFailure} from './hosted-demo-diagnostic';
 import {businessSql,type BusinessClock} from '../../communications/packages/core/src/business-clock';
 import{ReplyProcessingPendingError}from'../../communications/packages/core/src/history-pending';
 import { createHash } from 'node:crypto';
@@ -85,6 +86,7 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
     }
     return { async project(inputQuery) {
             let client: SqlClient | undefined, closed = false,appCommitAttempted=false;
+            let diagnosticBoundary='coverage.input';
             const controller = new AbortController(), deadline = performance.now() + timeout;
             let rejectStopped!: (e: Error) => void;
             const stopped = new Promise<never>((_, reject) => { rejectStopped = reject; });
@@ -114,6 +116,7 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
                 assertSameBinding(binding, query.binding);
                 if (!id(query.scope) || !date(query.since) || query.cursor !== null || query.refresh !== true)
                     fail();
+                diagnosticBoundary='coverage.proof';
                 await withCoverage(query, async (raw) => {
                     live();
                     const proof = plain(raw) as unknown as HeldCoverageProjection, coverage = structuredClone(plain(proof.coverage)) as unknown as Coverage;
@@ -128,6 +131,7 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
                     const bootstrap=async()=>{
                       for(let attempt=0;attempt<10;attempt++){
                         let serialization=false;
+                    diagnosticBoundary='coverage.connect';
                     client = await call(async () => {
                         const acquired = await connect();
                         if (closed || performance.now() >= deadline) {
@@ -143,7 +147,8 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
                                 fail();
                             inFlight++;
                             try {
-                                return await traceOperation('acquire.coverage.sql.'+coverageSqlBoundary(text),{attempt:attempt+1},async()=>{try{return await sql<Row>(text, values);}catch(error){const code=error&&typeof error==='object'&&!types.isProxy(error)?Object.getOwnPropertyDescriptor(error,'code')?.value:undefined;if(code==='40001'||code==='55P03')serialization=true;updateOperationTrace({failureCode:code});throw error;}});
+                                diagnosticBoundary='coverage.sql.'+coverageSqlBoundary(text);
+                                return await traceOperation('acquire.coverage.sql.'+coverageSqlBoundary(text),{attempt:attempt+1},async()=>{try{return await sql<Row>(text, values);}catch(error){const code=error&&typeof error==='object'&&!types.isProxy(error)?Object.getOwnPropertyDescriptor(error,'code')?.value:undefined;if(code==='40001'||code==='55P03')serialization=true;updateOperationTrace({failureCode:code});reportHostedDemoFailure(diagnosticBoundary,error);throw error;}});
                             }
                             finally {
                                 inFlight--;
@@ -209,7 +214,7 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
                         fail();
                     await tx.query('INSERT INTO public.communication_consumer_checkpoints(binding_id,organization_id,owner_user_id,subscriber_id,scope_digest,encrypted_cursor,cursor_key_version,observed_service_revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8::bigint) ON CONFLICT(binding_id,subscriber_id,scope_digest) DO UPDATE SET encrypted_cursor=EXCLUDED.encrypted_cursor,cursor_key_version=EXCLUDED.cursor_key_version,observed_service_revision=EXCLUDED.observed_service_revision,updated_at=clock_timestamp()', [bindingId, binding.tenantId, binding.ownerId, subscriber, proof.scopeDigest, encrypted, keyVersion, proof.serviceRevision]);
                     await member();
-                    await call(revalidate);
+                    diagnosticBoundary='coverage.revalidate';await call(revalidate);
                     live();
                     appCommitAttempted=true;await tx.query('COMMIT');
                     live();
@@ -225,6 +230,7 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
                 await Promise.race([work, stopped]);
             }
             catch(error) {
+                reportHostedDemoFailure(diagnosticBoundary,error);
                 if(error instanceof ReplyProcessingPendingError&&!appCommitAttempted&&!closed&&!controller.signal.aborted&&performance.now()<deadline)throw error;
                 fail();
             }

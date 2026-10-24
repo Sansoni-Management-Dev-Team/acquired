@@ -1,3 +1,4 @@
+import {reportHostedDemoFailure} from './hosted-demo-diagnostic';
 import type{HostedDemoCommunicationsDescriptor}from'./hosted-demo-communications-environment';
 import type{HostedRecipientQuery}from'./hosted-demo-recipient-context';
 import type{createHostedDemoAuthorityRegistry}from'./hosted-demo-authority-registry';
@@ -32,7 +33,7 @@ export function createHostedDemoRequestHandler(options:HostedDemoApiOptions){
   if(request.method!=='POST')return respond({error:'Unsupported method'},405);
   const authorization=request.headers.get('authorization')??'',credential=authorization.startsWith('Bearer ')?authorization.slice(7):'';
   if(credential.length>128||!timingSafeEqual(digest(credential),expected)||request.headers.get('x-acquire-demo-run')!==descriptor.runId||request.headers.get('x-acquire-demo-audience')!=='acquire-hosted-demo-v1')return respond({error:'Not available'},403);
-  try{if(await options.authorizeCurrent()!==true)return respond({error:'Not available'},403);}catch{return respond({error:'Hosted demo unavailable'},503);}
+  try{if(await options.authorizeCurrent()!==true)return respond({error:'Not available'},403);}catch(error){reportHostedDemoFailure('callback.access',error);return respond({error:'Hosted demo unavailable'},503);}
   if(match[1]!=='access'&&descriptor.phase!=='active')return respond({error:'Not available'},403);
   let raw:unknown;try{raw=await body(request);}catch{return respond({error:'Invalid request'},400);}
   const kind=match[1];
@@ -47,7 +48,7 @@ export function createHostedDemoRequestHandler(options:HostedDemoApiOptions){
   }
   if(kind==='coverage'){
    let proof:ReturnType<typeof parseHostedCoverageProof>;try{proof=parseHostedCoverageProof(raw,descriptor.actor);if(proof.subscriberId!==subscriberId||!descriptor.bindings.some(b=>isDeepStrictEqual(b,proof.coverage.binding))||proof.coverage.scope!=='account'||proof.coverage.from!=='1970-01-01T00:00:00.000Z'||Date.parse(proof.expiresAt)<=Date.now()||Date.parse(proof.expiresAt)>Date.now()+20000)throw Error();}catch{return respond({error:'Invalid request'},400);}
-   try{if(!options.projectCoverage)throw Error();await options.projectCoverage(proof,request.signal);return respond({status:'projected'});}catch{return respond({error:'Hosted demo unavailable'},503);}
+   try{if(!options.projectCoverage)throw Error();await options.projectCoverage(proof,request.signal);return respond({status:'projected'});}catch(error){reportHostedDemoFailure('callback.coverage',error);return respond({error:'Hosted demo unavailable'},503);}
   }
   let event:ReturnType<typeof parseHostedEventDelivery>;try{event=parseHostedEventDelivery(raw,descriptor.actor);if(event.subscriberId!==subscriberId||!descriptor.bindings.some(b=>isDeepStrictEqual(b,event.binding))||Date.parse(event.expiresAt)<=Date.now()||Date.parse(event.expiresAt)>Date.now()+20000)throw Error();}catch{return respond({error:'Invalid request'},400);}
   try{if(!options.deliverEvents)throw Error();const result=await options.deliverEvents(event,request.signal);if(!result||typeof result!=='object'||Object.keys(result).sort().join(',')!=='binding,eventId,fingerprint,status,subscriberId')throw Error();const ack=result as Record<string,unknown>,binding=parseAuthoritySnapshot({binding:ack.binding,key:'event-ack',operation:'message',payloadDigest:'0'.repeat(64)},descriptor.actor).binding;if(!isDeepStrictEqual(binding,event.binding)||ack.subscriberId!==event.subscriberId||ack.eventId!==event.eventId||ack.fingerprint!==event.payload.fingerprint||!['committed','duplicate'].includes(ack.status as string))throw Error();return respond({binding,subscriberId:event.subscriberId,eventId:event.eventId,fingerprint:event.payload.fingerprint,status:ack.status});}catch{return respond({error:'Hosted demo unavailable'},503);}
