@@ -41,6 +41,15 @@
       "evidence": "project-acquire-agent-mode/.local-data/local-alignment/workflow-reviewed-v2/006-apply.log",
       "productionApplied": false,
       "productionProposalBlocked": "Exact production predecessor definitions and explicit approval required"
+    },
+    {
+      "file": "007-local-saved-recipient-readiness.proposed.sql",
+      "sha256": "83414b8e05487f66f9848e339b0f3454e80ac4258f21e17cfe8313588addf9f7",
+      "applied": true,
+      "evidence": "project-acquire-agent-mode/.local-data/local-alignment/workflow-reviewed-v2/007-apply.log",
+      "applicationSha256": "9fd8964e284fbb5bdc8581a5b851123f23d9a3b18ee2e52f56d77ef2a72cfd78",
+      "productionApplied": false,
+      "scope": "Exact independent local account/run only; send-window predicates unchanged"
     }
   ],
   "revisionReason": "Remove only absent Supabase role names from REVOKE lists; retain PUBLIC and every existing application role prohibition.",
