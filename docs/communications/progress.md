@@ -3837,3 +3837,10 @@ Regression evidence: latest-main implementations with the inherited added tests 
 Historical SQL files 130 and 131 are retained byte-for-byte as records only, not migration instructions or new approval: SHA-256 `013c587be0c8467630f778b7322952b4506cb41b176f685d58d4e40e082a2a32` and `a9e60254ea9375ed549b6826725b7ea6121b46c74d1f8e41523e140944d6422f`. Do not replay these operator-specific cancellations during alignment.
 
 Next: merge this source-only alignment, then review the runtime cutover against independent simulator `docs/acquire-local-handoff.md`. Reuse original app5437 data and bindings; validate bridge reachability from the application namespace and normal Acquire send/receipt/reply separately. Runtime cutover and fresh integration acceptance remain pending.
+
+
+## 2026-10-24 — local workflow/schema alignment
+
+Applied the four immutable local workflow-v2 derivations atomically to the standing-approved `acquire_agent_mode` database on 5437, after exact marker/system-identifier verification, full backup, and successful rollback rehearsal. Hashes and target are in `ops/agent-mode/migrations/workflow-v2/manifest.json`. Four journal entries committed; 366 existing conversations retained, zero workflow rows created, and 43 protected clock/service functions unchanged. No production or simulator database migration applied.
+
+The independent simulator main commit `81093de` adds effective mapping reads and separate workflow ownership checks; demo ID remains mandate ID. Its 2,458 tests and portable build passed. Runtime activation and fresh end-to-end acceptance are being verified separately.
