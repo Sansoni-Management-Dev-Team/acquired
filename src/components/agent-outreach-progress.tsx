@@ -1,5 +1,6 @@
 'use client';
 import {useState} from 'react';
+import {AgentDeliveryRecheck} from './agent-delivery-recheck';
 import {AgentChannelProgress,type AgentChannelProgressRow} from './agent-channel-progress';
 import {AgentConversationReviewControls} from './agent-conversation-review-controls';
 import {AgentConversationHistory} from './agent-conversation-history';
@@ -49,6 +50,7 @@ function Row({automaticMessages=false,mandateId,focusedConversationId,conversati
     <AgentChatActions>
      {c.pending_driver&&!stopped?<><p>I’m waiting for the previous sender to finish before switching who handles this conversation.</p><button type="button" className={button} disabled={disabled} onClick={()=>void perform(()=>onHandover(c))}>Finish switching</button></>:!terminal&&c.driver_kind==='agent'&&c.phase==='active'?<button type="button" className={button} disabled={disabled} onClick={()=>void perform(()=>onHandover(c,'human'))}>Take over</button>:!terminal&&recoverable?<><button type="button" className={button} disabled={disabled} onClick={()=>void perform(()=>onHeldControl(c,'refresh_held_history'))}>Check previous messages</button><button type="button" className={button} disabled={disabled||!running||!c.history_complete} onClick={()=>void perform(()=>onHeldControl(c,'resume_held'))}>Resume agent</button></>:c.driver_kind!=='agent'&&!stopped&&canHandBack(c)?<button type="button" className={button} disabled={disabled||!running} onClick={()=>void perform(()=>onHandover(c,'agent'))}>Move to agent</button>:null}
     </AgentChatActions>
+    <AgentDeliveryRecheck conversation={c} disabled={disabled||!running} onCommand={onCommand}/>
     <AgentConversationReviewControls conversation={c} disabled={disabled||!running} onCommand={onCommand}/>
     {error&&<p role="alert">{error}</p>}
     </AgentChatDetails>

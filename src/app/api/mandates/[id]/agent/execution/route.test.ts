@@ -69,3 +69,5 @@ it.each(['accepted','researching','failed','cancelled','uncertain','complete'])(
  workflow.mockResolvedValue({id:requestKey,mandateId:id,organizationId:'org',ownerUserId:'actor',preset:'demo',state});
  expect((await(await GET(new Request(url),context)).json()).state).toBeNull();expect(mock.open).not.toHaveBeenCalled();
 });
+
+it('queues a delivery status check only for the scoped original conversation',async()=>{const recheckDeliveryOutcome=vi.fn().mockResolvedValue({id,revision:2,status:'delivery_check_requested'});mock.scope.mockResolvedValue({store:{...store,recheckDeliveryOutcome},thread:{id:'owned-thread'}});const value={action:'recheck_delivery',requestKey,conversationId,revision:2,epoch:3,contextRevision:'a'.repeat(64)};expect((await POST(request(value),context)).status).toBe(200);expect(recheckDeliveryOutcome).toHaveBeenCalledWith('owned-thread',requestKey,{conversationId,revision:2,epoch:3,contextRevision:'a'.repeat(64)});expect(mock.control).not.toHaveBeenCalled();expect(wake).toHaveBeenCalledOnce();});

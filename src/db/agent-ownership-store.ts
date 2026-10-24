@@ -10,6 +10,25 @@ const uuid=z.string().uuid(),positive=z.coerce.number().int().positive().max(Num
 const expected=z.object({conversationId:uuid,revision:positive,contextRevision:z.string().regex(/^[a-f0-9]{64}$/),epoch:positive}).strict();
 const beginSchema=expected.extend({target:agentDriverSchema,reason:z.string().trim().min(5).max(2000)}).strict();
 export class AgentOwnershipStore extends AgentModelStore{
+ /** Explicit lookup-only recovery. This never restores authority or retries submission. */
+ async recheckDeliveryOutcome(threadId:string,key:string,raw:unknown){
+  const input=expected.parse(raw);
+  return this.command(threadId,key,'conversation.delivery_recheck',input,async(c,t,commandId)=>{
+   const row=await this.lockConversation(c,t,input.conversationId);
+   if(row.revision!==input.revision||Number(row.epoch)!==input.epoch||row.context_revision!==input.contextRevision)throw Error('Conversation changed; refresh before checking delivery');
+   if(row.driver_kind!=='agent'||row.phase!=='held'||row.pause_reason!=='provider_outcome_unknown'||row.pending_driver)throw Error('Only an unresolved original delivery can be checked');
+   const operations=(await c.query(`SELECT o.id,o.name,o.state,o.workflow_execution_id,o.mandate_id FROM agent_operations o WHERE o.thread_id=$1 AND o.conversation_id=$2 AND o.organization_id=$3 AND o.owner_user_id=$4 AND o.state='uncertain' AND o.name IN('email.initial','email.reply','email.follow_up','email.manual_link','whatsapp.initial','whatsapp.reply','whatsapp.follow_up','linkedin.initial','linkedin.reply','linkedin.follow_up','linkedin.invitation') ORDER BY o.id LIMIT 2 FOR UPDATE`,[t.id,row.id,t.organization_id,t.owner_user_id])).rows;
+   if(operations.length!==1)throw Error('One original unresolved delivery is required');
+   const operation=operations[0],channel=operation.name.split('.')[0];
+   await this.bindOriginalWorkflow(c,operation);
+   const occupied=(await c.query(`SELECT EXISTS(SELECT 1 FROM agent_runs WHERE thread_id=$1 AND state='running') OR EXISTS(SELECT 1 FROM agent_events WHERE thread_id=$1 AND kind=$2 AND payload->>'operationId'=$3 AND state IN('pending','leased')) AS occupied`,[t.id,channel+'.reconcile',operation.id])).rows[0]?.occupied;
+   if(occupied!==false)throw Error('The original outcome is already being checked; wait for current work');
+   await this.emitOperational(c,t,'delivery-recheck:'+commandId+':'+operation.id,channel+'.reconcile',{operationId:operation.id},new Date().toISOString());
+   await this.controlNotice(c,t,'delivery-recheck:'+commandId,'I am checking the original delivery status. Sending remains paused; no message is being resent.',{conversationId:row.id,operationId:operation.id});
+   return {id:operation.id as string,revision:row.revision as number,status:'delivery_check_requested'};
+  });
+ }
+
  async adoptSequenceConversation(threadId:string,key:string,raw:unknown){
   const input=z.object({enrolmentId:uuid,expectedVersionId:uuid}).strict().parse(raw);
   return this.command(threadId,key,'ownership.adopt_sequence',input,async(c,t,commandId)=>{

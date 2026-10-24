@@ -20,6 +20,7 @@ const inputSchema=z.discriminatedUnion('action',[
  z.object({action:z.literal('handover_commit'),requestKey:uuid,...ownership}).strict(),
  z.object({action:z.literal('resume_held'),requestKey:uuid,...ownership,reason:z.string().trim().min(5).max(2000)}).strict(),
  z.object({action:z.literal('refresh_held_history'),requestKey:uuid,...ownership}).strict(),
+ z.object({action:z.literal('recheck_delivery'),requestKey:uuid,...ownership}).strict(),
  z.object({action:z.literal('refresh_review_history'),requestKey:uuid,...ownership}).strict(),
  z.object({action:z.literal('reassess_conversation'),requestKey:uuid,...ownership,reason:z.string().trim().min(5).max(2000)}).strict(),
  z.object({action:z.literal('adopt_sequence'),requestKey:uuid,enrolmentId:uuid,expectedVersionId:uuid}).strict(),
@@ -68,6 +69,7 @@ export async function POST(request:Request,context:Context){
    :action==='handover_commit'?await data.store.commitConversationHandover(thread.id,requestKey,input)
    :action==='resume_held'?await data.store.resumeHeldConversation(thread.id,requestKey,input)
    :action==='refresh_held_history'?await data.store.requestHeldHistoryRefresh(thread.id,requestKey,input)
+   :action==='recheck_delivery'?await data.store.recheckDeliveryOutcome(thread.id,requestKey,input)
    :action==='refresh_review_history'?await data.store.requestConversationReviewHistory(thread.id,requestKey,input)
    :action==='reassess_conversation'?await data.store.reassessConversationAfterReview(thread.id,requestKey,input)
    :action==='adopt_sequence'?await data.store.adoptSequenceConversation(thread.id,requestKey,input)
@@ -75,7 +77,7 @@ export async function POST(request:Request,context:Context){
   if(action==='start'||action==='resume')try{await initializeAgentChannelDefaults(data.store,thread.id,requestKey);}catch{
    console.info('agent-channel-defaults',JSON.stringify({module:'agent-channel-defaults',mandateId:(await context.params).id,stage:'settings_not_ready',timestamp:new Date().toISOString()}));
   }
-  if(['start','resume','resume_held','refresh_held_history','refresh_review_history','reassess_conversation'].includes(action))wakeNativeAgentAfterCommit();
+  if(['start','resume','resume_held','refresh_held_history','refresh_review_history','reassess_conversation','recheck_delivery'].includes(action))wakeNativeAgentAfterCommit();
   return Response.json({result},{headers});
  }catch(cause){return failure(cause);}
 }
