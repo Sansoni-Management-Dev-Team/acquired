@@ -1,0 +1,73 @@
+name: acquire-integration-app
+# Draft only: no automatic schema initialization or seed mounts.
+services:
+  database:
+    profiles: [approved-database]
+    image: ${POSTGRES_IMAGE:?Pin the reviewed PostgreSQL 17 image digest}
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: acquire_integration_app
+      POSTGRES_PASSWORD_FILE: /run/private/database.password
+    command: [postgres, -c, max_connections=30, -c, acquire.deployment_target=acquire-app-integration-local-v1]
+    ports: ["127.0.0.1:15441:5432"]
+    volumes:
+      - app-database:/var/lib/postgresql/data
+      - ${PRIVATE_DIR:?Absolute ignored private configuration directory}/database.password:/run/private/database.password:ro
+    networks: [integration]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U postgres -d acquire_integration_app"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    mem_limit: 768m
+  app:
+    profiles: [approved-runtime]
+    image: ${APP_IMAGE:?Pin aligned committed app image digest}
+    env_file:
+      - path: ${PRIVATE_DIR:?Absolute ignored private configuration directory}/app.env
+        format: raw
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      DATABASE_DRIVER: postgres
+      NODE_EXTRA_CA_CERTS: /run/private/integration-trust.pem
+      NEXT_TELEMETRY_DISABLED: "1"
+    expose: ["3000"]
+    volumes:
+      - ${PRIVATE_DIR}/integration-trust.pem:/run/private/integration-trust.pem:ro
+      - app-next-cache:/app/.next/cache
+    networks: [integration]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    init: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1400m
+    stop_grace_period: 90s
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+  gateway:
+    profiles: [approved-runtime]
+    image: ${CADDY_IMAGE:?Pin reviewed Caddy image digest}
+    ports: ["127.0.0.1:18443:18443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${PRIVATE_DIR}/app.crt:/run/private/app.crt:ro
+      - ${PRIVATE_DIR}/app.key:/run/private/app.key:ro
+    networks:
+      integration:
+        aliases: [app.acquire-integration.test]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m
+volumes:
+  app-database:
+    name: acquire_integration_app_pgdata_v1
+  app-next-cache:
+    name: acquire_integration_app_cache_v1
+networks:
+  integration:
+    name: acquire_integration_app_private_v1

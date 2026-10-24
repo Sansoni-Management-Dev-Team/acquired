@@ -1,0 +1,30 @@
+{
+  "status": "prepared_unapproved_unapplied",
+  "target": {
+    "host": "127.0.0.1",
+    "port": 15441,
+    "database": "acquire_integration_app",
+    "marker": "acquire-app-integration-local-v1",
+    "volume": "acquire_integration_app_pgdata_v1",
+    "systemIdentifier": null
+  },
+  "source": {
+    "database": "acquire_hosted_demo_rehearsal",
+    "marker": "acquire-hosted-demo-rehearsal-only",
+    "systemIdentifier": "7699248227334438947",
+    "method": "pg_dump --schema-only --no-owner",
+    "rowsCopied": 0
+  },
+  "files": [
+    {
+      "file": "001-local-roles.proposed.sql",
+      "sha256": "bccdceb9968896d512cb0599058d4f990eaa96efe3fb44ee0d2220edeb9bea09",
+      "bytes": 1977
+    },
+    {
+      "file": "002-app-schema.proposed.sql",
+      "sha256": "c8df5c51bbb65f9d03ae927a19971bae5c18d9ce4d44d51a0cef4898ebb4a753",
+      "bytes": 1082442
+    }
+  ]
+}

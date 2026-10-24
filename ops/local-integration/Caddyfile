@@ -1,0 +1,8 @@
+{
+  admin off
+  auto_https disable_redirects
+}
+https://app.acquire-integration.test:18443 {
+  tls /run/private/app.crt /run/private/app.key
+  reverse_proxy app:3000
+}
