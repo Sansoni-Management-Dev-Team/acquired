@@ -1,0 +1,48 @@
+--- a/testing/agent-simulator/hosted-communications-runtime-entry.ts
++++ b/testing/agent-simulator/hosted-communications-runtime-entry.ts
+@@ -1,3 +1,4 @@
++import {prepareHostedSubmitCoverage} from './hosted-submit-coverage';
+ import {isDeepStrictEqual,types} from 'node:util';
+ import {performance} from 'node:perf_hooks';
+ import {inspectHostedHistoryReadiness} from './hosted-readiness-observation';
+@@ -114,12 +115,19 @@
+   }catch{return{status:'waiting',code:'unavailable'};}
+  }
+  const projectAccount=(b:ConnectionBinding,expectedDigest?:string)=>historyTurn(b,()=>projectAccountHeld(b,expectedDigest));
+- async function projectAccountHeld(b:ConnectionBinding,expectedDigest?:string){
++ async function refreshAccountHeld(b:ConnectionBinding,expectedDigest?:string){
+   await ensureGrantLifetime(b);
+   const source=await history(b),query:EventQuery={binding:b,scope:'account',since:'1970-01-01T00:00:00.000Z',cursor:null,refresh:true};
+   if(expectedDigest!==undefined&&source.repository.scopeDigest(query.scope)!==expectedDigest)fail();
+   await observed('hosted.history.refresh',()=>source.refresh(query,{signal:AbortSignal.timeout(20000)}));
+-  await observed('hosted.history.project',()=>source.repository.withCoverage(query,async proof=>{if(expectedDigest!==undefined&&proof.scopeDigest!==expectedDigest)fail();await proofSessions.withCoverage(proof,subscriberId,(wire,signal)=>application.projectCoverage(wire,signal));await proof.revalidate();}));
++ }
++ async function projectAccountCoverageHeld(b:ConnectionBinding,expectedDigest?:string){
++  const source=await history(b),query:EventQuery={binding:b,scope:'account',since:'1970-01-01T00:00:00.000Z',cursor:null,refresh:true};
++  if(expectedDigest!==undefined&&source.repository.scopeDigest(query.scope)!==expectedDigest)fail();
++  return observed('hosted.history.project',()=>source.repository.withCoverage(query,async proof=>{if(expectedDigest!==undefined&&proof.scopeDigest!==expectedDigest)fail();await proofSessions.withCoverage(proof,subscriberId,(wire,signal)=>application.projectCoverage(wire,signal));await proof.revalidate();return proof.serviceRevision;}));
++ }
++ async function projectAccountHeld(b:ConnectionBinding,expectedDigest?:string){
++  await refreshAccountHeld(b,expectedDigest);await projectAccountCoverageHeld(b,expectedDigest);
+  }
+  async function compose(input:ConnectionBinding){
+   const b=structuredClone(input);assertSameBinding(b,b);const actor=captureScope({applicationId:b.applicationId,tenantId:b.tenantId,ownerId:b.ownerId});if(!subjectKeys.has(JSON.stringify(actor)))fail();
+@@ -129,7 +137,7 @@
+   const raw=await runtime.providerFactory(b,{lookupOnly}),coordinator=createDispatchCoordinator(b,raw,journal,{diagnostic:options.diagnostic,recoverUnknownEmail:(record,signal)=>runtime.recoverUnknownEmail(record,signal)});
+   const adapter={
+    async ready(requested:ConnectionBinding){assertSameBinding(b,requested);const readiness=await accountReadiness(b);return readiness.status==='ready'?coordinator.ready(b):readiness;},
+-   async submit(input:import('../../communications/packages/contracts/src').MessageSubmission){assertSameBinding(b,input.snapshot.binding);return historyTurn(b,async()=>{if(lookupOnly)return{status:'review',code:'reconnect'} as const;for(const scope of await admission.getPreparedCoverage(input.snapshot))await projectAccountHeld(scope.binding,scope.scopeDigest);return coordinator.submit(input);});},
++   async submit(input:import('../../communications/packages/contracts/src').MessageSubmission){assertSameBinding(b,input.snapshot.binding);return historyTurn(b,async()=>{if(lookupOnly)return{status:'review',code:'reconnect'} as const;await prepareHostedSubmitCoverage(await admission.getPreparedCoverage(input.snapshot),scope=>refreshAccountHeld(scope.binding,scope.scopeDigest),scope=>projectAccountCoverageHeld(scope.binding,scope.scopeDigest));return coordinator.submit(input);});},
+    lookup:(input:import('../../communications/packages/contracts/src').ReceiptLookup)=>historyTurn(b,()=>coordinator.lookup(input)),
+   };return{adapter,journal};
+  }
+--- /dev/null
++++ b/testing/agent-simulator/hosted-submit-coverage.ts
+@@ -0,0 +1,7 @@
++/** Caller retains its tenant history turn through final dispatch admission. */
++export async function prepareHostedSubmitCoverage<T>(scopes:readonly T[],refresh:(scope:T)=>Promise<void>,project:(scope:T)=>Promise<string>){
++ let revision:string|undefined;
++ for(const scope of scopes)await refresh(scope);
++ for(const scope of scopes){const current=await project(scope);if(revision!==undefined&&revision!==current)throw Error('Hosted submit coverage changed');revision=current;}
++ if(revision===undefined)throw Error('Hosted submit coverage unavailable');
++}
