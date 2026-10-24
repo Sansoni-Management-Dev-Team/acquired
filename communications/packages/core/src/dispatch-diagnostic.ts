@@ -56,6 +56,6 @@ export function reportAdmissionPreparationFailure(stage:DispatchDiagnosticStage|
   const sqlState=typeof code==='string'&&['P0001','40001','40P01','55P03','57014','42501','23503','23505','23514'].includes(code)?code:undefined;
   const category=code==='P0001'&&message==='Exact active outreach workflow required for new dispatch'?'workflow_dispatch_guard_rejected'
    :code==='P0001'?'database_guard_rejected':code==='42501'?'authorization_rejected':code==='40001'||code==='40P01'||code==='55P03'?'database_contention':code==='57014'?'database_timeout':code==='23503'||code==='23505'||code==='23514'?'stored_state_conflict':'unclassified_preparation_failure';
-  console.warn('communications-admission-failure',JSON.stringify({module:'communications.application_admission',stage,outcome:'error',...safeObservation(observationScope.getStore()??{}),...(sqlState?{sqlState}:{}),category,submission:'not_attempted_by_this_prepare',intentPersistence:'not_confirmed',recovery:'reconcile_original_operation',automaticResend:false}));
+  console.warn('communications-admission-failure',JSON.stringify({module:'communications.application_admission',timestamp:new Date().toISOString(),stage,outcome:'error',...safeObservation(observationScope.getStore()??{}),...(sqlState?{sqlState}:{}),category,submission:'not_attempted_by_this_prepare',intentPersistence:'not_confirmed',recovery:'reconcile_original_operation',automaticResend:false}));
  }catch{/* Diagnostic failures never alter admission or recovery. */}
 }
