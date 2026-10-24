@@ -25,7 +25,7 @@ Use the worker's supported research provider configuration (OpenAI or OpenRouter
 With the existing private base Compose file as `ISOLATED_COMPOSE_FILE`:
 
 ```sh
-docker compose -f "$ISOLATED_COMPOSE_FILE" -f "$ACQUIRE_SOURCE_ROOT/ops/agent-mode/compose.isolated-research.yml" up -d --no-deps research reader search
+docker compose -f "$ISOLATED_COMPOSE_FILE" -f "$ACQUIRE_SOURCE_ROOT/ops/agent-mode/compose.isolated-research.yml" up -d --no-deps research reader reader-alias search
 ```
 
 Use the same Compose project name as the isolated lane. This starts only these sidecars; never recreate its network namespace while the app/simulator are active. It preserves persistent worker state. Cancel any active research through the normal application route before a disruptive worker change.
@@ -43,3 +43,5 @@ Wrangler local development does not deliver a production cron automatically. To 
 Append `compose.isolated-maintenance.yml` to the existing base and start only `research-maintenance` with `up -d --no-deps research-maintenance`. It rejects production mode, verifies the exact database marker and current membership every pass, selects at most two owned live/research-test workflow scopes, and reuses normal scoped recovery/projection. Completed workflows with unfinished optional work remain eligible; demos and cancelled workflows do not. The loop is sequential with30s between passes and the existing15s background database budget. No global scheduled dispatcher is invoked.
 
 Discovery's root deadline is not a global optional-enrichment cutoff: saved companies can have separately bounded background field jobs. Report root completion, people settlement and optional field completion independently. Do not silently reinterpret a saved partial/unknown field as verified.
+
+The fixed loopback reader alias18083→18084 supplies the existing app missing-field reader default without restarting the app or changing its active job configuration. It runs only inside the isolated network namespace and publishes no host port. Verify both loopback health endpoints from the isolated app. The alias preserves the reader response and does not manufacture page evidence.

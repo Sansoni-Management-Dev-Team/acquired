@@ -28,6 +28,13 @@ services:
       - ${ACQUIRE_SOURCE_ROOT:?required}/cloudflare/crawl4ai/server.py:/app/server.py:ro
     shm_size: 1gb
     restart: unless-stopped
+  reader-alias:
+    image: node:22.12.0
+    network_mode: service:network
+    command: [node, /reader-alias.mjs]
+    volumes:
+      - ${ACQUIRE_SOURCE_ROOT:?required}/scripts/local-reader-alias.mjs:/reader-alias.mjs:ro
+    restart: unless-stopped
   search:
     image: sha256:9f5c5736fc7434862fa23dd0955e53d4003ffe42f151a5e1297085decf3100b7
     network_mode: service:network
