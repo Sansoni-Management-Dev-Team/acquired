@@ -50,6 +50,15 @@
       "applicationSha256": "9fd8964e284fbb5bdc8581a5b851123f23d9a3b18ee2e52f56d77ef2a72cfd78",
       "productionApplied": false,
       "scope": "Exact independent local account/run only; send-window predicates unchanged"
+    },
+    {
+      "file": "008-local-isolated-send-window.proposed.sql",
+      "sha256": "229e629352f1b690427f408e6b7b3e0fad40e13d9e91463cec7dd98ef91a0272",
+      "applied": true,
+      "evidence": "project-acquire-agent-mode/.local-data/local-alignment/workflow-reviewed-v2/008-apply.log",
+      "applicationSha256": "54fecc7d6464de4ee709ba72174432d4a01037c4a605a8822dd4a4a8e72e0c73",
+      "productionApplied": false,
+      "scope": "Exact isolated runtime/actor/run/mapped synthetic route; no clocks or event times changed"
     }
   ],
   "revisionReason": "Remove only absent Supabase role names from REVOKE lists; retain PUBLIC and every existing application role prohibition.",
