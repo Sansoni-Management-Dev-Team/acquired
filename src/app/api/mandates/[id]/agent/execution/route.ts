@@ -37,7 +37,7 @@ export async function GET(request:Request,context:Context){
   const mandateId=(await context.params).id;
   const workflow=!data.thread&&data.actor&&data.mandate
    ?await findMandateWorkflow(agentPool(),data.actor,mandateId):undefined;
-  const owned=workflow&&workflow.mandateId===mandateId&&workflow.organizationId===data.actor.organizationId&&workflow.ownerUserId===data.actor.userId?workflow:undefined;
+  const owned=workflow&&workflow.state==='ready'&&workflow.mandateId===mandateId&&workflow.organizationId===data.actor.organizationId&&workflow.ownerUserId===data.actor.userId?workflow:undefined;
   const state=savedState??(owned?{executionMode:owned.preset==='demo'?'demo' as const:'real' as const,workflowPreset:owned.preset,workflowExecutionId:owned.id,mandateRevision:data.mandate!.revision,responsibility:null,conversations:[],demoContacts:undefined}:null);
   const config=agentDemoProvisioningConfiguration();
   const readiness=agentDemoPreparationReadiness(config,data.actor);

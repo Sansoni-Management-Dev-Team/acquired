@@ -63,3 +63,9 @@ it.each(['missing','foreign','other-mandate'])('does not project %s workflow as 
  workflow.mockResolvedValue(kind==='missing'?undefined:{id:requestKey,mandateId:kind==='other-mandate'?conversationId:id,organizationId:'org',ownerUserId:kind==='foreign'?'other':'actor',preset:'demo',state:'ready'});
  const result=await(await GET(new Request(url),context)).json();expect(result.state).toBeNull();expect(mock.open).not.toHaveBeenCalled();
 });
+
+it.each(['accepted','researching','failed','cancelled','uncertain','complete'])('does not offer a pre-thread Start for %s workflow',async state=>{
+ mock.scope.mockResolvedValue({actor:{organizationId:'org',userId:'actor'},mandate:{revision:'123'},store,thread:undefined});
+ workflow.mockResolvedValue({id:requestKey,mandateId:id,organizationId:'org',ownerUserId:'actor',preset:'demo',state});
+ expect((await(await GET(new Request(url),context)).json()).state).toBeNull();expect(mock.open).not.toHaveBeenCalled();
+});
