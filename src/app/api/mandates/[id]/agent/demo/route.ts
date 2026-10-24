@@ -1,3 +1,4 @@
+import {AcquireCommandError} from '@/domain/acquire-commands';
 import {z} from 'zod';
 import {guardBrowserMutation} from '@/lib/browser-mutation';
 import {findMandateWorkflow} from '@/lib/acquisition-workflow-research';
@@ -44,6 +45,7 @@ export async function POST(request:Request,context:AgentRequestContext){
   if(kind==='real')return agentRequestError('Real mandates do not use demo contacts.',409);
   return Response.json(result,{headers:agentResponseHeaders});
  }catch(error){
+  if(error instanceof AcquireCommandError)return agentRequestError(error.message,error.status);
   // Log failure location, never arbitrary exception text, recipients or tokens.
   const cause=error as {name?:unknown;code?:unknown;message?:unknown;stack?:unknown};
   console.info('agent-demo-preparation',JSON.stringify({module:'agent-demo',mandateId:(await context.params).id,stage:'preparation_failed',errorKind:['Error','TypeError','ZodError','AgentDemoProvisioningError','AgentOutreachStartError'].includes(String(cause?.name))?cause.name:'unknown',sqlState:typeof cause?.code==='string'&&/^[A-Z0-9]{5}$/.test(cause.code)?cause.code:undefined,method:typeof cause?.message==='string'?/^([A-Za-z0-9_.]+) is not a function$/.exec(cause.message)?.[1]:undefined,frames:typeof cause?.stack==='string'?cause.stack.split('\n').filter(line=>/^\s+at /.test(line)).slice(0,3).map(line=>/^\s+at ([A-Za-z0-9_.]+)/.exec(line)?.[1]??'unknown'):[],timestamp:new Date().toISOString()}));

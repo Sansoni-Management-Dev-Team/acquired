@@ -72,3 +72,4 @@ it('does not continue after an uncertain bootstrap control result or auto-resume
  store.controlResponsibility.mockClear();store.executionState.mockResolvedValue({...state,responsibility:{state:'paused'}});await POST(request({requestKey,action:'start'}),context);expect(store.controlResponsibility).not.toHaveBeenCalled();
  vi.unstubAllEnvs();
 });
+it('preserves a projection refresh conflict as409 instead of generic503',async()=>{const{AcquireCommandError}=await import('@/domain/acquire-commands');m.command.mockRejectedValueOnce(new AcquireCommandError('Company evidence needs a current refresh before starting or resuming supervision.',409));const r=await POST(request(),context);expect(r.status).toBe(409);expect(await r.json()).toEqual({error:'Company evidence needs a current refresh before starting or resuming supervision.'});});

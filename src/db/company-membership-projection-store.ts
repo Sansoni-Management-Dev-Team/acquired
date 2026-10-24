@@ -46,7 +46,7 @@ export async function refreshCompanyMembershipProjectionsInTransaction(c:Company
  if(!(await c.query('SELECT 1 FROM mandates WHERE id=$1 AND organization_id=$2 FOR SHARE',[scope.mandateId,actor.organizationId])).rowCount)throw Error('Company projection mandate unavailable');
  const ids=(await c.query('SELECT target_id FROM mandate_targets WHERE organization_id=$1 AND mandate_id=$2 AND ($3::uuid[] IS NULL OR target_id=ANY($3::uuid[])) ORDER BY target_id LIMIT 50',[actor.organizationId,scope.mandateId,targetIds])).rows;
  const until=Date.now()+3000,results=[];
- for(const row of ids){if(Date.now()>=until)throw Error('Company projection refresh exceeded its bounded transaction; refresh is still required');results.push(await publishCompanyMembershipProjection(c,actor,{mandateId:scope.mandateId,targetId:row.target_id}));}
+ for(const row of ids){if(Date.now()>=until)throw Object.assign(Error('Company projection refresh exceeded its bounded transaction; refresh is still required'),{sourceCount:ids.length,examinedCount:results.length});results.push(await publishCompanyMembershipProjection(c,actor,{mandateId:scope.mandateId,targetId:row.target_id}));}
  return{published:results.filter(r=>r.published).length,examined:results.length};
 }
 export type CompanyProjectionTransaction=<T>(work:(c:CompanyProjectionSqlClient)=>Promise<T>)=>Promise<T>;
