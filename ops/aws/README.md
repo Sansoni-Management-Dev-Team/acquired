@@ -12,6 +12,14 @@ On 2026-10-22 the user supplied `Sansoni-Management-Dev-Team/acquired`. GitHub A
 
 **October23 publication:** the user authorized publishing the codebase to the private company repository. Pushed the current committed source/history to its `main` branch and verified the first published head `9eea76b` through GitHub's commit API. Added the local remote `sansoni`, preserving `origin` and its tracking configuration. The DigitalOcean build/deploy jobs now require the original `callumholt/project-acquire` repository, preventing company-repository pushes from activating that production path. GitHub lists the manual `Acquire AWS UAT` workflow as active; no manual AWS operation was started. This publication does not provision infrastructure or initialize/deploy the application database. DevOps ownership and the remaining readiness requirements below are unchanged.
 
+### Current GitHub execution and migration preparation
+
+The user subsequently requested deployment through the company workflow, preferably including n8n and an isolated copy of `callumpholt@gmail.com`'s Supabase data, with Terraform for infrastructure. Dispatched `aws-uat.yml` operation `publish` at company main `3dd71eb`: [run39904884020](https://github.com/Sansoni-Management-Dev-Team/acquired/actions/runs/39904884020). GitHub rejected the hosted `checks` job before any step started because account payments or the spending limit require attention. Image/deploy jobs were skipped; no AWS authentication, image publication, Terraform execution or database operation occurred in this run. No self-hosted runner is available to this repository. An organization billing administrator must resolve that external execution blocker.
+
+October23 follow-up: the renewed `acquire` SSO profile passed STS for account352329340196. Read-only AWS discovery located the existing Sydney Terraform backend: bucket `tg-state-develop-acquire-ap-southeast-2` (versioning enabled, KMS encryption) and active DynamoDB lock table `tg-locks-develop-acquire-ap-southeast-2` (`LockID`). It contains31 separate module state keys under `applications/modules/`, including existing security-group, ECS service and task-definition states. Selected state metadata confirms those resources already have Terraform ownership. Private evidence: `.local-data/aws-migration/terraform-backend-discovery-2026-10-23.json` and `terraform-state-ownership-2026-10-23.json`. The DevOps infrastructure repository still returns404, so the owner source/configuration and the exact integration path for additional app resources remain unresolved. Do not apply the app module over an existing module state or silently create competing ownership. No state was changed. The current checked-in module remains app-only; communications/n8n extensions must use the agreed ownership/state arrangement.
+
+Separate read-only Supabase inspection found exactly one matching user, three owned workspaces (each with one member) and88 user-created mandates across those workspaces (83/2/3); the live source has98 public application tables. Catalog/FK metadata and account/workspace aggregates are private in `.local-data/aws-migration/supabase-tenant-copy-scope-2026-10-23.json`. No data export/import or source write occurred. Preparing a selected copy still requires a complete dependency/credential-isolation design and exact reviewed artifacts, not an email-only row filter or a whole-production clone. The configured local n8n endpoint is local-only; current production n8n API/runtime access was not established by this attempt, so the older Oracle baseline must not be treated as a fresh migration inventory. Starting n8n can apply schema changes and remains subject to exact migration approval.
+
 A fresh read-only AWS audit on 2026-10-21 completed 62/62 metadata checks. The shared VPC/subnets/NAT, Fargate cluster, ALB/certificate/hosted zone, Aurora, EFS and app ECR repository exist. The app image is published, but a local-to-ECS application deployment cannot yet proceed because the following app resources are absent:
 
 | DevOps handoff | Required result for an app-only UAT test |
@@ -103,3 +111,19 @@ The app is reachable only through the existing ALB, has private task networking,
 ## Current limits
 
 Infrastructure ownership requires resolution before applying; GitHub caller/trust requires resolution before publishing through Actions. Local-to-ECR publication is verified above. Secret values and database preparation are intentionally absent. The module is additive; it does not reconstruct the company's complete Terraform stack. Runtime guards prevent the first app image from targeting the original source DB or enabling research/messaging/scheduling. It does not provision communications services, move n8n executions, replace Cloudflare, transfer the repository or enable provider sending. These are explicit later slices, not verified deployment capabilities.
+
+
+### October23 current-source local publication
+
+After the user renewed SSO, built the app at source commit `3dd71ebf321b64c4cf16a7df4e35ae28faa5c04c` for `https://app.acquire.pajamaprofits.net`, including the AWS startup wrapper. The standalone build and TypeScript check passed; the eight AWS Node tests passed. Network-disabled container probes verified linux/amd64, non-root execution, the baked public origin, required files/pg dependency, absent top-level env/AWS/git files and refusal of an unconfigured startup. Earlier private probe assertions expected a different refusal message and included Docker's host-platform warning; corrected the helper to the actual contract and explicit linux/amd64, then repeated successfully. No application code was changed to obtain these results.
+
+Published directly from the laptop to the existing `acquire-acquire-develop` ECR repository with profile `acquire` and an explicit account/region guard:
+
+```text
+Tag: app-3dd71ebf321b64c4cf16a7df4e35ae28faa5c04c-local-20261023T054226Z
+Digest: sha256:d9520ca853570e81857572e39d9291860d3418462ef99e06b80046a356d33f70
+```
+
+The Docker push digest matches ECR readback. Disposable registry credentials were removed. Private evidence: `.local-data/aws-migration/uat-preparation-verification-2026-10-23.json` and `local-ecr-push-20261023T054226Z.json`. This is current-source image publication, not ECS/product acceptance or GitHub OIDC validation. A fresh service listing still shows only `acquire-n8n-develop`; no app service exists. No Terraform apply, state change, task/service update, database operation, n8n startup or provider send occurred.
+
+Next: integrate missing app resources through the DevOps-owned Terraform configuration, then prepare the exact isolated database/schema/copy artifacts for specific approval. The existing missing app database/login and production n8n inventory remain separate prerequisites. GitHub billing remains a blocker for hosted Actions execution, but is not needed for local image publication.

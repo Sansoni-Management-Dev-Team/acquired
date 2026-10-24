@@ -84,6 +84,15 @@ production database; user actions can change real data. OAuth is not ready for
 this private origin, and live provider/scheduler credentials are not installed.
 The public Caddy endpoint now serves the approved HTTPS hostname. Research and n8n are now enabled on the public deployment; both Google redirects passed registration checks. The private diagnostic environment remains disabled.
 
+## Langfuse tracing pause
+
+Langfuse tracing was disabled at the user's request on 23 October 2026 to
+preserve the free-tier allowance. Keep `LANGFUSE_ENABLED=false` and
+`LANGFUSE_TRACING_ENABLED=false` in the existing on-host `.env.hosted` across
+releases. Preserve the private credentials. Re-enabling requires a deliberate
+operator configuration change and app restart; ordinary releases should retain
+the pause.
+
 ## Server operations
 
 Use the same SSH key and pinned-host options for all server commands. On-host:

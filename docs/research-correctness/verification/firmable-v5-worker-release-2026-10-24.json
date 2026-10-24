@@ -1,0 +1,25 @@
+{
+  "at": "2026-10-23T23:20:51.281Z",
+  "worker": "acquire-research",
+  "version": "23fd13ad-fbd1-42ac-a61e-e41709776c37",
+  "traffic": 100,
+  "previousVersion": "99ab5a27-77fa-40e7-b7af-58bc8e3fab3f",
+  "sourceCommit": "3dd71eb",
+  "candidateKeyInDeployedCallback": true,
+  "bindingsAndVarsPreserved": true,
+  "downloadedBundleSha256": "a621474352586866cdea20769b1931cc7b95f5f024c96ea8d4ad2d11df018727",
+  "tests": {
+    "workflow": 47,
+    "contractAndDomain": 123,
+    "coordinator": 7,
+    "v5CallbackRegression": 1
+  },
+  "databaseMigrations": 0,
+  "failedRunRerun": false,
+  "firmableStatus": {
+    "httpStatus": 200,
+    "configured": true,
+    "reconnectRequired": false
+  },
+  "verificationLimit": "No fresh production company enrichment run started; workflow callbacks verified in isolated tests and deployed code inspected."
+}
