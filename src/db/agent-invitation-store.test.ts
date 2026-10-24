@@ -34,3 +34,44 @@ it('keeps the original legacy email admission when the owned dispatch has no rec
  await expect(s.beginNativeCommunicationsMessage('thread','operation')).rejects.toThrow('original legacy authority');
  expect(snapshot).toHaveBeenCalledTimes(1);expect(legacy).toHaveBeenCalledWith('thread','operation',undefined,undefined);
 });
+
+it('bundles owned dispatch preparation and consumes its begin handle even when the final fence rejects',async()=>{
+ class PreparedStore extends TestStore{
+  bundles=0;
+  protected override async readBundle<T>(work:()=>Promise<T>){this.bundles++;return work();}
+  protected override async lockThread(){return t;}
+  protected override async assertExecutionFence(){throw Error('final fence retained');}
+ }
+ const s=new PreparedStore({}as Pool,{organizationId:'org',userId:'actor'}),conversationId='10000000-0000-4000-8000-000000000002';
+ const record={operation:{name:'email.initial'},conversation:{id:conversationId},route:{id:'route',bindingDigest:'digest'},submitted:false,notSubmitted:false};
+ vi.spyOn(s,'channelDispatchRecord').mockResolvedValue(record as never);
+ vi.spyOn(s,'historyAccountSnapshot').mockResolvedValue({conversation:record.conversation,routes:[],accounts:[]}as never);
+ vi.spyOn(s,'preBeginHistoryRetryProof').mockResolvedValue(true);
+ const prepared=await s.dispatchPreparationSnapshot('thread','10000000-0000-4000-8000-000000000001',conversationId);
+ expect(s.bundles).toBe(1);expect(prepared.preBegin).toBe(true);
+ await expect(prepared.begin()).rejects.toThrow('final fence retained');
+ await expect(prepared.begin()).rejects.toThrow('already consumed');
+ expect(s.channelDispatchRecord).toHaveBeenCalledTimes(1);
+});
+it('refuses a preparation snapshot for a different conversation before creating a handle',async()=>{
+ class PreparedStore extends TestStore{protected override async readBundle<T>(work:()=>Promise<T>){return work();}}
+ const s=new PreparedStore({}as Pool,{organizationId:'org',userId:'actor'});
+ vi.spyOn(s,'channelDispatchRecord').mockResolvedValue({conversation:{id:'foreign'}}as never);
+ const history=vi.spyOn(s,'historyAccountSnapshot');
+ await expect(s.dispatchPreparationSnapshot('thread','10000000-0000-4000-8000-000000000001','10000000-0000-4000-8000-000000000002')).rejects.toThrow('conversation');
+ expect(history).not.toHaveBeenCalled();
+});
+it('rejects route drift under the final transaction instead of trusting the advisory snapshot',async()=>{
+ class DriftStore extends TestStore{
+  protected override async readBundle<T>(work:()=>Promise<T>){return work();}
+  protected override async nativeTransaction<T>(work:(c:PoolClient)=>Promise<T>){return work({query:async()=>({rows:[{}]})}as unknown as PoolClient);}
+  protected override async lockThread(){return t;}
+  protected override async assertExecutionFence(){}
+  protected override async nativeOperationRoute(){return {id:'changed-route',bindingDigest:'changed'}as never;}
+ }
+ const s=new DriftStore({}as Pool,{organizationId:'org',userId:'actor'}),person='10000000-0000-4000-8000-000000000002';
+ vi.spyOn(s,'channelDispatchRecord').mockResolvedValue({operation:{name:'email.initial'},conversation:{id:person},route:{id:'original-route',bindingDigest:'original'},submitted:false,notSubmitted:false}as never);
+ vi.spyOn(s,'historyAccountSnapshot').mockResolvedValue({conversation:{id:person},routes:[],accounts:[]}as never);vi.spyOn(s,'preBeginHistoryRetryProof').mockResolvedValue(true);
+ const handle=await s.dispatchPreparationSnapshot('thread','10000000-0000-4000-8000-000000000001',person);
+ await expect(handle.begin()).rejects.toThrow('Original dispatch route changed');
+});

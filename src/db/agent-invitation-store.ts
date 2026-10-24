@@ -73,6 +73,24 @@ export class AgentInvitationStore extends AgentChannelStore{
    return {conversation,operation:op,route,submitted:op.state==='complete'&&op.result?.delivery?.status==='submitted',notSubmitted:op.state==='failed'&&op.result?.delivery?.status==='not_submitted',effect:'invitation' as const};});
   return invitation??super.channelDispatchRecord(threadId,operationId,options);
  }
+ /** Server-created, invocation-only advisory snapshot. No provider IO runs in
+  * the bundle and the single-use closure grants no authority of its own. */
+ async dispatchPreparationSnapshot(threadId:string,operationId:string,conversationId:string){
+  uuid.parse(operationId);uuid.parse(conversationId);
+  const snapshot=await this.readBundle(async()=>{
+   const dispatch=await this.channelDispatchRecord(threadId,operationId,{includeOriginalAccount:true});
+   if(dispatch.conversation.id!==conversationId)throw Error('Original dispatch conversation changed');
+   const history=await this.historyAccountSnapshot(threadId,conversationId);
+   const preBegin=await this.preBeginHistoryRetryProof(threadId,operationId,conversationId);
+   return {dispatch,history,preBegin};
+  });
+  const expected=snapshot.dispatch.route?{id:snapshot.dispatch.route.id,bindingDigest:snapshot.dispatch.route.bindingDigest}:null;
+  const routed=expected!==null&&snapshot.dispatch.operation.name!=='linkedin.invitation';let consumed=false;
+  return {...snapshot,begin:async(authority?:AgentExecutionFence,delegation?:{id:string;revision:number})=>{
+   if(consumed)throw Error('Dispatch preparation already consumed');consumed=true;
+   return routed?this.beginNativeRoutedCommunicationsMessage(threadId,operationId,authority,delegation,expected!):this.beginNativeCommunicationsMessage(threadId,operationId,authority,delegation);
+  }};
+ }
  override async beginNativeCommunicationsMessage(threadId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number}){
   const record=await this.channelDispatchRecord(threadId,operationId);if(record.operation.name!=='linkedin.invitation')return record.route?this.beginNativeRoutedCommunicationsMessage(threadId,operationId,authority,delegation):this.beginNativeCommunicationsEmail(threadId,operationId,authority,delegation);
   if(delegation)throw Error('LinkedIn invitations require exact human review');

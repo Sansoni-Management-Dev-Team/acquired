@@ -326,11 +326,12 @@ export class AgentOutreachStore extends AgentLifecycleStore{
  }
  /** Internal dispatch branch only. The earlier snapshot chooses a path; every
   * source, route and authority is read and checked again under the final lock. */
- protected async beginNativeRoutedCommunicationsMessage(threadId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number}){
+ protected async beginNativeRoutedCommunicationsMessage(threadId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number},expectedRoute?:{id:string;bindingDigest:string}){
   return this.nativeTransaction(async c=>{
    const t=await this.lockThread(c,threadId);await this.assertExecutionFence(c,t,authority,'message-authority:'+operationId);
    const op=(await c.query('SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 FOR UPDATE',[uuid.parse(operationId),t.id])).rows[0];
    const route=await this.nativeOperationRoute(c,t,op);if(!route)throw Error('The original reviewed message route is required');
+   if(expectedRoute&&(route.id!==expectedRoute.id||route.bindingDigest!==expectedRoute.bindingDigest))throw Error('Original dispatch route changed before final admission');
    let row=await this.lockConversation(c,t,op.conversation_id),running=op;
    if(op.state!=='running')({row,running}=await this.prepareNativeEmailAuthority(c,t,op,delegation,route));
    if(authority)await c.query("UPDATE agent_operations o SET lease_until=LEAST(o.lease_until,r.created_at+interval '45 seconds',r.lease_until) FROM agent_runs r WHERE o.id=$1 AND r.id=$2",[op.id,authority.runId]);

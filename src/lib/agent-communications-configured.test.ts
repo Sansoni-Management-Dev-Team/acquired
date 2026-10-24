@@ -423,3 +423,33 @@ it('records bounded checkpoint and dispatch-read stages without recipient or mes
   const output=JSON.stringify(records);expect(output).not.toContain('person@example.invalid');expect(output).not.toContain('Synthetic body');
  }finally{log.mockRestore();}
 });
+
+it('uses one server preparation handle only within the prepared invocation and retains final admission',async()=>{
+ const x=await preparedDispatchFixture(),begin=vi.fn(async()=>{throw Error('Final locked admission');});
+ const store={...x.store,dispatchPreparationSnapshot:vi.fn(async()=>({dispatch:x.record,history:{conversation:x.record.conversation,accounts:[x.record.originalAccount],routes:x.routes},preBegin:true,begin}))};
+ const service=configuredAgentCommunications(actor,store as never);
+ await service.prepareDispatch('thread',conversation,operation);
+ expect(store.dispatchPreparationSnapshot).toHaveBeenCalledExactlyOnceWith('thread',operation,conversation);
+ expect(store.historyAccountSnapshot).not.toHaveBeenCalled();expect(store.preBeginHistoryRetryProof).not.toHaveBeenCalled();
+ await expect(service.dispatch('thread',conversation,operation)).rejects.toThrow('Final locked admission');
+ expect(begin).toHaveBeenCalledOnce();expect(store.channelDispatchRecord).not.toHaveBeenCalled();expect(store.beginNativeCommunicationsMessage).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+ // A failed begin has consumed the checkpoint; another invocation performs its own reads.
+ await service.dispatch('thread',conversation,operation);
+ expect(begin).toHaveBeenCalledOnce();expect(store.channelDispatchRecord).toHaveBeenCalledOnce();
+});
+it.each(['recovered','stale'])('discards the invocation handle without admission when %s',async mode=>{
+ const x=await preparedDispatchFixture(),begin=vi.fn(async()=>{throw Error('Must not begin');});
+ const store={...x.store,dispatchPreparationSnapshot:vi.fn(async()=>({dispatch:x.record,history:{conversation:x.record.conversation,accounts:[x.record.originalAccount],routes:x.routes},preBegin:true,begin}))};
+ const service=configuredAgentCommunications(actor,store as never);await service.prepareDispatch('thread',conversation,operation);
+ if(mode==='recovered'){f.recover.mockResolvedValueOnce({found:true,outcome:{status:'unknown'}});await expect(service.dispatch('thread',conversation,operation)).resolves.toEqual({status:'unknown'});}
+ else{Object.assign(x.routes[0],{historyComplete:false});await expect(service.dispatch('thread',conversation,operation)).rejects.toThrow();}
+ expect(begin).not.toHaveBeenCalled();expect(f.dispatch).not.toHaveBeenCalled();
+});
+
+it('rejects cross-thread prepared handle use before original receipt lookup',async()=>{
+ const x=await preparedDispatchFixture(),begin=vi.fn();
+ const store={...x.store,dispatchPreparationSnapshot:vi.fn(async()=>({dispatch:x.record,history:{conversation:x.record.conversation,accounts:[x.record.originalAccount],routes:x.routes},preBegin:true,begin}))};
+ const service=configuredAgentCommunications(actor,store as never);await service.prepareDispatch('thread',conversation,operation);f.recover.mockClear();
+ await expect(service.dispatch('another-thread',conversation,operation)).rejects.toThrow();
+ expect(f.recover).not.toHaveBeenCalled();expect(begin).not.toHaveBeenCalled();
+});
