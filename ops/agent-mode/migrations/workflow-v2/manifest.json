@@ -33,6 +33,14 @@
       "applied": true,
       "evidence": "project-acquire-agent-mode/.local-data/local-alignment/workflow-reviewed-v2/005-apply.log",
       "productionApplied": false
+    },
+    {
+      "file": "006-incoming-workflow-context.local.proposed.sql",
+      "sha256": "70dc8d5b96bb7fff674db03499614a321975a1c7e2329a9163df5be4b021483c",
+      "applied": true,
+      "evidence": "project-acquire-agent-mode/.local-data/local-alignment/workflow-reviewed-v2/006-apply.log",
+      "productionApplied": false,
+      "productionProposalBlocked": "Exact production predecessor definitions and explicit approval required"
     }
   ],
   "revisionReason": "Remove only absent Supabase role names from REVOKE lists; retain PUBLIC and every existing application role prohibition.",

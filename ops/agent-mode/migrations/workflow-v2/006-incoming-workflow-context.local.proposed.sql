@@ -1,0 +1,144 @@
+-- Local006: original conversation scope for authenticated incoming events. No historical rewrites.
+BEGIN;
+SET LOCAL lock_timeout='3s';
+SET LOCAL statement_timeout='15s';
+DO $preflight$
+DECLARE system_id text;marker text;
+BEGIN
+ SELECT system_identifier::text INTO system_id FROM pg_catalog.pg_control_system();
+ SELECT pg_catalog.shobj_description(oid,'pg_database') INTO marker FROM pg_catalog.pg_database WHERE datname=current_database();
+ IF (current_database()='acquire_agent_mode' AND system_id='7697400069962248225' AND marker='acquire-agent-mode-local-only') IS NOT TRUE THEN RAISE EXCEPTION 'Unapproved database target';END IF;
+ IF to_regclass('public.acquisition_workflow_executions') IS NULL OR current_user IS DISTINCT FROM pg_get_userbyid((SELECT relowner FROM pg_class WHERE oid='public.acquisition_workflow_executions'::regclass)) THEN RAISE EXCEPTION 'Workflow schema owner required';END IF;
+END $preflight$;
+DO $predecessors$ BEGIN
+ IF md5(pg_get_functiondef('public.agent_communications_change(uuid,text,text,text,text,text,timestamp with time zone,boolean)'::regprocedure)) IS DISTINCT FROM '6087b5efcdb6df5d576711d8b72ed1cf' THEN RAISE EXCEPTION 'Unexpected incoming function predecessor';END IF;
+ IF md5(pg_get_functiondef('public.agent_channel_communications_change(jsonb)'::regprocedure)) IS DISTINCT FROM '32a11376c7e5394246ea414b70dc8446' THEN RAISE EXCEPTION 'Unexpected incoming function predecessor';END IF;
+END $predecessors$;
+CREATE OR REPLACE FUNCTION public.agent_communications_change(p_binding uuid, p_event text, p_receipt_fingerprint text, p_change_fingerprint text, p_sender text, p_message text, p_occurred timestamp with time zone, p_review boolean)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public'
+AS $function$
+DECLARE saved_version text:=coalesce(current_setting('app.acquire_workflow_version',true),'');saved_execution text:=coalesce(current_setting('app.acquire_workflow_execution',true),'');org text:=current_setting('app.acquire_org',true);actor text:=current_setting('app.acquire_user',true);candidate record;conv public.agent_conversations%ROWTYPE;incoming_key text;base_key text;notice jsonb;payload jsonb;affected integer:=0;
+BEGIN
+ IF current_setting('role',true)<>'acquire_campaign_user' OR NOT EXISTS(SELECT 1 FROM public.member WHERE organization_id=org AND user_id=actor) OR NOT EXISTS(SELECT 1 FROM public.communication_send_gates WHERE organization_id=org AND writer_xid=txid_current()) THEN RAISE EXCEPTION 'Held current incoming-message scope required'; END IF;
+ IF p_event IS NULL OR p_receipt_fingerprint IS NULL OR p_change_fingerprint IS NULL OR p_sender IS NULL OR p_message IS NULL OR length(p_event) NOT BETWEEN 1 AND 200 OR p_receipt_fingerprint!~'^[a-f0-9]{64}$' OR p_change_fingerprint!~'^[a-f0-9]{64}$' OR p_sender IS DISTINCT FROM lower(btrim(p_sender)) OR p_sender!~'^[^[:space:]<>@]+@[^[:space:]<>@]+[.][^[:space:]<>@]+$' OR length(p_message) NOT BETWEEN 1 AND 2048 OR p_occurred IS NULL OR p_occurred>public.local_simulator_business_now()+interval '1 minute' OR p_review IS NULL THEN RAISE EXCEPTION 'Verified incoming metadata required'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM public.communication_bindings b WHERE b.id=p_binding AND b.organization_id=org AND b.owner_user_id=actor AND b.application_id='acquire' AND b.channel='email' AND b.backend='unipile' AND b.authority='service') THEN RAISE EXCEPTION 'Original owned email account required'; END IF;
+ IF NOT EXISTS(SELECT 1 FROM public.communication_event_receipts r WHERE r.binding_id=p_binding AND r.service_event_id=p_event AND r.organization_id=org AND r.owner_user_id=actor AND r.event_type='message' AND r.payload_fingerprint=p_receipt_fingerprint) OR (p_receipt_fingerprint<>p_change_fingerprint AND NOT p_review) THEN RAISE EXCEPTION 'Committed-in-this-transaction application receipt required'; END IF;
+ base_key:='incoming-email:'||encode(sha256(convert_to(jsonb_build_array(p_binding,p_event,p_change_fingerprint)::text,'UTF8')),'hex');
+ IF (SELECT count(*) FROM public.agent_conversations c WHERE c.organization_id=org AND c.owner_user_id=actor AND c.delivery_mode='communications' AND c.binding_id=p_binding AND c.recipient_email=p_sender AND NOT EXISTS(SELECT 1 FROM public.agent_conversation_channels r WHERE r.conversation_id=c.id))>100 THEN RAISE EXCEPTION 'Incoming conversation bound exceeded'; END IF;
+ FOR candidate IN SELECT id,thread_id FROM public.agent_conversations c WHERE c.organization_id=org AND c.owner_user_id=actor AND c.delivery_mode='communications' AND c.binding_id=p_binding AND c.recipient_email=p_sender AND NOT EXISTS(SELECT 1 FROM public.agent_conversation_channels r WHERE r.conversation_id=c.id) ORDER BY thread_id,id LOOP
+  PERFORM 1 FROM public.agent_threads WHERE id=candidate.thread_id AND organization_id=org AND owner_user_id=actor FOR UPDATE;
+  SELECT * INTO STRICT conv FROM public.agent_conversations WHERE id=candidate.id FOR UPDATE;
+  incoming_key:=base_key||':'||conv.id::text;
+  -- Preserve replay of an already-processed0022 event only for the exact
+  -- conversation in its saved payload. A retired row cannot swallow another.
+  IF EXISTS(SELECT 1 FROM public.agent_events e WHERE e.thread_id=conv.thread_id AND (e.event_key=incoming_key OR e.event_key=base_key AND e.payload->>'conversationId'=conv.id::text)) THEN CONTINUE; END IF;
+  -- Never fabricate a body or certify complete history from webhook metadata.
+  -- Bind each immutable original execution; a receipt can affect multiple runs.
+  PERFORM set_config('app.acquire_workflow_version','1',true),set_config('app.acquire_workflow_execution',coalesce(conv.workflow_execution_id::text,''),true);
+  UPDATE public.agent_conversations SET history_complete=false,epoch=epoch+1,revision=revision+1,reminder_generation=reminder_generation+1,next_wakeup_at=NULL,
+   phase=CASE WHEN p_review AND driver_kind='agent' AND phase='active' THEN 'held' ELSE phase END,
+   pause_reason=CASE WHEN driver_kind<>'agent' OR phase<>'active' THEN pause_reason WHEN p_review THEN 'incoming_email_review_required' ELSE 'provider_history_changed' END,updated_at=clock_timestamp()
+  WHERE id=conv.id;
+  UPDATE public.agent_operations SET state='failed',result=jsonb_build_object('reason','context_changed'),updated_at=clock_timestamp() WHERE conversation_id=conv.id AND thread_id=conv.thread_id AND name IN('email.initial','email.reply','email.follow_up') AND state IN('proposed','approved');
+  UPDATE public.agent_review_batches b SET state='invalidated' WHERE b.thread_id=conv.thread_id AND b.state='pending' AND EXISTS(SELECT 1 FROM jsonb_array_elements(b.manifest) item JOIN public.agent_operations o ON o.id::text=(item->>'operationId') WHERE o.conversation_id=conv.id AND o.thread_id=conv.thread_id AND o.name IN('email.initial','email.reply','email.follow_up') AND o.state='failed' AND o.result->>'reason'='context_changed');
+  -- Source/context is immutable; bump only the task revision. Conversation epoch
+  -- also invalidates every older handoff context token, including retired assignees.
+  UPDATE public.agent_handoffs h SET revision=revision+1,updated_at=clock_timestamp() WHERE h.conversation_id=conv.id AND h.state IN('pending','acknowledged','link_sent') AND EXISTS(SELECT 1 FROM public.member m WHERE m.organization_id=org AND m.user_id=h.assignee_user_id);
+  payload:=jsonb_build_object('conversationId',conv.id);
+  INSERT INTO public.agent_events(thread_id,organization_id,mandate_id,owner_user_id,event_key,kind,payload,payload_digest)
+  VALUES(conv.thread_id,org,conv.mandate_id,actor,incoming_key,'conversation.history_changed',payload,encode(sha256(convert_to(payload::text,'UTF8')),'hex'));
+  notice:=jsonb_build_object('text',CASE WHEN p_review THEN 'A new email needs human review. Automation remains paused.' WHEN conv.phase='complete' THEN 'A new email arrived on a stopped conversation. Automation remains stopped.' WHEN conv.driver_kind<>'agent' OR conv.phase<>'active' THEN 'A new email arrived for a conversation you are handling. Automation remains paused.' ELSE 'A new email arrived. I am checking the full conversation before deciding what to do next.' END,'details',jsonb_build_object('conversationId',conv.id,'serviceEventId',p_event,'providerMessageId',p_message,'occurredAt',p_occurred,'reviewRequired',p_review));
+  INSERT INTO public.agent_messages(thread_id,organization_id,mandate_id,owner_user_id,request_key,role,content,content_digest)
+  VALUES(conv.thread_id,org,conv.mandate_id,actor,incoming_key,'assistant',notice,encode(sha256(convert_to(jsonb_build_object('role','assistant','content',notice)::text,'UTF8')),'hex'));
+  INSERT INTO public.audit_events(organization_id,actor_id,action,entity_type,entity_id,metadata) VALUES(org,actor,'agent.incoming_email','agent_conversation',conv.id::text,jsonb_build_object('serviceEventId',p_event,'reviewRequired',p_review));
+  affected:=affected+1;
+  PERFORM set_config('app.acquire_workflow_version',saved_version,true),set_config('app.acquire_workflow_execution',saved_execution,true);
+ END LOOP;
+ RETURN affected;
+END $function$
+;
+CREATE OR REPLACE FUNCTION public.agent_channel_communications_change(p jsonb)
+ RETURNS integer
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'pg_catalog', 'public'
+AS $function$
+DECLARE saved_version text:=coalesce(current_setting('app.acquire_workflow_version',true),'');saved_execution text:=coalesce(current_setting('app.acquire_workflow_execution',true),'');org text:=current_setting('app.acquire_org',true);actor text:=current_setting('app.acquire_user',true);b public.communication_bindings%ROWTYPE;receipt public.communication_event_receipts%ROWTYPE;conv public.agent_conversations%ROWTYPE;candidate record;frame jsonb;outcome jsonb;binding uuid;event text;fingerprint text;changed text;occurred timestamptz;conflict boolean;reviewed boolean;key text;notice jsonb;payload jsonb;affected integer:=0;sender_kind text;sender_value text;
+BEGIN
+ IF current_setting('role',true)<>'acquire_campaign_user' OR NOT EXISTS(SELECT 1 FROM public.member WHERE organization_id=org AND user_id=actor) OR NOT EXISTS(SELECT 1 FROM public.communication_send_gates WHERE organization_id=org AND writer_xid=txid_current()) THEN RAISE EXCEPTION 'Held current channel receipt scope required';END IF;
+ IF jsonb_typeof(p) IS DISTINCT FROM 'object' OR octet_length(p::text)>20000 OR (SELECT count(*) FROM jsonb_object_keys(p))<>12 OR NOT(p ?& ARRAY['bindingId','serviceEventId','receiptFingerprint','changeFingerprint','channel','sender','providerMessageId','providerConversationId','occurredAt','reviewRequired','reviewReason','receiptPreimage']) THEN RAISE EXCEPTION 'Exact bounded channel receipt required';END IF;
+ binding:=(p->>'bindingId')::uuid;event:=p->>'serviceEventId';fingerprint:=p->>'receiptFingerprint';changed:=p->>'changeFingerprint';occurred:=(p->>'occurredAt')::timestamptz;reviewed:=(p->>'reviewRequired')::boolean;sender_kind:=p->'sender'->>'kind';sender_value:=p->'sender'->>'value';
+ IF coalesce(length(event),0) NOT BETWEEN 1 AND 200 OR coalesce(fingerprint,'')!~'^[a-f0-9]{64}$' OR coalesce(changed,'')!~'^[a-f0-9]{64}$' OR sender_kind IS NULL OR sender_value IS NULL OR occurred IS NULL OR occurred>public.local_simulator_business_now()+interval '1 minute' OR reviewed IS NULL OR coalesce(length(p->>'providerMessageId'),0) NOT BETWEEN 1 AND 2048 OR jsonb_typeof(p->'sender') IS DISTINCT FROM 'object' OR (SELECT count(*) FROM jsonb_object_keys(p->'sender'))<>2 THEN RAISE EXCEPTION 'Verified channel metadata required';END IF;
+ SELECT * INTO b FROM public.communication_bindings WHERE id=binding AND organization_id=org AND owner_user_id=actor AND application_id='acquire' AND backend='unipile' AND authority='service' FOR SHARE;
+ IF b.id IS NULL OR b.channel IS DISTINCT FROM p->>'channel' OR sender_kind IS DISTINCT FROM (CASE b.channel WHEN 'email' THEN 'email' WHEN 'whatsapp' THEN 'phone' WHEN 'linkedin' THEN 'linkedin_profile' END) OR NOT (CASE b.channel WHEN 'email' THEN sender_value=lower(btrim(sender_value)) AND sender_value~'^[^[:space:]<>@]+@[^[:space:]<>@]+[.][^[:space:]<>@]+$' WHEN 'whatsapp' THEN sender_value~'^[+][1-9][0-9]{6,14}$' WHEN 'linkedin' THEN sender_value~'^https://www[.]linkedin[.]com/in/[A-Za-z0-9_%.-]+/?$' ELSE false END) THEN RAISE EXCEPTION 'Original owned canonical channel required';END IF;
+ IF coalesce(octet_length(p->>'receiptPreimage'),0) NOT BETWEEN 1 AND 12000 OR encode(sha256(convert_to(p->>'receiptPreimage','UTF8')),'hex') IS DISTINCT FROM changed THEN RAISE EXCEPTION 'Exact authenticated receipt preimage required';END IF;
+ frame:=(p->>'receiptPreimage')::jsonb;outcome:=frame->7;
+ IF jsonb_typeof(frame) IS DISTINCT FROM 'array' OR jsonb_array_length(frame)<>8 OR frame->>0 IS DISTINCT FROM 'acquire.reply.delivery.v1' OR frame->1 IS DISTINCT FROM jsonb_build_array(b.application_id,b.organization_id,b.owner_user_id,b.service_connection_id,b.service_account_id,b.generation,b.channel,b.platform,b.backend) OR frame->>2 IS DISTINCT FROM binding::text OR frame->>3 IS DISTINCT FROM event OR jsonb_typeof(outcome) IS DISTINCT FROM 'array' OR jsonb_array_length(outcome)<>6 OR outcome->>0 IS DISTINCT FROM p->>'providerMessageId' OR outcome->1 IS DISTINCT FROM p->'providerConversationId' OR outcome->>2 IS DISTINCT FROM 'inbound' OR outcome->>3 IS DISTINCT FROM sender_kind OR outcome->>4 IS DISTINCT FROM sender_value OR (outcome->>5)::timestamptz IS DISTINCT FROM occurred OR (frame->>6)::timestamptz<occurred OR (frame->>6)::timestamptz>public.local_simulator_business_now()+interval '1 minute' THEN RAISE EXCEPTION 'Authenticated receipt metadata differs';END IF;
+ IF frame->>4 IS DISTINCT FROM encode(sha256(convert_to(public.agent_channel_canonical_json(jsonb_build_array('communications.reply.event.v1',frame->1,outcome->1,outcome->0)),'UTF8')),'hex') OR frame->>5 IS DISTINCT FROM encode(sha256(convert_to(public.agent_channel_canonical_json(jsonb_build_array('communications.reply.content.v1',frame->1,outcome->0,outcome->1,'inbound',sender_kind,sender_value,outcome->5)),'UTF8')),'hex') THEN RAISE EXCEPTION 'Original source fingerprint differs';END IF;
+ SELECT * INTO receipt FROM public.communication_event_receipts WHERE binding_id=binding AND service_event_id=event AND organization_id=org AND owner_user_id=actor FOR SHARE;
+ IF receipt.binding_id IS NULL OR receipt.payload_fingerprint IS DISTINCT FROM fingerprint OR receipt.fingerprint_version IS DISTINCT FROM 'acquire.reply.delivery.v1' OR receipt.event_type IS DISTINCT FROM 'message' THEN RAISE EXCEPTION 'Original application receipt required';END IF;
+ conflict:=fingerprint IS DISTINCT FROM changed;
+ IF conflict AND (NOT reviewed OR p->>'reviewReason' IS DISTINCT FROM 'semantic_conflict') OR NOT conflict AND (receipt.occurred_at IS DISTINCT FROM occurred OR reviewed AND p->>'reviewReason' IS DISTINCT FROM 'identity_pending') THEN RAISE EXCEPTION 'Exact original receipt/review state required';END IF;
+ -- A caller cannot promote an immutable review receipt by changing the flag.
+ -- Only independently resolved original review evidence permits verified replay.
+ IF NOT conflict AND NOT reviewed AND receipt.result='review' AND NOT EXISTS(SELECT 1 FROM public.communication_reply_review_latches l WHERE l.binding_id=binding AND l.service_event_id=event AND l.organization_id=org AND l.owner_user_id=actor AND l.resolved_at IS NOT NULL AND l.resolution_reference NOT LIKE 'human-unrelated:%') THEN reviewed:=true;END IF;
+ -- A changed payload cannot identify a person. Notify only threads already bound
+ -- to this account, dedup by ORIGINAL receipt, with no ownership/state changes.
+ IF conflict THEN
+  IF (SELECT count(DISTINCT thread_id) FROM public.agent_conversation_channels WHERE binding_id=binding AND organization_id=org AND owner_user_id=actor)>100 THEN RAISE EXCEPTION 'Channel receipt thread bound exceeded';END IF;
+  FOR candidate IN SELECT DISTINCT thread_id,mandate_id FROM public.agent_conversation_channels WHERE binding_id=binding AND organization_id=org AND owner_user_id=actor ORDER BY thread_id LOOP
+   PERFORM 1 FROM public.agent_threads WHERE id=candidate.thread_id AND organization_id=org AND owner_user_id=actor FOR UPDATE;
+   key:='channel-receipt-conflict:'||encode(sha256(convert_to(jsonb_build_array(binding,event,fingerprint)::text,'UTF8')),'hex');
+   IF EXISTS(SELECT 1 FROM public.agent_messages WHERE thread_id=candidate.thread_id AND request_key=key) THEN CONTINUE;END IF;
+   notice:=jsonb_build_object('text','An account event conflicts with its original receipt and needs human review. No person was identified and no reply or cancellation was inferred. Account sending remains blocked by the communications review barrier.','details',jsonb_build_object('bindingId',binding,'serviceEventId',event,'reviewRequired',true,'verifiedReply',false));
+   INSERT INTO public.agent_messages(thread_id,organization_id,mandate_id,owner_user_id,request_key,role,content,content_digest) VALUES(candidate.thread_id,org,candidate.mandate_id,actor,key,'assistant',notice,encode(sha256(convert_to(jsonb_build_object('role','assistant','content',notice)::text,'UTF8')),'hex'));
+   affected:=affected+1;
+  END LOOP;RETURN affected;
+ END IF;
+ IF (SELECT count(*) FROM public.agent_conversation_channels WHERE binding_id=binding AND organization_id=org AND owner_user_id=actor AND recipient_kind=sender_kind AND recipient_value=sender_value)>100 THEN RAISE EXCEPTION 'Channel incoming person bound exceeded';END IF;
+ FOR candidate IN SELECT r.conversation_id,r.thread_id,r.id FROM public.agent_conversation_channels r JOIN public.agent_conversations c ON c.id=r.conversation_id AND c.thread_id=r.thread_id AND c.organization_id=org AND c.owner_user_id=actor WHERE r.binding_id=binding AND r.organization_id=org AND r.owner_user_id=actor AND r.channel=b.channel AND r.binding_digest=public.agent_recorded_binding_digest(binding) AND r.recipient_kind=sender_kind AND r.recipient_value=sender_value AND (reviewed OR public.agent_recorded_demo_route_matches(r.id) OR EXISTS(SELECT 1 FROM public.campaign_reply_identities i WHERE i.organization_id=org AND i.owner_user_id=actor AND i.contact_id=c.contact_id AND i.channel=b.channel AND i.source_identity=sender_value AND (i.identity=sender_value OR (b.channel='whatsapp' AND sender_kind='phone' AND i.identity=substring(sender_value from 2)||'@s.whatsapp.net')))) AND (reviewed OR b.channel<>'whatsapp' OR (SELECT count(DISTINCT other.contact_id) FROM public.agent_conversation_channels other_route JOIN public.agent_conversations other ON other.id=other_route.conversation_id AND other.thread_id=other_route.thread_id WHERE other_route.binding_id=binding AND other_route.organization_id=org AND other_route.owner_user_id=actor AND other.organization_id=org AND other.owner_user_id=actor AND other_route.channel='whatsapp' AND other_route.binding_digest=public.agent_recorded_binding_digest(binding) AND other_route.recipient_kind='phone' AND other_route.recipient_value=sender_value)=1) ORDER BY r.thread_id,r.conversation_id LOOP
+  PERFORM 1 FROM public.agent_threads WHERE id=candidate.thread_id AND organization_id=org AND owner_user_id=actor FOR UPDATE;
+  SELECT * INTO STRICT conv FROM public.agent_conversations WHERE id=candidate.conversation_id FOR UPDATE;
+  key:='channel-incoming:'||encode(sha256(convert_to(jsonb_build_array(binding,event,fingerprint,conv.id,reviewed)::text,'UTF8')),'hex');
+  IF EXISTS(SELECT 1 FROM public.agent_events WHERE thread_id=conv.thread_id AND event_key=key) THEN CONTINUE;END IF;
+  -- Bind each immutable original execution; a receipt can affect multiple runs.
+  PERFORM set_config('app.acquire_workflow_version','1',true),set_config('app.acquire_workflow_execution',coalesce(conv.workflow_execution_id::text,''),true);
+  UPDATE public.agent_conversations SET history_complete=false,epoch=epoch+1,revision=revision+1,reminder_generation=reminder_generation+1,next_wakeup_at=NULL,phase=CASE WHEN reviewed AND driver_kind='agent' AND phase='active' THEN 'held' ELSE phase END,pause_reason=CASE WHEN driver_kind<>'agent' OR phase<>'active' THEN pause_reason WHEN reviewed THEN 'incoming_channel_review_required' ELSE 'provider_history_changed' END,updated_at=clock_timestamp() WHERE id=conv.id;
+  UPDATE public.agent_conversation_channels SET history_complete=false,revision=revision+1,updated_at=clock_timestamp(),cold_cancelled_at=CASE WHEN NOT reviewed THEN coalesce(cold_cancelled_at,clock_timestamp()) ELSE cold_cancelled_at END,next_allowed_at=CASE WHEN NOT reviewed THEN NULL ELSE next_allowed_at END WHERE conversation_id=conv.id;
+  PERFORM public.agent_invalidate_person_reviews(conv.id);
+  -- Invitation is a separate effect, but a pending cold invitation also loses
+  -- authority on any incoming event; original in-flight evidence is untouched.
+  UPDATE public.agent_operations SET state='failed',result=jsonb_build_object('reason','context_changed'),updated_at=clock_timestamp() WHERE conversation_id=conv.id AND name='linkedin.invitation' AND state IN('proposed','approved');
+  UPDATE public.agent_review_batches rb SET state='invalidated' WHERE rb.thread_id=conv.thread_id AND rb.state='pending' AND EXISTS(SELECT 1 FROM jsonb_array_elements(rb.manifest) item JOIN public.agent_operations o ON o.id::text=item->>'operationId' WHERE o.conversation_id=conv.id AND o.state='failed' AND o.result->>'reason'='context_changed');
+  -- Ordinary verified replies invalidate every old proposal, not a human's
+  -- still-current exact reply-only delegation. No cold or mixed grant survives.
+  -- Missing body/full history remains non-authorising; dispatch checks it later.
+  UPDATE public.agent_authority_grants g SET revoked_at=clock_timestamp(),revision=revision+1
+   WHERE g.thread_id=conv.thread_id AND g.revoked_at IS NULL
+    AND EXISTS(SELECT 1 FROM public.agent_conversation_channels r WHERE r.conversation_id=conv.id AND (g.route_ids ? r.id::text OR g.recipient_keys ? (r.channel||':'||r.recipient_value)))
+    AND NOT (
+     NOT reviewed AND conv.phase='active' AND conv.driver_kind='agent' AND conv.engagement NOT IN('handoff','stopped')
+     AND g.organization_id=org AND g.owner_user_id=actor AND g.mandate_id=conv.mandate_id
+     AND g.channel=b.channel AND g.binding_digest=public.agent_recorded_binding_digest(binding)
+     AND g.actions=jsonb_build_array('reply_'||b.channel)
+     AND g.route_ids ? candidate.id::text AND g.recipient_keys ? (b.channel||':'||sender_value)
+     AND g.approved_at<=clock_timestamp() AND g.expires_at>clock_timestamp() AND g.used_sends<g.max_sends
+     AND EXISTS(SELECT 1 FROM public.agent_responsibilities a JOIN public.mandates m ON m.id=a.mandate_id AND m.organization_id=a.organization_id
+      JOIN public.agent_operations approval ON approval.id=g.id AND approval.thread_id=g.thread_id AND approval.organization_id=org AND approval.owner_user_id=actor
+      WHERE a.id=conv.responsibility_id AND a.thread_id=conv.thread_id AND a.state IN('ready','waiting') AND a.mandate_revision=m.xmin::text
+       AND approval.name='authority.create_channels' AND approval.state='complete' AND approval.input->>'mandateRevision'=m.xmin::text)
+    );
+  UPDATE public.agent_handoffs SET revision=revision+1,updated_at=clock_timestamp() WHERE conversation_id=conv.id AND state IN('pending','acknowledged','link_sent');
+  payload:=jsonb_build_object('conversationId',conv.id);
+  INSERT INTO public.agent_events(thread_id,organization_id,mandate_id,owner_user_id,event_key,kind,payload,payload_digest) VALUES(conv.thread_id,org,conv.mandate_id,actor,key,'conversation.history_changed',payload,encode(sha256(convert_to(payload::text,'UTF8')),'hex'));
+  notice:=jsonb_build_object('text',CASE WHEN reviewed THEN 'An incoming channel event needs identity review. No verified reply or cold cancellation was inferred. Automation remains paused.' WHEN conv.phase='complete' THEN 'A verified reply arrived on a stopped conversation. Cold outreach across all channels is cancelled; automation remains stopped.' WHEN conv.driver_kind<>'agent' OR conv.phase<>'active' THEN 'A verified reply arrived for this person. Cold outreach across all channels is cancelled; your existing control remains in place.' ELSE 'A verified reply arrived. Cold outreach across all channels is cancelled while I check the full conversation.' END,'details',jsonb_build_object('conversationId',conv.id,'routeId',candidate.id,'channel',b.channel,'bindingId',binding,'serviceEventId',event,'providerMessageId',p->>'providerMessageId','occurredAt',occurred,'reviewRequired',reviewed,'verifiedReply',NOT reviewed));
+  INSERT INTO public.agent_messages(thread_id,organization_id,mandate_id,owner_user_id,request_key,role,content,content_digest) VALUES(conv.thread_id,org,conv.mandate_id,actor,key,'assistant',notice,encode(sha256(convert_to(jsonb_build_object('role','assistant','content',notice)::text,'UTF8')),'hex'));
+  INSERT INTO public.audit_events(organization_id,actor_id,action,entity_type,entity_id,metadata) VALUES(org,actor,'agent.incoming_channel','agent_conversation',conv.id::text,jsonb_build_object('serviceEventId',event,'channel',b.channel,'reviewRequired',reviewed));affected:=affected+1;
+  PERFORM set_config('app.acquire_workflow_version',saved_version,true),set_config('app.acquire_workflow_execution',saved_execution,true);
+ END LOOP;RETURN affected;
+END $function$
+;
+COMMIT;
