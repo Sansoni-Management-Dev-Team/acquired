@@ -7,7 +7,7 @@ vi.mock('./research-scheduler',()=>({scheduleResearchRun:mock.schedule}));
 vi.mock('./research-service',()=>({researchWorker:mock.worker}));
 import {maintainMandateResearch} from './research-maintenance';
 type Jobs=Awaited<ReturnType<ResearchRepository['listReview']>>;
-const job=(value:Record<string,unknown>)=>({id:'root',status:'queued',revision:1,pages:0,updatedAt:new Date(),config:{},...value}) as Jobs[number];
+const job=(value:Record<string,unknown>)=>({organizationId:'org',createdBy:'owner',workflowExecutionId:null,id:'root',status:'queued',revision:1,pages:0,updatedAt:new Date(),config:{},...value}) as Jobs[number];
 beforeEach(()=>{vi.resetAllMocks();mock.background.mockResolvedValue(0);mock.schedule.mockResolvedValue(false);});
 it('awaits persisted background dispatch when invoked without a browser defer callback',async()=>{
  let release!:()=>void;mock.background.mockReturnValue(new Promise<void>(resolve=>{release=resolve;}));

@@ -81,6 +81,8 @@ export type AgentControlsData = {
     };
     demoContacts?: { prepared: number; stale: number; outreachReady: boolean };
     executionMode?: "real" | "demo";
+    workflowPreset?: "demo" | "live-research-test" | "live";
+    workflowExecutionId?: string;
     mandateRevision: string;
     responsibility: null | {
       id: string;
@@ -340,6 +342,7 @@ export function AgentControlsPanel({
     paused = responsibility?.state === "paused";
   const allowTestAutoApproval = Boolean(
     data?.enabled &&
+      data.state?.workflowPreset!=="live-research-test" &&
       running &&
       data.state?.executionMode === "demo" &&
       data.state.demoContacts?.outreachReady &&
@@ -618,6 +621,7 @@ export function AgentControlsPanel({
         })}
       </>
     );
+  if(data.state?.workflowPreset==='live-research-test')return <><section aria-label="Research-only run" className="border-b border-[var(--border)] p-5 text-sm"><h2 className="font-semibold">Research only</h2><p className="mt-2 text-[var(--muted)]">This run finds and enriches companies and people. No outreach is sent.</p><div className="mt-3 flex gap-4"><button type="button" className="underline underline-offset-4" onClick={onViewCompanies}>View companies</button><button type="button" className="underline underline-offset-4" onClick={onViewPeople}>View people</button></div></section>{renderConversation(null,{allowTestAutoApproval:false,automation:AGENT_DEMO_AUTO_APPROVAL_OFF,onAutomationStopped:stopAutomation})}</>;
   const readinessDetails = data.configuration?.scopeMode === "registered" && (
     <details
       aria-label="Agent readiness"

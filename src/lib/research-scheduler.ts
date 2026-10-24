@@ -1,3 +1,4 @@
+import {withResearchJobWorkflow} from './acquisition-workflow-context';
 import { dispatchCorpusBusinessResearch } from './corpus-business-research';
 import { dispatchBalancedBusinessResearch } from './balanced-business-research';
 import type { ResearchConfig } from '@/domain/research';
@@ -16,6 +17,7 @@ export async function scheduleResearchRun(org:string,jobId:string, options:{reco
  const root=rootId===job.id?job:await new ResearchRepository(org).getExecution(rootId);
  if(!root || ['failed','cancelled'].includes(root.status)) return false;
  if(['firmable-v1','web-firmable-v1','hybrid-firmable-v1'].includes((root.config as ResearchConfig).pipelineDesign||''))return false;
+ return withResearchJobWorkflow(root,async()=>{
  const dispatchBusiness = (root.config as ResearchConfig).pipelineDesign === 'corpus-v1' ? dispatchCorpusBusinessResearch : (root.config as ResearchConfig).pipelineDesign === 'balanced-v1' ? dispatchBalancedBusinessResearch : dispatchParallelBusinessResearch;
  if(!((root.config as ResearchConfig).performanceFlags as {schedulerCoalescing?:boolean}|undefined)?.schedulerCoalescing) {
   await dispatchContinuation(org,jobId);
@@ -50,4 +52,5 @@ export async function scheduleResearchRun(org:string,jobId:string, options:{reco
  // Bound request lifetime under a stream of events. The lease expires and the
  // already persisted pending generation is recovered by a later event/poll.
  return true;
+ });
 }

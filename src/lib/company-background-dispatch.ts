@@ -1,3 +1,4 @@
+import {withResearchJobWorkflow} from './acquisition-workflow-context';
 import {lockResearchPersistence} from './research-persistence-lock';
 import {and,eq,notInArray,sql} from 'drizzle-orm';
 import {requireDb} from '@/db/client';
@@ -16,6 +17,9 @@ export async function dispatchCompanyBackground(organizationId:string,mandateId:
   const queued=await tx.select().from(researchJobs).where(and(eq(researchJobs.organizationId,organizationId),eq(researchJobs.mandateId,mandateId),eq(researchJobs.status,'queued'),sql`${researchJobs.config}->'companyBackgroundResearch' IS NOT NULL`,sql`${researchJobs.config}->'nativeAgent' IS NULL`,sql`COALESCE((${researchJobs.config}->'companyBackgroundDispatch'->>'nextAttemptAt')::bigint,0) <= ${Date.now()}`)).orderBy(researchJobs.createdAt).limit(slots).for('update',{skipLocked:true});
   const result=[];
   for(const job of queued){
+   // This batch may contain different original executions. Scope the checked-out
+   // transaction from each persisted row before any managed write.
+   await tx.execute(sql`SELECT set_config('app.acquire_workflow_version',${job.workflowExecutionId?'1':''},true),set_config('app.acquire_workflow_execution',${job.workflowExecutionId??''},true),set_config('app.acquire_org',${job.organizationId},true),set_config('app.acquire_user',${job.createdBy},true)`);
    const config=job.config as ResearchConfig;
    const [root]=await tx.select({status:researchJobs.status}).from(researchJobs).where(and(eq(researchJobs.id,config.companyBackgroundResearch!.sourceRootId),eq(researchJobs.organizationId,organizationId))).for('share');
    if(!root||root.status==='cancelled'){await tx.update(researchJobs).set({status:'cancelled',updatedAt:new Date(),message:'Background research cancelled with parent'}).where(eq(researchJobs.id,job.id));continue;}
@@ -23,13 +27,13 @@ export async function dispatchCompanyBackground(organizationId:string,mandateId:
    const deadline=startedAt+COMPANY_BACKGROUND_BUDGET.maxDurationMs;
    if(attempts>3||Date.now()>=deadline){await persistCompanyBackgroundResult({organizationId,jobId:job.id,result:{facts:[],fields:Object.fromEntries(config.companyBackgroundResearch!.fields.map(field=>[field,{status:'research_incomplete',reason:'Background dispatch budget exhausted'}])),attempts:[],registryContacts:[]}},tx);continue;}
    await tx.update(researchJobs).set({status:'discovering',updatedAt:new Date(),message:'Background missing-field research starting',config:{...config,automaticDeadline:deadline,companyBackgroundDispatch:{attempts,startedAt}}}).where(eq(researchJobs.id,job.id));
-   result.push({id:job.id,attempts,startedAt});
+   result.push({...job,attempts,startedAt});
   }
   return result;
  });
  for(const job of claimed){
   try{await researchWorker(`/jobs/${job.id}`,'POST',undefined,4000);}
-  catch{await db.update(researchJobs).set({status:'queued',updatedAt:new Date(),message:'Background dispatch pending; company results available',config:sql`${researchJobs.config} || ${JSON.stringify({companyBackgroundDispatch:{...job,nextAttemptAt:Date.now()+Math.min(30000,1000*2**job.attempts)}})}::jsonb`}).where(and(eq(researchJobs.id,job.id),eq(researchJobs.organizationId,organizationId),eq(researchJobs.status,'discovering')));}
+  catch{await withResearchJobWorkflow(job,()=>db.update(researchJobs).set({status:'queued',updatedAt:new Date(),message:'Background dispatch pending; company results available',config:sql`${researchJobs.config} || ${JSON.stringify({companyBackgroundDispatch:{id:job.id,attempts:job.attempts,startedAt:job.startedAt,nextAttemptAt:Date.now()+Math.min(30000,1000*2**job.attempts)}})}::jsonb`}).where(and(eq(researchJobs.id,job.id),eq(researchJobs.organizationId,organizationId),eq(researchJobs.status,'discovering'))));}
  }
  return claimed.length;
 }
@@ -37,7 +41,7 @@ export async function dispatchCompanyBackground(organizationId:string,mandateId:
 export async function recoverCompanyBackground(deadline=Infinity){
  const db=requireDb();
  const stalled=await db.select().from(researchJobs).where(and(sql`${researchJobs.config}->'companyBackgroundResearch' IS NOT NULL`,sql`${researchJobs.config}->'nativeAgent' IS NULL`,notInArray(researchJobs.status,terminalResearchStates),sql`${researchJobs.status} <> 'queued'`,sql`${researchJobs.updatedAt} < NOW() - INTERVAL '150 seconds'`)).limit(50);
- for(const job of stalled){if(performance.now()>=deadline)break;await persistCompanyBackgroundResult({organizationId:job.organizationId,jobId:job.id,result:{facts:[],fields:Object.fromEntries((job.config as ResearchConfig).companyBackgroundResearch!.fields.map(field=>[field,{status:'research_incomplete',reason:'Background execution stopped; prior evidence retained'}])),attempts:[],registryContacts:[]}});}
+ for(const job of stalled){if(performance.now()>=deadline)break;await withResearchJobWorkflow(job,()=>persistCompanyBackgroundResult({organizationId:job.organizationId,jobId:job.id,result:{facts:[],fields:Object.fromEntries((job.config as ResearchConfig).companyBackgroundResearch!.fields.map(field=>[field,{status:'research_incomplete',reason:'Background execution stopped; prior evidence retained'}])),attempts:[],registryContacts:[]}}));}
  const pending=await db.selectDistinct({organizationId:researchJobs.organizationId,mandateId:researchJobs.mandateId}).from(researchJobs).where(and(eq(researchJobs.status,'queued'),sql`${researchJobs.config}->'companyBackgroundResearch' IS NOT NULL`,sql`${researchJobs.config}->'nativeAgent' IS NULL`)).limit(50);
  let dispatched=0;
  for(const item of pending){if(performance.now()>=deadline)break;await dispatchCompanyBackground(item.organizationId,item.mandateId);dispatched++;}

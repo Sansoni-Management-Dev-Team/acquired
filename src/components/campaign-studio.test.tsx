@@ -77,3 +77,9 @@ it('keeps agent-run people browsable while explaining why sequence subscription 
  expect(html).not.toContain('Select all shown');expect(html).not.toContain('Filter by available contact details, then select people for a published sequence.');
  expect(html).toMatch(/<button[^>]*disabled[^>]*>[\s\S]*?Subscribe/);
 });
+
+it('keeps research-only people browsable without offering outreach or connection setup',()=>{
+ const html=renderToStaticMarkup(<CampaignStudio mandateId="mandate" mandateName="Example" initialData={{...data,outreachOwner:'research-only'}} />);
+ expect(html).toContain('Newly Researched Person');expect(html).toContain('Research only');
+ expect(html).toContain('No outreach is sent for this run.');expect(html).not.toContain('Connect email before subscribing');expect(html).not.toContain('View agent');expect(html).not.toContain('aria-label="Select Newly Researched Person"');expect(html).toMatch(/<button[^>]*disabled[^>]*>[\s\S]*?Subscribe/);
+});

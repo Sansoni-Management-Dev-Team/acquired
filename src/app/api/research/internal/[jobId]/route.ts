@@ -1,3 +1,4 @@
+import {withResearchJobWorkflow} from '@/lib/acquisition-workflow-context';
 import {observeInitialResearchProgress} from '@/lib/agent-initial-research-observer';
 import {nativeResearchRequestClassSchema} from '@/lib/agent-research-provider-request';
 import{executeNativeFieldsResearch,finishNativeFieldsResearch}from'@/lib/agent-fields-execution';
@@ -103,7 +104,7 @@ async function getResearchControl(
   if (!job) return researchJsonResponse({ error: "Not available" }, { status: 403 });
   setResearchDatabaseContext({ ...jobTraceContext(job), organizationId: job.organizationId });
   configureResearchTelemetry(researchPerformanceFlags(job.config as ResearchConfig).telemetryBatching);
-  return researchJsonResponse(await controlSnapshot(job, !lean), { headers: { "Cache-Control": "no-store" } });
+  return withResearchJobWorkflow(job,async()=>researchJsonResponse(await controlSnapshot(job, !lean), { headers: { "Cache-Control": "no-store" } }));
 }
 async function runEvidence(job: NonNullable<Awaited<ReturnType<typeof getJob>>>) {
   const config = job.config as ResearchConfig;
@@ -164,6 +165,9 @@ async function postResearchCallback(
   const job = await getJob(request, jobId,false,typeof payload?.action==='string'?payload.action:'progress');
   if (!job) return researchJsonResponse({ error: "Not available" }, { status: 403 });
   setResearchDatabaseContext({ ...jobTraceContext(job), organizationId: job.organizationId });
+  return withResearchJobWorkflow(job,()=>applyResearchCallback(job,jobId,payload));
+}
+async function applyResearchCallback(job:NonNullable<Awaited<ReturnType<typeof getJob>>>,jobId:string,payload:Awaited<ReturnType<typeof researchRequestJson>>){
   configureResearchTelemetry(researchPerformanceFlags(job.config as ResearchConfig).telemetryBatching);
   const repo = new ResearchRepository(job.organizationId);
   if(payload?.action==='native-fields-plan'){const meta=(job.config as ResearchConfig).nativeAgent!,plan=await agentStore({organizationId:job.organizationId,userId:job.createdBy}).nativeFieldsPlan(meta.threadId,meta.operationId);return researchJsonResponse({targetIds:plan.selected.map(c=>c.targetId)});}

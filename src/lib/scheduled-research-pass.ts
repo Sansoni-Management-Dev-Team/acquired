@@ -26,6 +26,10 @@ async function runPass():Promise<number>{
   passDurationMs:Math.round(performance.now()-started),timestamp:new Date().toISOString(),
  }));
  try{
+  if(process.env.ACQUISITION_WORKFLOW_ENABLED==='true'||process.env.ACQUISITION_WORKFLOW_SCHEMA_READY==='true'){
+   const [{recoverAcquisitionWorkflows},{agentPool}]=await Promise.all([import('./acquisition-workflow-recovery'),import('./agent-runtime')]);
+   await recoverAcquisitionWorkflows(agentPool());
+  }
   await observeScheduledInitialResearch();
   trace('phase_finished');
   backgroundRemaining();if(backgroundBudget()?.failure)throw backgroundBudget()!.failure;

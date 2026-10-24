@@ -2,7 +2,7 @@
 
 import { BrowserLocalTime } from "./browser-local-time";
 import { AgentManagedOutreachNotice } from './agent-managed-outreach-notice';
-import { agentManagedOutreachReason } from '@/domain/mandate-outreach-owner';
+import { agentManagedOutreachReason,researchOnlyOutreachReason } from '@/domain/mandate-outreach-owner';
 
 import { AgentManualFeedbackForm } from "@/components/agent-manual-feedback-form";
 
@@ -91,7 +91,7 @@ type ContactView = {
   doNotContact: boolean;
 };
 export type StudioData = {
-  outreachOwner?: 'agent' | 'sequences';
+  outreachOwner?: 'agent' | 'sequences' | 'research-only';
   replyMonitoring?: {
     mode: "off" | "observe" | "enforce";
     monitors: {
@@ -208,7 +208,9 @@ export function CampaignStudio({
     enrichmentContactIds !== undefined,
   );
   const [data, setData] = useState<StudioData>(initialData);
-  const agentManaged = data.outreachOwner === 'agent';
+  const researchOnly=data.outreachOwner==='research-only';
+  const agentManaged = data.outreachOwner === 'agent'||researchOnly;
+  const outreachReason=researchOnly?researchOnlyOutreachReason:agentManagedOutreachReason;
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -527,11 +529,11 @@ export function CampaignStudio({
           <p className="mt-2 text-sm text-[var(--muted)]">
             {initialView === "contacts"
               ? agentManaged ? "People and their available contact details." : "People and their available contact details, with outreach progress."
-              : agentManaged ? "The agent manages outreach for this mandate." : "Publish a sequence and subscribe contacts using your connected accounts."}
+              : researchOnly ? "Research only. Outreach is unavailable for this run." : agentManaged ? "The agent manages outreach for this mandate." : "Publish a sequence and subscribe contacts using your connected accounts."}
           </p>
         </div>
       </header>
-      {agentManaged && <AgentManagedOutreachNotice mandateId={mandateId} />}
+      {researchOnly?<p role="status" className="rounded-xl border border-[var(--border)] p-4 text-sm">{researchOnlyOutreachReason}</p>:agentManaged&&<AgentManagedOutreachNotice mandateId={mandateId} />}
       {!agentManaged && !data.mailbox?.ready && (
         <div
           role="alert"
@@ -631,7 +633,7 @@ export function CampaignStudio({
                 >
                   <Plus size={17} /> Add person
                 </button>
-                <span title={agentManaged ? agentManagedOutreachReason : undefined}>
+                <span title={agentManaged ? outreachReason : undefined}>
                 <button
                   type="button"
                   className={primary}
@@ -1160,7 +1162,7 @@ export function CampaignStudio({
               </>
             ) : (
               <p className="mt-6 text-sm text-[var(--muted)]">
-                {agentManaged ? 'Manage this person’s outreach in agent chat.' : 'This contact has not been subscribed to one of your sequences.'}
+                {researchOnly ? researchOnlyOutreachReason : agentManaged ? 'Manage this person’s outreach in agent chat.' : 'This contact has not been subscribed to one of your sequences.'}
               </p>
             )}
           </section>

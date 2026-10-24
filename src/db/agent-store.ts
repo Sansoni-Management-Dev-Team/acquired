@@ -1,3 +1,5 @@
+import {acquisitionWorkflowContext,withAcquisitionWorkflowContext} from '@/lib/acquisition-workflow-context';
+import {bindAgentWorkflowContext,resolveAgentWorkflowContext} from './agent-workflow-context';
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {loadAgentReviewPeople} from './agent-review-people';
 import {insertAgentReviewBatch,persistAgentReviewDecision} from './agent-review-ledger';
@@ -25,12 +27,14 @@ function json(value: unknown) {
   return parsed;
 }
 export type AgentThread = { id: string; organization_id: string; mandate_id: string; owner_user_id: string; revision: number };
-export type AgentEvent = { id: string; thread_id: string; mandate_id?:string; created_at?:Date|string; kind: string; payload: unknown; lease_owner: string; fence: string; attempts: number };
+export type AgentEvent = { id: string; thread_id: string; mandate_id?:string; created_at?:Date|string; workflow_execution_id?:string|null; kind: string; payload: unknown; lease_owner: string; fence: string; attempts: number };
 
-export type AgentStoreOptions={businessTime?:{context:AgentBusinessTimeContext;scope:AgentBusinessTimeScope}};
+export type AgentStoreOptions={workflowExecutionId?:string|null;businessTime?:{context:AgentBusinessTimeContext;scope:AgentBusinessTimeScope}};
 
 /** Server-owned scope. This class does not accept credentials, execute tools or send. */
 export class AgentStore {
+  private readonly workflowClients=new WeakMap<PoolClient,{id:string|null;mandateId?:string}>();
+  private readonly workflowExecutionId?:string|null;
   private readonly readClient = new AsyncLocalStorage<{client:PoolClient;active:boolean}>();
   /** Only fixed read projections may use this bundle; provider work stays outside.
    * Context is per store/actor and expires before the outer transaction settles. */
@@ -42,8 +46,9 @@ export class AgentStore {
   }
   protected actor: AgentActor;
   protected readonly businessTime?:AgentBusinessTimeContext;
-  constructor(private pool: Pick<Pool, 'connect'>, actor: AgentActor, options:AgentStoreOptions={}) {
+  constructor(protected pool: Pick<Pool, 'connect'>, actor: AgentActor, options:AgentStoreOptions={}) {
     this.actor = agentActorSchema.parse(actor);
+    this.workflowExecutionId=options.workflowExecutionId===undefined?undefined:options.workflowExecutionId===null?null:uuid.parse(options.workflowExecutionId);
     const time=options.businessTime;
     if(time){
       if(time.scope.organizationId!==this.actor.organizationId||time.scope.userId!==this.actor.userId)throw Error('Agent business time scope unavailable');
@@ -94,16 +99,33 @@ export class AgentStore {
       }
       const member=readOnly?await client.query("SELECT EXISTS(SELECT 1 FROM member WHERE organization_id=$1 AND user_id=$2) AS allowed",[this.actor.organizationId,this.actor.userId]):await client.query('SELECT agent_lock_member() AS allowed');
       if (!member.rows[0]?.allowed) throw new Error('Agent actor is no longer a member');
+      const workflow=acquisitionWorkflowContext();
+      if(workflow&&(workflow.organizationId!==this.actor.organizationId||workflow.ownerUserId!==this.actor.userId))throw Error('Workflow actor scope changed');
+      const workflowId=workflow?workflow.id:this.workflowExecutionId;
+      if(workflowId!==undefined){await bindAgentWorkflowContext(client,this.actor,workflowId);this.workflowClients.set(client,{id:workflowId});}
       const result = await work(client);
       await client.query('COMMIT'); return result;
     } catch (error) { await client.query('ROLLBACK'); throw error; }
-    finally { client.release(); }
+    finally { this.workflowClients.delete(client);client.release(); }
   }
   protected async thread(client: PoolClient, id: string): Promise<AgentThread> {
     const row = (await client.query<AgentThread>('SELECT * FROM agent_threads WHERE id=$1',[uuid.parse(id)])).rows[0];
     if (!row) throw new Error('Agent thread not found');
+    const original=this.workflowClients.get(client);
+    if(!original){const id=await resolveAgentWorkflowContext(client,this.actor,row.mandate_id);this.workflowClients.set(client,{id,mandateId:row.mandate_id});}
+    else if(original.id!==null&&original.mandateId!==row.mandate_id){await bindAgentWorkflowContext(client,this.actor,original.id,row.mandate_id);original.mandateId=row.mandate_id;}
     return row;
   }
+  /** Async request scope follows the persisted event/effect, never a thread's later execution. */
+  withWorkflowExecution<T>(id:string|null,work:()=>Promise<T>){return withAcquisitionWorkflowContext({id,organizationId:this.actor.organizationId,ownerUserId:this.actor.userId},work);}
+  protected async bindOriginalWorkflow(client:PoolClient,row:{workflow_execution_id?:string|null;mandate_id?:string}){
+    if(!Object.prototype.hasOwnProperty.call(row,'workflow_execution_id'))return; // pre-expansion compatibility
+    const id=row.workflow_execution_id??null;
+    await bindAgentWorkflowContext(client,this.actor,id,row.mandate_id);
+    this.workflowClients.set(client,{id,mandateId:row.mandate_id});
+  }
+  protected workflowId(client:PoolClient){return this.workflowClients.get(client)?.id??null;}
+  protected workflowModeTable(client:PoolClient){return this.workflowClients.get(client)?.id?'agent_effective_execution_modes':'agent_mandate_execution_modes';}
   async openThread(mandateId: string): Promise<AgentThread> {
     return this.transaction(async c => {
       const values=[this.actor.organizationId,uuid.parse(mandateId),this.actor.userId];
@@ -217,22 +239,22 @@ export class AgentStore {
   }
   async claimEvent(workerId: string, leaseMs=30_000,mandateId?:string): Promise<AgentEvent|undefined> {
     uuid.parse(workerId);z.number().int().min(100).max(60_000).parse(leaseMs);if(mandateId!==undefined)uuid.parse(mandateId);
-    return this.transaction(async c => {const eligible=await this.eventEligibilityPredicate(c);return (await c.query<AgentEvent>(`WITH due AS (
-      SELECT id FROM agent_events e WHERE ${eligible} AND available_at<=${this.businessSql()}${this.businessTime?" AND (e.operational_not_before_at IS NULL OR e.operational_not_before_at<=clock_timestamp())":''} AND (state='pending' OR (state='leased' AND lease_until<=clock_timestamp()))
-      AND ($3::uuid IS NULL OR e.mandate_id=$3::uuid)
-      AND NOT EXISTS(SELECT 1 FROM agent_runs r WHERE r.thread_id=e.thread_id AND r.state='running' AND (r.lease_until IS NULL OR r.lease_until>clock_timestamp()))
-      -- Receipt lookup can clear the physical-account barrier for queued sends.
-      -- A bounded scheduling credit preserves aging: it cannot starve older work.
-      ORDER BY CASE WHEN e.kind IN ('email.reconcile','whatsapp.reconcile','linkedin.reconcile')
-        THEN e.available_at-interval '60 seconds' ELSE e.available_at END,e.available_at,e.id
-      FOR UPDATE SKIP LOCKED LIMIT 1)
-      UPDATE agent_events e SET state='leased',lease_owner=$1,lease_until=clock_timestamp()+($2::int*interval '1 millisecond'),fence=fence+1,attempts=attempts+1
-      FROM due WHERE e.id=due.id RETURNING e.*`,[workerId,leaseMs,mandateId??null])).rows[0];});
+    return this.transaction(async c => {
+      const eligible=await this.eventEligibilityPredicate(c);
+      const event=(await c.query<AgentEvent>(`SELECT e.* FROM agent_events e WHERE ${eligible} AND available_at<=${this.businessSql()}${this.businessTime?" AND (e.operational_not_before_at IS NULL OR e.operational_not_before_at<=clock_timestamp())":''}
+       AND (state='pending' OR (state='leased' AND lease_until<=clock_timestamp())) AND ($1::uuid IS NULL OR e.mandate_id=$1::uuid)
+       AND NOT EXISTS(SELECT 1 FROM agent_runs r WHERE r.thread_id=e.thread_id AND r.state='running' AND (r.lease_until IS NULL OR r.lease_until>clock_timestamp()))
+       ORDER BY CASE WHEN e.kind IN ('email.reconcile','whatsapp.reconcile','linkedin.reconcile') THEN e.available_at-interval '60 seconds' ELSE e.available_at END,e.available_at,e.id
+       FOR UPDATE SKIP LOCKED LIMIT 1`,[mandateId??null])).rows[0];
+      if(!event)return undefined;
+      await this.bindOriginalWorkflow(c,event);
+      return (await c.query<AgentEvent>(`UPDATE agent_events SET state='leased',lease_owner=$1,lease_until=clock_timestamp()+($2::int*interval '1 millisecond'),fence=fence+1,attempts=attempts+1 WHERE id=$3 RETURNING *`,[workerId,leaseMs,event.id])).rows[0];
+    });
   }
   async completeEvent(eventId: string, workerId: string, fence: string) {
     uuid.parse(eventId);uuid.parse(workerId);z.string().regex(/^\d+$/).parse(fence);
-    return this.transaction(async c => !!(await c.query(`UPDATE agent_events SET state='done',lease_owner=NULL,lease_until=NULL
-      WHERE id=$1 AND state='leased' AND lease_owner=$2 AND fence=$3::bigint AND lease_until>clock_timestamp() RETURNING id`,[eventId,workerId,fence])).rowCount);
+    return this.transaction(async c => {const original=(await c.query('SELECT * FROM agent_events WHERE id=$1',[eventId])).rows[0];if(original)await this.bindOriginalWorkflow(c,original);return !!(await c.query(`UPDATE agent_events SET state='done',lease_owner=NULL,lease_until=NULL
+      WHERE id=$1 AND state='leased' AND lease_owner=$2 AND fence=$3::bigint AND lease_until>clock_timestamp() RETURNING id`,[eventId,workerId,fence])).rowCount;});
   }
   protected async lockThread(c:PoolClient,id:string){
     const thread=await this.thread(c,id);
@@ -321,6 +343,9 @@ export class AgentStore {
   protected async currentReviewOperations(c:PoolClient,t:AgentThread,manifest:AgentReviewItem[]){
     const rows=(await c.query('SELECT * FROM agent_operations WHERE thread_id=$1 AND id=ANY($2::uuid[]) ORDER BY id FOR UPDATE',[t.id,manifest.map(item=>item.operationId)])).rows;
     if(rows.length!==manifest.length)throw new Error('Review operation not found');
+    const workflowIds=new Set(rows.filter(row=>row.workflow_execution_id!==undefined).map(row=>row.workflow_execution_id));
+    if(workflowIds.size>1)throw new Error('Review operations belong to different workflow executions');
+    if(rows[0])await this.bindOriginalWorkflow(c,rows[0]);
     for(const item of manifest){
       const op=rows.find(row=>row.id===item.operationId)!;
       if(!isAgentReviewableOperation(op.name))throw new Error('Operation is not reviewable');
@@ -382,7 +407,7 @@ export class AgentStore {
       const t=await this.lockThread(c,threadId);
       if(approvalSource!==undefined){
         z.literal('automatic_demo').parse(approvalSource);
-        const mode=(await c.query('SELECT mode FROM agent_mandate_execution_modes WHERE mandate_id=$1 AND organization_id=$2',[t.mandate_id,t.organization_id])).rows[0]?.mode;
+        const mode=(await c.query(`SELECT mode FROM ${this.workflowModeTable(c)} WHERE mandate_id=$1 AND organization_id=$2`,[t.mandate_id,t.organization_id])).rows[0]?.mode;
         if(mode!=='demo'||decision!=='approved')throw new Error('Automatic demo attribution requires an approved demo review');
       }
       const batch=(await c.query('SELECT * FROM agent_review_batches WHERE id=$1 AND thread_id=$2 FOR UPDATE',[batchId,t.id])).rows[0];
@@ -402,6 +427,7 @@ export class AgentStore {
       const t=await this.lockThread(c,threadId);
       const op=(await c.query('SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 FOR UPDATE',[operationId,t.id])).rows[0];
       if(!op||!isAgentReviewableOperation(op.name)||op.state!=='proposed'||op.revision!==revision)throw new Error('Operation changed or unavailable');
+      await this.bindOriginalWorkflow(c,op);
       return (await c.query('UPDATE agent_operations SET input=$2,input_digest=$3,revision=revision+1,updated_at=now() WHERE id=$1 RETURNING *',[op.id,JSON.stringify(value),digest({name:op.name,input:value})])).rows[0];
     });
   }
@@ -496,6 +522,7 @@ export class AgentStore {
       await c.query('SELECT id FROM agent_threads WHERE id=$1 FOR UPDATE',[identity.thread_id]);
       const op=(await c.query("SELECT * FROM agent_operations WHERE id=$1 AND name='conversation.answer' AND state='running' AND lease_until>clock_timestamp() FOR UPDATE",[operationId])).rows[0];
       if(!op)throw new Error('Conversation turn is no longer active');
+      await this.bindOriginalWorkflow(c,op);
       const t=await this.thread(c,op.thread_id);
       if(references.length){
         const current=(await c.query("SELECT id,revision FROM agent_operations WHERE thread_id=$1 AND name='guidance.memory' AND state='approved' AND id=ANY($2::uuid[])",[t.id,references.map(item=>item.id)])).rows;

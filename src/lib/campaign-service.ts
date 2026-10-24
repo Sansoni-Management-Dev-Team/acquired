@@ -3,7 +3,7 @@ import {commitCampaignPublication} from './campaign-publication-store';
 import {createCampaignDraft,saveCampaignDraft} from './campaign-draft-store';
 import {CampaignError} from './campaign-error';
 import {mandateOutreachOwner} from './mandate-outreach-owner';
-import {agentManagedOutreachReason} from '@/domain/mandate-outreach-owner';
+import {mandateOutreachRestrictionReason} from '@/domain/mandate-outreach-owner';
 export {CampaignError} from './campaign-error';
 import {communicationReplyIdentity} from '../domain/communication-reply-identity';
 import "server-only";
@@ -175,10 +175,10 @@ export async function listCampaignStudio(actor: CampaignActor, mandateId: string
     };
   });
   const mode = replyMonitorMode();
-  const monitors = studio.outreachOwner === 'agent' || mode === "off" ? [] : await withCampaignDb(actor, client => rows<{ channel: ReplyChannel; last_success_at: Date | null; healthy: boolean; needs_review: boolean }>(client, `SELECT b.channel,min(m.observed_at) AS last_success_at,
+  const monitors = studio.outreachOwner !== 'sequences' || mode === "off" ? [] : await withCampaignDb(actor, client => rows<{ channel: ReplyChannel; last_success_at: Date | null; healthy: boolean; needs_review: boolean }>(client, `SELECT b.channel,min(m.observed_at) AS last_success_at,
  bool_and(m.complete AND m.initial_sync_complete AND NOT m.invalidated AND m.coverage_through>=clock_timestamp()-interval '5 minutes' AND m.coverage_through<=m.observed_at AND m.observed_at<=clock_timestamp() AND m.observed_at>=clock_timestamp()-interval '5 minutes') AS healthy,
  bool_or(m.failure_code IS NOT NULL) AS needs_review FROM public.communication_reply_monitors m JOIN public.communication_bindings b ON b.id=m.binding_id AND b.organization_id=m.organization_id AND b.owner_user_id=m.owner_user_id WHERE m.organization_id=$1 AND m.owner_user_id=$2 AND b.authority='service' AND b.backend='unipile' GROUP BY b.channel ORDER BY b.channel`, [actor.organizationId, actor.userId]));
-  const mailbox = studio.outreachOwner !== 'agent' && communicationsRuntimeEnabled() ? await configuredStudioMailbox(actor) : null;
+  const mailbox = studio.outreachOwner === 'sequences' && communicationsRuntimeEnabled() ? await configuredStudioMailbox(actor) : null;
   return { ...studio, mailbox, replyMonitoring: { mode, monitors: monitors.map(item => ({ channel: item.channel, lastSuccessAt: item.last_success_at?.toISOString() || null, error: item.healthy ? null : item.needs_review ? "Reply monitoring needs review" : "Waiting for reply checks", healthy: item.healthy === true })) }, n8nUrl: process.env.CAMPAIGN_N8N_URL?.replace(/\/$/, "") || null };
 }
 
@@ -220,7 +220,7 @@ export async function enrolContacts(actor: CampaignActor, sequenceId: string, co
   const prepared = await withCampaignDb(actor, async client => {
     const [sequence] = await rows<SequenceRow>(client, "SELECT * FROM campaign_sequences WHERE id = $3 AND organization_id = $1 AND owner_user_id = $2", [actor.organizationId, actor.userId, sequenceId]);
     if (!sequence || !sequence.published_version) throw new CampaignError("Publish this sequence before adding contacts");
-    if (await mandateOutreachOwner(client, actor, sequence.mandate_id) === 'agent') throw new CampaignError(agentManagedOutreachReason);
+    const owner=await mandateOutreachOwner(client,actor,sequence.mandate_id);if(owner!=='sequences')throw new CampaignError(mandateOutreachRestrictionReason(owner));
     const [version] = await rows<VersionRow>(client, "SELECT * FROM campaign_sequence_versions WHERE sequence_id = $1 AND version = $2", [sequenceId, sequence.published_version]);
     if (!version) throw new CampaignError("Published version is missing");
     if (n8nCampaignEnabled() && !version.n8n_workflow_id) throw new CampaignError("This published version must be synced to n8n before new contacts can be added");
@@ -247,7 +247,7 @@ export async function enrolContacts(actor: CampaignActor, sequenceId: string, co
   for (const channel of campaignChannels(prepared.definition)) await deliveryProvider(channel).ready(actor);
   if (!communicationsRuntimeEnabled()) throw new ReplyCheckReview('delivery_disabled');
   const enrolled = await withCampaignDb(actor, async client => {
-    if (await mandateOutreachOwner(client, actor, prepared.sequence.mandate_id) === 'agent') throw new CampaignError(agentManagedOutreachReason);
+    const owner=await mandateOutreachOwner(client,actor,prepared.sequence.mandate_id);if(owner!=='sequences')throw new CampaignError(mandateOutreachRestrictionReason(owner));
     const results = [] as { id: string; contactId: string; state: string; nextStepAt: Date | null; firstAction: string }[];
     for (const { contact, email, phone, linkedin } of prepared.contacts) {
       await assertNoReplyHold(client, actor, contact.id);

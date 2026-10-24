@@ -10,7 +10,7 @@ import type { ResearchConfig } from '@/domain/research';
 import { researchWorker } from './research-service';
 import { recoverFirmableRefreshes } from './firmable-run-recovery';
 
-type Job = typeof researchJobs.$inferSelect;
+type Job = Omit<typeof researchJobs.$inferSelect,'workflowExecutionId'> & {workflowExecutionId?:string|null};
 type Database=ReturnType<typeof requireDb>;
 async function canonicalPeopleLock(tx:Database,job:Job){
  await lockResearchPersistence(tx,job.organizationId);

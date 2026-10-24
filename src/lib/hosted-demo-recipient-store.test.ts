@@ -19,3 +19,5 @@ it('refuses absent, foreign, real-mode, stale source and changed original bindin
 it('checks an optional operation key against its exact original persisted demo intent without creating an intent',async()=>{
  const f=fixture();await f.resolve({...query,operationKey:'original-key'});expect(f.call).toHaveBeenCalledTimes(2);expect(f.call.mock.calls[1][0]).toContain('communication_dispatch_intents');
 });
+
+it('resolves both legacy and workflow-owned demo mappings through the effective read view',async()=>{const f=fixture();await f.resolve(query);expect(f.call.mock.calls[0][0]).toContain('FROM public.agent_effective_demo_contact_mappings m');});

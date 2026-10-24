@@ -16,9 +16,9 @@ function CacheNotice({ loaded, error, retry }: { loaded: boolean; error: string;
   return null;
 }
 
-export function CachedMandateCreate({ agentModeEnabled = false, nativeAgentEnabled = false }: { agentModeEnabled?: boolean; nativeAgentEnabled?: boolean } = {}) {
+export function CachedMandateCreate({ agentModeEnabled = false, nativeAgentEnabled = false, sharedWorkflowEnabled = false }: { agentModeEnabled?: boolean; nativeAgentEnabled?: boolean; sharedWorkflowEnabled?: boolean } = {}) {
   const cache = useCachedMandates();
-  return <><SidebarRegistration value={{ mandates: cache.mandates.map(m => ({ id: m.id, name: m.brief.name })), tab: "brief" }} /><HomeMandateCreate nativeAgentEnabled={nativeAgentEnabled} agentModeEnabled={agentModeEnabled} mandates={cache.mandates} recentStatus={<CacheNotice {...cache} />} recentLoaded={cache.loaded} /></>;
+  return <><SidebarRegistration value={{ mandates: cache.mandates.map(m => ({ id: m.id, name: m.brief.name })), tab: "brief" }} /><HomeMandateCreate sharedWorkflowEnabled={sharedWorkflowEnabled} nativeAgentEnabled={nativeAgentEnabled} agentModeEnabled={agentModeEnabled} mandates={cache.mandates} recentStatus={<CacheNotice {...cache} />} recentLoaded={cache.loaded} /></>;
 }
 
 export function CachedMandatesPage() {

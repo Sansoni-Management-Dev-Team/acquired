@@ -17,10 +17,11 @@ import { useRouter } from "next/navigation";
 import { AgentModeToggle, AgentPlanReview } from "./agent-mode";
 import { DetailTooltip } from "./detail-tooltip";
 import {cachedDemoRequestTimeoutMs,saveCachedDemoRequest} from '@/lib/cached-demo-request';
+import {saveAcquisitionWorkflowRequest,pendingWorkflowIdentity,workflowDestination,workflowPendingStorageKey} from '@/lib/acquisition-workflow-request';
 
 const cachedDemoSchema=z.object({sourceMandateId:z.string().uuid(),brief:briefSchema,companies:z.number().int().nonnegative(),people:z.number().int().nonnegative()});
 
-export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true, agentModeEnabled = false, nativeAgentEnabled = false }: { nativeAgentEnabled?: boolean; agentModeEnabled?: boolean; mandates: MandateView[]; recentStatus?: ReactNode; recentLoaded?: boolean }) {
+export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true, agentModeEnabled = false, nativeAgentEnabled = false, sharedWorkflowEnabled = false }: { sharedWorkflowEnabled?: boolean; nativeAgentEnabled?: boolean; agentModeEnabled?: boolean; mandates: MandateView[]; recentStatus?: ReactNode; recentLoaded?: boolean }) {
   const router = useRouter();
   const [agentMode, setAgentMode] = useState(false);
   const [reviewBrief, setReviewBrief] = useState<AcquisitionBrief | null>(null);
@@ -32,6 +33,8 @@ export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true,
     if (descriptionInput.current) setDescription(descriptionInput.current.value);
   }, []);
   const createLock = useRef(false);
+  const workflowRequest=useRef<string|null>(null);
+  const [workflowPending,setWorkflowPending]=useState(false);
   const demoSource=useRef<z.infer<typeof cachedDemoSchema>|null>(null),demoCreateRequest=useRef<string|null>(null);
   const [demoAttempted,setDemoAttempted]=useState(false),[creatingDemo,setCreatingDemo]=useState(false);
   const researchRequestId = useRef<string | null>(null);
@@ -42,8 +45,50 @@ export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true,
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [progress, setProgress] = useState("");
+  useEffect(()=>{
+    let mounted=true;
+    // Browser storage is an external recovery source. Restore after hydration,
+    // including when new admissions have been disabled during a rollback.
+    queueMicrotask(()=>{
+      if(!mounted)return;
+      try{const body=sessionStorage.getItem(workflowPendingStorageKey),saved=body&&pendingWorkflowIdentity(body);if(body&&saved){workflowRequest.current=body;setWorkflowPending(true);setAgentMode(saved.presentation==='agent');setError('A workflow request is saved. Retry to check its progress.');}}
+      catch{/* Storage may be unavailable; the in-memory request remains usable. */}
+    });
+    return()=>{mounted=false;};
+  },[]);
+
+
+  async function createWorkflow(preset:'demo'|'live-research-test'|'live') {
+    if(busy||createLock.current)return;
+    createLock.current=true;setBusy(true);setError('');
+    const savedIdentity=workflowRequest.current&&pendingWorkflowIdentity(workflowRequest.current);
+    setCreatingDemo((savedIdentity?savedIdentity.preset:preset)==='demo');
+    setProgress('Opening your workspace…');
+    try{
+      if(!workflowRequest.current){
+        let brief:AcquisitionBrief|undefined;
+        if(preset!=='demo'){
+          setProgress('Preparing your mandate…');
+          const response=await fetch('/api/mandates/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({description}),signal:AbortSignal.timeout(45000)});
+          const raw=await readJsonResponse(response,'Could not create a mandate from your description. Please try again.');
+          const parsed=briefSchema.safeParse(raw.brief);
+          if(!response.ok||!parsed.success)throw Error(typeof raw.error==='string'?raw.error:'Could not create a mandate from your description.');
+          brief=parsed.data;
+        }
+        workflowRequest.current=JSON.stringify({requestId:randomUuid(),preset,presentation:agentMode?'agent':'workspace',...(brief?{brief}:{})});
+        setWorkflowPending(true);
+        try{sessionStorage.setItem(workflowPendingStorageKey,workflowRequest.current);}catch{/* Retain the exact in-memory body. */}
+      }
+      const result=await saveAcquisitionWorkflowRequest(workflowRequest.current);
+      try{sessionStorage.removeItem(workflowPendingStorageKey);}catch{}
+      workflowRequest.current=null;setWorkflowPending(false);
+      router.push(workflowDestination(result));
+    }catch(cause){setError(cause instanceof Error&&cause.name==='TimeoutError'?'This is taking longer than expected. Please try again.':cause instanceof Error?cause.message:'Could not open your workspace.');}
+    finally{setBusy(false);setProgress('');createLock.current=false;}
+  }
 
   async function create(mode: "custom" | "demo" = "custom", approvedBrief?: AcquisitionBrief) {
+    if(sharedWorkflowEnabled||workflowRequest.current)return createWorkflow(mode==='demo'?'demo':'live');
     if (busy || createLock.current) return;
     createLock.current = true;
     setError("");
@@ -160,13 +205,14 @@ export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true,
               </span>
             </DetailTooltip>
           </div>
-          <textarea ref={descriptionInput} id="mandate-description" required minLength={10} maxLength={5000} rows={5} readOnly={Boolean(createdId) || nativeCreateAttempted || demoAttempted} defaultValue={description} onChange={event => setDescription(event.target.value)} placeholder="For example: We are seeking an established commercial refrigeration service business in Queensland or New South Wales with annual revenue of AUD 4–12 million, EBITDA of AUD 700,000–2 million and 15–55 employees. Prefer recurring maintenance and repair work for commercial customers, diversified customers and a capable management team. We are open to a full or majority acquisition with an owner transition period." className="mt-3 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--input)] px-4 py-3 text-base text-[var(--foreground)] placeholder:text-[var(--muted)] focus-visible:border-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]" />
-          {agentModeEnabled && <AgentModeToggle nativeAgentEnabled={nativeAgentEnabled} enabled={agentMode} disabled={busy || Boolean(createdId) || nativeCreateAttempted || demoAttempted} onChange={setAgentMode} />}
+          <textarea ref={descriptionInput} id="mandate-description" required={!workflowPending} minLength={10} maxLength={5000} rows={5} readOnly={workflowPending || Boolean(createdId) || nativeCreateAttempted || demoAttempted} defaultValue={description} onChange={event => setDescription(event.target.value)} placeholder="For example: We are seeking an established commercial refrigeration service business in Queensland or New South Wales with annual revenue of AUD 4–12 million, EBITDA of AUD 700,000–2 million and 15–55 employees. Prefer recurring maintenance and repair work for commercial customers, diversified customers and a capable management team. We are open to a full or majority acquisition with an owner transition period." className="mt-3 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--input)] px-4 py-3 text-base text-[var(--foreground)] placeholder:text-[var(--muted)] focus-visible:border-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]" />
+          {agentModeEnabled && <AgentModeToggle nativeAgentEnabled={nativeAgentEnabled} enabled={agentMode} disabled={busy || workflowPending || Boolean(createdId) || nativeCreateAttempted || demoAttempted} onChange={setAgentMode} />}
           {error && <p role="alert" className="mt-3 text-sm text-[var(--status-red)]">{error}</p>}
           {progress && <p role="status" className="mt-3 text-sm text-[var(--muted)]">{progress}</p>}
           {createdId && error && <Link href={`/mandates/${createdId}?tab=targets`} className="mt-2 inline-block text-sm text-[var(--accent)] underline underline-offset-4">Open your saved mandate</Link>}
-          <div className="mt-4 flex flex-wrap justify-end gap-3"><button type="button" disabled={busy || Boolean(createdId) || nativeCreateAttempted || demoAttempted} onClick={() => void create("demo")} className="min-h-12 rounded-xl border border-[var(--border)] px-5 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--panel-raised)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50">Run demo</button><button disabled={busy || !demoAttempted&&description.trim().length < 10} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--on-accent)] hover:bg-[var(--accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50">{busy ? "Working…" : demoAttempted ? "Retry opening demo" : agentMode && nativeCreateAttempted ? "Retry opening agent chat" : createdId ? "Retry company research" : agentMode ? nativeAgentEnabled ? "Continue" : "Review agent plan" : "Find companies"}<ArrowRight size={17} /></button></div>
-          <p className="mt-3 text-right text-xs text-[var(--muted)]">Demo uses saved companies and people. No live research is run.</p>
+          <div className="mt-4 flex flex-wrap justify-end gap-3"><button type="button" disabled={busy || workflowPending || Boolean(createdId) || nativeCreateAttempted || demoAttempted} onClick={() => void create("demo")} className="min-h-12 rounded-xl border border-[var(--border)] px-5 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--panel-raised)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50">Run demo</button><button disabled={busy || !workflowPending&&!demoAttempted&&description.trim().length < 10} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--on-accent)] hover:bg-[var(--accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50">{busy ? "Working…" : workflowPending ? "Retry workflow" : sharedWorkflowEnabled ? "Find companies" : demoAttempted ? "Retry opening demo" : agentMode && nativeCreateAttempted ? "Retry opening agent chat" : createdId ? "Retry company research" : agentMode ? nativeAgentEnabled ? "Continue" : "Review agent plan" : "Find companies"}<ArrowRight size={17} /></button></div>
+          {sharedWorkflowEnabled&&<details className="mt-3 text-right text-sm"><summary className="cursor-pointer text-[var(--muted)]">Testing</summary><div className="mt-2 space-y-2"><p className="text-xs text-[var(--muted)]">Run live company research and enrichment without contacting anyone.</p><button type="button" disabled={busy||workflowPending||description.trim().length<10} onClick={()=>void createWorkflow('live-research-test')} className="rounded-lg border border-[var(--border)] px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50">Test live research</button></div></details>}
+          <p className="mt-3 text-right text-xs text-[var(--muted)]">{sharedWorkflowEnabled?'Demo opens an unused saved mandate with companies and people. Outreach is simulated.':'Demo uses saved companies and people. No live research is run.'}</p>
         </form>
       </div>
     </section>

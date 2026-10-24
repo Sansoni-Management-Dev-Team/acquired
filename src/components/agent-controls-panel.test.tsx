@@ -379,3 +379,8 @@ it.each([200,503])('retains the original Start request when the response body is
   expect(fetcher).toHaveBeenCalledOnce();await act(async()=>{start();});expect(fetcher).toHaveBeenCalledTimes(2);expect(fetcher.mock.calls[0][1].body).toBe(fetcher.mock.calls[1][1].body);
  }finally{if(tree)await act(()=>tree!.unmount());vi.unstubAllGlobals();}
 });
+
+it('shows research-only results without outreach start or approval controls',()=>{
+ const html=renderToStaticMarkup(<AgentControlsPanel mandateId="mandate" initial={{...data,enabled:true,state:{...data.state!,workflowPreset:'live-research-test',workflowExecutionId:'execution'}}}>{renderConversation}</AgentControlsPanel>);
+ expect(html).toContain('Research only');expect(html).toContain('No outreach is sent.');expect(html).toContain('View companies');expect(html).toContain('View people');expect(html).not.toContain('Automatic sending');expect(html).not.toContain('Start agent');expect(html).not.toContain('Ready to begin');
+});

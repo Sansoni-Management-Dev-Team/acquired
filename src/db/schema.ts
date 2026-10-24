@@ -281,6 +281,7 @@ export const valuationObservations = pgTable("valuation_observations", {
 }, table => [index("valuations_mandate_idx").on(table.organizationId, table.mandateId)]);
 
 export const researchJobs = pgTable("research_jobs", {
+  workflowExecutionId: uuid("workflow_execution_id"),
   id: uuid("id").primaryKey(), organizationId: text("organization_id").notNull().references(() => organization.id),
   mandateId: uuid("mandate_id").notNull().references(() => mandates.id, { onDelete: "cascade" }),
   createdBy: text("created_by").notNull().references(() => user.id),

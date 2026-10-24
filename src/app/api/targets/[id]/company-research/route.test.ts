@@ -42,3 +42,16 @@ it("refuses to continue research from another mandate or company", async () => {
   m.get.mockResolvedValueOnce({ mandateId: "foreign", status: "partial", config: { purpose: "firmographics", targetId: id } });
   expect((await POST(request({ ...body, continueFrom: requestId }), ctx)).status).toBe(409); expect(m.worker).not.toHaveBeenCalled();
 });
+
+it('preserves managed continuation identity and refuses another owner',async()=>{
+ const {acquisitionWorkflowContext}=await import('@/lib/acquisition-workflow-context');
+ const workflowExecutionId='00000000-0000-4000-8000-000000000099';
+ const previousId='00000000-0000-4000-8000-000000000098';
+ const previous={id:previousId,mandateId,organizationId:'org-a',createdBy:'user-a',workflowExecutionId,status:'partial',config:{purpose:'firmographics',targetId:id,companyDomain:'instruments.example.com',runtime:{remaining:['https://instruments.example.com/team'],visited:[],attempts:[]}}};
+ m.get.mockResolvedValueOnce(previous);
+ m.create.mockImplementation(async()=>{expect(acquisitionWorkflowContext()).toEqual({id:workflowExecutionId,organizationId:'org-a',ownerUserId:'user-a'});return{id:requestId,status:'queued'};});
+ expect((await POST(request({...body,continueFrom:previousId}),ctx)).status).toBe(202);
+ m.create.mockClear();m.get.mockResolvedValueOnce({...previous,createdBy:'other'});
+ expect((await POST(request({...body,continueFrom:previousId}),ctx)).status).toBe(404);
+ expect(m.create).not.toHaveBeenCalled();
+});

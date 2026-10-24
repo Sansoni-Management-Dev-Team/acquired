@@ -1,3 +1,5 @@
+import {acquisitionWorkflowPool} from './acquisition-workflow-pool';
+import {acquisitionWorkflowContext} from '@/lib/acquisition-workflow-context';
 import {backgroundPool} from "./background-pool";
 import { observeResearchDatabase } from "@/lib/research-request-observability";
 import "server-only";
@@ -31,7 +33,7 @@ function getPostgresPool(connectionString: string) {
     idleTimeoutMillis: 5_000,
   });
   attachDatabasePool(pool);
-  const bounded = backgroundPool(pool);
+  const bounded = acquisitionWorkflowPool(backgroundPool(pool));
   pools.set(connectionString, bounded);
   return bounded;
 }
@@ -50,6 +52,7 @@ function createDatabase(): Database | null {
 export const db = createDatabase();
 
 export function requireDb() {
+  if(acquisitionWorkflowContext()?.id && resolveDatabaseConfig(process.env)?.driver!=="postgres") throw new Error("Workflow execution requires the transaction-capable PostgreSQL driver");
   if (!db) throw new Error("Database is not configured");
   return db;
 }

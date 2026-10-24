@@ -1,3 +1,4 @@
+import {withResearchJobWorkflow} from '@/lib/acquisition-workflow-context';
 import {tickCompanyPeople} from '@/lib/company-people-research';
 import { dispatchBusinessPeople } from "@/lib/business-research-people";
 import { and, eq } from "drizzle-orm";
@@ -33,17 +34,20 @@ export async function POST(
     .safeParse(await request.json().catch(() => null));
   if (!body.success)
     return Response.json({ error: "Invalid action" }, { status: 400 });
-  const repo = new ResearchRepository(session.session.activeOrganizationId);
+  const organizationId=session.session.activeOrganizationId;
+  const repo = new ResearchRepository(organizationId);
   const job = await repo.get(jobId);
   if (!job) return Response.json({ error: "Job not found" }, { status: 404 });
+  if(job.workflowExecutionId&&job.createdBy!==session.user.id)return Response.json({error:"Job not found"},{status:404});
+  return withResearchJobWorkflow(job,async()=>{
   if (body.data.action === "resume-people") {
-    try { await dispatchBusinessPeople(session.session.activeOrganizationId, jobId); return Response.json({ ok: true }); }
+    try { await dispatchBusinessPeople(organizationId, jobId); return Response.json({ ok: true }); }
     catch { return Response.json({ error: "People research is waiting for the active research job to finish. Try again afterward." }, { status: 409 }); }
   }
   if (body.data.action === "accept") {
     if (!body.data.findingId)
       return Response.json({ error: "Finding required" }, { status: 400 });
-    const org = session.session.activeOrganizationId;
+    const org = organizationId;
     const database = requireDb();
     const [finding] = await database
       .select()
@@ -160,4 +164,5 @@ export async function POST(
       { status: 503 },
     );
   }
+  });
 }

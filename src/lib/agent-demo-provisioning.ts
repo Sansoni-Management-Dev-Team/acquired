@@ -11,7 +11,7 @@ export function demoResearchPreparationKey(operationId:string,jobId:string){
  const h=b.toString('hex');return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
 }
 
-export type AgentDemoPreparation={kind:'prepared';manifest:AgentDemoParticipantsRequest;run:{id:string;runId:string;senders:{channel:string;bindingId:string;bindingDigest:string;accountId:string;providerAccountId:string;sourceId:string}[]}};
+export type AgentDemoPreparation={kind:'prepared';workflowExecutionId?:string|null;manifest:AgentDemoParticipantsRequest;run:{id:string;runId:string;senders:{channel:string;bindingId:string;bindingDigest:string;accountId:string;providerAccountId:string;sourceId:string}[]}};
 export interface AgentDemoProvisioningPort{
  /** Persist the exact metadata-only request before external I/O, or return its
   * existing immutable receipt. Validate current membership, mode and sources. */

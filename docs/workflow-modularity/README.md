@@ -43,7 +43,7 @@ Read-only inspection found `src/adapters/ai/provider.ts` exposes `completeAiJson
 
 ## Current handoff
 
-WF-01 source and production catalog audit is complete. WF-02 has a proposed three-file migration bundle and three rollback-only rehearsal assertions, with exact hashes and targets in `ops/agent-mode/production-proposals/workflow-modularity/approval-manifest.json`. SQL/PLpgSQL parsing passed. WF-03 awaits explicit approval before any application or database acceptance run. Application workflow implementation, activation and live verification remain unfinished. The local simulator was not accessed.
+WF-01 source and production catalog audit is complete. WF-02 has a proposed three-file migration bundle and three rollback-only rehearsal assertions, with exact hashes and targets in `ops/agent-mode/production-proposals/workflow-modularity/approval-manifest.json`. SQL/PLpgSQL parsing passed. WF-03 awaits explicit approval before any application or database acceptance run. Application modules and local verification are now implemented; activation and live verification remain unfinished. The local simulator was not accessed.
 
 ## Remote-main integration
 
@@ -58,3 +58,12 @@ WF-03 update: exact001–004 approved/applied in isolated rehearsal. Eight rollb
 
 
 WF-03/04 completed2026-10-24: approved001–004 applied to production after rehearsal/backup gates.129 function hashes and privileges match rehearsal; authenticated readiness200. New workflow execution count0 and feature activation off. See package `application-record.json`. Next is WF-05 shared start/status; no application workflow release is claimed.
+
+
+## WF-05–11 application implementation and verification
+
+Implemented shared immutable presets, atomic start/status commands, owned unused source selection, original execution context through existing research workers, workflow-aware simulated mappings and delivery, research-only restrictions, and shared homepage controls. No additional queue, mandate copying, provider implementation or history deletion. Saved request IDs survive reload and reconcile with status even when new starts are disabled. Recovery uses the existing scheduled research pass and bounded background pool.
+
+Local verification on 2026-10-24: 781 Vitest files passed, 6,807 tests passed and 956 opt-in tests skipped; TypeScript passed; 183 Node tests passed. Final rollback/reload regression adds focused coverage after this full run. Four actual PostgreSQL rehearsal scripts cover atomic creation/replay/ownership, research worker context, original event identity, and workflow simulator registration/mapping receipts. All use the approved network-none rehearsal database; no local simulator or external provider calls. Four simultaneous starts admitted one execution and returned three replays, 117–135ms in isolated emulated amd64 rehearsal with two pool clients. These timings are not production performance claims.
+
+Production read-only preflight found no lock waiters, healthy app/communications containers and zero workflow executions. Feature release, live research/provider verification and actual hosted simulator message/reply remain pending. The testing menu creates a research-only run from a description; the API also supports a supplied owned unused mandate. Research-only results open the company table, including when presentation was recorded as agent.

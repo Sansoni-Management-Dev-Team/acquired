@@ -1,3 +1,4 @@
+import {withResearchJobWorkflow} from './acquisition-workflow-context';
 import {backgroundRemaining} from './background-workload';
 import {dispatchCompanyBackground,recoverCompanyBackground} from './company-background-dispatch';
 import {tickCompanyPeople} from './company-people-research';
@@ -32,9 +33,9 @@ export async function maintainMandateResearch(org:string,id:string,initialJobs:A
       if (["running", "waiting"].includes(worker.status) && now - job.updatedAt.getTime() > 10 * 60000) {
         if(performance.now()>=deadline)break;
         const recovery = await researchWorker(`/jobs/${job.id}`, "POST", { action: "recover-stalled" },Math.max(1,Math.min(4000,deadline-performance.now()))) as { recovered?: boolean };
-        if (recovery.recovered) { await repo.recoverStopped(job.id, job.revision, job.pages); stopped.add(job.id); reviewChanged = true; }
+        if (recovery.recovered) { await withResearchJobWorkflow(job,()=>repo.recoverStopped(job.id, job.revision, job.pages)); stopped.add(job.id); reviewChanged = true; }
       }
-      if (["errored", "terminated", "complete"].includes(worker.status)) { await repo.recoverStopped(job.id, job.revision, job.pages); stopped.add(job.id); reviewChanged = true; }
+      if (["errored", "terminated", "complete"].includes(worker.status)) { await withResearchJobWorkflow(job,()=>repo.recoverStopped(job.id, job.revision, job.pages)); stopped.add(job.id); reviewChanged = true; }
     } catch { traceMaintenance('worker_status_unavailable',{organizationId:org,mandateId:id,jobId:job.id}); /* Unavailable never means stopped. */ }
   }
   const recoveryRuns = new Set(initialJobs.flatMap(job => {
@@ -51,7 +52,7 @@ export async function maintainMandateResearch(org:string,id:string,initialJobs:A
   }
   for (const job of initialJobs.filter(job => (job.config as ResearchConfig).includeCompanyPeople && !(job.config as ResearchConfig).companyPeopleProgress?.settled && (!(job.config as ResearchConfig).researchRunId || (job.config as ResearchConfig).researchRunId === job.id) && ['complete','partial'].includes(job.status))) {
     if(performance.now()>=deadline)break;
-    await tickCompanyPeople(job); reviewChanged = true;
+    await withResearchJobWorkflow(job,()=>tickCompanyPeople(job)); reviewChanged = true;
   }
   return reviewChanged;
 }

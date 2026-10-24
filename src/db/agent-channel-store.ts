@@ -101,8 +101,8 @@ export class AgentChannelStore extends AgentChatStore{
  async demoOutreachAccounts(threadId:string){return this.nativeTransaction(async c=>{
   const t=await this.thread(c,threadId);
   const runs=(await c.query(`SELECT DISTINCT run.id,run.senders FROM public.agent_demo_runs run
-   JOIN public.agent_demo_contact_mappings mapping ON mapping.demo_run_id=run.id AND mapping.organization_id=run.organization_id AND mapping.created_by=run.owner_user_id
-   JOIN public.agent_mandate_execution_modes mode ON mode.mandate_id=mapping.mandate_id AND mode.organization_id=mapping.organization_id AND mode.demo_id=mapping.demo_id
+   JOIN public.${this.workflowId(c)?'agent_effective_demo_contact_mappings':'agent_demo_contact_mappings'} mapping ON mapping.demo_run_id=run.id AND mapping.organization_id=run.organization_id AND mapping.created_by=run.owner_user_id
+   JOIN public.${this.workflowModeTable(c)} mode ON mode.mandate_id=mapping.mandate_id AND mode.organization_id=mapping.organization_id AND mode.demo_id=mapping.demo_id
    WHERE mapping.mandate_id=$1 AND mapping.organization_id=$2 AND mapping.created_by=$3 AND mode.mode='demo' AND mode.created_by=$3`,[t.mandate_id,t.organization_id,t.owner_user_id])).rows;
   if(runs.length!==1)throw Error('One saved demo recipient run is required');
   return z.array(z.object({channel:z.enum(['email','whatsapp','linkedin']),bindingId:uuid,bindingDigest:z.string().regex(/^[a-f0-9]{64}$/)})).length(3).parse(runs[0].senders);

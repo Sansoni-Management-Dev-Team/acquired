@@ -1,3 +1,4 @@
+import {withResearchJobWorkflow} from '@/lib/acquisition-workflow-context';
 import { buildAllDiscoveredCompanyPeoplePolicy } from "@/domain/research-discovery-policy";
 import { selectedResearchPipeline } from "@/domain/research-pipeline-design";
 import { newResearchPerformanceFlags } from "@/lib/research-performance-flags";
@@ -103,6 +104,7 @@ async function startMandateResearchAction(
   const { requestId, continueFrom, ...submitted } = input;
   let config: ResearchConfig = { ...submitted, searchTerms: submitted.searchTerms.length ? submitted.searchTerms : submitted.researchScope!.split(/[;\n]/).map(s => s.trim().slice(0, 160)).filter(s => s.length >= 2).slice(0, 6) };
   let savedFirmableContinuation = false;
+  let savedWorkflowJob: {workflowExecutionId:string;organizationId:string;createdBy:string}|undefined;
   if (continueFrom) {
     const repo = new ResearchRepository(org);
     const prior = await repo.get(continueFrom);
@@ -111,6 +113,10 @@ async function startMandateResearchAction(
         { error: "Previous job not found" },
         { status: 404 },
       );
+    if(prior.workflowExecutionId){
+      if(prior.createdBy!==actor.userId)return researchStartResult({error:'Previous job not found'},{status:404});
+      savedWorkflowJob={workflowExecutionId:prior.workflowExecutionId,organizationId:org,createdBy:prior.createdBy};
+    }
     if (!terminalResearchStates.includes(prior.status))
       return researchStartResult(
         { error: "Wait for the previous job to finish" },
@@ -180,9 +186,10 @@ async function startMandateResearchAction(
       if (!current || current.revision !== options.expectedMandateRevision)
         return researchStartResult({ error: "The mandate changed before research started. Submit the current brief again." }, { status: 409 });
     }
-    const job = options.expectedMandateRevision === undefined
-      ? await repo.create(requestId, id, actor.userId, config)
-      : await repo.create(requestId, id, actor.userId, config, options);
+    const create = () => options.expectedMandateRevision === undefined
+      ? repo.create(requestId, id, actor.userId, config)
+      : repo.create(requestId, id, actor.userId, config, options);
+    const job = await (savedWorkflowJob ? withResearchJobWorkflow(savedWorkflowJob,create) : create());
     // Insertion is the admission point. A later Pause does not retroactively
     // cancel this ordinary research root; the existing research Stop action does.
     if (!terminalResearchStates.includes(job.status)) {

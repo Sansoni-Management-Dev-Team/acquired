@@ -207,7 +207,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
   // A server-stamped fictional buyer is scoped to this exact saved demo. Real
   // mandates continue to use the protected organisation disclosure projection.
   const scenario=(await c.query(`/* demo-buyer-profile-context */ SELECT m.id,m.provenance,mode.mode AS execution_mode,mode.demo_id
-   FROM mandates m JOIN agent_mandate_execution_modes mode ON mode.mandate_id=m.id AND mode.organization_id=m.organization_id
+   FROM mandates m JOIN ${this.workflowModeTable(c)} mode ON mode.mandate_id=m.id AND mode.organization_id=m.organization_id
    WHERE m.id=$1 AND m.organization_id=$2 AND mode.mode='demo' AND mode.demo_id=m.id`,[t.mandate_id,t.organization_id])).rows[0];
   const profile=scenario?resolveDemoBuyerProfile({executionMode:scenario.execution_mode,demoId:scenario.demo_id,mandateId:t.mandate_id,provenance:scenario.provenance}):null;
   return profile?{...facts,buyerProfile:publicBuyerProfile(profile)}:facts;

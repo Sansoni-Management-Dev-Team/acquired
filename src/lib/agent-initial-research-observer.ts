@@ -1,3 +1,5 @@
+import {AcquisitionWorkflowStore} from '@/db/acquisition-workflow-store';
+import {ensureWorkflowResearch} from './acquisition-workflow-research';
 import {backgroundRemaining} from './background-workload';
 import {z} from 'zod';
 import type {ResearchConfig} from '@/domain/research';
@@ -8,7 +10,7 @@ import {agentPool,agentStore,durableAgentEnabled} from './agent-runtime';
 
 const uuid=z.string().uuid();
 const intent=z.object({version:z.literal(1),requestId:uuid,creationRevision:z.string().regex(/^\d{1,30}$/),startOn:z.literal('chat').optional()}).strict();
-type Job={id:string;organizationId:string;mandateId:string;createdBy:string;config:unknown};
+type Job={workflowExecutionId?:string|null;id:string;organizationId:string;mandateId:string;createdBy:string;config:unknown};
 function diagnostic(event:string,scope:{jobId?:string;mandateId?:string}={},details:Record<string,string|number>={}){console.info('agent-initial-research',JSON.stringify({module:'agent-initial-research.observer',event,...scope,...details,timestamp:new Date().toISOString()}));}
 const growthThresholds=[1,5,10,20,50,100,200,400,800];
 function growthBucket(value:number,people=false){return [...growthThresholds,...(people?[1200,1600,2400]:[])].filter(threshold=>threshold<=value).at(-1);}
@@ -16,6 +18,15 @@ function growthBucket(value:number,people=false){return [...growthThresholds,...
 /** Observes only an immutable initial-creation association. It neither starts
  * supervision nor creates approvals, native operations or outreach events. */
 export async function observeInitialResearchProgress(job:Job):Promise<{messages:number}>{
+ if(job.workflowExecutionId){
+  const actor={organizationId:job.organizationId,userId:job.createdBy},pool=agentPool();
+  try{
+   const execution=await new AcquisitionWorkflowStore(pool,actor).read(job.workflowExecutionId);
+   if(!execution||execution.mandateId!==job.mandateId)throw Error('Research execution mandate mismatch');
+   await ensureWorkflowResearch(pool,actor,execution);
+  }catch{diagnostic('workflow_progress_deferred',{jobId:job.id,mandateId:job.mandateId});}
+  return{messages:0};
+ }
  if(!durableAgentEnabled()||(job.config as ResearchConfig)?.nativeAgent)return{messages:0};
  const config=job.config as ResearchConfig,root=uuid.safeParse(config?.researchRunId??config?.parentJobId??job.id);
  if(!root.success)return{messages:0};

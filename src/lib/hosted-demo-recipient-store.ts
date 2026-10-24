@@ -11,7 +11,7 @@ const mappingSql=`SELECT m.id AS mapping_id,m.contact_id,m.mandate_id,m.source_r
  'region',coalesce(t.firmographics->'state',t.firmographics->'region',t.firmographics->'location'->'state'),
  'headcount',t.firmographics->'headcount','companySize',coalesce(t.firmographics->'headcountBand',t.firmographics->'employeeRange'),
  'establishedYear',t.firmographics->'establishedYear','description',coalesce(t.firmographics->'firmable'->'description',t.firmographics->'websiteProfile'->'description')) AS facts
- FROM public.agent_demo_contact_mappings m
+ FROM public.agent_effective_demo_contact_mappings m
  JOIN public.agent_demo_runs r ON r.id=m.demo_run_id AND r.organization_id=m.organization_id AND r.owner_user_id=m.created_by
  JOIN LATERAL jsonb_array_elements(r.senders) sender ON sender->>'channel'=$4 AND sender->>'providerAccountId'=$5
  JOIN public.communication_bindings b ON b.id::text=sender->>'bindingId' AND b.organization_id=m.organization_id AND b.owner_user_id=m.created_by AND b.authority='service'

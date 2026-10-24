@@ -147,6 +147,7 @@ function fixture(options: Options = {}) {
         return { rows: [{ id, revision: 1, state: values?.[1], manifest }] };
       return { rows: [] };
     }
+    if (sql.includes("to_regclass('public.acquisition_workflow_executions')")) return { rows: [{ installed: false }] };
     throw Error("Unexpected fixture query: " + sql);
   });
   const release = vi.fn(() => trace.push("release")),

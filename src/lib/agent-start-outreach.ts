@@ -7,7 +7,8 @@ type Channel='email'|'whatsapp'|'linkedin';
 type Account={channel:Channel;bindingId:string;bindingDigest:string;eligibleForNewWork?:boolean;isDefault?:boolean};
 type Policy={revision:number;channelOrder:Channel[];bindings:{channel:Channel;bindingId:string;bindingDigest:string}[]};
 type Store={
- executionState(threadId:string):Promise<{executionMode:'demo'|'real';mandateRevision:string;responsibility:null|{state:string;mandate_revision?:string};demoContacts?:{prepared:number;stale:number}}>;
+ markWorkflowOutreach?(id:string):Promise<void>;
+ executionState(threadId:string):Promise<{executionMode:'demo'|'real';workflowExecutionId?:string;workflowPreset?:'demo'|'live'|'live-research-test';mandateRevision:string;responsibility:null|{state:string;mandate_revision?:string};demoContacts?:{prepared:number;stale:number}}>;
  channelPolicy(threadId:string):Promise<{policy:Policy|null;accounts:Account[]}>;
  demoOutreachAccounts(threadId:string):Promise<{channel:Channel;bindingId:string;bindingDigest:string}[]>;
  saveChannelPolicy(threadId:string,key:string,input:AgentChannelPolicyInput):Promise<{revision:number}>;
@@ -42,15 +43,16 @@ export async function startAgentOutreach({actor,mandateId,threadId,requestKey,st
  const started=performance.now();
  const observe=(stage:string)=>console.info('agent-start-outreach',JSON.stringify({module:'agent-start-outreach',mandateId,threadId,stage,elapsedMs:Math.round(performance.now()-started),timestamp:new Date().toISOString()}));
  const state=await store.executionState(threadId);
- if(state.executionMode!=='demo')throw new AgentOutreachStartError('This start action is for saved-data demos.');
+ if(state.workflowPreset==='live-research-test')throw new AgentOutreachStartError('This research-only run does not prepare outreach.');
+ if(state.executionMode!=='demo'&&state.workflowPreset!=='live')throw new AgentOutreachStartError('This start action is for saved-data demos.');
  if(!state.responsibility||!['ready','waiting'].includes(state.responsibility.state)||state.responsibility.mandate_revision!==state.mandateRevision)throw new AgentOutreachStartError('Resume the agent with the current brief before starting outreach.');
  observe('start_requested');
- if(!state.demoContacts?.prepared||state.demoContacts.stale>0)await prepare(actor,mandateId,phaseKey(requestKey,'recipients'));
+ if(state.executionMode==='demo'&&(!state.demoContacts?.prepared||state.demoContacts.stale>0))await prepare(actor,mandateId,phaseKey(requestKey,'recipients'));
  observe('recipients_prepared');
  // The account list may include several historical demo runs. Intersect with
  // the immutable run actually recorded on this mandate's prepared recipients.
- const current=await store.channelPolicy(threadId),senders=await store.demoOutreachAccounts(threadId);
- current.accounts=current.accounts.filter(a=>senders.some(s=>s.channel===a.channel&&s.bindingId===a.bindingId&&s.bindingDigest===a.bindingDigest));
+ const current=await store.channelPolicy(threadId);
+ if(state.executionMode==='demo'){const senders=await store.demoOutreachAccounts(threadId);current.accounts=current.accounts.filter(a=>senders.some(s=>s.channel===a.channel&&s.bindingId===a.bindingId&&s.bindingDigest===a.bindingDigest));}
  let revision=current.policy?.revision;
  if(current.policy){
   if(current.policy.channelOrder.some(channel=>!current.policy!.bindings.some(b=>b.channel===channel&&current.accounts.some(a=>a.channel===channel&&a.bindingId===b.bindingId&&a.bindingDigest===b.bindingDigest&&a.eligibleForNewWork!==false))))throw new AgentOutreachStartError('An outreach account changed. Check its connection in Settings.');
@@ -61,5 +63,6 @@ export async function startAgentOutreach({actor,mandateId,threadId,requestKey,st
  }
  observe('channel_defaults_saved');
  const result=await store.proposeTargetSelection(threadId,phaseKey(requestKey,'contacts'),{mode:'channels',policyRevision:revision!});
+ if(state.workflowExecutionId){if(!store.markWorkflowOutreach)throw new AgentOutreachStartError('Workflow transition unavailable.');await store.markWorkflowOutreach(state.workflowExecutionId);}
  observe('contact_selection_prepared');return result;
 }

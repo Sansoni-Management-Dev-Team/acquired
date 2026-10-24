@@ -12,10 +12,10 @@ vi.mock('./corpus-business-research', () => ({ dispatchCorpusBusinessResearch: m
 import { scheduleResearchRun } from './research-scheduler';
 beforeEach(() => {
  vi.resetAllMocks();
- m.get.mockResolvedValue({ id:'root', config:{ performanceFlags:{schedulerCoalescing:true} } });
+ m.get.mockResolvedValue({ organizationId:'org',createdBy:'owner',workflowExecutionId:null,id:'root', config:{ performanceFlags:{schedulerCoalescing:true} } });
  m.request.mockResolvedValue({ acquired:true, generation:1 });
  m.finish.mockResolvedValue({ again:false });
- m.load.mockResolvedValue({root:{id:'root'},jobs:[{id:'root',status:'partial'}]});
+ m.load.mockResolvedValue({root:{organizationId:'org',createdBy:'owner',workflowExecutionId:null,id:'root'},jobs:[{organizationId:'org',createdBy:'owner',workflowExecutionId:null,id:'root',status:'partial'}]});
 });
 it('coalesces a competing event and leaves its pending generation durable', async () => {
  m.request.mockResolvedValue({ acquired:false, generation:2 });
@@ -39,30 +39,30 @@ it('leaves failed passes pending for lease expiry recovery', async () => {
  expect(m.finish).not.toHaveBeenCalled();
 });
 it('keeps the legacy path when its snapshotted flag is disabled', async () => {
- m.get.mockResolvedValue({id:'root',config:{}});
+ m.get.mockResolvedValue({organizationId:'org',createdBy:'owner',workflowExecutionId:null,id:'root',config:{}});
  await scheduleResearchRun('org','root');
  expect(m.request).not.toHaveBeenCalled();
  expect(m.discovery).toHaveBeenCalledWith('org','root');
 });
 it.each(['failed','cancelled'])('does not schedule a %s root after a recovery snapshot became stale',async status=>{
- m.get.mockResolvedValue({id:'root',status,config:{performanceFlags:{schedulerCoalescing:true}}});
+ m.get.mockResolvedValue({organizationId:'org',createdBy:'owner',workflowExecutionId:null,id:'root',status,config:{performanceFlags:{schedulerCoalescing:true}}});
  expect(await scheduleResearchRun('org','root',{recovery:true})).toBe(false);
  expect(m.request).not.toHaveBeenCalled();expect(m.continuation).not.toHaveBeenCalled();expect(m.discovery).not.toHaveBeenCalled();
 });
 it.each(['failed','cancelled'])('does not let an active late child revive a freshly %s parent',async status=>{
- m.get.mockResolvedValueOnce({id:'child',status:'discovering',config:{researchRunId:'root'}}).mockResolvedValueOnce({id:'root',status,config:{}});
+ m.get.mockResolvedValueOnce({id:'child',status:'discovering',config:{researchRunId:'root'}}).mockResolvedValueOnce({organizationId:'org',createdBy:'owner',workflowExecutionId:null,id:'root',status,config:{}});
  expect(await scheduleResearchRun('org','child',{recovery:true})).toBe(false);
  expect(m.request).not.toHaveBeenCalled();expect(m.continuation).not.toHaveBeenCalled();expect(m.discovery).not.toHaveBeenCalled();
 });
 
 it('parallel automatic runs cannot bypass a held scheduling lease',async()=>{
- m.get.mockResolvedValue({id:'root',config:{parallelBusinessResearch:true,performanceFlags:{schedulerCoalescing:true}}});
+ m.get.mockResolvedValue({organizationId:'org',createdBy:'owner',workflowExecutionId:null,id:'root',config:{parallelBusinessResearch:true,performanceFlags:{schedulerCoalescing:true}}});
  m.request.mockResolvedValue({acquired:false,generation:2});
  expect(await scheduleResearchRun('org','root')).toBe(false);
  expect(m.parallel).not.toHaveBeenCalled();expect(m.load).not.toHaveBeenCalled();
 });
 it('parallel automatic runs share snapshots and recheck pending generations',async()=>{
- m.get.mockResolvedValue({id:'root',config:{parallelBusinessResearch:true,performanceFlags:{schedulerCoalescing:true}}});
+ m.get.mockResolvedValue({organizationId:'org',createdBy:'owner',workflowExecutionId:null,id:'root',config:{parallelBusinessResearch:true,performanceFlags:{schedulerCoalescing:true}}});
  m.finish.mockResolvedValueOnce({again:true,generation:2}).mockResolvedValueOnce({again:false});
  expect(await scheduleResearchRun('org','root',{recovery:true})).toBe(true);
  expect(m.load).toHaveBeenCalledTimes(2);expect(m.parallel).toHaveBeenCalledTimes(2);
@@ -71,19 +71,19 @@ it('parallel automatic runs share snapshots and recheck pending generations',asy
  expect(m.finish.mock.calls.map(c=>c[3])).toEqual([1,2]);
 });
 it('parallel legacy runs retain dispatch when coalescing was not enabled',async()=>{
- m.get.mockResolvedValue({id:'root',config:{parallelBusinessResearch:true}});
+ m.get.mockResolvedValue({organizationId:'org',createdBy:'owner',workflowExecutionId:null,id:'root',config:{parallelBusinessResearch:true}});
  await scheduleResearchRun('org','root');
  expect(m.request).not.toHaveBeenCalled();expect(m.parallel).toHaveBeenCalledWith('org','root');
 });
 
 it('processes real callbacks even if an earlier pass marked the root settled',async()=>{
- m.get.mockResolvedValue({id:'root',status:'partial',config:{parallelBusinessResearch:true,parallelResearchSettled:true,performanceFlags:{schedulerCoalescing:true}}});
+ m.get.mockResolvedValue({organizationId:'org',createdBy:'owner',workflowExecutionId:null,id:'root',status:'partial',config:{parallelBusinessResearch:true,parallelResearchSettled:true,performanceFlags:{schedulerCoalescing:true}}});
  await scheduleResearchRun('org','root');expect(m.request).toHaveBeenCalledTimes(1);expect(m.parallel).toHaveBeenCalledTimes(1);
 });
 
 it('selects B only when the saved run explicitly requests it',async()=>{
- m.get.mockResolvedValue({id:'root',config:{pipelineDesign:'balanced-v1',parallelBusinessResearch:true,performanceFlags:{schedulerCoalescing:true}}});
+ m.get.mockResolvedValue({organizationId:'org',createdBy:'owner',workflowExecutionId:null,id:'root',config:{pipelineDesign:'balanced-v1',parallelBusinessResearch:true,performanceFlags:{schedulerCoalescing:true}}});
  await scheduleResearchRun('org','root');expect(m.balanced).toHaveBeenCalledTimes(1);expect(m.parallel).not.toHaveBeenCalled();
 });
 
-it("routes C to corpus dispatch without affecting A or B",async()=>{m.get.mockResolvedValue({id:"root",config:{pipelineDesign:"corpus-v1",parallelBusinessResearch:true,performanceFlags:{schedulerCoalescing:true}}});await scheduleResearchRun("org","root");expect(m.corpus).toHaveBeenCalled();expect(m.balanced).not.toHaveBeenCalled();expect(m.parallel).not.toHaveBeenCalled();});
+it("routes C to corpus dispatch without affecting A or B",async()=>{m.get.mockResolvedValue({organizationId:"org",createdBy:"owner",workflowExecutionId:null,id:"root",config:{pipelineDesign:"corpus-v1",parallelBusinessResearch:true,performanceFlags:{schedulerCoalescing:true}}});await scheduleResearchRun("org","root");expect(m.corpus).toHaveBeenCalled();expect(m.balanced).not.toHaveBeenCalled();expect(m.parallel).not.toHaveBeenCalled();});

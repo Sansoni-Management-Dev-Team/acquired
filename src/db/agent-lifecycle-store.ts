@@ -14,7 +14,7 @@ const handoffCommand=expectedSchema.extend({reason:z.string().trim().min(1).max(
 export class AgentLifecycleStore extends AgentExecutionStore{
  protected async lockConversation(c:PoolClient,t:AgentThread,id:string){
   const row=(await c.query('SELECT c.*,agent_context_revision(c.id) AS context_revision FROM agent_conversations c WHERE c.id=$1 AND c.thread_id=$2 FOR UPDATE',[uuid.parse(id),t.id])).rows[0];
-  if(!row)throw new Error('Conversation not found');return row;
+  if(!row)throw new Error('Conversation not found');await this.bindOriginalWorkflow(c,row);return row;
  }
  async ingestHistory(threadId:string,conversationId:string,raw:unknown){
   return this.nativeTransaction(async c=>{

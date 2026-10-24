@@ -4,6 +4,7 @@ import {AgentRunLimitError,agentEventOutcomeSchema,type AgentEventOutcome} from 
 import {safeResearchFailure,safeResearchTrace} from '@/domain/research-trace-context';
 import {withResearchDatabaseContext} from './research-request-observability';
 export interface AgentEventWorkerPort{
+ withWorkflowExecution?<T>(id:string|null,work:()=>Promise<T>):Promise<T>;
  claimEvent(workerId:string,leaseMs?:number,mandateId?:string):Promise<AgentEvent|undefined>;
  beginEventRun(event:AgentEvent):Promise<{kind:'started';runId:string}|{kind:'busy'}|{kind:'lost'}>;
  eventRunCurrent(runId:string,event:AgentEvent):Promise<boolean>;
@@ -18,6 +19,7 @@ export async function runAgentEvent(options:{store:AgentEventWorkerPort;workerId
  const began=Date.now();
  const {store}=options,mandateId=nativeWorkerMandateScope({mandateId:options.mandateId}),event=mandateId?await store.claimEvent(options.workerId,60000,mandateId):await store.claimEvent(options.workerId,60000);
  if(!event)return 'idle' as const;
+ const execute=async()=>{
  if(mandateId&&event.mandate_id!==mandateId)throw Error('Claimed event differs from the required native mandate scope');
  const {jobId:eventId,requestId:threadId,...trace}=safeResearchTrace({jobId:event.id,requestId:event.thread_id,mandateId:event.mandate_id});
  const eventKind=(event.kind==='agent.review_required'||Object.hasOwn(options.handlers,event.kind))&&/^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*){1,3}$/.test(event.kind)&&event.kind.length<=100?event.kind:'unknown';
@@ -47,4 +49,6 @@ export async function runAgentEvent(options:{store:AgentEventWorkerPort;workerId
  finally{if(timer)clearTimeout(timer);controller.abort();}
  const finished=await store.finishEventRun(runId,event,outcome);log(finished?'run_terminal':'run_lost',{outcome:finished?outcome.kind:'lost'});return finished?outcome.kind:'lost' as const;
  }catch(error){log('run_failed',safeResearchFailure(error));throw error;}
+ };
+ return store.withWorkflowExecution?store.withWorkflowExecution(event.workflow_execution_id??null,execute):execute();
 }

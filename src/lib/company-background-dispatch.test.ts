@@ -9,13 +9,13 @@ beforeEach(()=>{
  m.db={select:query,selectDistinct:query,transaction:m.transaction};
 });
 it('retains saved evidence and original stalled-job identities while recording incomplete public fields',async()=>{
- m.selections=[[{id:'original-job',organizationId:'org',config:{companyBackgroundResearch:{fields:['founded']}}}],[]];
+ m.selections=[[{id:'original-job',organizationId:'org',createdBy:'owner',workflowExecutionId:null,config:{companyBackgroundResearch:{fields:['founded']}}}],[]];
  expect(await recoverCompanyBackground()).toBe(0);
  expect(m.persist).toHaveBeenCalledExactlyOnceWith({organizationId:'org',jobId:'original-job',result:{facts:[],fields:{founded:{status:'research_incomplete',reason:'Background execution stopped; prior evidence retained'}},attempts:[],registryContacts:[]}});
 });
 it('leaves unvisited background jobs untouched when the shared worker pass budget expires',async()=>{
  let elapsed=0;vi.spyOn(performance,'now').mockImplementation(()=>elapsed);
- m.selections=[[{id:'first',organizationId:'org',config:{companyBackgroundResearch:{fields:['founded']}}},{id:'second',organizationId:'org',config:{companyBackgroundResearch:{fields:['founded']}}}],[{organizationId:'org',mandateId:'mandate'}]];
+ m.selections=[[{id:'first',organizationId:'org',createdBy:'owner',workflowExecutionId:null,config:{companyBackgroundResearch:{fields:['founded']}}},{id:'second',organizationId:'org',createdBy:'owner',workflowExecutionId:null,config:{companyBackgroundResearch:{fields:['founded']}}}],[{organizationId:'org',mandateId:'mandate'}]];
  m.persist.mockImplementation(async()=>{elapsed=200;});
  expect(await recoverCompanyBackground(100)).toBe(0);expect(m.persist).toHaveBeenCalledOnce();expect(m.transaction).not.toHaveBeenCalled();
  vi.mocked(performance.now).mockRestore();

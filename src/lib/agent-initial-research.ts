@@ -1,3 +1,4 @@
+import {findMandateWorkflow,readWorkflowResearch,ensureWorkflowResearch} from './acquisition-workflow-research';
 import type {Pool} from 'pg';
 import {z} from 'zod';
 import {agentActorSchema,type AgentActor} from '@/db/agent-store';
@@ -44,6 +45,7 @@ function view(context:NonNullable<Awaited<ReturnType<typeof initialContext>>>):I
 }
 /** Read-only projection. Displaying the chat must never schedule research. */
 export async function readInitialMandateResearch(pool:Pool,actor:AgentActor,mandateId:string):Promise<InitialMandateResearchView|undefined>{
+ const workflow=await findMandateWorkflow(pool,actor,mandateId);if(workflow)return readWorkflowResearch(pool,actor,workflow);
  const context=await initialContext(pool,actor,mandateId);return context?view(context):undefined;
 }
 type InitialStore=Pick<ReturnType<typeof agentStore>,'openThread'|'appendMessage'|'executionState'|'controlResponsibility'>;
@@ -52,6 +54,7 @@ export type InitialResearchPorts={store?:(actor:AgentActor)=>InitialStore;start?
  * New user-submitted research deliberately has normal GUI limits, not native
  * phase escrow. Existing native roots/receipts are never converted or resumed. */
 export async function ensureInitialMandateResearch(pool:Pool,actor:AgentActor,mandateId:string,ports:InitialResearchPorts={}):Promise<InitialMandateResearchView|undefined>{
+ const workflow=await findMandateWorkflow(pool,actor,mandateId);if(workflow)return ensureWorkflowResearch(pool,actor,workflow,{start:ports.start});
  const context=await initialContext(pool,actor,mandateId);if(!context)return;
  const {row,intent}=context;
  if(intent.startOn==='chat'&&!row.job_id&&!row.responsibility_state)return view(context);
