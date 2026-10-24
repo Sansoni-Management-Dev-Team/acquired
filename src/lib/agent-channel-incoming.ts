@@ -1,3 +1,4 @@
+import {reportIncomingApplicationFailure} from '../../communications/packages/core/src/dispatch-diagnostic';
 import {z} from 'zod';
 import type {SqlClient} from '../../communications/packages/storage-postgres/src/webhook-repository';
 const digest=z.string().regex(/^[a-f0-9]{64}$/);
@@ -5,6 +6,7 @@ const incoming=z.object({bindingId:z.string().uuid(),serviceEventId:z.string().m
 /** Authenticated application consumer only; shares its receipt transaction and held gate. */
 export async function queueAgentChannelCommunicationChange(client:Pick<SqlClient,'query'>,raw:unknown){
  const input=incoming.parse(raw);
+ try{
  const ready=await client.query("SELECT to_regprocedure('public.agent_channel_communications_change(jsonb)') IS NOT NULL AS installed,to_regclass('public.agent_conversation_channels') IS NOT NULL AS routed_schema");
  const row=ready.rows.length===1?ready.rows[0]:undefined;
  if(typeof row?.installed!=='boolean'||typeof row?.routed_schema!=='boolean')throw Error('Native channel ingress readiness unavailable');
@@ -12,4 +14,5 @@ export async function queueAgentChannelCommunicationChange(client:Pick<SqlClient
  if(!row.routed_schema)throw Error('Native channel ingress schema required');
  const result=await client.query('SELECT public.agent_channel_communications_change($1::jsonb) AS queued',[JSON.stringify(input)]);
  return z.number().int().min(0).max(100).parse(result.rows.length===1?result.rows[0].queued:undefined);
+ }catch(error){reportIncomingApplicationFailure(error,{bindingId:input.bindingId,serviceEventId:input.serviceEventId});throw error;}
 }

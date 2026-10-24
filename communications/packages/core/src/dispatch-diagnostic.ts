@@ -59,3 +59,16 @@ export function reportAdmissionPreparationFailure(stage:DispatchDiagnosticStage|
   console.warn('communications-admission-failure',JSON.stringify({module:'communications.application_admission',timestamp:new Date().toISOString(),stage,outcome:'error',...safeObservation(observationScope.getStore()??{}),...(sqlState?{sqlState}:{}),category,submission:'not_attempted_by_this_prepare',intentPersistence:'not_confirmed',recovery:'reconcile_original_operation',automaticResend:false}));
  }catch{/* Diagnostic failures never alter admission or recovery. */}
 }
+
+/** Ingress shares the caller's receipt transaction. Failure never grants an
+ * acknowledgement; the normal consumer retains rollback/retry ownership. */
+export function reportIncomingApplicationFailure(error:unknown,context:{bindingId:string;serviceEventId:string}){
+ try{
+  const own=(key:string)=>{if(!error||typeof error!=='object'||types.isProxy(error))return;const d=Object.getOwnPropertyDescriptor(error,key);return d&&'value'in d?d.value:undefined;};
+  const code=own('code'),message=own('message');
+  const sqlState=typeof code==='string'&&['P0001','40001','40P01','55P03','57014','42501','23503','23505','23514'].includes(code)?code:undefined;
+  const category=code==='P0001'&&message==='Explicit workflow-capable writer required'?'workflow_writer_rejected':code==='P0001'?'database_guard_rejected':code==='42501'?'authorization_rejected':code==='40001'||code==='40P01'||code==='55P03'?'database_contention':code==='57014'?'database_timeout':'unclassified_incoming_failure';
+  const serviceEventId=uuid.test(context.serviceEventId)||/^[0-9]{1,19}$/.test(context.serviceEventId)?context.serviceEventId:undefined;
+  console.warn('communications-incoming-failure',JSON.stringify({module:'communications.application_consumer',timestamp:new Date().toISOString(),stage:'application.incoming',outcome:'error',...safeObservation(observationScope.getStore()??{}),...(uuid.test(context.bindingId)?{bindingId:context.bindingId}:{}),...(serviceEventId?{serviceEventId}:{}),...(sqlState?{sqlState}:{}),category,acknowledgement:'not_confirmed',automaticAcknowledgement:false,recovery:'normal_consumer_retry'}));
+ }catch{/* Logging must not mask the original transaction failure. */}
+}
