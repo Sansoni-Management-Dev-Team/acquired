@@ -16,7 +16,7 @@ Private read-only capture and minimal diff: `.local-data/workflow-modularity/pro
 
 ## Required rehearsal and approval sequence
 
-1. Package explicit rehearsal-target variants with only the target guard changed for the existing network-isolated `acquire_hosted_demo_rehearsal` database. Record their exact hashes alongside these production files before requesting approval. Verify rehearsal identity/marker and schema parity; do not import production rows.
+1. Exact rehearsal-target variants are prepared under `rehearsal/`; hashes are in `005-006-approval-manifest.json`. Only the target guard differs. Read-only inspection confirmed network `none`, database/marker/system identity, required grant roles, absent005, and both006 predecessor hashes identical to production. No production rows were imported.
 2. Obtain approval for those exact rehearsal files and conditional production005/006 files. A future dispatch-recovery migration is a separate proposal and must be added explicitly if selected; it is not implicitly covered here.
 3. Rehearse005 using restricted campaign/agent roles: exact original agent/campaign/draft source, explicit legacy null, membership, foreign-source denial, held-gate requirement and immutable original identity. Rehearse006 with synthetic routed/legacy incoming receipts, multiple conversations belonging to different executions, duplicate replay, foreign scope denial, and caller-GUC restoration. Reuse the local regression scenarios with production function definitions; preserve production clock behavior.
 4. Require all meaningful tests and predecessor checks to pass before applying the exact approved production files atomically with migration journal evidence. If predecessors change, stop and prepare a new review package.
