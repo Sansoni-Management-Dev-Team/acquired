@@ -376,3 +376,16 @@ it('reaches unchanged freshness admission without advisory revision chasing unde
   await expect(x.service.dispatch('thread',conversation,operation)).rejects.toThrow();expect(f.dispatch).toHaveBeenCalledOnce();
  }finally{clock.mockRestore();}
 });
+
+it('records bounded checkpoint and dispatch-read stages without recipient or message contents',async()=>{
+ const x=await preparedDispatchFixture();vi.stubEnv('AGENT_VERBOSE_LOGGING','true');
+ const log=vi.spyOn(console,'info').mockImplementation(()=>{});
+ try{
+  await x.service.prepareDispatch('thread',conversation,operation);await x.service.dispatch('thread',conversation,operation);
+  const records=log.mock.calls.filter(([kind])=>kind==='agent-pipeline').map(([,raw])=>JSON.parse(String(raw)));
+  for(const stage of ['dispatch.checkpoint_snapshot','dispatch.checkpoint_proof','dispatch.checkpoint_refresh','dispatch.checkpoint_coverage','dispatch.operation_account','dispatch.checkpoint_current']){
+   expect(records).toContainEqual(expect.objectContaining({stage,outcome:'complete',durationMs:expect.any(Number)}));
+  }
+  const output=JSON.stringify(records);expect(output).not.toContain('person@example.invalid');expect(output).not.toContain('Synthetic body');
+ }finally{log.mockRestore();}
+});

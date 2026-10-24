@@ -55,7 +55,7 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
  const dbOptions:AgentBusinessDbOptions|undefined=options.applicationPool||time?{pool:options.applicationPool,businessTime:time}:undefined;
  const withNativeDb=<T>(work:(client:PoolClient)=>Promise<T>,readOnly=false)=>withCampaignDb(actor,async c=>{if(time)await installAgentBusinessTimeSql(c,time,actor);return work(c);},{...(options.applicationPool?{pool:options.applicationPool}:{}),...(readOnly&&!time?{readOnly:true}:{})});
  const applicationSqlPool:SqlPool|undefined=options.applicationPool?{async connect(){const c=await options.applicationPool!.connect();return{async query<Row>(sql:string,values?:unknown[]){const result=await c.query(sql,values);return{rows:result.rows as Row[],rowCount:result.rowCount};},release(error?:Error){c.release(error);}};}}:undefined;
- type Stage='ports.original_account'|'ports.client'|'ports.status'|'ports.admission'|'dispatch.ports'|'dispatch.recover'|'refresh.ports'|'refresh.save_identity'|'refresh.read_history'|'refresh.ingest'|'dispatch.begin'|'dispatch.source'|'refresh.coverage_revalidate';
+ type Stage='dispatch.checkpoint_snapshot'|'dispatch.checkpoint_proof'|'dispatch.checkpoint_refresh'|'dispatch.checkpoint_coverage'|'dispatch.operation_account'|'dispatch.checkpoint_current'|'dispatch.policy'|'ports.original_account'|'ports.client'|'ports.status'|'ports.admission'|'dispatch.ports'|'dispatch.recover'|'refresh.ports'|'refresh.save_identity'|'refresh.read_history'|'refresh.ingest'|'dispatch.begin'|'dispatch.source'|'refresh.coverage_revalidate';
  function trace(stage:Stage,outcome:'start'|'complete'|'error',cause?:unknown){
   try{if(!localSimulatorTestPolicy(process.env))return;let sqlState:unknown,errorName:unknown;
    if(cause&&typeof cause==='object'){const code=Object.getOwnPropertyDescriptor(cause,'code'),name=Object.getOwnPropertyDescriptor(cause,'name');if(code&&'value'in code&&['40001','40P01','55P03','57014','42501'].includes(code.value))sqlState=code.value;if(name&&'value'in name&&['Error','TypeError','RangeError','AbortError','ReplyProcessingPendingError','ZodError'].includes(name.value))errorName=name.value;else if(cause instanceof Error)errorName='Error';}
@@ -171,33 +171,33 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
  }
  // Invocation-local hints only; final service/application admission remains authoritative.
  const preparedCheckpoints=new Map<string,{threadId:string;conversationId:string;routes:RecordedRoute[];scopes:Array<{bindingId:string;scopeDigest:string}>}>();
- async function prepareDispatch(threadId:string,conversationId:string,operationId:string,signal?:AbortSignal){
+ async function prepareDispatch(threadId:string,conversationId:string,operationId:string,signal?:AbortSignal){return withDispatchObservation({threadId,conversationId,operationId},async()=>{
   preparedCheckpoints.delete(operationId);
   signal?.throwIfAborted();
   if(time||process.env.AGENT_HOSTED_DEMO_COMMUNICATIONS_ENABLED!=='true')return;
   const descriptor=readHostedDemoCommunicationsDescriptor(process.env);
   if(descriptor.actor.tenantId!==actor.organizationId||descriptor.actor.ownerId!==actor.userId)return;
-  const originalSnapshot=await store.historyAccountSnapshot?.(threadId,conversationId),originalRoutes=originalSnapshot?.routes;
+  const originalSnapshot=await observed('dispatch.checkpoint_snapshot',async()=>store.historyAccountSnapshot?.(threadId,conversationId)),originalRoutes=originalSnapshot?.routes;
   if(!originalSnapshot||!originalRoutes?.length)return;
   const hosted=originalRoutes.map(route=>{const account=originalSnapshot.accounts.find(a=>a.id===route.bindingId);return descriptor.bindings.some(binding=>binding.connectionId===account?.service_connection_id);});
   if(!hosted.some(Boolean))return;
   if(!hosted.every(Boolean))throw Error('Mixed original dispatch accounts require review');
   // An existing/uncertain submission must go directly to original receipt recovery.
-  if(!await store.preBeginHistoryRetryProof?.(threadId,operationId,conversationId))return;
+  if(!await observed('dispatch.checkpoint_proof',async()=>store.preBeginHistoryRetryProof?.(threadId,operationId,conversationId)))return;
   try{
-   await refresh(threadId,conversationId,undefined,signal,new Date(Date.now()-255000).toISOString(),originalSnapshot);
+   await observed('dispatch.checkpoint_refresh',()=>refresh(threadId,conversationId,undefined,signal,new Date(Date.now()-255000).toISOString(),originalSnapshot));
    signal?.throwIfAborted();
    const snapshot=originalSnapshot,routes=snapshot.routes;
    if(!snapshot||!routes?.length||routes.some(r=>!r.historyObservedAt))throw Error('Original dispatch route checkpoints unavailable');
    for(const route of routes){signal?.throwIfAborted();await originalAccount(threadId,conversationId,route,{conversation:snapshot.conversation,originalAccount:snapshot.accounts.find(a=>a.id===route.bindingId)});}
-   const coverage=await readAgentDispatchCoverage(actor,routes.map(r=>({bindingId:r.bindingId,historyObservedAt:r.historyObservedAt!})),process.env.AGENT_HOSTED_DEMO_SUBSCRIBER_ID??'acquire-hosted-demo-replies');
+   const coverage=await observed('dispatch.checkpoint_coverage',()=>readAgentDispatchCoverage(actor,routes.map(r=>({bindingId:r.bindingId,historyObservedAt:r.historyObservedAt!})),process.env.AGENT_HOSTED_DEMO_SUBSCRIBER_ID??'acquire-hosted-demo-replies'));
    signal?.throwIfAborted();
    // Fresh exact-scope hints are sufficient to enter normal submission. The
    // service owns atomic coverage projection and final revision admission;
    // chasing equal advisory revisions here races its background account scans.
    preparedCheckpoints.set(operationId,{threadId,conversationId,routes:structuredClone(routes),scopes:coverage.scopes});
   }catch(error){signal?.throwIfAborted();throw new AgentPreBeginHistoryError(threadId,conversationId,operationId,error);}
- }
+ });}
  async function operationAccount(threadId:string,conversationId:string,operationId:string){
   const record=store.channelDispatchRecord?await store.channelDispatchRecord(threadId,operationId,{includeOriginalAccount:true}):null;
   if(record&&(record.conversation.id!==conversationId||record.operation.input?.routeId&&!record.route))throw Error('Recorded operation route needs review');
@@ -206,13 +206,13 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
  return {prepareDispatch,refreshCheckpoint:(threadId:string,conversationId:string,since:string,signal?:AbortSignal)=>withDispatchObservation({threadId,conversationId},()=>refresh(threadId,conversationId,undefined,signal,since)),refresh:(threadId:string,conversationId:string,signal?:AbortSignal)=>withDispatchObservation({threadId,conversationId},()=>refresh(threadId,conversationId,undefined,signal)),async recover(threadId:string,conversationId:string,operationId:string){return withDispatchObservation({threadId,conversationId,operationId},async()=>{const {route,captured}=await operationAccount(threadId,conversationId,operationId),recovered=await (await ports(threadId,conversationId,route,captured)).delivery.recover(operationId);if(recovered.found&&'noSubmission'in recovered)await (dbOptions?settleAgentNoSubmission(actor,operationId,recovered.noSubmission,dbOptions):settleAgentNoSubmission(actor,operationId,recovered.noSubmission));return recovered;});},async dispatch(threadId:string,conversationId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number},signal?:AbortSignal){return withDispatchObservation({threadId,conversationId,operationId},async()=>{
   signal?.throwIfAborted();
   const checkpoint=preparedCheckpoints.get(operationId);preparedCheckpoints.delete(operationId);
-  const {route,captured}=await operationAccount(threadId,conversationId,operationId),capturedRoute=route?structuredClone(route):undefined,preparedPorts=await observed('dispatch.ports',()=>ports(threadId,conversationId,route,captured,signal)),recovered=await observed('dispatch.recover',()=>preparedPorts.delivery.recover(operationId));
+  const {route,captured}=await observed('dispatch.operation_account',()=>operationAccount(threadId,conversationId,operationId)),capturedRoute=route?structuredClone(route):undefined,preparedPorts=await observed('dispatch.ports',()=>ports(threadId,conversationId,route,captured,signal)),recovered=await observed('dispatch.recover',()=>preparedPorts.delivery.recover(operationId));
   if(recovered.found){if('noSubmission'in recovered){await (dbOptions?settleAgentNoSubmission(actor,operationId,recovered.noSubmission,dbOptions):settleAgentNoSubmission(actor,operationId,recovered.noSubmission));return {status:'unknown' as const};}return recovered.outcome;}
   signal?.throwIfAborted();
   let coverageScopes:Array<{bindingId:string;scopeDigest:string}>;
   try{
    if(checkpoint){
-    const current=await store.channelRoutes?.(threadId,conversationId),now=Date.now();signal?.throwIfAborted();
+    const current=await observed('dispatch.checkpoint_current',async()=>store.channelRoutes?.(threadId,conversationId)),now=Date.now();signal?.throwIfAborted();
     const fresh=(at:string|null|undefined)=>!!at&&Date.parse(at)<=now&&Date.parse(at)>=now-255000;
     if(checkpoint.threadId!==threadId||checkpoint.conversationId!==conversationId||!current||current.length!==checkpoint.routes.length||current.some(r=>!checkpoint.routes.some(old=>sameRoute(old,r))||!r.historyComplete||!fresh(r.historyObservedAt)||r.channel==='linkedin'&&store.ingestChannelRelationship&&!fresh(r.relationshipObservedAt)))throw new AgentHistoryCheckpointPendingError();
     coverageScopes=checkpoint.scopes;
@@ -226,7 +226,7 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
   // Known policy closure is a read-only wait, never an attempted effect. Original
   // lookup above stays first, and final SQL admission retains every authority gate.
   if(route&&store.channelPolicy){
-   const {policy}=await store.channelPolicy(threadId),instant=businessNow(time?.context);
+   const {policy}=await observed('dispatch.policy',()=>store.channelPolicy!(threadId)),instant=businessNow(time?.context);
    if(policy?.acceleratedSimulation===false&&!campaignSendWindowOpen(new Date(instant))&&await store.preBeginHistoryRetryProof?.(threadId,operationId,conversationId)===true&&await store.testingSendWindowExempt?.(threadId,route.id)!==true){
     const next=nextAllowedCampaignSend(new Date(instant)).getTime();
     throw new AgentPreBeginSendWindowError(threadId,conversationId,operationId,new Date(time?next:Date.now()+next-instant).toISOString(),time?.context);
