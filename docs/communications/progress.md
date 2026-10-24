@@ -4150,3 +4150,10 @@ TDD: registered query-shape regression failed (1 failed/63 passed), then admissi
 - A previously validated, invocation-local hosted checkpoint now checks the exact database-owned route exemption before optional closed-window policy/no-effect reads. Only strict true skips those two transactions; this is not dispatch authority. Final native/source/service admission is unchanged. Real/local paths without that checkpoint retain their original ordering. False, malformed or missing exemption keeps normal policy/proof checks; errors fail closed.
 - TDD: relevant regression first failed because policy was still queried (1 failed/63 passed); then71 configured-port tests passed, including original recovery, stale history, open windows, unknown/string exemptions and final-admission rejection. Typecheck and focused lint passed.
 - Quantified scope: saves two gated store transactions for strictly exempt prepared hosted dispatch, not a guaranteed end-to-end latency result. Fresh prepare already skips provider scans; snapshot/no-effect/coverage and final dispatch still share the45-second run budget. Diagnostics5de2d69 will measure the remaining stages. No timeout increase, migration, new approval or send; latest email operation remains failed/not_submitted with no provider acceptance. Production three-channel acceptance remains outstanding.
+
+### Broader worker regression verification after checkpoint fix
+
+- Worker unit suite:200 passed across29 files.
+- Real Cloudflare Workflow replay suite:48 passed across2 files, including injected callback failures and durable retry scenarios; network was blocked by the test harness.
+- Real ProviderCoordinator suite:7 passed. Worker TypeScript and scoped lint remain clean from23ad4b4.
+- Started a separate normal live-research-test workflow1e3e9991-4931-44e0-a12d-d3e4d0f71665 to observe natural completion (no early cancellation). Saved settings restored after target1 persisted; existing research deadline/budgets retained. This verification is still in progress; target1 is not a hard candidate cap in the current hybrid pipeline.
