@@ -1,3 +1,4 @@
+import {types} from 'node:util';
 import {z} from 'zod';
 import {safeResearchFailure} from '@/domain/research-trace-context';
 import {auth} from '@/lib/auth';
@@ -17,8 +18,20 @@ export async function agentRequestScope(request:Request,context:AgentRequestCont
  const store=agentStore(actor),thread=await store.findThread(id);
  return {actor,store,thread,mandate:result.name==='mandate.read'?result.value:undefined};
 }
+/** Exact static guard messages map to bounded diagnostics only. Never log the
+ * original text, payload, recipient, stack or arbitrary error properties. */
+const reviewFailures:Readonly<Record<string,string>>={
+ 'Conversation changed; review its current state first':'conversation_context_changed',
+ 'Only an active agent conversation or a human-review agent hold can be reviewed':'conversation_not_reviewable',
+ 'Review and start the current mandate responsibility first':'responsibility_not_current',
+ 'Finish the current person or mandate background work before reviewing':'background_work_active',
+ 'Resolve current unknown outcomes, ownership, suppression or channel review before reassessment':'review_blocked',
+ 'Refresh complete recorded history before requesting reassessment':'history_not_current',
+};
 export function agentRequestFailure(cause:unknown){
  if(cause instanceof AcquireCommandError)return agentRequestError(cause.message,cause.status);
- console.warn('agent-request-failed',safeResearchFailure(cause));
+ const message=cause&&typeof cause==='object'&&!types.isProxy(cause)?Object.getOwnPropertyDescriptor(cause,'message')?.value:undefined;
+ const reviewFailure=typeof message==='string'&&Object.hasOwn(reviewFailures,message)?reviewFailures[message]:undefined;
+ console.warn('agent-request-failed',{...safeResearchFailure(cause),...(reviewFailure?{reviewFailure}:{})});
  return agentRequestError('This item changed or is unavailable. Refresh before trying again.',409);
 }
