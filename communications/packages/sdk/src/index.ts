@@ -7,9 +7,17 @@ import {
 import { assertManagedConnection, assertManagementBinding, assertManagementSnapshot, assertManagementSetupResponse, localSimulatorHostedOrigin, captureHostedDemoCapability, type HostedDemoCapability, type ManagedConnection, type ConnectionManagementSnapshot, type ConnectionSetupRequest, type ConnectionSetupResponse, type ConnectionDisconnectResponse } from '../../contracts/src/management';
 import { isDeliveryOutcome, isReadiness } from "./validation";
 
+export type SubmitDiagnostic = {
+  stage:'sdk.submit'; timestamp:string;
+  category:'valid_service_unknown'|'invalid_receipt'|'predispatch_rejection'|'service_error'|'protocol_error'|'transport_error';
+  code?:string; httpStatus?:number;
+  submission:'outcome_unknown'; recovery:'lookup_original_operation'; automaticResend:false;
+};
 export interface CommunicationsClientConfig {
   /** Trusted observation clock only; hosted auth expiry and transport stay real. */
   businessClock?:BusinessClock;
+  /** Fixed metadata only; diagnostics never change delivery or retry behavior. */
+  submitDiagnostic?:(event:SubmitDiagnostic)=>void;
   baseUrl: string;
   contractVersion: "1";
   apiKey: string;
@@ -69,6 +77,7 @@ export class CommunicationsClient {
   #localSimulatorOrigin?: string;
   #hostedDemo?:HostedDemoCapability;
   #businessClock?:BusinessClock;
+  #submitDiagnostic?:(event:SubmitDiagnostic)=>void;
   constructor(config: CommunicationsClientConfig) {
     let url: URL;
     try { url = new URL(config.baseUrl); } catch { throw new Error("Invalid communications client configuration"); }
@@ -82,6 +91,7 @@ export class CommunicationsClient {
       throw new Error("Invalid communications client configuration");
     }
     this.#businessClock=config.businessClock;
+    this.#submitDiagnostic=config.submitDiagnostic;
     this.#baseUrl = url; this.#key = config.apiKey; this.#fetch = config.fetch ?? globalThis.fetch;
     this.#timeout = timeout; this.#maxBytes = maxBytes;
     if(config.hostedDemo!==undefined){if(config.localSimulatorOrigin!==undefined)throw new Error('Invalid hosted demo client configuration');this.#hostedDemo=captureHostedDemoCapability(config.hostedDemo);}
@@ -138,14 +148,31 @@ export class CommunicationsClient {
     if (!isReadiness(data)) throw new CommunicationsClientError("protocol");
     return data;
   }
+  #reportSubmit(category:SubmitDiagnostic['category'],error?:CommunicationsClientError){
+    try {
+      // No URL, request key, payload, receipt, headers or arbitrary error text.
+      const code=error&&(knownErrors.has(error.code)||error.code==='protocol'||error.code==='transport')?error.code:undefined;
+      const status=error?.status;
+      const httpStatus=typeof status==='number'&&Number.isInteger(status)&&status>=100&&status<=599?status:undefined;
+      const event:SubmitDiagnostic={stage:'sdk.submit',timestamp:new Date().toISOString(),category,...(code?{code}:{}),...(httpStatus?{httpStatus}:{}),submission:'outcome_unknown',recovery:'lookup_original_operation',automaticResend:false};
+      if(this.#submitDiagnostic)this.#submitDiagnostic(event);
+      else console.warn('communications-sdk-submit',JSON.stringify(event));
+    }catch{/* A failing diagnostic sink cannot change delivery or recovery. */}
+  }
   async submit(input: MessageSubmission): Promise<DeliveryOutcome> {
     try {
       const captured = structuredClone(input);
       const data = await this.#request("/v1/submit", captured);
-      if (!isDeliveryOutcome(data, captured.snapshot, captured.message.recipient) || data === null) return { status: "unknown" };
+      if (!isDeliveryOutcome(data, captured.snapshot, captured.message.recipient) || data === null) {
+        this.#reportSubmit('invalid_receipt'); return { status: "unknown" };
+      }
+      if(data.status==='unknown')this.#reportSubmit('valid_service_unknown');
       return data;
     } catch (error) {
-      if (error instanceof CommunicationsClientError && typeof error.status === "number" && error.status === predispatchRejections[error.code]) throw error;
+      if (error instanceof CommunicationsClientError && typeof error.status === "number" && error.status === predispatchRejections[error.code]) {
+        this.#reportSubmit('predispatch_rejection',error); throw error;
+      }
+      this.#reportSubmit(error instanceof CommunicationsClientError?(error.code==='protocol'?'protocol_error':error.code==='transport'?'transport_error':'service_error'):'transport_error',error instanceof CommunicationsClientError?error:undefined);
       return { status: "unknown" };
     }
   }
