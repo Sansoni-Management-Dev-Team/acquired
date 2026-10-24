@@ -226,8 +226,12 @@ export function configuredAgentCommunications(actor:CampaignActor,store:Configur
   // Known policy closure is a read-only wait, never an attempted effect. Original
   // lookup above stays first, and final SQL admission retains every authority gate.
   if(route&&store.channelPolicy){
-   const {policy}=await observed('dispatch.policy',()=>store.channelPolicy!(threadId)),instant=businessNow(time?.context);
-   if(policy?.acceleratedSimulation===false&&!campaignSendWindowOpen(new Date(instant))&&await store.preBeginHistoryRetryProof?.(threadId,operationId,conversationId)===true&&await store.testingSendWindowExempt?.(threadId,route.id)!==true){
+   const instant=businessNow(time?.context),windowClosed=!campaignSendWindowOpen(new Date(instant));
+   // Only a validated hosted checkpoint can take this read-only shortcut. It
+   // skips optional wait checks, never final native or service admission.
+   const earlyExemption=checkpoint&&windowClosed?await store.testingSendWindowExempt?.(threadId,route.id)===true:undefined;
+   const policy=earlyExemption===true?undefined:(await observed('dispatch.policy',()=>store.channelPolicy!(threadId))).policy;
+   if(policy?.acceleratedSimulation===false&&windowClosed&&await store.preBeginHistoryRetryProof?.(threadId,operationId,conversationId)===true&&(earlyExemption??await store.testingSendWindowExempt?.(threadId,route.id))!==true){
     const next=nextAllowedCampaignSend(new Date(instant)).getTime();
     throw new AgentPreBeginSendWindowError(threadId,conversationId,operationId,new Date(time?next:Date.now()+next-instant).toISOString(),time?.context);
    }
