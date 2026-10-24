@@ -20,7 +20,7 @@
  * Each channel is independent; no claim of all-three success is inferred.
  */
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { readFile, writeFile, mkdir, rename, open, unlink } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -34,6 +34,10 @@ export async function runAcquisitionChannelCanary(o) {
     assert(/^__Secure-better-auth\.session_token=[^;\r\n]+$/.test(o.cookie), 'One Acquire session cookie required');
     assert(o.expectedOwnerId && o.expectedOrganizationId && uuid(o.expectedBindingId) && (/^(?:agent-[a-z0-9-]+|hosted-demo-[a-z0-9][a-z0-9-]{0,35})$/.test(o.simulatorRun)), 'Explicit owner, workspace, binding and simulator run required');
     const s = o.state;
+    const creation={kind:o.legacySource?'legacy_cached_demo':'workflow_v2',...(o.legacySource?{sourceMandateId:o.legacySource.mandateId,briefDigest:createHash('sha256').update(JSON.stringify(o.legacySource.brief)).digest('hex')}:{})};
+    if(s?.creation)assert.deepEqual(s.creation,creation,'Creation strategy changed');
+    else if(s?.legacyCreation)assert(s.sourceMandateId===o.legacySource?.mandateId,'Saved source changed');
+    if(s)s.creation=creation;
     assert(s?.requestId === o.requestId && s.channel === o.channel, 'Separate original channel journal required');
     assert(!s.pendingMutation && !s.pendingAcceptance, 'An unresolved mutation requires inspection');
     const scope = { origin: o.origin, owner: o.expectedOwnerId, organization: o.expectedOrganizationId, binding: o.expectedBindingId, run: o.simulatorRun };
@@ -71,6 +75,13 @@ export async function runAcquisitionChannelCanary(o) {
     const session = await request('/api/auth/get-session');
     assert.equal(session.user?.id, o.expectedOwnerId);
     assert.equal(session.session?.activeOrganizationId, o.expectedOrganizationId);
+    if(o.legacySource){
+        assert(uuid(o.legacySource.mandateId)&&o.legacySource.brief,'Explicit owned cached source required');
+        const valid=v=>v?.id===o.requestId&&v.executionMode==='demo'&&v.initialResearch?.source==='cached'&&v.initialResearch?.status==='complete';
+        if(!s.legacyCreation)s.legacyCreation=await request('/api/mandates/agent',{requestId:o.requestId,executionMode:'demo',demoSourceMandateId:o.legacySource.mandateId,brief:o.legacySource.brief},valid);
+        assert(valid(s.legacyCreation)&&!s.workflowId,'Original legacy demo receipt required');
+        s.admissionKind='legacy_cached_demo';s.sourceMandateId=o.legacySource.mandateId;s.mandateId=s.legacyCreation.id;await save();
+    }else{
     const validWorkflow = w => w && uuid(w.id) && uuid(w.mandateId) && w.ownerUserId === o.expectedOwnerId && w.organizationId === o.expectedOrganizationId && w.preset === 'demo' && w.presentation === 'agent';
     let w = await request('/api/acquisition-workflows?requestId=' + o.requestId);
     if (w.status === 'missing')
@@ -89,9 +100,11 @@ export async function runAcquisitionChannelCanary(o) {
         w = await request('/api/acquisition-workflows?requestId=' + o.requestId);
         assert(validWorkflow(w) && w.id === s.workflowId, 'Workflow changed');
     }
+    }
     const base = '/api/mandates/' + s.mandateId + '/agent', receipt = v => typeof v?.result?.status === 'string';
     const initialExecution = (await request(base + '/execution')).state;
-    if (initialExecution?.responsibility)
+    if(s.admissionKind==='legacy_cached_demo')assert(initialExecution?.executionMode==='demo'&&!initialExecution.workflowExecutionId,'Owned legacy execution required');
+    if (initialExecution?.responsibility && s.admissionKind!=='legacy_cached_demo')
         assert(s.started && s.keys && Object.values(s.keys).every(uuid), 'Original started phase keys required');
     s.keys ??= { prepare: randomUUID(), policy: randomUUID(), start: randomUUID() };
     await save();
@@ -116,7 +129,7 @@ export async function runAcquisitionChannelCanary(o) {
         s.started = true;
         await save();
     }
-    async function execution() { const e = (await request(base + '/execution')).state; assert(e?.executionMode === 'demo' && e.workflowPreset === 'demo' && e.workflowExecutionId === s.workflowId, 'Exact demo execution required'); return e; }
+    async function execution() { const e = (await request(base + '/execution')).state; assert(e?.executionMode === 'demo' && (s.admissionKind==='legacy_cached_demo'?!e.workflowExecutionId:e.workflowPreset === 'demo' && e.workflowExecutionId === s.workflowId), 'Exact demo execution required'); return e; }
     function alias(value) { if (o.channel === 'whatsapp')
         return /^whatsapp:\+999\d{12}$/.test(value); const prefix = o.channel === 'email' ? 'email:lead-' : 'linkedin:https://www.linkedin.com/in/sim-' + o.simulatorRun + '-lead-'; return o.channel === 'email' ? new RegExp('^email:lead-[0-9]{3}@' + o.simulatorRun.replaceAll('-', '\\-') + '\\.leads\\.acquire\\.test$').test(value) : value.startsWith(prefix) && /^\d{3}$/.test(value.slice(prefix.length)); }
     async function approve(batch, e, kind) {
@@ -214,7 +227,7 @@ export async function runAcquisitionChannelCanary(o) {
             assert(p.operationId === s.messageOperationId && p.conversationId === s.conversationId && p.channel === o.channel && p.name === o.channel + '.initial', 'Original initial message required');
             const at = Date.parse(p.delivery?.submittedAt);
             if (p.state === 'complete' && p.delivery?.status === 'submitted' && p.delivery.providerMessageId && Number.isFinite(at) && p.history?.messages?.some(m => m.direction === 'inbound' && m.channel === o.channel && typeof m.text === 'string' && m.text.trim() && Date.parse(m.at) >= at))
-                return { passed: true, channel: o.channel, workflowId: s.workflowId, mandateId: s.mandateId, operationId: s.messageOperationId, conversationId: s.conversationId };
+                return { passed: true, admissionKind:s.admissionKind??'workflow_v2', channel: o.channel, workflowId: s.workflowId, mandateId: s.mandateId, operationId: s.messageOperationId, conversationId: s.conversationId };
         }
         await sleep(Math.min(1000, Math.max(0, deadline - Date.now())));
     }
