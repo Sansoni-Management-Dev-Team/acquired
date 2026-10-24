@@ -24,3 +24,22 @@ it('refills queued work through the existing transaction/dispatch path when the 
  m.selections=[[],[{organizationId:'org',mandateId:'one'},{organizationId:'org',mandateId:'two'}]];
  expect(await recoverCompanyBackground()).toBe(2);expect(m.transaction).toHaveBeenCalledTimes(2);
 });
+it('identifies stalled persistence failure without logging payloads or changing propagation',async()=>{
+ vi.spyOn(console,'info').mockImplementation(()=>{});
+ m.selections=[[{id:'original-job',organizationId:'org',createdBy:'owner',workflowExecutionId:null,config:{companyBackgroundResearch:{fields:['founded']}}}]];
+ const failure=Object.assign(Error('PRIVATE SQL credential'),{cause:{code:'57014',message:'PRIVATE'}});m.persist.mockRejectedValue(failure);
+ await expect(recoverCompanyBackground()).rejects.toBe(failure);
+ const logged=JSON.stringify(vi.mocked(console.info).mock.calls);expect(logged).toContain('stalled_persistence');expect(logged).toContain('57014');expect(logged).not.toContain('PRIVATE');
+});
+it('identifies malformed stalled configuration as TypeError without emitting its contents',async()=>{
+ vi.spyOn(console,'info').mockImplementation(()=>{});
+ m.selections=[[{id:'original-job',organizationId:'org',createdBy:'owner',workflowExecutionId:null,config:{companyBackgroundResearch:{private:'PRIVATE'}}}]];
+ await expect(recoverCompanyBackground()).rejects.toBeInstanceOf(TypeError);
+ const logged=JSON.stringify(vi.mocked(console.info).mock.calls);expect(logged).toContain('stalled_persistence');expect(logged).toContain('TypeError');expect(logged).not.toContain('PRIVATE');
+});
+it('identifies queued dispatch failures without exposing arbitrary error names',async()=>{
+ vi.spyOn(console,'info').mockImplementation(()=>{});m.selections=[[],[{organizationId:'org',mandateId:'one'}]];
+ const failure=Object.assign(Error('PRIVATE'),{name:'PRIVATE'});m.transaction.mockRejectedValue(failure);
+ await expect(recoverCompanyBackground()).rejects.toBe(failure);
+ const logged=JSON.stringify(vi.mocked(console.info).mock.calls);expect(logged).toContain('queued_dispatch');expect(logged).not.toContain('PRIVATE');
+});

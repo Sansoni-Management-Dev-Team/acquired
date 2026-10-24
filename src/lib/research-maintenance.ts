@@ -1,3 +1,4 @@
+import {safeResearchFailure} from '@/domain/research-trace-context';
 import {withResearchJobWorkflow} from './acquisition-workflow-context';
 import {backgroundRemaining} from './background-workload';
 import {dispatchCompanyBackground,recoverCompanyBackground} from './company-background-dispatch';
@@ -141,8 +142,8 @@ async function runScheduledResearch(now:number){
         return tx.execute(query);
       },{accessMode:'read only'})
       :await database.execute(query);
-  }catch{
-    console.info('research-maintenance',JSON.stringify({event:'scope_scan_deferred',module:'research.maintenance',timestamp:new Date().toISOString()}));
+  }catch(error){
+    console.info('research-maintenance',JSON.stringify({event:'scope_scan_deferred',module:'research.maintenance',timestamp:new Date().toISOString(),...safeResearchFailure(error)}));
     return 0;
   }
   const scopes=(result as unknown as {rows:{organizationId:string;mandateId:string}[]}).rows;
@@ -150,7 +151,7 @@ async function runScheduledResearch(now:number){
   for(const scope of scopes){
     if(performance.now()>=deadline)break;
     try{await recoverMandateResearch(scope.organizationId,scope.mandateId,now,deadline);if(performance.now()<deadline)completed++;}
-    catch{traceMaintenance('mandate_recovery_deferred',scope);}
+    catch(error){traceMaintenance('mandate_recovery_deferred',scope,safeResearchFailure(error));}
   }
   return completed;
 }

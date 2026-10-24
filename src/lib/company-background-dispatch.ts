@@ -1,3 +1,4 @@
+import {safeResearchFailure} from '@/domain/research-trace-context';
 import {withResearchJobWorkflow} from './acquisition-workflow-context';
 import {lockResearchPersistence} from './research-persistence-lock';
 import {and,eq,notInArray,sql} from 'drizzle-orm';
@@ -39,11 +40,18 @@ export async function dispatchCompanyBackground(organizationId:string,mandateId:
 }
 /** Unattended retries and refills are driven by the existing Worker's periodic recovery. */
 export async function recoverCompanyBackground(deadline=Infinity){
+ let stage='stalled_scan';const started=performance.now();let scope:{organizationId?:string;mandateId?:string;jobId?:string}={};
+ try{
  const db=requireDb();
  const stalled=await db.select().from(researchJobs).where(and(sql`${researchJobs.config}->'companyBackgroundResearch' IS NOT NULL`,sql`${researchJobs.config}->'nativeAgent' IS NULL`,notInArray(researchJobs.status,terminalResearchStates),sql`${researchJobs.status} <> 'queued'`,sql`${researchJobs.updatedAt} < NOW() - INTERVAL '150 seconds'`)).limit(50);
- for(const job of stalled){if(performance.now()>=deadline)break;await withResearchJobWorkflow(job,()=>persistCompanyBackgroundResult({organizationId:job.organizationId,jobId:job.id,result:{facts:[],fields:Object.fromEntries((job.config as ResearchConfig).companyBackgroundResearch!.fields.map(field=>[field,{status:'research_incomplete',reason:'Background execution stopped; prior evidence retained'}])),attempts:[],registryContacts:[]}}));}
+ for(const job of stalled){if(performance.now()>=deadline)break;stage='stalled_persistence';scope={organizationId:job.organizationId,mandateId:job.mandateId,jobId:job.id};await withResearchJobWorkflow(job,()=>persistCompanyBackgroundResult({organizationId:job.organizationId,jobId:job.id,result:{facts:[],fields:Object.fromEntries((job.config as ResearchConfig).companyBackgroundResearch!.fields.map(field=>[field,{status:'research_incomplete',reason:'Background execution stopped; prior evidence retained'}])),attempts:[],registryContacts:[]}}));}
+ stage='queued_scan';scope={};
  const pending=await db.selectDistinct({organizationId:researchJobs.organizationId,mandateId:researchJobs.mandateId}).from(researchJobs).where(and(eq(researchJobs.status,'queued'),sql`${researchJobs.config}->'companyBackgroundResearch' IS NOT NULL`,sql`${researchJobs.config}->'nativeAgent' IS NULL`)).limit(50);
  let dispatched=0;
- for(const item of pending){if(performance.now()>=deadline)break;await dispatchCompanyBackground(item.organizationId,item.mandateId);dispatched++;}
+ for(const item of pending){if(performance.now()>=deadline)break;stage='queued_dispatch';scope={organizationId:item.organizationId,mandateId:item.mandateId};await dispatchCompanyBackground(item.organizationId,item.mandateId);dispatched++;}
  return dispatched;
+ }catch(error){
+  console.info('research-maintenance',JSON.stringify({event:'background_recovery_failed',module:'research.maintenance',stage,...scope,durationMs:Math.round(performance.now()-started),timestamp:new Date().toISOString(),...safeResearchFailure(error)}));
+  throw error;
+ }
 }
