@@ -308,7 +308,7 @@ async function preparedDispatchFixture(){
 it('avoids redundant policy and no-effect transactions for a strictly exempt prepared hosted route',async()=>{
  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse('2026-10-18T10:00:00Z'));
  try{const x=await preparedDispatchFixture(),store={...x.store,channelPolicy:vi.fn(async()=>({policy:{acceleratedSimulation:false}})),testingSendWindowExempt:vi.fn(async()=>true)};
-  x.routes[0].historyObservedAt=new Date(Date.now()).toISOString();
+  Object.assign(x.routes[0],{historyObservedAt:new Date(Date.now()).toISOString()});
   store.beginNativeCommunicationsMessage.mockRejectedValueOnce(Error('Final admission sentinel'));
   const service=configuredAgentCommunications(actor,store as never);await service.prepareDispatch('thread',conversation,operation);
   store.preBeginHistoryRetryProof.mockClear();
@@ -320,7 +320,7 @@ it('avoids redundant policy and no-effect transactions for a strictly exempt pre
 });
 it.each([false,'true',undefined])('retains policy and no-effect proof for a prepared hosted exemption of %s',async(value)=>{
  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse('2026-10-18T10:00:00Z'));
- try{const x=await preparedDispatchFixture();x.routes[0].historyObservedAt=new Date(Date.now()).toISOString();
+ try{const x=await preparedDispatchFixture();Object.assign(x.routes[0],{historyObservedAt:new Date(Date.now()).toISOString()});
   const store={...x.store,channelPolicy:vi.fn(async()=>({policy:{acceleratedSimulation:false}})),testingSendWindowExempt:vi.fn(async()=>value)},service=configuredAgentCommunications(actor,store as never);
   await service.prepareDispatch('thread',conversation,operation);store.preBeginHistoryRetryProof.mockClear();
   await expect(service.dispatch('thread',conversation,operation)).rejects.toMatchObject({name:'AgentPreBeginSendWindowError'});
@@ -329,11 +329,11 @@ it.each([false,'true',undefined])('retains policy and no-effect proof for a prep
 });
 it.each(['original','stale','open','error'])('keeps prepared hosted exemption behind recovery and history, failing closed (%s)',async(mode)=>{
  const clock=vi.spyOn(Date,'now').mockReturnValue(Date.parse(mode==='open'?'2026-10-19T00:00:00Z':'2026-10-18T10:00:00Z'));
- try{const x=await preparedDispatchFixture();x.routes[0].historyObservedAt=new Date(Date.now()).toISOString();
+ try{const x=await preparedDispatchFixture();Object.assign(x.routes[0],{historyObservedAt:new Date(Date.now()).toISOString()});
   const store={...x.store,channelPolicy:vi.fn(async()=>({policy:{acceleratedSimulation:false}})),testingSendWindowExempt:vi.fn(async()=>{if(mode==='error')throw Error('Exemption unavailable');return true;})},service=configuredAgentCommunications(actor,store as never);
   await service.prepareDispatch('thread',conversation,operation);
   if(mode==='original')f.recover.mockResolvedValueOnce({found:true,outcome:{status:'unknown'}});
-  if(mode==='stale')x.routes[0].historyComplete=false;
+  if(mode==='stale')Object.assign(x.routes[0],{historyComplete:false});
   if(mode==='stale'||mode==='error')await expect(service.dispatch('thread',conversation,operation)).rejects.toThrow();else await service.dispatch('thread',conversation,operation);
   if(mode==='error')expect(store.testingSendWindowExempt).toHaveBeenCalledOnce();else expect(store.testingSendWindowExempt).not.toHaveBeenCalled();
   if(mode!=='open')expect(store.beginNativeCommunicationsMessage).not.toHaveBeenCalled();
