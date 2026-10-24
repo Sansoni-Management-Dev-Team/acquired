@@ -1,0 +1,18 @@
+# Append to the private isolated base; start ONLY research-maintenance.
+services:
+  research-maintenance:
+    image: node:22.12.0
+    network_mode: service:network
+    working_dir: /workspace
+    command: [node, /workspace/maintenance.cjs]
+    env_file: ["${ISOLATED_RESEARCH_DIRECTORY:?required}/maintenance.env"]
+    volumes:
+      - ${ACQUIRE_SOURCE_ROOT:?required}:/workspace:ro
+      - aligned-node-modules:/workspace/node_modules:ro
+      - ${ISOLATED_RESEARCH_DIRECTORY:?required}/maintenance.cjs:/workspace/maintenance.cjs:ro
+    restart: unless-stopped
+    stop_grace_period: 90s
+volumes:
+  aligned-node-modules:
+    external: true
+    name: ${ACQUIRE_NODE_MODULES_VOLUME:?required}
