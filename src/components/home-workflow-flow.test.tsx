@@ -22,6 +22,32 @@ it('Find companies submits the generated brief through the same live command',as
 it('Testing offers live research without outreach and opens the result table',async()=>{await mount(true);await act(()=>renderer.root.findByProps({id:'mandate-description'}).props.onChange({target:{value:'Established commercial laundry companies in Victoria.'}}));vi.mocked(fetch).mockResolvedValueOnce(Response.json({brief:emptyBrief()}));accept();await act(async()=>{button('Test live research').props.onClick();});expect(JSON.parse(vi.mocked(fetch).mock.calls[1][1]!.body as string)).toMatchObject({preset:'live-research-test',presentation:'agent'});expect(m.push).toHaveBeenCalledWith(`/mandates/${mandateId}?tab=targets`);});
 it('keeps an uncertain request across refresh and retries the identical body',async()=>{await mount();vi.mocked(fetch).mockRejectedValueOnce(Error('network')).mockResolvedValueOnce(Response.json({status:'missing'}));await act(async()=>{button('Run demo').props.onClick();});const first=vi.mocked(fetch).mock.calls[0][1]!.body;expect(m.storage.get(workflowPendingStorageKey)).toBe(first);await act(()=>renderer.unmount());await mount();expect(JSON.stringify(renderer.toJSON())).toContain('Retry workflow');accept();await act(async()=>{renderer.root.findByType('form').props.onSubmit({preventDefault(){}});});expect(vi.mocked(fetch).mock.calls.at(-1)![1]!.body).toBe(first);expect(m.push).toHaveBeenCalledOnce();});
 it('deduplicates rapid clicks before state commits',async()=>{await mount();accept();const click=button('Run demo').props.onClick;await act(async()=>{click();click();});expect(fetch).toHaveBeenCalledOnce();});
+it('lets a user type a new brief after restoring an uncertain request without reusing its identity',async()=>{
+ const oldBody=JSON.stringify({requestId:'10000000-0000-4000-8000-000000000001',preset:'demo',presentation:'workspace'});
+ m.storage.set(workflowPendingStorageKey,oldBody);
+ await mount();
+ expect(renderer.root.findByProps({id:'mandate-description'}).props.readOnly).toBe(false);
+ await act(()=>renderer.root.findByProps({id:'mandate-description'}).props.onChange({target:{value:'Commercial refrigeration businesses in Queensland.'}}));
+ expect(m.storage.has(workflowPendingStorageKey)).toBe(false);
+ expect(renderer.root.findByType(AgentModeToggle).props.disabled).toBe(false);
+ expect(fetch).not.toHaveBeenCalled();
+ vi.mocked(fetch).mockResolvedValueOnce(Response.json({brief:emptyBrief()}));accept();
+ await act(async()=>{renderer.root.findByType('form').props.onSubmit({preventDefault(){}});});
+ const submitted=JSON.parse(vi.mocked(fetch).mock.calls[1][1]!.body as string);
+ expect(submitted.requestId).not.toBe(JSON.parse(oldBody).requestId);
+ expect(submitted.preset).toBe('live');
+ expect(vi.mocked(fetch).mock.calls.map(([url])=>url)).toEqual(['/api/mandates/generate','/api/acquisition-workflows']);
+});
+it('can explicitly leave saved-request recovery without submitting or cancelling work',async()=>{
+ m.storage.set(workflowPendingStorageKey,JSON.stringify({requestId:'10000000-0000-4000-8000-000000000001',preset:'demo',presentation:'agent'}));
+ await mount();
+ await act(()=>button('Start a new mandate').props.onClick());
+ expect(m.storage.has(workflowPendingStorageKey)).toBe(false);
+ expect(renderer.root.findByProps({id:'mandate-description'}).props.readOnly).toBe(false);
+ expect(renderer.root.findByType(AgentModeToggle).props.disabled).toBe(false);
+ expect(JSON.stringify(renderer.toJSON())).not.toContain('Retry workflow');
+ expect(fetch).not.toHaveBeenCalled();
+});
 it('can recover an existing pending request after new workflows are disabled',async()=>{
  const body=JSON.stringify({requestId:'10000000-0000-4000-8000-000000000001',preset:'demo',presentation:'agent'});
  m.storage.set(workflowPendingStorageKey,body);

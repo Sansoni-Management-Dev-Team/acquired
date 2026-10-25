@@ -51,11 +51,28 @@ export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true,
     // including when new admissions have been disabled during a rollback.
     queueMicrotask(()=>{
       if(!mounted)return;
-      try{const body=sessionStorage.getItem(workflowPendingStorageKey),saved=body&&pendingWorkflowIdentity(body);if(body&&saved){workflowRequest.current=body;setWorkflowPending(true);setAgentMode(saved.presentation==='agent');setError('A workflow request is saved. Retry to check its progress.');}}
+      try{const body=sessionStorage.getItem(workflowPendingStorageKey),saved=body&&pendingWorkflowIdentity(body);if(body&&saved){workflowRequest.current=body;setWorkflowPending(true);setAgentMode(saved.presentation==='agent');setError('A previous request is saved. Retry it, or edit the description to start a new mandate.');}}
       catch{/* Storage may be unavailable; the in-memory request remains usable. */}
     });
     return()=>{mounted=false;};
   },[]);
+
+  function startNewMandate() {
+    if (busy || createLock.current) return;
+    // Leave server-side work intact; only stop reusing its browser retry identity.
+    workflowRequest.current = null;
+    nativeCreateRequest.current = null;
+    demoCreateRequest.current = null;
+    demoSource.current = null;
+    researchRequestId.current = null;
+    setWorkflowPending(false);
+    setNativeCreateAttempted(false);
+    setDemoAttempted(false);
+    setCreatedId(null);
+    setError('');
+    try { sessionStorage.removeItem(workflowPendingStorageKey); } catch { /* In-memory recovery is cleared. */ }
+    descriptionInput.current?.focus();
+  }
 
 
   async function createWorkflow(preset:'demo'|'live-research-test'|'live') {
@@ -205,9 +222,10 @@ export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true,
               </span>
             </DetailTooltip>
           </div>
-          <textarea ref={descriptionInput} id="mandate-description" required={!workflowPending} minLength={10} maxLength={5000} rows={5} readOnly={workflowPending || Boolean(createdId) || nativeCreateAttempted || demoAttempted} defaultValue={description} onChange={event => setDescription(event.target.value)} placeholder="For example: We are seeking an established commercial refrigeration service business in Queensland or New South Wales with annual revenue of AUD 4–12 million, EBITDA of AUD 700,000–2 million and 15–55 employees. Prefer recurring maintenance and repair work for commercial customers, diversified customers and a capable management team. We are open to a full or majority acquisition with an owner transition period." className="mt-3 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--input)] px-4 py-3 text-base text-[var(--foreground)] placeholder:text-[var(--muted)] focus-visible:border-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]" />
+          <textarea ref={descriptionInput} id="mandate-description" required={!workflowPending} minLength={10} maxLength={5000} rows={5} readOnly={Boolean(createdId) || nativeCreateAttempted || demoAttempted} defaultValue={description} onChange={event => { if (workflowPending) startNewMandate(); setDescription(event.target.value); }} placeholder="For example: We are seeking an established commercial refrigeration service business in Queensland or New South Wales with annual revenue of AUD 4–12 million, EBITDA of AUD 700,000–2 million and 15–55 employees. Prefer recurring maintenance and repair work for commercial customers, diversified customers and a capable management team. We are open to a full or majority acquisition with an owner transition period." className="mt-3 w-full resize-y rounded-xl border border-[var(--border)] bg-[var(--input)] px-4 py-3 text-base text-[var(--foreground)] placeholder:text-[var(--muted)] focus-visible:border-[var(--accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]" />
           {agentModeEnabled && <AgentModeToggle nativeAgentEnabled={nativeAgentEnabled} enabled={agentMode} disabled={busy || workflowPending || Boolean(createdId) || nativeCreateAttempted || demoAttempted} onChange={setAgentMode} />}
           {error && <p role="alert" className="mt-3 text-sm text-[var(--status-red)]">{error}</p>}
+          {(workflowPending || Boolean(createdId) || nativeCreateAttempted || demoAttempted) && <button type="button" onClick={startNewMandate} className="mt-2 text-sm text-[var(--accent)] underline underline-offset-4">Start a new mandate</button>}
           {progress && <p role="status" className="mt-3 text-sm text-[var(--muted)]">{progress}</p>}
           {createdId && error && <Link href={`/mandates/${createdId}?tab=targets`} className="mt-2 inline-block text-sm text-[var(--accent)] underline underline-offset-4">Open your saved mandate</Link>}
           <div className="mt-4 flex flex-wrap justify-end gap-3"><button type="button" disabled={busy || workflowPending || Boolean(createdId) || nativeCreateAttempted || demoAttempted} onClick={() => void create("demo")} className="min-h-12 rounded-xl border border-[var(--border)] px-5 text-sm font-semibold text-[var(--foreground)] hover:bg-[var(--panel-raised)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50">Run demo</button><button disabled={busy || !workflowPending&&!demoAttempted&&description.trim().length < 10} className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-[var(--accent)] px-5 text-sm font-semibold text-[var(--on-accent)] hover:bg-[var(--accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-50">{busy ? "Working…" : workflowPending ? "Retry workflow" : sharedWorkflowEnabled ? "Find companies" : demoAttempted ? "Retry opening demo" : agentMode && nativeCreateAttempted ? "Retry opening agent chat" : createdId ? "Retry company research" : agentMode ? nativeAgentEnabled ? "Continue" : "Review agent plan" : "Find companies"}<ArrowRight size={17} /></button></div>
