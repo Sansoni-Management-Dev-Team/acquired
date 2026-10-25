@@ -71,3 +71,11 @@ it.each(['accepted','researching','failed','cancelled','uncertain','complete'])(
 });
 
 it('queues a delivery status check only for the scoped original conversation',async()=>{const recheckDeliveryOutcome=vi.fn().mockResolvedValue({id,revision:2,status:'delivery_check_requested'});mock.scope.mockResolvedValue({store:{...store,recheckDeliveryOutcome},thread:{id:'owned-thread'}});const value={action:'recheck_delivery',requestKey,conversationId,revision:2,epoch:3,contextRevision:'a'.repeat(64)};expect((await POST(request(value),context)).status).toBe(200);expect(recheckDeliveryOutcome).toHaveBeenCalledWith('owned-thread',requestKey,{conversationId,revision:2,epoch:3,contextRevision:'a'.repeat(64)});expect(mock.control).not.toHaveBeenCalled();expect(wake).toHaveBeenCalledOnce();});
+it('includes runtime and policy in one authorized controls request without creating work',async()=>{
+ vi.stubEnv('AGENT_WORKER_SCOPE_MODE','registered');
+ const controlsSnapshot=vi.fn().mockResolvedValue({state:{mandateRevision:'123'},inbox:{tasks:[],members:[]},grants:[],targetOptions:{bindings:[]}}),runtimeReadiness=vi.fn().mockResolvedValue({registered:true,channels:[],budgets:[]}),channelPolicy=vi.fn().mockResolvedValue({policy:{revision:4},accounts:[]});
+ mock.scope.mockResolvedValue({actor:{organizationId:'org',userId:'actor'},store:{...store,controlsSnapshot,runtimeReadiness,channelPolicy},thread:{id:'owned-thread'}});
+ const response=await GET(new Request(url,{headers:{'X-Acquire-Control-Snapshot':'1'}}),context);
+ expect(response.status).toBe(200);expect(await response.json()).toMatchObject({controls:{runtime:{readiness:{registered:true},configuration:{scopeMode:'registered'},channelPolicy:{enabled:true,policy:{revision:4}},channelPolicyUnavailable:false}}});
+ expect(mock.scope).toHaveBeenCalledExactlyOnceWith(expect.any(Request),context);expect(runtimeReadiness).toHaveBeenCalledExactlyOnceWith('owned-thread');expect(channelPolicy).toHaveBeenCalledExactlyOnceWith('owned-thread');expect(mock.open).not.toHaveBeenCalled();expect(mock.control).not.toHaveBeenCalled();
+});

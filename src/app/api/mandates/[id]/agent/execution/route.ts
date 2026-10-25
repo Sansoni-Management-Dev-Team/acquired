@@ -1,3 +1,4 @@
+import {readAgentControlsRuntime} from '@/lib/agent-controls-runtime';
 import {wakeNativeAgentAfterCommit} from '@/lib/agent-native-wake';
 import {refreshCompanyProjectionsBeforeNativeControl} from '@/lib/company-projection-refresh';
 import {z} from 'zod';
@@ -45,7 +46,8 @@ export async function GET(request:Request,context:Context){
   // Existing prepared recipients retain their saved service and account bindings.
   const selectedTesting=process.env.AGENT_DEMO_TARGET==='testing'&&state?.executionMode==='demo'&&!state.demoContacts?.prepared;
   const demoService=selectedTesting?{communicationsApi:'https://127.0.0.1:5991',...readiness,...(!readiness.ready?{message:'The testing service on 5991 is not ready for this mandate yet. Your saved companies and people are available; simulated outreach has not started.'}:{})}:undefined;
-  return Response.json({enabled:nativeAgentEnabled(),state,mandateRevision:data.mandate?.revision,demoPreparationEnabled:readiness.ready,demoService,...(controls?{controls:{...controls,state}}:{})},{headers});
+  const runtime=controls?await readAgentControlsRuntime(data,mandateId):undefined;
+  return Response.json({enabled:nativeAgentEnabled(),state,mandateRevision:data.mandate?.revision,demoPreparationEnabled:readiness.ready,demoService,...(controls?{controls:{...controls,state,runtime}}:{})},{headers});
  }catch(cause){return failure(cause);}
 }
 

@@ -17,3 +17,13 @@ it('uses an authoritative bundled response without repeating the required reads'
  const read=vi.fn(async(kind:string)=>kind==='execution'?{enabled:true,state:null,controls:{inbox:{tasks:[]},grants:[],targetOptions:{bindings:[]}}}:{});
  expect(await loadAgentControls(read)).toMatchObject({enabled:true,inbox:{tasks:[]},grants:[]});expect(read.mock.calls.map(([kind])=>kind)).toEqual(['execution','readiness','channel-policy']);
 });
+it('uses bundled runtime status and policy without two more HTTP ownership round trips',async()=>{
+ const runtime={readiness:{registered:false,channels:[]},configuration:{scopeMode:'registered'},channelPolicy:{enabled:true,policy:null,accounts:[]}};
+ const read=vi.fn(async()=>({enabled:true,state:null,controls:{inbox:{tasks:[]},grants:[],targetOptions:{bindings:[]},runtime}}));
+ expect(await loadAgentControls(read)).toMatchObject(runtime);expect(read).toHaveBeenCalledExactlyOnceWith('execution');
+});
+it('preserves unavailable bundled capabilities without silently retrying them or enabling automation',async()=>{
+ const runtime={readinessUnavailable:true,channelPolicyUnavailable:true,channelPolicy:{enabled:false,policy:null,accounts:[]}};
+ const read=vi.fn(async()=>({enabled:true,state:null,controls:{inbox:{tasks:[]},grants:[],targetOptions:{bindings:[]},runtime}}));
+ expect(await loadAgentControls(read)).toMatchObject(runtime);expect(read).toHaveBeenCalledTimes(1);
+});
