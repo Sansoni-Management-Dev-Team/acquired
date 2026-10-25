@@ -11,7 +11,7 @@ export class AcquisitionWorkflowError extends Error{
 function failure(error:unknown):never{
  if(error instanceof AcquisitionWorkflowError)throw error;
  const code=error&&typeof error==='object'&&'code'in error?error.code:undefined;
- if(code==='02000')throw new AcquisitionWorkflowError('No unused saved research is available. Run a live research test first, then try the demo again.',409);
+ if(code==='02000')throw new AcquisitionWorkflowError('No unused saved mandate has usable company and contact data for outreach. Run a live research test first, then try the demo again.',409);
  if(code==='42501')throw new AcquisitionWorkflowError('This workflow is unavailable for your account.',403);
  if(code==='23505'||code==='40001'||code==='55000')throw new AcquisitionWorkflowError('This request conflicts with saved work. Refresh its status before starting another run.',409);
  if(code==='22023')throw new AcquisitionWorkflowError('The workflow request is invalid.',400);
