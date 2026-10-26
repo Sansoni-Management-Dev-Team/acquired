@@ -2,18 +2,18 @@ import React from 'react';
 import {act,create,type ReactTestRenderer} from 'react-test-renderer';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {emptyBrief} from '@/domain/acquisition';
-const m=vi.hoisted(()=>({push:vi.fn(),upsert:vi.fn(),storage:new Map<string,string>()}));
+const m=vi.hoisted(()=>({push:vi.fn(),upsert:vi.fn(),validateSession:vi.fn(),session:{scope:'["owner","org","session"]'} as {scope:string}|null,storage:new Map<string,string>()}));
 vi.mock('next/link',()=>({default:({href,children}:{href:string;children:React.ReactNode})=><a href={href}>{children}</a>}));
 vi.mock('next/navigation',()=>({useRouter:()=>({push:m.push})}));
 vi.mock('./detail-tooltip',()=>({DetailTooltip:({children}:{children:React.ReactNode})=><>{children}</>}));
-vi.mock('@/lib/mandate-cache',()=>({useMandateCache:{getState:()=>({upsert:m.upsert})}}));
+vi.mock('@/lib/mandate-cache',()=>({useMandateCache:{getState:()=>({upsert:m.upsert,session:m.session,validateSession:m.validateSession})}}));
 import {HomeMandateCreate} from './home-mandate-create';
 import {AgentModeToggle} from './agent-mode';
 import {workflowPendingStorageKey} from '@/lib/acquisition-workflow-request';
-import {readMandateSearch,continueMandateSearch} from '@/lib/mandate-search-launch';
+import {readMandateSearch,continueMandateSearch,stageMandateSearch} from '@/lib/mandate-search-launch';
 let renderer:ReactTestRenderer;
 const mandateId='20000000-0000-4000-8000-000000000002';
-beforeEach(()=>{vi.clearAllMocks();m.storage.clear();vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('fetch',vi.fn());vi.stubGlobal('sessionStorage',{getItem:(k:string)=>m.storage.get(k)??null,setItem:(k:string,v:string)=>m.storage.set(k,v),removeItem:(k:string)=>m.storage.delete(k)});vi.spyOn(console,'error').mockImplementation(()=>{});});
+beforeEach(()=>{vi.clearAllMocks();m.session={scope:'["owner","org","session"]'};m.storage.clear();vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('fetch',vi.fn());vi.stubGlobal('sessionStorage',{getItem:(k:string)=>m.storage.get(k)??null,setItem:(k:string,v:string)=>m.storage.set(k,v),removeItem:(k:string)=>m.storage.delete(k)});vi.spyOn(console,'error').mockImplementation(()=>{});});
 afterEach(async()=>{if(renderer)await act(()=>renderer.unmount());vi.restoreAllMocks();vi.unstubAllGlobals();});
 async function mount(agent=false){await act(()=>{renderer=create(<HomeMandateCreate mandates={[]} agentModeEnabled nativeAgentEnabled sharedWorkflowEnabled/>)});if(agent)await act(()=>renderer.root.findByType(AgentModeToggle).props.onChange(true));}
 function button(label:string){return renderer.root.findAllByType('button').find(b=>b.children.join('')===label)!;}
@@ -33,6 +33,8 @@ it('Testing preserves research-only mode and the selected agent presentation in 
  await mount(true);await act(()=>renderer.root.findByProps({id:'mandate-description'}).props.onChange({target:{value:'Established commercial laundry companies in Victoria.'}}));
  await act(()=>renderer.root.findByProps({'aria-label':'Run test: live research only'}).props.onClick());
  expect(fetch).not.toHaveBeenCalled();expect(staged()).toMatchObject({preset:'live-research-test',presentation:'agent'});
+ expect(m.push).toHaveBeenCalledExactlyOnceWith(`/mandates/${staged().requestId}/agent`);
+ expect(staged()).toMatchObject({ownerScope:m.session!.scope});
 });
 it('keeps an uncertain request across refresh and retries the identical body',async()=>{await mount();vi.mocked(fetch).mockRejectedValueOnce(Error('network')).mockResolvedValueOnce(Response.json({status:'missing'}));await act(async()=>{button('Run demo').props.onClick();});const first=vi.mocked(fetch).mock.calls[0][1]!.body;expect(m.storage.get(workflowPendingStorageKey)).toBe(first);await act(()=>renderer.unmount());await mount();expect(JSON.stringify(renderer.toJSON())).toContain('Retry workflow');accept();await act(async()=>{renderer.root.findByType('form').props.onSubmit({preventDefault(){}});});expect(vi.mocked(fetch).mock.calls.at(-1)![1]!.body).toBe(first);expect(m.push).toHaveBeenCalledOnce();});
 it('deduplicates rapid clicks before state commits',async()=>{await mount();accept();const click=button('Run demo').props.onClick;await act(async()=>{click();click();});expect(fetch).toHaveBeenCalledOnce();});
@@ -126,4 +128,23 @@ it('returns from home recovery to the same staged search after a refresh without
  await act(()=>renderer.root.findByProps({'aria-label':'Run test: live research only'}).props.onClick());const first=staged();
  await act(()=>renderer.unmount());await mount();await act(()=>renderer.root.findByType('form').props.onSubmit({preventDefault(){}}));
  expect(staged()).toEqual(first);expect(m.push.mock.calls[1][0]).toBe(m.push.mock.calls[0][0]);expect(fetch).not.toHaveBeenCalled();
+});
+it('waits for a cold session to verify and then opens the same clean agent URL without admission',async()=>{
+ m.session=null;let finish!:()=>void;m.validateSession.mockImplementationOnce(()=>new Promise<void>(resolve=>{finish=()=>{m.session={scope:'["owner","org","session"]'};resolve();};}));
+ await mount(true);await act(()=>renderer.root.findByProps({id:'mandate-description'}).props.onChange({target:{value:'Commercial laundry companies in Queensland.'}}));
+ await act(()=>renderer.root.findByProps({'aria-label':'Run test: live research only'}).props.onClick());
+ const reserved=JSON.parse(m.storage.get(workflowPendingStorageKey)!);expect(reserved).toMatchObject({preset:'live-research-test',presentation:'agent'});expect(m.push).not.toHaveBeenCalled();expect(fetch).not.toHaveBeenCalled();
+ await act(async()=>{finish();});expect(staged()).toMatchObject({requestId:reserved.requestId,ownerScope:m.session!.scope});expect(m.push).toHaveBeenCalledExactlyOnceWith(`/mandates/${reserved.requestId}/agent`);
+});
+it('preserves identity, preset and original prose across a failed cold session check and home refresh',async()=>{
+ m.session=null;m.validateSession.mockResolvedValueOnce(undefined);await mount(true);await act(()=>renderer.root.findByProps({id:'mandate-description'}).props.onChange({target:{value:'Commercial laundry companies in Queensland.'}}));
+ await act(()=>renderer.root.findByProps({'aria-label':'Run test: live research only'}).props.onClick());
+ const reserved=JSON.parse(m.storage.get(workflowPendingStorageKey)!);expect(JSON.stringify(renderer.toJSON())).toContain('Could not verify your workspace');expect(m.push).not.toHaveBeenCalled();
+ await act(()=>renderer.unmount());m.session={scope:'["owner","org","session"]'};await mount();await act(()=>renderer.root.findByType('form').props.onSubmit({preventDefault(){}}));
+ expect(staged()).toMatchObject({requestId:reserved.requestId,preset:'live-research-test',presentation:'agent',description:'Commercial laundry companies in Queensland.'});expect(m.push).toHaveBeenCalledExactlyOnceWith(`/mandates/${reserved.requestId}/agent`);expect(fetch).not.toHaveBeenCalled();
+});
+it('retains the original search recovery route for an unscoped agent draft from before direct agent preparation',async()=>{
+ const requestId='10000000-0000-4000-8000-000000000001';stageMandateSearch({requestId,preset:'live-research-test',presentation:'agent',description:'Commercial laundry companies in Queensland.'});
+ await mount();await act(()=>renderer.root.findByType('form').props.onSubmit({preventDefault(){}}));
+ expect(m.push).toHaveBeenCalledExactlyOnceWith(`/mandates/${requestId}?tab=search+enrich`);expect(readMandateSearch(requestId)).not.toHaveProperty('ownerScope');expect(fetch).not.toHaveBeenCalled();
 });

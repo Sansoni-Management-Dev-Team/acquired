@@ -86,6 +86,16 @@ it("streams saved companies through the compact companies workspace while resear
   expect(fetch).not.toHaveBeenCalled();
 });
 
+it("renders the canonical companies route for an owned mandate before its first company is saved", async () => {
+  mocks.loadCompanies.mockResolvedValue({ ...companies, rows: [], total: 0, pages: 1 });
+  const html = await renderPage(await openCompanies());
+  expect(html).toContain(">Companies</h2>");
+  expect(html).toContain("New companies will appear as they are found.");
+  expect(mocks.loadCompanies).toHaveBeenCalledExactlyOnceWith(id, defaultCompanyListQuery);
+  expect(mocks.repository.mock.calls).toEqual([["org-a"], ["org-a"]]);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 it.each(["targets", "companies", "coverage", "discover", "pipeline"])("keeps the legacy %s tab linked to the active companies flow", async tab => {
   await expect(renderPage(await openMandate(tab))).rejects.toThrow(`redirect:/mandates/${id}/companies`);
   expect(mocks.loadCompanies).not.toHaveBeenCalled();

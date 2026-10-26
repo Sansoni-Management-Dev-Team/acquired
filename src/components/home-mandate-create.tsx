@@ -125,12 +125,27 @@ export function HomeMandateCreate({ mandates, recentStatus, recentLoaded = true,
       if(selectedPreset!=='demo'){
         const requestId=savedIdentity?.requestId??randomUuid();
         const previous=readMandateSearch(requestId);
+        const presentation=savedIdentity?.presentation??(agentMode?'agent':'workspace');
         let requestBody:string|undefined;
-        if(workflowRequest.current){try{const raw=JSON.parse(workflowRequest.current);if(briefSchema.safeParse(raw.brief).success)requestBody=workflowRequest.current;}catch{/* Original identity remains available for recovery. */}}
-        const staged=stageMandateSearch({requestId,preset:selectedPreset,presentation:savedIdentity?.presentation??(agentMode?'agent':'workspace'),...(previous?{description:previous.description,requestBody:previous.requestBody}:requestBody?{requestBody}:{description})});
+        let originalDescription=description;
+        if(workflowRequest.current){try{const raw=JSON.parse(workflowRequest.current);if(briefSchema.safeParse(raw.brief).success)requestBody=workflowRequest.current;else if(typeof raw.description==='string')originalDescription=raw.description;}catch{/* Original identity remains available for recovery. */}}
+        let ownerScope=previous?.ownerScope;
+        if(presentation==='agent'&&!previous){
+          // Reserve the identity and original prose before a cold session check.
+          // A failed check can retry after refresh without choosing a new UUID.
+          workflowRequest.current=requestBody??JSON.stringify({requestId,preset:selectedPreset,presentation,description:originalDescription});
+          setWorkflowPending(true);
+          try{sessionStorage.setItem(workflowPendingStorageKey,workflowRequest.current);}catch{}
+          const cache=useMandateCache.getState();
+          if(!cache.session)await cache.validateSession();
+          ownerScope=useMandateCache.getState().session?.scope;
+          if(!ownerScope)throw Error('Could not verify your workspace. Retry this same request.');
+        }
+        const staged=stageMandateSearch({requestId,preset:selectedPreset,presentation,...(ownerScope?{ownerScope}:{}),...(previous?{description:previous.description,requestBody:previous.requestBody}:requestBody?{requestBody}:{description:originalDescription})});
         workflowRequest.current=staged.requestBody??JSON.stringify({requestId,preset:selectedPreset,presentation:staged.presentation});
         setWorkflowPending(true);
-        router.push(mandateSearchHref(requestId));openingSearch=true;
+        // Old unscoped pending searches keep their original recovery route.
+        router.push(staged.presentation==='agent'&&staged.ownerScope?`/mandates/${requestId}/agent`:mandateSearchHref(requestId));openingSearch=true;
         return;
       }
       if(!workflowRequest.current){

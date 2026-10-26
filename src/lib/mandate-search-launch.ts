@@ -4,8 +4,9 @@ import {readJsonResponse} from './read-json-response';
 import {pendingWorkflowIdentity,saveAcquisitionWorkflowRequest,savedWorkflowSchema,workflowPendingStorageKey,type SavedWorkflow} from './acquisition-workflow-request';
 
 const uuid=z.string().uuid();
-const launchSchema=z.object({version:z.literal(1),requestId:uuid,preset:z.enum(['live','live-research-test']),presentation:z.enum(['agent','workspace']),description:z.string().trim().min(10).max(5000).optional(),requestBody:z.string().max(100000).optional()}).strict().refine(v=>Boolean(v.description||v.requestBody));
+const launchSchema=z.object({version:z.literal(1),requestId:uuid,preset:z.enum(['live','live-research-test']),presentation:z.enum(['agent','workspace']),ownerScope:z.string().min(1).max(2000).optional(),description:z.string().trim().min(10).max(5000).optional(),requestBody:z.string().max(100000).optional()}).strict().refine(v=>Boolean(v.description||v.requestBody));
 export type MandateSearchLaunch=z.infer<typeof launchSchema>;
+type LaunchExpectation={presentation:'agent';ownerScope:string};
 type StoragePort=Pick<Storage,'getItem'|'setItem'|'removeItem'>;
 const fallback=new Map<string,string>();
 const fallbackStorage:StoragePort={getItem:key=>fallback.get(key)??null,setItem:(key,value)=>{fallback.set(key,value);},removeItem:key=>{fallback.delete(key);}};
@@ -30,7 +31,7 @@ function persist(launch:MandateSearchLaunch,storage:StoragePort,initial=false){
 }
 export function stageMandateSearch(input:Omit<MandateSearchLaunch,'version'>,storage:StoragePort=browserStorage()):MandateSearchLaunch{
  const value=launchSchema.parse({version:1,...input}),prior=readMandateSearch(value.requestId,storage);
- if(prior){if(prior.preset!==value.preset||prior.presentation!==value.presentation)throw Error('This saved search has a different mode.');persist(prior,storage,true);return prior;}
+ if(prior){if(prior.preset!==value.preset||prior.presentation!==value.presentation||prior.ownerScope!==value.ownerScope)throw Error('This saved search has a different mode or workspace.');persist(prior,storage,true);return prior;}
  persist(value,storage,true);return value;
 }
 function clear(launchId:string,storage:StoragePort){
@@ -39,18 +40,28 @@ function clear(launchId:string,storage:StoragePort){
 }
 /** One browser operation per identity. A refresh first checks the owned receipt;
  * a generated body is persisted before admission and is never regenerated on retry. */
-export function continueMandateSearch(id:string,storage:StoragePort=browserStorage(),fetcher:typeof fetch=fetch):Promise<SavedWorkflow|null>{
- uuid.parse(id);let requests=running.get(storage);if(!requests){requests=new Map();running.set(storage,requests);}const previous=requests.get(id);if(previous)return previous;
- const pending=run(id,storage,fetcher).finally(()=>{requests!.delete(id);});requests.set(id,pending);return pending;
+export function continueMandateSearch(id:string,storage:StoragePort=browserStorage(),fetcher:typeof fetch=fetch,expected?:LaunchExpectation):Promise<SavedWorkflow|null>{
+ uuid.parse(id);
+ const launch=readMandateSearch(id,storage);
+ if(expected&&launch&&(launch.presentation!==expected.presentation||launch.ownerScope!==expected.ownerScope))return Promise.reject(Error('This agent request is unavailable in this workspace.'));
+ let requests=running.get(storage);if(!requests){requests=new Map();running.set(storage,requests);}const previous=requests.get(id);if(previous)return previous.then(saved=>{if(expected&&saved&&saved.presentation!==expected.presentation)throw Error('This saved search has a different mode.');return saved;});
+ const pending=run(id,storage,fetcher,expected).finally(()=>{requests!.delete(id);});requests.set(id,pending);return pending;
 }
-async function run(id:string,storage:StoragePort,fetcher:typeof fetch):Promise<SavedWorkflow|null>{
+async function run(id:string,storage:StoragePort,fetcher:typeof fetch,expected?:LaunchExpectation):Promise<SavedWorkflow|null>{
  let launch=readMandateSearch(id,storage);
+ if(expected){
+  // The browser draft is intent, not authority. Recheck the session at the
+  // explicit Start boundary so an account/workspace switch cannot reuse it.
+  const response=await fetcher('/api/acquisition-session',{cache:'no-store',signal:AbortSignal.timeout(30000)});
+  const session=await readJsonResponse(response,'Could not verify this workspace. Retry the same agent request.');
+  if(!response.ok||session.scope!==expected.ownerScope)throw Error('This agent request is unavailable in this workspace.');
+ }
  const receipt=await fetcher('/api/acquisition-workflows?'+new URLSearchParams({requestId:id}),{cache:'no-store',signal:AbortSignal.timeout(15000)});
  if(!receipt.ok)throw Error('Could not check this search. Retry to check the same saved request.');
  const rawReceipt=await readJsonResponse(receipt,'Could not read this saved search.');
  if(rawReceipt.status!=='missing'){
   const parsed=savedWorkflowSchema.safeParse(rawReceipt);
-  if(!parsed.success||parsed.data.id!==id||parsed.data.mandateId!==id||launch&&(parsed.data.preset!==launch.preset||parsed.data.presentation!==launch.presentation))throw Error('This saved search has a different identity or mode.');
+  if(!parsed.success||parsed.data.id!==id||parsed.data.mandateId!==id||expected&&parsed.data.presentation!==expected.presentation||launch&&(parsed.data.preset!==launch.preset||parsed.data.presentation!==launch.presentation))throw Error('This saved search has a different identity or mode.');
   clear(id,storage);return parsed.data;
  }
  if(!launch)return null; // Existing legacy mandate / shared link: read progress, never launch guessed work.
