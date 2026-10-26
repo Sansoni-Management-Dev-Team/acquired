@@ -60,3 +60,27 @@ it('does not reschedule an automatic root it just recovered as stopped using a s
  await maintainMandateResearch('org','mandate',[job({updatedAt:new Date(Date.now()-120000),config:{mode:'automatic',researchRunId:'root',automaticDeadline:Date.now()+60000}})],{recoverStopped:mock.recover});
  expect(mock.recover).toHaveBeenCalledOnce();expect(mock.schedule).not.toHaveBeenCalled();
 });
+
+it('does not recover an old root while its exact company child is making progress',async()=>{
+ const now=Date.parse('2026-10-26T02:05:00Z');mock.worker.mockResolvedValue({status:'running',recovered:true});
+ await maintainMandateResearch('org','mandate',[job({mandateId:'mandate',status:'extracting',updatedAt:new Date(now-14*60000)}),job({id:'child',mandateId:'mandate',status:'complete',updatedAt:new Date(now-30000),config:{researchTask:'company',parentJobId:'root'}})],{recoverStopped:mock.recover},undefined,now);
+ expect(mock.worker).not.toHaveBeenCalled();expect(mock.recover).not.toHaveBeenCalled();
+});
+it.each(['other-org','other-mandate','other-owner','unrelated','people'])('does not borrow liveness from a %s child',async variation=>{
+ const now=Date.parse('2026-10-26T02:05:00Z');mock.worker.mockResolvedValueOnce({status:'running'}).mockResolvedValueOnce({recovered:true});
+ const child=job({id:'child',organizationId:variation==='other-org'?'other':'org',createdBy:variation==='other-owner'?'other':'owner',mandateId:variation==='other-mandate'?'other':'mandate',status:'complete',updatedAt:new Date(now-30000),config:{researchTask:variation==='people'?'field':'company',parentJobId:variation==='unrelated'?'other':'root'}});
+ await maintainMandateResearch('org','mandate',[job({mandateId:'mandate',status:'extracting',updatedAt:new Date(now-14*60000)}),child],{recoverStopped:mock.recover},undefined,now);
+ expect(mock.worker).toHaveBeenCalledWith('/jobs/root','POST',{action:'recover-stalled'},expect.any(Number));expect(mock.recover).toHaveBeenCalledExactlyOnceWith('root',1,0);
+});
+
+it('leaves a genuine active people-only research phase healthy',async()=>{
+ const now=Date.parse('2026-10-26T02:05:00Z');
+ await maintainMandateResearch('org','mandate',[job({status:'extracting',updatedAt:new Date(now-30000),config:{purpose:'people'}})],{recoverStopped:mock.recover},undefined,now);
+ expect(mock.worker).not.toHaveBeenCalled();expect(mock.recover).not.toHaveBeenCalled();
+});
+it('requests recovery after company callbacks stop even though saved company and People counts are positive',async()=>{
+ const now=Date.parse('2026-10-26T02:05:00Z');mock.worker.mockResolvedValueOnce({status:'running'}).mockResolvedValueOnce({recovered:true});
+ const root=job({mandateId:'mandate',status:'extracting',updatedAt:new Date(now-14*60000),config:{includeCompanyPeople:true,companyPeopleProgress:{saved:100,settled:true},newBusinessIds:['saved-company']}});
+ await maintainMandateResearch('org','mandate',[root,job({id:'child',mandateId:'mandate',status:'partial',updatedAt:new Date(now-11*60000),config:{parentJobId:'root',researchTask:'company'}})],{recoverStopped:mock.recover},undefined,now);
+ expect(mock.worker).toHaveBeenCalledWith('/jobs/root','POST',{action:'recover-stalled'},expect.any(Number));expect(mock.recover).toHaveBeenCalledExactlyOnceWith('root',1,0);
+});

@@ -20,7 +20,72 @@ LOCAL_SEARCH_ENGINE=bing
 
 Use the worker's supported research provider configuration (OpenAI or OpenRouter); the app's Anthropic configuration does not configure this worker. Verify credentials through the normal validation route before starting research. Keep Firmable cookies in ignored private configuration.
 
-## Start or restore
+## Stable research releases for end-to-end testing
+
+Do not use the editable source mount for long research tests. Wrangler watches
+imported application files as well as worker files; a UI/domain edit can replace
+the local worker and interrupt an in-flight request. A read-only node_modules
+mount also prevents Miniflare's default `node_modules/.mf` cache from being
+created. `--persist-to /state` preserves workflow storage but does not fix either
+problem.
+
+Stage a release explicitly. The command defaults to a read-only plan; append
+`--stage` to copy allowlisted source and run Wrangler's normal bundler with
+`deploy --dry-run` (no Cloudflare upload). It never starts or stops a service.
+Use the current isolated worker's private config, keeping its workflow and
+Durable Object identities. No credentials are copied into the source snapshot.
+
+```sh
+node scripts/isolated-research-runtime.mjs \
+  --config "$ISOLATED_RESEARCH_DIRECTORY/wrangler.json" \
+  --directory "$ACQUIRE_SOURCE_ROOT/.local-data/isolated-research/releases" \
+  --modules-volume "$ACQUIRE_NODE_MODULES_VOLUME" --stage
+```
+
+Each private release contains the bundled worker, local config, a SHA-256
+manifest and `compose.runtime.json`. The overlay replaces the live `/workspace`
+source mount with that release, loads the bundle with `--no-bundle`, retains the
+original `/state` volume, and supplies writable scratch storage at `/runtime`
+with `MINIFLARE_CACHE_DIR=/runtime/miniflare`. The dependency volume remains
+read-only and must stay aligned with the staged lockfile. Do not edit a staged
+release: stage another version for an explicit update. The running container's
+`au.mlai.acquire.research.release` label identifies its release. The existing
+private `/config/.dev.vars` mount remains in place; coordinate credential/config
+renewal because Wrangler may reload when those files change.
+
+Before activation, inspect existing jobs and coordinate an interruption. Record
+their IDs/status and preserve any stuck jobs for diagnosis. Do not replay them
+automatically. Check the fully merged Compose configuration using `config`
+(keep any rendered environment private), then start **only research** with the
+same Compose project and files used by the current isolated stack, appending
+the staged overlay last:
+
+```sh
+docker compose -p acquire-isolated -f "$ISOLATED_COMPOSE_FILE" \
+  -f "$ISOLATED_RESEARCH_COMPOSE_FILE" -f "$RELEASE/compose.runtime.json" \
+  up -d --no-deps research
+```
+
+This necessarily recreates/restarts the research worker. It does not restart
+the app, network namespace, database, reader, search or simulator. Never use
+`down`, `-v`, or recreate the network namespace. Keep the same workflow names and
+state volume; changing those would isolate existing workflow history. Retain
+the previous release/overlay for a controlled rollback. Existing jobs still
+need normal application reconciliation/cancellation; no replay is implied by
+restarting Wrangler.
+
+Run the reusable offline runtime check with
+`node scripts/test-isolated-research-runtime.mjs`. It builds the actual worker
+and creates only a disposable `acquire-research-runtime-check-*` container with
+Docker network `none`, no published ports, fixture-only reader/callback servers,
+and fresh temporary volumes. It verifies a delayed `/company-page` request
+survives a change to an unobserved editable UI tree, cache writability, and a
+real completed Workflow surviving restart. It removes only its own container
+and volumes. Logs/release hashes stay in ignored
+`.local-data/isolated-research/runtime-checks`. Configuration tests run with
+`node --test scripts/isolated-research-runtime.test.mjs`.
+
+## Development source-watch start or restore
 
 With the existing private base Compose file as `ISOLATED_COMPOSE_FILE`:
 
@@ -53,3 +118,56 @@ A second normal `live-research-test` execution (`1e3e9991-4931-44e0-a12d-d3e4d0f
 The existing hybrid discovery goal of one did not cap candidate profiling at one; it explored up to its finite100-company limit. Original organisation settings were restored. No outreach was performed. Earlier deliberately cancelled tests now have correctly cancelled workflow projections after original terminal-run snapshot reconciliation.
 
 Final local health checks: app200, reader default18083 and underlying18084 both200, search7000 health200. Maintenance is idle after terminal settlement and remains available for future owned live workflows. The original local lane and production configuration were not changed by these fixes.
+
+## Local workflow verification (26 October 2026)
+
+The local UI now reserves the mandate/request UUID before brief generation and
+shows `/mandates/<id>?tab=search+enrich` immediately. Classic research stays on
+that progress screen until the user selects **View companies**. Companies use
+`/mandates/<id>/companies`; old targets query links redirect. Research-only
+runs preserve the selected agent presentation, opening `/agent` after admission,
+while retaining `live-research-test` and its disabled outreach. Research-only
+controls project their actual saved lifecycle before any chat thread exists.
+The normal demo/live approval and sending authority is unchanged.
+
+The displayed 50% scores on the inspected water-treatment run were provisional
+half-credit for every assessed criterion, rather than comparative rankings.
+The table now labels that state **Provisional match**, retains assessed coverage
+and exclusions, and presents available company-specific scope facts. It does
+not manufacture scores or upgrade estimated facts. The joined per-company
+refresh queue paragraph is removed; polling and error handling continue.
+
+Three local research defects were reproduced before repair:
+
+- Full-page missing-field research dropped reader `Retry-After`, retried too
+  soon, and consumed page allowance for requests the reader had not admitted.
+  Only explicit reader-busy/domain-backoff responses now defer within the same
+  original deadline. Actual started reads retain normal accounting.
+- Source-watch Wrangler reloaded during long research runs, and the read-only
+  dependency mount caused `node_modules/.mf` cache errors. Versioned bundles
+  and writable isolated scratch storage are covered by the offline runtime
+  check above. Activation is a separate explicit operational step.
+- People counter refreshes updated the root execution time and concealed
+  stopped company work. Counter maintenance no longer changes that timestamp;
+  both maintenance and the worker use scoped root/company callback progress.
+  Terminal severity, saved results, authority and recovery CAS remain intact.
+
+Integrated verification: 7,238 Vitest tests passed (959 existing skips), 238
+Node tests passed, and 48 real Miniflare Workflows tests passed with unmocked
+outbound traffic blocked. TypeScript and scoped ESLint passed. The first broad
+run exposed five obsolete route/loading-copy assertions, which were updated;
+an independent 50ms wall-clock canary fixture timed out under concurrent load
+and passed on the full Node recheck without a product change.
+
+Browser routing checks exercised the real local Next UI with generation and
+admission intercepted: the UUID appeared during delayed preparation; classic
+research retained its URL after results/completion and refresh did not repeat
+admission; agent-mode research-only testing opened `/agent`. These are navigation
+proofs, not fresh live-provider or message/reply proofs. Evidence is under
+`output/playwright/search-stage/` and ignored `.local-data/` directories for
+reader cooldown, research liveness, fit projection and runtime checks.
+
+Existing user runs were inspected read-only, not silently replayed. Optional
+field failures, saved partial results and a Firmable country-interpretation
+review stop remain distinct from routing/runtime fixes. No migrations or
+production deployment were performed by this local change package.

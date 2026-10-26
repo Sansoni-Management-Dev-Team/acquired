@@ -238,13 +238,19 @@ it("terminates an unresponsive workflow only after checking fresh saved progress
   const terminate = vi.fn().mockResolvedValue(undefined);
   const recoveryBindings = { ...bindings, RESEARCH: { get: vi.fn().mockResolvedValue({ terminate }) } } as unknown as typeof bindings;
   let updatedAt = new Date(Date.now() - 11 * 60000).toISOString();
-  vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ status: "crawling", updatedAt }));
+  let executionUpdatedAt: string | undefined;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ status: "crawling", updatedAt, executionUpdatedAt }));
   const request = () => new Request(`http://worker/jobs/${id}`, {
     method: "POST", headers: { authorization: "Bearer replay-only", "Content-Type": "application/json" },
     body: JSON.stringify({ action: "recover-stalled" }),
   });
   expect(await (await worker.fetch(request(), recoveryBindings)).json()).toEqual({ recovered: true });
   expect(terminate).toHaveBeenCalledOnce();
+  // The root's own row can be old while scoped company callbacks advance.
+  executionUpdatedAt = new Date().toISOString();
+  expect(await (await worker.fetch(request(), recoveryBindings)).json()).toEqual({ recovered: false });
+  expect(terminate).toHaveBeenCalledOnce();
+  executionUpdatedAt = undefined;
   updatedAt = new Date().toISOString();
   expect(await (await worker.fetch(request(), recoveryBindings)).json()).toEqual({ recovered: false });
   expect(terminate).toHaveBeenCalledOnce();
