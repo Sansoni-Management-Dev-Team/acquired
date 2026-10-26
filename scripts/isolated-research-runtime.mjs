@@ -40,6 +40,9 @@ export function stageRuntime({root,configFile,directory,modulesVolume}){
   const bundleHash=fingerprint(join(temporary,'bundle'));
   const release=join(directory,`${sourceHash.slice(0,12)}-${bundleHash.slice(0,12)}-${Date.now()}`);
   mkdirSync(release,{mode:0o700});cpSync(join(temporary,'bundle'),join(release,'bundle'),{recursive:true});
+  // Docker cannot create a nested mount point inside the read-only release.
+  // Create it before the immutable release is mounted; dependencies stay external.
+  mkdirSync(join(release,'node_modules'));
   writeFileSync(join(release,'wrangler.json'),JSON.stringify(config,null,2),{mode:0o600});
   writeFileSync(join(release,'compose.runtime.json'),JSON.stringify(runtimeOverlay({release,modulesVolume}),null,2),{mode:0o600});
   const manifest={schema:1,createdAt:new Date().toISOString(),sourceHash,bundleHash,gitRevision:execFileSync('git',['rev-parse','HEAD'],{cwd:root,encoding:'utf8'}).trim(),modulesVolume,workflowNames:config.workflows?.map(item=>item.name),release,activation:'Append compose.runtime.json to the EXISTING isolated base and research overlays; up -d --no-deps research only. This interrupts that worker. Never use down, -v, or recreate network. No automatic replay.'};

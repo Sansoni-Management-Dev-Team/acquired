@@ -34,7 +34,7 @@ async function api(path,method='GET',body){return JSON.parse(execute(`fetch('htt
 async function ready(){for(let round=0;round<100;round++){try{if((await api('/')).status===404)return;}catch{}await pause(300);}throw Error('Disposable Worker did not become ready');}
 let started=false;
 try{
- docker('run','-d','--name',name,'--network','none','--workdir','/runtime','-e','CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false','-e','CLOUDFLARE_INCLUDE_PROCESS_ENV=false','-e','CLOUDFLARE_CF_FETCH_ENABLED=false','-e','WRANGLER_SEND_METRICS=false','-e','MINIFLARE_CACHE_DIR=/runtime/miniflare','-v',`${release}:/release:ro`,'-v',`${modules}:/workspace/node_modules:ro`,'-v',`${release}/wrangler.json:/config/wrangler.json:ro`,'-v',`${directory}/worker.env:/config/.dev.vars:ro`,'-v',`${directory}/runner.cjs:/runner.cjs:ro`,'-v',`${directory}/editable:/editable:ro`,'-v',`${state}:/state`,'-v',`${scratch}:/runtime`,'node:22.12.0','node','/runner.cjs');started=true;
+ docker('run','-d','--name',name,'--network','none','--workdir','/runtime','-e','CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV=false','-e','CLOUDFLARE_INCLUDE_PROCESS_ENV=false','-e','CLOUDFLARE_CF_FETCH_ENABLED=false','-e','WRANGLER_SEND_METRICS=false','-e','MINIFLARE_CACHE_DIR=/runtime/miniflare','-v',`${release}:/release:ro`,'-v',`${release}:/workspace:ro`,'-v',`${modules}:/workspace/node_modules:ro`,'-v',`${release}/wrangler.json:/config/wrangler.json:ro`,'-v',`${directory}/worker.env:/config/.dev.vars:ro`,'-v',`${directory}/runner.cjs:/runner.cjs:ro`,'-v',`${directory}/editable:/editable:ro`,'-v',`${state}:/state`,'-v',`${scratch}:/runtime`,'node:22.12.0','node','/runner.cjs');started=true;
  await ready();
  execute(`require('fs').mkdirSync('/runtime/miniflare',{recursive:true});require('fs').writeFileSync('/runtime/miniflare/cache-probe','writable');`);
  const before=docker('logs',name);
@@ -58,6 +58,7 @@ try{
  const report={passed:true,network:'none',release,delayedRealWorkerRequest:response.status,uiAndDomainEditReloadedWorker:false,persistedWorkflowStatus:'complete',cacheWritableAndSurvivedRestart:true,existingContainerLifecyclesUnchanged:true};
  writeFileSync(join(directory,'report.json'),JSON.stringify(report,null,2));console.log(JSON.stringify(report,null,2));
 }finally{
- if(started){writeFileSync(join(directory,'worker.log'),docker('logs',name));docker('rm','-f',name);}
+ let exists=started;try{if(!exists){docker('inspect',name);exists=true;}}catch{/* Startup may fail before a fixture container is created. */}
+ if(exists){writeFileSync(join(directory,'worker.log'),docker('logs',name));docker('rm','-f',name);}
  for(const volume of [state,scratch])try{docker('volume','rm',volume);}catch{}
 }
