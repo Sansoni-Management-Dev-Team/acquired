@@ -5,6 +5,7 @@ import ts from 'typescript';
 
 export const repositoryRoot=fileURLToPath(new URL('../',import.meta.url));
 const testFile=/\.(?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)$/;
+const classifications=new Map();
 
 /** Inspect syntax only: discovering tests never imports or executes them. */
 export function testRunner(source,fileName='test.mjs'){
@@ -31,7 +32,14 @@ export function discoverNodeTestFiles(root=repositoryRoot){
    if(entry.name.startsWith('.')||entry.name==='node_modules')continue;
    const file=join(directory,entry.name);
    if(entry.isDirectory())walk(file);
-   else if(entry.isFile()&&testFile.test(entry.name)&&testRunner(readFileSync(file,'utf8'),file)==='node')found.push(relative(base,file).split(sep).join('/'));
+   else if(entry.isFile()&&testFile.test(entry.name)){
+    // Re-read bytes on every inventory so additions, edits and removals remain
+    // visible, while unchanged files do not need another complete AST walk.
+    const source=readFileSync(file,'utf8'),cached=classifications.get(file);
+    const runner=cached?.source===source?cached.runner:testRunner(source,file);
+    classifications.set(file,{source,runner});
+    if(runner==='node')found.push(relative(base,file).split(sep).join('/'));
+   }
   }
  };
  walk(base);return found.sort();

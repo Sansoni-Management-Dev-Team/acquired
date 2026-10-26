@@ -60,3 +60,19 @@ it('automatically discovers nested normal test files while ignoring dependencies
   expect(()=>nodeTestArguments({root})).toThrow('No node:test suites discovered');
  }finally{rmSync(root,{recursive:true,force:true});}
 });
+
+it('reclassifies changed files and discovers additions/removals across repeated inventories',async()=>{
+ const {mkdtempSync,writeFileSync,unlinkSync,rmSync}=await import('node:fs');
+ const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const {discoverNodeTestFiles}=await import('./test-runner-files.mjs');
+ const root=mkdtempSync(join(tmpdir(),'acquire-runner-freshness-')),file=join(root,'changes.test.mjs');
+ try{
+  writeFileSync(file,'import {it} from "vitest";');expect(discoverNodeTestFiles(root)).toEqual([]);
+  writeFileSync(file,'import test from "node:test";');expect(discoverNodeTestFiles(root)).toEqual(['changes.test.mjs']);
+  expect(discoverNodeTestFiles(root)).toEqual(['changes.test.mjs']);
+  writeFileSync(file,'import {it} from "vitest";');expect(discoverNodeTestFiles(root)).toEqual([]);
+  writeFileSync(join(root,'added.test.mjs'),'import test from "node:test";');expect(discoverNodeTestFiles(root)).toEqual(['added.test.mjs']);
+  unlinkSync(join(root,'added.test.mjs'));expect(discoverNodeTestFiles(root)).toEqual([]);
+  writeFileSync(file,'import test from "node:test"; import {it} from "vitest";');expect(()=>discoverNodeTestFiles(root)).toThrow('mixes node:test and Vitest');
+ }finally{rmSync(root,{recursive:true,force:true});}
+});

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { performance as monotonicPerformance } from 'node:perf_hooks';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ConnectionBinding, CommunicationEvent } from '../../communications/packages/contracts/src';
 import type { SqlClient, SqlResult } from '../../communications/packages/storage-postgres/src/webhook-repository';
@@ -217,7 +218,9 @@ describe('Acquire reply consumer SQL protocol, scripted driver only', () => {
         expect(f.release).toHaveBeenCalledOnce();
     });
     it('discards an expired in-flight COMMIT without competing rollback or later success', async () => {
-        vi.useFakeTimers({toFake:['setTimeout','clearTimeout','performance']});
+        vi.useFakeTimers({toFake:['setTimeout','clearTimeout']});
+        let elapsed=0;
+        const monotonic=vi.spyOn(monotonicPerformance,'now').mockImplementation(()=>elapsed);
         const f = fixture();
         let unblock!: () => void, entered!: () => void;
         const atCommit = new Promise<void>(resolve => { entered = resolve; });
@@ -232,14 +235,15 @@ describe('Acquire reply consumer SQL protocol, scripted driver only', () => {
         };
         const settled = createCommunicationReplyConsumer({ ...f.options, transactionTimeoutMs: 10 }).apply(f.input).then(() => 'completed', () => 'unavailable');
         try {
-            await atCommit;
+            await Promise.race([atCommit,settled.then(()=>{throw Error('Transaction settled before the COMMIT boundary');})]);
+            elapsed=11;
             await vi.advanceTimersByTimeAsync(11);
             expect(await settled).toBe('unavailable');
             expect(f.calls.some(c => c.sql === 'ROLLBACK')).toBe(false);
         }
         finally {
             unblock();
-            try { await vi.runAllTimersAsync(); } finally { vi.useRealTimers(); }
+            try { await vi.runAllTimersAsync(); } finally { monotonic.mockRestore();vi.useRealTimers(); }
         }
         expect(f.calls.some(c => c.sql === 'COMMIT')).toBe(true);
         expect(f.release).toHaveBeenCalledOnce();
@@ -263,7 +267,9 @@ describe('Acquire reply consumer SQL protocol, scripted driver only', () => {
     it.each(['throw', 'stall'])('observes unawaited identity SQL rejection in strict native Node (%s)', mode => {
         const script = String.raw `
             const fs=require('node:fs'),ts=require('typescript'),Module=require('node:module'),load=Module._load;
-            Module._load=function(id,parent,isMain){if(id==='server-only')return {};if(id==='@/domain/campaign-replies')return {replyIdentity:(channel,value)=>channel==='linkedin'?value:null};if(id==='./campaign-reply-store')return {replyMonitorMode:()=> 'enforce',applyCampaignReply:async()=> 'stop'};return load.call(this,id,parent,isMain);};
+            // Freeze monotonic work time while retaining the real deadline timer:
+            // CPU contention must not expire authentication before SQL is entered.
+            Module._load=function(id,parent,isMain){if(id==='node:perf_hooks')return {performance:{now:()=>0}};if(id==='server-only')return {};if(id==='@/domain/campaign-replies')return {replyIdentity:(channel,value)=>channel==='linkedin'?value:null};if(id==='./campaign-reply-store')return {replyMonitorMode:()=> 'enforce',applyCampaignReply:async()=> 'stop'};return load.call(this,id,parent,isMain);};
             require.extensions['.ts']=(module,file)=>module._compile(ts.transpileModule(fs.readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,file);
             const {createCommunicationReplyConsumer}=require(process.argv[2]),{createHash}=require('node:crypto'),hash=v=>createHash('sha256').update(JSON.stringify(v)).digest('hex');
             const b={applicationId:'acquire',tenantId:'tenant',ownerId:'owner',connectionId:'connection',accountId:'account',generation:1,channel:'linkedin',platform:'linkedin',backend:'unipile'},bindingId='00000000-0000-4000-8000-000000000001',sender={kind:'linkedin_profile',value:'https://www.linkedin.com/in/person/'};
@@ -273,7 +279,7 @@ describe('Acquire reply consumer SQL protocol, scripted driver only', () => {
             const consumer=createCommunicationReplyConsumer({binding:b,bindingId,subscriberId:'subscriber',actor:{organizationId:'tenant',userId:'owner'},authenticationTimeoutMs:10,transactionTimeoutMs:30,pool:{async connect(){return {query,release(error){if(error){discards++;rejectPending?.(Error('Synthetic retired identity query'));}}};}},authenticateDelivery:async()=>true,async resolveIdentity(client){void client.query('SELECT pending_identity_query');if(process.argv[1]==='throw')throw Error('Synthetic identity failure');return new Promise(()=>{});}});
             consumer.apply({binding:b,bindingId,subscriberId:'subscriber',serviceEventId:'100',sourceKey:key,payload:{outcome:{kind:'event',event,eventKey:key,fingerprint:fp},fingerprint:fp,receivedAt:'2026-10-12T10:00:01.000Z'}}).then(()=>process.exitCode=2,()=>setTimeout(()=>process.stdout.write(JSON.stringify({rollback,commit,discards})),40));
         `;
-        const result = spawnSync(process.execPath, ['--unhandled-rejections=strict', '-e', script, mode, fileURLToPath(new URL('./communications-reply-consumer.ts', import.meta.url))], { cwd: process.cwd(), encoding: 'utf8', timeout: 3000 });
+        const result = spawnSync(process.execPath, ['--unhandled-rejections=strict', '-e', script, mode, fileURLToPath(new URL('./communications-reply-consumer.ts', import.meta.url))], { cwd: process.cwd(), encoding: 'utf8', timeout: 15000 });
         expect(result.status).toBe(0);
         expect(JSON.parse(result.stdout)).toEqual({ rollback: false, commit: false, discards: 1 });
     });
