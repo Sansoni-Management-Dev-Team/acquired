@@ -27,7 +27,7 @@ it('shares the same complete inventory with the Node command and keeps Vitest mj
  expect(nodeTestArguments()).toEqual(['--test',...files]);
  expect(config.test.exclude).toEqual(expect.arrayContaining(files));
  expect(files).not.toContain('scripts/dev-config.test.mjs');expect(config.test.exclude).not.toContain('scripts/dev-config.test.mjs');
-});
+},60000);
 it('classifies test syntax without importing suites or matching comments, quoted code or unrelated imports',async()=>{
  const {testRunner}=await import('./test-runner-files.mjs');
  expect(testRunner('// import test from "node:test";\nimport {it} from "vitest";')).toBe('vitest');

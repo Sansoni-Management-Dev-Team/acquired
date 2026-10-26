@@ -4,8 +4,9 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { emptyBrief } from "@/domain/acquisition";
 import { CachedMandateCreate, CachedMandatesPage, MandatePicker } from "./cached-mandate-pages";
 import { AppShell } from "./app-shell";
+import type {MandateView} from '@/domain/acquisition';
 
-const state = vi.hoisted(() => ({ cache: { mandates: [] as { id: string; brief: ReturnType<typeof emptyBrief>; createdAt: string }[], loaded: false, error: "", refreshing: false, retry: vi.fn() }, pathname: "/" }));
+const state = vi.hoisted(() => ({ cache: { mandates: [] as MandateView[], loaded: false, error: "", refreshing: false, retry: vi.fn() }, pathname: "/" }));
 vi.mock("./use-cached-mandates", () => ({ useCachedMandates: () => state.cache, useCachedSession: () => null,useSelectedMandate:()=>undefined }));
 vi.mock("next/navigation", () => ({ usePathname: () => state.pathname, useSearchParams: () => new URLSearchParams(), useRouter: () => ({ replace: vi.fn() }) }));
 vi.mock("./campaign-reply-alerts", () => ({ CampaignReplyAlerts: () => null }));
@@ -24,15 +25,22 @@ it("keeps cached mandate cards visible during refresh and a refresh failure", ()
   const html = renderToStaticMarkup(<CachedMandatesPage />);
   expect(html).toContain("Cached cleaning mandate");
   expect(html).toContain('Created <time dateTime="2026-10-14T00:00:00Z"');
-  expect(html).toContain('href="/mandates/example"');
-  expect(html).toContain("unanswered criteria · Open workspace");
+  expect(html).toContain('href="/mandates/example?tab=search+enrich"');
+  expect(html).toContain("unanswered criteria · View research");
   expect(html).toContain("Retry");
   expect(html).not.toContain("Loading acquisition mandates");
 });
 
+it('shows short research statuses on cards and does not label an old cache as unstarted',()=>{
+  const statuses=['not_started','queued','running','complete','partial','failed','cancelled',undefined] as const;
+  Object.assign(state.cache,{loaded:true,mandates:statuses.map((researchStatus,i)=>({id:`example-${i}`,brief:emptyBrief(),createdAt:'2026-10-26T00:00:00Z',researchStatus}))});
+  const html=renderToStaticMarkup(<CachedMandatesPage/>);
+  for(const label of ['Not started','Queued','Researching','Complete','Partial','Failed','Cancelled','unavailable'])expect(html).toContain(`aria-label="Research status: ${label}"`);
+});
+
 it.each([
   ["brief", "/mandates/example?tab=brief"],
-  ["targets", "/mandates/example?tab=targets"],
+  ["targets", "/mandates/example/companies"],
   ["people", "/mandates/example/people"],
   ["sequences", "/mandates/example/outreach/sequences"],
 ] as const)("opens the selected mandate's %s section and offers the home creation form", (section, href) => {
@@ -49,6 +57,6 @@ it.each(["/", "/mandates", "/mandates/select/targets"])("always displays the fou
   for (const section of ["brief", "targets", "people", "sequences"]) expect(html).toContain(`href="/mandates/select/${section}"`);
 });
 
-it.each(['/mandates/example','/mandates/example/people','/mandates/example/agent','/mandates/example/outreach/sequences'])('keeps sidebar section links inside the mandate selected at %s',pathname=>{
- state.pathname=pathname;const html=renderToStaticMarkup(<AppShell><div>Content</div></AppShell>);for(const section of['brief','targets','people','sequences'])expect(html).toContain(`href="${section==='people'?'/mandates/example/people':section==='sequences'?'/mandates/example/outreach/sequences':`/mandates/example?tab=${section}`}"`);expect(html).not.toContain('href="/mandates/select/targets"');
+it.each(['/mandates/example','/mandates/example/companies','/mandates/example/people','/mandates/example/agent','/mandates/example/outreach/sequences'])('keeps sidebar section links inside the mandate selected at %s',pathname=>{
+ state.pathname=pathname;const html=renderToStaticMarkup(<AppShell><div>Content</div></AppShell>);for(const section of['brief','targets','people','sequences'])expect(html).toContain(`href="${section==='targets'?'/mandates/example/companies':section==='people'?'/mandates/example/people':section==='sequences'?'/mandates/example/outreach/sequences':`/mandates/example?tab=${section}`}"`);expect(html).not.toContain('href="/mandates/select/targets"');
 });

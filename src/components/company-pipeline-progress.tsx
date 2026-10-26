@@ -1,10 +1,11 @@
 "use client";
 import { useEffect, useState } from 'react';
 import { Check } from 'lucide-react';
+import {mandateCompaniesHref} from '@/domain/mandate-navigation';
 import type { ResearchJob } from './research-panel';
 import { companyResearchProgressState, isCompanyPipeline, type CompanyResearchCoverage } from './company-pipeline-state';
 
-export function CompanyPipelineProgress({ job, jobs = [], mandateId, detail: startupDetail, coverage, peopleSaved }: { job?: ResearchJob; jobs?: ResearchJob[]; mandateId?: string; detail?: string; coverage?: CompanyResearchCoverage; peopleSaved?: number }) {
+export function CompanyPipelineProgress({ job, jobs = [], mandateId, detail: startupDetail, coverage, peopleSaved, showCompaniesLink = true }: { job?: ResearchJob; jobs?: ResearchJob[]; mandateId?: string; detail?: string; coverage?: CompanyResearchCoverage; peopleSaved?: number; showCompaniesLink?: boolean }) {
   const state = job ? companyResearchProgressState(job, jobs, { coverage, peopleSaved }) : {
     settled: false, discovered: 0, processed: 0, active: 0, headcounts: 0, revenueBands: 0,
     abns: 0, peopleSaved: 0, peopleActive: 0, peopleQueued: 0, backgroundActive: 0, backgroundQueued: 0, savedIds: [],
@@ -57,6 +58,6 @@ export function CompanyPipelineProgress({ job, jobs = [], mandateId, detail: sta
     {state.settled && state.peopleActive + state.peopleQueued > 0 && <p className="mt-5 text-[11px] text-[#637592]">Finding people and emails: continuing in the background.</p>}
     {state.settled && state.backgroundActive + state.backgroundQueued > 0 && <p className="mt-3 text-[11px] text-[#637592]">Company details continue updating in the background.</p>}
     <p className="mt-6 text-[11px] text-[#637592]">{state.savedIds.length} {state.savedIds.length === 1 ? 'company' : 'companies'} saved · {Math.floor(seconds / 60)}m {seconds % 60}s{running ? ' so far' : ' elapsed'}</p>
-    {!running && mandateId && state.savedIds.length > 0 && <a href={`/mandates/${mandateId}?tab=targets`} className="mt-5 inline-block rounded-md bg-[#3732a0] px-4 py-3 text-sm font-semibold text-white">View companies</a>}
+    {showCompaniesLink && mandateId && state.savedIds.length > 0 && <a href={mandateCompaniesHref(mandateId)} className="mt-5 inline-block rounded-md bg-[#3732a0] px-4 py-3 text-sm font-semibold text-white">View companies</a>}
   </section>;
 }

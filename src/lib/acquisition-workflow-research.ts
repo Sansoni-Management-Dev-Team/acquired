@@ -55,7 +55,7 @@ export async function ensureWorkflowResearch(pool:Pool,actor:AgentActor,executio
    if(row.pending_child_people)await reconcileWorkflowPeopleSnapshots(pool,actor,execution);
    await advance(execution.preset==='live-research-test'?'complete':'ready');
   }
-  else if(['failed','cancelled'].includes(view.status)){if(view.status==='cancelled'&&row.pending_child_people)await reconcileWorkflowPeopleSnapshots(pool,actor,execution);await advance(view.status as 'failed'|'cancelled');}
+  else if(['failed','cancelled'].includes(view.status)){if(row.pending_child_people)await reconcileWorkflowPeopleSnapshots(pool,actor,execution);await advance(view.status as 'failed'|'cancelled');}
   else await advance('researching');
   return view;
  }

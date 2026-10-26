@@ -40,6 +40,16 @@ export class MandateResearchRevisionError extends Error {
 export type InitialResearchResponsibility = { id: string; revision: number; threadId: string };
 export type ResearchStartAdmission = { expectedMandateRevision?: string; initialResponsibility?: InitialResearchResponsibility };
 export type ResearchJobRow = typeof researchJobs.$inferSelect;
+// Same meaningful execution clock as researchExecutionUpdatedAt. This scoped
+// read lets the worker recheck fresh callbacks immediately before termination.
+export const researchExecutionProgressAt = sql<Date>`GREATEST(${researchJobs.updatedAt}, (
+ SELECT max(company_progress.updated_at) FROM research_jobs company_progress
+ WHERE company_progress.organization_id = ${researchJobs.organizationId}
+   AND company_progress.mandate_id = ${researchJobs.mandateId}
+   AND company_progress.created_by = ${researchJobs.createdBy}
+   AND company_progress.config->>'parentJobId' = ${researchJobs.id}::text
+   AND company_progress.config->>'researchTask' = 'company'
+))`.mapWith(researchJobs.updatedAt);
 export const researchExecutionSelection = { ...getTableColumns(researchJobs), config: sql<ResearchJobRow['config']>`${researchJobs.config} - 'pipelineTiming' - 'scheduling'` };
 export const researchControlConfig = sql<ResearchJobRow['config']>`jsonb_build_object('researchRunId', ${researchJobs.config}->'researchRunId', 'budget', ${researchJobs.config}->'budget', 'automaticDeadline', ${researchJobs.config}->'automaticDeadline', 'newBusinessIds', ${researchJobs.config}->'newBusinessIds', 'performanceFlags', ${researchJobs.config}->'performanceFlags')`;
 // Review screens need retry attempts and remaining URLs, but never saved HTML/markdown.

@@ -1,0 +1,1225 @@
+{
+  "auditDate": "2026-10-26",
+  "sourceRevision": "3657894701fc29a21df522bd793bf3ea2a5a4025",
+  "observedLocalRunsAt": "2026-10-26T03:59:13.054Z",
+  "method": "Read-only source/receipt/log audit, marked local PostgreSQL read-only snapshots and whitelisted container metadata. No provider requests, messages, test reruns, migrations, restarts or deployments for this audit.",
+  "questions": [
+    {
+      "id": "R01",
+      "area": "Mandate and discovery",
+      "question": "Can a normal mandate run save real companies?",
+      "local": "Yes \u2014 observed; latest classic root partial.",
+      "production": "Yes \u2014 bounded recorded GUI run, then cancelled.",
+      "evidence": "L1, P1",
+      "next_test": "T02"
+    },
+    {
+      "id": "R02",
+      "area": "Mandate and discovery",
+      "question": "Can an agent mandate run save real companies?",
+      "local": "Yes \u2014 observed in three recent agent runs.",
+      "production": "Yes \u2014 bounded recorded GUI run, then cancelled.",
+      "evidence": "L1, P1",
+      "next_test": "T02"
+    },
+    {
+      "id": "R03",
+      "area": "Mandate and discovery",
+      "question": "Does a new agent launch show the existing chat welcome and Start immediately?",
+      "local": "Yes \u2014 current browser fixture.",
+      "production": "Unverified; no release proof for this new UI.",
+      "evidence": "U1",
+      "next_test": "T01"
+    },
+    {
+      "id": "R04",
+      "area": "Mandate and discovery",
+      "question": "Does opening/reloading the pending agent chat avoid automatic generation/admission?",
+      "local": "Yes \u2014 automated and browser fixture.",
+      "production": "Unverified for this UI version.",
+      "evidence": "U1",
+      "next_test": "T01"
+    },
+    {
+      "id": "R05",
+      "area": "Mandate and discovery",
+      "question": "Does Start keep the same clean /agent URL?",
+      "local": "Yes \u2014 browser fixture through intercepted admission.",
+      "production": "Unverified for this UI version.",
+      "evidence": "U1",
+      "next_test": "T01"
+    },
+    {
+      "id": "R06",
+      "area": "Mandate and discovery",
+      "question": "Do refresh and retry preserve UUID/body and avoid regenerating an already frozen brief?",
+      "local": "Yes \u2014 automated and intercepted-failure browser proof.",
+      "production": "Partial \u2014 saved-demo API exact replay proven; new live UI not certified.",
+      "evidence": "U1, P2",
+      "next_test": "T01"
+    },
+    {
+      "id": "R07",
+      "area": "Mandate and discovery",
+      "question": "Does classic research remain on search+enrich until View companies is selected?",
+      "local": "Yes \u2014 browser fixture.",
+      "production": "Unverified for new stage routing.",
+      "evidence": "U2",
+      "next_test": "T02"
+    },
+    {
+      "id": "R08",
+      "area": "Mandate and discovery",
+      "question": "Does the dedicated Companies page render for an owned mandate?",
+      "local": "Yes \u2014 real authenticated page/table after app restart.",
+      "production": "Unverified for the new /companies page.",
+      "evidence": "U3",
+      "next_test": "T01"
+    },
+    {
+      "id": "R09",
+      "area": "Mandate and discovery",
+      "question": "Do classic and agent research share normal application research logic?",
+      "local": "Yes \u2014 source and automated coverage.",
+      "production": "Historical behavior consistent; no fresh path comparison.",
+      "evidence": "S1, P1",
+      "next_test": "T02"
+    },
+    {
+      "id": "R10",
+      "area": "Mandate and discovery",
+      "question": "Does research use the saved brief/revision rather than an unrelated run?",
+      "local": "Yes \u2014 source/automated and historical GUI checks.",
+      "production": "Partial \u2014 historical positive path; current race not exercised.",
+      "evidence": "S1, P1",
+      "next_test": "T02"
+    },
+    {
+      "id": "R11",
+      "area": "Mandate and discovery",
+      "question": "Does saved Run demo reuse saved company/person data instead of live research?",
+      "local": "Yes \u2014 current source/automated proof.",
+      "production": "Yes \u2014 normal saved-source admission and exact replay; no Start.",
+      "evidence": "S1, P2",
+      "next_test": "T04"
+    },
+    {
+      "id": "R12",
+      "area": "Mandate and discovery",
+      "question": "Does missing usable demo data fail without silently switching to paid live research?",
+      "local": "Yes \u2014 source/automated boundary.",
+      "production": "Historical explicit refusal; not a fresh audit probe.",
+      "evidence": "S1, P2",
+      "next_test": "T04"
+    },
+    {
+      "id": "R13",
+      "area": "Mandate and discovery",
+      "question": "Does the demo picker guarantee a practically usable native contact selection?",
+      "local": "Partial \u2014 corrected picker, real local DB rehearsal.",
+      "production": "Partial \u2014 ready source admitted, Start not exercised.",
+      "evidence": "D1, P2",
+      "next_test": "T04"
+    },
+    {
+      "id": "R14",
+      "area": "Mandate and discovery",
+      "question": "Is the requested company target a hard cap on discovered/profiled companies?",
+      "local": "No \u2014 a desired target, separate from finite exploration budgets.",
+      "production": "No \u2014 historical behavior also exceeded desired target.",
+      "evidence": "L1, H1",
+      "next_test": "T02"
+    },
+    {
+      "id": "R15",
+      "area": "Mandate and discovery",
+      "question": "Has a research-only workflow ever finished naturally locally?",
+      "local": "Yes \u2014 historical workflow completed with partial/failed optional jobs.",
+      "production": "Unverified natural production completion.",
+      "evidence": "H1",
+      "next_test": "T03"
+    },
+    {
+      "id": "R16",
+      "area": "Mandate and discovery",
+      "question": "Have all four latest sampled workflows finished?",
+      "local": "No \u2014 one complete, three still researching at snapshot.",
+      "production": "Not assessed by this local sample.",
+      "evidence": "L1",
+      "next_test": "T03"
+    },
+    {
+      "id": "R17",
+      "area": "Mandate and discovery",
+      "question": "Does workflow complete mean all facts were successfully enriched?",
+      "local": "No \u2014 completed 233 run still has 43 partial and 10 failed jobs.",
+      "production": "No basis for that interpretation.",
+      "evidence": "L1",
+      "next_test": "T03"
+    },
+    {
+      "id": "R18",
+      "area": "Mandate and discovery",
+      "question": "Does research-only prevent outreach?",
+      "local": "Yes \u2014 source/automated and bounded observed research runs.",
+      "production": "Historical bounded research check; no current full negative-path replay.",
+      "evidence": "S1, P1",
+      "next_test": "T02"
+    },
+    {
+      "id": "C01",
+      "area": "Company enrichment",
+      "question": "Do real provider company profiles persist into memberships?",
+      "local": "Yes \u2014 current real saved results.",
+      "production": "Yes \u2014 bounded recorded real-provider runs.",
+      "evidence": "L1, P1",
+      "next_test": "T02"
+    },
+    {
+      "id": "C02",
+      "area": "Company enrichment",
+      "question": "Can unmatched web companies remain without invented Firmable matches?",
+      "local": "Yes \u2014 historical observed cases and current source contract.",
+      "production": "Unverified fresh unmatched-company acceptance.",
+      "evidence": "H2, S1",
+      "next_test": "T02"
+    },
+    {
+      "id": "C03",
+      "area": "Company enrichment",
+      "question": "Are missing public fields queued separately from core company retrieval?",
+      "local": "Yes \u2014 current persisted job states.",
+      "production": "Historical source/release evidence; no fresh queue audit.",
+      "evidence": "L1, L2",
+      "next_test": "T03"
+    },
+    {
+      "id": "C04",
+      "area": "Company enrichment",
+      "question": "Are all requested public company fields filled?",
+      "local": "No \u2014 observed field failures and large pending queues.",
+      "production": "Unverified comprehensive coverage.",
+      "evidence": "L1, L2",
+      "next_test": "T05"
+    },
+    {
+      "id": "C05",
+      "area": "Company enrichment",
+      "question": "Does successful page retrieval establish that the requested fact was found?",
+      "local": "No \u2014 successful reads coexist with failed field outcomes.",
+      "production": "No such inference is justified.",
+      "evidence": "L2",
+      "next_test": "T05"
+    },
+    {
+      "id": "C06",
+      "area": "Company enrichment",
+      "question": "Does full-page reading work through the local worker?",
+      "local": "Yes \u2014 real HTTP 200/full HTML, plus saved company read attempts.",
+      "production": "Historical transport proof; no fresh current check.",
+      "evidence": "F1, L2",
+      "next_test": "T05"
+    },
+    {
+      "id": "C07",
+      "area": "Company enrichment",
+      "question": "Does reader busy/backoff defer and then recover without charging an unstarted read?",
+      "local": "Yes \u2014 regression tests and actual deferred\u2192successful reads.",
+      "production": "Unverified; this local repair has no production-release proof.",
+      "evidence": "F1, L2",
+      "next_test": "T05"
+    },
+    {
+      "id": "C08",
+      "area": "Company enrichment",
+      "question": "Does the local research worker resist UI-edit reload/cache failures?",
+      "local": "Yes \u2014 immutable release activated and real isolated Docker fixture passed.",
+      "production": "Different runtime; no production parity inferred.",
+      "evidence": "F2",
+      "next_test": "T03"
+    },
+    {
+      "id": "C09",
+      "area": "Company enrichment",
+      "question": "Are real company-progress timestamps separated from people-counter maintenance?",
+      "local": "Yes \u2014 source, fake-clock, SQL and real Worker regression checks.",
+      "production": "Unverified for this local repair.",
+      "evidence": "F3",
+      "next_test": "T03"
+    },
+    {
+      "id": "C10",
+      "area": "Company enrichment",
+      "question": "Can standalone/deferred timing writes persist with the saved job workflow identity?",
+      "local": "Yes \u2014 tests and four natural callback/database successes.",
+      "production": "Unverified for this local repair.",
+      "evidence": "F4",
+      "next_test": "T03"
+    },
+    {
+      "id": "C11",
+      "area": "Company enrichment",
+      "question": "Do financial fields consistently distinguish reported values, bands, modelling and unknowns?",
+      "local": "Partial \u2014 source/automated contracts; no complete current quality sample.",
+      "production": "Historical checks, not current comprehensive certification.",
+      "evidence": "S2",
+      "next_test": "T05"
+    },
+    {
+      "id": "C12",
+      "area": "Company enrichment",
+      "question": "Are all financial figures source-reported and verified?",
+      "local": "No \u2014 modelled/unavailable/review outcomes exist.",
+      "production": "No complete positive evidence.",
+      "evidence": "S2",
+      "next_test": "T05"
+    },
+    {
+      "id": "C13",
+      "area": "Company enrichment",
+      "question": "Does Fit now distinguish provisional evidence from a meaningful comparative ranking?",
+      "local": "Yes \u2014 corrected local view and automated checks.",
+      "production": "No release evidence for the new view.",
+      "evidence": "F5",
+      "next_test": "T05"
+    },
+    {
+      "id": "C14",
+      "area": "Company enrichment",
+      "question": "Are company-specific fit reasons proven correct for every result?",
+      "local": "No \u2014 useful scope facts shown, but full relevance accuracy not established.",
+      "production": "Unverified comprehensive accuracy.",
+      "evidence": "F5, L1",
+      "next_test": "T05"
+    },
+    {
+      "id": "C15",
+      "area": "Company enrichment",
+      "question": "Are country/filter interpretation and evidence conflicts always resolved automatically?",
+      "local": "No \u2014 original review stops/uncertainties are retained.",
+      "production": "Unverified comprehensive interpretation.",
+      "evidence": "F1, S2",
+      "next_test": "T05"
+    },
+    {
+      "id": "C16",
+      "area": "Company enrichment",
+      "question": "Are evidence freshness/cross-date conflict and HQ-only geography fully implemented?",
+      "local": "Unverified on current source \u2014 an older correctness report lists these policy gaps.",
+      "production": "Unverified; historical absence is not a fresh current audit.",
+      "evidence": "S2",
+      "next_test": "T05"
+    },
+    {
+      "id": "C17",
+      "area": "Company enrichment",
+      "question": "Will this local maintenance service recover the four sampled user workflows unattended?",
+      "local": "No \u2014 its configured organization AND owner differ from all four workflows.",
+      "production": "Unverified; do not project this local setup onto production.",
+      "evidence": "X1",
+      "next_test": "T03"
+    },
+    {
+      "id": "P01",
+      "area": "People enrichment",
+      "question": "Can company research retrieve and retain people?",
+      "local": "Yes \u2014 actual current people/profile and contact records.",
+      "production": "Yes \u2014 bounded recorded company/people runs.",
+      "evidence": "L1, P1",
+      "next_test": "T06"
+    },
+    {
+      "id": "P02",
+      "area": "People enrichment",
+      "question": "Does every saved company have a useful contact?",
+      "local": "No \u2014 incomplete coverage; totals also do not prove distribution.",
+      "production": "Unverified useful contact per company.",
+      "evidence": "L1, H2",
+      "next_test": "T06"
+    },
+    {
+      "id": "P03",
+      "area": "People enrichment",
+      "question": "Are all provider-found people admitted, profiled and saved?",
+      "local": "No \u2014 substantial budget-incomplete/cancelled admission.",
+      "production": "Unverified comprehensive coverage.",
+      "evidence": "L1",
+      "next_test": "T06"
+    },
+    {
+      "id": "P04",
+      "area": "People enrichment",
+      "question": "Does people settled:true mean every company/person succeeded?",
+      "local": "No \u2014 settled includes cancelled and admission-incomplete work.",
+      "production": "Same semantic limitation.",
+      "evidence": "L1",
+      "next_test": "T06"
+    },
+    {
+      "id": "P05",
+      "area": "People enrichment",
+      "question": "Are the four sampled root people aggregates terminal?",
+      "local": "Yes \u2014 each reports active0/queued0/settledtrue, with incomplete work.",
+      "production": "Not assessed by this local sample.",
+      "evidence": "L1",
+      "next_test": "T06"
+    },
+    {
+      "id": "P06",
+      "area": "People enrichment",
+      "question": "Do available-contact counts prove that many new people were created by this run?",
+      "local": "No \u2014 membership/canonical contacts can predate the run.",
+      "production": "No such inference is justified.",
+      "evidence": "L1",
+      "next_test": "T06"
+    },
+    {
+      "id": "P07",
+      "area": "People enrichment",
+      "question": "Does ordinary fresh Firmable research include people retrieval?",
+      "local": "Yes \u2014 source contract and real run evidence.",
+      "production": "Recorded bounded positive evidence.",
+      "evidence": "S1, L1, P1",
+      "next_test": "T06"
+    },
+    {
+      "id": "P08",
+      "area": "People enrichment",
+      "question": "Has manual Load people worked with a real selected Firmable transport?",
+      "local": "Yes \u2014 historical observed retrieval and saved rows.",
+      "production": "Unverified fresh manual production acceptance.",
+      "evidence": "H2",
+      "next_test": "T06"
+    },
+    {
+      "id": "P09",
+      "area": "People enrichment",
+      "question": "Can a genuine zero-person result remain honestly empty?",
+      "local": "Yes \u2014 historical real empty-result case.",
+      "production": "Unverified current empty-result acceptance.",
+      "evidence": "H2",
+      "next_test": "T06"
+    },
+    {
+      "id": "P10",
+      "area": "People enrichment",
+      "question": "Have real saved person emails been obtained?",
+      "local": "Yes \u2014 historical explicit email-field proof; current aggregate counts are not email completeness.",
+      "production": "Unverified current deliverable-email coverage.",
+      "evidence": "H2, L1",
+      "next_test": "T06"
+    },
+    {
+      "id": "P11",
+      "area": "People enrichment",
+      "question": "Are phone numbers automatically paid-unlocked/enriched?",
+      "local": "No \u2014 automatic phone inclusion is disabled.",
+      "production": "No positive paid unlock acceptance evidence.",
+      "evidence": "S1, H2",
+      "next_test": "T06"
+    },
+    {
+      "id": "P12",
+      "area": "People enrichment",
+      "question": "Is every table-visible person materialized and eligible for native outreach?",
+      "local": "No \u2014 explicit counterexample motivated demo-source repair.",
+      "production": "No \u2014 the original unusable source demonstrated this distinction.",
+      "evidence": "D1",
+      "next_test": "T04"
+    },
+    {
+      "id": "P13",
+      "area": "People enrichment",
+      "question": "Are public-site names/roles/company associations checked without guessing emails?",
+      "local": "Yes \u2014 automated source/negative-boundary checks; broad live quality partial.",
+      "production": "Unverified current comprehensive quality.",
+      "evidence": "S2",
+      "next_test": "T06"
+    },
+    {
+      "id": "P14",
+      "area": "People enrichment",
+      "question": "Are company inboxes prevented from becoming invented personal addresses?",
+      "local": "Yes \u2014 automated negative-boundary checks.",
+      "production": "Unverified fresh production sample.",
+      "evidence": "S2",
+      "next_test": "T06"
+    },
+    {
+      "id": "P15",
+      "area": "People enrichment",
+      "question": "Do partial pagination/profile failures preserve valid prior people?",
+      "local": "Yes \u2014 historical integration/source coverage; no fresh fault replay.",
+      "production": "Unverified fresh current failure-path acceptance.",
+      "evidence": "S2",
+      "next_test": "T06"
+    },
+    {
+      "id": "P16",
+      "area": "People enrichment",
+      "question": "Are all saved people verified current, reachable and appropriate decision makers?",
+      "local": "No \u2014 counts/profiles do not establish these qualities.",
+      "production": "No complete proof.",
+      "evidence": "L1, H2",
+      "next_test": "T06"
+    },
+    {
+      "id": "O01",
+      "area": "Simulator outreach",
+      "question": "Have simulated accounts/history readiness worked on all three channels?",
+      "local": "Yes \u2014 dated real local account/history evidence.",
+      "production": "Yes \u2014 dated hosted service readiness; not freshly probed here.",
+      "evidence": "O1, O3",
+      "next_test": "T07"
+    },
+    {
+      "id": "O02",
+      "area": "Simulator outreach",
+      "question": "Has normal Acquire approval\u2192accepted email been observed?",
+      "local": "Yes \u2014 real normal-route receipts on24 October.",
+      "production": "Unverified completed Acquire canary; earlier unknown retained.",
+      "evidence": "O1, O2",
+      "next_test": "T07"
+    },
+    {
+      "id": "O03",
+      "area": "Simulator outreach",
+      "question": "Has normal Acquire approval\u2192accepted WhatsApp been observed?",
+      "local": "Yes \u2014 real normal-route receipt on24 October.",
+      "production": "Unverified completed Acquire canary.",
+      "evidence": "O1",
+      "next_test": "T07"
+    },
+    {
+      "id": "O04",
+      "area": "Simulator outreach",
+      "question": "Has normal Acquire approval\u2192accepted LinkedIn message been observed?",
+      "local": "Yes \u2014 invitation and message approvals are separately evidenced.",
+      "production": "Unverified completed Acquire canary.",
+      "evidence": "O1",
+      "next_test": "T07"
+    },
+    {
+      "id": "O05",
+      "area": "Simulator outreach",
+      "question": "Has email produced a genuine AI reply and complete saved Acquire history?",
+      "local": "Yes \u2014 normal-route historical observation, including fresh24 October rerun.",
+      "production": "Unverified Acquire history; direct hosted provider reply is proven.",
+      "evidence": "O1, O2, O3",
+      "next_test": "T07"
+    },
+    {
+      "id": "O06",
+      "area": "Simulator outreach",
+      "question": "Has WhatsApp produced a genuine AI reply and complete saved Acquire history?",
+      "local": "Yes \u2014 normal-route historical pair; newer provider-only mapped-ingress proof is narrower.",
+      "production": "Unverified Acquire history; direct hosted provider reply is proven.",
+      "evidence": "O1, O2, O3",
+      "next_test": "T07"
+    },
+    {
+      "id": "O07",
+      "area": "Simulator outreach",
+      "question": "Has LinkedIn produced a genuine AI reply and complete saved Acquire history?",
+      "local": "Yes \u2014 normal-route historical pair; newer provider-only mapped-ingress proof is narrower.",
+      "production": "Unverified Acquire history; direct hosted provider reply is proven.",
+      "evidence": "O1, O2, O3",
+      "next_test": "T07"
+    },
+    {
+      "id": "O08",
+      "area": "Simulator outreach",
+      "question": "Has the hosted simulator itself accepted email and generated a genuine reply?",
+      "local": "Yes \u2014 local equivalent also proven.",
+      "production": "Yes \u2014 direct provider pair18.513s, not a full Acquire send.",
+      "evidence": "O3",
+      "next_test": "T07"
+    },
+    {
+      "id": "O09",
+      "area": "Simulator outreach",
+      "question": "Has the hosted simulator itself accepted WhatsApp and generated a genuine reply?",
+      "local": "Yes \u2014 local equivalent also proven.",
+      "production": "Yes \u2014 direct provider pair7.506s, not a full Acquire send.",
+      "evidence": "O3",
+      "next_test": "T07"
+    },
+    {
+      "id": "O10",
+      "area": "Simulator outreach",
+      "question": "Has the hosted simulator itself accepted LinkedIn and generated a genuine reply?",
+      "local": "Yes \u2014 local equivalent also proven.",
+      "production": "Yes \u2014 direct provider pair34.718s, not a full Acquire send.",
+      "evidence": "O3",
+      "next_test": "T07"
+    },
+    {
+      "id": "O11",
+      "area": "Simulator outreach",
+      "question": "Have the exact fresh email replies been verified rendered in the latest browser acceptance?",
+      "local": "Unverified \u2014 API/DB history proof is stronger than inspected browser evidence.",
+      "production": "Unverified.",
+      "evidence": "O1, O2",
+      "next_test": "T07"
+    },
+    {
+      "id": "O12",
+      "area": "Simulator outreach",
+      "question": "Have the exact fresh WhatsApp replies been verified rendered in the latest browser acceptance?",
+      "local": "Unverified \u2014 API/DB history verified, current rendered exact reply not established.",
+      "production": "Unverified.",
+      "evidence": "O1, O2",
+      "next_test": "T07"
+    },
+    {
+      "id": "O13",
+      "area": "Simulator outreach",
+      "question": "Have the exact fresh LinkedIn replies been verified rendered in the latest browser acceptance?",
+      "local": "Unverified \u2014 API/DB history verified, current rendered exact reply not established.",
+      "production": "Unverified.",
+      "evidence": "O1, O2",
+      "next_test": "T07"
+    },
+    {
+      "id": "O14",
+      "area": "Simulator outreach",
+      "question": "Do unallocated/foreign incoming messages avoid being credited to the wrong conversation?",
+      "local": "Yes \u2014 observed ignored/identity-review outcomes and correct mapped histories.",
+      "production": "Partial \u2014 callback transport proven; complete Acquire projection not certified.",
+      "evidence": "O2",
+      "next_test": "T07"
+    },
+    {
+      "id": "O15",
+      "area": "Simulator outreach",
+      "question": "Are account, owner, recipient and original dispatch-intent boundaries checked?",
+      "local": "Yes \u2014 automated/isolated tests and observed normal local receipts.",
+      "production": "Partial \u2014 unknown original/send authority failures remain; not a completed normal canary.",
+      "evidence": "O1, O4",
+      "next_test": "T07"
+    },
+    {
+      "id": "O16",
+      "area": "Simulator outreach",
+      "question": "Has same-key replay avoided a second provider/model effect?",
+      "local": "Yes \u2014 exact local raw-email replay; changed payload409.",
+      "production": "Partial \u2014 bounded service proof, not full three-channel Acquire replay matrix.",
+      "evidence": "O4",
+      "next_test": "T08"
+    },
+    {
+      "id": "O17",
+      "area": "Simulator outreach",
+      "question": "Does restart preserve simulator history/personas/receipts?",
+      "local": "Yes \u2014 dated local preservation evidence.",
+      "production": "Yes \u2014 dated hosted release/preservation evidence.",
+      "evidence": "O4",
+      "next_test": "T08"
+    },
+    {
+      "id": "O18",
+      "area": "Simulator outreach",
+      "question": "Has a full current post-restart Acquire roundtrip been repeated on all three channels?",
+      "local": "Unverified at source3657894.",
+      "production": "Unverified.",
+      "evidence": "O1, O3, O4",
+      "next_test": "T07"
+    },
+    {
+      "id": "O19",
+      "area": "Simulator outreach",
+      "question": "Do shared-channel persona history and lead/demo separation work?",
+      "local": "Partial \u2014 source/tests and older multichannel pilot; newest pairs are separate.",
+      "production": "Partial \u2014 hosted persistence/source proof; no current full Acquire cross-channel follow-up.",
+      "evidence": "O4, Q3",
+      "next_test": "T08"
+    },
+    {
+      "id": "O20",
+      "area": "Simulator outreach",
+      "question": "Are all historical unknown outbound attempts now resolved?",
+      "local": "No \u2014 separately retained originals must not be treated as later successes.",
+      "production": "Unverified exact-original settlement; earlier email unknown retained.",
+      "evidence": "O4",
+      "next_test": "T08"
+    },
+    {
+      "id": "O21",
+      "area": "Simulator outreach",
+      "question": "Does simulator evidence prove real Unipile email/WhatsApp/LinkedIn delivery?",
+      "local": "No \u2014 simulator/provider fixtures are a different claim.",
+      "production": "No \u2014 hosted simulator liveSending:false.",
+      "evidence": "O3, O4",
+      "next_test": "Separate real-provider UAT; not covered by simulator tests"
+    },
+    {
+      "id": "Q01",
+      "area": "Sequencer",
+      "question": "Can a user create/edit a sequence?",
+      "local": "Yes \u2014 historical integration/browser and current automated contracts.",
+      "production": "Unverified current authoring acceptance.",
+      "evidence": "Q1",
+      "next_test": "T09"
+    },
+    {
+      "id": "Q02",
+      "area": "Sequencer",
+      "question": "Does publication freeze a version and preserve concurrent human edits?",
+      "local": "Yes \u2014 isolated PostgreSQL and historical integration.",
+      "production": "Unverified current publication acceptance.",
+      "evidence": "Q1, Q2",
+      "next_test": "T09"
+    },
+    {
+      "id": "Q03",
+      "area": "Sequencer",
+      "question": "Does approval of an agent draft avoid implicit publishing/enrolment/sending?",
+      "local": "Yes \u2014 isolated PostgreSQL boundary checks.",
+      "production": "Unverified current UI\u2192DB boundary.",
+      "evidence": "Q2",
+      "next_test": "T09"
+    },
+    {
+      "id": "Q04",
+      "area": "Sequencer",
+      "question": "Can lost publication responses recover without duplicate n8n workflow creation?",
+      "local": "Yes \u2014 PostgreSQL plus mocked n8n provider; actual network fault path unverified.",
+      "production": "Unverified.",
+      "evidence": "Q2",
+      "next_test": "T09"
+    },
+    {
+      "id": "Q05",
+      "area": "Sequencer",
+      "question": "Are enrolments pinned to reviewed version/runtime/account/recipient?",
+      "local": "Yes \u2014 isolated PostgreSQL and historical integration.",
+      "production": "Unverified fresh acceptance.",
+      "evidence": "Q1, Q2",
+      "next_test": "T09"
+    },
+    {
+      "id": "Q06",
+      "area": "Sequencer",
+      "question": "Is n8n campaign scheduling active in the current isolated app lane?",
+      "local": "No \u2014 current app CAMPAIGN_N8N_ENABLED=false.",
+      "production": "Unverified actual active workflow; runbook configuration is not execution proof.",
+      "evidence": "X2, Q6",
+      "next_test": "T09"
+    },
+    {
+      "id": "Q07",
+      "area": "Sequencer",
+      "question": "Is the native agent worker running in the isolated lane?",
+      "local": "Yes \u2014 container running; that alone is not due-event pickup proof.",
+      "production": "Unverified current worker heartbeat/pickup.",
+      "evidence": "X2, Q5",
+      "next_test": "T10"
+    },
+    {
+      "id": "Q08",
+      "area": "Sequencer",
+      "question": "Has a native due event advanced work with the page closed?",
+      "local": "Yes \u2014 historical worker evidence and automated checks; current acceptance unverified.",
+      "production": "Unverified.",
+      "evidence": "Q3, Q5",
+      "next_test": "T10"
+    },
+    {
+      "id": "Q09",
+      "area": "Sequencer",
+      "question": "Does native cold sequencing advance email\u2192WhatsApp\u2192LinkedIn for one person?",
+      "local": "Yes \u2014 historical real local HIL sequence with short reviewed cadence.",
+      "production": "Unverified.",
+      "evidence": "Q4",
+      "next_test": "T10"
+    },
+    {
+      "id": "Q10",
+      "area": "Sequencer",
+      "question": "Has default real elapsed cadence been demonstrated end to end?",
+      "local": "Unverified \u2014 short/accelerated reviewed pilots do not prove default24h timing.",
+      "production": "Unverified.",
+      "evidence": "Q4",
+      "next_test": "T10"
+    },
+    {
+      "id": "Q11",
+      "area": "Sequencer",
+      "question": "Do sending windows/timezone/DST rules have boundary tests?",
+      "local": "Yes \u2014 automated; some historical positive-window cases skipped.",
+      "production": "Unverified natural deployed boundary.",
+      "evidence": "Q1, Q5",
+      "next_test": "T10"
+    },
+    {
+      "id": "Q12",
+      "area": "Sequencer",
+      "question": "Does changing cadence automatically retime existing schedules?",
+      "local": "Partial \u2014 an older run required explicit guarded retiming; contract needs clarification.",
+      "production": "Unverified.",
+      "evidence": "Q5",
+      "next_test": "T10"
+    },
+    {
+      "id": "Q13",
+      "area": "Sequencer",
+      "question": "Can warm follow-up select the route that actually answered latest inbound?",
+      "local": "Yes \u2014 synthetic real-PostgreSQL/engine evidence.",
+      "production": "Unverified.",
+      "evidence": "Q7",
+      "next_test": "T11"
+    },
+    {
+      "id": "Q14",
+      "area": "Sequencer",
+      "question": "Has a naturally elapsed warm follow-up produced a physical submitted receipt?",
+      "local": "Unverified.",
+      "production": "Unverified.",
+      "evidence": "Q7",
+      "next_test": "T11"
+    },
+    {
+      "id": "Q15",
+      "area": "Sequencer",
+      "question": "Does genuine inbound stop cold outreach across channels?",
+      "local": "Yes \u2014 historical genuine AI plus scripted local race/SQL matrix.",
+      "production": "Unverified current complete app acceptance.",
+      "evidence": "Q3, Q4",
+      "next_test": "T07"
+    },
+    {
+      "id": "Q16",
+      "area": "Sequencer",
+      "question": "Are accepted/unknown originals retained rather than automatically resent?",
+      "local": "Yes \u2014 real local held-original race plus integration.",
+      "production": "Partial \u2014 older unknown original retained, settlement unverified.",
+      "evidence": "Q3, O4",
+      "next_test": "T08"
+    },
+    {
+      "id": "Q17",
+      "area": "Sequencer",
+      "question": "Do duplicate callbacks avoid duplicate sends/receipt effects?",
+      "local": "Yes \u2014 automated/isolated and historical observed cases.",
+      "production": "Unverified current distributed replay.",
+      "evidence": "Q1, Q3, Q4",
+      "next_test": "T08"
+    },
+    {
+      "id": "Q18",
+      "area": "Sequencer",
+      "question": "Does LinkedIn invitation acceptance branch on verified relationship evidence?",
+      "local": "Yes \u2014 simulator acceptance fixture and synthetic n8n branches; natural real acceptance unverified.",
+      "production": "Unverified.",
+      "evidence": "Q1, Q3",
+      "next_test": "T12"
+    },
+    {
+      "id": "Q19",
+      "area": "Sequencer",
+      "question": "Do pause/stop/revocation/suppression invalidate stale sending authority?",
+      "local": "Yes \u2014 automated/isolated and historical observed controls.",
+      "production": "Unverified current negative-path acceptance.",
+      "evidence": "Q1, Q2, Q3",
+      "next_test": "T08"
+    },
+    {
+      "id": "Q20",
+      "area": "Sequencer",
+      "question": "Is sequence\u2194agent handover exclusive across old runtime and unknown attempts?",
+      "local": "Yes \u2014 isolated PostgreSQL; complete current GUI adoption unverified.",
+      "production": "Unverified.",
+      "evidence": "Q2",
+      "next_test": "T09"
+    },
+    {
+      "id": "Q21",
+      "area": "Sequencer",
+      "question": "Does meeting-ready stop at human scheduling handoff?",
+      "local": "Yes \u2014 historical real local tasks/notices and tests.",
+      "production": "Unverified current acceptance.",
+      "evidence": "Q3",
+      "next_test": "T11"
+    },
+    {
+      "id": "Q22",
+      "area": "Sequencer",
+      "question": "Does the agent autonomously book meetings?",
+      "local": "No \u2014 existing behavior hands scheduling to a human.",
+      "production": "No established implementation/acceptance.",
+      "evidence": "Q3",
+      "next_test": "Outside current scope"
+    },
+    {
+      "id": "Q23",
+      "area": "Sequencer",
+      "question": "Has an actual n8n persisted wait survived process restart end to end?",
+      "local": "Unverified \u2014 historical restart test was not executed.",
+      "production": "Unverified.",
+      "evidence": "Q1",
+      "next_test": "T09"
+    },
+    {
+      "id": "Q24",
+      "area": "Sequencer",
+      "question": "Does native restart preserve reminders and safely resume actual due work?",
+      "local": "Partial \u2014 reminder persistence proven; natural post-restart follow-up send not located.",
+      "production": "Unverified.",
+      "evidence": "Q2, Q5",
+      "next_test": "T10"
+    },
+    {
+      "id": "Q25",
+      "area": "Sequencer",
+      "question": "Is the complete current sequence\u2192due\u2192follow-up\u2192reply\u2192stop lifecycle certified?",
+      "local": "Partial \u2014 strong historical pieces, no current complete unattended certificate.",
+      "production": "Unverified.",
+      "evidence": "Q1\u2013Q7",
+      "next_test": "T10, T11"
+    },
+    {
+      "id": "X01",
+      "area": "Runtime and test coverage",
+      "question": "Does the latest default app suite pass?",
+      "local": "Yes \u2014 7,269 passed;959 skipped,822 passing/138 skipped files.",
+      "production": "No current-source deployed run inferred.",
+      "evidence": "A1",
+      "next_test": "T01\u2013T11"
+    },
+    {
+      "id": "X02",
+      "area": "Runtime and test coverage",
+      "question": "Were all integration tests executed by that default suite?",
+      "local": "No \u2014 many are env-gated; Worker/Node suites are separate.",
+      "production": "No inference possible.",
+      "evidence": "A1",
+      "next_test": "Select applicable approved-schema suites"
+    },
+    {
+      "id": "X03",
+      "area": "Runtime and test coverage",
+      "question": "Do TypeScript and scoped lint pass?",
+      "local": "Yes \u2014 latest UI correction checks pass.",
+      "production": "Not a deployment certificate.",
+      "evidence": "A1",
+      "next_test": "Release build when authorized"
+    },
+    {
+      "id": "X04",
+      "area": "Runtime and test coverage",
+      "question": "Are current local source, remote main and production known identical?",
+      "local": "No \u2014 local main is8commits ahead of cached origin/main; services have distinct versions.",
+      "production": "No fresh deployment attestation in this audit.",
+      "evidence": "X2, P2",
+      "next_test": "T12"
+    },
+    {
+      "id": "X05",
+      "area": "Runtime and test coverage",
+      "question": "Is the old source-watch/cache defect fixed in the current research worker?",
+      "local": "Yes \u2014 pinned bundle active, writable scratch, verified fixture; no current new restart.",
+      "production": "Not a claim about hosted runtime.",
+      "evidence": "F2, X2",
+      "next_test": "T03"
+    },
+    {
+      "id": "X06",
+      "area": "Runtime and test coverage",
+      "question": "Does every running local container prove app health?",
+      "local": "No \u2014 multiple old/separate stacks still run; audit uses acquire-isolated lane.",
+      "production": "No.",
+      "evidence": "X2",
+      "next_test": "T12"
+    },
+    {
+      "id": "X07",
+      "area": "Runtime and test coverage",
+      "question": "Does current isolated reply-monitor mode equal the old off runbook setting?",
+      "local": "No \u2014 actual app value is enforce; n8n remains false.",
+      "production": "Actual production flags unverified; historical observe runbook must be reconciled.",
+      "evidence": "X2, Q6",
+      "next_test": "T12"
+    },
+    {
+      "id": "X08",
+      "area": "Runtime and test coverage",
+      "question": "Has production been freshly re-attested or sent new messages during this audit?",
+      "local": "No \u2014 evidence review plus read-only local checks only.",
+      "production": "No \u2014 production conclusions are dated evidence.",
+      "evidence": "Audit method",
+      "next_test": "T12"
+    }
+  ],
+  "evidence": {
+    "A1": {
+      "label": "Current regression baseline",
+      "date_layer": "26 October,3657894",
+      "reference": "/tmp/acquire-existing-chat-vitest.log; /tmp/acquire-existing-chat-types.log; /tmp/acquire-existing-chat-lint.log; /tmp/acquire-direct-agent-node.log. Default Vitest7269/959skipped, Node238 earlier; tests are separate layers."
+    },
+    "L1": {
+      "label": "Fresh local database snapshot",
+      "date_layer": "26 October03:59:13UTC",
+      "reference": "../../.local-data/system-state-audit-20261026/current-runs.private.json and current-runs.log; exact marked5437 target verified; all queries READ ONLY with short statement timeouts."
+    },
+    "L2": {
+      "label": "Earlier db48 detailed field/attempt observations",
+      "date_layer": "26 October, earlier than L1",
+      "reference": "../../.local-data/tail-db48e7e3/latest.private.json. Seven finished public-field objects/43outcomes is a narrow sample; older counts do not override L1."
+    },
+    "U1": {
+      "label": "Current shared chat welcome/Start browser proof",
+      "date_layer": "26 October,3657894",
+      "reference": "../../output/playwright/agent-chat-start-proof.log and agent-chat-before-start.png; actual NextUI, generation/admission intercepted; no live workflow created."
+    },
+    "U2": {
+      "label": "Classic search-stage routing fixture",
+      "date_layer": "26 October,d59c18a lineage",
+      "reference": "../../output/playwright/search-stage/browser-proof.log; initial UUID, manual View companies, completion stays on stage, refresh no repeated admission; intercepted workflow."
+    },
+    "U3": {
+      "label": "Canonical Companies runtime repair",
+      "date_layer": "26 October",
+      "reference": "../../.local-data/tail-db48e7e3/route-probe.mjs and companies-pilot.private.html; ../../output/playwright/companies-route-registered.png. Same owned URL404before app restart,200after; visible heading/table/26rows. ../../src/app/workspace-routing.test.tsx separately covers empty active result."
+    },
+    "P1": {
+      "label": "Actual production research GUI acceptance",
+      "date_layer": "24 October,e14ddc7",
+      "reference": "../communications/research-ui-verification.md and ../communications/progress.md. Classic7c96b8a9 and agent452577fd each retained10companies/1person, then deliberately cancelled. No natural completion or outreach implied."
+    },
+    "P2": {
+      "label": "Latest recorded production saved-demo admission/replay",
+      "date_layer": "4208138; recorded in26 October progress entry",
+      "reference": "../communications/progress.md; ../../.local-data/agent-tail-4bd54736/fresh-demo-{create,replay,state}.private.json and fresh-demo-verification.log; ../../.local-data/demo-source-release/build-verification.json. Create201/10059ms; replay200/4174ms; identical source/execution, ready,0conversations; noStart/send."
+    },
+    "D1": {
+      "label": "Usable native saved-demo source repair",
+      "date_layer": "26 October,4208138 lineage",
+      "reference": "../../.local-data/agent-tail-4bd54736/source-final47-green.log, workflow-source-verified.private.json, workflow-local-rollback.private.log; ../../src/lib/workflow-demo-source.test.ts. Source availability does not itself grant send authority."
+    },
+    "H1": {
+      "label": "Natural local research completion",
+      "date_layer": "24 October",
+      "reference": "../../ops/agent-mode/isolated-research.md.1e3e9991 workflowcomplete;100 companies / 103 people / 94 findings;197 jobs terminal:101 complete / 85 partial / 11 failed. Target1 was not a hard candidate cap."
+    },
+    "H2": {
+      "label": "Historical genuine fresh research/manual people checks",
+      "date_layer": "18 October",
+      "reference": "../58-fresh-mandate-research-verification.md.94 Firmable matches / 6 unmatched web companies; selected 4 saved people / 4 emails; honest empty-result case; no phone unlock. Its old Run-demo semantics do not describe current saved-demo."
+    },
+    "S1": {
+      "label": "Current application research contracts",
+      "date_layer": "3657894 source/tests",
+      "reference": "../../src/lib/start-mandate-research.ts; ../../src/lib/acquisition-workflow-research.ts; ../../src/lib/mandate-search-launch.ts and adjacent tests. Source/unit proof is not live acceptance."
+    },
+    "S2": {
+      "label": "Research evidence/correctness contracts",
+      "date_layer": "Current relevant source/tests plus7\u20138October historical report",
+      "reference": "../research-correctness/verification/README.md; ../research-correctness/nonblocking-enrichment.md; ../../src/domain/firmable-company-pipeline.test.ts; ../../src/domain/people-research.test.ts; ../33-firmable-shared-history-execution-plan.md. Older documented gaps need re-establishment before calling them current defects."
+    },
+    "F1": {
+      "label": "Reader retry/transport repair",
+      "date_layer": "26 October,27d75ae lineage",
+      "reference": "../../.local-data/reader-cooldown-fix/{red,green}.log; ../../ops/agent-mode/isolated-research.md; L2 saved reader-admission deferrals then success; example.com real full-HTML HTTP 200 in2894ms is transport proof."
+    },
+    "F2": {
+      "label": "Pinned local Worker runtime",
+      "date_layer": "26 October,20ba1a5 active bundle",
+      "reference": "../../.local-data/isolated-research/runtime-checks/check-ZVxU2c/report.json; ../../ops/agent-mode/isolated-research.md. Real Docker network:none delayed request, no source reload, writable cache, completed Workflow persists restart; final read-only-parent mount regression repaired before activation."
+    },
+    "F3": {
+      "label": "Meaningful research liveness repair",
+      "date_layer": "26 October,27d75ae lineage",
+      "reference": "../../.local-data/research-liveness-fix/evidence.json and ../../ops/agent-mode/isolated-research.md. Fake-clock/scoped SQL/Worker tests; no old outcome relabelled successful."
+    },
+    "F4": {
+      "label": "Timing writer context repair",
+      "date_layer": "26 October,597b589",
+      "reference": "../../src/db/research-timing-workflow-context.test.ts; ../../ops/agent-mode/isolated-research.md.6 new regressions red\u2192green; natural timingcallbacks200/spans for4 managed children after original P0001; business updated_at unchanged."
+    },
+    "F5": {
+      "label": "Fit projection repair",
+      "date_layer": "26 October,d59c18a lineage",
+      "reference": "../../.local-data/fit-df1f2a53/; ../../src/components/mandate-fit-cells.test.tsx; ../../src/domain/scoped-mandate-fit.ts.95nonexcluded rows internal50 arose from equal provisional half-credit; corrected display is not invented score variance."
+    },
+    "O1": {
+      "label": "Normal local Acquire-route channel receipts",
+      "date_layer": "24 October UTC",
+      "reference": "../../../project-acquire-database-release/.local-data/local-channel-canary/{email-initial,wa-second,li-initial}-observation.private.json plus matching approvals. Email06:17:05\u219206:17:11; WA05:43:18\u219205:43:23; LI06:02:28\u219206:02:33. Original submitted operations and complete saved pairs, not necessarily browser-driven steps."
+    },
+    "O2": {
+      "label": "Newer local normal-email and mapped social-ingress proof",
+      "date_layer": "24 October UTC,2b7242f\u219232a752b",
+      "reference": "../../../project-acquire-database-release/.local-data/local-channel-rerun/: email-lead-201-149.private.json normal-route13:20:32\u219213:20:38; newer WA13:27 andLI13:28 sends are provider-only; wa/li-projection-latest.private.json exact inbound history13:53:20; mapped-normal-projection.private.json HTTP 200complete13:53:57. Browser exact reply rendering not established."
+    },
+    "O3": {
+      "label": "Hosted simulator direct-provider accepted/reply pairs",
+      "date_layer": "24 October,f91ac78",
+      "reference": "../../../acquire-simulator/.local-data/idempotency-release/final-pairs.private.json.6 messages/3 complete model decisions; WA7.506s,LI34.718s,email18.513s; normalized webhooks delivered. This does not prove correct production Acquire conversation persistence."
+    },
+    "O4": {
+      "label": "Communications boundaries and preservation",
+      "date_layer": "Dated local/hosted evidence,18\u201324 October",
+      "reference": "../../ops/agent-mode/testing-service.md; ../communications/channel-canary-rerun.md; ../communications/progress.md; ../../../acquire-simulator/docs/provider-idempotency-persona-separation.md; ../../../acquire-simulator/docs/retained-outbound-portable.md. Local replay same receipt/no extra effect; restart retained data; raw unallocated events ignored/reviewed; exact unknown originals retained. Acceptance A05\u2013A16,A19,A21/A25; P4/P5/P6."
+    },
+    "Q1": {
+      "label": "Historical campaign/n8n integration",
+      "date_layer": "6October baseline plus integration addendum",
+      "reference": "../campaign-sequence-audit.md.29 real PostgreSQL/9 HTTP-double cases, actual local n8n callbacks/app\u2192n8n\u2192sink/browser; no actual persisted-wait restart. Some direct-channel coverage predates D19 extraction."
+    },
+    "Q2": {
+      "label": "Native sequence draft/publication/enrolment/handover isolation",
+      "date_layer": "17 October",
+      "reference": "../47-agent-sequence-audit-migration.md; ../49-agent-final-acceptance-migrations.md. Actual sibling agent-mode logs draft5/5, execution10/10, full184/184; real localDB with mocked n8n provider ports. Source ../../src/db/agent-sequence-channels-local.integration.test.ts for exclusive handover."
+    },
+    "Q3": {
+      "label": "Final historical50-person native pilot",
+      "date_layer": "18 October00:34:59UTC",
+      "reference": "../57-agent-multichannel-local-verification.md.50 contacted;103 simulator messages64out39in(32 natural / 7 scripted),5 email / 3 WhatsApp / 2 LinkedIn conversational sends; human assistance. Exact held-original race and4 human handoffs; not autonomous bookings or a new release test."
+    },
+    "Q4": {
+      "label": "Historical same-person GUI multichannel cadence",
+      "date_layer": "20 October22:43\u201322:46UTC",
+      "reference": "../communications/progress.md near2744; ../../../project-acquire-agent-mode/.local-data/agent-mode-orbstack/evidence/three-channel-fresh-20261021/checks.private.json.16/16 assertions,3 outbound / 1 scripted inbound / 4 saved, exact original receipts. Folder/local-date21 October is not UTC event date; short reviewed cadence."
+    },
+    "Q5": {
+      "label": "Native scheduling/retiming/polling evidence",
+      "date_layer": "17\u201324 October",
+      "reference": "../communications/progress.md near2573(cadence retiming),2756(adaptivepoll),4091(postcommitwake); ../../ops/agent-mode/README.md; current ../../src/db/agent-channel-store.ts and ../../src/lib/agent-native-handlers.ts. Historical worker/reminder survival is narrower than natural elapsed physical follow-up."
+    },
+    "Q6": {
+      "label": "Production n8n configuration record",
+      "date_layer": "Historical runbook; not remotely rechecked",
+      "reference": "../../ops/app/README.md near137; ../../ops/n8n/acquire-campaign-tick.json. Recorded production n8n=true/replyobserve; templateactive:false is not deployed active-state proof. Current local flags are X2 instead."
+    },
+    "Q7": {
+      "label": "Warm-follow-up engine/SQL proof",
+      "date_layer": "Historical local0062 repair",
+      "reference": "../communications/progress.md near1565; ../../../project-acquire-agent-mode/.local-data/agent-mode-orbstack/evidence/warm-followup-pg-green.private.log.13 tests/3 files; synthetic due/history rows, no located natural physical elapsed warm-follow-up receipt."
+    },
+    "X1": {
+      "label": "Current maintenance actor mismatch",
+      "date_layer": "26 October04:02:31UTC",
+      "reference": "../../.local-data/system-state-audit-20261026/maintenance-scope.private.json. Enabled=true; organizationMatches=false and ownerMatches=false for all 4 workflow IDs, checked using marked local DB READ ONLY. This is scoped provisioning evidence, not a global recovery-policy failure."
+    },
+    "X2": {
+      "label": "Current local version/config inventory",
+      "date_layer": "26 October approximately04:02UTC",
+      "reference": "../../.local-data/system-state-audit-20261026/runtime-inventory.private.json; whitelisted Docker app flags. Source3657894/cached origin 4926710; pinned research 20ba1a5, isolated simulator label f91ac78; native lacks inspected revision label. Local n8nfalse/replymonitorenforce. No remote attestation."
+    }
+  },
+  "nextAcceptanceChecks": [
+    {
+      "id": "T01",
+      "title": "Current UI entry/refresh/Start and routing",
+      "steps": "Create fresh classic and agent launches on the selected test account. Check the UUID, stage URL, chat welcome and Start, no generation or admission before Start, the owned Companies page and refresh. Include one successful normal admission; keep saved-demo behavior separate.",
+      "passEvidence": "Browser view, original request identity/body digest, one saved workflow/root and no duplicate generation or admission."
+    },
+    {
+      "id": "T02",
+      "title": "Bounded discovery acceptance",
+      "steps": "Use one known brief in classic and agent modes with recorded policies and budgets. Trace web search and Firmable provenance without outreach, and observe the natural root outcome. Compare actual profiling limits with the desired company target.",
+      "passEvidence": "Real provider receipt \u2192 canonical company ID \u2192 membership \u2192 visible company row, plus an honest partial/complete outcome and actual work/cost counters."
+    },
+    {
+      "id": "T03",
+      "title": "Correct-actor unattended recovery and drain",
+      "steps": "Provision or select maintenance for the intended owner/workspace while preserving the separate pilot scope. Close the browser and observe original queued jobs, meaningful progress timestamps and each research stage. Do not reset, delete or replay old runs to manufacture completion.",
+      "passEvidence": "Matching owner/workspace, original IDs retained, bounded queue progress without the browser, and an honest terminal result or actionable blocker for each stage."
+    },
+    {
+      "id": "T04",
+      "title": "Saved-demo source and safe Start",
+      "steps": "Use normal Run demo with an unused usable owned source. Record original mandate/company/person IDs and retry the same request. Inspect native selection through normal controls; sending is a separate step in a configured simulated canary.",
+      "passEvidence": "Same saved data source, no new live research, usable materialized contacts, identical source/execution on retry, and explicit refusal for stale or absent sources."
+    },
+    {
+      "id": "T05",
+      "title": "Company-field accuracy and missingness",
+      "steps": "Sample current companies with exact or banded financial data, geography, sector and relevant missing fields. Review public sources and persisted quotes, scope, currency and dates. Separate genuinely unpublished facts from retrieval failures and work not attempted.",
+      "passEvidence": "Each requested field has a supported value, an honest not-disclosed result after adequate coverage, or an explicit operational gap. Independently review fit reasons."
+    },
+    {
+      "id": "T06",
+      "title": "People coverage and identity reconciliation",
+      "steps": "For a small company sample reconcile found rows \u2192 unique identities \u2192 admitted profiles \u2192 saved contacts \u2192 useful role/channel data. Include empty results and partial pagination. Separate historical available contacts from new writes, and phone availability from paid unlocking.",
+      "passEvidence": "Per-company coverage and reasons, original observations, no fabricated personal email or role, no silent deletion, and a separately scoped paid-phone test only if requested."
+    },
+    {
+      "id": "T07",
+      "title": "One complete normal simulator canary per channel",
+      "steps": "Use a fresh explicitly configured simulated account/person and the normal Acquire approval and dispatch path. Correlate original intent \u2192 submitted receipt \u2192 genuine model decision \u2192 normalized event/ACK \u2192 exact owned Acquire inbound \u2192 browser rendering. Treat local and hosted as separate acceptance scopes.",
+      "passEvidence": "One original outbound and its exact genuine reply per channel, correct conversation/account/owner and visible saved history. A provider-only pair is insufficient."
+    },
+    {
+      "id": "T08",
+      "title": "Recovery, replay, cross-channel stop and restart",
+      "steps": "Inspect retained unknown originals through lookup-only recovery first. In a separate test scope exercise duplicates, changed payloads, lost acknowledgements, genuine inbound before due time, incorrect identity and a controlled restart. Preserve unknown holds and original bindings.",
+      "passEvidence": "Exactly one physical effect, original receipt retained, correct cross-channel stop, preserved history/holds, stale approval rejected and no foreign reply credited."
+    },
+    {
+      "id": "T09",
+      "title": "Real current campaign/n8n sequence lane",
+      "steps": "Read actual active n8n workflows and runtime configuration first. Use a dedicated isolated campaign/n8n lane. Author, publish and enrol with exact versions/accounts, then exercise an actual HTTP lost response and a persisted wait across restart.",
+      "passEvidence": "Saved editor state, immutable version, one workflow/enrolment, app \u2192 n8n \u2192 simulator receipts, terminal callback and exactly-once wait resumption."
+    },
+    {
+      "id": "T10",
+      "title": "Native due events and actual cadence",
+      "steps": "Use a dedicated silent persona and the current native worker with the browser closed. Observe due times, sending windows, timezone, replacement reminders, pause/resume and restart. Distinguish shortened fixtures from naturally elapsed default cadence; specify changed-policy retiming semantics first.",
+      "passEvidence": "Natural due-event pickup \u2192 fresh unapproved proposal \u2192 normal approval \u2192 original receipt. Stale events/approvals cannot act; manual due-time repair is not counted as natural timing."
+    },
+    {
+      "id": "T11",
+      "title": "Warm conversational follow-up and human handoff",
+      "steps": "Obtain genuine inbound, approve an actual answer on its correct route/thread, wait the normal due boundary, then approve the follow-up. Separately observe a meeting-ready conversation reaching human handoff.",
+      "passEvidence": "Exact reply-parent/thread continuity, latest inbound answered, natural follow-up receipt, cold channels stopped and a human scheduling task. Do not claim automatic booking."
+    },
+    {
+      "id": "T12",
+      "title": "Release/runtime attestation before production acceptance",
+      "steps": "Read deployed app/service/simulator revisions, mode flags, account bindings, n8n active executions and native worker heartbeat. Compare them with tested source/artifacts. Deployment and provider UAT are separate actions, not implied by this audit.",
+      "passEvidence": "A dated inventory for the exact environment, with no assumption that main, a running container and a previously tested release are identical."
+    }
+  ],
+  "followUpVerification": {
+    "recordedAt": "2026-10-26T13:02:16.328033+00:00",
+    "scope": "local isolated; separate from original read-only audit",
+    "researchRuns": [
+      {
+        "id": "9c72a948-dab3-4390-8e3f-a23f6d5f7f84",
+        "workflow": "complete",
+        "research": "partial",
+        "companies": 110,
+        "providerProfiles": 101,
+        "peopleSavedByRun": 16,
+        "peopleAdmissionIncomplete": 46
+      },
+      {
+        "id": "b328374e-73f0-46c1-b4d1-8484922ecee6",
+        "workflow": "complete",
+        "research": "partial",
+        "companies": 108,
+        "providerProfiles": 102,
+        "peopleSavedByRun": 19,
+        "peopleAdmissionIncomplete": 48
+      }
+    ],
+    "staleCleanup": {
+      "failed": [
+        "7a6165bf-8fb4-4d92-9683-b4dbe020b973",
+        "b6f5f717-8755-48c8-81af-f704f75ca22e",
+        "df1f2a53-d6ce-4835-9b87-279b56c9a572"
+      ],
+      "cancelled": [
+        "7b3c1a07-4bba-4bf4-a0a0-ffe9e9f127ea"
+      ],
+      "activeJobs": 0,
+      "stalePeopleCounters": 0,
+      "businessEvidenceUnchanged": true,
+      "originalPilotServicePreserved": true,
+      "correctOwnerMaintenance": "locally verified"
+    },
+    "productionAcceptance": "separate; no full end-to-end claim",
+    "evidenceDirectory": ".local-data/system-state-audit-20261026/approved-stale-cleanup/"
+  }
+}

@@ -10,6 +10,7 @@
 !scripts
 !scripts/build-communications-service.mjs
 !scripts/build-communications-production.mjs
+!scripts/package-communications-runtime.mjs
 !scripts/communications-service-entry.ts
 !ops
 !ops/communications

@@ -27,7 +27,7 @@ it('returns persisted mandate/run/job trace for worker control instead of trusti
  const response=await GET(request,{params:Promise.resolve({jobId})});
  expect((await response.json()).traceContext).toMatchObject({mandateId:job.mandateId,runId:jobId,jobId});
 });
-let job: { id: string; organizationId: string; mandateId: string; createdAt: Date; updatedAt: Date; status: string; seeds: string[]; config: ResearchConfig; revision: number; crawlId: null };
+let job: { id: string; organizationId: string; mandateId: string; createdAt: Date; updatedAt: Date; status: string; seeds: string[]; config: ResearchConfig; revision: number; crawlId: null; executionUpdatedAt?:Date };
 const call = (data: unknown) => POST(new Request('http://app/api', { method: 'POST', body: JSON.stringify(data), headers: { 'x-request-id': 'worker-request-123' } }), { params: Promise.resolve({ jobId }) });
 const event = { revision: 1, status: 'crawling', pages: 0, modelCalls: 0, message: 'Heartbeat' };
 beforeEach(() => {
@@ -235,4 +235,11 @@ it('observes a new persisted progress transition but never a rejected progress w
 it('returns a structured Firmable reconnect blocker instead of a retryable HTML server error',async()=>{
  mocks.company.mockRejectedValueOnce(new FirmableError('/company',401,'private-cookie-value',undefined,'reconnect_required'));
  const response=await call({action:'e-company',row:{id:'f123'}});expect(response.status).toBe(401);expect(response.headers.get('content-type')).toContain('application/json');expect(await response.json()).toEqual({provider:'firmable',category:'reconnect_required',error:'The Firmable connection needs renewal.'});expect(mocks.after).not.toHaveBeenCalled();
+});
+
+it.each([false,true])('returns scoped execution progress for the worker fresh stalled check (lean=%s)',async lean=>{
+ job.updatedAt=new Date('2026-10-26T01:51:00Z');job.executionUpdatedAt=new Date('2026-10-26T02:04:30Z');
+ const response=await GET(new Request('http://app/api'+(lean?'?control=1':'')),{params:Promise.resolve({jobId})});
+ expect(await response.json()).toMatchObject({updatedAt:'2026-10-26T01:51:00.000Z',executionUpdatedAt:'2026-10-26T02:04:30.000Z'});
+ expect(mocks.select.mock.calls[0][0]).toHaveProperty('executionUpdatedAt');
 });

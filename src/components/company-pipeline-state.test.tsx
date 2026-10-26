@@ -32,7 +32,7 @@ it('renders partial completion honestly with saved counts, elapsed time and a re
   expect(html).toContain('Finished with issues');
   expect(html).toContain('1 company saved');
   expect(html).toContain('3m 2s');
-  expect(html).toContain('/mandates/mandate?tab=targets');
+  expect(html).toContain('/mandates/mandate/companies');
   expect(html).not.toContain('100%');
   expect(html).not.toContain('Rank for fit');
 });
@@ -60,7 +60,7 @@ it('keeps retained results available after cancellation without marking an unfin
   expect(html).toContain('Research cancelled');
   expect(html).toContain(cancelled.message);
   expect(html).toContain('1 company saved');
-  expect(html).toContain('/mandates/mandate?tab=targets');
+  expect(html).toContain('/mandates/mandate/companies');
   expect(html).not.toContain('animate-spin');
 });
 it('continues foreground progress for partial roots while company work is still active', () => {
@@ -80,7 +80,8 @@ it('shows the familiar progress bar and high-level tasks without provider names'
   for (const label of ['Searching for businesses', 'Finding headcounts', 'Finding revenue bands', 'Verifying ABNs', 'Saving company results']) expect(html).toContain(label);
   expect(html).toContain('role="progressbar"');
   expect(html).not.toContain('aria-valuenow');
-  expect(html).not.toContain('View companies');
+  expect(html).toContain('View companies');
+  expect(html).toContain('/mandates/mandate/companies');
   expect(html).not.toMatch(/Firmable|Web discovery|searches returned|profiles matched/i);
 });
 it('counts retrieved size and revenue data while preserving missing fields', () => {

@@ -538,6 +538,23 @@ configuration changes or deployments were performed. Next action remains
 provider resolution of MCP access and OAuth discovery, followed by the same
 company-only verification.
 
+## Retest: 26 October 2026
+
+Fresh checks completed by **2026-10-26 01:41:07 UTC**
+(**09:41:07 Asia/Makassar**). Results remain unchanged:
+
+| Connection/check | Observed result |
+| --- | --- |
+| Connected app: `get_workflow_guide` with topic `all`, company `ai_search` for Commonwealth Bank of Australia (AU), and `get_company` for `commbank.com.au` | Each returned HTTP 403, `MCP access is disabled for this user.` |
+| Saved local adapter: `node adapter.mjs tools` | HTTP 403; tool discovery not reached |
+| Native CLI: `codex mcp login firmable` | OAuth discovery rejected: authorization server issuer does not match authorization metadata origin |
+
+The connected app now requires an explicit workflow-guide topic; this retest
+used the current schema. No company data was returned. No people tools,
+database migrations, production configuration changes or deployments were
+performed. Next action remains provider resolution of MCP access and OAuth
+discovery, followed by the same company-only verification.
+
 ## References
 
 - [Firmable: MCP URL and Client ID](https://help.firmable.com/where-to-find-your-firmable-mcp-url-and-client-id)

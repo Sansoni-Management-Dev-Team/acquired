@@ -34,13 +34,13 @@ export async function GET(request:Request,context:Context){
   const controls=request.headers.get('X-Acquire-Control-Snapshot')==='1'
    ?await data.store.controlsSnapshot((await context.params).id,data.thread?.id):undefined;
   const savedState=controls?controls.state:data.thread?await data.store.executionState(data.thread.id):null;
-  // New shared demo runs reuse a saved mandate without creating a chat thread.
-  // Project owned workflow identity for display; only explicit Start creates work.
+  // Research-only workflows run without an outreach thread. Display their lifecycle
+  // read-only; demo/live workflows remain eligible for Start only when ready.
   const mandateId=(await context.params).id;
   const workflow=!data.thread&&data.actor&&data.mandate
    ?await findMandateWorkflow(agentPool(),data.actor,mandateId):undefined;
-  const owned=workflow&&workflow.state==='ready'&&workflow.mandateId===mandateId&&workflow.organizationId===data.actor.organizationId&&workflow.ownerUserId===data.actor.userId?workflow:undefined;
-  const state=savedState??(owned?{executionMode:owned.preset==='demo'?'demo' as const:'real' as const,workflowPreset:owned.preset,workflowExecutionId:owned.id,mandateRevision:data.mandate!.revision,responsibility:null,conversations:[],demoContacts:undefined}:null);
+  const owned=workflow&&(workflow.state==='ready'||workflow.preset==='live-research-test')&&workflow.mandateId===mandateId&&workflow.organizationId===data.actor.organizationId&&workflow.ownerUserId===data.actor.userId?workflow:undefined;
+  const state=savedState??(owned?{executionMode:owned.preset==='demo'?'demo' as const:'real' as const,workflowPreset:owned.preset,workflowExecutionId:owned.id,workflowState:owned.state,mandateRevision:data.mandate!.revision,responsibility:null,conversations:[],demoContacts:undefined}:null);
   const config=agentDemoProvisioningConfiguration();
   const readiness=agentDemoPreparationReadiness(config,data.actor);
   // Existing prepared recipients retain their saved service and account bindings.

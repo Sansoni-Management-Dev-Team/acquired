@@ -22,6 +22,7 @@ describe("instant page loading", () => {
     ["/mandates/new", "", "Create a mandate"],
     ["/mandates/example", "", "Brief"],
     ["/mandates/example", "tab=targets", "Companies"],
+    ["/mandates/example/companies", "", "Companies"],
     ["/mandates/example/people", "enrichmentRuns=example", "People"],
     ["/mandates/example/outreach/sequences", "", "Sequences"],
     ["/mandates/example/targets/company", "", "Company details"],
@@ -48,7 +49,7 @@ describe("instant page loading", () => {
     Object.assign(location, { pathname: "/mandates/example/people", suspended: true });
     const html = renderToStaticMarkup(<PageLoading />);
     expect(html).toContain(">People</h1>");
-    expect(html).toContain('href="/mandates/example?tab=targets"');
+    expect(html).toContain('href="/mandates/example/companies"');
     expect(html).toContain("Loading people…");
     location.suspended = false;
   });

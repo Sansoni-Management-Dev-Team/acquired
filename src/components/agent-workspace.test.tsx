@@ -18,6 +18,23 @@ import {AgentBriefReview} from './agent-brief-review';
 import type {AgentSnapshot} from '@/domain/agent-mode';
 const initial:AgentSnapshot={mandate:{id:'56cb6d9e-e530-46a0-a98b-294193049536',name:'A saved mandate',description:'Saved buyer criteria'},scope:'research-only',research:{total:3,queued:0,active:0,complete:3,needsReview:0,cancelled:0},jobs:[],links:{brief:'/saved/brief',companies:'/saved/companies'}};
 afterEach(()=>vi.unstubAllGlobals());
+it('uses the existing chat workspace and welcome for a pending mandate without polling or starting work',async()=>{
+ vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);const fetcher=vi.fn(),start=vi.fn();vi.stubGlobal('fetch',fetcher);
+ const{create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;
+ try{
+  await act(()=>{tree=create(<AgentWorkspace initial={initial} preparation={{onStart:start,busy:false,researchOnly:true}}/>);});
+  const chat=tree!.root.findByProps({'aria-label':'Mandate conversation'});
+  expect(JSON.stringify(tree!.toJSON())).toContain('Hi, I’m Acquire.');
+  const transcript=chat.findByProps({role:'log'});
+  const welcome=chat.findByProps({'aria-label':'Welcome to Acquire'});
+  expect(transcript.findByProps({'aria-label':'Welcome to Acquire'})).toBe(welcome);
+  const button=welcome.findByType('button');expect(button.props.children).toBe('Start');
+  expect(tree!.root.findByProps({id:'agent-question'}).props.disabled).toBe(true);
+  expect(tree!.root.findAllByType(AgentControlsPanel)).toHaveLength(0);
+  expect(fetcher).not.toHaveBeenCalled();expect(start).not.toHaveBeenCalled();
+  await act(()=>button.props.onClick());expect(start).toHaveBeenCalledOnce();expect(fetcher).not.toHaveBeenCalled();
+ }finally{if(tree)await act(()=>tree!.unmount());}
+});
 it('keeps a typed chat draft when context is opened and closed without starting work',async()=>{
  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);const fetcher=vi.fn();vi.stubGlobal('fetch',fetcher);
  const {create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;
@@ -171,4 +188,11 @@ it.each([200,503])('keeps a review unconfirmed when its HTTP response is empty, 
 it('refreshes saved chat actions through the single bundled activity read',async()=>{
  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);const fetcher=vi.fn(async(url:string)=>Response.json(url.endsWith('/activity')?{conversation:{messages:[]},batches:[],guidance:[]}:url.endsWith('/reviews')?{batches:[]}:{...initial,conversation:{messages:[]}}));vi.stubGlobal('fetch',fetcher);
  const{create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;try{await act(()=>{tree=create(<AgentWorkspace initial={initial} conversation={{threadId:'saved-thread',messages:[]}}/>);});fetcher.mockClear();await act(async()=>{await activity.saved!();});expect(fetcher).toHaveBeenCalledOnce();expect(fetcher.mock.calls[0][0]).toBe('/api/mandates/'+initial.mandate.id+'/agent/activity');}finally{if(tree)await act(()=>tree!.unmount());}
+});
+
+
+it('keeps the chat footer neutral when workflow policy has not loaded',async()=>{
+ const {renderToStaticMarkup}=await import('react-dom/server');
+ const html=renderToStaticMarkup(<AgentWorkspace initial={initial} conversation={{threadId:'saved-thread',messages:[]}}/>);
+ expect(html).toContain('Saved to this mandate');expect(html).not.toContain('Human approval by default');expect(html).not.toContain('A human sends the booking link');
 });

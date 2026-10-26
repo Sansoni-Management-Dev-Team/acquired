@@ -1,3 +1,4 @@
+import {mandateCompaniesHref} from './mandate-navigation';
 import { criterionDefinitions, type AcquisitionBrief, type MandateView } from './acquisition';
 import { researchJobRunning, terminalResearchStates } from './research';
 
@@ -34,7 +35,7 @@ export function agentSnapshot(mandate: MandateView, jobs: AgentResearchJob[],ini
       id: job.id, status: job.status, updatedAt: job.updatedAt,
       message: job.message?.slice(0, 500), pages: job.pages ?? 0, modelCalls: job.modelCalls ?? 0,
     })),
-    links: { brief: `/mandates/${mandate.id}?tab=brief`, companies: `/mandates/${mandate.id}?tab=targets` },
+    links: { brief: `/mandates/${mandate.id}?tab=brief`, companies: mandateCompaniesHref(mandate.id) },
   };
 }
 export type AgentSnapshot = ReturnType<typeof agentSnapshot>;

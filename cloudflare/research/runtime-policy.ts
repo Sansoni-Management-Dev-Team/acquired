@@ -27,8 +27,8 @@ export async function cancelCrawl(id: string, request: (path: string, method: st
 
 // Longer than all three 120-second step attempts plus retry delays.
 // A missing timestamp must never authorize terminating a live workflow.
-export function stalledResearch(state: { status: string; updatedAt?: string }, now = Date.now()) {
-  const updated = Date.parse(state.updatedAt || "");
+export function stalledResearch(state: { status: string; updatedAt?: string; executionUpdatedAt?: string }, now = Date.now()) {
+  const updated = Date.parse(state.executionUpdatedAt ?? state.updatedAt ?? "");
   return ["discovering", "crawling", "extracting"].includes(state.status) &&
     Number.isFinite(updated) && now - updated > 10 * 60000;
 }

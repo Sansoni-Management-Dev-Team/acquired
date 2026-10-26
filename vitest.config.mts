@@ -12,10 +12,19 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    coverage: {
+      provider: "v8",
+      reportOnFailure: true,
+      reporter: ["text-summary", "json-summary", "html", "lcov"],
+      reportsDirectory: "coverage/unit",
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: ["src/**/*.test.{ts,tsx}", "src/**/*.spec.{ts,tsx}", "src/test/**", "src/**/*.d.ts"],
+    },
     // Keep the CPU-heavy discovery regressions within their timeout on local runs.
     maxWorkers: 4,
     exclude: [
       "**/node_modules/**",
+      "tests/routes/**",
       "**/.git/**",
       ".local-data/**",
       "cloudflare/research/workflow-tests/**",

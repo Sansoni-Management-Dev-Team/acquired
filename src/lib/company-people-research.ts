@@ -85,7 +85,9 @@ export async function tickCompanyPeople(job: Job, stopped = false) {
     const linkedIds = (lockedRoot.config as ResearchConfig).companyPeopleRunIds || [];
     const current = linkedIds.length ? await tx.select().from(firmableSyncRuns).where(and(eq(firmableSyncRuns.organizationId, job.organizationId), inArray(firmableSyncRuns.id, linkedIds))) : [];
     const progress = companyPeopleProgress(current);
-    await tx.update(researchJobs).set({ updatedAt: ['complete','partial','failed','cancelled'].includes(lockedRoot.status) ? lockedRoot.updatedAt : new Date(), config: sql`${researchJobs.config} || ${JSON.stringify({ companyPeopleProgress: progress })}::jsonb` }).where(eq(researchJobs.id, job.id));
+    // Counter maintenance must not impersonate progress by the company workflow.
+    // Keep its execution timestamp and terminal severity untouched.
+    await tx.update(researchJobs).set({ config: sql`${researchJobs.config} || ${JSON.stringify({ companyPeopleProgress: progress })}::jsonb` }).where(eq(researchJobs.id, job.id));
     return progress;
   });
 }

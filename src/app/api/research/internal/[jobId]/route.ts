@@ -40,7 +40,7 @@ import { and, eq, notInArray, sql } from "drizzle-orm";
 import { requireDb } from "@/db/client";
 import { directorySource } from "@/domain/discovery-sources";
 import { mandateTargets, researchJobs, researchFindings, targets } from "@/db/schema";
-import { researchExecutionSelection, ResearchRepository } from "@/db/research-repository";
+import { researchExecutionProgressAt, researchExecutionSelection, ResearchRepository } from "@/db/research-repository";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { OrganizationRepository } from "@/db/repositories";
 import { createTargetDataProvider } from "@/adapters/provider-mode";
@@ -66,12 +66,12 @@ async function getJob(request: Request, jobId: string, lean = false,action='cont
   if (!z.string().uuid().safeParse(jobId).success) return null;
   const job = (
     await requireDb()
-      .select(lean ? {
+      .select({... (lean ? {
         ...researchExecutionSelection,
         nativeAgentJob:sql<boolean>`${researchJobs.config} ? 'nativeAgent'`,
         nativeAgentSnapshot:sql<ResearchConfig['nativeAgent']>`${researchJobs.config}->'nativeAgent'`,
         config: sql<ResearchConfig>`jsonb_build_object('researchRunId', ${researchJobs.config}->'researchRunId', 'budget', ${researchJobs.config}->'budget', 'automaticDeadline', ${researchJobs.config}->'automaticDeadline', 'newBusinessIds', ${researchJobs.config}->'newBusinessIds', 'performanceFlags', ${researchJobs.config}->'performanceFlags', 'discoveryCandidate', ${researchJobs.config}->'discoveryCandidate', 'parallelDiscovery', ${researchJobs.config}->'parallelDiscovery', 'companyBackgroundResearch', ${researchJobs.config}->'companyBackgroundResearch')`,
-      } : researchExecutionSelection)
+      } : researchExecutionSelection), ...(action==='control'?{executionUpdatedAt:researchExecutionProgressAt}:{})})
       .from(researchJobs)
       .where(eq(researchJobs.id, jobId))
       .limit(1)
@@ -129,7 +129,7 @@ async function controlSnapshot(job: NonNullable<Awaited<ReturnType<typeof getJob
   return {
     traceContext: jobTraceContext(job),
     status: root?.status === "cancelled" ? "cancelled" : job.status,
-    updatedAt: job.updatedAt.toISOString(), crawlId: job.crawlId, config: { ...(config.discoveryCandidate || config.parallelDiscovery ? { ...config, newBusinessIds: (root?.config as ResearchConfig | undefined)?.newBusinessIds || [] } : config), pipelineTiming: undefined }, seeds: job.seeds,
+    updatedAt: job.updatedAt.toISOString(), executionUpdatedAt: job.executionUpdatedAt?.toISOString(), crawlId: job.crawlId, config: { ...(config.discoveryCandidate || config.parallelDiscovery ? { ...config, newBusinessIds: (root?.config as ResearchConfig | undefined)?.newBusinessIds || [] } : config), pipelineTiming: undefined }, seeds: job.seeds,
     deadline: config.companyBackgroundResearch ? config.automaticDeadline || Infinity : Math.min(job.createdAt.getTime() + config.budget.maxMinutes * 60000, (root?.config as ResearchConfig | undefined)?.automaticDeadline || Infinity),
     ...(includeFindings && (config.targetId || (config.parallelBusinessResearch && config.researchTask === 'field' && config.companyDomain)) ? { findings: (await runEvidence(job)).map(f => f.evidence) } : {}),
   };

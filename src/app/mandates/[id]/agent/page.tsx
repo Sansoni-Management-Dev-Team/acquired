@@ -8,6 +8,8 @@ import { ResearchRepository } from '@/db/research-repository';
 import { agentSnapshot } from '@/domain/agent-mode';
 import { AgentWorkspace } from '@/components/agent-workspace';
 import { MandateNavigation } from '@/components/mandate-workspace';
+import {AgentMandatePreparation} from '@/components/agent-mandate-preparation';
+import {mandateCacheScope} from '@/lib/mandate-cache-scope';
 
 export default async function AgentPage({ params }: { params: Promise<{ id: string }> }) {
   if (process.env.AGENT_MODE_EXPLORATION_ENABLED !== 'true') notFound();
@@ -16,7 +18,10 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
   const { organizationId, session } = await acquisitionSession();
   const repo = new AcquisitionRepository(organizationId);
   const mandate = await repo.getMandate(id);
-  if (!mandate) notFound();
+  // Pending drafts live only in this browser, so the server cannot distinguish
+  // them from missing IDs. This generic shell returns no saved data; the client
+  // requires matching local owner intent and explicit Start before admission.
+  if (!mandate) return <AgentMandatePreparation key={`${id}:${mandateCacheScope(session)}`} mandateId={id} ownerScope={mandateCacheScope(session)} />;
   const [mandates, jobs] = await Promise.all([repo.listMandates(), new ResearchRepository(organizationId).listReview(id)]);
   const store=durableAgentEnabled()?agentStore({organizationId,userId:session.user.id}):undefined;
   const conversation=store?await savedAgentConversation(store,id):undefined;

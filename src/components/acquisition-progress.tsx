@@ -13,7 +13,7 @@ export function AcquisitionProgress() {
 
   const current = pathname.includes("/outreach") ? 3
     : pathname.endsWith("/people") ? 2
-    : searchParams.get("tab") === "targets" || pathname.includes("/targets/") ? 1
+    : pathname.endsWith("/companies") || ["targets", "search", "search enrich"].includes(searchParams.get("tab") || "") || pathname.includes("/targets/") ? 1
     : 0;
 
   return (

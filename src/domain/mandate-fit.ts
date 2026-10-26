@@ -1,3 +1,4 @@
+import {scopedMandateFitEvidence} from './scoped-mandate-fit';
 import { briefToMandate, criterionDefinitions, type AcquisitionBrief, type Assessment, type CriterionKey } from "./acquisition";
 import { parseHeadcount } from "./company-facts";
 import { financialInterval, resolveTargetEbitda, resolveTargetRevenue } from "./target-financial-evidence";
@@ -41,11 +42,16 @@ export function reviewMandateFit(brief: AcquisitionBrief, target: TargetCandidat
     const reviewed = assessment.evidence.find(e => e.criterionKey === c.key && e.reviewState !== "provisional");
     if (reviewed) return { ...row, status: reviewed.assessment === "supported" && ["modelled", "inferred"].includes(reviewed.kind) ? "potential" : reviewed.assessment, reason: `${reviewed.value || "No evidence"}${reviewed.kind === "modelled" || reviewed.kind === "inferred" ? " (estimated)" : " (reviewed)"}`, sources: reviewed.sourceUrl ? [reviewed.sourceUrl] : [] };
     const scoped=target.sourceData?.firmable?.scopedFacts || target.sourceData?.firmable?.rawResponse;
+    let scopedFallback: FitRow | undefined;
     if(scoped && ['subsectors','geography','headcount','revenue','revenueCeiling'].includes(c.key)) {
       const screening=screenCompanyCandidate(target,filters);
       const field=c.key==='subsectors'?'sector':c.key==='revenueCeiling'?'revenue':c.key as 'geography'|'headcount'|'revenue';
-      const status=screening[field];
-      return {...row,status:status==='excluded'?'fails':status==='review'?'unknown':'potential',reason:status==='review'?'No comparable scoped evidence; needs review':status==='excluded'?'Scoped provider evidence outside mandate':'Scoped provider evidence provisionally matches mandate',sources:target.sourceData?.firmable?.website?[target.sourceData.firmable.website]:[]};
+      const status = screening[field] === 'excluded' ? 'excluded' : screening[field] === 'supported' ? 'supported' : 'review';
+      const observation = {...row,status:status==='excluded'?'fails' as const:status==='review'?'unknown' as const:'potential' as const,...scopedMandateFitEvidence(target,filters,field,status)};
+      if (c.key !== 'subsectors' || status !== 'review') return observation;
+      // A broad provider industry must not discard direct research about this
+      // company's services. Ambiguous identities are still filtered below.
+      scopedFallback = observation;
     }
     let values: Observation[] = [];
     let range: { min: number; max: number | null } | undefined;
@@ -85,7 +91,7 @@ export function reviewMandateFit(brief: AcquisitionBrief, target: TargetCandidat
       values = observations("location");
       if (!values.length && target.state && target.state !== "Unknown") values = [{ value: target.state, sources: [] }];
     }
-    if (!values.length) return row;
+    if (!values.length) return scopedFallback ?? row;
     const outcomes = values.map(o => {
       if (range) {
         if (o.min == null && o.max == null) return "unknown";

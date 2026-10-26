@@ -9,7 +9,9 @@ it.each([mandate+'/agent',mandate+'/agent/'])('does not label the agent conversa
 it.each([
  ['/', '', 'Stage 1 of 4 · Brief'],
  [mandate, '', 'Stage 1 of 4 · Brief'],
+ [mandate, 'tab=search+enrich', 'Stage 2 of 4 · Companies'],
  [mandate, 'tab=targets', 'Stage 2 of 4 · Companies'],
+ [mandate+'/companies', '', 'Stage 2 of 4 · Companies'],
  [mandate+'/targets/company-id', '', 'Stage 2 of 4 · Companies'],
  [mandate+'/people', '', 'Stage 3 of 4 · People'],
  ['/preview/outreach', '', 'Stage 4 of 4 · Outreach'],

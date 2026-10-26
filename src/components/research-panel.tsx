@@ -78,6 +78,7 @@ export function ResearchPanel({
   brief,
   onResultsChanged,
   showStartAction = true,
+  showCompaniesLink = true,
   onCandidatesFound,
   hideProgress = false,
   startedRunId,
@@ -87,6 +88,7 @@ export function ResearchPanel({
   brief?: AcquisitionBrief;
   onResultsChanged: (data: ResearchPanelData, changed: boolean) => void;
   showStartAction?: boolean;
+  showCompaniesLink?: boolean;
   hideProgress?: boolean;
   onCandidatesFound?: () => void;
 }) {
@@ -203,12 +205,12 @@ export function ResearchPanel({
               <p className="text-xs text-[var(--muted)]">AI uses the saved brief to plan searches. Research providers receive search terms, source URLs and public page content. Provider charges may apply.</p>
             </div>
           )}
-          {workflowPending&&!currentJob&&<p role="status">Preparing your saved research run…</p>}
+          {workflowPending&&!currentJob&&(showStartAction?<p role="status">Preparing your saved research run…</p>:<CompanyPipelineProgress detail="Preparing your saved research run…"/>)}
           {data.workflow?.state==='failed'&&<p role="alert">Research could not finish. Your saved results are still available.</p>}
           {data.workflow?.state==='cancelled'&&<p role="status">Research stopped. Your saved results are still available.</p>}
           {data.workflow?.preset==='live-research-test'&&!workflowPending&&<p>Research-only run. No outreach will be sent.</p>}
           {currentJob && <div className="space-y-3" role="status">
-            <ResearchProgress mandateId={mandateId} job={currentJob} jobs={runJobs} count={newBusinessCount} identified={identifiedBusinessCount} active={Boolean(active)} enriching={enriching.length} coverage={runId ? data.timings?.[runId]?.coverage : undefined} peopleSaved={peopleSaved} />
+            <ResearchProgress showCompaniesLink={showCompaniesLink} mandateId={mandateId} job={currentJob} jobs={runJobs} count={newBusinessCount} identified={identifiedBusinessCount} active={Boolean(active)} enriching={enriching.length} coverage={runId ? data.timings?.[runId]?.coverage : undefined} peopleSaved={peopleSaved} />
             {actionsEnabled && !isCompanyPipeline(currentJob) && currentJob.config.mode === "automatic" && <DiscoveryCandidateList jobs={candidateJobs} searching={Boolean(active)} />}
             {actionsEnabled && <ResearchRunOutcome showSummary={false} status={currentJob.status} remaining={remainingFor(currentJob).length} active={Boolean(active)} canResume={!currentJob.config.purpose} busy={busy} onResume={() => resume(currentJob)} goal={currentJob.config.targetBusinesses} saved={newBusinessCount} />}
             {actionsEnabled && (currentJob.status === "failed" || currentJob.status === "partial" || currentJob.status === "cancelled") && currentJob.message && <p className="break-words text-sm text-[var(--muted)]">{currentJob.message}</p>}
@@ -468,8 +470,8 @@ export function ActiveResearchJob({ job, busy, onCancel, onRetry }: { job: Resea
   </div>;
 }
 
-export function ResearchProgress({ job, jobs = [job], active, enriching, mandateId, coverage, peopleSaved }: { job: ResearchJob; jobs?: ResearchJob[]; count: number; identified: number; active: boolean; enriching: number; mandateId?: string; coverage?: CompanyResearchCoverage; peopleSaved?: number }) {
-  if (isCompanyPipeline(job) || !job.config.purpose) return <CompanyPipelineProgress job={job} jobs={jobs} mandateId={mandateId} coverage={coverage} peopleSaved={peopleSaved} />;
+export function ResearchProgress({ job, jobs = [job], active, enriching, mandateId, coverage, peopleSaved, showCompaniesLink = true }: { job: ResearchJob; jobs?: ResearchJob[]; count: number; identified: number; active: boolean; enriching: number; mandateId?: string; coverage?: CompanyResearchCoverage; peopleSaved?: number; showCompaniesLink?: boolean }) {
+  if (isCompanyPipeline(job) || !job.config.purpose) return <CompanyPipelineProgress showCompaniesLink={showCompaniesLink} job={job} jobs={jobs} mandateId={mandateId} coverage={coverage} peopleSaved={peopleSaved} />;
   const running = jobs.filter(j => !terminalResearchStates.includes(j.status));
   const discovery = running.find(j => !j.config.purpose && !j.config.discoveryCandidate);
   const researching = running.filter(j => !j.config.purpose);

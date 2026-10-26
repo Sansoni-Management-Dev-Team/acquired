@@ -1,3 +1,4 @@
+import {researchExecutionUpdatedAt} from '@/domain/research-liveness';
 import {safeResearchFailure} from '@/domain/research-trace-context';
 import {withResearchJobWorkflow} from './acquisition-workflow-context';
 import {backgroundRemaining} from './background-workload';
@@ -26,12 +27,13 @@ export async function maintainMandateResearch(org:string,id:string,initialJobs:A
   }
   let reviewChanged = false;
   const stopped=new Set<string>();
-  for (const job of initialJobs.filter(j => !(j.config as ResearchConfig).companyBackgroundResearch && !terminalResearchStates.includes(j.status) && now - j.updatedAt.getTime() > 90000)) {
+  const progressAt=new Map(initialJobs.map(job=>[job.id,researchExecutionUpdatedAt(job,initialJobs)]));
+  for (const job of initialJobs.filter(j => !(j.config as ResearchConfig).companyBackgroundResearch && !terminalResearchStates.includes(j.status) && now - progressAt.get(j.id)! > 90000)) {
     if(performance.now()>=deadline)break;
     try {
       const worker = await researchWorker(`/jobs/${job.id}`,'GET',undefined,Math.max(1,Math.min(4000,deadline-performance.now()))) as { status: string };
-      traceMaintenance('worker_status_observed',{organizationId:org,mandateId:id,jobId:job.id},{stopped:['errored','terminated','complete'].includes(worker.status),stalled:['running','waiting'].includes(worker.status)&&now-job.updatedAt.getTime()>600000});
-      if (["running", "waiting"].includes(worker.status) && now - job.updatedAt.getTime() > 10 * 60000) {
+      traceMaintenance('worker_status_observed',{organizationId:org,mandateId:id,jobId:job.id},{stopped:['errored','terminated','complete'].includes(worker.status),stalled:['running','waiting'].includes(worker.status)&&now-progressAt.get(job.id)!>600000});
+      if (["running", "waiting"].includes(worker.status) && now - progressAt.get(job.id)! > 10 * 60000) {
         if(performance.now()>=deadline)break;
         const recovery = await researchWorker(`/jobs/${job.id}`, "POST", { action: "recover-stalled" },Math.max(1,Math.min(4000,deadline-performance.now()))) as { recovered?: boolean };
         if (recovery.recovered) { await withResearchJobWorkflow(job,()=>repo.recoverStopped(job.id, job.revision, job.pages)); stopped.add(job.id); reviewChanged = true; }

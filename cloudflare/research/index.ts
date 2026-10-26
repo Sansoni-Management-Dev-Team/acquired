@@ -731,10 +731,10 @@ const worker = {
     if (request.method === "POST") {
       const payload = await request.json().catch(() => null) as { action?: string } | null;
       if (payload?.action === "recover-stalled") {
-        const state = await callback(env, id) as { status: string; updatedAt?: string };
+        const state = await callback(env, id) as { status: string; updatedAt?: string; executionUpdatedAt?: string };
         if (!stalledResearch(state)) return Response.json({ recovered: false });
         await (await env.RESEARCH.get(id)).terminate();
-        console.info("research-diagnostic", JSON.stringify({ event: "stalled_workflow_terminated", jobId: id, lastProgress: state.updatedAt }));
+        console.info("research-diagnostic", JSON.stringify({ event: "stalled_workflow_terminated", jobId: id, lastProgress: state.executionUpdatedAt ?? state.updatedAt }));
         return Response.json({ recovered: true });
       }
       // Named instances and createBatch make re-dispatch idempotent.
