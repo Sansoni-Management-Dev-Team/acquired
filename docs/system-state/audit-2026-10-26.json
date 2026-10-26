@@ -215,7 +215,7 @@
       "id": "C06",
       "area": "Company enrichment",
       "question": "Does full-page reading work through the local worker?",
-      "local": "Yes \u2014 real HTTP200/full HTML, plus saved company read attempts.",
+      "local": "Yes \u2014 real HTTP 200/full HTML, plus saved company read attempts.",
       "production": "Historical transport proof; no fresh current check.",
       "evidence": "F1, L2",
       "next_test": "T05"
@@ -476,7 +476,7 @@
       "id": "O02",
       "area": "Simulator outreach",
       "question": "Has normal Acquire approval\u2192accepted email been observed?",
-      "local": "Yes \u2014 real normal-route receipts on24October.",
+      "local": "Yes \u2014 real normal-route receipts on24 October.",
       "production": "Unverified completed Acquire canary; earlier unknown retained.",
       "evidence": "O1, O2",
       "next_test": "T07"
@@ -485,7 +485,7 @@
       "id": "O03",
       "area": "Simulator outreach",
       "question": "Has normal Acquire approval\u2192accepted WhatsApp been observed?",
-      "local": "Yes \u2014 real normal-route receipt on24October.",
+      "local": "Yes \u2014 real normal-route receipt on24 October.",
       "production": "Unverified completed Acquire canary.",
       "evidence": "O1",
       "next_test": "T07"
@@ -503,7 +503,7 @@
       "id": "O05",
       "area": "Simulator outreach",
       "question": "Has email produced a genuine AI reply and complete saved Acquire history?",
-      "local": "Yes \u2014 normal-route historical observation, including fresh24October rerun.",
+      "local": "Yes \u2014 normal-route historical observation, including fresh24 October rerun.",
       "production": "Unverified Acquire history; direct hosted provider reply is proven.",
       "evidence": "O1, O2, O3",
       "next_test": "T07"
