@@ -203,3 +203,61 @@ normal recovery; no original job was manually replayed, cancelled, deleted or
 marked successful. This cutover and page-read check do not establish that every
 older research run or every optional field succeeded. Production remains on its
 previous release; this package was activated only in the isolated local lane.
+
+### Companies route and direct agent Start follow-up
+
+The first Companies page browser check was insufficient: a 404 did not prove an
+account ownership mismatch. A later authenticated pilot request reproduced 404
+on that account's own Companies page while its People page returned 200. The
+running container could read the new Companies source, but its development
+`app-paths-manifest.json` omitted that page even after a file refresh. Restarting
+only the isolated Next app registered it. The exact authenticated Companies URL
+then returned 200, and browser verification found the visible Companies heading,
+one table and 26 rows. Research worker/database state was retained. The active,
+owned, zero-company server-render regression also passes. Check the running
+route and visible table after adding route files, rather than treating source
+presence or a redirect response as route verification.
+
+New shared agent live/research-test launches now stage the same original request
+and navigate directly to the clean `/mandates/<requestId>/agent` URL. For a
+not-yet-saved mandate, the authenticated server renders a generic preparation
+shell; the client requires the exact staged agent intent bound to the current
+user/organization/session before revealing its brief and Start. This necessarily
+returns a generic HTTP 200 unavailable shell for authenticated missing UUIDs
+without a valid local draft: browser session storage is not visible to the
+server. No saved data is returned for that case; existing saved pages and APIs
+retain their scoped ownership checks. No cookies, server draft store, schema
+change or guessed admission is introduced.
+
+Opening or refreshing that preparation screen starts no generation or workflow
+admission. Explicit **Start agent process** revalidates the session (30-second
+window), checks the original receipt, then performs the existing generation and
+admission sequence. It refreshes the same clean URL after saving. Classic search,
+demo and legacy flows retain their semantics; old unscoped pending drafts retain
+their original search recovery path. Cold-session verification failures preserve
+the reserved UUID and original description across Home refresh.
+
+The real local browser verified direct clean navigation, visible brief/Start,
+zero generation/admission calls before Start and after reload, and unchanged URL
+while generating. Intercepted 503 admission responses verified identical retry
+bodies and one generation; no real workflow or provider work was created by this
+browser fixture. Evidence: `output/playwright/agent-direct-start-proof.log`,
+`agent-direct-before-start.png`, and `companies-route-registered.png`.
+
+A separate live timing callback failure reported P0001, **Explicit workflow-capable
+writer required**. Business callbacks established the original workflow context,
+but standalone/deferred timing writes did not. Central timing persistence now
+loads the exact saved job/organization association and establishes its original
+workflow context before its config-only UPDATE. The database guard remains
+intact. Six regressions failed before repair; focused context/auth/observer tests
+passed afterward. Natural user-run callbacks then returned 200 and persisted
+spans for four managed child jobs, leaving business progress timestamps unchanged.
+No manual job writes or provider probes were needed for that live proof.
+
+The original tailed run `db48e7e3-2e25-4c13-b787-53c9fd680210` retained 113 companies
+and 38 available contacts; its root was partial with optional enrichment still
+queued. Its saved public-read attempts show explicit reader cooldown deferral
+followed by successful page reads. Those facts validate transport/retry behavior,
+not complete public-field coverage or full workflow completion. The two newer
+agent runs also retained their original IDs and saved data during the UI fixes.
+No migrations or production deployment were performed in this follow-up.
