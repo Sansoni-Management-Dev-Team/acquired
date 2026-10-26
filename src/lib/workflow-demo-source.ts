@@ -14,6 +14,12 @@ import{buildCompanyMembershipProjection,type CompanyProjectionTargetRecord}from'
 import type{SavedResearchFinding}from'@/domain/research';
 export type WorkflowDemoSource={mandateId:string;mandateRevision:string};
 export type WorkflowDemoSourcePorts={memberships?:(mandateId:string,targetIds:string[])=>Promise<MembershipView[]>};
+function briefProhibitsOutreach(brief:AcquisitionBrief){
+ // A source-usability hint only: recognize clear affirmative instructions,
+ // not a negation or a statement that outreach restrictions are absent.
+ return [brief.naturalLanguage,brief.outreachPositioning].some(value=>
+  /(?:^|[.!?;\n])\s*(?:research[\s-]+only\b|(?:do\s+not|don't)\s+contact\b|no[\s-]+(?:outreach|contact)\b(?!\s+(?:restrictions?|limits?)\b))/i.test(value));
+}
 async function nativeSourceMemberships(client:PoolClient,actor:AgentActor,mandateId:string,targetIds:string[],brief:AcquisitionBrief):Promise<MembershipView[]>{
  const records=(await client.query(`SELECT /* workflow-demo-native-facts */ mt.version,mt.assessment,
   jsonb_build_object('id',t.id,'organizationId',t.organization_id,'companyName',t.company_name,'domain',t.domain,
@@ -62,6 +68,9 @@ export async function selectWorkflowDemoSource(client:PoolClient,rawActor:AgentA
  const sources=z.array(z.object({id:z.string().uuid(),revision:z.string().regex(/^\d{1,30}$/),brief:z.unknown()})).max(25).parse(rows.rows);
  for(const source of sources){
   const brief=briefSchema.safeParse(readableStoredBrief(source.brief));if(!brief.success)continue;
+  // A usable company/contact cannot make an explicitly no-contact brief a
+  // useful outreach demo. Preserve that intent and try the next saved source.
+  if(briefProhibitsOutreach(brief.data))continue;
   // Match the researched snapshot's first 50 contacts before filtering; a
   // usable person beyond its bounded page cannot make an empty Start pass.
   const people=await client.query(`WITH candidate_contacts AS (

@@ -4444,7 +4444,8 @@ connected-history proof, a separately approved initial message and genuine reply
 saved through the normal application history. No direct provider-send shortcut
 or manually changed relationship/history flags were used. Verification scripts
 and immutable private journals remain under
-`.local-data/channel-acceptance-20261026/` in the database-release checkout.
+`.local-data/system-state-audit-20261026/channel-acceptance-20261026/` in the
+main checkout.
 
 WhatsApp/LinkedIn preparation first stopped at the isolated simulator reservation
 cap (400 reserved, only 14 materialized leads). The existing scoped operator
@@ -4484,3 +4485,31 @@ freshness characterization passed before and after caching. Local GREEN:
 the isolated Compose Node test passes, scoped lint and whitespace checks pass.
 These are synthetic harness checks, not live sends or production verification.
 Next: run the follow-up PR's clean Linux CI before declaring those jobs green.
+
+### 2026-10-26 — WF-06 saved-demo source intent
+
+The fresh workflow-v2 probe selected an unused researched brief whose saved
+natural-language description and outreach positioning explicitly said research
+only / do not contact. The native model correctly held outreach, but this made
+the selected source unusable as an outreach demo. The bounded source hint now
+skips clear affirmative research-only or no-contact instructions in those two
+brief fields before reading candidate contacts. It does not rewrite the brief,
+infer permission from silence, change SQL admission or select another source for
+an already persisted request. Existing ownership, contact, fit and unused-source
+checks remain unchanged; the historical held run is retained.
+
+Four causal source-selection cases were RED before the fix. Separate negative
+controls caught an overly broad keyword match before the final sentence-boundary
+check: “not research only” and statements that contact/outreach restrictions are
+absent remain eligible for the ordinary source checks. Final source/store suite:
+49 tests pass, including exact original-source/revision retries, legacy replay,
+concurrent winner and stale-source behavior. TypeScript, scoped ESLint and
+whitespace checks pass. Private evidence is in the route-coverage checkout's
+`.local-data/route-auth/demo-source-{restriction,negation}-red.log`,
+`demo-source-restriction-{green,types,lint}.log`.
+
+A fresh read-only selector invocation under the exact marked local test actor
+returned no eligible unused source in21ms. It performed no admission, model call,
+provider request or data mutation. This is an honest no-source result and does
+not establish a new workflow-v2 demo or production acceptance pass. The three
+successful channel journeys above remain explicitly scoped saved-fixture tests.
