@@ -171,3 +171,35 @@ Existing user runs were inspected read-only, not silently replayed. Optional
 field failures, saved partial results and a Firmable country-interpretation
 review stop remain distinct from routing/runtime fixes. No migrations or
 production deployment were performed by this local change package.
+
+### Stable runtime activated locally
+
+At 02:38:43 UTC on 26 October, the isolated research worker switched to release
+`c680d96d52c4-33390a0c03d7-1792982302916` from commit `20ba1a5`.
+The original durable state volume and workflow names were retained. The app,
+native worker and simulator container IDs/start times were unchanged. The scoped
+maintenance bundle was rebuilt and its own service restarted gracefully.
+
+The first activation exposed a packaging defect: the read-only release lacked
+the nested `node_modules` mount point. No workflow storage was removed. The
+reusable Docker test was corrected to mount the same read-only parent as the
+active overlay; it reproduced the mount failure, then passed after release
+staging created that empty directory before mounting. Fixture cleanup now also
+removes its own container when Docker creates it but fails startup. The corrected
+fixture again verified full-page reading, no source reload, writable cache and
+persisted real Workflow state across its own restart.
+
+Post-switch checks: app 200, reader and reader alias 200, search health 200;
+worker root returned the expected authenticated 404 and unauthenticated 401.
+Existing workflow instances were readable after restart. A real full-page read
+of `https://example.com` through the worker returned 200 with HTML and
+`only_main_content:false` in 2,894 ms. Startup logs contained zero cache errors
+and zero unexpected reloads. The 238 Node tests passed again after packaging
+changes.
+
+The source-watch worker was replaced during bounded optional field work because
+completion callbacks continually refilled its queue. In-flight reads may need
+normal recovery; no original job was manually replayed, cancelled, deleted or
+marked successful. This cutover and page-read check do not establish that every
+older research run or every optional field succeeded. Production remains on its
+previous release; this package was activated only in the isolated local lane.
