@@ -5,11 +5,12 @@ import { companyListPage, defaultCompanyListQuery, summariseCompany, type Compan
 import { rankTarget } from "@/domain/scoring";
 import { defaultMandate, seedTargets } from "@/test/fixtures/scoring-targets";
 
-const mocks = vi.hoisted(() => ({ session: vi.fn(), listMandates: vi.fn(), loadCompanies: vi.fn(), repository: vi.fn() }));
+const mocks = vi.hoisted(() => ({ session: vi.fn(), listMandates: vi.fn(), loadCompanies: vi.fn(), repository: vi.fn(), memberships: vi.fn() }));
 vi.mock("@/lib/acquisition-session", () => ({ acquisitionSession: mocks.session }));
 vi.mock("@/db/acquisition-repository", () => ({ AcquisitionRepository: class {
   constructor(organizationId: string) { mocks.repository(organizationId); }
   listMandates = mocks.listMandates;
+  memberships = mocks.memberships;
 } }));
 vi.mock("@/db/company-list-repository", () => ({ CompanyListRepository: class {
   constructor(organizationId: string) { mocks.repository(organizationId); }
@@ -30,6 +31,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
+import TargetPage from "./mandates/[id]/targets/[targetId]/page";
 import Home from "./page";
 import MandatePage from "./mandates/[id]/page";
 import CompaniesPage from "./mandates/[id]/companies/page";
@@ -147,4 +149,26 @@ it.each(['search enrich','search'])('opens authenticated %s progress before the 
  expect(mocks.session).toHaveBeenCalledOnce();
  expect(mocks.repository).not.toHaveBeenCalled();
  expect(fetch).not.toHaveBeenCalled();
+});
+
+
+it("renders the selected company worksheet from an owned mandate membership", async () => {
+  const targetId = "00000000-0000-4000-8000-000000000002";
+  mocks.memberships.mockResolvedValue([{ ...member, target: { ...member.target, id: targetId } }]);
+  const html = await renderPage(await TargetPage({ params: Promise.resolve({ id, targetId }) }));
+  expect(html).toContain(member.target.companyName);
+  expect(html).toContain(`href="/mandates/${id}/companies"`);
+  expect(html).toContain("Pipeline and next action");
+  expect(mocks.repository).toHaveBeenCalledWith("org-a");
+  expect(mocks.memberships).toHaveBeenCalledWith(id);
+  expect(fetch).not.toHaveBeenCalled();
+});
+it.each(["invalid", "00000000-0000-4000-8000-000000000002"])("rejects unavailable company %s without rendering a different company", async targetId => {
+  mocks.memberships.mockResolvedValue([]);
+  await expect(TargetPage({ params: Promise.resolve({ id, targetId }) })).rejects.toThrow("not-found");
+});
+it("does not read company memberships when the mandate is unavailable to this organization", async () => {
+  mocks.listMandates.mockResolvedValue([]);
+  await expect(TargetPage({ params: Promise.resolve({ id, targetId: "00000000-0000-4000-8000-000000000002" }) })).rejects.toThrow("not-found");
+  expect(mocks.memberships).not.toHaveBeenCalled();
 });
