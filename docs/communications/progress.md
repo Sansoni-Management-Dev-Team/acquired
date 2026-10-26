@@ -4534,3 +4534,44 @@ package/app/service/schema tests and49 source/store tests passed again. Private
 logs: `.local-data/route-auth/pr25-combined-{package,source}.log`. The schema-entry
 fix is included in the combined candidate rather than left as a separate release
 dependency; final clean CI and deployment remain separate.
+
+### 2026-10-26 — P6/A25 final direct production release and request coverage
+
+Released exact runtime source `5589d56f8b08b008d2d546c3cda4b8344f37e5c2`
+after all combined-candidate CI checks passed. PRs23–26 are merged; the merge
+tree equals tested candidate `fc7eef8`. Final CI:7,426 Vitest passes/960 opt-in
+skips,241 Node passes,18 reader passes and80 browser passes, plus the separately
+verified52 authenticated checks. All three actual Linux image scans passed.
+
+DigitalOcean app and communications service rolled out directly with their
+readiness/rollback controls. Actual constructors and read-only storage/schema
+checks passed. The full five-minute observation retained health/readiness200,
+stable app/service/storage identities, zero restarts and zero error/warning log
+lines. Runtime environment files and the exact current Langfuse tuple were
+preserved; temporary SSH access was removed and verified. No migration, replay,
+provider request or send was used for rollout verification.
+
+Cloudflare research is100% on version `1e2848f2-373d-4309-9caf-da3e1b33ec67`
+with exact reviewed deployed bytes. Reader image-only rollout completed to
+application version7 with one healthy instance and zero failed instances;
+settings, Worker, namespaces and existing migration tag were preserved. Protected
+reader HTTP health and optional Cloudflare log tails remain unverified; platform
+health and both public authentication boundaries passed.
+
+Actual authenticated production browser checks verified card status/destination,
+saved Search + Enrich, explicit Companies navigation and16 saved table rows,
+distinct provisional evidence, editable form text and20 sample briefs. No new
+research or sending was started. Loading was not uniformly fast and one homepage
+cache refresh warning recovered automatically; this is not a database-load or
+latency certification.
+
+[The release/request coverage record](../system-state/release-2026-10-26.md)
+keeps enrichment gaps, missing workflow-v2 source acceptance, final-production
+messaging, unattended sequencing and shared-instance retirement explicit. Plane
+WF10–14 and SC07 remain In Progress. The prior three local channel passes remain
+the dated saved-fixture scope above. Next acceptance work is a usable normal
+workflow-v2 demo and a fresh complete production simulator journey; preserve all
+original operation/unknown-outcome state. Private release evidence lives under
+`.local-data/release-20261026/5589d56f8b08b008d2d546c3cda4b8344f37e5c2/`
+and its sibling `cloudflare/` directory. This later documentation-only record
+does not change deployed application or Worker code.
