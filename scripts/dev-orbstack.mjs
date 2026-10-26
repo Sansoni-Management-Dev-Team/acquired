@@ -11,7 +11,10 @@ import { checkLocalResearchSchema } from "./local-research-schema.mjs";
 process.chdir(fileURLToPath(new URL("..", import.meta.url)));
 const action = process.argv[2] || "start";
 if (!["start", "stop", "status", "logs"].includes(action)) throw new Error("Usage: node scripts/dev-orbstack.mjs [start|stop|status|logs]");
-const compose = ["--context", "orbstack", "compose", "-f", "compose.local.yml", "-f", "ops/local/compose.yml"];
+// OrbStack is macOS-only; elsewhere use the current Docker context and the localhost transport.
+const orbstack = spawnSync("docker", ["context", "inspect", "orbstack"], { stdio: "ignore" }).status === 0;
+const appOrigin = orbstack ? "https://acquire.orb.local" : "http://localhost:3020";
+const compose = [...(orbstack ? ["--context", "orbstack"] : []), "compose", "-f", "compose.local.yml", "-f", "ops/local/compose.yml"];
 function docker(args) {
   const result = spawnSync("docker", [...compose, ...args], { stdio: "inherit" });
   if (result.status !== 0) throw new Error(`Docker command failed (${result.status ?? result.error?.code})`);
@@ -29,7 +32,7 @@ if (action !== "start") {
     return readFileSync(path, "utf8").trim();
   }
   const environment = parseEnv(readFileSync(".env.local", "utf8"));
-  const config = containerDevConfig(environment, secret("research-secret"), secret("auth-secret"));
+  const config = containerDevConfig(environment, secret("research-secret"), secret("auth-secret"), appOrigin);
   // Read-only check; startup never creates or upgrades application tables.
   const db = new pg.Client({ connectionString: LOCAL_DATABASE_URL });
   await db.connect();
@@ -46,8 +49,11 @@ if (action !== "start") {
   const worker = localWorkerConfig(JSON.parse(readFileSync("cloudflare/research/wrangler.jsonc", "utf8")), config.origin, "/workspace/cloudflare/research/index.ts", config.policy);
   writePrivate("wrangler.json", JSON.stringify(worker, null, 2));
   // Next updates this generated declaration without changing the host worktree.
+  // The read-only checkout mount cannot create mount points; add empty ignored placeholders if absent.
+  if (!existsSync(".env")) writeFileSync(".env", "", { mode: 0o600, flag: "wx" });
+  mkdirSync(".next", { recursive: true });
   if (!existsSync(`${directory}/next-env.d.ts`)) writePrivate("next-env.d.ts", readFileSync("next-env.d.ts", "utf8"));
   docker(["build", "local-dependencies"]);
   docker(["up", "-d", "--no-build", "--wait", "--wait-timeout", "240", "app"]);
-  console.info("Acquire main: https://acquire.orb.local (localhost transport: http://localhost:3020)");
+  console.info(orbstack ? "Acquire main: https://acquire.orb.local (localhost transport: http://localhost:3020)" : "Acquire main: http://localhost:3020");
 }
