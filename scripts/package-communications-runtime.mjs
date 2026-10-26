@@ -19,9 +19,13 @@ export function checkRuntimeTraceWarnings(warnings){
 function within(root,path){const rel=relative(root,path);if(isAbsolute(rel)||rel==='..'||rel.startsWith('../'))throw Error('Runtime trace escapes build root');return rel;}
 export async function packageCommunicationsRuntime({root=resolve(import.meta.dirname,'..'),output=join(root,'.local-data/communications/service-runtime')}={}){
  root=realpathSync(root);output=resolve(output);
- const entries=['service.cjs','configuration-preflight.cjs'];
+ const entries=['service.cjs','configuration-preflight.cjs','schema-preflight.mjs','runtime.mjs','healthcheck.mjs'];
  const source=join(root,'.local-data/communications/service-build');
  if(output===root||root.startsWith(output+'/')||output===source||source.startsWith(output+'/')||output===join(root,'node_modules')||output.startsWith(join(root,'node_modules')+'/'))throw Error('Unsafe runtime output directory');
+ // Stage the real deployment entry at its eventual /app-relative path. Its
+ // ESM import('pg') selects a different package export than the CJS bundles.
+ copyFileSync(join(root,'scripts/communications-deploy-schema-preflight.mjs'),join(source,'schema-preflight.mjs'));
+ for(const name of ['runtime.mjs','healthcheck.mjs'])copyFileSync(join(root,'ops/communications/production/service',name),join(source,name));
  const {nodeFileTrace}=require('next/dist/compiled/@vercel/nft');
  const trace=await nodeFileTrace(entries.map(name=>join(source,name)),{base:root,processCwd:root});
  checkRuntimeTraceWarnings(trace.warnings);
@@ -41,7 +45,6 @@ export async function packageCommunicationsRuntime({root=resolve(import.meta.dir
  // to the original checkout or a global dependency installation.
  for(const path of dependencies)within(output,realpathSync(join(output,path)));
  for(const name of entries)copyFileSync(join(source,name),join(output,name));
- for(const name of ['runtime.mjs','healthcheck.mjs'])copyFileSync(join(root,'ops/communications/production/service',name),join(output,name));
  const manifest={version:1,entries,dependencies,packages:packages.sort((a,b)=>a.name.localeCompare(b.name)),optionalWarnings:[...trace.warnings].map(w=>w.message)};
  writeFileSync(join(output,'runtime-manifest.json'),JSON.stringify(manifest,null,2)+'\n');
  return manifest;

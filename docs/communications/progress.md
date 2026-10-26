@@ -4484,3 +4484,10 @@ freshness characterization passed before and after caching. Local GREEN:
 the isolated Compose Node test passes, scoped lint and whitespace checks pass.
 These are synthetic harness checks, not live sends or production verification.
 Next: run the follow-up PR's clean Linux CI before declaring those jobs green.
+
+
+### 2026-10-26 — P6/A25 traced deployment entry closure
+
+The narrowed communications image initially traced its two CommonJS bundles but omitted the `pg` ESM export selected by the separately mounted, read-only deployment schema preflight. A hermetic runtime regression reproduced `ERR_MODULE_NOT_FOUND` for `pg/esm/index.mjs` before the fix. Packaging now stages and traces the actual schema preflight and runtime/health launchers beside both bundles, retaining their complete locked dependency closure without restoring unrelated application packages.
+
+Validation: the causal ESM-import regression is green; all32 focused package/app/service deployment/schema tests pass, scoped ESLint and whitespace checks pass. The actual linux/amd64 image resolves ESM PostgreSQL and the real schema entry under `--network none`, correctly rejects unavailable synthetic storage, and retains17 packages with no Next/React/AGUI dependency. Trivy0.75.0 reports0 fixable HIGH/CRITICAL findings. Private red/green/build/image/scan evidence is in the dedicated trace worktree `.local-data/schema-entry-trace/`. This is local packaging verification; production rollout remains separate. No migrations, provider requests, sends, or stored-operation changes were performed.
