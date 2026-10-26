@@ -1,4 +1,5 @@
 "use client";
+import type {AcquisitionWorkflowState} from "@/domain/acquisition-workflow";
 import {readAgentStatus} from '@/lib/agent-read-request';
 import {loadAgentControls} from '@/lib/agent-controls-load';
 import {readJsonResponse} from '@/lib/read-json-response';
@@ -83,6 +84,7 @@ export type AgentControlsData = {
     executionMode?: "real" | "demo";
     workflowPreset?: "demo" | "live-research-test" | "live";
     workflowExecutionId?: string;
+    workflowState?: AcquisitionWorkflowState;
     mandateRevision: string;
     responsibility: null | {
       id: string;
@@ -627,7 +629,32 @@ export function AgentControlsPanel({
         })}
       </>
     );
-  if(data.state?.workflowPreset==='live-research-test')return <><section aria-label="Research-only run" className="border-b border-[var(--border)] p-5 text-sm"><h2 className="font-semibold">Research only</h2><p className="mt-2 text-[var(--muted)]">This run finds and enriches companies and people. No outreach is sent.</p><div className="mt-3 flex gap-4"><button type="button" className="underline underline-offset-4" onClick={onViewCompanies}>View companies</button><button type="button" className="underline underline-offset-4" onClick={onViewPeople}>View people</button></div></section>{renderConversation(null,{allowTestAutoApproval:false,automation:AGENT_DEMO_AUTO_APPROVAL_OFF,onAutomationStopped:stopAutomation})}</>;
+  if (data.state?.workflowPreset === "live-research-test") {
+    const researchStatus: Partial<Record<AcquisitionWorkflowState, string>> = {
+      accepted: "Preparing research",
+      researching: "Research in progress",
+      ready: "Research ready",
+      complete: "Research complete",
+      failed: "Research failed",
+      cancelled: "Research cancelled",
+      uncertain: "Research needs review",
+    };
+    const status = data.state.workflowState && researchStatus[data.state.workflowState];
+    return <>
+      <section aria-label="Research-only run" className="border-b border-[var(--border)] p-5 text-sm">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <h2 className="font-semibold">Research only</h2>
+          {status && <p role="status" className="text-[var(--muted)]">{status}</p>}
+        </div>
+        <p className="mt-2 text-[var(--muted)]">Research runs automatically. This run finds and enriches companies and people. No outreach is sent.</p>
+        <div className="mt-3 flex gap-4">
+          <button type="button" className="underline underline-offset-4" onClick={onViewCompanies}>View companies</button>
+          <button type="button" className="underline underline-offset-4" onClick={onViewPeople}>View people</button>
+        </div>
+      </section>
+      {renderConversation(null,{allowTestAutoApproval:false,automation:AGENT_DEMO_AUTO_APPROVAL_OFF,onAutomationStopped:stopAutomation})}
+    </>;
+  }
   const readinessDetails = data.configuration?.scopeMode === "registered" && (
     <details
       aria-label="Agent readiness"

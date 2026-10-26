@@ -1,4 +1,5 @@
 "use client";
+import {mandateCompaniesHref} from '@/domain/mandate-navigation';
 
 import { BrowserLocalTime } from "./browser-local-time";
 import { AgentManagedOutreachNotice } from './agent-managed-outreach-notice';
@@ -510,7 +511,7 @@ export function CampaignStudio({
       <Link
         href={
           initialView === "contacts"
-            ? `/mandates/${mandateId}?tab=targets`
+            ? mandateCompaniesHref(mandateId)
             : `/mandates/${mandateId}/people`
         }
         className="inline-flex items-center gap-2 text-sm text-[var(--muted)] hover:text-[var(--foreground)]"

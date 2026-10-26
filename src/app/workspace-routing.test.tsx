@@ -19,6 +19,7 @@ vi.mock("@/db/client", () => ({ requireDb: () => { throw new Error("Compact comp
 vi.mock("@/db/firmable-read-model", () => ({ loadWorkspaceContacts: vi.fn() }));
 vi.mock("@/db/firmable-history-repository", () => ({ FirmableHistoryRepository: vi.fn() }));
 vi.mock("@/components/app-shell", () => ({ SidebarRegistration: () => null }));
+vi.mock("@/components/mandate-search-run", () => ({ MandateSearchRun: ({mandateId}:{mandateId:string}) => <div data-search-mandate={mandateId}>Preparing saved search</div> }));
 vi.mock('next/server', () => ({ connection: async () => undefined }));
 vi.mock("next/navigation", () => ({
   notFound: () => { throw new Error("not-found"); },
@@ -31,6 +32,7 @@ vi.mock("next/navigation", () => ({
 
 import Home from "./page";
 import MandatePage from "./mandates/[id]/page";
+import CompaniesPage from "./mandates/[id]/companies/page";
 import LegacyOutreachPage from "./mandates/[id]/outreach/page";
 
 const id = "00000000-0000-4000-8000-000000000001";
@@ -51,6 +53,7 @@ async function renderPage(page: Parameters<typeof renderToReadableStream>[0]) {
   if (errors.length) throw errors[0];
   return html;
 }
+const openCompanies = () => CompaniesPage({ params: Promise.resolve({ id }) });
 const openMandate = (tab: string) => MandatePage({ params: Promise.resolve({ id }), searchParams: Promise.resolve({ tab }) });
 
 beforeEach(() => {
@@ -73,7 +76,7 @@ it("opens the cached mandate creation shell without server-side repository or pr
 });
 
 it("streams saved companies through the compact companies workspace while research is active", async () => {
-  const html = await renderPage(await openMandate("targets"));
+  const html = await renderPage(await openCompanies());
   expect(html).toContain(member.target.companyName);
   expect(html).toContain(">Fit</th>");
   expect(html).toContain(">Reason for fit</th>");
@@ -83,8 +86,8 @@ it("streams saved companies through the compact companies workspace while resear
   expect(fetch).not.toHaveBeenCalled();
 });
 
-it.each(["coverage", "discover", "pipeline"])("keeps the legacy %s tab linked to the active companies flow", async tab => {
-  await expect(renderPage(await openMandate(tab))).rejects.toThrow(`redirect:/mandates/${id}?tab=targets`);
+it.each(["targets", "companies", "coverage", "discover", "pipeline"])("keeps the legacy %s tab linked to the active companies flow", async tab => {
+  await expect(renderPage(await openMandate(tab))).rejects.toThrow(`redirect:/mandates/${id}/companies`);
   expect(mocks.loadCompanies).not.toHaveBeenCalled();
 });
 
@@ -100,11 +103,38 @@ it("links the legacy outreach page to people", async () => {
 
 it("rejects an unavailable company list rather than exposing another organization's data", async () => {
   mocks.loadCompanies.mockResolvedValue(undefined);
-  await expect(renderPage(await openMandate("targets"))).rejects.toThrow("not-found");
+  await expect(renderPage(await openCompanies())).rejects.toThrow("not-found");
   expect(mocks.loadCompanies).toHaveBeenCalledExactlyOnceWith(id, defaultCompanyListQuery);
 });
 
 it("rejects invalid mandate IDs before any repository access", async () => {
   await expect(MandatePage({ params: Promise.resolve({ id: "invalid" }), searchParams: Promise.resolve({ tab: "targets" }) })).rejects.toThrow("not-found");
   expect(mocks.repository).not.toHaveBeenCalled();
+});
+
+it('keeps queued company refresh messages out of the company table header',async()=>{
+ mocks.loadCompanies.mockResolvedValue({...companies,enrichment:[{id:'queue-1',targetId:member.target.id,name:'Synthetic queue company',status:'queued',message:'Company data refresh queued',profilesFound:0,profilesSaved:0,profilesFailed:0},{id:'queue-2',targetId:member.target.id,name:'Synthetic loading company',status:'running',message:'Loading 3 profiles',profilesFound:50,profilesSaved:3,profilesFailed:0}]});
+ const html=await renderPage(await openCompanies());
+ expect(html).toContain(member.target.companyName);
+ expect(html).not.toContain('Company data refresh queued');expect(html).not.toContain('Loading 3 profiles');expect(html).not.toContain('Synthetic queue company');
+});
+
+it('preserves company selection and filter parameters when redirecting an old company URL',async()=>{
+ const page=await MandatePage({params:Promise.resolve({id}),searchParams:Promise.resolve({tab:'targets',targetId:'saved-company',page:'2',search:'water & pumps',tag:['one','two']})});
+ await expect(renderPage(page)).rejects.toThrow(`redirect:/mandates/${id}/companies?targetId=saved-company&page=2&search=water+%26+pumps&tag=one&tag=two`);
+});
+it('does not load company data when the mandate is not in the authenticated organization',async()=>{
+ mocks.listMandates.mockResolvedValue([]);await expect(renderPage(await openCompanies())).rejects.toThrow('not-found');expect(mocks.loadCompanies).not.toHaveBeenCalled();
+});
+it('rejects invalid canonical company IDs before loading a session or repository',async()=>{
+ await expect(CompaniesPage({params:Promise.resolve({id:'invalid'})})).rejects.toThrow('not-found');expect(mocks.session).not.toHaveBeenCalled();expect(mocks.repository).not.toHaveBeenCalled();
+});
+
+it.each(['search enrich','search'])('opens authenticated %s progress before the new mandate row exists',async tab=>{
+ mocks.listMandates.mockResolvedValue([]);
+ const html=await renderPage(await openMandate(tab));
+ expect(html).toContain(`data-search-mandate="${id}"`);
+ expect(mocks.session).toHaveBeenCalledOnce();
+ expect(mocks.repository).not.toHaveBeenCalled();
+ expect(fetch).not.toHaveBeenCalled();
 });

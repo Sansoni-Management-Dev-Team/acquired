@@ -172,3 +172,10 @@ it('refreshes saved chat actions through the single bundled activity read',async
  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);const fetcher=vi.fn(async(url:string)=>Response.json(url.endsWith('/activity')?{conversation:{messages:[]},batches:[],guidance:[]}:url.endsWith('/reviews')?{batches:[]}:{...initial,conversation:{messages:[]}}));vi.stubGlobal('fetch',fetcher);
  const{create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;try{await act(()=>{tree=create(<AgentWorkspace initial={initial} conversation={{threadId:'saved-thread',messages:[]}}/>);});fetcher.mockClear();await act(async()=>{await activity.saved!();});expect(fetcher).toHaveBeenCalledOnce();expect(fetcher.mock.calls[0][0]).toBe('/api/mandates/'+initial.mandate.id+'/agent/activity');}finally{if(tree)await act(()=>tree!.unmount());}
 });
+
+
+it('keeps the chat footer neutral when workflow policy has not loaded',async()=>{
+ const {renderToStaticMarkup}=await import('react-dom/server');
+ const html=renderToStaticMarkup(<AgentWorkspace initial={initial} conversation={{threadId:'saved-thread',messages:[]}}/>);
+ expect(html).toContain('Saved to this mandate');expect(html).not.toContain('Human approval by default');expect(html).not.toContain('A human sends the booking link');
+});

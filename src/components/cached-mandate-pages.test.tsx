@@ -32,7 +32,7 @@ it("keeps cached mandate cards visible during refresh and a refresh failure", ()
 
 it.each([
   ["brief", "/mandates/example?tab=brief"],
-  ["targets", "/mandates/example?tab=targets"],
+  ["targets", "/mandates/example/companies"],
   ["people", "/mandates/example/people"],
   ["sequences", "/mandates/example/outreach/sequences"],
 ] as const)("opens the selected mandate's %s section and offers the home creation form", (section, href) => {
@@ -49,6 +49,6 @@ it.each(["/", "/mandates", "/mandates/select/targets"])("always displays the fou
   for (const section of ["brief", "targets", "people", "sequences"]) expect(html).toContain(`href="/mandates/select/${section}"`);
 });
 
-it.each(['/mandates/example','/mandates/example/people','/mandates/example/agent','/mandates/example/outreach/sequences'])('keeps sidebar section links inside the mandate selected at %s',pathname=>{
- state.pathname=pathname;const html=renderToStaticMarkup(<AppShell><div>Content</div></AppShell>);for(const section of['brief','targets','people','sequences'])expect(html).toContain(`href="${section==='people'?'/mandates/example/people':section==='sequences'?'/mandates/example/outreach/sequences':`/mandates/example?tab=${section}`}"`);expect(html).not.toContain('href="/mandates/select/targets"');
+it.each(['/mandates/example','/mandates/example/companies','/mandates/example/people','/mandates/example/agent','/mandates/example/outreach/sequences'])('keeps sidebar section links inside the mandate selected at %s',pathname=>{
+ state.pathname=pathname;const html=renderToStaticMarkup(<AppShell><div>Content</div></AppShell>);for(const section of['brief','targets','people','sequences'])expect(html).toContain(`href="${section==='targets'?'/mandates/example/companies':section==='people'?'/mandates/example/people':section==='sequences'?'/mandates/example/outreach/sequences':`/mandates/example?tab=${section}`}"`);expect(html).not.toContain('href="/mandates/select/targets"');
 });

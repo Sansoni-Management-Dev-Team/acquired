@@ -7,7 +7,7 @@ import { DetailTooltip } from "./detail-tooltip";
 const fitGroups: { status: FitRow["status"]; label: string; className: string }[] = [
   { status: "fails", label: "Outside brief", className: "text-red-700 dark:text-red-300" },
   { status: "supported", label: "Matches", className: "text-emerald-700 dark:text-emerald-300" },
-  { status: "potential", label: "Check estimates", className: "text-amber-700 dark:text-amber-300" },
+  { status: "potential", label: "Provisional evidence", className: "text-amber-700 dark:text-amber-300" },
   { status: "unknown", label: "Missing evidence", className: "text-[var(--muted)]" },
 ];
 
@@ -26,12 +26,21 @@ export function MandateFitCells({ brief, member, mandateId }: { brief: Acquisiti
 
 export function MandateFitSummaryCells({ fit, mandateId }: { fit: ReturnType<typeof reviewMandateFit>; mandateId?: string }) {
   const groups = fitGroups.map(group => ({ ...group, rows: fit.rows.filter(row => row.status === group.status) })).filter(group => group.rows.length);
+  const assessed = fit.rows.filter(row => row.status !== 'unknown');
+  const provisionalOnly = assessed.length > 0 && assessed.every(row => row.status === 'potential');
+  // The group rows already explain missing evidence. Repeating these screening
+  // placeholders hid the actual company facts behind identical boilerplate.
+  const eligibilityReasons = fit.eligibility.reasons.filter(reason => !/^(?:sector|diligence|geography|headcount|revenue): comparable sourced evidence or diligence requires review$/.test(reason));
+  const summaryEvidence = (reason: string) => {
+    const text = readableEvidence(reason).replace(/ — provisional provider match; needs verification$/, '');
+    return text.length > 180 ? text.slice(0,177).replace(/\s+\S*$/, '') + '…' : text;
+  };
   return <>
-    <td className="min-w-24 p-3"><p className="font-semibold tabular-nums">{fit.eligibility.status === "excluded" ? "Excluded" : fit.score !== null ? `${fit.score}%` : "Not assessed"}</p>{fit.eligibility.status !== "excluded" && fit.score !== null && fit.provisional && <p className="mt-1 text-xs text-[var(--muted)]">Provisional · {fit.completeness}% of criteria assessed</p>}{!fit.rows.length && <p className="mt-1 text-xs text-[var(--muted)]">Criteria need review</p>}</td>
+    <td className="min-w-24 p-3"><p className="font-semibold tabular-nums">{fit.eligibility.status === "excluded" ? "Excluded" : provisionalOnly ? "Provisional match" : fit.score !== null ? `${fit.score}%` : "Not assessed"}</p>{fit.eligibility.status !== "excluded" && fit.score !== null && fit.provisional && <p className="mt-1 text-xs text-[var(--muted)]">{!provisionalOnly && "Provisional · "}{fit.completeness}% of criteria assessed</p>}{!fit.rows.length && <p className="mt-1 text-xs text-[var(--muted)]">Criteria need review</p>}</td>
     <td className="min-w-72 max-w-96 p-3">
       <DetailTooltip content={<div className="space-y-4 leading-relaxed">
         <p className="font-semibold">Why this company fits</p>
-        {fit.eligibility.reasons.length > 0 && <ul className="list-disc space-y-1 pl-4">{fit.eligibility.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>}
+        {eligibilityReasons.length > 0 && <ul className="list-disc space-y-1 pl-4">{eligibilityReasons.map(reason => <li key={reason}>{reason}</li>)}</ul>}
         {groups.map(group => <section key={group.status} className="space-y-2">
           <h3 className={`font-semibold ${group.className}`}>{group.label}</h3>
           {group.rows.map(row => <div key={row.key} className="border-l-2 border-[var(--border)] pl-3">
@@ -47,6 +56,7 @@ export function MandateFitSummaryCells({ fit, mandateId }: { fit: ReturnType<typ
           <h3 className="font-semibold text-[var(--foreground)]">How the score works</h3>
           <ul className="list-disc space-y-1 pl-4">
             <li>Match = full points. Partial or estimated = half.</li>
+            <li>Provisional match means only partial or unverified evidence is available; it is not a comparative fit percentage.</li>
             <li>Requirements count twice as much as preferences.</li>
             <li>Missing evidence is left out of the score. A high score can still need verification.</li>
             <li>Unreviewed criteria and estimates need checking. Saved reviews take priority.</li>
@@ -54,8 +64,11 @@ export function MandateFitSummaryCells({ fit, mandateId }: { fit: ReturnType<typ
         </section>
       </div>}>
         <span className="block space-y-1.5 text-xs leading-relaxed">
-          {fit.eligibility.reasons.map(reason => <span key={reason} className="block font-medium">{reason}</span>)}
-          {groups.map(group => <span key={group.status} className="block"><span className={`font-semibold ${group.className}`}>{group.label}:</span>{" "}<span className="text-[var(--muted)]">{group.rows.map(row => row.label).join(", ")}</span></span>)}
+          {eligibilityReasons.map(reason => <span key={reason} className="block font-medium">{reason}</span>)}
+          {groups.map(group => <span key={group.status} className="block">
+            <span className={`font-semibold ${group.className}`}>{group.label}:</span>{" "}
+            {group.status === 'unknown' ? <span className="text-[var(--muted)]">{group.rows.map(row => row.label).join(', ')}</span> : group.rows.map(row => <span key={row.key} className="block text-[var(--muted)]"><span className="font-medium">{row.label}:</span> {summaryEvidence(row.reason)}</span>)}
+          </span>)}
           {!fit.rows.length && <span className="text-[var(--muted)]">{fit.reason}</span>}
         </span>
       </DetailTooltip>

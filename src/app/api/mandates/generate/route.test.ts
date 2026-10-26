@@ -22,3 +22,10 @@ it("returns a retryable error without exposing provider internals", async () => 
   expect(response.status).toBe(503);
   expect((await response.json()).error).not.toContain("provider details");
 });
+it('coalesces repeated generation for one owned request and refuses changed descriptions',async()=>{
+ const id='30000000-0000-4000-8000-000000000003';mocks.session.mockResolvedValue({session:{activeOrganizationId:'org-a'},user:{id:'user-a'}});mocks.generate.mockResolvedValue(emptyBrief());
+ const input=(description='Commercial service businesses in Victoria')=>new Request('http://localhost/api/mandates/generate',{method:'POST',body:JSON.stringify({description,requestId:id})});
+ expect((await POST(input())).status).toBe(200);expect((await POST(input())).status).toBe(200);expect(mocks.generate).toHaveBeenCalledOnce();
+ expect((await POST(input('Commercial maintenance companies in Queensland'))).status).toBe(409);expect(mocks.generate).toHaveBeenCalledOnce();
+ mocks.session.mockResolvedValue({session:{activeOrganizationId:'org-a'},user:{id:'user-b'}});expect((await POST(input())).status).toBe(200);expect(mocks.generate).toHaveBeenCalledTimes(2);
+});

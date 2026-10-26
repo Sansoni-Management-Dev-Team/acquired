@@ -79,3 +79,18 @@ it('includes runtime and policy in one authorized controls request without creat
  expect(response.status).toBe(200);expect(await response.json()).toMatchObject({controls:{runtime:{readiness:{registered:true},configuration:{scopeMode:'registered'},channelPolicy:{enabled:true,policy:{revision:4}},channelPolicyUnavailable:false}}});
  expect(mock.scope).toHaveBeenCalledExactlyOnceWith(expect.any(Request),context);expect(runtimeReadiness).toHaveBeenCalledExactlyOnceWith('owned-thread');expect(channelPolicy).toHaveBeenCalledExactlyOnceWith('owned-thread');expect(mock.open).not.toHaveBeenCalled();expect(mock.control).not.toHaveBeenCalled();
 });
+
+
+it.each(['accepted','researching','ready','complete','failed','cancelled','uncertain'])('projects read-only research-only status before a thread exists (%s)',async state=>{
+ const controlsSnapshot=vi.fn().mockResolvedValue({state:null,inbox:{tasks:[]},grants:[],targetOptions:{bindings:[]}});
+ mock.scope.mockResolvedValue({actor:{organizationId:'org',userId:'actor'},mandate:{revision:'123'},store:{...store,controlsSnapshot},thread:undefined});
+ workflow.mockResolvedValue({id:requestKey,mandateId:id,organizationId:'org',ownerUserId:'actor',preset:'live-research-test',presentation:'agent',state});
+ const result=await(await GET(new Request(url,{headers:{'X-Acquire-Control-Snapshot':'1'}}),context)).json();
+ expect(result.state).toMatchObject({executionMode:'real',workflowPreset:'live-research-test',workflowState:state,workflowExecutionId:requestKey,responsibility:null,conversations:[]});
+ expect(result.controls.state).toEqual(result.state);expect(mock.open).not.toHaveBeenCalled();expect(mock.control).not.toHaveBeenCalled();expect(wake).not.toHaveBeenCalled();expect(mock.projection).not.toHaveBeenCalled();
+});
+it.each(['owner','organization','mandate'])('does not expose research-only workflow with mismatched %s',async mismatch=>{
+ mock.scope.mockResolvedValue({actor:{organizationId:'org',userId:'actor'},mandate:{revision:'123'},store,thread:undefined});
+ workflow.mockResolvedValue({id:requestKey,mandateId:mismatch==='mandate'?conversationId:id,organizationId:mismatch==='organization'?'other':'org',ownerUserId:mismatch==='owner'?'other':'actor',preset:'live-research-test',state:'researching'});
+ expect((await(await GET(new Request(url),context)).json()).state).toBeNull();expect(mock.open).not.toHaveBeenCalled();expect(mock.control).not.toHaveBeenCalled();
+});

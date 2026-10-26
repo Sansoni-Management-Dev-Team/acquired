@@ -403,3 +403,12 @@ it.each(['live','live-research-test',undefined] as const)('does not infer pre-th
  const html=renderToStaticMarkup(<AgentControlsPanel mandateId="mandate" initial={initial} initialResearchStatus="complete" initialResearchSource="cached">{renderConversation}</AgentControlsPanel>);
  expect(html).not.toContain('Ready to begin?');expect(html).not.toContain('>Start</button>');
 });
+
+
+it.each([
+ ['accepted','Preparing research'],['researching','Research in progress'],['ready','Research ready'],['complete','Research complete'],['failed','Research failed'],['cancelled','Research cancelled'],['uncertain','Research needs review'],
+] as const)('shows the research-only lifecycle without outreach controls (%s)',(workflowState,label)=>{
+ const html=renderToStaticMarkup(<AgentControlsPanel mandateId="mandate" initial={{...data,enabled:true,state:{...data.state!,workflowPreset:'live-research-test',workflowState}}}>{renderConversation}</AgentControlsPanel>);
+ expect(html).toContain(label);expect(html).toContain('Research runs automatically.');expect(html).toContain('No outreach is sent.');
+ for(const absent of ['Agent needs setup','Agent setup request','Ready to begin','Automatic sending','Auto-approve','Start agent','Pause agent','booking link'])expect(html).not.toContain(absent);
+});
