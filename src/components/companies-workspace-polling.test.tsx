@@ -56,16 +56,18 @@ it('embeds the same saved companies without replacing navigation or running reco
  expect(html).not.toContain('Acquisition workspace');expect(mocks.poll.mock.calls[0][1].active).toBe(true);expect(mocks.poll.mock.calls[1][1]).toMatchObject({active:false,initial:false});await mocks.poll.mock.calls[1][0]();expect(fetcher).not.toHaveBeenCalled();
 });
 
-
 it('sends recovery as JSON so the real browser mutation guard accepts an empty POST body', async () => {
   vi.stubEnv('APP_URL', 'http://localhost');
   const statuses: number[] = [];
   vi.stubGlobal('fetch', vi.fn(async (path: string, options: RequestInit) => {
     // Next's proxy sees a stream for a zero-byte POST; preserve that transport
     // distinction rather than turning it into a body-less Node Request.
-    const headers = new Headers(options.headers); headers.set('Origin', 'http://localhost');
+    const headers = new Headers(options.headers);
+    headers.set('Origin', 'http://localhost');
     const guarded = guardBrowserMutation(new Request(`http://localhost${path}`, { ...options, headers, body: options.body ?? '' }));
-    const response = guarded ?? Response.json({ ok: true }); statuses.push(response.status); return response;
+    const response = guarded ?? Response.json({ ok: true });
+    statuses.push(response.status);
+    return response;
   }));
   const initial: CompanyList = { mandate: { id: 'mandate', brief: emptyBrief(), createdAt: '2026-09-30' }, revision: 'saved', active: true, hasResearch: true, rows: [], total: 0, page: 1, pages: 1 };
   renderToStaticMarkup(<CompaniesWorkspace mandates={[initial.mandate]} initial={initial} />);

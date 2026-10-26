@@ -129,3 +129,19 @@ scoped local-fixture handoff.
 Worktree verification logs: `.local-data/route-auth/worktree-run.log`,
 `worktree-unit.log`, `worktree-baseline.log`, `worktree-lint.log`, and
 `worktree-types.log`.
+
+## Readability and shared setup
+
+Both browser modes now use `scripts/route-test-server.mjs`. The default mode runs
+the credential-free smoke server; `--authenticated` verifies the local database
+and enables the fixture-backed server. Environment filtering, dotenv refusal and
+process lifecycle handling are shared in one place. The separate authenticated
+launcher was removed; no launcher framework or additional dependency was added.
+
+The Companies request helper uses an ordinary `if` to set its POST options, and
+the regression test separates setup, response creation and assertions onto clear
+lines. Request behavior and security checks are unchanged.
+
+After this cleanup, all 52 authenticated and 80 signed-out/mock browser checks
+passed, along with 38 focused tests, TypeScript and scoped ESLint. Private logs
+are `.local-data/route-auth/polish-{authenticated,baseline,unit,types,lint}.log`.

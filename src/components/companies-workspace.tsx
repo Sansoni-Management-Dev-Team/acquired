@@ -14,7 +14,12 @@ import { mandateTabHref } from '@/domain/mandate-navigation';
 import { clearDiscoveredCompanies, discoveredCompaniesFor } from './company-discovery-handoff';
 
 async function read(url: string, signal?: AbortSignal, method = 'GET') {
-  const response = await fetch(url, { signal, method, cache: 'no-store', ...(method === 'POST' ? { headers: { 'Content-Type': 'application/json' }, body: '{}' } : {}) });
+  const options: RequestInit = { signal, method, cache: 'no-store' };
+  if (method === 'POST') {
+    options.headers = { 'Content-Type': 'application/json' };
+    options.body = '{}';
+  }
+  const response = await fetch(url, options);
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || 'Could not load companies');
   return data;
