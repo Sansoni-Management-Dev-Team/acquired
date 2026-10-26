@@ -69,6 +69,8 @@ jobs:
           exit "$scan_status"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
+        # Advisory logs and the mandatory scan exit above remain authoritative.
+        continue-on-error: true
         with:
           name: security-${{ matrix.service }}-${{ github.sha }}
           path: security-evidence/

@@ -3,8 +3,9 @@
 This packages the existing `scripts/communications-service-entry.ts` and trusted
 Acquire composition as a separate Node process. It includes the reusable
 communications packages plus Acquire membership, reply-consumer and send-admission
-policy. It is not the framework-independent package by itself. The image uses
-root-lockfile production dependencies, including dependencies shared with Acquire.
+policy. It is not the framework-independent package by itself. The image traces both compiled entries and copies only their runtime dependency
+closure from the frozen root-lockfile install. Package metadata and pnpm symlinks
+are preserved; unrelated application dependencies are excluded.
 
 ## Prepared artifacts
 

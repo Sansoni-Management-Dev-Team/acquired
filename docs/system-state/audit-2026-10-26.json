@@ -1180,5 +1180,46 @@
       "steps": "Read deployed app/service/simulator revisions, mode flags, account bindings, n8n active executions and native worker heartbeat. Compare them with tested source/artifacts. Deployment and provider UAT are separate actions, not implied by this audit.",
       "passEvidence": "A dated inventory for the exact environment, with no assumption that main, a running container and a previously tested release are identical."
     }
-  ]
+  ],
+  "followUpVerification": {
+    "recordedAt": "2026-10-26T13:02:16.328033+00:00",
+    "scope": "local isolated; separate from original read-only audit",
+    "researchRuns": [
+      {
+        "id": "9c72a948-dab3-4390-8e3f-a23f6d5f7f84",
+        "workflow": "complete",
+        "research": "partial",
+        "companies": 110,
+        "providerProfiles": 101,
+        "peopleSavedByRun": 16,
+        "peopleAdmissionIncomplete": 46
+      },
+      {
+        "id": "b328374e-73f0-46c1-b4d1-8484922ecee6",
+        "workflow": "complete",
+        "research": "partial",
+        "companies": 108,
+        "providerProfiles": 102,
+        "peopleSavedByRun": 19,
+        "peopleAdmissionIncomplete": 48
+      }
+    ],
+    "staleCleanup": {
+      "failed": [
+        "7a6165bf-8fb4-4d92-9683-b4dbe020b973",
+        "b6f5f717-8755-48c8-81af-f704f75ca22e",
+        "df1f2a53-d6ce-4835-9b87-279b56c9a572"
+      ],
+      "cancelled": [
+        "7b3c1a07-4bba-4bf4-a0a0-ffe9e9f127ea"
+      ],
+      "activeJobs": 0,
+      "stalePeopleCounters": 0,
+      "businessEvidenceUnchanged": true,
+      "originalPilotServicePreserved": true,
+      "correctOwnerMaintenance": "locally verified"
+    },
+    "productionAcceptance": "separate; no full end-to-end claim",
+    "evidenceDirectory": ".local-data/system-state-audit-20261026/approved-stale-cleanup/"
+  }
 }

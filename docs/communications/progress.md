@@ -4401,3 +4401,33 @@ P5.2/A22 remains scoped local fixture evidence, with no sends or release. The pr
 
 Broader branch regression: all80 signed-out/mock browser checks pass (2.0m);
 private evidence `worktree-baseline.log`. No additional application defects found.
+
+
+### 2026-10-26 — P5.1 stopped-work reconciliation and runtime packaging
+
+Fresh local cleanup settled three expired stopped roots as failed and one unused
+queued root as cancelled through the normal scoped functions; no rows or saved
+company/contact/finding evidence were deleted. The failed-root copied-People
+counter defect had three causal RED cases before the minimal reconciliation fix;
+58 focused tests, types/lint and actual marked-database cleanup passed. Existing
+terminal-receipt, owner/workflow, active-work and transition guards remain.
+Correct-owner local maintenance now runs alongside the unchanged pilot service.
+The follow-up system-state audit records exact aggregate outcomes and limits.
+
+A25 packaging boundary: the communications image previously copied every root
+production dependency, including unrelated app packages. The build now traces
+both compiled service/preflight entries and packages only their 17 runtime
+packages, metadata and relative links. An old-package regression was RED; 32
+focused package/deploy/schema tests, a relocated hermetic constructor and the
+actual Linux container under network-none all passed. This changes packaging,
+not account routing, sending policy, migration or schema requirements.
+
+The app/framework, direct Zod, compatible CLI-config Zod edge and PDF reader pins
+were updated to fix actual image advisories. Actual Linux app, communications and
+reader images all passed the same strict Trivy 0.75.0 gate with zero fixable
+HIGH/CRITICAL findings. The communications closure contains no Next/React/AG-UI
+or unrelated Zod 3 package. Private reports are under
+`.local-data/release-20261026/security/`. This is image verification, not live
+provider or complete production sequence acceptance; deployment remains separate
+at this checkpoint. Runtime environments and paused Langfuse configuration must
+be preserved during direct rollout. No database migration is included.

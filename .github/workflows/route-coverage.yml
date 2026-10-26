@@ -23,6 +23,8 @@ jobs:
       - run: pnpm test:routes
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
+        # Browser failures still fail their preceding mandatory test step.
+        continue-on-error: true
         with:
           name: route-smoke
           path: |
@@ -44,6 +46,8 @@ jobs:
       - run: pnpm test:coverage
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
+        # Test and coverage summaries remain in logs if artifact storage is full.
+        continue-on-error: true
         with:
           name: unit-coverage
           path: coverage/unit
