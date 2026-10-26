@@ -39,7 +39,13 @@
     "test:communications:orbstack": "node scripts/test-communications-orbstack.mjs",
     "test:communications:copy-orbstack": "node scripts/test-communications-copy-orbstack.mjs",
     "test:communications:replies-orbstack": "node scripts/test-communications-replies-orbstack.mjs",
-    "test:communications:postgres-local": "node scripts/test-communications-postgres-local.mjs"
+    "test:communications:postgres-local": "node scripts/test-communications-postgres-local.mjs",
+    "test:routes:inventory": "node --experimental-strip-types scripts/route-inventory.ts",
+    "test:routes": "pnpm test:routes:inventory && playwright test",
+    "test:coverage": "vitest run --coverage --testTimeout 20000",
+    "test:routes:report": "playwright show-report output/playwright/routes/report",
+    "test:routes:authenticated": "playwright test --config playwright.authenticated.config.ts",
+    "test:routes:authenticated:worktree": "playwright test --config playwright.authenticated-worktree.config.ts"
   },
   "packageManager": "pnpm@11.8.0+sha512.c1f5e7c4cb241c8f174b743851d82f42b802324afc8b0f116b96adb15aa06664948dde36960a3ba1079ba5b4b29dd0140135b94b5b5f5263592249d68e555f26",
   "dependencies": {
@@ -68,12 +74,14 @@
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.1.8",
     "@cloudflare/workers-types": "^5.20260914.1",
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/node": "^26.3.0",
     "@types/pg": "^8.23.1",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "@types/react-test-renderer": "19.1.0",
+    "@vitest/coverage-v8": "4.1.11",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9.39.5",
     "eslint-config-next": "16.3.8",

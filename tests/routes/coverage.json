@@ -1,0 +1,619 @@
+[
+  {
+    "kind": "api",
+    "path": "/api/acquisition-session",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/acquisition-workflows",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/agent/hosted-demo/access",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/agent/hosted-demo/authority",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/agent/hosted-demo/coverage",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/agent/hosted-demo/events",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/agent/hosted-demo/recipient",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/auth/[...all]",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/auth/form-unavailable",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/campaign-enrolments/[id]/action",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/campaigns/[id]/enrolments",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/campaigns/[id]/publish",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/campaigns/[id]",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/campaigns/reply-alerts",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/channels/connections",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/channels/health",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/channels/linkedin",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/channels/reviews",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/channels/whatsapp",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/firmable/internal/[runId]",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/health/ready",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/health",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/inbound/reply",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/internal/agent/tick",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/internal/campaigns/readiness",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/internal/campaigns/replies",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/internal/campaigns/step",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/internal/campaigns/sync",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/internal/campaigns/tick",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mailbox/google/callback",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mailbox/google/connect",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/agent/activity",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/agent/authority",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/agent/budgets",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/agent/channel-budgets",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/agent/channel-policy",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/agent/demo",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/agent/execution",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/agent/guidance",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/agent/handoffs",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/agent/operations",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/agent/readiness",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/agent/research",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/agent/reviews",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/agent",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/agent/sequence-handover",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/agent/sequences",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/agent/targets",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/apollo-people",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/campaigns",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/companies/[targetId]",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/companies",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/company-identities",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/contacts",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/outreach",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]/research",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/[id]",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/agent",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/demo-data",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates/generate",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/mandates",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/outreach/batch",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/outreach/drafts",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/outreach/messages/[id]/approval",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/outreach/messages/[id]",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/outreach/messages/[id]/send",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/outreach/profile",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/research/[jobId]",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review.",
+    "unitTests": [
+      "src/app/api/research/[jobId]/route.test.ts"
+    ]
+  },
+  {
+    "kind": "api",
+    "path": "/api/research/internal/[jobId]",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/research/internal/[jobId]/timings",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/research/internal/background",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/settings/research",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review.",
+    "unitTests": [
+      "src/app/api/settings/research/route.test.ts"
+    ]
+  },
+  {
+    "kind": "api",
+    "path": "/api/targets/[id]/company-research",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/targets/[id]/contact",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/targets/[id]/contact-candidates",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/targets/[id]/people-research",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "api",
+    "path": "/api/targets/search",
+    "gap": "Not exercised by the browser smoke suite. Existing unit/integration tests are separate; method, role and fixture coverage needs review."
+  },
+  {
+    "kind": "page",
+    "path": "/audit",
+    "url": "/audit",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access.",
+    "unitTests": [
+      "src/app/audit/page.test.tsx"
+    ]
+  },
+  {
+    "kind": "page",
+    "path": "/auth/complete",
+    "url": "/auth/complete",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access."
+  },
+  {
+    "kind": "page",
+    "path": "/forgot-password",
+    "url": "/forgot-password",
+    "expectation": "render",
+    "heading": "Reset your password",
+    "fixtureBrowserTests": [
+      "tests/routes/auth-forms.spec.ts"
+    ]
+  },
+  {
+    "kind": "page",
+    "path": "/mandates/[id]/agent",
+    "url": "/mandates/00000000-0000-4000-8000-000000000001/agent",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access."
+  },
+  {
+    "kind": "page",
+    "path": "/mandates/[id]/companies",
+    "url": "/mandates/00000000-0000-4000-8000-000000000001/companies",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access."
+  },
+  {
+    "kind": "page",
+    "path": "/mandates/[id]/outreach/campaigns",
+    "url": "/mandates/00000000-0000-4000-8000-000000000001/outreach/campaigns",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access."
+  },
+  {
+    "kind": "page",
+    "path": "/mandates/[id]/outreach",
+    "url": "/mandates/00000000-0000-4000-8000-000000000001/outreach",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access."
+  },
+  {
+    "kind": "page",
+    "path": "/mandates/[id]/outreach/prototype",
+    "url": "/mandates/00000000-0000-4000-8000-000000000001/outreach/prototype",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access."
+  },
+  {
+    "kind": "page",
+    "path": "/mandates/[id]/outreach/sequences",
+    "url": "/mandates/00000000-0000-4000-8000-000000000001/outreach/sequences",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access."
+  },
+  {
+    "kind": "page",
+    "path": "/mandates/[id]",
+    "url": "/mandates/00000000-0000-4000-8000-000000000001",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access."
+  },
+  {
+    "kind": "page",
+    "path": "/mandates/[id]/people",
+    "url": "/mandates/00000000-0000-4000-8000-000000000001/people",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access."
+  },
+  {
+    "kind": "page",
+    "path": "/mandates/[id]/targets/[targetId]",
+    "url": "/mandates/00000000-0000-4000-8000-000000000001/targets/00000000-0000-4000-8000-000000000002",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access.",
+    "unitTests": [
+      "src/app/workspace-routing.test.tsx"
+    ]
+  },
+  {
+    "kind": "page",
+    "path": "/mandates/new",
+    "url": "/mandates/new",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access."
+  },
+  {
+    "kind": "page",
+    "path": "/mandates",
+    "url": "/mandates",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access.",
+    "fixtureBrowserTests": [
+      "tests/routes/client-workspace.spec.ts"
+    ]
+  },
+  {
+    "kind": "page",
+    "path": "/mandates/select/[section]",
+    "url": "/mandates/select/brief",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access.",
+    "fixtureBrowserTests": [
+      "tests/routes/client-workspace.spec.ts"
+    ]
+  },
+  {
+    "kind": "page",
+    "path": "/onboarding",
+    "url": "/onboarding",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access."
+  },
+  {
+    "kind": "page",
+    "path": "/outreach",
+    "url": "/outreach",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access."
+  },
+  {
+    "kind": "page",
+    "path": "/",
+    "url": "/",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access."
+  },
+  {
+    "kind": "page",
+    "path": "/preview/outreach",
+    "url": "/preview/outreach",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access."
+  },
+  {
+    "kind": "page",
+    "path": "/privacy",
+    "url": "/privacy",
+    "expectation": "render",
+    "heading": "Privacy policy"
+  },
+  {
+    "kind": "page",
+    "path": "/reset-password",
+    "url": "/reset-password",
+    "expectation": "render",
+    "heading": "Choose a new password",
+    "fixtureBrowserTests": [
+      "tests/routes/auth-forms.spec.ts"
+    ]
+  },
+  {
+    "kind": "page",
+    "path": "/settings",
+    "url": "/settings",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access."
+  },
+  {
+    "kind": "page",
+    "path": "/sign-in",
+    "url": "/sign-in",
+    "expectation": "render",
+    "heading": "Sign in to the deal desk",
+    "fixtureBrowserTests": [
+      "tests/routes/auth-forms.spec.ts"
+    ]
+  },
+  {
+    "kind": "page",
+    "path": "/sign-up",
+    "url": "/sign-up",
+    "expectation": "render",
+    "heading": "Create your deal desk",
+    "fixtureBrowserTests": [
+      "tests/routes/auth-forms.spec.ts"
+    ]
+  },
+  {
+    "kind": "page",
+    "path": "/targets",
+    "url": "/targets",
+    "expectation": "redirect",
+    "heading": "Sign in to the deal desk",
+    "gap": "Authenticated content, data loading and interactions need a dedicated database fixture; this case only checks signed-out access."
+  },
+  {
+    "kind": "page",
+    "path": "/terms-of-service",
+    "url": "/terms-of-service",
+    "expectation": "render",
+    "heading": "Terms of service"
+  }
+]

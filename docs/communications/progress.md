@@ -4342,3 +4342,26 @@ TDD: causal picker, source receipt, disappearing-source race and GUI/native fact
 Released directly to DO as `4208138191f15fc732dca994a1f8260a5be5cbc2`; OCI `sha256:0125f8327e1a290dae5f6918814a64a294e078caa75473a1533623bc7b80b0e1`, linux/amd64. Full offline suite passed7,154Vitest/958existing skipped and235Node tests; build, database/campaign readiness and public/service/protected-callback/sign-in smoke passed. Runtime env hash unchanged; owned temporary SSH rule removed/verified. Private release evidence `.local-data/demo-source-release/`.
 
 Fresh production test through the normal authenticated `/api/acquisition-workflows` route created demo execution `4f5ff600-dd52-442c-bb4e-d91a2489da3b` on saved mandate `65eb2820-17f2-4afe-82c6-3ba3f7e3c284`: HTTP201 in10,059ms. Exact same request replay returned HTTP200 in4,174ms with identical source/execution and state ready. Normal execution GET independently confirmed demo mode, original workflow identity, preparation enabled, no responsibility and0conversations. This consumes one owned saved source for the intentionally retained demo; no new contacts, source rewriting, Start/preparation, message approval, send or live research was invoked. Reusable private route probe `.local-data/agent-tail-4bd54736/test-fresh-demo.mjs` retains one exact request across retries; evidence `fresh-demo-{create,replay,state}.private.json` and `fresh-demo-verification.log`. The earlier failed run stays unchanged. Remaining controls latency15–22seconds is acknowledged, not declared fully eliminated.
+
+### 2026-10-26 — Authenticated route fixtures (test/route-coverage worktree)
+
+Scoped P5.2/A22 local fixture evidence only; this does not complete communications end-to-end acceptance. With explicit user authorization, copied five companies and ten contacts from the user's existing local mandate into the synthetic route-test user's separate workspace, plus an empty mandate. Verified `acquire_agent_mode` / `acquire-agent-mode-local-only` before DML. No migration, live provider credentials, research jobs, agent operations, enrolments, messages or send state were copied. Normal Sequences GET created a default draft; no publish, Start or send. Source mandate/company/contact snapshot hash remains unchanged. Postflight counts show zero research jobs, agent operations and enrolments in the test workspace.
+
+Implemented an opt-in real-session Playwright suite covering 26 scenarios on desktop/mobile against the existing isolated service (main checkout), including copied People/Companies data and denial of access to source-workspace records. Private credentials, fixture receipts and reports stay ignored under `.local-data/route-auth/`; no source-controlled authentication secrets or copied contact values. This is local browser verification, not live-provider verification or a release.
+
+Found a real Companies recovery HTTP415: the empty POST lacked JSON content type/body. TDD regression first failed with415; worktree fix sends JSON `{}` and all38 focused polling/guard/proxy/route tests pass. TypeScript and scoped ESLint pass. A correctly encoded request to the local service returns200. Final browser run:48 passed/4 failed; all four are populated/empty Companies recovery on desktop/mobile. Main has not been modified, so the opt-in suite continues exposing the live-client defect. Next action: integrate the reviewed worktree fix into the app checkout and rerun the opt-in suite; provider/send acceptance remains separate. See `tests/routes/README.md` and private `authenticated-final.log`, `recovery-{red,green}.log`, `postflight.json` for evidence.
+
+
+Follow-up local branch verification: added `test:routes:authenticated:worktree`,
+which starts this checkout on port3218 with dotenv/provider inheritance refused,
+verified marked database, ephemeral auth signing secret, explicit Agent feature
+flags and registered scope/runtime identity. No worker process is started. All52
+authenticated desktop/mobile checks pass (34.1s), including Companies recovery;
+38 focused tests, TypeScript and scoped lint pass. Source snapshot remains unchanged
+and executable fixture-state counts remain zero. Evidence: private `worktree-run.log`,
+`worktree-unit.log`, `worktree-lint.log`, `worktree-types.log` and `worktree/` report.
+P5.2/A22 remains scoped local fixture evidence, with no sends or release. The prior
+48/4 main-service evidence is preserved; main integration is still separate.
+
+Broader branch regression: all80 signed-out/mock browser checks pass (2.0m);
+private evidence `worktree-baseline.log`. No additional application defects found.
