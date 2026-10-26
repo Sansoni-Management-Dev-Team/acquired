@@ -4342,3 +4342,39 @@ TDD: causal picker, source receipt, disappearing-source race and GUI/native fact
 Released directly to DO as `4208138191f15fc732dca994a1f8260a5be5cbc2`; OCI `sha256:0125f8327e1a290dae5f6918814a64a294e078caa75473a1533623bc7b80b0e1`, linux/amd64. Full offline suite passed7,154Vitest/958existing skipped and235Node tests; build, database/campaign readiness and public/service/protected-callback/sign-in smoke passed. Runtime env hash unchanged; owned temporary SSH rule removed/verified. Private release evidence `.local-data/demo-source-release/`.
 
 Fresh production test through the normal authenticated `/api/acquisition-workflows` route created demo execution `4f5ff600-dd52-442c-bb4e-d91a2489da3b` on saved mandate `65eb2820-17f2-4afe-82c6-3ba3f7e3c284`: HTTP201 in10,059ms. Exact same request replay returned HTTP200 in4,174ms with identical source/execution and state ready. Normal execution GET independently confirmed demo mode, original workflow identity, preparation enabled, no responsibility and0conversations. This consumes one owned saved source for the intentionally retained demo; no new contacts, source rewriting, Start/preparation, message approval, send or live research was invoked. Reusable private route probe `.local-data/agent-tail-4bd54736/test-fresh-demo.mjs` retains one exact request across retries; evidence `fresh-demo-{create,replay,state}.private.json` and `fresh-demo-verification.log`. The earlier failed run stays unchanged. Remaining controls latency15–22seconds is acknowledged, not declared fully eliminated.
+
+
+### 2026-10-26 — P5.1 system-state evidence audit (read-only)
+
+Completed an evidence inventory at source `3657894`, covering105 specific
+questions across mandate/discovery, company enrichment, people, simulator
+outreach, both sequencers and runtime/test coverage. Report and structured matrix:
+[system-state audit](../system-state/audit-2026-10-26.md) and
+[JSON questions/evidence/next checks](../system-state/audit-2026-10-26.json).
+This is an audit of existing acceptance evidence, not a new P5 execution pass.
+
+Fresh marked local database observations at03:59 UTC retained actual mixed
+outcomes: db48 root partial/workflow researching,233 root partial/workflow
+complete,bc043 root complete/workflow researching,1b7 root partial/workflow
+researching. Available contacts differ from root-created people counts; settled
+people include cancelled/incomplete admissions. At04:02 UTC the enabled local
+maintenance service's configured owner AND organization did not match these
+four workflows. Actual isolated app flags read n8n=false/reply-monitor=enforce;
+older launcher/runbook values do not supersede this inspection.
+
+Original24October normal Acquire-route send/AI-reply/persisted-history receipts
+exist for all three channels. Newer social mapped-ingress tests used provider-only
+sends and prove a narrower boundary. Hosted f91ac78 direct-provider pairs prove
+three genuine replies/webhooks, not the complete production Acquire chain.
+Historical local native sequencing is meaningful but human-assisted; naturally
+elapsed warm follow-up, actual n8n wait restart and current production full
+sequence acceptance remain unverified. Unknown originals remain separate from
+later successful probes. These findings map to A05–A16,A19–A21,A23,A25 and P4/P5/P6;
+no old failed checkpoint is silently relabelled a pass or a current regression.
+
+Next: T03 correct-actor unattended recovery; T05/T06 per-field/per-company
+coverage; then T07 exact normal simulator canaries and T09–T11 sequence-specific
+acceptance after T12 runtime attestation. No migrations, sends, provider probes,
+job replay, service changes, deployment or new test execution were performed by
+this audit. Code test baseline remains7,269 passed/959 skipped, with the separate
+238-Node and48-Workflow recorded passes; skipped tests are not acceptance proof.
