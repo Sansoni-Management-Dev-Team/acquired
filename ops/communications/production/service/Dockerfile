@@ -9,7 +9,7 @@ RUN pnpm install --frozen-lockfile
 COPY tsconfig.json ./
 COPY src ./src
 COPY communications ./communications
-COPY scripts/build-communications-service.mjs scripts/build-communications-production.mjs scripts/package-communications-runtime.mjs scripts/communications-service-entry.ts ./scripts/
+COPY scripts/build-communications-service.mjs scripts/build-communications-production.mjs scripts/package-communications-runtime.mjs scripts/communications-deploy-schema-preflight.mjs scripts/communications-service-entry.ts ./scripts/
 COPY ops/communications/production/service/configuration-preflight.ts ops/communications/production/service/runtime.mjs ops/communications/production/service/healthcheck.mjs ./ops/communications/production/service/
 RUN node scripts/build-communications-production.mjs
 

@@ -38,12 +38,16 @@ test('compiled production preflight validates synthetic runtime configuration wi
  try{
   cpSync(new URL('.local-data/communications/service-runtime/',root),isolated,{recursive:true,verbatimSymlinks:true});
   const manifest=JSON.parse(readFileSync(join(isolated,'runtime-manifest.json'),'utf8'));
+  assert.ok(manifest.entries.includes('schema-preflight.mjs'));
+  assert.equal(readFileSync(join(isolated,'schema-preflight.mjs'),'utf8'),readFileSync(new URL('scripts/communications-deploy-schema-preflight.mjs',root),'utf8'));
   const packages=new Map(manifest.packages.map(pkg=>[pkg.name,pkg.version]));
   for(const name of ['@vercel/functions','pg','zod'])assert.ok(packages.has(name),`Missing actual service dependency ${name}`);
   for(const name of ['next','react','react-dom','better-auth','@ag-ui/client','@langfuse/tracing'])assert.equal(packages.has(name),false,`Unrelated application dependency ${name}`);
   assert.equal(packages.get('zod'),JSON.parse(readFileSync(new URL('node_modules/zod/package.json',root),'utf8')).version);
   assert.equal(existsSync(join(isolated,'package.json')),false,'Do not copy root application manifest');
   for(const dependency of manifest.dependencies)assert.ok(realpathSync(join(isolated,dependency)).startsWith(isolated+'/'),'Dependency symlink escaped isolated runtime');
+  const deployImports=spawnSync(process.execPath,['--input-type=module','-e',"const {Client}=await import('pg');if(typeof Client!=='function')process.exit(1);const {checkDeploymentSchema}=await import('./schema-preflight.mjs');if(typeof checkDeploymentSchema!=='function')process.exit(1);console.log('Deployment schema ESM entry and PostgreSQL import resolved')"],{cwd:isolated,encoding:'utf8',env:{PATH:process.env.PATH},timeout:5000});
+  assert.equal(deployImports.status,0,deployImports.stderr);assert.match(deployImports.stdout,/Deployment schema ESM entry/);
   const hermetic=spawnSync(process.execPath,['runtime.mjs','--check-config'],{cwd:isolated,encoding:'utf8',env,timeout:5000});
   assert.equal(hermetic.status,0,hermetic.stderr);assert.match(hermetic.stdout,/database readiness is separate/);
  }finally{rmSync(isolated,{recursive:true,force:true});}
