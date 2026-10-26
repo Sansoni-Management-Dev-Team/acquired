@@ -4444,7 +4444,8 @@ connected-history proof, a separately approved initial message and genuine reply
 saved through the normal application history. No direct provider-send shortcut
 or manually changed relationship/history flags were used. Verification scripts
 and immutable private journals remain under
-`.local-data/channel-acceptance-20261026/` in the database-release checkout.
+`.local-data/system-state-audit-20261026/channel-acceptance-20261026/` in the
+main checkout.
 
 WhatsApp/LinkedIn preparation first stopped at the isolated simulator reservation
 cap (400 reserved, only 14 materialized leads). The existing scoped operator
@@ -4484,3 +4485,52 @@ freshness characterization passed before and after caching. Local GREEN:
 the isolated Compose Node test passes, scoped lint and whitespace checks pass.
 These are synthetic harness checks, not live sends or production verification.
 Next: run the follow-up PR's clean Linux CI before declaring those jobs green.
+
+### 2026-10-26 — WF-06 saved-demo source intent
+
+The fresh workflow-v2 probe selected an unused researched brief whose saved
+natural-language description and outreach positioning explicitly said research
+only / do not contact. The native model correctly held outreach, but this made
+the selected source unusable as an outreach demo. The bounded source hint now
+skips clear affirmative research-only or no-contact instructions in those two
+brief fields before reading candidate contacts. It does not rewrite the brief,
+infer permission from silence, change SQL admission or select another source for
+an already persisted request. Existing ownership, contact, fit and unused-source
+checks remain unchanged; the historical held run is retained.
+
+Four causal source-selection cases were RED before the fix. Separate negative
+controls caught an overly broad keyword match before the final sentence-boundary
+check: “not research only” and statements that contact/outreach restrictions are
+absent remain eligible for the ordinary source checks. Final source/store suite:
+49 tests pass, including exact original-source/revision retries, legacy replay,
+concurrent winner and stale-source behavior. TypeScript, scoped ESLint and
+whitespace checks pass. Private evidence is in the route-coverage checkout's
+`.local-data/route-auth/demo-source-{restriction,negation}-red.log`,
+`demo-source-restriction-{green,types,lint}.log`.
+
+A fresh read-only selector invocation under the exact marked local test actor
+returned no eligible unused source in21ms. It performed no admission, model call,
+provider request or data mutation. This is an honest no-source result and does
+not establish a new workflow-v2 demo or production acceptance pass. The three
+successful channel journeys above remain explicitly scoped saved-fixture tests.
+
+Fresh combined-source browser verification at `61e9a51`: all52 authenticated
+desktop/mobile checks passed in45.5seconds using the credential-filtered3218
+launcher. Read-only postflight retained the source snapshot hash and found
+0research jobs,0agent operations and0enrolments in the fixture workspace.
+Evidence: `.local-data/route-auth/pr25-final-authenticated.log` and
+`pr25-final-postflight.private.json`. No worker or provider credentials were
+configured; no research Start, message approval or send was invoked.
+
+
+### 2026-10-26 — P6/A25 traced deployment entry closure
+
+The narrowed communications image initially traced its two CommonJS bundles but omitted the `pg` ESM export selected by the separately mounted, read-only deployment schema preflight. A hermetic runtime regression reproduced `ERR_MODULE_NOT_FOUND` for `pg/esm/index.mjs` before the fix. Packaging now stages and traces the actual schema preflight and runtime/health launchers beside both bundles, retaining their complete locked dependency closure without restoring unrelated application packages.
+
+Validation: the causal ESM-import regression is green; all32 focused package/app/service deployment/schema tests pass, scoped ESLint and whitespace checks pass. The actual linux/amd64 image resolves ESM PostgreSQL and the real schema entry under `--network none`, correctly rejects unavailable synthetic storage, and retains17 packages with no Next/React/AGUI dependency. Trivy0.75.0 reports0 fixable HIGH/CRITICAL findings. Private red/green/build/image/scan evidence is in the dedicated trace worktree `.local-data/schema-entry-trace/`. This is local packaging verification; production rollout remains separate. No migrations, provider requests, sends, or stored-operation changes were performed.
+
+After combining that fix with the route-launcher and demo-source changes, all32
+package/app/service/schema tests and49 source/store tests passed again. Private
+logs: `.local-data/route-auth/pr25-combined-{package,source}.log`. The schema-entry
+fix is included in the combined candidate rather than left as a separate release
+dependency; final clean CI and deployment remain separate.

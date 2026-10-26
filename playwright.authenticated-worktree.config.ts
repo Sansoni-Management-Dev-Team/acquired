@@ -14,7 +14,7 @@ export default defineConfig(authenticated, {
     storageState: '.local-data/route-auth/worktree/storage-state.json',
   },
   webServer: {
-    command: 'node scripts/authenticated-route-test-server.mjs',
+    command: 'node scripts/route-test-server.mjs --authenticated',
     url: 'http://127.0.0.1:3218/sign-in',
     reuseExistingServer: false,
     timeout: 180_000,

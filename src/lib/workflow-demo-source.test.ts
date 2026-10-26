@@ -22,6 +22,37 @@ it('does not reinstate arbitrary minimum company or people counts or silently re
  const f=fixture(undefined,[member(35)]);await expect(f.run()).resolves.toEqual({mandateId:first,mandateRevision:'7'});expect(f.memberships).toHaveBeenCalledOnce();
  const human=fixture(undefined,[member(35,'excluded')],[member(35,'parked')]);expect(await human.run()).toBeUndefined();
 });
+it.each([
+ ['naturalLanguage','Research only: do not contact anyone.'],
+ ['naturalLanguage','We seek an established service business. Research only: do not contact anyone.'],
+ ['outreachPositioning','Research only.'],
+ ['outreachPositioning','No outreach. Do not contact owners.'],
+]as const)('skips an explicitly restricted %s and selects the next usable saved brief',async(field,value)=>{
+ const restricted={...brief,[field]:value};
+ const f=fixture([{id:first,revision:'7',brief:restricted},{id:second,revision:'9',brief}],[member(35)],[member(35)]);
+ await expect(f.run()).resolves.toEqual({mandateId:second,mandateRevision:'9'});
+ expect(f.query.mock.calls.some(([sql,values])=>sql.includes('workflow-demo-contact-targets')&&values?.[0]===first)).toBe(false);
+ expect(f.memberships).toHaveBeenCalledExactlyOnceWith(second,[targetId]);
+ expect(restricted[field]).toBe(value);
+});
+it('returns no demo source when every saved brief explicitly prohibits outreach',async()=>{
+ const f=fixture([
+  {id:first,revision:'7',brief:{...brief,naturalLanguage:'Research-only run. Do not contact anyone.'}},
+  {id:second,revision:'9',brief:{...brief,outreachPositioning:'No-contact research only.'}},
+ ],[member(35)],[member(35)]);
+ expect(await f.run()).toBeUndefined();
+ expect(f.query).toHaveBeenCalledOnce();
+ expect(f.memberships).not.toHaveBeenCalled();
+});
+it.each([
+ 'This is not research only. Prepare outreach for review.',
+ 'No restrictions on outreach. Prepare introductions for review.',
+ 'No contact restrictions apply. Prepare introductions for review.',
+ 'No outreach restrictions apply. Prepare introductions for review.',
+])('does not turn non-prohibiting wording into a demo restriction: %s',async value=>{
+ const f=fixture([{id:first,revision:'7',brief:{...brief,naturalLanguage:value,outreachPositioning:value}}],[member(35)]);
+ await expect(f.run()).resolves.toEqual({mandateId:first,mandateRevision:'7'});
+});
 it('does not confuse shared display-only people with materialized owned contacts',async()=>{
  const f=fixture();f.query.mockImplementation(async(sql:string)=>({rows:sql.includes('workflow-demo-sources')?[{id:first,revision:'7',brief}]:[],rowCount:1}));expect(await f.run()).toBeUndefined();expect(f.memberships).not.toHaveBeenCalled();
 });
