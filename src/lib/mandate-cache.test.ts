@@ -22,6 +22,18 @@ beforeEach(() => { vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-15T00:
 afterEach(() => vi.useRealTimers());
 
 describe("mandate cache", () => {
+  it('retains research status across refresh and persisted reload',async()=>{
+    const {store,request,storage}=setup();
+    await store.getState().refresh();
+    request.mockResolvedValueOnce(Response.json({scope,mandates:[{...mandate,researchStatus:'running'}]}));
+    await store.getState().refresh(true);
+    expect(store.getState().entry?.mandates[0].researchStatus).toBe('running');
+    const reloaded=createMandateCache(storage,request);await reloaded.persist.rehydrate();
+    expect(reloaded.getState().entry?.mandates[0].researchStatus).toBe('running');
+    request.mockResolvedValueOnce(Response.json({scope,mandates:[{...mandate,researchStatus:'partial'}]}));
+    await store.getState().refresh(true);
+    expect(store.getState().entry?.mandates[0].researchStatus).toBe('partial');
+  });
   it("deduplicates requests and uses fresh session and mandate data until expiry", async () => {
     const { store, request } = setup();
     await Promise.all([store.getState().refresh(), store.getState().refresh()]);

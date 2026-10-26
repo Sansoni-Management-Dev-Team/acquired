@@ -4,10 +4,11 @@ import { create, type UseBoundStore, type Mutate, type StoreApi } from "zustand"
 import { persist, createJSONStorage, type StateStorage } from "zustand/middleware";
 import { z } from "zod";
 import { briefSchema, type MandateView } from "@/domain/acquisition";
+import {mandateResearchStatusSchema} from '@/domain/mandate-research-status';
 
 export const SESSION_CACHE_TTL = 60_000;
 export const MANDATE_CACHE_TTL = 30_000;
-const mandateSchema = z.object({ id: z.string(), brief: briefSchema, createdAt: z.string() });
+const mandateSchema = z.object({ id: z.string(), brief: briefSchema, createdAt: z.string(),researchStatus:mandateResearchStatusSchema.optional() });
 const entrySchema = z.object({ scope: z.string(), mandates: z.array(mandateSchema), updatedAt: z.number(), selectedMandateId: z.string().optional() });
 type Entry = z.infer<typeof entrySchema>;
 type Session = { scope: string; expiresAt: number };

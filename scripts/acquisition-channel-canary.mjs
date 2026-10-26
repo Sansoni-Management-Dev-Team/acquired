@@ -159,7 +159,9 @@ export async function runAcquisitionChannelCanary(o) {
     async function guidance() { if (!o.buyerGuidance || s.guidanceApproved)
         return; assert(typeof o.buyerGuidance === 'string' && o.buyerGuidance.length >= 5 && o.buyerGuidance.length <= 2000 && s.selectionOperation, 'Explicit bounded guidance and original selection required'); s.guidanceKey ??= randomUUID(); await save(); const g = await request(base + '/guidance', { action: 'feedback', requestKey: s.guidanceKey, input: { source: { kind: 'operation', ...s.selectionOperation }, category: 'buyer_context', reason: 'Reviewed buyer wording for this isolated simulated outreach test.', preference: o.buyerGuidance } }, v => uuid(v?.guidance?.id) && Number.isInteger(v.guidance.revision)); await request(base + '/guidance', { action: 'decide', id: g.guidance.id, revision: g.guidance.revision, decision: 'approved', confirmed: true }, v => v?.guidance?.id === g.guidance.id && v.guidance.state === 'approved'); s.guidanceApproved = true; await save(); }
     async function refreshRelationship() { const e = await execution(), c = e.conversations.find(c => c.id === s.conversationId); assert(c, 'Original invitation conversation required'); const tokens = { conversationId: c.id, revision: c.revision, epoch: Number(c.epoch), contextRevision: c.context_revision }; await request(base + '/execution', { action: 'refresh_review_history', requestKey: randomUUID(), ...tokens }, receipt); for (let i = 0; i < 10; i++) {
-        await sleep(1000);
+        // The ordinary native worker may poll every thirty seconds. Keep ten
+        // reads while allowing up to forty-five seconds for its saved history.
+        await sleep(4500);
         const latest = (await execution()).conversations.find(c => c.id === s.conversationId);
         if (latest?.history_complete && latest.history_coverage_fresh) {
             const r = latest.channels.find(r => r.channel === 'linkedin');

@@ -14,6 +14,7 @@ onlyBuiltDependencies:
   - unrs-resolver
 
 overrides:
+  '@vercel/cli-config>zod': 4.6.6
   'vite@>=8.2.0 <8.2.4': 8.2.4
   sharp: 0.35.5
   esbuild: 0.28.2

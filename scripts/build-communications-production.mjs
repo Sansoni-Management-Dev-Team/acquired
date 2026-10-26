@@ -8,3 +8,6 @@ const outfile=join(root,'.local-data/communications/service-build/configuration-
 const marker={name:'native-server-only-marker',setup(b){b.onResolve({filter:/^server-only$/},()=>({path:'server-only',namespace:'native-server-marker'}));b.onLoad({filter:/^server-only$/,namespace:'native-server-marker'},()=>({contents:'',loader:'js'}));}};
 await build({entryPoints:[join(root,'ops/communications/production/service/configuration-preflight.ts')],bundle:true,platform:'node',target:'node22',format:'cjs',packages:'external',plugins:[marker],tsconfig:join(root,'tsconfig.json'),outfile});
 chmodSync(outfile,0o600);
+
+const {packageCommunicationsRuntime}=await import('./package-communications-runtime.mjs');
+await packageCommunicationsRuntime();

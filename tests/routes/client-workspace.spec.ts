@@ -12,7 +12,7 @@ test.beforeEach(async ({ context, api }) => {
 });
 test('saved mandate list renders API data and correct destination links', async ({ page }) => {
   await page.goto('/mandates'); await expect(page.getByRole('heading', { name: 'Acquisition mandates' })).toBeVisible(); await expect(page.getByRole('heading', { name: mandate.brief.name })).toBeVisible();
-  await expect(page.getByRole('link').filter({ has: page.getByRole('heading', { name: mandate.brief.name }) })).toHaveAttribute('href', `/mandates/${id}`);
+  await expect(page.getByRole('link').filter({ has: page.getByRole('heading', { name: mandate.brief.name }) })).toHaveAttribute('href', `/mandates/${id}?tab=search+enrich`);
   await expect(page.getByText('Loading your mandates…')).toHaveCount(0);
 });
 test('empty mandate list offers creation instead of stale records', async ({ page, api }) => {

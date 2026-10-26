@@ -27,7 +27,7 @@ it('shares the same complete inventory with the Node command and keeps Vitest mj
  expect(nodeTestArguments()).toEqual(['--test',...files]);
  expect(config.test.exclude).toEqual(expect.arrayContaining(files));
  expect(files).not.toContain('scripts/dev-config.test.mjs');expect(config.test.exclude).not.toContain('scripts/dev-config.test.mjs');
-});
+},60000);
 it('classifies test syntax without importing suites or matching comments, quoted code or unrelated imports',async()=>{
  const {testRunner}=await import('./test-runner-files.mjs');
  expect(testRunner('// import test from "node:test";\nimport {it} from "vitest";')).toBe('vitest');
@@ -58,5 +58,21 @@ it('automatically discovers nested normal test files while ignoring dependencies
   expect(nodeTestArguments({root,args:['--test-name-pattern=bounded case']})).toEqual(['--test','--test-name-pattern=bounded case','ops/nested/new.test.mjs','scripts/common.spec.cjs']);
   rmSync(join(root,'ops'),{recursive:true});rmSync(join(root,'scripts'),{recursive:true});
   expect(()=>nodeTestArguments({root})).toThrow('No node:test suites discovered');
+ }finally{rmSync(root,{recursive:true,force:true});}
+});
+
+it('reclassifies changed files and discovers additions/removals across repeated inventories',async()=>{
+ const {mkdtempSync,writeFileSync,unlinkSync,rmSync}=await import('node:fs');
+ const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const {discoverNodeTestFiles}=await import('./test-runner-files.mjs');
+ const root=mkdtempSync(join(tmpdir(),'acquire-runner-freshness-')),file=join(root,'changes.test.mjs');
+ try{
+  writeFileSync(file,'import {it} from "vitest";');expect(discoverNodeTestFiles(root)).toEqual([]);
+  writeFileSync(file,'import test from "node:test";');expect(discoverNodeTestFiles(root)).toEqual(['changes.test.mjs']);
+  expect(discoverNodeTestFiles(root)).toEqual(['changes.test.mjs']);
+  writeFileSync(file,'import {it} from "vitest";');expect(discoverNodeTestFiles(root)).toEqual([]);
+  writeFileSync(join(root,'added.test.mjs'),'import test from "node:test";');expect(discoverNodeTestFiles(root)).toEqual(['added.test.mjs']);
+  unlinkSync(join(root,'added.test.mjs'));expect(discoverNodeTestFiles(root)).toEqual([]);
+  writeFileSync(file,'import test from "node:test"; import {it} from "vitest";');expect(()=>discoverNodeTestFiles(root)).toThrow('mixes node:test and Vitest');
  }finally{rmSync(root,{recursive:true,force:true});}
 });

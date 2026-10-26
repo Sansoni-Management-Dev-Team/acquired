@@ -11,3 +11,24 @@ it('settles cancelled children only from terminal original run proofs and labels
 it('does not settle cancelled snapshots while any original research job remains active',async()=>{const f=fixture();const original=f.query.getMockImplementation()!;f.query.mockImplementation(async sql=>sql.startsWith('SELECT config')?{rows:[{status:'cancelled',config:{companyPeopleRunIds:['run']}}]}:sql.startsWith('SELECT 1')?{rows:[{active:1}]}:original(sql));expect(await reconcileWorkflowPeopleSnapshots(f.pool,{organizationId:'org',userId:'owner'},execution)).toBe(0);expect(f.query.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);});
 
 it.each(['missing','running','unknown-status'])('keeps cancelled snapshot blocked for %s original Firmable proof',async kind=>{const f=fixture(['run'],kind==='missing'?[]:[{status:kind==='running'?'running':'unexpected',profilesFound:0,profilesSaved:0,profilesFailed:0}]);const original=f.query.getMockImplementation()!;f.query.mockImplementation(async sql=>sql.startsWith('SELECT config')?{rows:[{status:'cancelled',config:{companyPeopleRunIds:['run']}}]}:original(sql));expect(await reconcileWorkflowPeopleSnapshots(f.pool,{organizationId:'org',userId:'owner'},execution)).toBe(0);expect(f.query.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);});
+
+it('admits a failed settled root while retaining every original job lifecycle and evidence field',async()=>{
+ const f=fixture();const original=f.query.getMockImplementation()!;
+ f.query.mockImplementation(async sql=>sql.startsWith('SELECT config')?{rows:sql.includes("status IN('complete','partial','failed','cancelled')")?[{status:'failed',config:{companyPeopleRunIds:['run']}}]:[]}:original(sql));
+ expect(await reconcileWorkflowPeopleSnapshots(f.pool,{organizationId:'org',userId:'owner'},execution)).toBe(1);
+ const update=f.query.mock.calls.find(([sql])=>sql.startsWith('UPDATE'))!;
+ expect(update[0]).not.toContain('status=');expect(update[0]).not.toContain('updated_at');
+ expect(JSON.parse(String(update[1]?.[1]))).toMatchObject({settled:true,cancelled:1,complete:0});
+});
+it('keeps a failed root blocked while an original job is still active',async()=>{
+ const f=fixture();const original=f.query.getMockImplementation()!;
+ f.query.mockImplementation(async sql=>sql.startsWith('SELECT config')?{rows:[{status:'failed',config:{companyPeopleRunIds:['run']}}]}:sql.startsWith('SELECT 1')?{rows:[{active:1}]}:original(sql));
+ expect(await reconcileWorkflowPeopleSnapshots(f.pool,{organizationId:'org',userId:'owner'},execution)).toBe(0);
+ expect(f.query.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);
+});
+it.each(['missing','running','unknown-status'])('keeps a failed root blocked for %s original Firmable proof',async kind=>{
+ const f=fixture(['run'],kind==='missing'?[]:[{status:kind==='running'?'running':'unexpected',profilesFound:0,profilesSaved:0,profilesFailed:0}]);const original=f.query.getMockImplementation()!;
+ f.query.mockImplementation(async sql=>sql.startsWith('SELECT config')?{rows:[{status:'failed',config:{companyPeopleRunIds:['run']}}]}:original(sql));
+ expect(await reconcileWorkflowPeopleSnapshots(f.pool,{organizationId:'org',userId:'owner'},execution)).toBe(0);
+ expect(f.query.mock.calls.some(([sql])=>sql.startsWith('UPDATE'))).toBe(false);
+});
