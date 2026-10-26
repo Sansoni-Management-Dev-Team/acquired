@@ -4462,3 +4462,25 @@ limitation, not a simulator transport pass. The successful three-channel run use
 an explicitly identified clean legacy cached-demo fixture. Browser rendering,
 current production end-to-end journeys and naturally elapsed warm follow-up are
 separate acceptance claims; no completion of WF10–14 is inferred here.
+
+### 2026-10-26 — P5.1/A21/A22 CI harness isolation and deadline fixtures
+
+CI run `40327920506` passed application Vitest but failed one Node overlay test
+because a clean checkout lacks ignored runtime env files. The test now renders
+the unchanged Compose overlays in a disposable tree with synthetic env files;
+all original service, volume and isolation assertions remain. No runtime env or
+overlay is edited. CI coverage run `40327920484` separately exposed redundant
+AST discovery and timing-fixture failures under instrumentation. Discovery now
+reuses classifications only for identical file contents, with changed/mixed,
+added and removed-file freshness coverage. The CI coverage job uses two workers.
+
+Reply-consumer fixtures now control the actual `node:perf_hooks` clock while
+retaining deadline timers, expired-COMMIT/no-rollback checks and exactly-once
+session retirement. Strict native-Node child startup gets a separate 15-second
+guard; application authentication/transaction limits and send authority are
+unchanged. The original CI failures are RED evidence; the new inventory
+freshness characterization passed before and after caching. Local GREEN:
+152 affected Vitest tests pass normally and under V8 coverage with two workers;
+the isolated Compose Node test passes, scoped lint and whitespace checks pass.
+These are synthetic harness checks, not live sends or production verification.
+Next: run the follow-up PR's clean Linux CI before declaring those jobs green.

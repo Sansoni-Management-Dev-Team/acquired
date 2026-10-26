@@ -43,7 +43,7 @@ jobs:
           node-version: 22.23.1
       - run: npm install --global pnpm@11.8.0
       - run: pnpm install --frozen-lockfile
-      - run: pnpm test:coverage
+      - run: pnpm test:coverage --maxWorkers 2
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         # Test and coverage summaries remain in logs if artifact storage is full.
