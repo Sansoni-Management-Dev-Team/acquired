@@ -4,7 +4,7 @@ Date: 26 October 2026
 Worktree: `project-acquire-route-coverage`
 Branch: `test/route-coverage`
 
-## Status
+## Original worktree status
 
 The Companies recovery fix is implemented in this worktree and **all 52
 authenticated browser checks pass** against this branch (34.1 seconds).
@@ -129,3 +129,28 @@ scoped local-fixture handoff.
 Worktree verification logs: `.local-data/route-auth/worktree-run.log`,
 `worktree-unit.log`, `worktree-baseline.log`, `worktree-lint.log`, and
 `worktree-types.log`.
+
+## Integration verification — 26 October 2026
+
+The Companies recovery fix and its regression are now combined with the latest
+main changes in the integration checkout. Mandate cards open Search + Enrich;
+saved-card navigation does not resume admission or redirect agent runs to chat,
+and historical roots can differ from their mandate IDs. The browser card-link
+expectation was updated for that intended destination.
+
+Fresh verification of the combined source:
+
+- 7,407 Vitest tests passed; 959 existing opt-in tests skipped. The new marked
+  local database status test ran read-only and passed.
+- 238 Node tests and 48 local workflow tests passed.
+- All 52 authenticated desktop/mobile checks passed against this checkout on
+  port 3218, including populated and empty Companies recovery. No worker or
+  provider credentials were configured for that temporary server.
+- All 80 public/mock desktop/mobile browser checks passed.
+- Generated Next route types, TypeScript, scoped ESLint and route inventory
+  passed: 26 pages and 77 API handlers.
+
+Private verification logs are under the main checkout's ignored
+`.local-data/release-20261026-*.log`. The earlier 48/4 result remains historical
+pre-integration evidence. These checks establish local application and route
+behavior; production rollout and full messaging/sequence acceptance are separate.
