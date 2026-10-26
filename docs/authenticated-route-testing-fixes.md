@@ -154,3 +154,11 @@ Private verification logs are under the main checkout's ignored
 `.local-data/release-20261026-*.log`. The earlier 48/4 result remains historical
 pre-integration evidence. These checks establish local application and route
 behavior; production rollout and full messaging/sequence acceptance are separate.
+
+
+The patched dependency/runtime candidate was rechecked after the framework and
+service packaging updates: 7,417 Vitest tests passed (959 existing opt-in tests
+skipped), all 48 local workflow cases, all 80 public/mock browser cases and all
+52 authenticated browser cases passed again. Actual Linux app, communications
+and reader images also passed the unchanged strict fixable HIGH/CRITICAL gate.
+Fresh full Node results are retained in `release-20261026-final-node.log`.

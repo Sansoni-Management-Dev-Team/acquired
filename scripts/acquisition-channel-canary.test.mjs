@@ -38,6 +38,40 @@ test('verifies accepted relationship before independently approving one LinkedIn
     r.value.name = invite ? 'linkedin.invitation' : 'linkedin.initial';
 } if (r.path.endsWith('/execution') && r.body)
     r.value = { result: { status: 'accepted' } }; }); f.op.name = 'linkedin.invitation'; f.conversation.channels[0].relationship = { status: 'not_connected', canMessage: false }; f.options.acceptInvitation = async () => { accepted = true; f.conversation.channels[0].relationship = { status: 'connected', canMessage: true }; }; const result = await runAcquisitionChannelCanary(f.options); assert.equal(result.passed, true); assert.equal(f.state.messageOperationId, messageId); assert.equal(f.state.invitationOperationId, operation); assert.equal(f.calls.filter(c => c.body?.decision).length, 2); assert.equal(f.calls.filter(c => c.body?.action === 'reassess_conversation').length, 1); });
+test('waits for the normal thirty-second native poll before requiring fresh LinkedIn history', async () => {
+    let f, elapsed = 0, refreshing = false, accepted = false;
+    const messageId = '00000000-0000-4000-8000-000000000006';
+    f = fixture('linkedin', r => {
+        if (r.path.endsWith('/execution') && r.body) {
+            if (r.body.action === 'refresh_review_history') refreshing = true;
+            r.value = { result: { status: 'accepted' } };
+        } else if (r.path.endsWith('/execution') && refreshing) {
+            r.value.state.conversations[0].history_complete = elapsed >= 30000;
+            r.value.state.conversations[0].history_coverage_fresh = elapsed >= 30000;
+        }
+        if (r.path.endsWith('/reviews') && !r.body && accepted) {
+            const message = { ...f.op, id: messageId, name: 'linkedin.initial' };
+            r.value = { batches: [{ ...f.batch, operations: [message], manifest: [{ ...f.batch.manifest[0], operationId: messageId }] }] };
+        }
+        if (r.path.includes('/operations?')) {
+            const invitation = r.path.includes(operation);
+            r.value.operationId = invitation ? operation : messageId;
+            r.value.name = invitation ? 'linkedin.invitation' : 'linkedin.initial';
+        }
+    });
+    f.op.name = 'linkedin.invitation';
+    f.conversation.channels[0].relationship = { status: 'not_connected', canMessage: false };
+    f.options.acceptInvitation = async () => { accepted = true; f.conversation.channels[0].relationship = { status: 'connected', canMessage: true }; };
+    f.options.sleep = async ms => { elapsed += ms; };
+    assert.equal((await runAcquisitionChannelCanary(f.options)).passed, true);
+    assert(elapsed >= 30000 && elapsed <= 45000);
+    assert.equal(f.state.invitationOperationId, operation);
+    assert.equal(f.state.messageOperationId, messageId);
+    assert.equal(f.calls.filter(c => c.body?.decision === 'approved').length, 2);
+    assert.equal(f.calls.filter(c => c.body?.action === 'refresh_review_history').length, 1);
+    assert.equal(f.calls.filter(c => c.body?.action === 'reassess_conversation').length, 1);
+    assert(f.calls.filter(c => c.path.endsWith('/execution') && !c.body).length <= 13);
+});
 test('auth failures, malformed read and old inbound cannot prove a reply', async () => { for (const mode of ['auth', 'malformed', 'old']) {
     const f = fixture('email', r => { if (mode === 'auth')
         r.status = 401; if (mode === 'malformed')

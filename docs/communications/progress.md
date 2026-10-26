@@ -4431,3 +4431,34 @@ or unrelated Zod 3 package. Private reports are under
 provider or complete production sequence acceptance; deployment remains separate
 at this checkpoint. Runtime environments and paused Langfuse configuration must
 be preserved during direct rollout. No database migration is included.
+
+
+### 2026-10-26 — P5.2 current local three-channel acceptance
+
+Fresh bounded canaries on app source `12bbd00` and isolated simulator `f91ac78`
+used the normal Acquire routes, exact saved review manifests and reserved aliases.
+Email and WhatsApp each recorded a submitted operation, genuine persona model
+reply and the correlated outbound/inbound pair in the same owned Acquire history.
+LinkedIn recorded the original invitation, supported simulator acceptance, fresh
+connected-history proof, a separately approved initial message and genuine reply
+saved through the normal application history. No direct provider-send shortcut
+or manually changed relationship/history flags were used. Verification scripts
+and immutable private journals remain under
+`.local-data/channel-acceptance-20261026/` in the database-release checkout.
+
+WhatsApp/LinkedIn preparation first stopped at the isolated simulator reservation
+cap (400 reserved, only 14 materialized leads). The existing scoped operator
+raised only that capacity to its supported 999 limit; model budget 50, aliases,
+existing records and all binding/ownership checks were preserved. Exact original
+preparation requests then reconciled to one receipt each before Start/send.
+LinkedIn exposed a ten-second canary refresh window shorter than the normal
+thirty-second native poll: a causal delayed-readiness test was RED, then the same
+ten reads gained a bounded forty-five-second window and 32 focused tests passed.
+Original journals and independent message approvals remain unchanged.
+
+A separate workflow-v2 source probe selected a saved brief explicitly prohibiting
+outreach; the model held rather than sending. That remains a source-usability
+limitation, not a simulator transport pass. The successful three-channel run uses
+an explicitly identified clean legacy cached-demo fixture. Browser rendering,
+current production end-to-end journeys and naturally elapsed warm follow-up are
+separate acceptance claims; no completion of WF10–14 is inferred here.
