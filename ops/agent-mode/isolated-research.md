@@ -261,3 +261,23 @@ followed by successful page reads. Those facts validate transport/retry behavior
 not complete public-field coverage or full workflow completion. The two newer
 agent runs also retained their original IDs and saved data during the UI fixes.
 No migrations or production deployment were performed in this follow-up.
+
+### Reuse the existing chat UI before Start
+
+The separate pending-mandate preparation card was removed following the user's
+UI correction. Pending launches now render the existing `AgentWorkspace` and
+`AgentWelcome`: header, Context panel, transcript, composer and the existing
+"Hi, I’m Acquire" / "Ready to begin?" / Start sequence. The browser draft remains
+the same scoped intent; Start still uses the original continuation helper.
+Before admission, saved-result/editor/send actions are inactive and no polling,
+receipt check, generation or admission occurs on mount. Research-only welcome
+copy accurately excludes outreach. Saved workspace behavior is unchanged.
+
+A new failing workspace regression demonstrated the missing welcome in the chat
+transcript before implementation. All 7,269 app tests, TypeScript and scoped lint
+pass after repair. The browser verified the visible existing chat, inline Start,
+refresh without starting work, unchanged agent URL and identical-body retries
+under intercepted admission failures. No live workflow/provider work was created
+by that fixture. Evidence: `output/playwright/agent-chat-start-proof.log` and
+`agent-chat-before-start.png`. No migration, service restart or production deploy
+was required for this UI correction.
