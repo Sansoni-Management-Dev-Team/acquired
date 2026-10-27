@@ -13,7 +13,6 @@ import Link from 'next/link';
 import actionStyles from './agent-chat-actions.module.css';
 import {AgentChatMessage,AgentChatDetails} from './agent-chat-ui';
 import {AgentWelcome} from './agent-welcome';
-import {ResearchPanel} from './research-panel';
 import {messagesAroundInlineAction} from './agent-chat-timeline';
 import {groupAgentChatNotices} from './agent-chat-notices';
 import {AgentLeadActivity} from './agent-lead-activity';
@@ -35,7 +34,6 @@ import type { AgentSnapshot } from '@/domain/agent-mode';
 
 /** Only the alternate route loads the AG-UI client; the main UI keeps its bundle. */
 type SavedConversation={threadId?:string;messages:SavedAgentMessage[]};
-const ignoreResearchUpdates=()=>{};
 async function fetchReviewBatches(mandateId:string,signal:AbortSignal){
   const response=await fetch(`/api/mandates/${mandateId}/agent/reviews`,{cache:'no-store',signal});
   if(!response.ok)throw new Error('Could not load current review proposals.');
@@ -206,7 +204,6 @@ function ResearchConversation({ agent,initial,persisted,learningEnabled,initialG
             {!preparation&&!persisted&&!agent.messages.length&&<div className="py-10"><Sparkles size={23} className="mb-4 text-[var(--muted)]" aria-hidden="true"/><h2 className="text-lg font-medium">Where shall we start?</h2><p className="mt-2 max-w-md text-sm leading-relaxed text-[var(--muted)]">Review your mandate, check research, or plan the next conversation.</p></div>}
             {renderTimeline(before,options)}
         {persisted&&initialResearch&&initialResearch.status!=='awaiting_start'&&initialResearch.source!=='cached'&&<div className="flex flex-wrap items-center justify-between gap-2"><div className="space-y-1"><p role="status" aria-label="Initial research status" className="text-sm text-[var(--muted)]">{initialResearchStatus}</p>{(initialResearch.companies!==undefined||initialResearch.people!==undefined)&&<p className="text-xs text-[var(--muted)]">{[initialResearch.companies!==undefined?`${initialResearch.companies} companies`:null,initialResearch.people!==undefined?`${initialResearch.people} people`:null].filter(Boolean).join(' · ')}</p>}{initialResearch.blocker&&<p role="status" className="max-w-xl text-xs leading-relaxed">{initialResearch.blocker.message}</p>}</div><div className="flex gap-3"><button type="button" aria-expanded={resultsView==='companies'} aria-controls="agent-saved-results" onClick={()=>showResults('companies')} className={`${actionStyles.action} inline-flex min-h-11 items-center underline underline-offset-4`}>View companies</button><button type="button" disabled={busy} onClick={()=>{setBriefReviewOpen(true);requestAnimationFrame(()=>briefAnchor.current?.scrollIntoView({block:'start',behavior:'auto'}));}} className={`${actionStyles.action} inline-flex min-h-11 items-center underline underline-offset-4 disabled:opacity-40`}>Review brief</button></div></div>}
-        {persisted&&initialResearch?.jobId&&initialResearch.status!=='awaiting_start'&&initialResearch.source!=='cached'&&<AgentChatMessage aria-label="Company research update"><ResearchPanel key={initialResearch.jobId} mandateId={initial.mandate.id} startedRunId={initialResearch.jobId} showStartAction={false} showCompaniesLink={false} onResultsChanged={ignoreResearchUpdates}/></AgentChatMessage>}
         {resultsView&&<div ref={resultsAnchor} id="agent-saved-results" className="scroll-mt-4"><AgentSavedResults key={`${initial.mandate.id}:${resultsView}`} mandateId={initial.mandate.id} view={resultsView} learningEnabled={learningEnabled} onClose={()=>setResultsView(null)}/></div>}
         {persisted&&(!initialResearch||briefReviewOpen)&&<div ref={briefAnchor} className="scroll-mt-4"><AgentBriefReview mandateId={initial.mandate.id} busy={busy} forceOpen={briefReviewOpen} onReviewed={async()=>{setBriefReviewOpen(false);await refresh();}}/></div>}
 
