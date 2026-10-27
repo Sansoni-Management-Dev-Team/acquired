@@ -5,6 +5,8 @@ const activity=vi.hoisted(()=>({apply:undefined as undefined|((value:unknown)=>v
 vi.mock('@/lib/agent-activity-poller',()=>({startAgentActivityPolling:(options:{apply:(value:unknown)=>void})=>{activity.apply=options.apply;return()=>{};}}));
 vi.mock('./agent-controls-panel',()=>({AgentControlsPanel:({children,onActionSaved}:{children?:(setup:React.ReactNode)=>React.ReactNode;onActionSaved?:()=>Promise<void>})=>{activity.saved=onActionSaved;return <><div>Agent toolbar</div>{children?.(<div>Inline account setup request</div>)}</>}}));
 vi.mock('./company-identity-reviews',()=>({CompanyIdentityReviews:()=>null}));
+// The real read-only research panel is exercised in agent-workspace-research-progress.test.tsx.
+vi.mock('./research-panel',()=>({ResearchPanel:()=> <div>Saved company research progress</div>}));
 vi.mock('./agent-review-cards',async importOriginal=>({...await importOriginal<typeof import('./agent-review-cards')>(),AgentReviewCards:()=>null}));
 vi.mock('./agent-saved-results',()=>({AgentSavedResults:()=> <div>Saved results inline</div>}));
 vi.mock('./agent-brief-review',()=>({AgentBriefReview:()=> <div>Inline saved brief review</div>}));
