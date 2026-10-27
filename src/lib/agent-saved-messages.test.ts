@@ -3,6 +3,12 @@ import {savedAgentMessages} from './agent-saved-messages';
 import {groupAgentChatNotices} from '@/components/agent-chat-notices';
 const text='You reviewed a person’s exact channel and account. Provider identity and full history must still be verified before outreach.';
 const id='00000000-0000-4000-8000-000000000001',other='00000000-0000-4000-8000-000000000002';
+it('marks the saved admission welcome without hiding it or trusting an ordinary model/user greeting',()=>{
+ const row={id:'welcome',role:'assistant',request_key:`initial-welcome:v1:${id}`,content:{text:'Hi, I’m Acquire.\n\nOriginal saved brief.',details:{executionId:id}}};
+ expect(savedAgentMessages([row])[0]).toMatchObject({id:'welcome',noticeKind:'welcome',content:row.content.text});
+ expect(groupAgentChatNotices(savedAgentMessages([row]))).toEqual([{kind:'message',message:expect.objectContaining({noticeKind:'welcome'})}]);
+ for(const invalid of [{...row,role:'user'},{...row,request_key:'turn:assistant'},{...row,content:{...row.content,details:{executionId:other}}}])expect(savedAgentMessages([invalid])[0]).not.toHaveProperty('noticeKind');
+});
 function notice(){return {id:'message',role:'assistant',request_key:'channel-route:'+id,content:{text,details:{conversationId:other,routeId:id,channel:'whatsapp',bindingId:other,policyRevision:1,recipient:'PRIVATE_ROUTE',bindingDigest:'PRIVATE_BINDING'}}};}
 it('marks only the saved exact channel-route notice while never exposing internal provenance or route details',()=>{
  const rows=[notice()];expect(savedAgentMessages(rows)).toEqual([{id:'message',role:'assistant',content:text,noticeKind:'contact_channel_reviewed'}]);expect(JSON.stringify(savedAgentMessages(rows))).not.toMatch(/PRIVATE|request_key|details|bindingId|routeId/);

@@ -6,6 +6,7 @@ import {AsyncLocalStorage} from 'node:async_hooks';
 import {loadAgentReviewPeople} from './agent-review-people';
 import {insertAgentReviewBatch,persistAgentReviewDecision} from './agent-review-ledger';
 import {agentRecordDigest as digest} from '@/lib/agent-record-digest';
+import {agentJson as json,openAgentThread,appendAgentMessage} from './agent-message-persistence';
 import {checkAgentResearchMandateReviewContext,type AgentReviewContextOperation} from './agent-review-context';
 import {isAgentReviewableOperation,isAgentEditableMessageOperation} from '@/domain/agent-operation-classifications';
 import{installAgentBusinessTimeSql}from'@/lib/agent-business-time-sql';
@@ -23,11 +24,6 @@ export const agentActorSchema = z.object({ organizationId: z.string().min(1).max
 export type AgentActor = z.infer<typeof agentActorSchema>;
 const uuid = z.string().uuid();
 const key = z.string().trim().min(1).max(200);
-function json(value: unknown) {
-  const parsed = z.json().parse(value);
-  if (Buffer.byteLength(JSON.stringify(parsed)) > 60_000) throw new Error('Agent payload exceeds the bounded storage limit');
-  return parsed;
-}
 export type AgentThread = { id: string; organization_id: string; mandate_id: string; owner_user_id: string; revision: number };
 export type AgentEvent = { id: string; thread_id: string; mandate_id?:string; created_at?:Date|string; workflow_execution_id?:string|null; kind: string; payload: unknown; lease_owner: string; fence: string; attempts: number };
 
@@ -152,22 +148,12 @@ export class AgentStore {
     },undefined,true);
   }
   async openThread(mandateId: string): Promise<AgentThread> {
-    return this.transaction(async c => {
-      const values=[this.actor.organizationId,uuid.parse(mandateId),this.actor.userId];
-      await c.query(`INSERT INTO agent_threads(organization_id,mandate_id,owner_user_id)
-        SELECT $1,$2,$3 FROM mandates WHERE id=$2 AND organization_id=$1
-        ON CONFLICT(organization_id,mandate_id,owner_user_id) DO NOTHING`,values);
-      const row=(await c.query<AgentThread>('SELECT * FROM agent_threads WHERE organization_id=$1 AND mandate_id=$2 AND owner_user_id=$3',values)).rows[0];
-      if (!row) throw new Error('Mandate not found'); return row;
-    });
+    return this.transaction(c => openAgentThread(c,this.actor,mandateId));
   }
   async appendMessage(threadId: string, requestKey: string, role: 'user'|'assistant', content: unknown) {
     return this.transaction(async c => {
-      const t=await this.thread(c,threadId); const request=key.parse(requestKey); const value=json(content); const hash=digest({role:z.enum(['user','assistant']).parse(role),content:value});
-      await c.query(`INSERT INTO agent_messages(thread_id,organization_id,mandate_id,owner_user_id,request_key,role,content,content_digest)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(thread_id,request_key) DO NOTHING`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,request,role,JSON.stringify(value),hash]);
-      const row=(await c.query('SELECT * FROM agent_messages WHERE thread_id=$1 AND request_key=$2',[t.id,request])).rows[0];
-      if (row.content_digest!==hash) throw new Error('Idempotency key reused with different message'); return row;
+      const t=await this.thread(c,threadId);
+      return appendAgentMessage(c,t,requestKey,role,content);
     });
   }
   async messages(threadId: string, limit=100) {

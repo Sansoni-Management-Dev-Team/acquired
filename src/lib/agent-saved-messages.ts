@@ -24,6 +24,7 @@ export function savedAgentMessages(records:readonly unknown[]):SavedAgentMessage
    if(details.success&&row.request_key==='channel-route:'+details.data.routeId)noticeKind='contact_channel_reviewed';
   }
   const display=plainAgentStatusText(row)??content.text,details=record(content.details),key=typeof row.request_key==='string'?row.request_key:'';
+  if(row.role==='assistant'&&z.string().uuid().safeParse(details.executionId).success&&key===`initial-welcome:v1:${details.executionId}`)noticeKind='welcome';
   let lead:AgentLeadUpdate|undefined;
   const person=joinedLead.safeParse({id:row.lead_conversation_id,name:row.lead_name,...(row.lead_company?{company:row.lead_company}:{})});
   if(row.role==='assistant'&&person.success&&display!==content.text&&/^(channel-incoming:|incoming-email:|draft-notice:|human-review:|event-review:|provider-outcome:|provider-history-resumed:|no-submission:|reminder-notice:|history-conflict:|route-history-conflict:|opt-out:|delivery-failure:)/.test(key)){

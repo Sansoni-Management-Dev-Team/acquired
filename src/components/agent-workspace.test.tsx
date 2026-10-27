@@ -17,6 +17,21 @@ import {CompanyIdentityReviews} from './company-identity-reviews';
 import {AgentBriefReview} from './agent-brief-review';
 import type {AgentSnapshot} from '@/domain/agent-mode';
 const initial:AgentSnapshot={mandate:{id:'56cb6d9e-e530-46a0-a98b-294193049536',name:'A saved mandate',description:'Saved buyer criteria'},scope:'research-only',research:{total:3,queued:0,active:0,complete:3,needsReview:0,cancelled:0},jobs:[],links:{brief:'/saved/brief',companies:'/saved/companies'}};
+it('retains the saved welcome once above research progress after refresh and suppresses the duplicate setup greeting',async()=>{
+ vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);const fetcher=vi.fn();vi.stubGlobal('fetch',fetcher);
+ const{create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;
+ const content='Hi, I’m Acquire.\n\nYou’re looking for Australian packaging companies.';
+ const conversation={threadId:'saved-thread',messages:[{id:'saved-welcome',role:'assistant' as const,noticeKind:'welcome' as const,content},{id:'progress',role:'assistant' as const,content:'Company discovery is running.'}]};
+ try{for(let visit=0;visit<2;visit++){
+  await act(()=>{tree=create(<AgentWorkspace initial={{...initial,initialResearch:{requestId:initial.mandate.id,status:'queued',source:'live'}}} conversation={conversation}/>);});
+  const transcript=tree!.root.findByProps({role:'log','aria-label':'Conversation messages'});
+  expect(transcript.findAllByType('div').filter(node=>node.props['data-chat-message-id']==='saved-welcome')).toHaveLength(1);
+  const visible=JSON.stringify(tree!.toJSON());expect(visible.match(/Hi, I’m Acquire\./g)).toHaveLength(1);
+  expect(visible.indexOf('Hi, I’m Acquire.')).toBeLessThan(visible.indexOf('Company discovery is running.'));
+  expect(tree!.root.findByType(AgentControlsPanel).props.welcomeSaved).toBe(true);expect(fetcher).not.toHaveBeenCalled();
+  await act(()=>tree!.unmount());tree=undefined;
+ }}finally{if(tree)await act(()=>tree!.unmount());vi.unstubAllGlobals();}
+});
 afterEach(()=>vi.unstubAllGlobals());
 it('uses the existing chat workspace and welcome for a pending mandate without polling or starting work',async()=>{
  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);const fetcher=vi.fn(),start=vi.fn();vi.stubGlobal('fetch',fetcher);
