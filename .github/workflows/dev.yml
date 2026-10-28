@@ -13,6 +13,7 @@ concurrency:
 jobs:
   target:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions: write-all
     env:
       AWS_ACCOUNT_ID: "352329340196"
@@ -102,6 +103,7 @@ jobs:
     needs:
       - target
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions: write-all
     env:
       ENVIRONMENT: develop
@@ -123,6 +125,7 @@ jobs:
     needs:
       - lint
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions: write-all
     env:
       AWS_ACCOUNT_ID: "352329340196"
