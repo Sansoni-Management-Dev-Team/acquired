@@ -32,7 +32,7 @@ jobs:
           install: true
       
       - name: Set up uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v10.3.2
 
       - name: Assume Role
         uses: Sansoni-Management-Dev-Team/devops-github-workflows/assume-aws-role@main
@@ -119,26 +119,45 @@ jobs:
       - name: Run lint
         run: pnpm lint
 
-  test:
+  docker:
     needs:
-      - target
+      - lint
     runs-on: ubuntu-latest
     permissions: write-all
     env:
+      AWS_ACCOUNT_ID: "352329340196"
+      AWS_REGION: ap-southeast-2
       ENVIRONMENT: develop
+      PROJECT: acquire
+      SECRETS_ARN_SUFFIX: ZIJf1G
     steps:
       - name: Checkout
         uses: Sansoni-Management-Dev-Team/devops-github-workflows/checkout@main
 
-      - name: Setup pnpm
-        uses: pnpm/setup@v1
+      - name: Assume Role
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/assume-aws-role@main
         with:
-          runtime: node@24
-          cache: true
-          install: false
+          role-arn: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/github-role
+          region: ${{ env.AWS_REGION }}
+
+      - name: Set variables
+        run: |
+          echo "IMAGE_TAG=v.${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "PROJECT_NAME=${PROJECT}-${PROJECT}-${ENVIRONMENT}" >> "$GITHUB_ENV"
       
-      - name: Run test
-        run: pnpm test
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} \
+            | docker login --username AWS --password-stdin ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+      
+      - name: Build and push images to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+          ECR_REPOSITORY: ${{ env.PROJECT_NAME }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
 
 
 
