@@ -104,8 +104,39 @@ jobs:
           path: |
             node_modules
           key: ${{ runner.os }}-node_modules-${{ hashFiles('pnpm-lock.yaml') }}
+      
       - name: Install dependency
         if: steps.cache-node-modules.outputs.cache-hit != 'true'
         run: pnpm install --frozen-lockfile
+
+  lint:
+    needs:
+      - target
+    runs-on: ubuntu-latest
+    permissions: write-all
+    env:
+      ENVIRONMENT: develop
+    steps:
+      - name: Checkout
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/checkout@main
+
+      - name: Setup pnpm
+        uses: pnpm/setup@v1
+        with:
+          runtime: node@24
+          cache: true
       
+      - name: Cache node_modules
+        id: cache-node-modules
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+          key: ${{ runner.os }}-node_modules-${{ hashFiles('pnpm-lock.yaml') }}
+      
+      - name: Run lint
+        run: pnpm lint
+
+
+
 
