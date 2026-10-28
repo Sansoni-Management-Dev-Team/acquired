@@ -89,7 +89,7 @@ jobs:
           # this is to remove "ACQUIRE_*" variables
           sed -i '/^ACQUIRE_/d' .env
 
-          aws s3 sync env/ "s3://${ENV_FILES_BUCKET}/${ENV_FILE_PREFIX}/" --delete
+          aws s3 sync .env "s3://${ENV_FILES_BUCKET}/${ENV_FILE_PREFIX}/" --delete
         env:
           ENV_FILES_BUCKET: ${{ env.PROJECT }}-env-files-${{ env.ENVIRONMENT }}
           ENV_FILE_PREFIX: ${{ env.PROJECT_NAME }}
