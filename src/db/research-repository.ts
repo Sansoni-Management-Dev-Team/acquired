@@ -42,12 +42,14 @@ export type ResearchStartAdmission = { expectedMandateRevision?: string; initial
 export type ResearchJobRow = typeof researchJobs.$inferSelect;
 // Same meaningful execution clock as researchExecutionUpdatedAt. This scoped
 // read lets the worker recheck fresh callbacks immediately before termination.
+// Keep outer identifiers literal: Drizzle strips column qualifiers for a
+// single-table SELECT, which otherwise makes this subquery compare to itself.
 export const researchExecutionProgressAt = sql<Date>`GREATEST(${researchJobs.updatedAt}, (
  SELECT max(company_progress.updated_at) FROM research_jobs company_progress
- WHERE company_progress.organization_id = ${researchJobs.organizationId}
-   AND company_progress.mandate_id = ${researchJobs.mandateId}
-   AND company_progress.created_by = ${researchJobs.createdBy}
-   AND company_progress.config->>'parentJobId' = ${researchJobs.id}::text
+ WHERE company_progress.organization_id = "research_jobs"."organization_id"
+   AND company_progress.mandate_id = "research_jobs"."mandate_id"
+   AND company_progress.created_by = "research_jobs"."created_by"
+   AND company_progress.config->>'parentJobId' = "research_jobs"."id"::text
    AND company_progress.config->>'researchTask' = 'company'
 ))`.mapWith(researchJobs.updatedAt);
 export const researchExecutionSelection = { ...getTableColumns(researchJobs), config: sql<ResearchJobRow['config']>`${researchJobs.config} - 'pipelineTiming' - 'scheduling'` };
