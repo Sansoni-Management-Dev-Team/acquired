@@ -7,14 +7,15 @@ import pg from "pg";
 import { containerDevConfig } from "../ops/local/config.mjs";
 import { localWorkerConfig, LOCAL_DATABASE_URL } from "./dev-config.mjs";
 import { checkLocalResearchSchema } from "./local-research-schema.mjs";
+import { dockerContextArgs, orbstackAvailable } from "./docker-context.mjs";
 
 process.chdir(fileURLToPath(new URL("..", import.meta.url)));
 const action = process.argv[2] || "start";
 if (!["start", "stop", "status", "logs"].includes(action)) throw new Error("Usage: node scripts/dev-orbstack.mjs [start|stop|status|logs]");
-// OrbStack is macOS-only; elsewhere use the current Docker context and the localhost transport.
-const orbstack = spawnSync("docker", ["context", "inspect", "orbstack"], { stdio: "ignore" }).status === 0;
+const orbstack = orbstackAvailable;
+// Without OrbStack domains, the localhost transport is the app origin.
 const appOrigin = orbstack ? "https://acquire.orb.local" : "http://localhost:3020";
-const compose = [...(orbstack ? ["--context", "orbstack"] : []), "compose", "-f", "compose.local.yml", "-f", "ops/local/compose.yml"];
+const compose = [...dockerContextArgs, "compose", "-f", "compose.local.yml", "-f", "ops/local/compose.yml"];
 function docker(args) {
   const result = spawnSync("docker", [...compose, ...args], { stdio: "inherit" });
   if (result.status !== 0) throw new Error(`Docker command failed (${result.status ?? result.error?.code})`);
