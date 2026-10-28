@@ -29,6 +29,7 @@ jobs:
         with:
           runtime: node@24
           cache: true
+          run_install: false
       
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
@@ -125,6 +126,7 @@ jobs:
         with:
           runtime: node@24
           cache: true
+          run_install: false
       
       - name: Cache node_modules
         id: cache-node-modules
