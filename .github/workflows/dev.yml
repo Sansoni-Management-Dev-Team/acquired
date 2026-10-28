@@ -4,7 +4,7 @@ name: dev
 on:
   push:
     branches:
-      - develop
+      - test/deployment
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
