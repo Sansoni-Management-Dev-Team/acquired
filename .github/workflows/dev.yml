@@ -24,12 +24,11 @@ jobs:
       - name: Checkout
         uses: Sansoni-Management-Dev-Team/devops-github-workflows/checkout@main
 
-      - name: Setup node
-        uses: actions/setup-node@v7
+      - name: Setup pnpm
+        uses: pnpm/setup@v1
         with:
-          node-version: 24
-
-      - run: pnpm --version
+          runtime: node@24
+          cache: true
       
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
