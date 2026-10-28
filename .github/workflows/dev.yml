@@ -29,7 +29,7 @@ jobs:
         with:
           runtime: node@24
           cache: true
-          install: false
+          install: true
       
       - name: Set up uv
         uses: astral-sh/setup-uv@v6
@@ -98,18 +98,6 @@ jobs:
           ENV_FILES_BUCKET: ${{ env.PROJECT }}-env-files-${{ env.ENVIRONMENT }}
           SECRETS_ARN: arn:aws:secretsmanager:${{ env.AWS_REGION }}:${{ env.AWS_ACCOUNT_ID }}:secret:${{ env.PROJECT }}-secrets-${{ env.ENVIRONMENT }}-${{ env.SECRETS_ARN_SUFFIX }}
 
-      - name: Cache node_modules
-        id: cache-node-modules
-        uses: actions/cache@v6
-        with:
-          path: |
-            node_modules
-          key: ${{ runner.os }}-node_modules-${{ hashFiles('pnpm-lock.yaml') }}
-      
-      - name: Install dependency
-        if: steps.cache-node-modules.outputs.cache-hit != 'true'
-        run: pnpm install --frozen-lockfile
-
   lint:
     needs:
       - target
@@ -127,14 +115,6 @@ jobs:
           runtime: node@24
           cache: true
           install: false
-      
-      - name: Cache node_modules
-        id: cache-node-modules
-        uses: actions/cache@v6
-        with:
-          path: |
-            node_modules
-          key: ${{ runner.os }}-node_modules-${{ hashFiles('pnpm-lock.yaml') }}
       
       - name: Run lint
         run: pnpm lint
@@ -156,14 +136,6 @@ jobs:
           runtime: node@24
           cache: true
           install: false
-      
-      - name: Cache node_modules
-        id: cache-node-modules
-        uses: actions/cache@v6
-        with:
-          path: |
-            node_modules
-          key: ${{ runner.os }}-node_modules-${{ hashFiles('pnpm-lock.yaml') }}
       
       - name: Run test
         run: pnpm test
