@@ -107,6 +107,7 @@ export type AgentConversationOptions = {
 type Props = {
   mandateId: string;
   mandateDescription?: string;
+  welcomeSaved?: boolean;
   savedData?: { companies?: number; people?: number };
   focusedConversationId?: string | null;
   conversationFocusRequest?: number;
@@ -136,6 +137,7 @@ const field =
 export function AgentControlsPanel({
   mandateId,
   mandateDescription,
+  welcomeSaved = false,
   savedData,
   focusedConversationId,
   conversationFocusRequest,
@@ -933,9 +935,9 @@ export function AgentControlsPanel({
   const setup =
     awaitingStart || (showSetup && cachedDemoReady) ? (
       <>
-        <AgentWelcome description={mandateDescription} savedData={savedData}>
+        {welcomeSaved ? welcomeActions : <AgentWelcome description={mandateDescription} savedData={savedData}>
           {welcomeActions}
-        </AgentWelcome>
+        </AgentWelcome>}
         {error && (
           <p role="alert" className="text-sm">
             {providerNeutralText(error)}

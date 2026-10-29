@@ -4,6 +4,14 @@ import {AgentControlsPanel,type AgentControlsData} from './agent-controls-panel'
 import {AGENT_DEMO_AUTO_APPROVAL_ALL} from './agent-demo-auto-approval';
 const renderConversation=(content:React.ReactNode)=><article aria-label="Mandate conversation">{content}</article>;
 const data:AgentControlsData={enabled:false,state:{mandateRevision:'42',responsibility:null,conversations:[]},inbox:{tasks:[],members:[]},grants:[]};
+it('keeps a saved welcome once in the conversation while preserving the explicit Start action',()=>{
+ const initial=selectedEmailReadiness();initial.state=null;initial.mandateRevision='42';
+ const html=renderToStaticMarkup(<AgentControlsPanel mandateId="mandate" mandateDescription="Laundry companies in Queensland." initial={initial} initialResearchStatus="awaiting_start" welcomeSaved>{setup=><article><p>Hi, I’m Acquire.</p><p>You’re looking for Laundry companies in Queensland.</p>{setup}</article>}</AgentControlsPanel>);
+ expect(html.match(/Hi, I’m Acquire\./g)).toHaveLength(1);
+ expect(html.match(/You’re looking for Laundry companies in Queensland\./g)).toHaveLength(1);
+ expect(html).not.toContain('aria-label="Welcome to Acquire"');
+ expect(html).toMatch(/>Start<\/button>/);
+});
 it('keeps demo contact allocation disabled after choosing a delivery mode until simulated routes are prepared',async()=>{
  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.useFakeTimers();vi.stubGlobal('document',{visibilityState:'visible'});const {create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;vi.stubGlobal('fetch',vi.fn());
  try{

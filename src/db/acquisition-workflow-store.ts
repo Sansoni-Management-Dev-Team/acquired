@@ -5,6 +5,8 @@ import {acquisitionWorkflowStartSchema,type AcquisitionWorkflowExecution,type Ac
 import {agentRecordDigest} from '@/lib/agent-record-digest';
 import {selectWorkflowDemoSource,type WorkflowDemoSource} from '@/lib/workflow-demo-source';
 import {z} from 'zod';
+import {openAgentThread,appendAgentMessage} from './agent-message-persistence';
+import {agentWelcomeMessage} from '@/domain/agent-welcome';
 
 function execution(row:Record<string,unknown>):AcquisitionWorkflowExecution{
  return {id:String(row.id),mandateId:String(row.mandate_id),organizationId:String(row.organization_id),ownerUserId:String(row.owner_user_id),preset:row.preset as AcquisitionWorkflowExecution['preset'],presentation:row.presentation as AcquisitionWorkflowExecution['presentation'],state:row.state as AcquisitionWorkflowState,revision:Number(row.revision),errorCode:row.error_code as string|null};
@@ -79,6 +81,20 @@ export class AcquisitionWorkflowStore{
    await c.query('SET LOCAL ROLE acquire_agent_user');
    const previous=(await c.query('SELECT id FROM acquisition_workflow_executions WHERE id=$1',[input.requestId])).rows[0];
    const row=(await c.query('SELECT * FROM public.acquisition_workflow_start($1,$2,$3,$4,$5)',[input.requestId,input.preset,input.presentation,mandateId,expectedMandateRevision])).rows[0];
+   if(!previous&&row.presentation==='agent'){
+    // The admission kernel has already bound this exact owned execution. Save
+    // its original welcome atomically, before any research can be dispatched.
+    const thread=await openAgentThread(c,this.actor,String(row.mandate_id));
+    const welcomeKey=`initial-welcome:v1:${row.id}`;
+    // Another admission may have committed after our initial existence read
+    // but before the kernel's request fence. Retain its original opening.
+    const saved=(await c.query('SELECT id FROM agent_messages WHERE thread_id=$1 AND request_key=$2',[thread.id,welcomeKey])).rows[0];
+    if(!saved){
+     const source=(await c.query('SELECT natural_language FROM mandates WHERE id=$1 AND organization_id=$2 AND created_by=$3',[row.mandate_id,this.actor.organizationId,this.actor.userId])).rows[0];
+     if(typeof source?.natural_language!=='string')throw Error('Original mandate brief unavailable');
+     await appendAgentMessage(c,thread,welcomeKey,'assistant',{text:agentWelcomeMessage(source.natural_language,row.preset==='live-research-test'),details:{executionId:row.id}});
+    }
+   }
    return {...execution(row),replayed:Boolean(previous)};
   });
  }

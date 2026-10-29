@@ -8,12 +8,18 @@ const row={id,mandate_id:source,organization_id:actor.organizationId,owner_user_
 const receipt=(mandateId=source)=>({organization_id:actor.organizationId,actor_id:actor.userId,action:'workflow.demo_source_selected',entity_type:'acquisition_workflow',entity_id:id,metadata:{inputDigest:agentRecordDigest(input),mandateId,mandateRevision:'7'}});
 function fixture(options:{existing?:typeof row;receipt?:ReturnType<typeof receipt>;race?:boolean;failure?:boolean;none?:boolean}={}){
  m.select.mockReset().mockResolvedValue(options.none?undefined:{mandateId:source,mandateRevision:'7'});let reads=0;
- const query=vi.fn(async(sql:string)=>{
+ const messages=new Map<string,Record<string,unknown>>();
+ const query=vi.fn(async(sql:string,values:unknown[]=[]):Promise<{rows:Record<string,unknown>[];rowCount?:number}>=>{
   if(sql.includes('workflow-demo-existing')){reads++;return{rows:options.existing?[options.existing]:options.race&&reads>1?[{...row,mandate_id:other}]:[],rowCount:0};}
   if(sql.includes('workflow-demo-source-receipt'))return{rows:options.receipt?[options.receipt]:options.race&&reads>1?[receipt(other)]:[],rowCount:0};
   if(sql.includes('FROM member'))return{rows:[{id:'member'}],rowCount:1};
   if(sql.includes('acquisition_workflow_start')){if(options.failure)throw Object.assign(Error('Saved source changed'),{code:'40001'});return{rows:[options.race?{...row,mandate_id:other}:row],rowCount:1};}
   if(sql==='SELECT id FROM acquisition_workflow_executions WHERE id=$1')return{rows:options.existing||options.race?[{id}]:[],rowCount:0};
+  if(sql.includes('SELECT natural_language'))return{rows:[{natural_language:'Original saved Queensland laundry mandate.'}]};
+  if(sql.startsWith('SELECT * FROM agent_threads'))return{rows:[{id:other,organization_id:actor.organizationId,owner_user_id:actor.userId,mandate_id:source,revision:1}]};
+  if(sql.startsWith('SELECT id FROM agent_messages'))return{rows:messages.has(String(values[1]))?[{id:'saved-welcome'}]:[]};
+  if(sql.includes('INSERT INTO agent_messages'))messages.set(String(values[4]),{id:'saved-welcome',content:JSON.parse(String(values[6])),content_digest:values[7]});
+  if(sql.startsWith('SELECT * FROM agent_messages'))return{rows:[messages.get(String(values[1]))!]};
   return{rows:[],rowCount:0};
  });const release=vi.fn();return{query,release,store:new AcquisitionWorkflowStore({connect:async()=>({query,release})}as never,actor)};
 }
@@ -21,6 +27,11 @@ it('chooses before the global fence then atomically records the server source be
  const f=fixture();await expect(f.store.start(input)).resolves.toMatchObject({mandateId:source,replayed:false});expect(m.select).toHaveBeenCalledOnce();expect(f.query).toHaveBeenCalledWith('SELECT * FROM public.acquisition_workflow_start($1,$2,$3,$4,$5)',[id,'demo','agent',source,'7']);
  const audit=f.query.mock.calls.findIndex(([sql])=>sql.startsWith('INSERT INTO audit_events')),gate=f.query.mock.calls.findIndex(([sql])=>sql.includes('communications_lock_send_gate')),start=f.query.mock.calls.findIndex(([sql])=>sql.includes('acquisition_workflow_start'));
  expect(gate).toBeGreaterThan(-1);expect(audit).toBeGreaterThan(gate);expect(start).toBeGreaterThan(audit);expect(f.query.mock.calls.at(-1)?.[0]).toBe('COMMIT');
+ expect(f.query).toHaveBeenCalledWith('SELECT natural_language FROM mandates WHERE id=$1 AND organization_id=$2 AND created_by=$3',[source,actor.organizationId,actor.userId]);
+ const welcome=f.query.mock.calls.find(([sql])=>sql.includes('INSERT INTO agent_messages'))?.[1];
+ expect(welcome?.slice(0,6)).toEqual([other,actor.organizationId,source,actor.userId,`initial-welcome:v1:${id}`,'assistant']);
+ expect(JSON.parse(String(welcome?.[6])).text).toContain('Original saved Queensland laundry mandate.');
+ expect(f.query.mock.calls.some(([sql])=>/INSERT INTO (research_jobs|contacts|targets)|controlResponsibility/.test(sql))).toBe(false);
 });
 it('replays the original selected source and original revision without choosing again',async()=>{
  const f=fixture({existing:row,receipt:receipt()});await expect(f.store.start(input)).resolves.toMatchObject({replayed:true});expect(m.select).not.toHaveBeenCalled();expect(f.query).toHaveBeenCalledWith('SELECT * FROM public.acquisition_workflow_start($1,$2,$3,$4,$5)',[id,'demo','agent',source,'7']);expect(f.query.mock.calls.some(([sql])=>sql.startsWith('INSERT INTO audit_events'))).toBe(false);
