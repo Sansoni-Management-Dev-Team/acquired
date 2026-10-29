@@ -5362,3 +5362,22 @@ restart, deployment, database migration or live sending is part of this publicat
 Publication target: origin/codex/standalone-research-service. Next action after
 push: review and separately authorize any merge or app rollout. Detailed command
 logs and secret-scan report remain in services/research/.local/github-push/.
+
+### P0.5 main merge preparation — 29 October 2026
+
+User requested merging the published research branch into main. Merged current
+origin/main8e3be32 into the branch without conflicts. Post-merge service build,
+52 service tests, deployment-contract test, typecheck and109 overlapping app
+checks passed (2 database tests skipped). The packaged worker revision remains
+unchanged. Branch secret scan passed. DigitalOcean auto-deploy remains disabled;
+merging does not apply the committed SQL or activate another runtime release.
+
+Found a clean-checkout CI prerequisite: the repository-wide Node runner discovers
+service tests, which import the service bundle and separately locked dependencies.
+Demonstrated ERR_MODULE_NOT_FOUND without dist, restored the build, and added
+explicit service npm ci/build plus deployment-contract checks to the regression
+workflow. The existing service contract tests pass with the built bundle. A local
+full Node run passed292/293; the remaining communications packaging check rejects
+the worktree's pre-existing absolute dependency symlink. Do not weaken that guard;
+CI's fresh dependency installation is the authoritative full regression check.
+Next action: open the PR, wait for checks, then perform the authorized normal merge.

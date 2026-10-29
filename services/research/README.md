@@ -41,6 +41,8 @@ npm test
 npm run test:deployment
 ```
 
+The repository-wide Node runner also discovers these service tests. Install and build this package before running `npm run test:node` from the repository root; CI performs those prerequisites explicitly.
+
 `npm test` covers workflow contracts, adapter/storage behavior, Australian provider scope and parity-report redaction. `test:deployment` requires Docker Compose and verifies both rendered environments use matching runtime settings and distinct existing database volumes. Neither applies SQL.
 
 `node test-mandate.mjs` tests an already-running local file-backed test profile. It does not restart containers, change providers or copy environment credentials. Reports use the same acceptance checks as the hosted test, including source-supported company identity plus relevant business evidence. Search results, quotes and remaining URLs are retained in ignored private reports. A completed workflow alone does not pass; budget-limited research remains partial. See the runtime guide before switching from the active Acquire bridge to a test harness.
