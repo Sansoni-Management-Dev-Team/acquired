@@ -9,6 +9,11 @@ OrbStack address in the browser so secure-context APIs such as
 `crypto.randomUUID()` are available. This is separate from the agent-mode
 worktree at `acquire-agent.orb.local`. Source edits appear through Next.js hot reload.
 
+Without OrbStack (for example Docker Engine on Linux), the launcher uses the
+current Docker context when no `orbstack` context exists, and the app origin
+becomes **http://localhost:3020**. `localhost` is a secure context, so the same
+browser APIs remain available. Register OAuth callbacks against that origin.
+
 The launcher combines `compose.local.yml` with `ops/local/compose.yml`. It uses
 this project's existing PostgreSQL database, Crawl4AI and OpenSERP services.
 PostgreSQL must already be running (`pnpm db:local:start`); startup performs the

@@ -1,0 +1,5 @@
+# Migration image inputs only. Never send environment files or keys.
+**
+!drizzle.config.ts
+!drizzle
+!drizzle/**

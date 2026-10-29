@@ -1,0 +1,146 @@
+---
+name: migration
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    permissions: write-all
+    env:
+      ENVIRONMENT: develop
+      AWS_ACCOUNT_ID: "352329340196"
+      AWS_REGION: ap-southeast-2
+      PROJECT: acquire
+    steps:
+      - name: Checkout
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/checkout@main
+
+      - name: Assume Role
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/assume-aws-role@main
+        with:
+          role-arn: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/github-role
+          region: ${{ env.AWS_REGION }}
+
+      - name: Set variables
+        run: |
+          echo "IMAGE_TAG=v.${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "PROJECT_NAME=${PROJECT}-migration-${ENVIRONMENT}" >> "$GITHUB_ENV"
+      
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} \
+            | docker login --username AWS --password-stdin ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+      
+      - name: Build and push backend images to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+          ECR_REPOSITORY: ${{ env.PROJECT_NAME }}
+        run: |
+          docker build -f Dockerfile.migration -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+  deploy:
+    needs:
+      - docker
+    runs-on: ubuntu-latest
+    permissions: write-all
+    env:
+      ENVIRONMENT: develop
+      AWS_ACCOUNT_ID: "352329340196"
+      AWS_REGION: ap-southeast-2
+      PROJECT: acquire
+    steps:
+      - name: Checkout
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/checkout@main
+
+      - name: Assume Role
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/assume-aws-role@main
+        with:
+          role-arn: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/github-role
+          region: ${{ env.AWS_REGION }}
+
+      - name: Set variables
+        run: |
+          echo "IMAGE_TAG=v.${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "PROJECT_NAME=${PROJECT}-migration-${ENVIRONMENT}" >> "$GITHUB_ENV"
+
+      - name: Update taskdef.json placeholders
+        run: |
+          sed -i \
+            -e "s|\${name}|$NAME|g" \
+            -e "s|\${image}|$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_NAME:$IMAGE_TAG|g" \
+            -e "s|\${log_group}|$LOG_GROUP|g" \
+            -e "s|\${region}|$AWS_REGION|g" \
+            -e "s|\${env_file}|arn:aws:s3:::$ENV_FILES_BUCKET/$ENV_FILE_PREFIX/.env|g" \
+            taskdef.json
+
+          jq 'map(del(.healthCheck))' taskdef.json > taskdef.tmp.json
+          mv taskdef.tmp.json taskdef.json
+
+          cat taskdef.json
+        env:
+          NAME: migration
+          REPO_NAME: ${{ env.PROJECT_NAME }}
+          LOG_GROUP: /ecs/${{ env.PROJECT_NAME }}
+          ENV_FILES_BUCKET: ${{ env.PROJECT }}-env-files-${{ env.ENVIRONMENT }}
+          ENV_FILE_PREFIX: ${{ env.PROJECT }}
+      
+      - name: Register Task Definition
+        id: register
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/register-task-definition@main
+        with:
+          family: ${{ env.PROJECT_NAME }}
+          taskdef-path: taskdef.json
+          cpu: "256"
+          memory: "1024"
+          execution-role-arn: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.PROJECT }}-ecs-task-execution-${{ env.ENVIRONMENT }}
+          task-role-arn: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.PROJECT }}-acquire-${{ env.ENVIRONMENT }}
+
+      - name: Fetch Resources
+        id: resources
+        run: |
+          SUBNET_IDS=$(aws ec2 describe-subnets \
+            --region "$AWS_REGION" \
+            --filters \
+              "Name=tag:project,Values=${PROJECT}" \
+              "Name=tag:environment,Values=${ENVIRONMENT}" \
+              "Name=tag:Name,Values=${PROJECT}-private-*" \
+            --query 'join(`,`, Subnets[].SubnetId)' \
+            --output text)
+
+          if [ -z "$SUBNET_IDS" ] || [ "$SUBNET_IDS" = "None" ]; then
+            echo "No private subnets found" >&2
+            exit 1
+          fi
+
+          echo "Private subnets: $SUBNET_IDS"
+          echo "subnets=$SUBNET_IDS" >> "$GITHUB_OUTPUT"
+
+          SG_IDS=$(aws ec2 describe-security-groups \
+            --region "$AWS_REGION" \
+            --filters "Name=tag:Name,Values=${PROJECT}-${PROJECT}-${ENVIRONMENT}" \
+            --query 'join(`,`, SecurityGroups[].GroupId)' \
+            --output text)
+
+          if [ -z "$SG_IDS" ] || [ "$SG_IDS" = "None" ]; then
+            echo "No security group found" >&2
+            exit 1
+          fi
+
+          echo "Security groups: $SG_IDS"
+          echo "security_groups=$SG_IDS" >> "$GITHUB_OUTPUT"
+
+      - name: Run migration task
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/run-ecs-task@main
+        with:
+          cluster: ${{ env.PROJECT }}-${{ env.PROJECT }}-${{ env.ENVIRONMENT }}
+          task-definition-arn: ${{ steps.register.outputs.task-definition-arn }}
+          subnets: ${{ steps.resources.outputs.subnets }}
+          security-groups: ${{ steps.resources.outputs.security_groups }}
+          container-name: migration 
+          timeout-minutes: "20"

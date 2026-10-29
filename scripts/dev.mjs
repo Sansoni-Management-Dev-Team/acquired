@@ -9,6 +9,7 @@ import { localDevConfig, enableLocalFirmableDesign, localDevEnvironment, localWo
 import { checkLocalResearchSchema } from "./local-research-schema.mjs";
 import { stopPreviousDevServers } from "./dev-processes.mjs";
 import { startDevLog } from "./dev-log.mjs";
+import { dockerContextArgs } from "./docker-context.mjs";
 
 const logPath = resolve(".local-data/dev-start.log");
 const log = startDevLog(logPath);
@@ -50,10 +51,10 @@ for (const p of [port, workerPort]) await new Promise((resolve, reject) => {
   server.once("error", () => reject(new Error(`Port ${p} is occupied. Stop the existing development server first.`)));
   server.listen(p, "127.0.0.1", () => server.close(resolve));
 });
-const docker = spawnSync("docker", ["--context", "orbstack", "compose", "-f", "compose.local.yml", "up", "-d", "--build", "--wait", "postgres", "crawl4ai", ...(!parity ? ["openserp"] : []), ...(config.app.CAMPAIGN_N8N_ENABLED === "true" ? ["n8n"] : [])], { env: { ...process.env, ...(config.app.CAMPAIGN_N8N_ENABLED === "true" ? { OUTREACH_WORKER_SECRET: config.app.OUTREACH_WORKER_SECRET } : {}) }, encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
+const docker = spawnSync("docker", [...dockerContextArgs, "compose", "-f", "compose.local.yml", "up", "-d", "--build", "--wait", "postgres", "crawl4ai", ...(!parity ? ["openserp"] : []), ...(config.app.CAMPAIGN_N8N_ENABLED === "true" ? ["n8n"] : [])], { env: { ...process.env, ...(config.app.CAMPAIGN_N8N_ENABLED === "true" ? { OUTREACH_WORKER_SECRET: config.app.OUTREACH_WORKER_SECRET } : {}) }, encoding: "utf8", maxBuffer: 10 * 1024 * 1024 });
 if (docker.stdout) process.stdout.write(docker.stdout);
 if (docker.stderr) process.stderr.write(docker.stderr);
-if (docker.status !== 0) throw new Error("Start OrbStack and retry pnpm dev");
+if (docker.status !== 0) throw new Error("Start Docker (OrbStack on macOS) and retry pnpm dev");
 const db = new pg.Client({ connectionString: config.app.DATABASE_URL });
 await db.connect();
 try {

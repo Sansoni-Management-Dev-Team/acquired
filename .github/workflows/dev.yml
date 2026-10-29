@@ -1,0 +1,235 @@
+---
+name: dev
+
+on:
+  push:
+    branches:
+      - test/deployment
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+
+jobs:
+  target:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: write-all
+    env:
+      AWS_ACCOUNT_ID: "352329340196"
+      AWS_REGION: ap-southeast-2
+      ENVIRONMENT: develop
+      PROJECT: acquire
+      SECRETS_ARN_SUFFIX: ZIJf1G
+    steps:
+      - name: Checkout
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/checkout@main
+
+      - name: Setup pnpm
+        uses: pnpm/setup@v1
+        with:
+          runtime: node@24
+          cache: true
+          install: true
+      
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.3.2
+
+      - name: Assume Role
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/assume-aws-role@main
+        with:
+          role-arn: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/github-role
+          region: ${{ env.AWS_REGION }}
+
+      - name: Generate backend and upload .env file
+        run: |
+
+          mkdir -p env/${PROJECT}
+
+          cat <<EOF > env/${PROJECT}/.env
+          DATABASE_DRIVER=postgres
+          APP_URL=https://app.acquire.pajamaprofits.net
+          NEXT_PUBLIC_APP_URL=https://app.acquire.pajamaprofits.net
+          TARGET_DATA_PROVIDER=fixture
+          OUTREACH_DRAFTING_PROVIDER=fixture
+          ACQUIRE_DATABASE_PORT=5432
+          ACQUIRE_DATABASE_NAME=${PROJECT}
+          EOF
+
+
+          SECRET_KEYS=(
+            ACQUIRE_DATABASE_USERNAME
+            ACQUIRE_DATABASE_PASSWORD
+            ACQUIRE_DATABASE_HOST
+            ACQUIRE_BETTER_AUTH_SECRET
+            OPENROUTER_API_KEY
+            RESEND_API_KEY
+            AUTH_EMAIL_FROM
+          )
+
+          SECRET_JSON=$(aws secretsmanager get-secret-value --secret-id "$SECRETS_ARN" --query SecretString --output text)
+
+          for key in "${SECRET_KEYS[@]}"; do
+            value=$(jq -r --arg k "$key" '.[$k] // ""' <<< "$SECRET_JSON")
+            echo "${key}=${value}" >> env/${PROJECT}/.env
+          done
+
+          DOTENV="uvx --from python-dotenv[cli] dotenv -f env/${PROJECT}/.env"
+          DB_USER=$($DOTENV get ACQUIRE_DATABASE_USERNAME)
+          DB_PASSWORD=$($DOTENV get ACQUIRE_DATABASE_PASSWORD)
+          DB_HOST=$($DOTENV get ACQUIRE_DATABASE_HOST)
+          DB_PORT=$($DOTENV get ACQUIRE_DATABASE_PORT)
+          DB_NAME=$($DOTENV get ACQUIRE_DATABASE_NAME)
+          BETTER_AUTH_SECRET=$($DOTENV get ACQUIRE_BETTER_AUTH_SECRET)
+
+          # Generate URL
+          DATABASE_URL=$(jq -rn \
+            --arg user "$DB_USER" --arg password "$DB_PASSWORD" \
+            --arg host "$DB_HOST" --arg port "$DB_PORT" --arg name "$DB_NAME" \
+            '"postgresql://\($user | @uri):\($password | @uri)@\($host):\($port)/\($name)"')
+          
+          echo "DATABASE_URL=${DATABASE_URL}" >> env/${PROJECT}/.env
+          echo "BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}" >> env/${PROJECT}/.env
+
+          # this is to remove "ACQUIRE_*" variables
+          sed -i '/^ACQUIRE_/d' env/${PROJECT}/.env
+
+          aws s3 sync env/ "s3://${ENV_FILES_BUCKET}/" --delete
+        env:
+          ENV_FILES_BUCKET: ${{ env.PROJECT }}-env-files-${{ env.ENVIRONMENT }}
+          SECRETS_ARN: arn:aws:secretsmanager:${{ env.AWS_REGION }}:${{ env.AWS_ACCOUNT_ID }}:secret:${{ env.PROJECT }}-secrets-${{ env.ENVIRONMENT }}-${{ env.SECRETS_ARN_SUFFIX }}
+
+  lint:
+    needs:
+      - target
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: write-all
+    env:
+      ENVIRONMENT: develop
+    steps:
+      - name: Checkout
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/checkout@main
+
+      - name: Setup pnpm
+        uses: pnpm/setup@v1
+        with:
+          runtime: node@24
+          cache: true
+          install: false
+      
+      - name: Run lint
+        run: pnpm lint
+
+  docker:
+    needs:
+      - lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: write-all
+    env:
+      AWS_ACCOUNT_ID: "352329340196"
+      AWS_REGION: ap-southeast-2
+      ENVIRONMENT: develop
+      PROJECT: acquire
+      SECRETS_ARN_SUFFIX: ZIJf1G
+    steps:
+      - name: Checkout
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/checkout@main
+
+      - name: Assume Role
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/assume-aws-role@main
+        with:
+          role-arn: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/github-role
+          region: ${{ env.AWS_REGION }}
+
+      - name: Set variables
+        run: |
+          echo "IMAGE_TAG=v.${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "PROJECT_NAME=${PROJECT}-${PROJECT}-${ENVIRONMENT}" >> "$GITHUB_ENV"
+      
+      - name: Login to Amazon ECR
+        run: |
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} \
+            | docker login --username AWS --password-stdin ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+      
+      - name: Build and push images to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+          ECR_REPOSITORY: ${{ env.PROJECT_NAME }}
+        run: |
+          docker build \
+            --build-arg NEXT_PUBLIC_APP_URL=https://app.acquire.pajamaprofits.net \
+            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+  deploy:
+    needs:
+      - docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: write-all
+    env:
+      AWS_ACCOUNT_ID: "352329340196"
+      AWS_REGION: ap-southeast-2
+      ENVIRONMENT: develop
+      PROJECT: acquire
+      SECRETS_ARN_SUFFIX: ZIJf1G
+    steps:
+      - name: Checkout
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/checkout@main
+
+      - name: Assume Role
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/assume-aws-role@main
+        with:
+          role-arn: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/github-role
+          region: ${{ env.AWS_REGION }}
+
+      - name: Set variables
+        run: |
+          echo "IMAGE_TAG=v.${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "PROJECT_NAME=${PROJECT}-${PROJECT}-${ENVIRONMENT}" >> "$GITHUB_ENV"
+      
+      - name: Update taskdef.json placeholders
+        run: |
+          sed -i \
+            -e "s|\${name}|$NAME|g" \
+            -e "s|\${image}|$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$REPO_NAME:$IMAGE_TAG|g" \
+            -e "s|\${log_group}|$LOG_GROUP|g" \
+            -e "s|\${region}|$AWS_REGION|g" \
+            -e "s|\${env_file}|arn:aws:s3:::$ENV_FILES_BUCKET/$ENV_FILE_PREFIX/.env|g" \
+            taskdef.json
+
+          cat taskdef.json
+        env:
+          NAME: ${{ env.PROJECT }}
+          REPO_NAME: ${{ env.PROJECT_NAME }}
+          LOG_GROUP: /ecs/${{ env.PROJECT_NAME }}
+          ENV_FILES_BUCKET: ${{ env.PROJECT }}-env-files-${{ env.ENVIRONMENT }}
+          ENV_FILE_PREFIX: ${{ env.PROJECT }}
+
+      - name: Register Backend Task Definition
+        id: register
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/register-task-definition@main
+        with:
+          family: ${{ env.PROJECT_NAME }}
+          taskdef-path: taskdef.json
+          cpu: "256"
+          memory: "1024"
+          execution-role-arn: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.PROJECT }}-ecs-task-execution-${{ env.ENVIRONMENT }}
+          task-role-arn: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.PROJECT }}-${{ env.PROJECT }}-${{ env.ENVIRONMENT }}
+
+      - name: Update ECS Service
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/update-ecs-service@main
+        with:
+          cluster: ${{ env.PROJECT_NAME }}
+          service: ${{ env.PROJECT_NAME }}
+          task-definition-arn: ${{ steps.register.outputs.task-definition-arn }}
+          desired-count: "1"
+          wait-for-stability: "false"
+
+
+
+
+

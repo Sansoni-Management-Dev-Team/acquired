@@ -9,6 +9,12 @@ it("pins the main checkout to its own local origin, database and research worker
   expect(config.worker).toMatchObject({ SERVICE_SECRET: "research-secret", LOCAL_SEARCH_URL: "http://127.0.0.1:7000", LOCAL_CRAWL4AI_URL: "http://127.0.0.1:18083" });
 });
 
+it("uses the localhost transport as the app origin when OrbStack domains are unavailable", () => {
+  const config = containerDevConfig({ OPENROUTER_API_KEY: "test-key" }, "research-secret", "auth-secret", "http://localhost:3020");
+  expect(config.app).toMatchObject({ APP_URL: "http://localhost:3020", NEXT_PUBLIC_APP_URL: "http://localhost:3020", DATABASE_URL: "postgresql://project_acquire:project_acquire@127.0.0.1:5434/project_acquire" });
+  expect(config.origin).toBe("http://127.0.0.1:3000");
+});
+
 it("does not activate sends or copy production/provider credentials into the local runtime", () => {
   const config = containerDevConfig({ OPENROUTER_API_KEY: "test-key", UNIPILE_API_KEY: "live-key", COMMUNICATIONS_RUNTIME_ENABLED: "true", COMMUNICATIONS_SERVICE_URL: "https://remote.invalid", RESEND_API_KEY: "live-email-key", CLOUDFLARE_API_TOKEN: "live-cloud-key", CAMPAIGN_N8N_API_KEY: "live-scheduler-key" }, "research-secret", "auth-secret");
   expect(config.app).toMatchObject({ COMMUNICATIONS_RUNTIME_ENABLED: "false", CAMPAIGN_N8N_ENABLED: "false", CAMPAIGN_LINKEDIN_ENABLED: "false" });
