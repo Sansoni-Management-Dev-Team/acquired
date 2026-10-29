@@ -22,4 +22,5 @@ COPY --from=build --chown=node:node /app/.local-data/manufacturing-search-index.
 RUN mkdir -p .next/cache && chown node:node .next/cache
 USER node
 EXPOSE 3000
-CMD ["node", "server.js"]
+# ECS overrides HOSTNAME with the task hostname; bind all interfaces so loopback health checks reach the server.
+CMD ["sh", "-c", "HOSTNAME=0.0.0.0 exec node server.js"]
