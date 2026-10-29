@@ -5381,3 +5381,12 @@ full Node run passed292/293; the remaining communications packaging check reject
 the worktree's pre-existing absolute dependency symlink. Do not weaken that guard;
 CI's fresh dependency installation is the authoritative full regression check.
 Next action: open the PR, wait for checks, then perform the authorized normal merge.
+
+Main-merge full Vitest run exposed three stale assertions: two review-card tests
+still named the provider after the requested provider-neutral UI change, and a
+refresh-route test still required time-based failure of an unreachable worker.
+Updated only the assertions to the intended company-data label and non-destructive
+status handling; retained physical attempt/cost checks and added no-provider-name
+and no-failure/no-redispatch checks. Red: full run7514passed/3failed. Green: both
+affected suites40/40. No runtime behavior changed in this follow-up. Full CI must
+pass on the updated head before the authorized merge.
