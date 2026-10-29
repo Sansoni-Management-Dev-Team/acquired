@@ -54,6 +54,7 @@ jobs:
           OUTREACH_DRAFTING_PROVIDER=fixture
           ACQUIRE_DATABASE_PORT=5432
           ACQUIRE_DATABASE_NAME=${PROJECT}
+          RESEARCH_ENABLED=true
           EOF
 
 
