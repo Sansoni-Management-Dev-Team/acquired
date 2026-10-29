@@ -82,6 +82,9 @@ jobs:
             -e "s|\${env_file}|arn:aws:s3:::$ENV_FILES_BUCKET/$ENV_FILE_PREFIX/.env|g" \
             taskdef.json
 
+          jq 'map(del(.healthCheck))' taskdef.json > taskdef.tmp.json
+          mv taskdef.tmp.json taskdef.json
+
           cat taskdef.json
         env:
           NAME: migration
