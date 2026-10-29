@@ -8,7 +8,7 @@ export function config(env) {
   const databaseMarker=aws?'acquire-research-aws-uat-only':deployment==='local'?'acquire-research-local-only':'acquire-research-do-test-only';
   const database = new URL(env.RESEARCH_DATABASE_URL || '');
   const callback = new URL(env.RESEARCH_APP_ORIGIN || '');
-  const hosts=aws?['acquire-n8n-develop.cluster-cjaq4yw64sj8.ap-southeast-2.rds.amazonaws.com']:['database','127.0.0.1','localhost'];
+  const hosts=aws?['acquire-acquire-develop.cluster-cjaq4yw64sj8.ap-southeast-2.rds.amazonaws.com']:['database','127.0.0.1','localhost'];
   if (!['postgres:','postgresql:'].includes(database.protocol) || database.pathname !== '/'+databaseName || !hosts.includes(database.hostname)) throw new Error('A dedicated research database is required');
   if(aws){
     if(database.username!=='research'||!database.password||(database.port&&database.port!=='5432')||database.hash||[...database.searchParams].some(([key,value])=>key!=='sslmode'||value!=='verify-full'))throw Error('AWS UAT requires a dedicated login and verified RDS TLS');
