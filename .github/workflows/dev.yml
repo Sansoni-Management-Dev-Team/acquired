@@ -218,11 +218,10 @@ jobs:
         run: bash scripts/build-aws-dev-images.sh acquire-pr
 
   research-deploy:
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.docker.result == 'success' && vars.ACQUIRE_RESEARCH_APPROVED_COMMIT == github.sha }}
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.docker.result == 'success' }}
     needs: docker
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    environment: aws-uat-research
     permissions:
       contents: read
       id-token: write
@@ -235,7 +234,5 @@ jobs:
         with:
           role-arn: arn:aws:iam::352329340196:role/github-role
           region: ap-southeast-2
-      - name: Release the pre-provisioned, drained single-worker service
-        env:
-          ACQUIRE_RESEARCH_APPROVED_COMMIT: ${{ vars.ACQUIRE_RESEARCH_APPROVED_COMMIT }}
+      - name: Release the pre-provisioned single-worker service
         run: node scripts/aws-research-release.mjs

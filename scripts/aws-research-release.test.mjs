@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {prepareResearchTask,validateResearchService} from './aws-research-release.mjs';
+import {prepareResearchTask,validateResearchService,validateResearchReleaseContext} from './aws-research-release.mjs';
 const registry='352329340196.dkr.ecr.ap-southeast-2.amazonaws.com/acquire-acquire-develop';
 const images={research:registry+'@sha256:'+'a'.repeat(64),reader:registry+'@sha256:'+'b'.repeat(64)};
 const secret='arn:aws:secretsmanager:ap-southeast-2:352329340196:secret:acquire-research-develop-example';
@@ -30,4 +30,12 @@ test('single-worker service refuses overlap, other services and an active rollou
  const service={serviceName:'acquire-research-develop',deploymentController:{type:'ECS'},deploymentConfiguration:{minimumHealthyPercent:0,maximumPercent:100},desiredCount:1,runningCount:1,pendingCount:0,deployments:[{status:'PRIMARY',rolloutState:'COMPLETED'}]};
  assert.doesNotThrow(()=>validateResearchService(service));
  for(const change of [{serviceName:'acquire-acquire-develop'},{desiredCount:2},{pendingCount:1},{deploymentConfiguration:{minimumHealthyPercent:100,maximumPercent:200}},{deployments:[{rolloutState:'IN_PROGRESS'}]}])assert.throws(()=>validateResearchService({...service,...change}));
+});
+
+const context={GITHUB_SHA:'a'.repeat(40),GITHUB_REPOSITORY:'Sansoni-Management-Dev-Team/acquired',GITHUB_REF:'refs/heads/test/deployment',GITHUB_EVENT_NAME:'push'};
+test('development pushes release research without a separate commit approval',()=>{
+ assert.equal(validateResearchReleaseContext(context),context.GITHUB_SHA);
+});
+test('automatic releases still refuse PRs, foreign repositories and other branches',()=>{
+ for(const change of [{GITHUB_EVENT_NAME:'pull_request'},{GITHUB_REPOSITORY:'callumholt/project-acquire'},{GITHUB_REF:'refs/heads/main'},{GITHUB_SHA:'not-a-commit'}])assert.throws(()=>validateResearchReleaseContext({...context,...change}));
 });
