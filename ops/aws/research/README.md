@@ -1,5 +1,32 @@
 # Standalone research on AWS UAT
 
+## Current UAT status — 30 October 2026
+
+Research infrastructure is provisioned and source7680be2 has been published
+and released directly from local to the existing ECR/ECS resources. Task
+revision acquire-research-develop:2 runs the worker, callback, reader and search
+containers on Fargate. Both approved research database initialization files
+are applied and verified (marker, restricted ownership, DBOS123 and ACLs).
+Private HTTP/auth and a real Fargate public-page reader canary passed.
+An idle stop-before-start restart passed: an owned coordinator-state nonce
+survived replacement and was cleaned up; no active workflow recovery is claimed.
+The Terraform plan reports no changes. Application SQL bytes remain unchanged;
+see the migration directory's research-application-record.json.
+
+App research remains disabled. Its UAT acquire database lacks the
+workflow_execution_id column selected by current legacy research code. The
+separate002 app compatibility artifact/manifest in the migration directory
+proposes one nullable UUID column constrained to NULL; it needs specific
+approval and is not applied. Shared workflow/native agent features remain off.
+A full app-backed research/model canary and app activation are still pending.
+This is not a full upgrade of the optional shared-workflow/agent schema.
+
+GitHub PR3 retains the repeatable Terraform/image/release workflow. The prior
+hosted Actions run was blocked before steps by organization billing; local
+publication/release does not certify GitHub CI/OIDC. The sections below describe
+the deployment contract and historical preparation rather than an additional
+release approval gate.
+
 The Sansoni development branch is `test/deployment`. Its `dev.yml` now builds the
 Next.js app, standalone Node/DBOS research worker and Crawl4AI reader. The search
 sidecar uses the existing digest-pinned OpenSERP image. No Cloudflare Worker

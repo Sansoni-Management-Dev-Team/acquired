@@ -1,6 +1,9 @@
-# Proposed AWS research initialization — approval required
+# AWS research initialization and application record
 
-Status: **not applied**. These SQL files are excluded from runtime images and are
+Status: **000 and001 applied and verified on30October2026**. The historical
+proposal filenames, approved SQL bytes and original review manifest are retained.
+See `research-application-record.json`. A separate002 app compatibility proposal
+remains unapproved and unapplied. These SQL files are excluded from runtime images and are
 not invoked by any workflow. DBOS startup retains `runMigrations:false`.
 
 Target: account352329340196, Sydney, app Aurora cluster `acquire-acquire-develop`,
@@ -48,3 +51,42 @@ and bytes remain unchanged. Execution is pending renewal of the expired acquire
 AWS SSO session. Neither artifact has been applied. Do not confuse recorded
 approval with successful application; application/postcheck evidence is still
 required.
+
+## Application verified — 30 October 2026
+
+Both approved artifacts committed unchanged on the pinned app Aurora cluster.
+Read-only postchecks verified research ownership/restricted login, verified TLS,
+identity marker, DBOS ledger123, no PUBLIC database/schema grants and no
+unexpected user schemas/tables. No existing application/n8n schema or data was
+changed. Temporary forwarding closed. Raw credentials were never logged.
+The original `review-manifest.json` remains the immutable proposal receipt; use
+`research-application-record.json` for the resulting application status.
+
+## Separate app compatibility proposal — approval required
+
+The UAT app database `acquire` predates the shared workflow changes. Current
+legacy research readers unconditionally select `research_jobs.workflow_execution_id`,
+which is absent in its reviewed empty research table. New agent/shared-workflow
+features remain disabled and their tables are absent.
+
+`002-app-legacy-research-compatibility.proposed.sql` adds that single nullable UUID
+column with a CHECK requiring NULL. Legacy jobs retain their existing ownership;
+non-null workflow associations are explicitly rejected while the full shared
+workflow schema is unavailable. It creates no agent/workflow tables, functions,
+grants, data rows, outreach or feature activation. Exact target and SHA-256 are
+in `app-compatibility-review-manifest.json`. Its application requires **new
+specific approval**; the000/001 approval does not cover this app database change.
+
+Live read-only prechecks verified the exact app cluster identity, existing table
+owner, all15 prior columns, zero research rows, no shared workflow table and
+research/workflow/durable/native flags off. PostgreSQL syntax parsing accepts
+all9 statements; no execution/rehearsal is claimed. Lock timeout3s and statement
+timeout15s bound application. A future full shared-workflow upgrade must
+explicitly reconcile this temporary compatibility column/check rather than apply
+the existing production002 unchanged. This prepares **legacy research only**,
+not a full migration of the optional agent/shared-workflow feature set.
+
+After specific approval, recheck flags, exact target and hash, apply once as the
+existing owner, verify nullable UUID/validated NULL-only constraint and unchanged
+row count/ACLs, then connect app secret/environment and run the bounded app-backed
+research canary. Keep app research disabled if any check fails.

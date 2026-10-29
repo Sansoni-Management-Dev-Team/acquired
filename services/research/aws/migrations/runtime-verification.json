@@ -1,0 +1,86 @@
+{
+  "source_commit": "7680be2eba477a8ef8b2696b8384cbf0bde9695f",
+  "release_method": "Direct local ECR publication, Terraform task revision, ECS service update; GitHub Actions not used for this release",
+  "task_definition": "arn:aws:ecs:ap-southeast-2:352329340196:task-definition/acquire-research-develop:2",
+  "images": {
+    "research": {
+      "tag": "research-7680be2eba477a8ef8b2696b8384cbf0bde9695f-local-20261029T225120Z",
+      "digest": "sha256:885ff048ae87a37d9cd79ac733dd1982fced8fde974d5952fad24483b112ddf9",
+      "uri": "352329340196.dkr.ecr.ap-southeast-2.amazonaws.com/acquire-acquire-develop@sha256:885ff048ae87a37d9cd79ac733dd1982fced8fde974d5952fad24483b112ddf9"
+    },
+    "reader": {
+      "tag": "reader-7680be2eba477a8ef8b2696b8384cbf0bde9695f-local-20261029T225120Z",
+      "digest": "sha256:54c25ca1b76bcf3ffb4344b55c1f4f2be2b6ca0dd5479c032b49ed43a788d29e",
+      "uri": "352329340196.dkr.ecr.ap-southeast-2.amazonaws.com/acquire-acquire-develop@sha256:54c25ca1b76bcf3ffb4344b55c1f4f2be2b6ca0dd5479c032b49ed43a788d29e"
+    },
+    "app": {
+      "tag": "app-7680be2eba477a8ef8b2696b8384cbf0bde9695f-local-20261029T225120Z",
+      "digest": "sha256:d0135b491447aad9567c2367c7256a7cb1695f6306d463059f5249114f9c8544",
+      "uri": "352329340196.dkr.ecr.ap-southeast-2.amazonaws.com/acquire-acquire-develop@sha256:d0135b491447aad9567c2367c7256a7cb1695f6306d463059f5249114f9c8544"
+    }
+  },
+  "http_canary": {
+    "private_url": "http://research.acquire.internal:8787",
+    "checks": {
+      "/health/live": {
+        "status": 200,
+        "body": {
+          "ok": true
+        }
+      },
+      "/health/ready": {
+        "status": 200,
+        "body": {
+          "ready": true
+        }
+      },
+      "unauthenticated_job": {
+        "status": 401
+      },
+      "authenticated_missing_job": {
+        "status": 404
+      },
+      "public_page_reader": {
+        "status": 200,
+        "html_bytes": 1989,
+        "markdown_bytes": 953,
+        "only_main_content": false,
+        "url": "https://example.com/"
+      }
+    },
+    "scope": "Worker HTTP/auth and one public-page reader canary; no app job or model request",
+    "passed": true,
+    "session_terminated": true,
+    "temporary_port_closed": true
+  },
+  "restart_canary": {
+    "probe_id": "2451f875-08bc-47db-8a27-42dbc8477b4d",
+    "before_task": "arn:aws:ecs:ap-southeast-2:352329340196:task/acquire-acquire-develop/94331af575eb47dfaa9ac9c43b64b0cf",
+    "source_task_definition": "arn:aws:ecs:ap-southeast-2:352329340196:task-definition/acquire-research-develop:2",
+    "status": "PASS",
+    "scope": "Owned coordinator-state marker persists across stop-before-start ECS restart; no active workflow recovery claimed",
+    "before": {
+      "mode": "seed",
+      "marker_verified": true,
+      "active_workflows": 0,
+      "nonce_persisted": true,
+      "owned_probe_cleaned": false
+    },
+    "after_task": "arn:aws:ecs:ap-southeast-2:352329340196:task/acquire-acquire-develop/d47d2b9c7a844aef9b12a4faca65ea83",
+    "old_stopped_at": "2026-10-30T07:01:19.736000+08:00",
+    "new_started_at": "2026-10-30T07:02:46.580000+08:00",
+    "after": {
+      "mode": "read-and-clean",
+      "marker_verified": true,
+      "active_workflows": 0,
+      "nonce_persisted": true,
+      "owned_probe_cleaned": true
+    }
+  },
+  "terraform_post_release_plan": "No changes",
+  "app_research_enabled": false,
+  "app_task_updated": false,
+  "app_secret_or_environment_changed": false,
+  "full_app_backed_research_model_canary": false,
+  "note": "Reader/browser, auth, durable lookup and owned coordinator-state persistence verified. In-flight workflow recovery and full research/model execution are not established by these checks."
+}

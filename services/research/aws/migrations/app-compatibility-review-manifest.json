@@ -1,0 +1,22 @@
+{
+  "status": "PROPOSED_NOT_APPLIED",
+  "target": {
+    "account": "352329340196",
+    "region": "ap-southeast-2",
+    "cluster_arn": "arn:aws:rds:ap-southeast-2:352329340196:cluster:acquire-acquire-develop",
+    "cluster_resource_id": "cluster-LV2AZYJ33YRB6VBFKYXPCJFQ5I",
+    "system_identifier": "7619074599616174976",
+    "database": "acquire",
+    "table": "public.research_jobs"
+  },
+  "file": "services/research/aws/migrations/002-app-legacy-research-compatibility.proposed.sql",
+  "sha256": "4adbc2244bf9194e474b8214bae51f1607613f9a8d94640c3ba74bcad192b98b",
+  "bytes": 2264,
+  "scope": "Add one nullable UUID column with a NULL-only check. Preserve legacy research; reject unavailable workflow associations. No rows updated, no agent/workflow tables/functions/grants, no production data copy or sending.",
+  "required_runtime_state": "RESEARCH_ENABLED=false before application; shared workflow and durable/native agent flags remain disabled for subsequent legacy-only UAT canary.",
+  "lock_timeout": "3s",
+  "statement_timeout": "15s",
+  "executed": false,
+  "approval_received": false,
+  "recovery": "Transaction rollback on failure; after success keep additive column and keep research disabled if canary fails. Future full workflow migration must explicitly reconcile this compatibility column/check; do not run unchanged production workflow002 over it."
+}
