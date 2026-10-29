@@ -1,5 +1,34 @@
 # Standalone research on AWS UAT
 
+## Current UAT status — 30 October 2026
+
+Research infrastructure is provisioned and source7680be2 has been published
+and released directly from local to the existing ECR/ECS resources. Task
+revision acquire-research-develop:2 runs the worker, callback, reader and search
+containers on Fargate. Both approved research database initialization files
+are applied and verified (marker, restricted ownership, DBOS123 and ACLs).
+Private HTTP/auth and a real Fargate public-page reader canary passed.
+An idle stop-before-start restart passed: an owned coordinator-state nonce
+survived replacement and was cleaned up; no active workflow recovery is claimed.
+The Terraform plan reports no changes. Application SQL bytes remain unchanged;
+see the migration directory's research-application-record.json.
+
+App research is connected and enabled. The separately approved002 legacy
+compatibility migration committed unchanged: workflow_execution_id is nullable
+and constrained to NULL. App revision10 injects the regional DATABASE_SSL_CA
+from its existing AWS secret; authenticated database readiness passes.
+The bounded app-backed canary completed one public page/one logical model call,
+persisted two supported findings and18 timing spans, and verified idempotent
+redispatch. Its synthetic app rows were removed and temporary forwards closed.
+See the migration directory's app-runtime-verification.json. Shared workflow
+and native agent features remain off; this is legacy research acceptance.
+
+GitHub PR3 retains the repeatable Terraform/image/release workflow. The prior
+hosted Actions run was blocked before steps by organization billing; local
+publication/release does not certify GitHub CI/OIDC. The sections below describe
+the deployment contract and historical preparation rather than an additional
+release approval gate.
+
 The Sansoni development branch is `test/deployment`. Its `dev.yml` now builds the
 Next.js app, standalone Node/DBOS research worker and Crawl4AI reader. The search
 sidecar uses the existing digest-pinned OpenSERP image. No Cloudflare Worker
@@ -23,10 +52,19 @@ configuration, not Terraform provisioning.
 
 ## DevOps prerequisites
 
-The local AWS SSO session was expired during preparation. Current provisioning
-has not been re-audited, and this PR makes no AWS infrastructure changes.
+The research-only stack lives in `terraform/` in this repository. Its separate
+state key is `applications/stacks/research-develop/terraform.tfstate` in the
+existing versioned/KMS-encrypted bucket, with native S3 locking. Existing cluster,
+VPC, private subnets, app Aurora and ECR resources are referenced, not imported.
+The additional RDS ingress rule has its own resource/state address, following
+the existing standalone-rule pattern.
 
-Provision these through the existing DevOps infrastructure repository/state:
+On29October2026 the reviewed plan created18resources, updated/deleted none, and
+provisioned the service at zero tasks. Secret values were initialized outside
+Terraform and are absent from its variables/plans/state. Read-only TLS catalog
+checks confirmed that the proposed research database/login are absent.
+
+The stack provisions:
 
 - A dedicated `acquire-research-develop` Fargate service in cluster
   `acquire-acquire-develop`, initially desired count zero. Use one worker,
@@ -47,7 +85,7 @@ Provision these through the existing DevOps infrastructure repository/state:
   The research secret contains `RESEARCH_DATABASE_URL`, `RESEARCH_SERVICE_SECRET`
   and `OPENAI_API_KEY`. The callback container receives only the same service
   secret. The worker does not receive the Acquire application database login.
-- A dedicated PostgreSQL database `acquire_research_uat` and login `research` on
+- Separately approved SQL must create database `acquire_research_uat` and login `research` on
   the existing Sydney Aurora endpoint pinned in `services/research/src/config.mjs`.
   Its expected identity marker is `acquire-research-aws-uat-only`. Schema/DBOS
   initialization requires a separately prepared, reviewed and specifically
@@ -72,26 +110,26 @@ research; a successful Docker build is not that acceptance.
 
 ## Release and enablement
 
-1. Review/merge the PR to build and publish all images. PR jobs do not deploy.
-2. Finish owner infrastructure and specifically approved database preparation.
-   Keep app research disabled. Register the reviewed base task/service at zero
-   replicas, using published images and the dedicated secrets.
-3. Research deployment runs automatically after each successful development image
-   publication. There is no commit-approval variable or GitHub environment approval
-   step. Finish infrastructure/database preparation before merging a deployment;
-   otherwise the release fails visibly at its existing service/configuration or
-   startup checks. Drain dispatch and queued/running/waiting workflows before
-   replacing the single worker; multi-replica/in-flight recovery acceptance is not
-   established. Account, repository, branch, digest, task and single-worker checks
-   remain enforced. This does not authorize any database migration.
+1. Review the SQL and hashes in `services/research/aws/migrations/`. Obtain specific
+   approval for that exact AWS target before creating the role/database or schema.
+2. Complete approved database preparation. Keep app research disabled; the service
+   is already provisioned at zero tasks.
+3. Merge the deployment change. Image publication is followed by the push-only
+   `research-infrastructure` Terraform job and the singleton release. The release
+   consumes the Terraform base-task ARN, preserving future configuration changes.
+   PRs run backend-free Terraform validation/mock tests with no AWS credentials.
+   Machine plan checks reject database resources, destructive changes outside
+   task revisions and initial task startup. No manual release approval is added.
+   Drain active workflows before replacing the singleton; in-flight restart
+   acceptance still needs a canary. Missing dependencies fail visibly.
 4. Verify ECS readiness and a scoped app-backed UAT canary, including restart and
    provider behavior. Do not enable sending or connect production credentials to
    force a pass. No live canary was performed by this PR.
 5. Copy the matching UAT `RESEARCH_SERVICE_SECRET` into the existing app secret
    `acquire-secrets-develop`. Set repository variables `ACQUIRE_RESEARCH_ENABLED`
    to `true` and `ACQUIRE_RESEARCH_WORKER_URL` to the private `.internal:8787`
-   endpoint. Re-run the release to regenerate the app environment and restart the
-   app. The environment writer defaults to disabled and refuses Cloudflare,
+   endpoint. The next development release regenerates the app environment and
+   restarts the app. The environment writer defaults to disabled and refuses Cloudflare,
    DigitalOcean, public or malformed endpoints when research is enabled.
 
 The app environment is uploaded only to its existing exact S3 object, rather than
@@ -116,6 +154,7 @@ UAT callback origin; both are now green, with existing local/production callback
 cases retained. Release tests cover configuration preservation, digest scope,
 secrets/sidecar requirements and refusal of overlapping/wrong services. A
 network-disabled image probe verifies the non-root user, relay artifact, bundled
-RDS CA and pg TLS configuration without connecting to any database. No migration,
-live provider request, runtime deployment or production configuration change is
-part of this verification.
+RDS CA and pg TLS configuration without connecting to any database. Infrastructure
+was provisioned at zero tasks. The subsequent approved SQL application, running worker, bounded live canary
+and app connection are recorded in the current-status section and migration
+application/runtime records. Production configuration was not changed.

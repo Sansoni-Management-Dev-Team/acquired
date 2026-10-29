@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {config} from '../src/config.mjs';
 import {createAcquireBridge} from '../src/acquire-bridge.mjs';
 
-const host='acquire-n8n-develop.cluster-cjaq4yw64sj8.ap-southeast-2.rds.amazonaws.com';
+const host='acquire-acquire-develop.cluster-cjaq4yw64sj8.ap-southeast-2.rds.amazonaws.com';
 const origin='https://app.acquire.pajamaprofits.net';
 const secret='uat-research-secret-'.padEnd(40,'x');
 const env={RESEARCH_DEPLOYMENT:'aws-uat',RESEARCH_DATABASE_URL:`postgresql://research:private@${host}:5432/acquire_research_uat`,RESEARCH_APP_ORIGIN:'http://127.0.0.1:3100',RESEARCH_SERVICE_SECRET:secret};
@@ -16,6 +16,7 @@ test('AWS UAT pins its own database identity and verifies RDS TLS for every conn
   assert.equal(url.searchParams.get('sslrootcert'),'/app/rds-ca.pem');
   for(const change of [
     {RESEARCH_DATABASE_URL:env.RESEARCH_DATABASE_URL.replace(host,'remote-db')},
+    {RESEARCH_DATABASE_URL:env.RESEARCH_DATABASE_URL.replace('acquire-acquire-develop','acquire-n8n-develop')},
     {RESEARCH_DATABASE_URL:env.RESEARCH_DATABASE_URL.replace('acquire_research_uat','acquire')},
     {RESEARCH_DATABASE_URL:env.RESEARCH_DATABASE_URL+'?sslmode=no-verify'},
     {RESEARCH_DATABASE_URL:env.RESEARCH_DATABASE_URL+'?sslrootcert=/tmp/foreign.pem'},

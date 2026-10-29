@@ -74,7 +74,9 @@ async function release(){
     assert.match(image.imageDigest,/^sha256:[a-f0-9]{64}$/);
     return [name,registry+'@'+image.imageDigest];
   }));
-  const base=aws('ecs','describe-task-definition','--task-definition',service.taskDefinition).taskDefinition;
+  const baseArn=process.env.RESEARCH_BASE_TASK_DEFINITION||service.taskDefinition;
+  assert.ok(baseArn.startsWith(`arn:aws:ecs:${region}:${account}:task-definition/${serviceName}:`));
+  const base=aws('ecs','describe-task-definition','--task-definition',baseArn).taskDefinition;
   const task=prepareResearchTask(base,images);
   const registered=aws('ecs','register-task-definition','--cli-input-json',JSON.stringify(task)).taskDefinition.taskDefinitionArn;
   try{

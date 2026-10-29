@@ -85,14 +85,15 @@ jobs:
           npm --prefix services/research ci --ignore-scripts
           npm --prefix services/research run build
           npm --prefix services/research test
-          node --test scripts/aws-dev-environment.test.mjs scripts/aws-research-release.test.mjs
+          node --test scripts/aws-dev-environment.test.mjs scripts/aws-research-release.test.mjs scripts/aws-research-infrastructure.test.mjs
       - name: Run lint
         run: pnpm lint
 
   docker:
-    if: ${{ !cancelled() && github.event_name == 'push' && needs.lint.result == 'success' }}
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.lint.result == 'success' && needs.terraform-check.result == 'success' }}
     needs:
       - lint
+      - terraform-check
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -217,9 +218,36 @@ jobs:
       - name: Build all UAT images without cloud credentials or database access
         run: bash scripts/build-aws-dev-images.sh acquire-pr
 
-  research-deploy:
+  research-infrastructure:
     if: ${{ !cancelled() && github.event_name == 'push' && needs.docker.result == 'success' }}
     needs: docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      base_task_definition: ${{ steps.provision.outputs.base_task_definition }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: 1.12.2
+          terraform_wrapper: false
+      - name: Assume Role
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/assume-aws-role@main
+        with:
+          role-arn: arn:aws:iam::352329340196:role/github-role
+          region: ap-southeast-2
+      - name: Apply the research-only infrastructure plan
+        id: provision
+        run: node scripts/aws-research-infrastructure.mjs
+
+  research-deploy:
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.docker.result == 'success' && needs.research-infrastructure.result == 'success' }}
+    needs: [docker, research-infrastructure]
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -235,4 +263,27 @@ jobs:
           role-arn: arn:aws:iam::352329340196:role/github-role
           region: ap-southeast-2
       - name: Release the pre-provisioned single-worker service
+        env:
+          RESEARCH_BASE_TASK_DEFINITION: ${{ needs.research-infrastructure.outputs.base_task_definition }}
         run: node scripts/aws-research-release.mjs
+
+  terraform-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd
+        with:
+          terraform_version: 1.12.2
+          terraform_wrapper: false
+      - name: Validate and test without an AWS backend or credentials
+        working-directory: ops/aws/research/terraform
+        run: |
+          terraform fmt -check -recursive
+          terraform init -backend=false -input=false -lockfile=readonly
+          terraform validate
+          terraform test

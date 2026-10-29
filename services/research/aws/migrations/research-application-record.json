@@ -1,0 +1,66 @@
+{
+  "status": "APPLIED_AND_VERIFIED",
+  "observed_at": "2026-10-29T22:51:23.833514+00:00",
+  "target": {
+    "account": "352329340196",
+    "region": "ap-southeast-2",
+    "cluster_arn": "arn:aws:rds:ap-southeast-2:352329340196:cluster:acquire-acquire-develop",
+    "cluster_resource_id": "cluster-LV2AZYJ33YRB6VBFKYXPCJFQ5I",
+    "endpoint": "acquire-acquire-develop.cluster-cjaq4yw64sj8.ap-southeast-2.rds.amazonaws.com",
+    "system_identifier": "7619074599616174976"
+  },
+  "files": [
+    {
+      "path": "services/research/aws/migrations/000-create-database.proposed.sql",
+      "sha256": "b9ff2f0843911f4cb8e5a4bef736b7dc23fad9938c478cf62f21d9cf4c011071",
+      "bytes": 1626
+    },
+    {
+      "path": "services/research/aws/migrations/001-checkpoints.proposed.sql",
+      "sha256": "57cb15783a475dc7a182129922b94026ce66d8e2249582f6e292bb40f1430ef7",
+      "bytes": 41523
+    }
+  ],
+  "mutations": [
+    {
+      "file": "services/research/aws/migrations/000-create-database.proposed.sql",
+      "sha256": "b9ff2f0843911f4cb8e5a4bef736b7dc23fad9938c478cf62f21d9cf4c011071",
+      "started_at": "2026-10-29T22:51:44.356321+00:00",
+      "exit_code": 0,
+      "completed_at": "2026-10-29T22:51:50.605100+00:00"
+    },
+    {
+      "file": "services/research/aws/migrations/001-checkpoints.proposed.sql",
+      "sha256": "57cb15783a475dc7a182129922b94026ce66d8e2249582f6e292bb40f1430ef7",
+      "started_at": "2026-10-29T22:51:50.606350+00:00",
+      "exit_code": 0,
+      "completed_at": "2026-10-29T22:52:59.964656+00:00"
+    }
+  ],
+  "preflight": {
+    "system_identifier": "7619074599616174976",
+    "database": "postgres",
+    "tls": true,
+    "role_exists": false,
+    "database_exists": false
+  },
+  "postcheck": {
+    "database": "acquire_research_uat",
+    "owner": "research",
+    "current_user": "research",
+    "tls": true,
+    "marker": "acquire-research-aws-uat-only",
+    "dbos_version": 123,
+    "public_database_grants": 0,
+    "public_schema_grants": 0,
+    "unexpected_user_schemas": 0,
+    "public_tables": 0,
+    "state_rows": 0,
+    "workflow_rows": 0,
+    "restricted_role": true
+  },
+  "forwarding_session_terminated": true,
+  "temporary_port_closed": true,
+  "approval": "User explicitly approved both pinned files and this target on30October2026.",
+  "first_attempt": "psql14 stopped on unsupported getenv before any schema/role/database change; read-only inspection verified absence before unchanged SQL retried with psql18.3."
+}
