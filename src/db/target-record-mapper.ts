@@ -75,12 +75,15 @@ export function targetRecordToRankedTarget(row: TargetRecord, signalRows: Signal
   const firmographics = (record(row.firmographics) || {}) as StoredFirmographics;
   const identifiers = record(row.identifiers) || {};
   const firmable = record(firmographics.firmable || (firmographics as Record<string,unknown>).websiteProfile) as FirmableSourceData | undefined;
-  const abnVerification = record(firmographics.abnVerification) as import("@/domain/models").AbnVerification | undefined;
+  const storedAbnVerification = record(firmographics.abnVerification) as import("@/domain/models").AbnVerification | undefined;
   const manufacturingDirectory = record(firmographics.manufacturingDirectory) as ManufacturingDirectorySourceData | undefined;
   const explanation = scoreExplanation(firmographics.scoreExplanation);
   const placeId = text(identifiers.googlePlaceId);
 
-  const reportedAbn = firmable?.firmableId && record(firmable.rawResponse) && !record(identifiers.identityEvidence) ? normalizeFirmableProfile(record(firmable.rawResponse)!).abn : null;
+  const reportedAbn = firmable?.firmableId
+    ? normalizeFirmableProfile(record(firmable.rawResponse)||{}).abn || normalizeFirmableProfile({industry_codes:{abn:firmable.abn}}).abn
+    : null;
+  const abnVerification = reportedAbn ? {status:'provider_reported',operationalStatus:'complete',missingReason:null,errors:[]} : storedAbnVerification;
 
   const retained:RankedTarget={
     id: row.id,

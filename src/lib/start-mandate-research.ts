@@ -172,9 +172,8 @@ async function startMandateResearchAction(
     delete config.companyOnly;
     config.includeCompanyPeople=true;config.includePhones=false;config.findPeople=false;
     config.parallelBusinessResearch=false;
-    const combined=config.companyDiscoveryPolicy?.version===5;
-    if(combined)config.budget={...config.budget,maxMinutes:15};
-    config.automaticDeadline=Date.now()+(combined?15:10)*60000;
+    config.completionPolicy='work-items';
+    delete config.automaticDeadline;
   }
   if (config.mode === "automatic") config.researchRunId = requestId;
   try {

@@ -9,6 +9,16 @@ import {maintainMandateResearch} from './research-maintenance';
 type Jobs=Awaited<ReturnType<ResearchRepository['listReview']>>;
 const job=(value:Record<string,unknown>)=>({organizationId:'org',createdBy:'owner',workflowExecutionId:null,id:'root',status:'queued',revision:1,pages:0,updatedAt:new Date(),config:{},...value}) as Jobs[number];
 beforeEach(()=>{vi.resetAllMocks();mock.background.mockResolvedValue(0);mock.schedule.mockResolvedValue(false);});
+it('never terminates an owned finite workload merely because its last update is old',async()=>{
+ mock.worker.mockResolvedValue({status:'waiting'});
+ await maintainMandateResearch('org','mandate',[job({updatedAt:new Date(0),config:{completionPolicy:'work-items',mode:'automatic',researchRunId:'root',automaticDeadline:1}})],{recoverStopped:mock.recover});
+ expect(mock.worker.mock.calls.every(([,method])=>method==='GET')).toBe(true);expect(mock.recover).not.toHaveBeenCalled();
+});
+it('resumes the existing checkpoint only when ownership reports a recoverable stopped workflow',async()=>{
+ mock.worker.mockResolvedValueOnce({status:'errored',recoverable:true}).mockResolvedValueOnce({recovered:true});
+ await maintainMandateResearch('org','mandate',[job({updatedAt:new Date(0),config:{completionPolicy:'work-items'}})],{recoverStopped:mock.recover});
+ expect(mock.worker).toHaveBeenCalledWith('/jobs/root','POST',{action:'resume'},expect.any(Number));expect(mock.recover).not.toHaveBeenCalled();
+});
 it('awaits persisted background dispatch when invoked without a browser defer callback',async()=>{
  let release!:()=>void;mock.background.mockReturnValue(new Promise<void>(resolve=>{release=resolve;}));
  let complete=false;const work=maintainMandateResearch('owned-org','owned-mandate',[job({config:{companyBackgroundResearch:{}}})],{recoverStopped:mock.recover}).then(()=>{complete=true;});

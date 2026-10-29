@@ -1,4 +1,5 @@
 import {withResearchJobWorkflow} from './acquisition-workflow-context';
+import {completesWorkItems} from '@/domain/research-completion';
 import {AcquisitionRepository} from '@/db/acquisition-repository';
 import {lockResearchPersistence} from './research-persistence-lock';
 import { contactCompanyEligible, contactDeadlineAdmits } from '@/domain/company-contact-policy';
@@ -45,7 +46,7 @@ export async function tickCompanyPeople(job: Job, stopped = false) {
     const runs = await tx.select().from(firmableSyncRuns).where(and(eq(firmableSyncRuns.organizationId, job.organizationId), inArray(firmableSyncRuns.id, ids)));
     if (runs.length !== ids.length) throw Error('Linked people research run missing');
     const pending = runs.filter(run => ['queued', 'running'].includes(run.status));
-    if (stopped || ['failed','cancelled'].includes(root.status) || Date.now() >= (config.automaticDeadline || Infinity)) {
+    if (stopped || root.status==='cancelled'||!completesWorkItems(config)&&root.status==='failed' || !completesWorkItems(config)&&Date.now() >= (config.automaticDeadline || Infinity)) {
       for (const run of pending) await tx.update(firmableSyncRuns).set({ status: run.status === 'queued' ? 'cancelled' : run.profilesSaved ? 'partial' : 'failed', completedAt: new Date(), updatedAt: new Date(), message: root.status === 'cancelled' ? 'Company search cancelled; saved contacts retained' : run.status === 'queued' ? 'Contact admission deadline reached; work unattempted' : 'Contact deadline reached; saved contacts retained', error: { origin: 'admission', reason: root.status === 'cancelled' ? 'cancelled' : 'deadline', attempted: run.status !== 'queued' } }).where(eq(firmableSyncRuns.id, run.id));
       return [];
     }
@@ -61,7 +62,7 @@ export async function tickCompanyPeople(job: Job, stopped = false) {
     for (const run of rejected) await tx.update(firmableSyncRuns).set({ status: run.profilesSaved ? 'partial' : 'cancelled', completedAt: new Date(), updatedAt: new Date(), message: canonical ? 'Current company membership or identity no longer permits contact enrichment' : 'Contact enrichment not eligible under company screening', error: {origin:'admission',reason:'ineligible',attempted:run.status !== 'queued'} }).where(eq(firmableSyncRuns.id, run.id));
     if (runs.some(run => run.status === 'running')) return [];
     const admitted = pending.filter(run => run.status === 'queued' && eligible(run));
-    if (!contactDeadlineAdmits(config.automaticDeadline)) {
+    if (!completesWorkItems(config)&&!contactDeadlineAdmits(config.automaticDeadline)) {
       if (admitted.length) await tx.update(firmableSyncRuns).set({ status: 'cancelled', completedAt: new Date(), updatedAt: new Date(), message: 'Insufficient contact admission budget; work unattempted', error: {origin:'admission',reason:'insufficient_budget',attempted:false} }).where(inArray(firmableSyncRuns.id, admitted.map(run => run.id)));
       return [];
     }

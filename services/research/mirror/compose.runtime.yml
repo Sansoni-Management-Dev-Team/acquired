@@ -1,0 +1,73 @@
+services:
+  reader-alias:
+    image: node:22.23.1-bookworm-slim
+    container_name: acquire-research-app-reader-alias
+    network_mode: service:network
+    volumes: [./reader-alias.mjs:/reader-alias.mjs:ro]
+    env_file: [../.local/mirror/app.env]
+    command: [node, /reader-alias.mjs]
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:18083/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  facts-alias:
+    image: node:22.23.1-bookworm-slim
+    container_name: acquire-research-app-facts-alias
+    network_mode: service:network
+    volumes: [./facts-alias.mjs:/facts-alias.mjs:ro]
+    command: [node, /facts-alias.mjs]
+    depends_on:
+      database: {condition: service_healthy}
+  simulator:
+    image: acquire-simulator:isolated-idempotency
+    container_name: acquire-research-app-simulator
+    network_mode: service:network
+    environment:
+      NODE_PATH: /app/node_modules
+    volumes:
+      - ../.local/mirror/config:/run/simulator:ro
+      - ../.local/mirror/profile:/state
+      - ../.local/mirror/simulator-entrypoint.mjs:/app/entrypoint.mjs:ro
+      - ../.local/mirror/config/saved-recipient-source.mjs:/app/testing/agent-simulator/saved-recipient-source.mjs:ro
+      - ../.local/mirror/config/local-firmable-facts.mjs:/app/testing/agent-simulator/local-firmable-facts.mjs:ro
+    init: true
+    read_only: true
+    tmpfs: [/tmp]
+    stop_grace_period: 45s
+    depends_on: [facts-alias]
+  app:
+    image: ${MIRROR_APP_IMAGE:?Pin the verified app image first}
+    container_name: acquire-research-app
+    network_mode: service:network
+    working_dir: /workspace
+    volumes:
+      - ../../..:/workspace:ro
+      - app-modules:/workspace/node_modules:ro
+      - next:/workspace/.next
+      - ../.local/mirror/next-env.d.ts:/workspace/next-env.d.ts
+      - ../.local/mirror/config/ca.crt:/run/simulator/ca.crt:ro
+    env_file: [../.local/mirror/app.env]
+    command: [node, node_modules/next/dist/bin/next, dev, --hostname, 0.0.0.0, --port, '3000']
+    depends_on:
+      database: {condition: service_healthy}
+  native:
+    image: ${MIRROR_APP_IMAGE:?Pin the verified app image first}
+    container_name: acquire-research-app-native
+    network_mode: service:network
+    working_dir: /workspace
+    volumes:
+      - ../../..:/workspace:ro
+      - ../.local/mirror/config/ca.crt:/run/simulator/ca.crt:ro
+    env_file: [../.local/mirror/app.env]
+    command: [node, ops/agent-mode/native-worker.mjs]
+    depends_on:
+      app: {condition: service_started}
+      simulator: {condition: service_started}
+      reader-alias: {condition: service_healthy}
+volumes:
+  app-modules:
+    external: true
+    name: ${MIRROR_APP_MODULES:?Pin the matching read-only dependency volume first}
+  next:
+    name: acquire-research-app_next

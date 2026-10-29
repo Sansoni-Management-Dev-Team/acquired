@@ -35,7 +35,7 @@ export function CompanyInfoSummary({ member, financialScope = "company" }: { mem
       <ul className="mt-2 space-y-2">{Object.entries(target.sourceData.backgroundResearch.fields).map(([field,state])=><li key={field}>
         <span className="font-medium">{field.charAt(0).toUpperCase() + field.slice(1).replaceAll('_',' ')}</span>
         {state?.observations.map((fact,index)=><p key={index}><a className="underline" href={fact.sourceUrl} target="_blank" rel="noreferrer">Source page</a> · {fact.capturedAt.slice(0,10)} · {fact.quote}{fact.association?` · Related domain: ${fact.association.domain} (${fact.association.basis.replaceAll('_',' ')})`:''}</p>)}
-        {!state?.observations.length && <p className="text-[var(--muted)]">Not available yet.</p>}
+        {!state?.observations.length && <p className="text-[var(--muted)]">{state?.status==='already_available'?'Available from saved company data.':state?.status==='not_required'?'Not required for this mandate.':'Not available yet.'}</p>}
       </li>)}</ul>
     </details>}
     {!hasData ? <p className="rounded-[14px] bg-[var(--panel)] p-5 text-sm text-[var(--muted)]">No company details found yet.</p> : <>

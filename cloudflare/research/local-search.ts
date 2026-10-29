@@ -6,7 +6,7 @@ import {providerFailure} from '../../src/domain/research-provider-error';
 
 // Local development searches through an OpenSERP container on OrbStack. Its
 // DuckDuckGo results carry full snippets, unlike the HTML endpoint we render.
-export type LocalSearchEnv = { LOCAL_DEVELOPMENT?: string; LOCAL_SEARCH_URL?: string; LOCAL_SEARCH_ENGINE?: string };
+export type LocalSearchEnv = { LOCAL_DEVELOPMENT?: string; LOCAL_SEARCH_URL?: string; LOCAL_SEARCH_ENGINE?: string; LOCAL_SEARCH_REGION?: string };
 
 export function localSearchEndpoint(env: LocalSearchEnv, engine = "duckduckgo") {
   if (env.LOCAL_DEVELOPMENT !== "true" || !env.LOCAL_SEARCH_URL) return null;
@@ -44,6 +44,10 @@ export async function localSearch(env: LocalSearchEnv, query: string, context: R
     const url = new URL(localSearchEndpoint(env, engine)!);
     url.searchParams.set("text", query);
     url.searchParams.set("limit", "10");
+    if(env.LOCAL_SEARCH_REGION){
+      url.searchParams.set("region",env.LOCAL_SEARCH_REGION);
+      if(env.LOCAL_SEARCH_REGION==='AU')url.searchParams.set("lang","EN");
+    }
     if (context.start) url.searchParams.set("start", String(context.start));
     try {
       const { response, data } = await providerJsonRequest<unknown>(fetcher, url.href, { method: "GET", signal: AbortSignal.timeout(45000) }, { ...trace, provider: "local-openserp", operation: `web_search_${engine}` });

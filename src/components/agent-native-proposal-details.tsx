@@ -1,3 +1,4 @@
+import { providerNeutralText } from "@/domain/provider-display";
 import { companyDiscoveryPolicySchema } from "@/domain/research-discovery-policy";
 import { AgentContactSelection } from "./agent-contact-selection";
 import type { AgentChatPersonView } from "./agent-chat-ui";
@@ -15,7 +16,7 @@ function record(value: unknown): Record<string, unknown> {
     : {};
 }
 function text(value: unknown) {
-  return typeof value === "string" ? value : "";
+  return typeof value === "string" ? providerNeutralText(value) : "";
 }
 function SequenceDraftStep({ step }: { step: CampaignStep }) {
   return (
@@ -302,13 +303,13 @@ export function AgentNativeProposalDetails({
             const company = record(item);
             return (
               <li key={text(company.targetId)}>
-                {text(company.name)} · Firmable {text(company.firmableId)}
+                {text(company.name)} · Company data {text(company.firmableId)}
               </li>
             );
           })}
         </ul>
         <p>
-          Physical Firmable attempt ceiling:{" "}
+          Physical Company data attempt ceiling:{" "}
           {String(record(policy.maxAttempts).firmable)}. Conservative
           reservation: up to $1 per physical request within current budgets;
           unknown costs remain reserved.
@@ -365,7 +366,7 @@ export function AgentNativeProposalDetails({
             <div>
               <dt className="font-semibold">Company coverage</dt>
               <dd>
-                Up to {discovery.maxFirmablePages} Firmable pages (
+                Up to {discovery.maxFirmablePages} Company data pages (
                 {discovery.maxFirmableRows} rows) and {discovery.maxWebQueries}{" "}
                 web queries ({discovery.maxWebRowsPerQuery} rows each). Every
                 unique discovered company receives a profile attempt within the
@@ -397,7 +398,7 @@ export function AgentNativeProposalDetails({
             <div>
               <dt className="font-semibold">Physical attempt ceilings</dt>
               <dd>
-                Firmable: {String(attempts.firmable)} · Search:{" "}
+                Company data: {String(attempts.firmable)} · Search:{" "}
                 {String(attempts.search)} · Pages: {String(attempts.page)} · AI:{" "}
                 {String(attempts.ai)}. The{" "}
                 {totalAttempts.toLocaleString("en-US")}-attempt maximum includes
@@ -452,7 +453,7 @@ export function AgentNativeProposalDetails({
                 ? "Remaining company profiles"
                 : record(input.execution).pipeline === "hybrid-company-v1"
                   ? "Hybrid company discovery"
-                  : "Firmable company discovery"}
+                  : "Company data company discovery"}
             </dd>
           </div>
           <div>
@@ -493,7 +494,7 @@ export function AgentNativeProposalDetails({
                 </>
               ) : all ? (
                 <>
-                  Up to 2 Firmable pages (200 rows) and 6 web queries (100 rows
+                  Up to 2 Company data pages (200 rows) and 6 web queries (100 rows
                   each). Every unique discovered company receives a company-only
                   profile attempt, without a shortlist or source quota. Repeated
                   identities merge; conflicting provider identities remain for
@@ -523,7 +524,7 @@ export function AgentNativeProposalDetails({
                 </>
               ) : (
                 <>
-                  Original discovery policy: one Firmable page, original query
+                  Original discovery policy: one Company data page, original query
                   ordering and the displayed company cap.
                 </>
               )}
@@ -551,7 +552,7 @@ export function AgentNativeProposalDetails({
           <div>
             <dt className="font-semibold">Physical attempt ceilings</dt>
             <dd>
-              Firmable: {String(attempts.firmable)} · Search:{" "}
+              Company data: {String(attempts.firmable)} · Search:{" "}
               {String(attempts.search)} · Pages: {String(attempts.page)} · AI:{" "}
               {String(attempts.ai)}
             </dd>
@@ -560,7 +561,7 @@ export function AgentNativeProposalDetails({
             <dt className="font-semibold">Conservative reservation</dt>
             <dd>
               {all
-                ? "Configured company-only Firmable incremental reserve: $0 per request, based on the stated no-credit company reads; this is not an observed invoice price. Search and page requests reserve up to $1 each ($11 total phase ceiling). The 24,035-attempt hard maximum is not reserved up front. Each physical request must fit current call limits; exhausted limits leave saved work incomplete. Raw unknown-cost receipts are preserved."
+                ? "Configured company-only Company data incremental reserve: $0 per request, based on the stated no-credit company reads; this is not an observed invoice price. Search and page requests reserve up to $1 each ($11 total phase ceiling). The 24,035-attempt hard maximum is not reserved up front. Each physical request must fit current call limits; exhausted limits leave saved work incomplete. Raw unknown-cost receipts are preserved."
                 : "Up to $1 per physical request, within all current budget limits. This is a reservation ceiling, not a quoted provider price."}
             </dd>
           </div>

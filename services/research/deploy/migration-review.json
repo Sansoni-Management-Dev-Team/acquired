@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "status": "approved-and-applied",
+  "project": "project_acquire",
+  "projectId": "a5255506-6f88-4e91-b501-f79d7c347d4f",
+  "droplet": "acquire-research-test-01",
+  "dropletId": 613028271,
+  "ip": "209.38.22.134",
+  "composeProject": "acquire-research-do-test",
+  "databaseContainer": "acquire-research-do-test-database-1",
+  "database": "acquire_research_do_test",
+  "volume": "acquire-research-do-test_research-db",
+  "marker": "acquire-research-do-test-only",
+  "migration": "deploy/001-digitalocean-test.sql",
+  "sha256": "e17903b21c6c6a3dc67394e0369a1662874d3e15f4409fe5b1faf4a004a4d8fd",
+  "scope": "Create research_service and DBOS 5.3.0 coordinator/workflow schema in a fresh research database only. No Acquire application data, schema or routing changes. No existing local or production database is a target.",
+  "preconditions": [
+    "exact current_database name",
+    "no dbos or research_service schema",
+    "dedicated new droplet and compose volume"
+  ],
+  "automaticMigrations": false,
+  "approval": {
+    "date": "2026-10-27",
+    "scope": "User explicitly approved this exact migration hash only on acquire_research_do_test at droplet 613028271. Applied once after identity/hash verification; see deploy/README.md.",
+    "reapplicationAuthorized": false
+  }
+}

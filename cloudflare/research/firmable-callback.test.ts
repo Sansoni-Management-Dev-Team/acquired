@@ -1,6 +1,10 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { checkFirmableCallback, FirmableCallbackError } from './firmable-callback';
 afterEach(()=>vi.restoreAllMocks());
+it('preserves a provider cooldown as deferred work instead of a failed callback',async()=>{
+ const response=Response.json({provider:'firmable',category:'rate_limited',retryAfterMs:75000},{status:429});
+ await expect(checkFirmableCallback(response,'profiles',Date.now())).rejects.toMatchObject({retryAfterMs:75000,status:429});
+});
 it('RC-12-regression: application 502 diagnostics include action and request ID without provider attribution',async()=>{
  const log=vi.spyOn(console,'error').mockImplementation(()=>{});
  const response=new Response(JSON.stringify({code:'DATABASE_UNAVAILABLE',error:'private profile details'}),{status:502,headers:{'x-vercel-id':'iad1:request-2'}});

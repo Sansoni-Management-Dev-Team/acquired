@@ -33,3 +33,7 @@ it('uses the bounded local reader endpoint with no crawler authorization', async
   expect(fetcher.mock.calls[0][0]).toBe('http://127.0.0.1:18083/crawl');
   expect(new Headers((fetcher.mock.calls[0][1] as RequestInit).headers).has('authorization')).toBe(false);
 });
+it.each(['domain_backoff','reader_busy'])('preserves reader429 %s and its retry delay for deferred app reads',async category=>{
+ const response=await companyPage(request('https://instruments.example.com'),env,vi.fn<typeof fetch>(async()=>Response.json({category},{status:429,headers:{'retry-after':'2'}})));
+ expect(response.status).toBe(429);expect(response.headers.get('retry-after')).toBe('2');expect(await response.json()).toMatchObject({category});
+});

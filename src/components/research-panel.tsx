@@ -1,5 +1,6 @@
 "use client";
 
+import { providerNeutralText } from "@/domain/provider-display";
 import { randomUuid } from "@/lib/random-uuid";
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -213,15 +214,15 @@ export function ResearchPanel({
             <ResearchProgress showCompaniesLink={showCompaniesLink} mandateId={mandateId} job={currentJob} jobs={runJobs} count={newBusinessCount} identified={identifiedBusinessCount} active={Boolean(active)} enriching={enriching.length} coverage={runId ? data.timings?.[runId]?.coverage : undefined} peopleSaved={peopleSaved} />
             {actionsEnabled && !isCompanyPipeline(currentJob) && currentJob.config.mode === "automatic" && <DiscoveryCandidateList jobs={candidateJobs} searching={Boolean(active)} />}
             {actionsEnabled && <ResearchRunOutcome showSummary={false} status={currentJob.status} remaining={remainingFor(currentJob).length} active={Boolean(active)} canResume={!currentJob.config.purpose} busy={busy} onResume={() => resume(currentJob)} goal={currentJob.config.targetBusinesses} saved={newBusinessCount} />}
-            {actionsEnabled && (currentJob.status === "failed" || currentJob.status === "partial" || currentJob.status === "cancelled") && currentJob.message && <p className="break-words text-sm text-[var(--muted)]">{currentJob.message}</p>}
+            {actionsEnabled && (currentJob.status === "failed" || currentJob.status === "partial" || currentJob.status === "cancelled") && currentJob.message && <p className="break-words text-sm text-[var(--muted)]">{providerNeutralText(currentJob.message)}</p>}
             {actionsEnabled && searchHistory.length > 0 && <details className="rounded-lg border border-[var(--border)] p-3 text-sm">
               <summary className="min-h-12 cursor-pointer content-center">Search activity · {searchHistory.length} attempts</summary>
               <ol className="space-y-3 pt-2">{searchHistory.map((attempt, i) => <li key={`${i}:${attempt.query}`}>
                 <p className="font-medium">{attempt.query}</p>
-                {attempt.reason && <p className="text-[var(--muted)]">{attempt.reason}</p>}
+                {attempt.reason && <p className="text-[var(--muted)]">{providerNeutralText(attempt.reason)}</p>}
                 <p className="text-xs text-[var(--muted)]">{attempt.status === "failed" ? "Search failed; a retry may follow" : `${attempt.resultCount ?? "—"} results · ${attempt.newDomains ?? "—"} new candidate domains`}</p>
               </li>)}</ol>
-              {searchStopReason && <p className="mt-3 text-[var(--muted)]">{searchStopReason}</p>}
+              {searchStopReason && <p className="mt-3 text-[var(--muted)]">{providerNeutralText(searchStopReason)}</p>}
             </details>}
             {actionsEnabled && !active && !currentJob.config.purpose && currentJob.config.runtime?.attempts.some(a => a.status === "failed" || /extraction failed/i.test(a.reason)) && <button className={button} disabled={busy} onClick={() => retryFailed(currentJob)}>Retry failed pages</button>}
             {actionsEnabled && active && <button className={button} disabled={busy} onClick={() => act({action:"cancel"}, active.id)}>Stop research</button>}
@@ -235,7 +236,7 @@ export function ResearchPanel({
       {busy && <p role="status" className="text-sm">Updating research…</p>}
       {error && (
         <p role="alert" className="text-sm text-[var(--status-red)]">
-          {error}
+          {providerNeutralText(error)}
         </p>
       )}
     </section>
@@ -412,7 +413,7 @@ function ResearchFindings({
           </article>
         );
       })}
-      {error && <p role="alert">{error}</p>}
+      {error && <p role="alert">{providerNeutralText(error)}</p>}
     </div>
   );
 }

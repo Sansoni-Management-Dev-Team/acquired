@@ -56,6 +56,7 @@ async function postCallback(request: Request, context: { params: Promise<{ runId
     await failFirmableRefresh(runId, action.message);
     return researchJsonResponse({ ok: true });
   } catch (error) {
+    if(error instanceof FirmableError&&error.status===429)return researchJsonResponse({provider:'firmable',category:'rate_limited',retryAfterMs:error.retryAfterMs||30000},{status:429,headers:{'Retry-After':String(Math.ceil((error.retryAfterMs||30000)/1000))}});
     if (!(error instanceof FirmableError) || ![401, 402, 403].includes(error.status)) throw error;
     // Persist permanent account failures before acknowledging the workflow step.
     // Transient failures still use the workflow's normal retry policy.

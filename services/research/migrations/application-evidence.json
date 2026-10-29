@@ -1,0 +1,27 @@
+{
+  "recordedAt": "2026-10-24T13:13:38.999513+00:00",
+  "approval": "User instructed: do 1 and 2, following the exact prepared schema approval request.",
+  "migration": "migrations/001-local-research.sql",
+  "sha256": "cb825c573908fbf3ab6817b0d4160e9f43275df3a05ab4d130d051b23397c22f",
+  "target": {
+    "database": "acquire_research_local",
+    "host": "127.0.0.1",
+    "port": 5441,
+    "marker": "acquire-research-local-only"
+  },
+  "verifiedMarker": "acquire-research-local-only",
+  "verifiedSchemaVersion": 123,
+  "composeProject": "acquire-research-service",
+  "volume": "acquire-research-service_research-db",
+  "databaseHealth": "healthy",
+  "workerHealth": "healthy",
+  "live": {
+    "ok": true
+  },
+  "ready": {
+    "ready": true
+  },
+  "callbackMode": "synthetic local fixture",
+  "realAcquireJobTested": false,
+  "startupObservation": "pg client concurrent-query deprecation warning; service launched successfully."
+}

@@ -2,6 +2,28 @@ import { expect,it,vi } from 'vitest';
 import {createCompanyMissingFieldResearch,createMissingFieldCrawlReader,missingFieldSearchQuery} from './company-missing-field-research';
 const input={name:'Synthetic Services',website:'https://synthetic.example.com/',missingFields:['company_emails'] as const};
 const base={...input,missingFields:[...input.missingFields]};
+it('accepts a completed retrieval even when its final successful response crosses an attempt deadline',async()=>{
+ let clock=0;const research=createCompanyMissingFieldResearch({now:()=>clock,readPage:async url=>{clock+=100;return{url,html:'No founding year disclosed',reader:'fixture'}},search:async()=>[{url:'https://synthetic.example.com/history'}]});
+ const first=await research({...base,missingFields:['year_founded'],resumable:true,deadline:90});
+ const final=await research({...base,missingFields:['year_founded'],resumable:true,resume:first.continuation,deadline:190});
+ expect(final.continuation).toBeUndefined();expect(final.fields.year_founded?.status).toBe('not_disclosed');
+});
+it('retains unread work and actual usage when its explicit retrieval budget is exhausted',async()=>{
+ const result=await createCompanyMissingFieldResearch({readPage:async url=>({url,html:'<a href="/contact">Contact</a>',reader:'fixture'})})({...base,resumable:true,maxPages:1,maxSearchQueries:0});
+ expect(result.continuation).toBeUndefined();expect(result.checkpoint).toMatchObject({readCount:1,queries:0,queue:['https://synthetic.example.com/contact']});expect(result.budgetExhausted).toBe(true);
+});
+it('checkpoints unfinished finite work and resumes it without rereading completed pages or losing facts',async()=>{
+ let clock=0;
+ const readPage=vi.fn(async(url:string)=>{if(url.endsWith('/history'))return{url,html:'Established in 2001',reader:'fixture'};clock=100;return{url,html:'<footer>saved@synthetic.example.com</footer>',reader:'fixture'};});
+ const search=vi.fn(async()=>[{url:'https://synthetic.example.com/history'}]);
+ const research=createCompanyMissingFieldResearch({readPage,search,now:()=>clock});
+ const first=await research({...base,missingFields:['company_emails','year_founded'],deadline:90,resumable:true});
+ expect(first.continuation).toBeDefined();expect(first.facts).toContainEqual(expect.objectContaining({field:'company_emails',value:'saved@synthetic.example.com'}));
+ const next=await research({...base,missingFields:['company_emails','year_founded'],deadline:1000,resumable:true,resume:first.continuation});
+ expect(next.continuation).toBeUndefined();expect(next.fields).toMatchObject({company_emails:{status:'reported'},year_founded:{status:'reported'}});
+ expect(readPage.mock.calls.map(([url])=>url)).toEqual([input.website,'https://synthetic.example.com/history']);
+ expect(next.facts.map(f=>f.field).sort()).toEqual(['company_emails','year_founded']);
+});
 it('full homepage plaintext footer email absent from search snippet becomes sourced evidence, not a missing value',async()=>{
  const search=vi.fn();const readPage=vi.fn(async(url:string)=>({url,html:'<main>Testing services</main><footer>office@synthetic.example.com</footer>',reader:'local-crawl4ai'}));
  const result=await createCompanyMissingFieldResearch({readPage,search})(base);
@@ -62,4 +84,22 @@ it('retains admission classification and stops repeated field queries when brows
  expect(result.fields.company_emails?.status).toBe('research_incomplete');
  expect(result.fields.company_phones?.status).toBe('research_incomplete');
  expect(JSON.stringify(result)).not.toContain('private diagnostic body');
+});
+
+it('does not read or search for any fields already returned in the provider profile',async()=>{
+ const readPage=vi.fn(),search=vi.fn(),research=createCompanyMissingFieldResearch({readPage,search});
+ const result=await research({name:'Company',website:'https://company.example.com',missingFields:['description','company_emails','company_phones','year_founded','acn','employee_count','revenue','website_address'],raw:{name:'Company',description:'Refrigeration services',year_founded:2001,company_size:'11-50',revenue:'$3M - $6M',industry_codes:{acn:'123456789'},region:{AU:{emails:['office@company.example.com'],phones:['+61300000000'],address:{state:'VIC'},employee_count:0}}}});
+ expect(readPage).not.toHaveBeenCalled();expect(search).not.toHaveBeenCalled();expect(result.attempts).toEqual([]);expect(result.facts).toEqual([]);
+ expect(Object.values(result.fields).every(f=>f?.status==='already_available')).toBe(true);
+});
+it('does not use NATA search as a fallback for a different required credential',()=>{
+ expect(missingFieldSearchQuery({name:'Company',website:'https://company.example.com',mandateScope:'ISO 9001 certification'},'accreditations')).toBe('site:company.example.com ISO 9001');
+});
+it('only searches unresolved fields and does not extract replacement facts for provider-covered fields from the same page',async()=>{
+ const search=vi.fn(async()=>[]),readPage=vi.fn(async(url:string)=>({url,html:'<p>Different website description</p><footer>replacement@synthetic.example.com</footer>',reader:'fixture'}));
+ const raw=Object.freeze({description:'Saved description',company_emails:['saved@synthetic.example.com']});
+ const result=await createCompanyMissingFieldResearch({readPage,search})({...base,missingFields:['description','company_emails','year_founded'],raw});
+ expect(readPage).toHaveBeenCalled();expect(search).toHaveBeenCalledExactlyOnceWith('site:synthetic.example.com about founded established','year_founded',expect.any(Number));
+ expect(result.facts).toEqual([]);expect(result.fields).toMatchObject({description:{status:'already_available'},company_emails:{status:'already_available'},year_founded:{status:'not_disclosed'}});
+ expect(raw.company_emails).toEqual(['saved@synthetic.example.com']);
 });

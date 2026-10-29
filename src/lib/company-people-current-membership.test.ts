@@ -27,6 +27,16 @@ it('keeps the absent-policy legacy global admission path unchanged',async()=>{de
 it('retains eligible legacy automatic People without opting into new locks or memberships',async()=>{delete(root.config as ResearchConfig).companyIdentityPolicyVersion;m.globalQualification='priority';m.globalScreening={sector:'supported',geography:'supported'};await queueCompanyPeople(root,targetId,'f123');expect(m.queue).toHaveBeenCalledOnce();expect(m.memberships).not.toHaveBeenCalled();expect(m.execute).not.toHaveBeenCalled();});
 it.each([35,500])('admits each accepted current membership independent of derived workforce fit (%s staff)',async count=>{root.config={...(root.config as ResearchConfig),companyPeopleRunIds:['run']};m.runs=[{id:'run',targetId,firmableCompanyId:'f123',status:'queued',profilesSaved:0,createdAt:new Date()}];m.memberships.mockResolvedValue([member(count)]);await tickCompanyPeople(root);expect(m.worker).toHaveBeenCalledOnce();expect(m.memberships).toHaveBeenCalledWith(id,[targetId]);expect(m.queries.findIndex(text=>text.startsWith('DO'))).toBeLessThan(m.queries.indexOf('SELECT research_jobs'));});
 it('rejects a stopped current source before automatic queueing',async()=>{root.status='cancelled';await expect(queueCompanyPeople(root,targetId,'f123')).rejects.toThrow('no longer current');expect(m.queue).not.toHaveBeenCalled();});
+it('drains 53 outstanding checks after expired time and failed discovery without cancelling accepted work',async()=>{
+ root.status='failed';
+ const memberships=Array.from({length:85},(_,i)=>{const current=member();return{...current,target:{...current.target,id:`target-${i}`}};});m.memberships.mockResolvedValue(memberships);
+ m.runs=memberships.map((current,i)=>({id:`run-${i}`,targetId:current.target.id,firmableCompanyId:'f123',status:i<32?'complete':'queued',profilesFound:i<32?2:0,profilesSaved:i<32?2:0,profilesFailed:0,createdAt:new Date(i)}));
+ root.config={...(root.config as ResearchConfig),completionPolicy:'work-items',automaticDeadline:1,companyPeopleRunIds:m.runs.map(r=>String(r.id))};
+ m.worker.mockImplementation(async(path:string)=>{const run=m.runs.find(r=>path===`/firmable/${r.id}`)!;run.status='complete';run.profilesFound=3;run.profilesSaved=3;return{};});
+ let progress;for(let i=0;i<53;i++)progress=await tickCompanyPeople(root);
+ expect(m.worker).toHaveBeenCalledTimes(53);expect(progress).toMatchObject({complete:85,cancelled:0,queued:0,active:0,settled:true,saved:223});
+ expect(m.writes.some(w=>w.value.status==='cancelled')).toBe(false);
+});
 it('does not turn a native company-only root into automatic People at recovery tick',async()=>{root.config={...(root.config as ResearchConfig),includeCompanyPeople:false,companyPeopleRunIds:['run']};m.runs=[{id:'run',targetId,firmableCompanyId:'f123',status:'queued',profilesSaved:0,createdAt:new Date()}];await tickCompanyPeople(root);expect(m.worker).not.toHaveBeenCalled();});
 
 it.each(['excluded','parked'])('rechecks explicit human %s at dispatch even when provider facts match',async stage=>{root.config={...(root.config as ResearchConfig),companyPeopleRunIds:['run']};m.runs=[{id:'run',targetId,firmableCompanyId:'f123',status:'queued',profilesSaved:0,createdAt:new Date()}];m.memberships.mockResolvedValue([member(35,stage)]);await tickCompanyPeople(root);expect(m.worker).not.toHaveBeenCalled();});

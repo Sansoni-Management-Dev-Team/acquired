@@ -6,7 +6,7 @@ import type { FirmableSessionEnv } from '../firmable-session-validation';
 import { seal, unseal, validCredentials, type Credentials } from './credentials';
 import { domain, normalize, ServiceError, upstream, type RecordData } from './transport';
 import { expandCompanyProfile } from './company';
-export interface FirmableServiceEnv extends FirmableSessionEnv,NativeFirmableBudgetEnv { FIRMABLE_SERVICE_SECRET?: string; FIRMABLE_CREDENTIAL_KEY?: string; FIRMABLE_SESSION_TOKEN?: string }
+export interface FirmableServiceEnv extends FirmableSessionEnv,NativeFirmableBudgetEnv { FIRMABLE_SERVICE_SECRET?: string; FIRMABLE_CREDENTIAL_KEY?: string; FIRMABLE_SESSION_TOKEN?: string; FIRMABLE_SEARCH_COUNTRY?: string }
 export type ServiceInput = { path: string; method: string; query: Record<string, string>; body?: RecordData; nativeResearch?: NativeFirmableContext; traceContext?: ResearchTraceContext };
 type AccountStorage={get<T=unknown>(key:string):Promise<T|undefined>;put(key:string,value:unknown):Promise<void>};
 type State = { credentials?: Awaited<ReturnType<typeof seal>>; reconnectRequired?: boolean; cooldownUntil?: number; nextRequestAt?: number; requestSpacingMs?: number };
@@ -100,7 +100,20 @@ export class FirmableAccount {
         const interpreted=body.interpreted as RecordData|undefined;
         if(from===0&&(typeof body.query!=='string'||!body.query.trim()||body.query.length>10000))throw new ServiceError(400,'invalid_query');
         if(from>0&&(!interpreted||['filters','operators','excluded'].some(k=>!interpreted[k]||typeof interpreted[k]!=='object'||Array.isArray(interpreted[k]))))throw new ServiceError(400,'interpreted_filters_required');
-        data=await request('/records/v2',{from,size,category:'company',metadata:{},sorting:{company:{},people:{}},search:{company:{},people:{}},...(from===0?{query:body.query,mode:'ai',ai_search:{do_search:true},filters:{},operators:{},excluded:{}}:{filters:interpreted!.filters,operators:interpreted!.operators,excluded:interpreted!.excluded})});
+        const parameters:RecordData={from,size,category:'company',metadata:{},sorting:{company:{},people:{}},search:{company:{},people:{}},...(from===0?{query:body.query,mode:'ai',ai_search:{do_search:true},filters:{},operators:{},excluded:{}}:{filters:interpreted!.filters,operators:interpreted!.operators,excluded:interpreted!.excluded})};
+        // The standalone local service pins AU before the request reaches either
+        // the ordinary transport or the native budget/receipt adapter. Other
+        // deployments retain their existing behavior unless explicitly configured.
+        if(this.env.FIRMABLE_SEARCH_COUNTRY){
+          if(this.env.FIRMABLE_SEARCH_COUNTRY!=='AU')throw new ServiceError(503,'invalid_country_configuration');
+          const filters=parameters.filters as RecordData,operators=parameters.operators as RecordData,excluded=parameters.excluded as RecordData;
+          const country=filters.country,negative=excluded.country;
+          if(country!==undefined&&(!country||typeof country!=='object'||Array.isArray(country)||Object.keys(country).some(key=>key!=='AU')||Object.hasOwn(country,'AU')&&(country as RecordData).AU!=='Australia'))throw new ServiceError(400,'country_scope_conflict');
+          if(operators.country!==undefined&&operators.country!=='OR'||negative!==undefined&&(!negative||typeof negative!=='object'||Array.isArray(negative)||Object.hasOwn(negative,'AU')))throw new ServiceError(400,'country_scope_conflict');
+          parameters.filters={...filters,country:{AU:'Australia'}};
+          parameters.operators={...operators,country:'OR'};
+        }
+        data=await request('/records/v2',parameters);
         if(data.success!==true||!Array.isArray(data.records)||typeof data.totalCompany!=='number')throw new ServiceError(502,'invalid_upstream_response');
       } else if (input.path === '/company') {
         let id = input.query.id;

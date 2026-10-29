@@ -42,16 +42,18 @@ export type ResearchStartAdmission = { expectedMandateRevision?: string; initial
 export type ResearchJobRow = typeof researchJobs.$inferSelect;
 // Same meaningful execution clock as researchExecutionUpdatedAt. This scoped
 // read lets the worker recheck fresh callbacks immediately before termination.
+// Keep outer identifiers literal: Drizzle strips column qualifiers for a
+// single-table SELECT, which otherwise makes this subquery compare to itself.
 export const researchExecutionProgressAt = sql<Date>`GREATEST(${researchJobs.updatedAt}, (
  SELECT max(company_progress.updated_at) FROM research_jobs company_progress
- WHERE company_progress.organization_id = ${researchJobs.organizationId}
-   AND company_progress.mandate_id = ${researchJobs.mandateId}
-   AND company_progress.created_by = ${researchJobs.createdBy}
-   AND company_progress.config->>'parentJobId' = ${researchJobs.id}::text
+ WHERE company_progress.organization_id = "research_jobs"."organization_id"
+   AND company_progress.mandate_id = "research_jobs"."mandate_id"
+   AND company_progress.created_by = "research_jobs"."created_by"
+   AND company_progress.config->>'parentJobId' = "research_jobs"."id"::text
    AND company_progress.config->>'researchTask' = 'company'
 ))`.mapWith(researchJobs.updatedAt);
 export const researchExecutionSelection = { ...getTableColumns(researchJobs), config: sql<ResearchJobRow['config']>`${researchJobs.config} - 'pipelineTiming' - 'scheduling'` };
-export const researchControlConfig = sql<ResearchJobRow['config']>`jsonb_build_object('researchRunId', ${researchJobs.config}->'researchRunId', 'budget', ${researchJobs.config}->'budget', 'automaticDeadline', ${researchJobs.config}->'automaticDeadline', 'newBusinessIds', ${researchJobs.config}->'newBusinessIds', 'performanceFlags', ${researchJobs.config}->'performanceFlags')`;
+export const researchControlConfig = sql<ResearchJobRow['config']>`jsonb_build_object('completionPolicy', ${researchJobs.config}->'completionPolicy', 'researchRunId', ${researchJobs.config}->'researchRunId', 'budget', ${researchJobs.config}->'budget', 'automaticDeadline', ${researchJobs.config}->'automaticDeadline', 'newBusinessIds', ${researchJobs.config}->'newBusinessIds', 'performanceFlags', ${researchJobs.config}->'performanceFlags')`;
 // Review screens need retry attempts and remaining URLs, but never saved HTML/markdown.
 const researchReviewConfig = sql`CASE WHEN ${researchJobs.config} ? 'runtime' THEN jsonb_set(${researchJobs.config} - 'scheduling' - 'discoverySourceCandidates' - 'pipelineTiming', '{runtime}', (${researchJobs.config}->'runtime') - 'pendingPage' - 'bufferedPage') ELSE ${researchJobs.config} - 'scheduling' - 'discoverySourceCandidates' - 'pipelineTiming' END`;
 // Search-history display uses query, reason and counts. Raw result snippets are

@@ -1,0 +1,92 @@
+name: ${RESEARCH_COMPOSE_PROJECT:?Select the existing research stack}
+services:
+  database:
+    image: ${DATABASE_IMAGE:?Use runtime/release.env}
+    # Release abandoned worker locks after a lost task network, rather than
+    # PostgreSQL's multi-hour default TCP keepalive interval.
+    command: [postgres, -c, tcp_keepalives_idle=15, -c, tcp_keepalives_interval=5, -c, tcp_keepalives_count=3]
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: research
+      POSTGRES_DB: ${RESEARCH_DATABASE_NAME:?Select the dedicated database}
+      POSTGRES_PASSWORD: ${RESEARCH_DB_PASSWORD:?Dedicated database password required}
+    volumes: [research-db:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U research -d "$$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  # Test callback sink only. Acquire's production API is not connected.
+  fixture:
+    image: ${RESEARCH_IMAGE:?Immutable research image required}
+    restart: unless-stopped
+    platform: linux/amd64
+    user: "${RESEARCH_CALLBACK_UID:-1000}:${RESEARCH_CALLBACK_GID:-1000}"
+    command: [node, dist/mandate-harness.mjs]
+    env_file: ["${RESEARCH_CALLBACK_ENV_FILE:-.callback.env}"]
+    environment:
+      RESEARCH_SERVICE_SECRET: ${RESEARCH_SERVICE_SECRET:?Test service secret required}
+      HARNESS_OUTPUT_DIR: /output
+      HARNESS_MODE: ${RESEARCH_CALLBACK_MODE:-test}
+      HARNESS_READER_PROXY: 'false'
+    volumes: ["${RESEARCH_OUTPUT_DIR:-./runs}:/output"]
+    ports: ['${RESEARCH_BIND_ADDRESS:-127.0.0.1}:18797:8787', '127.0.0.1:18798:3100']
+    init: true
+    read_only: true
+    tmpfs: [/tmp]
+  research:
+    platform: linux/amd64
+    image: ${RESEARCH_IMAGE:?Immutable research image required}
+    restart: unless-stopped
+    network_mode: service:fixture
+    depends_on:
+      database: {condition: service_healthy}
+      fixture: {condition: service_started}
+      reader: {condition: service_healthy}
+      search: {condition: service_started}
+    env_file: ["${RESEARCH_PROVIDER_ENV_FILE:-.runtime.env}"]
+    environment:
+      RESEARCH_DEPLOYMENT: ${RESEARCH_DEPLOYMENT:?Select the research deployment}
+      RESEARCH_AI_PROVIDER: openai
+      RESEARCH_SEARCH_PROVIDER: local
+      RESEARCH_READER_PROVIDER: crawl4ai
+      OPENAI_RESEARCH_MODEL: ${OPENAI_RESEARCH_MODEL:?Use runtime/release.env}
+      OPENAI_RESEARCH_FALLBACK_MODEL: ${OPENAI_RESEARCH_FALLBACK_MODEL:?Use runtime/release.env}
+      RESEARCH_DATABASE_URL: postgresql://research:${RESEARCH_DB_PASSWORD}@database:5432/${RESEARCH_DATABASE_NAME}
+      RESEARCH_APP_ORIGIN: ${RESEARCH_APP_ORIGIN:-http://127.0.0.1:3100}
+      RESEARCH_SERVICE_SECRET: ${RESEARCH_SERVICE_SECRET}
+    init: true
+    read_only: true
+    tmpfs: [/tmp]
+    stop_grace_period: 20s
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8787/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  search:
+    image: ${SEARCH_IMAGE:?Use runtime/release.env}
+    platform: linux/amd64
+    restart: unless-stopped
+    network_mode: service:fixture
+    command: [serve, -a, 127.0.0.1, -p, '7000']
+    shm_size: 1gb
+  reader:
+    platform: linux/amd64
+    image: ${READER_IMAGE:?Immutable reader image required}
+    restart: unless-stopped
+    network_mode: service:fixture
+    environment:
+      CRAWL4AI_PORT: '18083'
+      CRAWL4AI_CONCURRENCY: '2'
+    volumes: ["${RESEARCH_READER_SOURCE:-./reader.py}:/app/server.py:ro"]
+    shm_size: 1gb
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18083/health', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+volumes:
+  research-db:
+    external: true
+    name: ${RESEARCH_DATABASE_VOLUME:?Use the existing approved database volume}

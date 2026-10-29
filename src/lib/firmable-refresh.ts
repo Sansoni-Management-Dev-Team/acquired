@@ -1,3 +1,5 @@
+import {completesWorkItems} from '@/domain/research-completion';
+import {continueCompanyPeople} from './company-people-continuation';
 import type { PersonCandidate, PersonDetail } from "@/adapters/source-contracts";
 import { COMPANY_CONTACT_POLICY } from '@/domain/company-contact-policy';
 import {companyDiscoveryPolicySchema} from '@/domain/research-discovery-policy';
@@ -58,7 +60,7 @@ async function automaticPeopleLimits(database:ReturnType<typeof requireDb>,run:t
  if(config.companyDiscoveryPolicy?.version!==5)return legacy;
  if(config.nativeAgent)throw Error('Native People requires its original metered authority');
  const policy=companyDiscoveryPolicySchema.parse(config.companyDiscoveryPolicy);
- if(policy.version!==5||config.companyIdentityPolicyVersion!==1||config.includeCompanyPeople!==true||config.includePhones!==false||config.findPeople!==false||config.companyOnly!==undefined||!config.companyPeopleRunIds?.includes(run.id)||['failed','cancelled'].includes(root.status))throw Error('Automatic People source scope changed');
+ if(policy.version!==5||config.companyIdentityPolicyVersion!==1||config.includeCompanyPeople!==true||config.includePhones!==false||config.findPeople!==false||config.companyOnly!==undefined||!config.companyPeopleRunIds?.includes(run.id)||(root.status==='cancelled'||root.status==='failed'&&!completesWorkItems(config)))throw Error('Automatic People source scope changed');
  return {maxProfiles:policy.automaticPeople.maxContactsPerCompany,maxSearchPages:policy.automaticPeople.maxSearchPagesPerCompany,pageSize:policy.automaticPeople.searchPageSize,profileLimit:policy.automaticPeople.maxContactsPerCompany,frozen:true};
 }
 
@@ -346,6 +348,7 @@ export async function completeFirmableRefresh(runId: string, mandateId: string) 
     entityId: run.targetId,
     metadata: { mandateId, firmableId: run.firmableCompanyId, ...counts },
   });
+  try{await continueCompanyPeople(run);}catch{console.info('research-maintenance',JSON.stringify({event:'people_continuation_deferred',runId}));}
   return counts;
 }
 

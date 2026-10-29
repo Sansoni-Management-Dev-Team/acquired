@@ -1,0 +1,13 @@
+{
+  "target": {
+    "database": "acquire_research_local",
+    "host": "127.0.0.1",
+    "port": 5441,
+    "marker": "acquire-research-local-only"
+  },
+  "sdk": "@dbos-inc/dbos-sdk@5.3.0",
+  "sdkSchemaVersion": 123,
+  "file": "migrations/001-local-research.sql",
+  "sha256": "cb825c573908fbf3ab6817b0d4160e9f43275df3a05ab4d130d051b23397c22f",
+  "note": "Fresh database: online index statements converted to transactional CREATE INDEX. No application schema changes. Applied with explicit user approval; see application-evidence.json."
+}

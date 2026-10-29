@@ -76,7 +76,7 @@ export function AppShell({ children,firmablePaused=false }: { children: React.Re
 
           </nav>
           <nav aria-label="Account" className="mt-6 space-y-1 border-t border-[var(--border)] pt-4 lg:mt-auto">
-            {firmablePaused&&<p role="status" className={`px-3 py-2 text-xs leading-relaxed text-[var(--muted)] ${collapsed?'lg:sr-only':''}`}><strong className="block font-medium">Firmable paused</strong>Saved research is available. New Firmable requests are disabled.</p>}
+            {firmablePaused&&<p role="status" className={`px-3 py-2 text-xs leading-relaxed text-[var(--muted)] ${collapsed?'lg:sr-only':''}`}><strong className="block font-medium">Company data paused</strong>Saved research is available. New Company data requests are disabled.</p>}
             <Link href="/settings" title="Settings" onClick={() => setMobileOpen(false)} className={`flex min-h-12 items-center gap-3 rounded-md px-3 text-sm text-[var(--muted)] hover:text-[var(--foreground)] ${collapsed ? "lg:justify-center lg:px-0" : ""}`}><Settings size={20} className="shrink-0" /><span className={collapsed ? "lg:sr-only" : ""}>Settings</span></Link>
             <ThemeToggle collapsed={collapsed} subtle />
           </nav>

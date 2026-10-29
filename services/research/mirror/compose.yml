@@ -1,0 +1,30 @@
+name: acquire-research-app
+services:
+  network:
+    image: node:22.23.1-bookworm-slim
+    container_name: acquire-research-app-network
+    command: [node, -e, "setInterval(() => {},2147483647)"]
+    ports:
+      - "127.0.0.1:3032:3000"
+      - "127.0.0.1:5442:5437"
+    labels:
+      dev.orbstack.domains: acquire-research.orb.local
+      dev.orbstack.http-port: "3000"
+  database:
+    image: postgres:17-alpine
+    container_name: acquire-research-app-db
+    network_mode: service:network
+    command: [postgres, -p, '5437']
+    environment:
+      POSTGRES_USER: project_acquire
+      POSTGRES_DB: acquire_agent_mode
+      POSTGRES_PASSWORD: ${MIRROR_DATABASE_PASSWORD:?Run mirror preparation first}
+    volumes: [database:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD, pg_isready, -U, project_acquire, -d, acquire_agent_mode, -p, '5437']
+      interval: 3s
+      timeout: 3s
+      retries: 30
+volumes:
+  database:
+    name: acquire-research-app_database
