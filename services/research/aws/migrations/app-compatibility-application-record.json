@@ -1,0 +1,72 @@
+{
+  "status": "APPLIED_AND_VERIFIED",
+  "observed_at": "2026-10-29T23:11:14.116783+00:00",
+  "files": [
+    {
+      "path": "services/research/aws/migrations/002-app-legacy-research-compatibility.proposed.sql",
+      "sha256": "4adbc2244bf9194e474b8214bae51f1607613f9a8d94640c3ba74bcad192b98b"
+    }
+  ],
+  "mutations": [
+    {
+      "path": "services/research/aws/migrations/002-app-legacy-research-compatibility.proposed.sql",
+      "sha256": "4adbc2244bf9194e474b8214bae51f1607613f9a8d94640c3ba74bcad192b98b",
+      "started_at": "2026-10-29T23:11:41.365936+00:00",
+      "exit_code": 0,
+      "completed_at": "2026-10-29T23:11:46.922881+00:00"
+    }
+  ],
+  "preflight": {
+    "database": "acquire",
+    "system_identifier": "7619074599616174976",
+    "tls": true,
+    "caller_is_research_jobs_owner": true,
+    "research_jobs_columns": [
+      "id",
+      "organization_id",
+      "mandate_id",
+      "created_by",
+      "status",
+      "config",
+      "seeds",
+      "discovery_started",
+      "revision",
+      "pages",
+      "model_calls",
+      "message",
+      "crawl_id",
+      "created_at",
+      "updated_at"
+    ],
+    "research_jobs_rows": 0,
+    "shared_workflow_installed": false
+  },
+  "postcheck": {
+    "database": "acquire",
+    "system_identifier": "7619074599616174976",
+    "tls": true,
+    "column": {
+      "type": "uuid",
+      "not_null": false
+    },
+    "constraint": {
+      "validated": true,
+      "definition": "CHECK ((workflow_execution_id IS NULL))"
+    },
+    "research_rows": 0,
+    "shared_workflow_installed": false
+  },
+  "runtime_flags_verified_off": true,
+  "forwarding_session_terminated": true,
+  "temporary_port_closed": true,
+  "approval": "User yes to the exact002 linked from commitaafe501 and the UAT acquire database/cluster in Sydney.",
+  "target": {
+    "account": "352329340196",
+    "region": "ap-southeast-2",
+    "cluster_arn": "arn:aws:rds:ap-southeast-2:352329340196:cluster:acquire-acquire-develop",
+    "cluster_resource_id": "cluster-LV2AZYJ33YRB6VBFKYXPCJFQ5I",
+    "system_identifier": "7619074599616174976",
+    "database": "acquire",
+    "table": "public.research_jobs"
+  }
+}

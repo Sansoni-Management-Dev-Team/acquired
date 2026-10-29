@@ -1,92 +1,78 @@
-# AWS research initialization and application record
+# AWS UAT migration and verification records
 
-Status: **000 and001 applied and verified on30October2026**. The historical
-proposal filenames, approved SQL bytes and original review manifest are retained.
-See `research-application-record.json`. A separate002 app compatibility proposal
-remains unapproved and unapplied. These SQL files are excluded from runtime images and are
-not invoked by any workflow. DBOS startup retains `runMigrations:false`.
+All three specifically approved SQL artifacts are applied and verified on
+30 October 2026. Historical proposal filenames, SQL bytes and original review
+manifests are retained unchanged. Do not rerun the applied bootstrap files.
+No SQL is invoked by runtime images or the development workflow; DBOS retains
+`runMigrations:false`.
 
-Target: account352329340196, Sydney, app Aurora cluster `acquire-acquire-develop`,
-resource ID `cluster-LV2AZYJ33YRB6VBFKYXPCJFQ5I`, PostgreSQL system identifier
-`7619074599616174976`. The endpoint and exact hashes are in `review-manifest.json`.
-Read-only verified-TLS catalog inspection confirmed the role/database are absent.
+## Exact target and applied artifacts
 
-1. `000-create-database.proposed.sql`: on maintenance database `postgres`, verify
-   the cluster system identifier and absence of the role/database. Create restricted
-   login `research`, grant the cluster administrator non-inheriting SET membership
-   in that new role for PostgreSQL database ownership, then database `acquire_research_uat` owned by it; revoke public
-   database access. The password is supplied through the private process environment
-   from the pinned research secret version, never source or command-line arguments.
-2. `001-checkpoints.proposed.sql`: connect as `research` to that new database on
-   the same verified endpoint. Require the exact database/owner and empty database,
-   then transactionally create coordinator state and DBOS5.3.0 checkpoint schema,
-   ledger123 and identity marker `acquire-research-aws-uat-only`. The SDK schema is
-   derived from the existing DigitalOcean artifact with only AWS target/identity
-   guards changed. Its original hash is retained in the manifest.
+Account `352329340196`, Sydney, Aurora cluster `acquire-acquire-develop`, resource
+ID `cluster-LV2AZYJ33YRB6VBFKYXPCJFQ5I`, PostgreSQL system identifier
+`7619074599616174976`. The canonical endpoint is in `review-manifest.json`.
 
-`CREATE DATABASE` cannot run in a transaction. A partial000 failure requires
-inspection; do not automatically drop, rotate or blindly retry.001 is transactional.
-No application/n8n schema change, production data copy, workflow activation or
-messaging is proposed.
+| Artifact | Database | Resulting behavior | Application record |
+| --- | --- | --- | --- |
+| `000-create-database.proposed.sql` | `postgres` maintenance DB | Restricted research login, dedicated `acquire_research_uat`, administrator SET membership, no PUBLIC DB access | `research-application-record.json` |
+| `001-checkpoints.proposed.sql` | `acquire_research_uat` | Coordinator storage, DBOS5.3.0 schema/ledger123 and identity marker `acquire-research-aws-uat-only` | `research-application-record.json` |
+| `002-app-legacy-research-compatibility.proposed.sql` | `acquire` | Nullable UUID `research_jobs.workflow_execution_id` with validated NULL-only constraint | `app-compatibility-application-record.json` |
 
-After specific approval, verify account, cluster ARN/resource ID, endpoint and TLS
-CA/hostname. Authenticate the existing cluster administrator in memory; check its
-system identifier and role/database absence again before writes. Do not select a
-server from an incidental shell environment or the app secret's host field.
-Verify both SQL hashes and read the new password from the pinned secret version.
-Use `psql -X` with stop-on-error and a private password environment. After000,
-connect as the new owner on that same endpoint before applying unchanged001.
-Read-only postchecks must verify the marker, ownership, ledger123 and public ACLs.
-Close temporary forwarding sessions after verification.
+The user approved000/001 together, then separately approved the exact002 linked
+from commitaafe501. The original `review-manifest.json` and
+`app-compatibility-review-manifest.json` preserve the proposed targets/hashes;
+application records contain the resulting status and verification. All applied
+SQL hashes remain unchanged.
 
-Static verification: the PostgreSQL parser accepts both artifacts (8 and161
-top-level statements). No SQL execution/rehearsal is claimed. A separate rehearsal
-would also need specific approval under AGENTS.md.
+## Execution safeguards and results
 
-## Approval receipt — 30 October 2026
+AWS account/cluster ARN/resource ID, canonical hostname, regional CA/TLS, system
+identifier, database and owner were checked immediately before application.
+000/001 required absence/empty-state guards.002 verified the existing15-column
+shape, table owner, zero research rows and disabled research/workflow/native
+runtime flags. Credentials came from AWS Secrets Manager in memory/private
+process environment, never source, command-line arguments or logs. Owned SSM
+forwarding was terminated and temporary ports closed.
 
-The user specifically approved both artifacts and the exact app Aurora target in
-the manifest by answering yes to the explicit execution request. Their hashes
-and bytes remain unchanged. Execution is pending renewal of the expired acquire
-AWS SSO session. Neither artifact has been applied. Do not confuse recorded
-approval with successful application; application/postcheck evidence is still
-required.
+The default psql14 client initially stopped on unsupported `getenv` before any
+role/database change. Read-only absence inspection preceded an unchanged retry
+with psql18.3. Both000/001 then committed and passed restricted ownership,
+identity marker, verified TLS, ledger123, public ACL and empty-state checks.
+CREATE DATABASE is nontransactional; no partial failure was silently dropped,
+rotated or blindly retried.001 is transactional.
 
-## Application verified — 30 October 2026
+002 committed unchanged as a transaction with3s lock/15s statement timeouts.
+Postchecks verified nullable UUID, validated `CHECK (workflow_execution_id IS
+NULL)`, zero research rows and absence of shared workflow tables. It updates no
+existing app rows or grants, creates no agent/workflow tables/functions and
+activates no new workflow authority. It supports legacy research only. A future
+full shared-workflow upgrade must explicitly reconcile this compatibility
+column/check rather than apply the existing production002 unchanged.
 
-Both approved artifacts committed unchanged on the pinned app Aurora cluster.
-Read-only postchecks verified research ownership/restricted login, verified TLS,
-identity marker, DBOS ledger123, no PUBLIC database/schema grants and no
-unexpected user schemas/tables. No existing application/n8n schema or data was
-changed. Temporary forwarding closed. Raw credentials were never logged.
-The original `review-manifest.json` remains the immutable proposal receipt; use
-`research-application-record.json` for the resulting application status.
+## Runtime connection and bounded acceptance
 
-## Separate app compatibility proposal — approval required
+`runtime-verification.json` records the research release and private HTTP/auth,
+real public-page reader and idle restart/persistence checks. Research task2
+runs the worker, callback, reader and search containers. An owned coordinator
+nonce survived stop-before-start task replacement and was cleaned afterward.
+This is not proof of in-flight workflow recovery.
 
-The UAT app database `acquire` predates the shared workflow changes. Current
-legacy research readers unconditionally select `research_jobs.workflow_execution_id`,
-which is absent in its reviewed empty research table. New agent/shared-workflow
-features remain disabled and their tables are absent.
+`app-runtime-verification.json` records app task10 connected to
+`http://research.acquire.internal:8787` with the matching service secret. The app
+injects `DATABASE_SSL_CA` from its existing AWS secret; authenticated database
+readiness returns200. Existing secret fields/environment settings were
+preserved. `taskdef.json` retains the CA secret reference for future releases;
+existing execution-role permissions already cover it.
 
-`002-app-legacy-research-compatibility.proposed.sql` adds that single nullable UUID
-column with a CHECK requiring NULL. Legacy jobs retain their existing ownership;
-non-null workflow associations are explicitly rejected while the full shared
-workflow schema is unavailable. It creates no agent/workflow tables, functions,
-grants, data rows, outreach or feature activation. Exact target and SHA-256 are
-in `app-compatibility-review-manifest.json`. Its application requires **new
-specific approval**; the000/001 approval does not cover this app database change.
+The synthetic app-backed canary completed one public Ark Industrial page, one
+logical model call, two distinct supported findings,18 timing spans and a
+completed DBOS workflow. Duplicate dispatch before/after completion repeated no
+model work. Exact synthetic user/organization/mandate/research app rows were
+removed after workflow settlement; SSM forwards closed. DBOS checkpoint history
+remains in its dedicated database.
 
-Live read-only prechecks verified the exact app cluster identity, existing table
-owner, all15 prior columns, zero research rows, no shared workflow table and
-research/workflow/durable/native flags off. PostgreSQL syntax parsing accepts
-all9 statements; no execution/rehearsal is claimed. Lock timeout3s and statement
-timeout15s bound application. A future full shared-workflow upgrade must
-explicitly reconcile this temporary compatibility column/check rather than apply
-the existing production002 unchanged. This prepares **legacy research only**,
-not a full migration of the optional agent/shared-workflow feature set.
-
-After specific approval, recheck flags, exact target and hash, apply once as the
-existing owner, verify nullable UUID/validated NULL-only constraint and unchanged
-row count/ACLs, then connect app secret/environment and run the bounded app-backed
-research canary. Keep app research disabled if any check fails.
+Shared workflow/native agent features and sending remain off. Production data
+was not copied and n8n was not changed. This release used local ECR publication,
+Terraform research infrastructure and direct ECS application release. Hosted
+GitHub Actions billing failures happened before job steps; local acceptance does
+not certify the GitHub CI/OIDC execution path.

@@ -13,13 +13,15 @@ survived replacement and was cleaned up; no active workflow recovery is claimed.
 The Terraform plan reports no changes. Application SQL bytes remain unchanged;
 see the migration directory's research-application-record.json.
 
-App research remains disabled. Its UAT acquire database lacks the
-workflow_execution_id column selected by current legacy research code. The
-separate002 app compatibility artifact/manifest in the migration directory
-proposes one nullable UUID column constrained to NULL; it needs specific
-approval and is not applied. Shared workflow/native agent features remain off.
-A full app-backed research/model canary and app activation are still pending.
-This is not a full upgrade of the optional shared-workflow/agent schema.
+App research is connected and enabled. The separately approved002 legacy
+compatibility migration committed unchanged: workflow_execution_id is nullable
+and constrained to NULL. App revision10 injects the regional DATABASE_SSL_CA
+from its existing AWS secret; authenticated database readiness passes.
+The bounded app-backed canary completed one public page/one logical model call,
+persisted two supported findings and18 timing spans, and verified idempotent
+redispatch. Its synthetic app rows were removed and temporary forwards closed.
+See the migration directory's app-runtime-verification.json. Shared workflow
+and native agent features remain off; this is legacy research acceptance.
 
 GitHub PR3 retains the repeatable Terraform/image/release workflow. The prior
 hosted Actions run was blocked before steps by organization billing; local
@@ -153,6 +155,6 @@ cases retained. Release tests cover configuration preservation, digest scope,
 secrets/sidecar requirements and refusal of overlapping/wrong services. A
 network-disabled image probe verifies the non-root user, relay artifact, bundled
 RDS CA and pg TLS configuration without connecting to any database. Infrastructure
-was provisioned at zero tasks. No database migration, worker startup, live provider
-request or production configuration change was performed. Proposed SQL remains
-unapplied; its target and hashes are in the migration review packet.
+was provisioned at zero tasks. The subsequent approved SQL application, running worker, bounded live canary
+and app connection are recorded in the current-status section and migration
+application/runtime records. Production configuration was not changed.

@@ -10,7 +10,12 @@
       }
     ],
     "environment": [],
-    "secrets": [],
+    "secrets": [
+      {
+        "name": "DATABASE_SSL_CA",
+        "valueFrom": "arn:aws:secretsmanager:${region}:352329340196:secret:acquire-secrets-develop-ZIJf1G:DATABASE_SSL_CA::"
+      }
+    ],
     "environmentFiles": [
       {
         "value": "${env_file}",

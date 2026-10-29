@@ -1,0 +1,96 @@
+{
+  "app_url": "https://app.acquire.pajamaprofits.net",
+  "private_research_url": "http://research.acquire.internal:8787",
+  "app_task_definition": "arn:aws:ecs:ap-southeast-2:352329340196:task-definition/acquire-acquire-develop:10",
+  "authenticated_db_readiness_http": 200,
+  "matching_service_secret_verified": true,
+  "rds_certificate_verification": true,
+  "app_task_secret_keys": [
+    "DATABASE_SSL_CA"
+  ],
+  "research_enabled": true,
+  "shared_workflow_and_native_agent_enabled": false,
+  "outreach_enabled": false,
+  "canary": {
+    "started_at": "2026-10-29T23:17:31.183499+00:00",
+    "organization_id": "research-canary-aws-3aa093e1-48e8-4229-9efe-f85c271f36b4",
+    "user_id": "research-canary-aws-3aa093e1-48e8-4229-9efe-f85c271f36b4",
+    "mandate_id": "26bd6f59-ba09-4fbe-b6d7-e2a2445e748f",
+    "job_id": "3c7f0e8b-d43c-44b9-bacc-9533710fe8d7",
+    "source": "https://arkindustrial.com.au/",
+    "limits": {
+      "maxPages": 1,
+      "maxDomains": 1,
+      "maxMinutes": 2,
+      "maxModelCalls": 1
+    },
+    "migrations_applied": false,
+    "outreach_enabled": false,
+    "status": "PASS",
+    "preflight": {
+      "system_identifier": "7619074599616174976",
+      "database": "acquire",
+      "tls": true,
+      "other_active_jobs": 0,
+      "workflow_tables": false
+    },
+    "callback_http": 200,
+    "duplicate_dispatch_accepted": true,
+    "result": {
+      "status": "complete",
+      "pages": 1,
+      "model_calls": 1,
+      "revision": 4,
+      "timing_count": 18,
+      "workflow_status": "complete"
+    },
+    "evidence": {
+      "count": 2,
+      "distinct_keys": 2,
+      "source_urls": [
+        "https://www.arkindustrial.com.au/"
+      ],
+      "kinds": [
+        "capability",
+        "company"
+      ]
+    },
+    "completed_redispatch_idempotent": true,
+    "cleanup": "PASS",
+    "cleanup_counts": {
+      "organizations": 0,
+      "users": 0,
+      "research_jobs": 0,
+      "research_findings": 0
+    },
+    "forwarding_ports_closed": true,
+    "finished_at": "2026-10-29T23:18:56.022371+00:00"
+  },
+  "services": [
+    {
+      "service": "acquire-acquire-develop",
+      "task": "arn:aws:ecs:ap-southeast-2:352329340196:task-definition/acquire-acquire-develop:10",
+      "desired": 1,
+      "running": 1,
+      "pending": 0,
+      "rollout": "COMPLETED"
+    },
+    {
+      "service": "acquire-research-develop",
+      "task": "arn:aws:ecs:ap-southeast-2:352329340196:task-definition/acquire-research-develop:2",
+      "desired": 1,
+      "running": 1,
+      "pending": 0,
+      "rollout": "COMPLETED"
+    },
+    {
+      "service": "acquire-n8n-develop",
+      "task": "arn:aws:ecs:ap-southeast-2:352329340196:task-definition/acquire-n8n-develop:4",
+      "desired": 1,
+      "running": 1,
+      "pending": 0,
+      "rollout": "COMPLETED"
+    }
+  ],
+  "release_method": "Local ECR publication and direct ECS application release; research infrastructure managed in Terraform. GitHub hosted CI not certified due billing before steps."
+}
