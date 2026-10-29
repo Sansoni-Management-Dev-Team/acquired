@@ -2,6 +2,9 @@
 name: migration
 
 on:
+  push:
+    branches:
+      - test/deployment
   workflow_dispatch:
 
 concurrency:
