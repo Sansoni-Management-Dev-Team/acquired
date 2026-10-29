@@ -8,10 +8,12 @@ const refreshPath=new RegExp(`^/firmable/${uuid}$`,'i');
 const callbackPath=new RegExp(`^/api/(?:research/internal/${uuid}(?:/timings)?|firmable/internal/${uuid})$`,'i');
 const firmableMethods=new Map(Object.entries({'/firmable/company/search':'POST','/firmable/company':'GET','/firmable/people/phones':'POST','/firmable/people':'GET','/firmable/people/search':'POST','/firmable/status':'GET','/firmable/reconnect':'POST'}));
 function authorized(value,secret){const hash=text=>createHash('sha256').update(text).digest();return timingSafeEqual(hash(value||''),hash(`Bearer ${secret}`))}
-export function createAcquireBridge({workerSecret,appSecret,appFirmableSecret=appSecret,appOrigin='http://host.docker.internal:3027',appSite='https://acquire-isolated.orb.local',production=false,fetcher=fetch}) {
+export function createAcquireBridge({workerSecret,appSecret,appFirmableSecret=appSecret,appOrigin='http://host.docker.internal:3027',appSite='https://acquire-isolated.orb.local',production=false,uat=false,fetcher=fetch}) {
   if(!workerSecret||!appSecret)throw Error('Both bridge service secrets are required');
   const port=appSite==='https://acquire-isolated.orb.local'?3027:appSite==='https://acquire-research.orb.local'?3032:null;
-  if(production){
+  if(uat){
+    if(production||appOrigin!=='https://app.acquire.pajamaprofits.net'||appSite!==appOrigin)throw Error('UAT relay requires the exact UAT HTTPS origin');
+  }else if(production){
     if(appOrigin!=='https://acquire.mlai.au'||appSite!==appOrigin)throw Error('Production relay requires the exact Acquire HTTPS origin');
   }else if(!port||![`http://host.docker.internal:${port}`,`http://127.0.0.1:${port}`].includes(appOrigin))throw Error('Only matching configured local isolated Acquire origins are allowed');
   return createServer(async(req,res)=>{
@@ -20,7 +22,7 @@ export function createAcquireBridge({workerSecret,appSecret,appFirmableSecret=ap
       const url=new URL(req.url,'http://127.0.0.1:3100');
       if(url.pathname==='/health/ready'&&req.method==='GET'){
         const response=await fetcher('http://127.0.0.1:8787/health/ready',{redirect:'manual',signal:AbortSignal.timeout(3000)});
-        await response.body?.cancel();return reply(response.ok?200:503,{ready:response.ok,mode:production?'acquire-production':'acquire-isolated',app:appSite});
+        await response.body?.cancel();return reply(response.ok?200:503,{ready:response.ok,mode:uat?'aws-uat':production?'acquire-production':'acquire-isolated',app:appSite});
       }
       const background=url.pathname==='/api/research/internal/background';
       const callback=callbackPath.test(url.pathname)||background;
@@ -35,7 +37,7 @@ export function createAcquireBridge({workerSecret,appSecret,appFirmableSecret=ap
       for await(const chunk of req){size+=chunk.length;if(size>256*1024)return reply(413,{error:'Request too large'});chunks.push(chunk)}
       // The isolated app already has an owned maintenance process. This bridge
       // does not introduce another global background dispatcher on startup.
-      if(background&&!production)return reply(200,{ok:true,forwarded:false,maintenance:'existing_isolated_service'});
+      if(background&&!production&&!uat)return reply(200,{ok:true,forwarded:false,maintenance:'existing_isolated_service'});
       const headers=new Headers({'authorization':`Bearer ${callback?appSecret:workerSecret}`});
       for(const[name,value]of Object.entries(req.headers)){
         if(name==='content-type'||name==='x-request-id'||name.startsWith('x-research-')||name.startsWith('x-acquire-native-')){

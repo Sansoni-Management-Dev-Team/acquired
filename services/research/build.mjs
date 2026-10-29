@@ -4,6 +4,7 @@ import {resolve} from 'node:path';
 import {createHash} from 'node:crypto';
 import {readFile} from 'node:fs/promises';
 await mkdir('dist',{recursive:true});
+await build({entryPoints:['src/aws-relay.mjs'],outfile:'dist/aws-relay.mjs',bundle:true,platform:'node',format:'esm',target:'node22'});
 // Always bundle this service's locked dependency, even beside an app installation.
 const packageAliases={zod:resolve('node_modules/zod')};
 const compilerOptions={target:'node22',tsconfigRaw:{compilerOptions:{useDefineForClassFields:true}}};

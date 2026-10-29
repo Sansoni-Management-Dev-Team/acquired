@@ -5390,3 +5390,12 @@ status handling; retained physical attempt/cost checks and added no-provider-nam
 and no-failure/no-redispatch checks. Red: full run7514passed/3failed. Green: both
 affected suites40/40. No runtime behavior changed in this follow-up. Full CI must
 pass on the updated head before the authorized merge.
+
+
+### 2026-10-29 — P0.4/P7.1: Sansoni standalone research build and gated UAT release
+
+User requested a branch from committed local main66f3fd3 and a PR into Sansoni test/deployment. Preserved that branch's existing deployment/Docker/task configuration through a merge in an isolated worktree; dirty main files remain untouched. Added secret-free PR image builds and push-only ECR publication for app, standalone research and Crawl4AI reader. Explicit aws-uat runtime pins the dedicated research database/marker with verified regional RDS CA TLS and a loopback relay pinned to the UAT app. Existing local/DigitalOcean modes and production callbacks remain separate. The existing company-data transport is not retired by this work.
+
+Meaningful RED2 cases rejected the unsupported AWS deployment and UAT relay; GREEN includes both plus prior callback/config cases. Standalone service54tests, release/environment helper5tests, actionlint and full ESLint (zero errors,10 existing warnings) pass. Standalone and AWS wrapper images built; a network-none probe passed non-root, relay artifact and pg CA/verification checks. App/reader builds and GitHub PR checks are recorded separately when complete. Existing CJS operator scripts now have a file-format-specific require rule; three rehearsal error casts were narrowed without executing the script. No artificial database test or migration was used for lint verification.
+
+Research rollout requires exact merged-commit DevOps sign-off, the aws-uat-research environment and an existing drained single-worker ECS service. Full task JSON is preserved with digest replacements, overlap is refused, and failure restores the prior revision/count. App research defaults disabled until its private endpoint and matching service secret are configured. No Terraform/state/network/IAM writes, AWS runtime deployment, database migration/restore/bootstrap, provider send or live canary occurred. Local AWS SSO is expired, so live provisioning was not refreshed. See ops/aws/research/README.md for the explicit owner infrastructure, approved database initialization, browser/Fargate canary and activation prerequisites.

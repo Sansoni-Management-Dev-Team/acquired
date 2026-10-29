@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - test/deployment
+  pull_request:
+    branches: [test/deployment]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -12,9 +14,12 @@ concurrency:
 
 jobs:
   target:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions: write-all
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
     env:
       AWS_ACCOUNT_ID: "352329340196"
       AWS_REGION: ap-southeast-2
@@ -32,9 +37,6 @@ jobs:
           cache: true
           install: true
       
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v10.3.2
-
       - name: Assume Role
         uses: Sansoni-Management-Dev-Team/devops-github-workflows/assume-aws-role@main
         with:
@@ -44,67 +46,27 @@ jobs:
       - name: Generate backend and upload .env file
         run: |
 
+          umask 077
           mkdir -p env/${PROJECT}
-
-          cat <<EOF > env/${PROJECT}/.env
-          DATABASE_DRIVER=postgres
-          APP_URL=https://app.acquire.pajamaprofits.net
-          NEXT_PUBLIC_APP_URL=https://app.acquire.pajamaprofits.net
-          TARGET_DATA_PROVIDER=fixture
-          OUTREACH_DRAFTING_PROVIDER=fixture
-          ACQUIRE_DATABASE_PORT=5432
-          ACQUIRE_DATABASE_NAME=${PROJECT}
-          EOF
-
-
-          SECRET_KEYS=(
-            ACQUIRE_DATABASE_USERNAME
-            ACQUIRE_DATABASE_PASSWORD
-            ACQUIRE_DATABASE_HOST
-            ACQUIRE_BETTER_AUTH_SECRET
-            OPENROUTER_API_KEY
-            RESEND_API_KEY
-            AUTH_EMAIL_FROM
-          )
-
-          SECRET_JSON=$(aws secretsmanager get-secret-value --secret-id "$SECRETS_ARN" --query SecretString --output text)
-
-          for key in "${SECRET_KEYS[@]}"; do
-            value=$(jq -r --arg k "$key" '.[$k] // ""' <<< "$SECRET_JSON")
-            echo "${key}=${value}" >> env/${PROJECT}/.env
-          done
-
-          DOTENV="uvx --from python-dotenv[cli] dotenv -f env/${PROJECT}/.env"
-          DB_USER=$($DOTENV get ACQUIRE_DATABASE_USERNAME)
-          DB_PASSWORD=$($DOTENV get ACQUIRE_DATABASE_PASSWORD)
-          DB_HOST=$($DOTENV get ACQUIRE_DATABASE_HOST)
-          DB_PORT=$($DOTENV get ACQUIRE_DATABASE_PORT)
-          DB_NAME=$($DOTENV get ACQUIRE_DATABASE_NAME)
-          BETTER_AUTH_SECRET=$($DOTENV get ACQUIRE_BETTER_AUTH_SECRET)
-
-          # Generate URL
-          DATABASE_URL=$(jq -rn \
-            --arg user "$DB_USER" --arg password "$DB_PASSWORD" \
-            --arg host "$DB_HOST" --arg port "$DB_PORT" --arg name "$DB_NAME" \
-            '"postgresql://\($user | @uri):\($password | @uri)@\($host):\($port)/\($name)"')
-          
-          echo "DATABASE_URL=${DATABASE_URL}" >> env/${PROJECT}/.env
-          echo "BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET}" >> env/${PROJECT}/.env
-
-          # this is to remove "ACQUIRE_*" variables
-          sed -i '/^ACQUIRE_/d' env/${PROJECT}/.env
-
-          aws s3 sync env/ "s3://${ENV_FILES_BUCKET}/" --delete
+          secret_file=$(mktemp)
+          trap 'rm -f "$secret_file"; rm -rf env' EXIT
+          aws secretsmanager get-secret-value --secret-id "$SECRETS_ARN" --query SecretString --output text > "$secret_file"
+          node scripts/aws-dev-environment.mjs "$secret_file" "env/${PROJECT}/.env"
+          aws s3 cp "env/${PROJECT}/.env" "s3://${ENV_FILES_BUCKET}/${PROJECT}/.env" --only-show-errors
         env:
+          ACQUIRE_RESEARCH_ENABLED: ${{ vars.ACQUIRE_RESEARCH_ENABLED }}
+          ACQUIRE_RESEARCH_WORKER_URL: ${{ vars.ACQUIRE_RESEARCH_WORKER_URL }}
           ENV_FILES_BUCKET: ${{ env.PROJECT }}-env-files-${{ env.ENVIRONMENT }}
           SECRETS_ARN: arn:aws:secretsmanager:${{ env.AWS_REGION }}:${{ env.AWS_ACCOUNT_ID }}:secret:${{ env.PROJECT }}-secrets-${{ env.ENVIRONMENT }}-${{ env.SECRETS_ARN_SUFFIX }}
 
   lint:
+    if: ${{ !cancelled() && (needs.target.result == 'success' || needs.target.result == 'skipped') }}
     needs:
       - target
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions: write-all
+    timeout-minutes: 30
+    permissions:
+      contents: read
     env:
       ENVIRONMENT: develop
     steps:
@@ -116,17 +78,26 @@ jobs:
         with:
           runtime: node@24
           cache: true
-          install: false
+          install: true
       
+      - name: Install, build and verify standalone research service
+        run: |
+          npm --prefix services/research ci --ignore-scripts
+          npm --prefix services/research run build
+          npm --prefix services/research test
+          node --test scripts/aws-dev-environment.test.mjs scripts/aws-research-release.test.mjs
       - name: Run lint
         run: pnpm lint
 
   docker:
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.lint.result == 'success' }}
     needs:
       - lint
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions: write-all
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
     env:
       AWS_ACCOUNT_ID: "352329340196"
       AWS_REGION: ap-southeast-2
@@ -145,7 +116,7 @@ jobs:
 
       - name: Set variables
         run: |
-          echo "IMAGE_TAG=v.${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=app-${GITHUB_SHA}" >> "$GITHUB_ENV"
           echo "PROJECT_NAME=${PROJECT}-${PROJECT}-${ENVIRONMENT}" >> "$GITHUB_ENV"
       
       - name: Login to Amazon ECR
@@ -153,23 +124,25 @@ jobs:
           aws ecr get-login-password --region ${{ env.AWS_REGION }} \
             | docker login --username AWS --password-stdin ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
       
-      - name: Build and push images to Amazon ECR
+      - name: Build and push app, research and reader images
         env:
-          ECR_REGISTRY: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
-          ECR_REPOSITORY: ${{ env.PROJECT_NAME }}
+          IMAGE_REPOSITORY: ${{ env.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.PROJECT_NAME }}
         run: |
-          docker build \
-            --build-arg NEXT_PUBLIC_APP_URL=https://app.acquire.pajamaprofits.net \
-            -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
-
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          bash scripts/build-aws-dev-images.sh "$IMAGE_REPOSITORY"
+          for component in app research reader; do
+            docker push "$IMAGE_REPOSITORY:$component-$GITHUB_SHA"
+          done
 
   deploy:
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.docker.result == 'success' && (needs.research-deploy.result == 'success' || needs.research-deploy.result == 'skipped') }}
     needs:
       - docker
+      - research-deploy
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions: write-all
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
     env:
       AWS_ACCOUNT_ID: "352329340196"
       AWS_REGION: ap-southeast-2
@@ -188,7 +161,7 @@ jobs:
 
       - name: Set variables
         run: |
-          echo "IMAGE_TAG=v.${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+          echo "IMAGE_TAG=app-${GITHUB_SHA}" >> "$GITHUB_ENV"
           echo "PROJECT_NAME=${PROJECT}-${PROJECT}-${ENVIRONMENT}" >> "$GITHUB_ENV"
       
       - name: Update taskdef.json placeholders
@@ -227,9 +200,42 @@ jobs:
           service: ${{ env.PROJECT_NAME }}
           task-definition-arn: ${{ steps.register.outputs.task-definition-arn }}
           desired-count: "1"
-          wait-for-stability: "false"
+          wait-for-stability: "true"
 
 
+  pr-images:
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && needs.lint.result == 'success' }}
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Build all UAT images without cloud credentials or database access
+        run: bash scripts/build-aws-dev-images.sh acquire-pr
 
-
-
+  research-deploy:
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.docker.result == 'success' && vars.ACQUIRE_RESEARCH_APPROVED_COMMIT == github.sha }}
+    needs: docker
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: aws-uat-research
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Assume Role
+        uses: Sansoni-Management-Dev-Team/devops-github-workflows/assume-aws-role@main
+        with:
+          role-arn: arn:aws:iam::352329340196:role/github-role
+          region: ap-southeast-2
+      - name: Release the pre-provisioned, drained single-worker service
+        env:
+          ACQUIRE_RESEARCH_APPROVED_COMMIT: ${{ vars.ACQUIRE_RESEARCH_APPROVED_COMMIT }}
+        run: node scripts/aws-research-release.mjs
