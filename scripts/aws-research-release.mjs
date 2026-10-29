@@ -55,16 +55,19 @@ function aws(...args){
   try{return JSON.parse(execFileSync('aws',[...args,'--region',region,'--output','json','--no-cli-pager'],{encoding:'utf8',stdio:['ignore','pipe','pipe'],timeout:15*60*1000}));}
   catch{throw Error(`AWS ${args[0]} ${args[1]} failed; inspect the deployment in AWS`);}
 }
-async function release(){
-  const sha=process.env.GITHUB_SHA;
+export function validateResearchReleaseContext(env){
+  const sha=env.GITHUB_SHA;
   assert.match(sha||'',/^[a-f0-9]{40}$/);
-  assert.equal(process.env.GITHUB_REPOSITORY,'Sansoni-Management-Dev-Team/acquired');
-  assert.equal(process.env.GITHUB_REF,'refs/heads/test/deployment');
-  assert.equal(process.env.GITHUB_EVENT_NAME,'push');
-  assert.equal(process.env.ACQUIRE_RESEARCH_APPROVED_COMMIT,sha,'DevOps must approve this exact drained release');
+  assert.equal(env.GITHUB_REPOSITORY,'Sansoni-Management-Dev-Team/acquired');
+  assert.equal(env.GITHUB_REF,'refs/heads/test/deployment');
+  assert.equal(env.GITHUB_EVENT_NAME,'push');
+  return sha;
+}
+async function release(){
+  const sha=validateResearchReleaseContext(process.env);
   assert.equal(aws('sts','get-caller-identity').Account,account);
   const current=aws('ecs','describe-services','--cluster',cluster,'--services',serviceName);
-  assert.equal(current.failures?.length||0,0);assert.equal(current.services.length,1);
+  assert.ok(!(current.failures?.length)&&current.services.length===1,'Research ECS service acquire-research-develop must exist before deployment');
   const service=current.services[0];validateResearchService(service);
   const images=Object.fromEntries(['research','reader'].map(name=>{
     const image=aws('ecr','describe-images','--repository-name',repository,'--image-ids',`imageTag=${name}-${sha}`).imageDetails[0];

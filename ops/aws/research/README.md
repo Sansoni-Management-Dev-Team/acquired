@@ -76,13 +76,14 @@ research; a successful Docker build is not that acceptance.
 2. Finish owner infrastructure and specifically approved database preparation.
    Keep app research disabled. Register the reviewed base task/service at zero
    replicas, using published images and the dedicated secrets.
-3. Drain dispatch and confirm no queued/running/waiting DBOS workflows. Configure
-   required reviewers on GitHub environment `aws-uat-research`. Set the repository
-   variable `ACQUIRE_RESEARCH_APPROVED_COMMIT` to the **exact merged commit SHA**,
-   then rerun its workflow. That job must still pass environment review and the
-   runtime helper's account/repository/branch/service/task checks. This variable
-   is a per-release DevOps sign-off for readiness/drain, not database migration
-   approval. Future commits do not inherit this release approval.
+3. Research deployment runs automatically after each successful development image
+   publication. There is no commit-approval variable or GitHub environment approval
+   step. Finish infrastructure/database preparation before merging a deployment;
+   otherwise the release fails visibly at its existing service/configuration or
+   startup checks. Drain dispatch and queued/running/waiting workflows before
+   replacing the single worker; multi-replica/in-flight recovery acceptance is not
+   established. Account, repository, branch, digest, task and single-worker checks
+   remain enforced. This does not authorize any database migration.
 4. Verify ECS readiness and a scoped app-backed UAT canary, including restart and
    provider behavior. Do not enable sending or connect production credentials to
    force a pass. No live canary was performed by this PR.
