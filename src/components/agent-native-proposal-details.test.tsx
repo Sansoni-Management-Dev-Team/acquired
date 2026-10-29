@@ -12,8 +12,8 @@ function render(input:Record<string,unknown>){return renderToStaticMarkup(<Agent
 it('discloses combined company and basic contact approval with separate per-request People funding',()=>{
  const input=combined();expect(nativeProposalReviewable('research.start',input)).toBe(true);
  const html=render(input);
- for(const value of ['Company research and basic contacts','Names, roles and available email addresses','3 contacts per matched company','1 search page of up to 50 rows','separate credit-consuming action','Firmable: 24024','Search: 6','Pages: 5','AI: 0','$11','$1 per physical People request','24,035','15-minute','not a quoted provider charge','does not approve outreach'])expect(html).toContain(value);
- for(const absent of ['Company research only','People enrichment is off','company-only Firmable incremental reserve','All Firmable requests are free','full reserve is allocated','Incomplete proposal'])expect(html).not.toContain(absent);
+ for(const value of ['Company research and basic contacts','Names, roles and available email addresses','3 contacts per matched company','1 search page of up to 50 rows','separate credit-consuming action','Company data: 24024','Search: 6','Pages: 5','AI: 0','$11','$1 per physical People request','24,035','15-minute','not a quoted provider charge','does not approve outreach'])expect(html).toContain(value);
+ for(const absent of ['Company research only','People enrichment is off','company-only Company data incremental reserve','All Company data requests are free','full reserve is allocated','Incomplete proposal'])expect(html).not.toContain(absent);
 });
 
 it('blocks combined proposals whose People scope, pricing or continuation differs from the reviewed contract',()=>{
@@ -32,7 +32,7 @@ it('blocks combined proposals whose People scope, pricing or continuation differ
 it('preserves the historical V4 company-only approval wording and scope',()=>{
  const next=combined(),input={...next,config:{...next.config,companyDiscoveryPolicy:buildAllDiscoveredCompanyPolicy(),includeCompanyPeople:false,companyOnly:true},execution:{...next.execution,peopleResearch:false},providerPolicy:{version:2,companyOnly:true,callAdmission:'per_request',requestCeilingMicroUsd:'1000000',requestCeilingsMicroUsd:{firmable:'0',search:'1000000',page:'1000000',ai:'1000000'},pricingBasis:'configured_company_only_incremental',maxAttempts:{firmable:24024,search:6,page:5,ai:0}}};
  expect(nativeProposalReviewable('research.start',input)).toBe(true);
- const html=render(input);for(const value of ['Company research only','People enrichment is off','Configured company-only Firmable incremental reserve: $0','not an observed invoice price'])expect(html).toContain(value);
+ const html=render(input);for(const value of ['Company research only','People enrichment is off','Configured company-only Company data incremental reserve: $0','not an observed invoice price'])expect(html).toContain(value);
  expect(html).not.toContain('Company research and basic contacts');
 });
 

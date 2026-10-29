@@ -29,6 +29,10 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.run.mockResolvedValue({ id: runId, status: "running" });
 });
+it('returns the provider retry interval without failing a rate-limited people job',async()=>{
+ mocks.company.mockRejectedValue(new FirmableError('/company',429,'Rate limited',75000));
+ const response=await POST(request(),context);expect(response.status).toBe(429);expect(response.headers.get('Retry-After')).toBe('75');expect(await response.json()).toMatchObject({provider:'firmable',retryAfterMs:75000});expect(mocks.fail).not.toHaveBeenCalled();
+});
 
 it.each([401, 402, 403])("persists a terminal account failure (%i) and acknowledges the step", async status => {
   mocks.company.mockRejectedValue(new FirmableError("/company", status, `Firmable request failed (${status})`));

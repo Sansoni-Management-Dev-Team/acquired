@@ -33,3 +33,9 @@ it('rejects unsupported local engine configuration and does not activate Bing ou
  const fetcher=vi.fn();await expect(localSearch({LOCAL_DEVELOPMENT:'true',LOCAL_SEARCH_URL:'http://127.0.0.1:7000',LOCAL_SEARCH_ENGINE:'arbitrary'},'query',{},fetcher)).rejects.toThrow();
  expect(await localSearch({LOCAL_DEVELOPMENT:'false',LOCAL_SEARCH_URL:'http://127.0.0.1:7000',LOCAL_SEARCH_ENGINE:'bing'},'query',{},fetcher)).toBeNull();expect(fetcher).not.toHaveBeenCalled();
 });
+it('forwards the configured Australian market without changing the search query',async()=>{
+ const fetcher=vi.fn<typeof fetch>().mockResolvedValue(Response.json([{url:'https://example.com',title:'Company'}]));
+ await localSearch({LOCAL_DEVELOPMENT:'true',LOCAL_SEARCH_URL:'http://127.0.0.1:7000',LOCAL_SEARCH_ENGINE:'bing',LOCAL_SEARCH_REGION:'AU'},'aged care software Australia',{},fetcher);
+ const url=new URL(String(fetcher.mock.calls[0][0]));
+ expect(url.searchParams.get('region')).toBe('AU');expect(url.searchParams.get('lang')).toBe('EN');expect(url.searchParams.get('text')).toBe('aged care software Australia');
+});

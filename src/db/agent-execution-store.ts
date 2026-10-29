@@ -107,7 +107,7 @@ export class AgentExecutionStore extends AgentRuntimeRegistryStore{
   return this.nativeTransaction(async c=>{
    const t=await this.thread(c,threadId),mandate=(await c.query(`SELECT xmin::text AS revision,coalesce((SELECT mode FROM ${this.workflowModeTable(c)} WHERE mandate_id=mandates.id AND organization_id=mandates.organization_id),'real') AS execution_mode FROM mandates WHERE id=$1 AND organization_id=$2`,[t.mandate_id,t.organization_id])).rows[0];
    if(!mandate)throw new Error('Mandate not found');
-   const responsibility=(await c.query('SELECT * FROM agent_responsibilities WHERE thread_id=$1',[t.id])).rows[0];
+   const responsibility=(await c.query('SELECT * FROM agent_responsibilities WHERE thread_id=$1',[t.id])).rows[0]??null;
    const conversations=(await c.query(`SELECT id,contact_id,recipient_email,delivery_mode,driver_kind,phase,epoch::text,revision,engagement,next_wakeup_at,
     responsibility_id,human_user_id,sequence_enrolment_id,sequence_runtime,driver_generation,pending_driver,pause_reason,binding_digest,history_complete,history_observed_at,
     (history_complete AND history_observed_at BETWEEN ${this.businessSql()}-interval '5 minutes' AND ${this.businessSql()}) AS history_coverage_fresh,

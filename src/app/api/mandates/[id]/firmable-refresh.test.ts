@@ -93,11 +93,13 @@ it("redispatches queued runs and closes a stale run whose workflow already ended
   expect(mocks.failRun).toHaveBeenCalledWith(staleId, expect.stringContaining("ended before"));
 });
 
-it("times out an unreachable stale workflow while retaining its saved data", async () => {
+it("retains an unreachable stale workflow until its execution state can be checked", async () => {
   const staleId = "00000000-0000-4000-8000-000000000006";
   mocks.worker.mockRejectedValueOnce(new Error("unreachable"));
   await recoverFirmableRefreshes({ failRun: mocks.failRun, claimManualRecovery: mocks.claim } as never, [{ id: staleId, status: "running", updatedAt: new Date(Date.now() - 660_000) }], mandateId);
-  expect(mocks.failRun).toHaveBeenCalledWith(staleId, expect.stringContaining("timed out"));
+  expect(mocks.worker).toHaveBeenCalledWith(`/firmable/${staleId}`, "GET", undefined, 4000);
+  expect(mocks.failRun).not.toHaveBeenCalled();
+  expect(mocks.claim).not.toHaveBeenCalled();
 });
 it('does not turn ongoing automatic people retrieval into a paid phone action',async()=>{
  mocks.queueRun.mockResolvedValue({id:runId,targetId,status:'running',trigger:'discovery'});

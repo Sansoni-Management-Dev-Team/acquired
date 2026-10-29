@@ -96,6 +96,12 @@ beforeEach(() => {
 });
 afterEach(()=>vi.unstubAllEnvs());
 describe("research API isolation and dispatch", () => {
+  it('settles finite work from its queue despite an unreconciled workflow label and omits private checkpoints',async()=>{
+    vi.stubEnv('ACQUISITION_WORKFLOW_ENABLED','true');mocks.workflow.mockResolvedValue({id:jobId,state:'researching',preset:'live-research-test'});
+    const root={id:jobId,status:'complete',createdAt:new Date(0),updatedAt:new Date(0),config:{completionPolicy:'work-items',companyPeopleProgress:{settled:true},companyBackgroundCheckpoint:{facts:['private checkpoint']}}};
+    mocks.list.mockResolvedValue([root]);mocks.findings.mockResolvedValue([]);mocks.targetEvidence.mockResolvedValue([]);
+    const data=await(await GET(new Request('https://app.example.com'),context)).json();expect(data.active).toBe(false);expect(data.jobs[0].config).not.toHaveProperty('companyBackgroundCheckpoint');expect(mocks.worker).not.toHaveBeenCalled();expect(mocks.schedule).not.toHaveBeenCalled();
+  });
   it('publishes incremental discovery counts without raw source pages or starting any work', async () => {
     const now = new Date();
     const root = { id: jobId, status: 'extracting', createdAt: now, updatedAt: now, config: {

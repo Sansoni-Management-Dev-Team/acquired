@@ -1,3 +1,4 @@
+import {researchDeadline} from '@/domain/research-completion';
 import {withResearchJobWorkflow} from '@/lib/acquisition-workflow-context';
 import {observeInitialResearchProgress} from '@/lib/agent-initial-research-observer';
 import {nativeResearchRequestClassSchema} from '@/lib/agent-research-provider-request';
@@ -70,7 +71,7 @@ async function getJob(request: Request, jobId: string, lean = false,action='cont
         ...researchExecutionSelection,
         nativeAgentJob:sql<boolean>`${researchJobs.config} ? 'nativeAgent'`,
         nativeAgentSnapshot:sql<ResearchConfig['nativeAgent']>`${researchJobs.config}->'nativeAgent'`,
-        config: sql<ResearchConfig>`jsonb_build_object('researchRunId', ${researchJobs.config}->'researchRunId', 'budget', ${researchJobs.config}->'budget', 'automaticDeadline', ${researchJobs.config}->'automaticDeadline', 'newBusinessIds', ${researchJobs.config}->'newBusinessIds', 'performanceFlags', ${researchJobs.config}->'performanceFlags', 'discoveryCandidate', ${researchJobs.config}->'discoveryCandidate', 'parallelDiscovery', ${researchJobs.config}->'parallelDiscovery', 'companyBackgroundResearch', ${researchJobs.config}->'companyBackgroundResearch')`,
+        config: sql<ResearchConfig>`jsonb_build_object('completionPolicy', ${researchJobs.config}->'completionPolicy', 'researchRunId', ${researchJobs.config}->'researchRunId', 'budget', ${researchJobs.config}->'budget', 'automaticDeadline', ${researchJobs.config}->'automaticDeadline', 'newBusinessIds', ${researchJobs.config}->'newBusinessIds', 'performanceFlags', ${researchJobs.config}->'performanceFlags', 'discoveryCandidate', ${researchJobs.config}->'discoveryCandidate', 'parallelDiscovery', ${researchJobs.config}->'parallelDiscovery', 'companyBackgroundResearch', ${researchJobs.config}->'companyBackgroundResearch')`,
       } : researchExecutionSelection), ...(action==='control'?{executionUpdatedAt:researchExecutionProgressAt}:{})})
       .from(researchJobs)
       .where(eq(researchJobs.id, jobId))
@@ -130,7 +131,7 @@ async function controlSnapshot(job: NonNullable<Awaited<ReturnType<typeof getJob
     traceContext: jobTraceContext(job),
     status: root?.status === "cancelled" ? "cancelled" : job.status,
     updatedAt: job.updatedAt.toISOString(), executionUpdatedAt: job.executionUpdatedAt?.toISOString(), crawlId: job.crawlId, config: { ...(config.discoveryCandidate || config.parallelDiscovery ? { ...config, newBusinessIds: (root?.config as ResearchConfig | undefined)?.newBusinessIds || [] } : config), pipelineTiming: undefined }, seeds: job.seeds,
-    deadline: config.companyBackgroundResearch ? config.automaticDeadline || Infinity : Math.min(job.createdAt.getTime() + config.budget.maxMinutes * 60000, (root?.config as ResearchConfig | undefined)?.automaticDeadline || Infinity),
+    deadline: config.companyBackgroundResearch ? researchDeadline({completionPolicy:config.completionPolicy,automaticDeadline:config.automaticDeadline}) : researchDeadline({...config,automaticDeadline:(root?.config as ResearchConfig|undefined)?.automaticDeadline??config.automaticDeadline},job.createdAt.getTime()),
     ...(includeFindings && (config.targetId || (config.parallelBusinessResearch && config.researchTask === 'field' && config.companyDomain)) ? { findings: (await runEvidence(job)).map(f => f.evidence) } : {}),
   };
 }

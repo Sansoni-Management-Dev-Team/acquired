@@ -45,7 +45,8 @@ it('stops foreground progress for a failed root without claiming unfinished comp
   expect(companyPipelineState(failed, [failed, unfinished])).toMatchObject({ settled: false, active: 1, savedIds: [] });
   const html = renderToStaticMarkup(<CompanyPipelineProgress job={failed} jobs={[failed, unfinished]} mandateId="mandate" />);
   expect(html).toContain('Research failed');
-  expect(html).toContain(failed.message);
+  expect(html).toContain('Company data rate limit (HTTP 429); no company profile was saved.');
+  expect(html).not.toMatch(/firmable/i);
   expect(html).toContain('1 company request is still recorded as in progress.');
   expect(html).toContain('3m 2s elapsed');
   expect(html).not.toContain('animate-spin');
@@ -77,7 +78,7 @@ it('counts persisted discovery page maps and search failures', () => {
 it('shows the familiar progress bar and high-level tasks without provider names', () => {
   const running = { ...root, status: 'extracting', config: { ...root.config, parallelResearchSettled: false } };
   const html = renderToStaticMarkup(<CompanyPipelineProgress job={running} jobs={[running, company]} mandateId="mandate" />);
-  for (const label of ['Searching for businesses', 'Finding headcounts', 'Finding revenue bands', 'Verifying ABNs', 'Saving company results']) expect(html).toContain(label);
+  for (const label of ['Searching for businesses', 'Finding headcounts', 'Finding revenue bands', 'Finding ABNs', 'Saving company results']) expect(html).toContain(label);
   expect(html).toContain('role="progressbar"');
   expect(html).not.toContain('aria-valuenow');
   expect(html).toContain('View companies');
@@ -88,9 +89,9 @@ it('counts retrieved size and revenue data while preserving missing fields', () 
   const withProfile = { ...company, config: { ...company.config, firmableProfile: { headcountExact: null, headcountBand: { min: 10, max: 20 }, revenueBand: null } } };
   expect(companyPipelineState(root, [root, withProfile])).toMatchObject({ headcounts: 1, revenueBands: 0 });
 });
-it('finishes the company phase while linked people research continues independently', () => {
+it('keeps overall progress open while linked people research continues', () => {
  const job = { ...root, status: 'complete', config: { ...root.config, includeCompanyPeople: true, companyPeopleProgress: {total:1,active:1,queued:0,complete:0,failed:0,cancelled:0,found:3,saved:1,profilesFailed:0,settled:false} } };
- expect(companyPipelineState(job,[job,company])).toMatchObject({settled:true,peopleSettled:false,peopleActive:1});
+ expect(companyPipelineState(job,[job,company])).toMatchObject({companySettled:true,settled:false,peopleSettled:false,peopleActive:1});
  expect(renderToStaticMarkup(<CompanyPipelineProgress job={job} jobs={[job,company]}/>)).toContain('Finding people and emails');
  expect(companyPipelineState({...job,config:{...job.config,companyPeopleProgress:{...job.config.companyPeopleProgress,active:0,settled:true}}},[company]).settled).toBe(true);
 });
@@ -99,9 +100,10 @@ it('keeps results available while durable background company fields remain queue
   const job = { ...root, status: 'complete' as const };
   const background = { ...company, id: 'background', status: 'reading' as const, config: { purpose: 'firmographics', researchTask: 'field', parentJobId: root.id, companyBackgroundResearch: { fields: ['companyPhone'] } } } as unknown as ResearchJob;
   const queued = { ...background, id: 'queued', status: 'queued' as const };
-  expect(companyPipelineState(job, [job, company, background, queued])).toMatchObject({ settled: true, backgroundActive: 1, backgroundQueued: 1, processed: 1 });
+  expect(companyPipelineState(job, [job, company, background, queued])).toMatchObject({ companySettled: true, settled: false, backgroundActive: 1, backgroundQueued: 1, processed: 1 });
   const html = renderToStaticMarkup(<CompanyPipelineProgress job={job} jobs={[job, company, background, queued]} mandateId="mandate" />);
-  expect(html).toContain('Research complete');
-  expect(html).toContain('Company details continue updating in the background.');
+  expect(html).not.toContain('RESEARCH COMPLETE');
+  expect(html).toContain('Completing research');
+  expect(html).toContain('1 queued');
   expect(html).toContain('View companies');
 });

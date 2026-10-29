@@ -26,3 +26,9 @@ it('RC-10-generalization: stale automatic lease checks status without starting a
  expect(mocks.worker).toHaveBeenCalledExactlyOnceWith('/firmable/stale','GET',undefined,4000);
  expect(history.failRun).toHaveBeenCalledWith('stale',expect.stringContaining('ended before'));
 });
+it('retains an old running refresh when worker status is unavailable',async()=>{
+ mocks.worker.mockRejectedValue(Error('Service temporarily unreachable'));
+ const history={failRun:vi.fn(),claimManualRecovery:vi.fn()},now=Date.now();
+ await recoverFirmableRefreshes(history,[{id:'old-running',trigger:'discovery',status:'running',updatedAt:new Date(now-3600000)}],'mandate',now);
+ expect(history.failRun).not.toHaveBeenCalled();
+});

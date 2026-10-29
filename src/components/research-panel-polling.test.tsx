@@ -10,7 +10,7 @@ const snapshot=(overrides:Partial<ResearchPanelData>={}):ResearchPanelData=>({en
 beforeEach(()=>{vi.resetAllMocks();});afterEach(()=>{vi.unstubAllGlobals();});
 it('shows the company pipeline layout before the first research snapshot arrives', () => {
  const html=renderToStaticMarkup(<ResearchPanel mandateId="mandate" startedRunId="root" showStartAction={false} onResultsChanged={()=>{}} />);
- for(const label of ['Searching for businesses','Finding headcounts','Finding revenue bands','Verifying ABNs','Finding people and emails','Saving company results']) expect(html).toContain(label);
+ for(const label of ['Searching for businesses','Finding headcounts','Finding revenue bands','Finding ABNs','Finding people and emails','Saving company results']) expect(html).toContain(label);
  expect(html).toContain('0 companies researched');
  expect(html).toContain('0 companies saved');
  expect(html).not.toContain('Stage 1 of 4');

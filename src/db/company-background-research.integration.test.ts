@@ -11,7 +11,7 @@ import * as schema from './schema';
 import { targetRecordToRankedTarget } from './target-record-mapper';
 import { researchContactId } from './research-persistence-id';
 const filters={sectors:['Industrial cleaning'],states:['VIC'],revenue:{min:0,max:null},ebitda:{min:0,max:null}};
-const result:CompanyMissingFieldResearchResult={facts:[{field:'company_emails',value:'office@operator.example.com',sourceUrl:'https://operator.example.com/contact',quote:'Corporate email office@operator.example.com',capturedAt:'2026-10-08T00:00:00Z',scope:'company',evidenceType:'published',reader:'fixture'}],fields:{company_emails:{status:'reported'},company_phones:{status:'not_disclosed'},revenue:{status:'research_incomplete',reason:'Public accounts timed out'}},attempts:[{kind:'page',url:'https://operator.example.com/contact',status:'succeeded',startedAt:'2026-10-08T00:00:00Z',elapsedMs:2}],registryContacts:[]};
+const result:CompanyMissingFieldResearchResult={facts:[{field:'company_emails',value:'office@operator.example.com',sourceUrl:'https://operator.example.com/contact',quote:'Corporate email office@operator.example.com',capturedAt:'2026-10-08T00:00:00Z',scope:'company',evidenceType:'published',reader:'fixture'}],fields:{company_emails:{status:'reported'},company_phones:{status:'not_disclosed'},year_founded:{status:'research_incomplete',reason:'Company history timed out'}},attempts:[{kind:'page',url:'https://operator.example.com/contact',status:'succeeded',startedAt:'2026-10-08T00:00:00Z',elapsedMs:2}],registryContacts:[]};
 describe.skipIf(process.env.RUN_FIRMABLE_DB_INTEGRATION!=='true')('Independent company missing-field persistence',()=>{
  let client:Client,database:NodePgDatabase<typeof schema>,organizationId:string,actorId:string,mandateId:string,root:typeof schema.researchJobs.$inferSelect;
  beforeAll(async()=>{
@@ -20,7 +20,7 @@ describe.skipIf(process.env.RUN_FIRMABLE_DB_INTEGRATION!=='true')('Independent c
   organizationId=`company-background-${crypto.randomUUID()}`;actorId=`background-reviewer-${crypto.randomUUID()}`;
   await database.insert(schema.organization).values({id:organizationId,name:'Synthetic independent jobs',slug:organizationId});await database.insert(schema.user).values({id:actorId,name:'Synthetic reviewer',email:`${actorId}@example.test`});
   const [mandate]=await database.insert(schema.mandates).values({organizationId,createdBy:actorId,naturalLanguage:'Synthetic company public field test',filters,provenance:{source:'Synthetic fixture'}}).returning();mandateId=mandate.id;
-  [root]=await database.insert(schema.researchJobs).values({id:crypto.randomUUID(),organizationId,mandateId,createdBy:actorId,status:'complete',config:{workflow:'business',mode:'automatic',geography:'VIC',searchTerms:['Industrial cleaning'],researchScope:'services',seeds:[],budget:{maxPages:1,maxDomains:1,maxModelCalls:0,maxMinutes:1},automaticDeadline:Date.now()-1000},message:'Profile discovery already settled'}).returning();
+  [root]=await database.insert(schema.researchJobs).values({id:crypto.randomUUID(),organizationId,mandateId,createdBy:actorId,status:'complete',config:{workflow:'business',mode:'automatic',geography:'VIC',searchTerms:['Industrial cleaning'],researchScope:'Industrial cleaning; NATA accreditation contacts; published team members and ISO/IEC 17025',seeds:[],budget:{maxPages:1,maxDomains:1,maxModelCalls:0,maxMinutes:1},automaticDeadline:Date.now()-1000},message:'Profile discovery already settled'}).returning();
  });
  afterAll(async()=>{if(!client)return;try{await client.query('ROLLBACK');expect((await client.query('SELECT count(*)::int AS n FROM organization WHERE id=$1',[organizationId])).rows[0].n).toBe(0);}finally{await client.end();}});
  async function createTarget(suffix:string){const raw={id:`provider-${suffix}`,name:`Synthetic Company ${suffix}`,website:'https://operator.example.com',employee_count:100,revenue:'$50M - $100M',region:{AU:{employee_count:25,address:{state:'VIC',suburb:'Melbourne'},revenue:{10:'No data available'}}}};const candidate=mapFirmableProfile(raw,filters,organizationId);const [saved]=await database.insert(schema.targets).values({organizationId,mandateId,companyName:candidate.companyName,domain:candidate.domain,firmographics:{state:candidate.state,suburb:candidate.suburb,headcount:candidate.headcount,revenue:candidate.revenue,firmable:candidate.sourceData?.firmable},identifiers:{abn:'24160241789',identityEvidence:{source:'Manual registry review',sourceUrl:'https://abr.business.gov.au'}}}).returning();return{candidate:{...candidate,id:saved.id},raw,saved};}
@@ -29,7 +29,7 @@ describe.skipIf(process.env.RUN_FIRMABLE_DB_INTEGRATION!=='true')('Independent c
   const [job]=await database.select().from(schema.researchJobs).where(eq(schema.researchJobs.id,queued.jobId!));expect(job.status).toBe('queued');expect((job.config as {automaticDeadline:number}).automaticDeadline).toBeGreaterThan(Date.now());expect((job.config as {companyBackgroundResearch:{verifyAbn:boolean}}).companyBackgroundResearch.verifyAbn).toBe(true);
   const settled=await persistCompanyBackgroundResult({organizationId,jobId:job.id,result},database);expect(settled).toMatchObject({accepted:true,status:'partial',written:1,registryContacts:0});
   const [target]=await database.select().from(schema.targets).where(eq(schema.targets.id,candidate.id));expect((target.firmographics as {firmable:{rawResponse:unknown}}).firmable.rawResponse).toEqual(raw);expect(target.identifiers).toMatchObject({abn:'24160241789',identityEvidence:{source:'Manual registry review'}});
-  expect(target.firmographics).toMatchObject({backgroundResearch:{fields:{company_emails:{status:'reported',observations:[{value:'office@operator.example.com',scope:'company'}]},company_phones:{status:'unavailable'},revenue:{status:'failed'}}}});
+  expect(target.firmographics).toMatchObject({backgroundResearch:{fields:{company_emails:{status:'reported',observations:[{value:'office@operator.example.com',scope:'company'}]},company_phones:{status:'unavailable'},year_founded:{status:'failed'}}}});
   expect(targetRecordToRankedTarget(target,[]).sourceData?.firmable?.companyEmails).toEqual(['office@operator.example.com']);
   expect(await database.select().from(schema.contacts).where(eq(schema.contacts.targetId,candidate.id))).toHaveLength(0);expect(await database.select().from(schema.researchFindings).where(eq(schema.researchFindings.jobId,job.id))).toHaveLength(1);
   expect(await persistCompanyBackgroundResult({organizationId,jobId:job.id,result},database)).toMatchObject({accepted:false,status:'partial',written:0});
@@ -64,6 +64,27 @@ describe.skipIf(process.env.RUN_FIRMABLE_DB_INTEGRATION!=='true')('Independent c
   const [job]=await database.select().from(schema.researchJobs).where(eq(schema.researchJobs.id,queued.jobId!));
   expect((job.config as {companyBackgroundResearch:{verifyAbn:boolean}}).companyBackgroundResearch.verifyAbn).toBe(false);
  });
+ it('clock-free work saves a private checkpoint, rejects a stale callback and publishes the resumed result once',async()=>{
+  const {candidate}=await createTarget('work-items');
+  const config={...root.config as object,completionPolicy:'work-items'};
+  const queued=await queueCompanyBackgroundResearch({...root,config},candidate,database);
+  const [job]=await database.select().from(schema.researchJobs).where(eq(schema.researchJobs.id,queued.jobId!));
+  expect(job.config).toMatchObject({completionPolicy:'work-items'});
+  expect(job.config).not.toHaveProperty('automaticDeadline');
+  const [before]=await database.select().from(schema.targets).where(eq(schema.targets.id,candidate.id));
+  const checkpoint={version:1 as const,revision:1,facts:result.facts,attempts:result.attempts,registryContacts:[],teamMembers:[],accreditations:[],relatedDomains:[],visited:['https://operator.example.com/contact'],queue:['https://operator.example.com/team'],searched:[],readCount:1,queries:0,discoveryComplete:false,identity:{name:candidate.companyName,domain:candidate.domain},personEmails:[]};
+  expect(await persistCompanyBackgroundResult({organizationId,jobId:job.id,result:{...result,continuation:checkpoint}},database)).toMatchObject({accepted:true,deferred:true,status:'extracting',written:0});
+  const [waiting]=await database.select().from(schema.researchJobs).where(eq(schema.researchJobs.id,job.id));
+  expect(waiting.config).toMatchObject({companyBackgroundCheckpoint:checkpoint});
+  expect(await database.select().from(schema.targets).where(eq(schema.targets.id,candidate.id))).toEqual([before]);
+  expect(await database.select().from(schema.researchFindings).where(eq(schema.researchFindings.jobId,job.id))).toHaveLength(0);
+  expect(await persistCompanyBackgroundResult({organizationId,jobId:job.id,result},database)).toMatchObject({accepted:false,deferred:true,written:0});
+  const fields=Object.fromEntries(queued.fields.map(field=>[field,{status:field==='company_emails'?'reported':'not_disclosed'}])) as CompanyMissingFieldResearchResult['fields'];
+  const resumed={...result,fields,resumeRevision:1};
+  expect(await persistCompanyBackgroundResult({organizationId,jobId:job.id,result:resumed},database)).toMatchObject({accepted:true,status:'complete',written:1});
+  expect(await persistCompanyBackgroundResult({organizationId,jobId:job.id,result:resumed},database)).toMatchObject({accepted:false,status:'complete',written:0});
+  expect(await database.select().from(schema.researchFindings).where(eq(schema.researchFindings.jobId,job.id))).toHaveLength(1);
+ });
  it('registry operational errors remain partial even when a public company field was successfully read',async()=>{
   const {candidate}=await createTarget('abn-partial');const queued=await queueCompanyBackgroundResearch(root,candidate,database);
   const abnLookup={status:'not_found',operationalStatus:'partial',missingReason:'Registry reader timed out',errors:['Registry reader timed out']} as unknown as CompanyBackgroundResearchResult['abnLookup'];
@@ -72,7 +93,8 @@ describe.skipIf(process.env.RUN_FIRMABLE_DB_INTEGRATION!=='true')('Independent c
  });
  it('root cancellation rejects late data and organization mismatch cannot acquire another company job',async()=>{
   const {candidate}=await createTarget('cancel');const queued=await queueCompanyBackgroundResearch(root,candidate,database);await database.update(schema.researchJobs).set({status:'cancelled'}).where(eq(schema.researchJobs.id,root.id));
-  expect(await persistCompanyBackgroundResult({organizationId:'other-org',jobId:queued.jobId!,result},database)).toMatchObject({accepted:false,status:'missing'});
+  const foreignOrganizationId=`foreign-${crypto.randomUUID()}`;await database.insert(schema.organization).values({id:foreignOrganizationId,name:'Synthetic unrelated organization',slug:foreignOrganizationId});
+  expect(await persistCompanyBackgroundResult({organizationId:foreignOrganizationId,jobId:queued.jobId!,result},database)).toMatchObject({accepted:false,status:'missing'});
   expect(await persistCompanyBackgroundResult({organizationId,jobId:queued.jobId!,result},database)).toMatchObject({accepted:false,status:'cancelled',written:0});expect(await database.select().from(schema.researchFindings).where(eq(schema.researchFindings.jobId,queued.jobId!))).toHaveLength(0);
   expect(await queueCompanyBackgroundResearch(root,candidate,database)).toMatchObject({jobId:null,created:false});await database.update(schema.researchJobs).set({status:'complete'}).where(eq(schema.researchJobs.id,root.id));
  });

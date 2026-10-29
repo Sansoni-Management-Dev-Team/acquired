@@ -104,7 +104,7 @@ describe("research job progress", () => {
   it.each(["queued", "discovering", "crawling", "reading", "extracting"])("keeps web research on the new layout during %s", status => {
     const current = root({ status });
     const html = renderToStaticMarkup(<ResearchProgress job={current} jobs={[current, child()]} count={0} identified={0} active enriching={0} />);
-    for (const label of ["Searching for businesses", "Finding headcounts", "Finding revenue bands", "Verifying ABNs", "Finding people and emails", "Saving company results"]) expect(html).toContain(label);
+    for (const label of ["Searching for businesses", "Finding headcounts", "Finding revenue bands", "Finding ABNs", "Finding people and emails", "Saving company results"]) expect(html).toContain(label);
     expect(html).toContain("In progress");
     expect(html).not.toContain("aria-valuenow");
     expect(html).not.toContain("Stage 1 of 4");
@@ -120,8 +120,8 @@ describe("research job progress", () => {
     expect(html).toContain("2 companies saved");
     expect(html).toMatch(/Finding headcounts[\s\S]*?2 found/);
     expect(html).toMatch(/Finding revenue bands[\s\S]*?1 found/);
-    expect(html).toMatch(/Verifying ABNs[\s\S]*?1 found/);
-    expect(html).toMatch(/Finding people and emails[\s\S]*?3 found/);
+    expect(html).toMatch(/Finding ABNs[\s\S]*?1 found/);
+    expect(html).toMatch(/Finding people and emails[\s\S]*?3 saved/);
     expect(html).not.toContain("100%");
   });
 
@@ -132,13 +132,13 @@ describe("research job progress", () => {
     expect(html).not.toContain('aria-valuenow="100"');
   });
 
-  it("shows completed company results while linked people research continues independently", () => {
+  it("keeps the overall indicator running while linked people research continues", () => {
     const current = root({ status: "complete" });
     const people = child({ config: { ...child().config, discoveryCandidate: false, purpose: "people" } });
     const html = renderToStaticMarkup(<ResearchProgress job={current} jobs={[current, people]} count={0} identified={0} active enriching={1} />);
     expect(html).toContain("Finding people and emails");
-    expect(html).toContain("continuing in the background");
-    expect(html).toContain('aria-valuenow="100"');
+    expect(html).toContain("running");
+    expect(html).not.toContain('aria-valuenow="100"');
   });
 
   it.each([0, 7, 20, 25])("completes with %s saved businesses", count => {

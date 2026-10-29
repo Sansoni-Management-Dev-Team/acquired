@@ -17,6 +17,22 @@ it('does not fall back to live requests when saved people disappear',async()=>{c
 it('reuses normal research with execution identity and current mandate revision',async()=>{const f=fixture('live-research-test');mocks.start.mockImplementation(async()=>{expect(acquisitionWorkflowContext()).toEqual({id:execution.id,organizationId:'org',ownerUserId:'owner'});return {status:202,body:{jobId:execution.id}};});expect(await ensureWorkflowResearch(f.pool,actor,f.execution)).toMatchObject({source:'live',jobId:execution.id,status:'queued'});expect(mocks.start).toHaveBeenCalledWith(actor,execution.mandateId,{requestId:execution.id,fromBrief:true},{expectedMandateRevision:'42'});expect(mocks.transition).toHaveBeenCalledWith(execution.id,1,'researching');});
 it.each(['queued','extracting','complete','partial'])('replays persisted %s job without another provider/scope request',async status=>{const f=fixture('live-research-test',{job_id:execution.id,job_workflow_execution_id:execution.id,job_status:status,job_config:{}});await ensureWorkflowResearch(f.pool,actor,f.execution);expect(mocks.start).not.toHaveBeenCalled();if(['complete','partial'].includes(status))expect(mocks.transition).toHaveBeenCalledWith(execution.id,1,'complete');});
 it('waits for people enrichment before research-only completion',async()=>{const f=fixture('live-research-test',{job_id:execution.id,job_workflow_execution_id:execution.id,job_status:'complete',job_config:{companyPeopleProgress:{settled:false}}});expect(await ensureWorkflowResearch(f.pool,actor,f.execution)).toMatchObject({status:'extracting'});expect(mocks.transition).toHaveBeenCalledWith(execution.id,1,'researching');});
+it.each([{queued:120,active:1},{queued:1,active:0},{queued:0,active:1}])('does not complete research-only work while its company details remain pending (%j)',async pending=>{
+ const f=fixture('live-research-test',{job_id:execution.id,job_workflow_execution_id:execution.id,job_status:'complete',job_config:{companyPeopleProgress:{settled:true}},research_summary:{...pending,partial:10,failed:6,cancelled:0},company_count:142,people_count:64});
+ expect(await readWorkflowResearch(f.pool,actor,f.execution)).toMatchObject({status:'extracting',companies:142,people:64});
+ expect(mocks.transition).not.toHaveBeenCalled();
+ expect(await ensureWorkflowResearch(f.pool,actor,f.execution)).toMatchObject({status:'extracting'});
+ expect(mocks.transition).toHaveBeenCalledWith(execution.id,1,'researching');expect(mocks.start).not.toHaveBeenCalled();
+});
+it.each([{partial:1},{failed:1},{cancelled:1}])('preserves settled company-detail gaps in the initial research status (%j)',async gap=>{
+ const f=fixture('live',{job_id:execution.id,job_workflow_execution_id:execution.id,job_status:'complete',job_config:{companyPeopleProgress:{settled:true}},research_summary:{queued:0,active:0,partial:0,failed:0,cancelled:0,...gap},company_count:142,people_count:64});
+ expect(await readWorkflowResearch(f.pool,actor,f.execution)).toMatchObject({status:'partial',companies:142,people:64});
+ expect(mocks.transition).not.toHaveBeenCalled();expect(mocks.start).not.toHaveBeenCalled();
+});
+it('retains unattempted People admission as partial after all company details settle',async()=>{
+ const f=fixture('live',{job_id:execution.id,job_workflow_execution_id:execution.id,job_status:'complete',job_config:{companyPeopleProgress:{settled:true,admissionIncomplete:112,cancelled:112}},research_summary:{queued:0,active:0,partial:0,failed:0,cancelled:0}});
+ expect(await readWorkflowResearch(f.pool,actor,f.execution)).toMatchObject({status:'partial'});
+});
 it('read projection does not schedule or transition',async()=>{const f=fixture('live');expect(await readWorkflowResearch(f.pool,actor,f.execution)).toMatchObject({source:'live',status:'awaiting_start'});expect(mocks.start).not.toHaveBeenCalled();expect(mocks.transition).not.toHaveBeenCalled();});
 it('never reinterprets a job belonging to another execution',async()=>{const f=fixture('live',{job_id:execution.id,job_workflow_execution_id:execution.mandateId,job_status:'complete'});await expect(ensureWorkflowResearch(f.pool,actor,f.execution)).rejects.toThrow('original execution');expect(mocks.start).not.toHaveBeenCalled();});
 it('rejects actor ownership mismatch before any database/provider work',async()=>{const f=fixture();await expect(ensureWorkflowResearch(f.pool,{...actor,userId:'someone'},f.execution)).rejects.toThrow('Owned workflow');expect(f.pool.query).not.toHaveBeenCalled();});

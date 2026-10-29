@@ -17,18 +17,6 @@ function propertyExpressions(source, name) {
  visit(parsed);
  return expressions;
 }
-function deadlineExpression(source) {
- const parsed = ts.createSourceFile('benchmark.ts', source, ts.ScriptTarget.Latest, true);
- const expressions = [];
- function visit(node) {
-  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken && node.left.getText(parsed) === 'config.automaticDeadline') expressions.push(node.right.getText(parsed));
-  ts.forEachChild(node, visit);
- }
- visit(parsed);
- expect(expressions).toHaveLength(1);
- return expressions[0];
-}
-
 it('uses exact Run demo briefs and schedules every design once per contrasting mandate',async()=>{
  const cases=await demoCases();const plan=matrixPlan(cases);
  expect(cases.map(c=>c.slug)).toEqual(['packaging','veterinary','software']);
@@ -71,25 +59,18 @@ it('applies common limits only to ordinary isolated workloads while retaining re
  expect(()=>benchmarkWorkloadSources({...original},{companies:0,minutes:10})).toThrow('Invalid');
 });
 
-it('overrides only the ordinary moved launch deadline and preserves native and reviewed policy durations',()=>{
+it('preserves clock-free company completion while overriding only legacy benchmark effort durations',()=>{
  const original=workloadSource(),file='src/lib/start-mandate-research.ts';
- expect(workloadFiles).toContain(file);
  const rewritten=benchmarkWorkloadSources({...original},{companies:7,minutes:7});
- const evaluate=new Function('config','combined','Date','return ('+deadlineExpression(rewritten[file])+');');
- const duration=config=>evaluate(config,config.companyDiscoveryPolicy?.version===5,{now:()=>0})/60000;
- const automaticLimits=propertyExpressions(rewritten['src/domain/automatic-research.ts'],'automaticDeadline');expect(automaticLimits).toHaveLength(1);
- const automatic=new Function('config','effort','Date','return ('+automaticLimits[0]+');');
- const automaticDuration=config=>automatic(config,{minutes:11},{now:()=>0})/60000;
- expect(duration({})).toBe(7);
- expect(automaticDuration({})).toBe(7);
- expect(duration({nativeAgent:{}})).toBe(10);
- expect(automaticDuration({nativeAgent:{}})).toBe(11);
- for (const version of [3,4,5]) for (const maxProfiledCompanies of [20,800]) {
-  expect(duration({companyDiscoveryPolicy:{version,maxProfiledCompanies}})).toBe(version===5?15:10);
-  expect(duration({nativeAgent:{},companyDiscoveryPolicy:{version,maxProfiledCompanies}})).toBe(version===5?15:10);
-  expect(automaticDuration({companyDiscoveryPolicy:{version,maxProfiledCompanies}})).toBe(11);
- }
- for(const file of workloadFiles)expect(readFileSync(file,'utf8')).toBe(original[file]);
+ expect(rewritten[file]).toBe(original[file]);
+ expect(rewritten[file]).toContain("config.completionPolicy='work-items';");
+ expect(rewritten[file]).toContain('delete config.automaticDeadline;');
+ const limits=propertyExpressions(rewritten['src/domain/automatic-research.ts'],'automaticDeadline');expect(limits).toHaveLength(1);
+ const evaluate=new Function('config','effort','Date','return ('+limits[0]+');');
+ const duration=config=>evaluate(config,{minutes:11},{now:()=>0})/60000;
+ expect(duration({})).toBe(7);expect(duration({nativeAgent:{}})).toBe(11);
+ for(const version of [3,4,5])expect(duration({companyDiscoveryPolicy:{version}})).toBe(11);
+ for(const name of workloadFiles)expect(readFileSync(name,'utf8')).toBe(original[name]);
 });
 
 it('fails closed when reviewed engine or moved deadline architecture no longer matches exactly',()=>{
@@ -99,8 +80,8 @@ it('fails closed when reviewed engine or moved deadline architecture no longer m
   [index,text=>text.replace('maxCompanies:initial.config.nativeAgent?Math.min(initial.config.targetBusinesses||20,20):100','maxCompanies:initial.config.nativeAgent?Math.min(initial.config.targetBusinesses||20,21):100')],
   [index,text=>text.replace('pageSize:initial.config.nativeAgent?Math.min(initial.config.targetBusinesses||20,20):100','pageSize:initial.config.nativeAgent?Math.min(initial.config.targetBusinesses||20,21):100')],
   [index,text=>text+'\nmaxCompanies:100'],
-  [launch,text=>text.replace('const combined=config.companyDiscoveryPolicy?.version===5;','const combined=config.companyDiscoveryPolicy?.version===6;')],
-  [launch,text=>text.replace('config.automaticDeadline=Date.now()+(combined?15:10)*60000','config.automaticDeadline=Date.now()+(combined?16:10)*60000')],
+  [launch,text=>text.replace("config.completionPolicy='work-items';","config.completionPolicy='timed';")],
+  [launch,text=>text.replace('delete config.automaticDeadline;','config.automaticDeadline=Date.now()+60000;')],
  ];
  for (const [file,mutate] of mutations) {
   expect(typeof original[file]).toBe('string');

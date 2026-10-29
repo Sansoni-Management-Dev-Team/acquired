@@ -40,9 +40,13 @@ describe("targetRecordToRankedTarget", () => {
   });
 });
 
-it('exposes historical Firmable ABNs without a successful registry check and preserves reviewed identity',()=>{
+it('uses the Firmable ABN before fallback identifiers without requiring a registry check',()=>{
  const row={id:'target',organizationId:'org',companyName:'Company',domain:'company.au',identifiers:{},firmographics:{firmable:{firmableId:'f123',rawResponse:{id:'f123',industry_codes:{abn:'68006904052'}}},abnVerification:{status:'candidates_only'}},status:'enriched',createdAt:new Date(),updatedAt:new Date()} as unknown as Parameters<typeof targetRecordToRankedTarget>[0];
  expect(targetRecordToRankedTarget(row,[]).abn).toBe('68006904052');
- expect(targetRecordToRankedTarget({...row,identifiers:{abn:'56663118241',identityEvidence:{source:'manual'}}},[]).abn).toBe('56663118241');
+ expect(targetRecordToRankedTarget({...row,identifiers:{abn:'56663118241',identityEvidence:{source:'manual'}}},[]).abn).toBe('68006904052');
  expect(targetRecordToRankedTarget({...row,firmographics:{firmable:{firmableId:'f123',rawResponse:{industry_codes:{abn:'11111111111'}}}}},[]).abn).toBeUndefined();
+});
+it('also prefers a retained Firmable ABN when historical raw responses are unavailable',()=>{
+ const row={id:'target',organizationId:'org',companyName:'Company',domain:'company.au',identifiers:{abn:'56663118241'},firmographics:{firmable:{firmableId:'f123',abn:'68006904052'}},status:'enriched',createdAt:new Date(),updatedAt:new Date()}as unknown as Parameters<typeof targetRecordToRankedTarget>[0];
+ expect(targetRecordToRankedTarget(row,[]).abn).toBe('68006904052');
 });

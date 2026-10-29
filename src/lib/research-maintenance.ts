@@ -1,3 +1,4 @@
+import {completesWorkItems} from '@/domain/research-completion';
 import {researchExecutionUpdatedAt} from '@/domain/research-liveness';
 import {safeResearchFailure} from '@/domain/research-trace-context';
 import {withResearchJobWorkflow} from './acquisition-workflow-context';
@@ -31,9 +32,12 @@ export async function maintainMandateResearch(org:string,id:string,initialJobs:A
   for (const job of initialJobs.filter(j => !(j.config as ResearchConfig).companyBackgroundResearch && !terminalResearchStates.includes(j.status) && now - progressAt.get(j.id)! > 90000)) {
     if(performance.now()>=deadline)break;
     try {
-      const worker = await researchWorker(`/jobs/${job.id}`,'GET',undefined,Math.max(1,Math.min(4000,deadline-performance.now()))) as { status: string };
+      const worker = await researchWorker(`/jobs/${job.id}`,'GET',undefined,Math.max(1,Math.min(4000,deadline-performance.now()))) as { status: string;recoverable?:boolean };
       traceMaintenance('worker_status_observed',{organizationId:org,mandateId:id,jobId:job.id},{stopped:['errored','terminated','complete'].includes(worker.status),stalled:['running','waiting'].includes(worker.status)&&now-progressAt.get(job.id)!>600000});
-      if (["running", "waiting"].includes(worker.status) && now - progressAt.get(job.id)! > 10 * 60000) {
+      if(completesWorkItems(job.config as ResearchConfig)&&worker.recoverable){
+        await researchWorker(`/jobs/${job.id}`,'POST',{action:'resume'},Math.max(1,Math.min(4000,deadline-performance.now())));continue;
+      }
+      if (!completesWorkItems(job.config as ResearchConfig) && ["running", "waiting"].includes(worker.status) && now - progressAt.get(job.id)! > 10 * 60000) {
         if(performance.now()>=deadline)break;
         const recovery = await researchWorker(`/jobs/${job.id}`, "POST", { action: "recover-stalled" },Math.max(1,Math.min(4000,deadline-performance.now()))) as { recovered?: boolean };
         if (recovery.recovered) { await withResearchJobWorkflow(job,()=>repo.recoverStopped(job.id, job.revision, job.pages)); stopped.add(job.id); reviewChanged = true; }
@@ -49,11 +53,11 @@ export async function maintainMandateResearch(org:string,id:string,initialJobs:A
     if(performance.now()>=deadline)break;
     const root = initialJobs.find(job => job.id === rootId);
     const settled = root && (root.config as ResearchConfig).parallelBusinessResearch && (root.config as ResearchConfig).parallelResearchSettled && (root.config as ResearchConfig).parallelResearchPendingTasks === 0 && terminalResearchStates.includes(root.status) && initialJobs.filter(j => (j.config as ResearchConfig).researchRunId === rootId).every(j => terminalResearchStates.includes(j.status));
-    if (!root || stopped.has(rootId) || settled || ["failed","cancelled"].includes(root.status) || now >= ((root.config as ResearchConfig).automaticDeadline || 0)) continue;
+    if (!root || stopped.has(rootId) || settled || ["failed","cancelled"].includes(root.status) || !completesWorkItems(root.config as ResearchConfig)&&now >= ((root.config as ResearchConfig).automaticDeadline || 0)) continue;
     try { if (await scheduleResearchRun(org, rootId, { recovery: true }) !== false) reviewChanged = true; }
     catch { reviewChanged = true; traceMaintenance('scheduling_recovery_deferred',{organizationId:org,mandateId:id,jobId:rootId}); /* A partial pass may have saved queued jobs before failing. */ }
   }
-  for (const job of initialJobs.filter(job => (job.config as ResearchConfig).includeCompanyPeople && !(job.config as ResearchConfig).companyPeopleProgress?.settled && (!(job.config as ResearchConfig).researchRunId || (job.config as ResearchConfig).researchRunId === job.id) && ['complete','partial'].includes(job.status))) {
+  for (const job of initialJobs.filter(job => (job.config as ResearchConfig).includeCompanyPeople && !(job.config as ResearchConfig).companyPeopleProgress?.settled && (!(job.config as ResearchConfig).researchRunId || (job.config as ResearchConfig).researchRunId === job.id) && (['complete','partial'].includes(job.status)||completesWorkItems(job.config as ResearchConfig)&&job.status==='failed'))) {
     if(performance.now()>=deadline)break;
     await withResearchJobWorkflow(job,()=>tickCompanyPeople(job)); reviewChanged = true;
   }
@@ -136,7 +140,7 @@ async function runScheduledResearch(now:number){
           AND ((COALESCE((${researchJobs.config}->>'includeCompanyPeople')::boolean,false)
             AND NOT COALESCE((${researchJobs.config}->'companyPeopleProgress'->>'settled')::boolean,false))
           OR (${researchJobs.config}->>'mode' = 'automatic'
-            AND COALESCE((${researchJobs.config}->>'automaticDeadline')::bigint,0) > ${now}
+            AND (${researchJobs.config}->>'completionPolicy'='work-items' OR COALESCE((${researchJobs.config}->>'automaticDeadline')::bigint,0) > ${now})
             AND NOT (COALESCE((${researchJobs.config}->>'parallelResearchSettled')::boolean,false)
               AND COALESCE((${researchJobs.config}->>'parallelResearchPendingTasks')::integer,-1) = 0)))))
       UNION ALL

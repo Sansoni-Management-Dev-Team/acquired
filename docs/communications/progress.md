@@ -4575,3 +4575,818 @@ original operation/unknown-outcome state. Private release evidence lives under
 `.local-data/release-20261026/5589d56f8b08b008d2d546c3cda4b8344f37e5c2/`
 and its sibling `cloudflare/` directory. This later documentation-only record
 does not change deployed application or Worker code.
+
+### 2026-10-26 — P0.5 research worktree mirror preparation (not activated)
+
+User authorized a separate OrbStack copy of `acquire-isolated.orb.local` in
+`project-acquire-research-service`, branch `codex/standalone-research-service`,
+for app-to-standalone-research integration. Branch aligned to source commit
+`12bbd0044bf61317f3f194c625aa72cc7546ef13`; existing Firmable AU change retained.
+This is operational preparation under P0.5, not a new communications acceptance
+pass. Source services/databases were not changed; no migration/restore applied.
+
+Prepared read-only snapshots of the application DB (103 public tables) and
+separate Firmable facts DB (62 public tables), preserving users/password hashes,
+recorded ownership, history and existing unresolved outcomes. Archives listed
+successfully with PostgreSQL tooling. Each database snapshot is internally
+consistent; the pair and copied simulator state are not one global transaction.
+Prepared private environment/profile copies, separate Next/database volumes,
+new app domain `acquire-research.orb.local`/port3032 and PostgreSQL target port5442.
+Simulator identity checks remain mandatory: private copies of the two adapters
+and compiled runtime will be pinned to the genuinely new server ID after restore.
+No source guard is weakened and the original simulator repo/image is not edited.
+
+Local bridge regressions demonstrated RED before support for the new exact
+site/port pair and separate Firmable credential, then GREEN (8 targeted tests).
+Full standalone suite passed34 tests; bundles and container image built. These
+prove transport guards and existing unit contracts, not live app/DB parity.
+Evidence is ignored under `services/research/.local/mirror/`; implementation and
+restart instructions are in `services/research/mirror/README.md`.
+
+State: preparation implemented and locally checked; DB restore, startup, browser
+login, simulated channel acceptance and real app research remain unverified.
+Standalone Firmable remains unconfigured (the original transport's status was
+read-only checked as configured/no reconnect required). No real message sends,
+production changes or fresh research dispatch occurred in this preparation.
+
+Specific restore package approval requested for manifest SHA-256
+`4b0c68bcfef7c70277c3edd3de7a46c069cc7815dd6204b338149645abef536a`,
+new container `acquire-research-app-db`/volume `acquire-research-app_database`
+at127.0.0.1:5442 only. Approval is pending. Next: after explicit approval, run the
+recorded restore command, verify all copied counts, pin simulator identity, start
+the mirror, connect live Firmable credentials privately and verify password login
+plus a bounded normal app research job. Do not apply another parity migration or
+start a restore while that question is unanswered.
+
+### 2026-10-27 — P0.5 research mirror online; integration smoke verified
+
+User explicitly approved proceeding with the previously identified restore
+package to bring the mirror online for testing. Applied only manifest SHA-256
+`4b0c68bcfef7c70277c3edd3de7a46c069cc7815dd6204b338149645abef536a`
+to new `acquire-research-app-db`/`acquire-research-app_database` at127.0.0.1:5442.
+New verified server identity `7701165885598298145`; marker on admin database
+`acquire-research-app-local-only`. Original archives/role statements/comments
+remain immutable. All103 app and62 facts public-table counts matched before
+activation. No other database migration or production deployment was performed.
+
+The first restore discovered two pre-existing source acknowledgement records
+without their journal parent rows, despite its FK being marked validated.
+Recovery rebuilt only the newly created, unused mirror application database,
+restored the exact schema before data and used PostgreSQL's standard disabled-
+trigger data import. The two historical records and the original validated FK
+remain; no fabricated parents, deleted history or weakened constraint definition.
+Private first-attempt/recovery logs and restore evidence retain this distinction.
+
+Pinned the matching source image and read-only dependency volume after checking
+package/lockfile equality (Next16.4.1). Separate writable Next volume and simulator
+profile, plus re-pinned private simulator modules/runtime, are running. Runtime
+configuration now correctly decodes JSON-quoted snapshot environment values;
+the initial native env parser had truncated nested keyrings/configuration. Fixed
+that operational serializer issue and retargeted all known local database aliases
+to the clone. App reply alerts recovered from503 to200. The standard native driver
+owns native ticks and scheduled research maintenance; its20 tests pass.
+
+Online at https://acquire-research.orb.local/ . Authenticated browser access as
+callumpholt@gmail.com loaded the preserved workspace and12 saved mandates. Its
+credential hash matches the source. Password-form submission itself was not
+performed; QA used an existing cloned valid session. Protected app readiness,
+worker/reader/search health, workspace, reply alerts, channel connections and
+research settings pass. No new real channel connection/send was introduced.
+
+Standalone Firmable was connected by privately copying the existing worker's
+encrypted credentials read-only and validating them through the new reconnect
+endpoint, with a separate local encryption key/state. AU filtering is configured.
+Normal authenticated app research on a separate aged-care brief copy exercised
+app→bridge→worker→app, live providers, canonical persistence and Companies UI.
+Test mandate `1eefdcb2-d5bb-4e44-87a1-e486c4c13389`, root
+`3656182a-9d39-4faa-9e1b-fd49167b9375`;17 company findings/results were saved.
+Explicit normal-app Stop succeeded; root cancelled and active=false. This proves
+connection/persistence/rendering, not complete research or qualified acquisition
+matches. Existing discovery noise/out-of-brief companies remain, and a custom
+targetBusinesses=1 request did not cap the legacy hybrid loop at one profile;
+the external smoke stop bounded execution. No People-enrichment, live messaging,
+full-sequence or financial-fit acceptance is claimed.
+
+Final34 standalone tests,20 native-driver tests, service bundles, script syntax,
+Compose validation and whitespace checks pass. Evidence:
+`services/research/.local/mirror/{restore-evidence,dependency-evidence,simulator-pins,acceptance-evidence,startup-evidence}.json`,
+private research request/progress/stop files and logs. Browser capture:
+`output/playwright/research-mirror/companies.png`. Runtime/restart instructions
+are in `services/research/mirror/README.md`. Source services were not reconfigured.
+State: local integration environment online/verified within this scope; broader
+research correctness and communications acceptance remain separately unfinished.
+Next: user tests on this URL; preserve this environment and its recorded evidence.
+
+### 2026-10-27 — Research mirror progress, ABN precedence and Fit display
+
+User requested honest full-run completion/details, precedence for Firmable ABNs,
+and a single rubric-based Fit percentage with a loading indicator while company
+data is pending. Implemented locally in the research-service worktree; no
+production release, database migration, identity-link rewrite or message send.
+
+The new progress summary separates company profiling from linked People and
+public-field jobs. Overall success requires every linked phase to settle without
+partial/failed/cancelled work. Actual queues, active work, operational gaps and
+unattempted contact admissions remain visible, including after company discovery
+ends. Successful company rows keep View companies available. The completion helper
+and rendering use the same aggregate state. Missing ABNs do not receive a blanket
+green success tick. The ABN row now counts195 provider-supplied ABNs in the observed
+run rather than only registry-matched values; duplicate targets count once and
+provider values win over fallback registry observations.
+
+Company read models now prefer normalized Firmable ABNs over fallback identifier
+values, including retained historical provider fields without raw responses.
+Invalid/checksum-failing values still do not override valid fallback data. Original
+source records and canonical identity associations are retained; no SQL backfill
+was needed. Existing source data is surfaced rather than inventing verification.
+
+Fit uses the existing reviewMandateFit weighted saved-mandate rubric, rather than
+showing evidence-coverage percentages or a Provisional match label. The cell is a
+single numeric percentage when assessable. Outstanding company data shows an
+accessible loading circle; People-only work does not block fit. Research that
+ended with gaps retains its available score and explicit incomplete-evidence
+reason. Unknown/no-comparable evidence is not fabricated as zero. Requirements
+retain double preference weight, potential evidence half credit and unknown
+criteria remain excluded from assessed evidence. Existing fit/qualification and
+outreach admission rules were not relaxed by the display change.
+
+Compact Companies projections carry the small background-work descriptor and
+invalidate on the projection revision/deadline transition. Independent queued
+company fields stay active for polling; their execution budget starts on dispatch,
+so the contact-admission deadline must not freeze their loading state. This also
+corrects an earlier tail assumption: contact admission stopped at15minutes, while
+queued company fields continue under independent per-dispatch budgets.
+
+Live run `6b86728e-b44b-42fa-b8f4-8d64ec5cf5ad` remains partially unfinished. Dated
+observations:223 company profile requests settled,195 Firmable ABNs retained,
+121 contacts saved,158 company-contact admissions cancelled as unattempted at
+the deadline. Company-detail jobs continue with real operational gaps/backlog;
+none is relabelled successful by this UI change. The root was not restarted or
+bulk-retried. The read-only tail history stays in ignored `.local/tails/`.
+
+A missed mirror app→reader loopback connection was repaired with a small,
+loopback-only authenticated alias through the existing research bridge/company-
+page endpoint. This reuses the dedicated reader and publishes no host port.
+The alias went live while background company jobs continued, after contact
+admission ended. Earlier partial evidence stays retained; later queued jobs can
+use the repaired path. A real app-origin IANA full-page read returned200 with
+6825 HTML characters and only_main_content=false. A separate example.com request
+returned upstream503, retained as a provider failure rather than claimed success.
+
+TDD evidence:6 progress,5 Fit/ABN,1 polling-liveness and1 retained-provider-ABN
+regressions were observed RED before their corresponding implementation; logs
+are ignored under `services/research/.local/mirror/`. Final focused tests, scoped
+lint/typecheck and live browser QA are recorded there; browser artifacts are
+`output/playwright/research-mirror/{fit-updated,progress-updated}.png`. Browser
+inspection showed numerical Fit scores plus16 waiting indicators among25 rows,
+and no RESEARCH COMPLETE banner while company details were still outstanding.
+This is locally verified research UI/runtime integration, not a new all-channel,
+full-sequence, complete-research or production acceptance pass.
+
+Next: user can refresh the local mirror to inspect these changes. Preserve the
+existing run's backlog/partial outcomes; investigate scheduling throughput and
+remaining provider/coverage gaps as separate work rather than silently replaying
+or manufacturing completion. Detailed runtime notes are in the mirror README.
+
+### 2026-10-27 — P0.5 saved brief execution contract repair
+
+The local research mirror's saved brief review reported a connection failure
+although both exact GET requests returned200 promptly with the correct owner and
+organization. An existing research-only thread had no supervision row. The store
+returned `undefined` for responsibility, which JSON omitted; the strict client
+schema correctly requires an object or explicit null. Its generic load error
+therefore hid the otherwise available brief and left the loading text visible.
+
+Normalized only the absent responsibility row to null in the execution-state
+producer. Client validation, research-only outreach guards and approval controls
+are unchanged. The serialized existing-thread regression failed before the fix
+for the missing responsibility property; its saved-supervision control passed.
+Afterward all35 focused producer, execution-progress, allocation-projection and
+brief-review tests passed. Scoped ESLint, full no-emit TypeScript and whitespace
+checks passed. The actual authenticated c444 mandate execution GET returned200
+with `responsibility:null` and passed the unchanged strict client schema. This
+is local contract verification, not a communications or production acceptance
+pass; no migration, research dispatch, job mutation, restart or message send.
+
+Private RCA captures, RED/GREEN and check logs are under
+`services/research/.local/tails/c444d28c-b386-4b1d-b48d-29f727351d80/rca-by-b748-agent/`.
+The read-only b748 monitor was stopped at04:54:11UTC to make this repair. Its
+company stage had65 candidates; People settled with70 saved contacts,29 complete
+company runs and26 unattempted `insufficient_budget` cancellations. Public fields
+remained41 partial and14 queued; the whole workflow remained active. These were
+retained as incomplete outcomes, without retrying or relabelling them successful.
+Next: refresh the local saved brief review and continue the separately tracked
+provider/backlog and deployment work; production release remains separate.
+
+## 2026-10-27 — Honest initial research completion in the agent workspace
+
+Scope: the separately authorized research completion UI correction, not a communications or outreach behavior change. The c444d28c local read-only tail proved the agent's `initialResearch.status` became `complete` after company retrieval/People admission settled while 120 public-detail jobs were queued and one was active. `AgentWorkspace` rendered that producer status as saved research. The workflow and legacy initial-research readers now share one compact, read-only, original-root job summary and reuse `mandateResearchStatus` pending/severity rules. Pending children retain the existing `extracting` presentation; settled child gaps or unattempted People admission remain `partial`. Cached demos, stored company/contact counts, original terminal failure/cancellation, ownership and research-only restrictions are preserved. Future workflow completion is held while child work remains pending; no existing workflow/job was reopened or rewritten.
+
+TDD evidence: ten new projection/transition regressions failed for the intended `complete` versus `extracting`/`partial` discrepancy, with the 25 existing cases passing. The four producer/domain suites then passed 50 tests. Affected agent workspace, controls, mode and GET/route regressions passed another 147 distinct tests (197 total across nine files); test subprocesses use `APP_URL=http://localhost` and disabled acquisition-workflow flags for their legacy fixtures, without changing the running application's environment. Changed-source ESLint and full app `tsc --noEmit --incremental false` pass. A SELECT-only CTE fixture on the identity/marker-verified port5442 clone counted only original-run children, excluding other organisation/mandate/owner/workflow/run rows and supporting null legacy workflow IDs; it performed no schema or data writes.
+
+Live local verification at05:17UTC: authenticated GET `/agent/activity` returned200 in193ms and `/agent` returned200 in437ms with `initialResearch.status=extracting`, retaining142 companies/108 existing contact records. The research GET remained `active=true`, workflow `researching`, with114 queued/one active public-detail jobs. The 108 is the existing mandate contact read model, not the tail's64 newly saved/synchronized People count. Private evidence is under `services/research/.local/tails/c444d28c-b386-4b1d-b48d-29f727351d80/`, including `completion-fix-sql.json` and completion-fix GET snapshots. No migration, restart, provider request, approval, dispatch/retry/cancellation, outreach, production application release or historical status backfill was performed. Next action: root integration/release review; existing queued detail work remains governed by its original worker and independent budgets.
+
+### P0.5 research test deployment and UI follow-up — 27 October 2026
+
+Implemented and locally verified neutral provider labels across research progress,
+legacy error messages, proposal/identity review and paused-service UI. Internal
+provider keys, stored provenance, pricing contracts and IDs are unchanged. The
+branding and reader regressions were RED before their fixes; 157 focused app/UI/
+mapper checks, 43 search/policy/reader checks and 38 standalone-service tests pass.
+Scoped lint, full TypeScript and whitespace checks pass. Browser QA loaded the
+actual saved brief after the producer fix and showed neutral ABN source labels.
+The separately recorded initial-research projection fix has its own197 affected
+checks and live GET evidence. This is not communications acceptance.
+
+With explicit deployment authorization, created only `acquire-research-test-01`
+(droplet 613028271, syd1, $24/month) in the existing `project_acquire` project.
+Existing production and demo hosts and Acquire routing were not changed. After
+specific user approval in this conversation, applied exactly the reviewed
+`services/research/deploy/001-digitalocean-test.sql` hash
+`e17903b21c6c6a3dc67394e0369a1662874d3e15f4409fe5b1faf4a004a4d8fd`
+to fresh `acquire_research_do_test` only; verified hostname, droplet metadata,
+SQL hash and database identity marker `acquire-research-do-test-only`.
+Original applied local migration remains immutable with its recorded hash.
+Automatic DBOS migrations remain disabled. PostgreSQL remains a separate
+container and no Acquire app credentials enter this worker.
+
+Hosted stack: immutable amd64 Node image, PostgreSQL17.10, OpenSERP0.8.14,
+Crawl4AI and authenticated file-backed test callbacks. Ports are loopback;
+SSH key authentication, pinned host identity and a deployment-IP SSH allowlist
+provide access. Private env/image/evidence files are ignored. Source/deployment
+instructions and exact migration review are under `services/research/deploy`.
+
+Remote testing caught three operational/research limits. Reader429 responses
+must preserve `domain_backoff`/`reader_busy` and Retry-After (live check: full-page
+HTML200 followed by429domain_backoff, Retry-After3). Replacing the fixture network
+before stopping the worker abandoned its ownership connection; corrected the
+stop order and PostgreSQL TCP liveness configuration, preserving the singleton
+lock. Bing returned unrelated exact-query results even after the pinned search
+upgrade; the hosted runtime now uses the existing DuckDuckGo-first path with
+explicit Australia/English settings. Relevance gates remain unchanged.
+
+Live bounded mandate33a1fbfd-0cd8-4d92-93da-bf5d1204f5e5 exercised real DBOS
+admission/status, duplicate dispatch, two usable discovery searches, three page
+reads, three model calls and terminal callbacks. It saved two supported findings
+and correctly ended partial at the three-page budget with31URLs remaining.
+The strict acceptance report still fails `relevantCompanyEvidence`: this bounded
+run did not establish both first-party company identity and relevant business
+evidence for a single company. Do not label it a full research acceptance pass or
+production-ready replacement. Reports and deployment evidence are private under
+`services/research/.local/digitalocean`.
+
+Release state: local app UI/brief/projection fixes live by HMR; reader/search worker
+changes live on the dedicated hosted test only. Active local research worker was
+not restarted or rerouted while user jobs continued. Production cutover, full
+Acquire callback persistence, hosted company-data credential connection, Stage2
+provider extraction and broader crash-recovery acceptance remain separate work.
+Next: review bounded extraction/evidence quality and safely schedule the local
+worker refresh after its active backlog, without replaying historical partials.
+
+Hosted final check: TCP PostgreSQL session verified keepalive15/5/3 and the same
+approved identity marker. A clean worker stop/start returned healthy. Repeated
+POST for completed job `33a1fbfd` returned202; workflow stayed complete, page/model
+counts stayed3/3 and callback updatedAt was unchanged. This verifies completed-run
+persistence/idempotency across a clean restart only. Strict research acceptance
+remains false as recorded above. Test deployment SSH access is restricted to the
+verified current deployment IP; no public research API or Acquire routing change.
+
+### P0.5 OrbStack/DigitalOcean research runtime parity — 27 October 2026
+
+User clarified scope: align OrbStack with the new DigitalOcean research test
+service only; production acquire.mlai.au must not use it yet. No production
+routing/app/Cloudflare service was changed. This is research runtime operations,
+not communications acceptance.
+
+Implemented one canonical deploy/compose.yml plus runtime/release.env. Root
+Compose entry points link to it; independent mandate/isolated overlays were
+retired. Both use the same immutable worker, reader and OpenSERP artifacts,
+amd64 application platform, reader source SHA, models, AU settings and provider
+selection. Native PostgreSQL architecture preserves each existing data directory;
+its version/configuration match. External volumes prevent implicit new-volume
+creation. Existing dedicated DB identities, service/encryption credentials and
+callback destinations remain separate. No SQL migration was applied.
+
+The shared stack wrapper checks active DBOS state before up and closes the worker
+ownership connection before replacing its task network. Shell model/image
+overrides are cleared in favor of the shared release. The read-only parity tool
+checks actual running artifacts, architecture, reader code, effective public
+settings, health and DB identity; credentials/URLs are excluded from reports.
+Multi-platform image architecture comes from the actual container descriptor,
+not an unqualified image-index inspection. Test/connection helpers now use the
+shared runtime and no longer rebuild, recopy provider config or select Bing as a
+test side effect. Both smoke reports carry identical release and input hashes.
+
+Operationally paused local native scheduling and temporarily gated local callback
+refills so current jobs could finish, retaining the queued backlog. No existing
+workflow was cancelled or checkpoint rewritten. After upgrade and the test,
+restored the exact original dispatch source (hash verified), Acquire bridge mode
+and native worker. Authenticated GET from the app through its bridge reached the
+worker (expected404 for an absent workflow). Existing provider encryption key
+and approved research volume were preserved. Historical partials were not retried.
+
+Live local+hosted runtime parity PASSED: fingerprint
+`ef8e31c7fd0af2ddd6ae754db42f6e0320ad94f71ce1f3abad2b86f4054e60ae`.
+The configuration regression failed against the old hardcoded hosted env paths,
+then passed with both target profiles. Unit redaction/drift, actual-architecture
+and entry-point drain/stop-order checks passed; Compose target/isolation
+integration passed. Exact final counts are in private parity-final test logs.
+
+Matched live tests: local `9582adc8` used 0 model calls/pages after DuckDuckGo HTTP 504
+parse timeouts and Google HTTP 429 CAPTCHA/rate-limit errors. Hosted1f84e604 used 3 pages,
+3 model calls and returned 6 supported findings, passing bounded evidence checks.
+Both research results remained partial; hosting the same runtime does not freeze
+live upstream search/model inputs. Local network/search accessibility remains
+unresolved. No switch to a different local backend was used to conceal it.
+
+Evidence: services/research/.local/mirror/parity-handoff.json,
+parity-final-runtime.json, parity-smoke-report.json and provider/test logs; hosted
+matched report under .local/digitalocean/parity-smoke-report.json. Current operator
+instructions: services/research/runtime/README.md. Next: resolve/retest local
+upstream search access or use controlled recorded inputs for deterministic
+research comparisons; production cutover remains separately scoped.
+
+Final parity validation: all 43 standalone unit/contract/operational tests and
+one Compose target/isolation integration test pass. JavaScript syntax, Bash
+syntax and whitespace checks pass. The local app bridge and native scheduler
+remain restored. No migrations or production Acquire changes were performed.
+
+### P0.5 Firmable-first company field research — 27 October 2026
+
+User authorized provider-first enrichment, reusing existing register data and
+requesting web evidence only for missing mandate-relevant values. This is research
+integration work, not communications acceptance or production cutover.
+
+Implemented one pure field-availability/planning policy shared by normal and
+native field planning. It reads normalized and raw profiles, recognizes zero
+headcounts and reported size/revenue bands, and loads the owned saved mandate
+brief/criteria instead of inferring extra requirements from the industry. Team
+profiles, accreditation and accreditation contacts no longer become automatic
+objectives. Matching NATA associations are reused without fabricating verified
+credentials, certificate numbers, expiry or contacts. Contractor categories are
+not accreditation evidence.
+
+Queued execution rechecks current accepted company data and the saved scope,
+retaining the original field manifest and native authority/persistence fences.
+Provider-covered objectives settle as already_available; irrelevant normal
+objectives settle as not_required. The adapter independently excludes known
+provider fields, returns immediately when none remain and avoids extracting
+replacement observations for known fields when reading a page for another field.
+UI messages distinguish saved data and out-of-scope objectives from missing data.
+
+RED: five intended regressions failed before implementation (15 passed), covering
+unconditional optional work, register reuse and unnecessary provider-covered page
+reads. GREEN: 116 unique relevant app tests pass across 17 files (115 in the broad
+run plus the new native projection regression); 43 standalone service tests and
+one Compose target/isolation integration pass. TypeScript, scoped lint and final
+whitespace/build checks are recorded in private provider-first logs.
+
+Live verified via local authenticated research GET and read-only saved-data audit
+for dd3db4e1-3831-4fb7-9f89-a1c90a46687a: all135 profiles remain. The new plan requests
+36 missing values (founding year19, company email10, phone3, ACN3, address1), zero
+duplicate provider fields, and none of the former405 automatic optional objectives.
+The settled backlog contains56 complete/78 failed/1 partial detail jobs. All56
+skip-only jobs recorded zero page/search attempts; outcomes include194 not_required
+and22 already_available. Existing failed outcomes/root partial state were retained;
+no historical job was manually rewritten or retried.
+
+Release scope: active local acquire-research.orb.local callback/UI code updated
+through its mounted source. All five standalone build artifacts remained byte
+identical, so existing local/hosted pinned images were retained without restart.
+No SQL migration, production Acquire app/routing/Cloudflare change, credential
+change or people-budget increase. The known reader/search failures and101 people
+admission cancellations remain separate unresolved limitations.
+
+Evidence: services/research/.local/mirror/provider-first-{red,final-tests,
+native-tests,typecheck,lint,runtime-tests,compose-tests,build}.log,
+provider-first-live-audit.json and provider-first-bundle-comparison.json. Next:
+observe the next user-started mandate under the narrowed policy; independently
+investigate remaining page-reader availability and approved people budget limits.
+
+### P0.5 Complete finite research work without destructive elapsed-run limits — 27 October 2026
+
+User explicitly authorized implementation of the work-completion design after
+the da25da80 run saved85 companies/84 ABNs/79 contacts but cancelled53 unattempted
+company People checks at the old admission cutoff. This is research integration,
+not communications acceptance. Scope: new ordinary Firmable/web/hybrid research
+in project-acquire-research-service; historical outcomes and reviewed native-agent
+authorizations remain unchanged. No migration or production deployment authorized
+or performed by this work.
+
+Implemented:
+- New saved completionPolicy=work-items; launch/control/polling/maintenance no
+  longer use an overall10/15-minute cancellation deadline. Accepted People work
+  survives both the old clock and an independent discovery failure. Explicit
+  cancellation, current actor/membership/identity fences and finite request/profile
+  limits remain. Historical timed configurations keep their original interpretation.
+- Firmable profiles are saved before deciding whether extra-company web discovery
+  is needed. Fulfilled coverage skips web discovery without marking the run partial.
+- Successful People completion immediately wakes the exact original owned queue;
+  maintenance remains fallback. Known provider429 responses preserve Retry-After
+  through the callback boundary and sleep durably outside workflow steps.
+- One shared90-second field attempt window. Unfinished retrieval saves facts,
+  unread URLs, counters, identity evidence and the search/visited sets in existing
+  job JSON. Work continues through distinct durable attempt checkpoints. Actual
+  retrieval caps span attempts; cap exhaustion retains the unfinished checkpoint.
+  A completed response crossing an attempt boundary is accepted. Revision checks
+  reject late callbacks before they can overwrite newer checkpoints or observations.
+- Old progress alone cannot terminate finite work. Background recovery verifies
+  actual worker state; unavailable status does not mean failure. DBOS's recovery
+  adapter resumes original history only from MAX_RECOVERY_ATTEMPTS_EXCEEDED or
+  CANCELLED with current app authority. SDK ERROR/SUCCESS are not resumable; no
+  rewind, journal rewrite or automatic replay of permanent failures was added.
+- Public polling omits private checkpoint bodies and reports settled finite work
+  inactive despite a stale workflow label. The benchmark copy guard now preserves
+  clock-free company execution and the existing native/reviewed source bounds.
+
+Verification evidence is private under services/research/.local/mirror/work-completion-*.
+Executed meaningful RED cases cover owned-worker termination, stale unavailability,
+  checkpoint continuation, unnecessary web discovery, final-response boundaries,
+  budget retention, stale checkpoint overwrites and runtime recovery. The first
+  Docker-based test command stalled before producing output; host dependencies
+  were linked from the existing main worktree to continue tests. This empty log
+  is not claimed as RED. Additional RED assertions were then executed on the host.
+
+Current GREEN:297 relevant app tests across21 files;49 standalone tests including
+  the actual bundled workflow with fake callbacks/clocks (85 companies over85
+  simulated minutes, no unnecessary discovery; checkpoint/cancellation/cooldown);
+  one Compose configuration/isolation check. The Linux amd64 candidate also passes
+  nine bundled-workflow/runtime checks with network disabled. TypeScript and scoped
+  lint pass. Final benchmark checks and refreshed validation logs are recorded in
+  the handoff artifact; synthetic time is not a live85-minute provider run.
+
+Release state: source implementation and a dedicated DigitalOcean test candidate
+  are prepared; neither runtime release pin has been switched. The hosted build
+  context is an explicit source allowlist, excluding env/private/Wrangler state.
+  Test SSH access was restored for the verified current IPv4 /32 only. Existing
+  hosted services remain on their prior image. Production acquire.mlai.au,
+  Cloudflare routing, credentials and database schemas are unchanged. The original
+  53 cancelled checks were not silently reopened or charged again.
+
+Local integration blocker: OrbStack reports Running but both its Docker socket
+  (including direct HTTP ping and bundled CLI) and acquire-research-app are
+  unresponsive. Its doctor also reports a Homebrew Docker PATH conflict, but using
+  the bundled CLI does not fix the socket. No global VM/container restart was
+  performed. Requested explicit permission to restart OrbStack because unrelated
+  project containers would also be interrupted; response pending at this handoff.
+
+Next: after approval/recovery, inspect active workflows and preserve the old queue,
+  load the identical candidate image, apply both test releases through the shared
+  drain-checked wrapper, verify runtime parity and run the local app integration.
+  No migration is needed for this ordinary research path. SQL-backed native phase
+  funding expiry is a separate reviewed authorization boundary and remains intact.
+  Reader/search availability remains a separate unresolved provider limitation.
+
+Final candidate verification: image
+`sha256:504e8af9671192cc682319ece2d361caab6de51db319b63f08fea482f49eb7a5`.
+Host and Linux container server/worker/revision hashes match exactly. The builder
+now pins its own locked Zod dependency and class-field compilation semantics;
+the surrounding app installation no longer changes the worker bundle. The final
+source allowlist archive and candidate release profile are in the private handoff.
+297 app tests/49 service tests/5 benchmark tests/1 Compose isolation check pass,
+plus9 network-disabled checks in the Linux image. The53-check regression also
+passes with discovery already failed, preserving accepted work and its outcomes.
+TypeScript, scoped lint, syntax and whitespace checks pass. Both previously
+approved SQL hashes are unchanged. Runtime release pins remain on7e811fa8;
+the candidate is prepared, not activated. OrbStack restart approval is still
+pending. See .local/mirror/work-completion-handoff.json for the exact next action.
+
+### P0.5 research work completion activated locally and in DigitalOcean test — 28 October 2026
+
+The user explicitly approved restarting OrbStack to recover its unresponsive Docker
+engine. A normal stop/start did not restore socket access; a force stop/restart
+restored it. Verified the existing research DB markers and the mirror app cluster
+identity (system7701165885598298145, acquire-research-app-local-only). Both research
+databases had zero PENDING/ENQUEUED/DELAYED workflows before changing releases.
+Existing app records, including historical nonterminal research records, were
+retained. Containers running before the restart were restored, including the
+mirror app/native services and the unrelated rehearsal database without restart
+policy. No reset, volume deletion or migration was performed.
+
+Activated immutable worker sha256:504e8af9671192cc682319ece2d361caab6de51db319b63f08fea482f49eb7a5
+on both local and dedicated DigitalOcean test profiles through the shared
+drain-checked wrapper. The same image was exported from the hosted candidate
+and loaded locally. Actual runtime parity PASSED with fingerprint
+9bd7de18f7bf2514173969dc1c8e8aad5401e27094e69e1a6146e55f422bf841:
+worker/fixture, reader/search/database pins, amd64 application architecture,
+reader source, provider/models, separate database identities and health checks.
+Local callback bridge remains acquire-isolated mode pointing only to the research
+mirror. Hosted callback mode remains test. Production acquire.mlai.au and its
+Cloudflare routing were not changed.
+
+Actual local transport acceptance: synthetic job6af19234-f3d7-44b1-bdbb-80409a45e80b
+started through the deployed worker and finished through the real app callback
+API. Saved90-minute-old work and automaticDeadline1 yielded deadline=null and
+completionPolicy=work-items; both app status and DBOS worker status completed.
+The existing synthetic company description was classified already_available,
+with web research skipped. This is source-only transport/DBOS acceptance, not a
+new paid discovery run or a live85-minute provider proof. Exact synthetic app
+rows were removed only after the second smoke's worker was complete; DBOS
+history remains. The first smoke cleanup raced timing delivery after app
+completion; its isolated journal still reached SUCCESS. The harness now waits
+for worker terminal state before cleanup; the corrected repeat passed.
+
+Ten real PostgreSQL integration checks passed across background persistence and
+concurrent dispatch. The new case proves clock-free child creation, private
+checkpoint storage without prematurely publishing facts, stale revision refusal
+and exactly one publication after resume. Older integration fixtures were
+updated to request NATA/team evidence explicitly and to expect missing founding
+year failure rather than re-researching supplied revenue. Foreign-organization
+negative coverage now creates a real unrelated organization. Scoped synthetic
+cleanup disables triggers only inside its cleanup transaction to avoid the
+organization send-gate writer recreating the gate being removed. An initial
+failed cleanup's exact synthetic organization was removed; the passing repeat
+verifies cleanup. No production code change was needed for these fixture fixes.
+
+Prior297 app tests,49 standalone tests,5 benchmark checks and9 Linux packaged
+checks remain recorded. Refreshed TypeScript, changed-test lint and whitespace
+checks pass. HTTPS sign-in, worker readiness and bridge readiness respond.
+Private evidence: work-completion-parity.json, work-completion-live-smoke.json,
+work-completion-db-integration-green.log, activation typecheck/lint logs and
+updated work-completion-handoff.json under services/research/.local/mirror/.
+
+Ready for new ordinary research runs on https://acquire-research.orb.local/.
+Historical53 cancelled checks were not reopened; reviewed native SQL funding
+expiry was not changed. Reader/search availability remains a separate known
+limitation, and no new live provider acceptance or production cutover is claimed.
+
+Operator diagnostic incident during activation: a broad search on private app.env
+printed nested credential values into the current tool transcript. No raw values
+were added to source control. A private names-only exposure inventory is saved as
+.local/mirror/work-completion-credential-exposure.json. Rotation has not been
+applied; coordinated renewal is required because shared service credentials may
+span environments. Subsequent diagnostics omit private environment values.
+
+### P0.5 research parity rechecked before proposed production switch — 28 October 2026
+
+Read-only checks confirm the deployed DigitalOcean worker still matches OrbStack
+and a fresh build from current local source. All six built bundles/revision files
+match byte-for-byte; all219 source archive files remain unchanged. Both runtime
+profiles pass actual immutable image, application architecture, reader source,
+provider/model settings, database identity and health checks. Worker image remains
+sha256:504e8af9671192cc682319ece2d361caab6de51db319b63f08fea482f49eb7a5;
+fingerprint9bd7de18f7bf2514173969dc1c8e8aad5401e27094e69e1a6146e55f422bf841.
+The deployment network IP changed; restored operator SSH access by replacing only
+the dedicated research-test firewall SSH source with the verified current IPv4/32.
+No runtime deployment, job mutation or database migration was needed. Production
+Acquire remains on Cloudflare; hosted callback mode remains file-backed test.
+Private evidence: parity-pre-production.json, parity-current-source-confirmation.json
+and parity-{current-source,local,digitalocean}-bundles.txt in services/research/.local/mirror/.
+
+### P0.5 reversible production research cutover — 28 October 2026
+
+User explicitly authorized implementing the direct cutover and testing, without
+waiting for current research jobs. Acquire now uses the standalone DigitalOcean
+research worker at http://10.126.0.10:18797 over the hosts' shared Sydney VPC.
+Only app host10.126.0.13/32 can enter that private-bound research port. No public
+research listener, hostname, job router or job migration was added. No database
+migration was applied. The existing independent research DB and its original
+acquire_research_do_test/identity marker are retained; no Acquire DB credentials
+were installed in the worker. Company data still returns through Acquire's API.
+
+Only RESEARCH_WORKER_URL changed in Acquire's complete raw runtime configuration;
+normalizing that line back to its saved value reproduces the original file. The
+existing research secret is preserved because retained Cloudflare Firmable native
+admission callbacks also use it. Firmable URL/credential and all unrelated app
+settings are unchanged. The separate app image correction below changes SQL only.
+
+The first real canary exposed a transport defect before reading/model calls: the
+standalone worker's local connection policy correctly refused direct HTTPS app
+callbacks. Cloudflare was restored with the actual saved rollback script. The
+final transport reuses the existing loopback relay in explicit acquire-production
+mode, pinned to https://acquire.mlai.au with authenticated fixed paths/methods and
+redirect refusal. Local development still refuses production origins. Added an
+executed RED regression, then GREEN for production control/maintenance relay and
+wrong-origin refusal. File-backed test runners refuse the production profile.
+
+Production also exposed a pre-existing control-query defect: Drizzle strips column
+qualifiers in a single-table SELECT, so embedded company_progress filters compared
+the inner table to itself. Actual production logs show unqualified SQL and57014
+statement timeout after121.6seconds. Literal outer research_jobs identifiers retain
+tenant/mandate/owner/parent correlation. RED now embeds the expression in the real
+SELECT, rather than testing only PgDialect.sqlToQuery(expression). GREEN:47 focused
+checks including read-only PostgreSQL CTE variants in the verified mirror; one
+unrelated standing-integration case skipped. No SQL migration or index was needed.
+
+Isolated app-fix worktree project-acquire-research-cutover is based on the exact
+production2af5335 release; commit363458f41f63ee02a9153de9ea6f241a578f45c9 changes
+only the query and its tests. A temporary HTTP-only verification container (no
+background worker) returned the formerly timing-out production control request
+with200 in4.3seconds. It was removed afterward. The first normal app rollout
+automatically rolled back on a campaign-readiness timeout; the identical candidate
+passed that gate independently and the second normal rollout passed database,
+campaign enforcement, public app/communications health, protected callback and
+sign-in redirect checks. The current production image revision is363458f.
+
+Final worker image f2afd9c3a1e1eb37d87766e0b663c0becf4ccee885d8fce9279cc74ca1d025bb
+is identical in local OrbStack and DigitalOcean. Runtime parity passes with
+fingerprint593015c4137dc0ceccf3f0372f03ce0b4f7e8a20b92f68e8597e56e92980130e.
+Hosted mode is digitalocean-production with the production relay; local remains
+local and acquire-isolated.52 standalone tests,9 Linux packaged checks, Compose
+configuration checks and the production app image build pass.
+
+Actual app-backed production canary c3a0823e-2e80-4715-8c0b-dcff095d8c0d completed
+in an isolated research-cutover-canary organisation. It read one ARK Industrial
+page, made one logical model call, persisted two unique supported findings through
+Acquire's API, and ended app complete/DBOS SUCCESS with zero pending jobs in that
+namespace. No outreach was invoked. Canary evidence is retained for audit; no
+customer organisation/company data was overwritten. The exact first failed canary
+fixture was marked failed only after its worker ERROR and zero page/model usage
+were verified. This is a bounded real retrieval/extraction/persistence test, not a
+100-company qualification or end-to-end financial-fit acceptance.
+
+Final app DB readiness returned200 (about15seconds); retained Firmable status
+returned200, configured=true/reconnectRequired=false. Intermittent production DB
+latency remains observable. No claim is made that all source/search limitations
+or the research worktree's app-side work-items/UI policies were released by this
+configuration-only promotion. Previous credential-exposure rotation remains a
+separate coordinated task; this cutover did not independently invalidate shared
+Cloudflare callback authentication.
+
+Rollback on app host:
+bash /opt/acquire-app/ops/app/releases/research-cutover-20261028/rollback.sh
+It restores only the saved research settings, keeps the current SQL-fixed app
+image and database data, and restarts under the existing deployment lock. Actual
+Cloudflare reversal was exercised before the corrected final promotion.
+
+Source PR28: https://github.com/callumholt/project-acquire/pull/28 (draft). App
+image/checks/routes/regression/unit coverage checks pass. The unrelated fresh
+Crawl4AI image scan blocks merging on msgpack1.2.1 (scan reports fixed1.2.3). No
+security check was bypassed or red PR merged. Resolve that dependency check and
+merge the query fix BEFORE the next main deployment, to retain the production
+control-query correction. Current reader pins were not rebuilt for this app fix.
+
+Private evidence: services/research/.local/cutover/{handoff.json,final-canary-report.json,
+final-runtime.json,final-app-verification.log,final-readiness-recheck.log,app-query-fix-deploy-second.log,
+app-activation-second.log,progress-query-*.log,production-relay-red.log,relay-tests.log}.
+On-host rollback state and final canary report are retained in the private release
+directory. Temporary operator app-host SSH access is removed after final checks;
+the app-only VPC research rule remains.
+
+### P0.5 PR28 reader scan investigation — 29 October 2026
+
+Read-only investigation confirms the sole red PR28 check is image(crawl4ai).
+The actual built image scan flags the explicit msgpack1.2.1 pin as HIGH under
+CVE-2026-114613, reporting1.2.3 as the minimum fixed version. App/communications
+image checks, regression, routes, unit coverage and UAT checks are green.
+The same job also failed to upload evidence because Actions artifact storage
+quota was reached; workflow continue-on-error=true makes that upload secondary,
+not the cause of the security gate failure. No artifacts were deleted.
+
+Maintainer advisory GHSA-j586-36cw-2gc2 confirms the malformed-map C-extension
+memory leak and the1.2.3 fix, but explicitly says the earliest affected release
+range needs confirmation (the reproduced release is1.2.2). Therefore the scan
+finding for1.2.1 is reported as a scanner finding; exploitability in our reader
+and exposure of the currently pinned deployed image have not been established.
+The official changelog/PyPI also show1.2.4, released27October, with additional
+container-allocation hardening. Proposed narrow change is msgpack1.2.1->1.2.4,
+then dependency consistency, actual reader image rebuild, reader tests and Trivy
+scan, followed by PR checks. No scan suppression or database migration is needed.
+
+The proposed one-line patch is private under services/research/.local/cutover/
+msgpack-pin-proposed.patch; it has NOT been applied. The app-fix worktree remains
+clean at363458f and production deployment/routing were not changed. User asked
+for investigation; CI remediation remains a separate approved implementation
+step. Evidence: ci-investigation-20261029.json and artifact inventory alongside
+the existing failed-job logs.
+
+### P0.5 approved reader MessagePack remediation — 29 October 2026
+
+User explicitly approved the proposed dependency update, rebuild/testing and PR
+recheck. Commit9350216af16b7619358bf9101323041a155163ff updates only the reader
+msgpack pin1.2.1->1.2.4 on the existing PR28 branch. The same source pin is mirrored
+in the standalone research worktree. No database migration, production image/URL
+change, artifact deletion, security suppression or workflow weakening occurred.
+
+Fresh linux/amd64 reader build passed pip check. Existing reader tests passed18/18
+on the host and18/18 inside the rebuilt image with networking disabled. Actual
+installed MessagePack version is1.2.4; its codec round-trip check passes. Image
+sha256:953831ec7e3303139aa5d8046101aea928f009f285e12d64becad3ea9819bcd9
+has zero fixable HIGH/CRITICAL findings under checksum-verified Trivy0.75.0 and
+a fresh vulnerability DB, using the unchanged CI scan flags. Earlier CI at363458f
+provides the executed failing scan evidence; no artificial failing test was added
+for a dependency pin change.
+
+PR28 title/body now describe the final SQL correction and reader security pin.
+Its new reader image scan is green; app/communications image checks and UAT are
+green. Full regression/routes/coverage checks remain running at this checkpoint.
+Evidence under project-acquire-research-cutover/.local-data/msgpack-ci/: build.log,
+reader-tests.log, image-reader-tests.log, image-package-check.json, trivy.json,
+local-verification.json and CI logs. A summary is saved in the research worktree
+services/research/.local/cutover/msgpack-remediation-20261029.json.
+
+Reader remediation final verification: all seven runnable PR28 checks passed;
+only the expected non-main image/deploy jobs are skipped. Security scan for the
+reader, app and communications images, full regression, routes, unit coverage
+and UAT checks are green at9350216af16b7619358bf9101323041a155163ff. PR28 is
+ready for review, not merged. No production deployment or database changes were
+performed. The earlier merge blocker is resolved. Full check links/statuses are
+saved in msgpack-remediation-20261029.json, and the cutover handoff now points to
+reviewing/merging the green PR before a later main release.
+
+### P0.5 PR28 merged — 29 October 2026
+
+User explicitly requested merging the reviewed change. Verified head9350216 and
+all seven runnable checks green, then merged PR28 normally (no admin bypass) into
+main at8e3be32fbaa2ced47d79d97754ea2663d9e8d1dc. Fast-forwarded the shared local
+main checkout; all pre-existing unrelated tracked/untracked changes were preserved.
+The query fix and msgpack1.2.4 pin are now recorded on main. The DigitalOcean
+auto-deploy workflow is disabled_manually; the active AWS UAT/routes/security
+workflows do not deploy on this main push. No production deployment, database
+migration or live sending was performed as part of this merge.
+
+### P0.5 live runtime status after merge — 29 October 2026
+
+Read-only verification: production app363458f, communications5589d56 and their
+database containers are healthy. Production still points research to the private
+DigitalOcean worker and Firmable transport to Cloudflare. Local and hosted worker,
+reader, search and database pins match and all runtime health/identity checks pass.
+The app source difference from running363458f to merged main8e3be32 is only the
+reader requirements pin, so no application-code correction is missing. The reader
+image remains531c8b in BOTH running stacks: the newly built/tested MessagePack1.2.4
+reader image953831 has not been deployed. Production auto-deploy remains disabled.
+Narrow temporary current-operator SSH rules used for inspection were removed and
+verified afterward; no runtime or database change was performed.
+Evidence: runtime-status-latest.json, live-app-status-20261029.log and
+status-ssh-cleanup.json in services/research/.local/cutover/.
+
+### P0.5 reader patch released locally and on DigitalOcean — 29 October 2026
+
+User explicitly authorized rolling out the MessagePack1.2.4 reader image after
+PR28 merged. The exact amd64 image953831ec7e33 was transferred with a verified
+SHA-256 archive and installed in both research stacks. Updated only READER_IMAGE
+in the shared release pins and the hosted copy. Canonical Compose was invoked
+with --no-deps reader, preserving the research worker and relay container IDs,
+task network, production app and communications containers. No database migration
+or application deployment was performed. Previous reader531c8b and prior release
+pins remain available locally and in the hosted candidate directory for rollback.
+
+Locally verified and live verified: actual full-page and main-content reads return
+HTTP200 and7988 markdown characters. Full-page requests return250000 HTML
+characters with only_main_content=false. The hosted full-page check originated
+inside the production app, through its private DigitalOcean worker URL. Both
+running readers have msgpack1.2.4; all image, architecture, reader-source, model,
+health and dedicated-database identity parity checks pass. Shared runtime
+fingerprint: ea213321fe2fea6b1003600592557de91ba3fffb33138f3fe855cc2f6bed088c.
+The real source redirects to its www hostname; both returned the expected site.
+Public production /api/health and /sign-in return200. Hosted reader uses about
+394MiB after the read; the worker uses53MiB. This was a scoped reader-contract
+verification, not another full research job or load test. No live sending occurred.
+
+Evidence: services/research/.local/reader-rollout/final-report.json,
+parity-final.json, host-rollout.log and the four local/hosted read reports.
+Next action: no remaining reader rollout work; future app/worker releases remain
+manual. Temporary operator SSH rules are removed and verified in ssh-cleanup.json.
+
+### P0.5 research service source publication — 29 October 2026
+
+User requested publishing the deployed standalone research work to GitHub.
+Prepared the research branch with service source, locked dependencies, shared
+workflow changes, local app integration/policy/UI changes, tests, approved schema
+artifacts and deployment/runtime documentation. The app changes remain a separate
+release; source publication does not activate them in production. Private env
+files, provider credentials, SSH material, database snapshots, generated bundles,
+image archives and detailed local evidence remain ignored. Applied SQL files
+were not changed or executed. Historical hosted migration review status now
+records the already-approved, already-applied migration; no new approval is inferred.
+
+Verified: service build;52 service tests;1 Compose deployment-contract test;
+339 affected app/domain tests (12 database-dependent tests skipped);48 Cloudflare
+workflow tests;19 shared provider tests;5 benchmark design tests; app typecheck;
+and a redacted Gitleaks8.30.1 staged-content scan with no leaks. The built worker
+revision matches the running pinned worker exactly:
+15cf5bac69dcfeb140b3978edd2337f51987aae2f0500eef544583cb0d5af5cc.
+Reader/source/runtime pins match the previously live-verified rollout. No runtime
+restart, deployment, database migration or live sending is part of this publication.
+
+Publication target: origin/codex/standalone-research-service. Next action after
+push: review and separately authorize any merge or app rollout. Detailed command
+logs and secret-scan report remain in services/research/.local/github-push/.
+
+### P0.5 main merge preparation — 29 October 2026
+
+User requested merging the published research branch into main. Merged current
+origin/main8e3be32 into the branch without conflicts. Post-merge service build,
+52 service tests, deployment-contract test, typecheck and109 overlapping app
+checks passed (2 database tests skipped). The packaged worker revision remains
+unchanged. Branch secret scan passed. DigitalOcean auto-deploy remains disabled;
+merging does not apply the committed SQL or activate another runtime release.
+
+Found a clean-checkout CI prerequisite: the repository-wide Node runner discovers
+service tests, which import the service bundle and separately locked dependencies.
+Demonstrated ERR_MODULE_NOT_FOUND without dist, restored the build, and added
+explicit service npm ci/build plus deployment-contract checks to the regression
+workflow. The existing service contract tests pass with the built bundle. A local
+full Node run passed292/293; the remaining communications packaging check rejects
+the worktree's pre-existing absolute dependency symlink. Do not weaken that guard;
+CI's fresh dependency installation is the authoritative full regression check.
+Next action: open the PR, wait for checks, then perform the authorized normal merge.
+
+Main-merge full Vitest run exposed three stale assertions: two review-card tests
+still named the provider after the requested provider-neutral UI change, and a
+refresh-route test still required time-based failure of an unreachable worker.
+Updated only the assertions to the intended company-data label and non-destructive
+status handling; retained physical attempt/cost checks and added no-provider-name
+and no-failure/no-redispatch checks. Red: full run7514passed/3failed. Green: both
+affected suites40/40. No runtime behavior changed in this follow-up. Full CI must
+pass on the updated head before the authorized merge.

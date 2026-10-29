@@ -20,8 +20,9 @@ export function benchmarkWorkloadSources(sources, { companies, minutes }) {
   replace('src/domain/automatic-research.ts', 'DISCOVERY_CANDIDATE_LIMIT = 90', `DISCOVERY_CANDIDATE_LIMIT = ${companies}`, 1);
   const reviewed='config.nativeAgent||config.companyDiscoveryPolicy?.version===3||config.companyDiscoveryPolicy?.version===4||config.companyDiscoveryPolicy?.version===5';
   replace('src/domain/automatic-research.ts', 'automaticDeadline: Date.now() + effort.minutes * 60 * 1000', `automaticDeadline: Date.now() + (${reviewed}?effort.minutes:${minutes}) * 60 * 1000`, 1);
-  const launchDeadline='const combined=config.companyDiscoveryPolicy?.version===5;\n    if(combined)config.budget={...config.budget,maxMinutes:15};\n    config.automaticDeadline=Date.now()+(combined?15:10)*60000';
-  replace('src/lib/start-mandate-research.ts', launchDeadline, launchDeadline.replace('(combined?15:10)',`(${reviewed}?(combined?15:10):${minutes})`), 1);
+  // Finite company workloads retain their completion policy, including in benchmarks.
+  const completion="config.completionPolicy='work-items';\n    delete config.automaticDeadline;";
+  replace('src/lib/start-mandate-research.ts',completion,completion,1);
   replace('src/lib/parallel-business-research.ts', 'const admittedDomains = new Set(related.filter(j => (j.config as ResearchConfig).researchTask).map(j => (j.config as ResearchConfig).companyDomain));', 'const admittedDomains = new Set(related.filter(j => (j.config as ResearchConfig).researchTask).map(j => (j.config as ResearchConfig).companyDomain));\n  const selectedDomains = new Set(admittedDomains);', 1);
   replace('src/lib/parallel-business-research.ts', 'const domain = researchDomain(safe);', `const domain = researchDomain(safe);\n    if (!selectedDomains.has(domain)) {\n      if (selectedDomains.size >= ${companies}) return;\n      selectedDomains.add(domain);\n    }`, 1);
   replace('src/app/api/research/internal/[jobId]/route.ts', 'discovery.targets.slice(0, 100)', `discovery.targets.slice(0, ${companies})`, 2);
