@@ -119,7 +119,9 @@ resource "aws_service_discovery_service" "research" {
       type = "A"
     }
   }
-  health_check_custom_config {}
+  # Provider6.x drops an empty custom-health block. Explicit1 persists the
+  # ECS-managed health registration despite the deprecated threshold argument.
+  health_check_custom_config { failure_threshold = 1 }
 }
 resource "aws_ecs_task_definition" "research" {
   family                   = local.name

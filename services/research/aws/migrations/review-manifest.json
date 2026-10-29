@@ -1,0 +1,39 @@
+{
+  "status": "PROPOSED_NOT_APPLIED",
+  "target": {
+    "account": "352329340196",
+    "region": "ap-southeast-2",
+    "cluster_arn": "arn:aws:rds:ap-southeast-2:352329340196:cluster:acquire-acquire-develop",
+    "cluster_resource_id": "cluster-LV2AZYJ33YRB6VBFKYXPCJFQ5I",
+    "endpoint": "acquire-acquire-develop.cluster-cjaq4yw64sj8.ap-southeast-2.rds.amazonaws.com",
+    "system_identifier": "7619074599616174976"
+  },
+  "maintenance_database": "postgres",
+  "new_database": "acquire_research_uat",
+  "new_login": "research",
+  "identity_marker": "acquire-research-aws-uat-only",
+  "new_credential_secret": {
+    "arn": "arn:aws:secretsmanager:ap-southeast-2:352329340196:secret:acquire-research-develop-7FIFH7",
+    "version_id": "8986ea1b-6fcb-486b-abad-ece38a0ae446"
+  },
+  "bootstrap_admin_secret": "acquire-secrets-develop",
+  "files": [
+    {
+      "path": "services/research/aws/migrations/000-create-database.proposed.sql",
+      "sha256": "b9ff2f0843911f4cb8e5a4bef736b7dc23fad9938c478cf62f21d9cf4c011071",
+      "bytes": 1626
+    },
+    {
+      "path": "services/research/aws/migrations/001-checkpoints.proposed.sql",
+      "sha256": "57cb15783a475dc7a182129922b94026ce66d8e2249582f6e292bb40f1430ef7",
+      "bytes": 41523
+    }
+  ],
+  "dbos_sdk": "5.3.0",
+  "dbos_schema_version": 123,
+  "source_schema": "services/research/deploy/001-digitalocean-test.sql",
+  "source_schema_sha256": "e17903b21c6c6a3dc67394e0369a1662874d3e15f4409fe5b1faf4a004a4d8fd",
+  "approval_required": "Specific approval for both artifacts and this AWS target before running any statement.",
+  "executed": false,
+  "scope": "New dedicated UAT role/database, administrator SET membership for that new role, and DBOS/coordinator schema only; no existing application/n8n schema changes or data copy."
+}
