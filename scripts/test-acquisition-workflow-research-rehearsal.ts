@@ -1,0 +1,65 @@
+import {recoverAutomaticCompanyPeople} from '../src/lib/company-people-research';
+import {drizzle} from 'drizzle-orm/node-postgres';
+import {FirmableHistoryRepository} from '../src/db/firmable-history-repository';
+import {Pool} from 'pg';
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {AcquisitionWorkflowStore} from '../src/db/acquisition-workflow-store';
+import {emptyBrief} from '../src/domain/acquisition';
+import {ensureWorkflowResearch} from '../src/lib/acquisition-workflow-research';
+import {acquisitionWorkflowPool} from '../src/db/acquisition-workflow-pool';
+import {withAcquisitionWorkflowContext} from '../src/lib/acquisition-workflow-context';
+const base=new Pool({host:'127.0.0.1',port:5432,user:'postgres',database:'acquire_hosted_demo_rehearsal',max:2}),pool=acquisitionWorkflowPool(base);
+async function main(){
+ const target=await base.query("SELECT current_database() AS db,system_identifier::text AS id,shobj_description((SELECT oid FROM pg_database WHERE datname=current_database()),'pg_database') AS marker FROM pg_control_system()");
+ assert.deepEqual(target.rows[0],{db:'acquire_hosted_demo_rehearsal',id:'7699248227334438947',marker:'acquire-hosted-demo-rehearsal-only'});
+ const org=randomUUID(),user=randomUUID(),actor={organizationId:org,userId:user};
+ await base.query('INSERT INTO "user"(id,name,email) VALUES($1,$2,$3)',[user,'Research adapter rehearsal',user+'@example.invalid']);
+ await base.query('INSERT INTO organization(id,name,slug) VALUES($1,$2,$1)',[org,'Research adapter rehearsal']);
+ await base.query('INSERT INTO member(id,organization_id,user_id,role) VALUES($1,$2,$3,$4)',[randomUUID(),org,user,'member']);
+ const store=new AcquisitionWorkflowStore(base,actor);
+ const timings:number[]=[];const request={requestId:randomUUID(),preset:'live-research-test' as const,presentation:'workspace' as const,brief:{...emptyBrief(),name:'Concurrent start',naturalLanguage:'Synthetic concurrent start'}};
+ const concurrent=await Promise.all(Array.from({length:4},async()=>{const t=performance.now();const result=await store.start(request);timings.push(Math.round((performance.now()-t)*100)/100);return result;}));
+ assert.equal(new Set(concurrent.map(row=>row.id)).size,1);assert.equal(concurrent.filter(row=>!row.replayed).length,1);
+ await store.transition(concurrent[0].id,concurrent[0].revision,'cancelled');
+ const execution=await store.start({requestId:randomUUID(),preset:'live-research-test',presentation:'workspace',brief:{...emptyBrief(),name:'Research adapter rehearsal',naturalLanguage:'Synthetic research test'}});
+ let starts=0;
+ const ports={start:async()=>{
+  starts++;await pool.query("INSERT INTO research_jobs(id,organization_id,mandate_id,created_by,status,config) VALUES($1,$2,$3,$4,'queued','{}')",[execution.id,org,execution.mandateId,user]);
+  return {status:202,body:{jobId:execution.id}};
+ }} as unknown as NonNullable<Parameters<typeof ensureWorkflowResearch>[3]>;
+ assert.equal((await ensureWorkflowResearch(base,actor,execution,ports)).status,'queued');
+ assert.equal((await base.query('SELECT workflow_execution_id FROM research_jobs WHERE id=$1',[execution.id])).rows[0].workflow_execution_id,execution.id);
+ await ensureWorkflowResearch(base,actor,(await store.read(execution.id))!,ports);assert.equal(starts,1);
+ await assert.rejects(()=>base.query("UPDATE research_jobs SET status='extracting' WHERE id=$1",[execution.id]));
+ const scope={id:execution.id,organizationId:org,ownerUserId:user};
+ await withAcquisitionWorkflowContext(scope,async()=>{
+  const client=await pool.connect();try{await client.query('BEGIN');await client.query("UPDATE research_jobs SET status='extracting' WHERE id=$1",[execution.id]);await client.query('COMMIT');}finally{client.release();}
+ });
+ const company=randomUUID(),peopleRun=randomUUID();
+ await base.query("INSERT INTO targets(id,organization_id,company_name,firmographics) VALUES($1,$2,'Synthetic reconciliation company','{}')",[company,org]);
+ await base.query("INSERT INTO firmable_sync_runs(id,organization_id,actor_id,target_id,request_key,trigger,status) VALUES($1::uuid,$2,$3,$4,$1::text,'people','complete')",[peopleRun,org,user,company]);
+ await withAcquisitionWorkflowContext(scope,()=>pool.query("UPDATE research_jobs SET config=jsonb_build_object('companyPeopleRunIds',jsonb_build_array($2::text)) WHERE id=$1",[execution.id,peopleRun]));
+ const history=new FirmableHistoryRepository(drizzle(pool) as never);
+ assert.deepEqual(await history.reconcileProfileProgress(peopleRun),{found:0,saved:0,failed:0,attempted:0,pending:0});
+ assert.equal((await base.query("SELECT config->'companyPeopleProgress'->>'settled' AS settled FROM research_jobs WHERE id=$1",[execution.id])).rows[0].settled,'true');
+ const expiredRun=randomUUID();
+ await base.query("INSERT INTO firmable_sync_runs(id,organization_id,actor_id,target_id,request_key,trigger,status) VALUES($1::uuid,$2,$3,$4,$1::text,'discovery','queued')",[expiredRun,org,user,company]);
+ await withAcquisitionWorkflowContext(scope,()=>pool.query("UPDATE research_jobs SET config=config || jsonb_build_object('companyPeopleRunIds',jsonb_build_array($2::text,$3::text),'automaticDeadline',$4::bigint) WHERE id=$1",[execution.id,peopleRun,expiredRun,Date.now()-1000]));
+ await recoverAutomaticCompanyPeople(org,execution.mandateId);
+ assert.equal((await base.query('SELECT status FROM firmable_sync_runs WHERE id=$1',[expiredRun])).rows[0].status,'cancelled');
+ assert.equal((await base.query("SELECT config->'companyPeopleProgress'->>'settled' AS settled FROM research_jobs WHERE id=$1",[execution.id])).rows[0].settled,'true');
+ await withAcquisitionWorkflowContext(scope,()=>pool.query("UPDATE research_jobs SET status='complete' WHERE id=$1",[execution.id]));
+ const staleChild=randomUUID();
+ await withAcquisitionWorkflowContext(scope,()=>pool.query("INSERT INTO research_jobs(id,organization_id,mandate_id,created_by,status,config) VALUES($1,$2,$3,$4,'complete',jsonb_build_object('researchRunId',$5::text,'companyPeopleRunIds',jsonb_build_array($6::text),'companyPeopleProgress',jsonb_build_object('settled',false,'queued',1)))",[staleChild,org,execution.mandateId,user,execution.id,expiredRun]));
+ const view=await ensureWorkflowResearch(base,actor,(await store.read(execution.id))!,ports);assert.equal(view.status,'complete');assert.equal((await store.read(execution.id))?.state,'complete');
+ assert.equal((await base.query("SELECT config->'companyPeopleProgress'->>'settled' AS settled FROM research_jobs WHERE id=$1",[staleChild])).rows[0].settled,'true');
+ const legacy=randomUUID(),legacyMandate=randomUUID();
+ await base.query('INSERT INTO mandates(id,organization_id,created_by,natural_language,filters,provenance) VALUES($1,$2,$3,$4,$5,$6)',[legacyMandate,org,user,'Legacy source',JSON.stringify({brief:emptyBrief()}),'{}']);
+ await base.query("INSERT INTO research_jobs(id,organization_id,mandate_id,created_by,status,config) VALUES($1,$2,$3,$4,'complete','{}')",[legacy,org,legacyMandate,user]);
+ await assert.rejects(()=>withAcquisitionWorkflowContext(scope,()=>pool.query('UPDATE research_jobs SET workflow_execution_id=$1 WHERE id=$2',[execution.id,legacy])));
+ assert.equal((await base.query('SELECT workflow_execution_id FROM research_jobs WHERE id=$1',[legacy])).rows[0].workflow_execution_id,null);
+ const emptyContext=await base.query("SELECT nullif(current_setting('app.acquire_workflow_execution',true),'') AS execution");assert.equal(emptyContext.rows[0].execution,null);
+ console.log(JSON.stringify({passed:true,actualResearchAdapter:true,actualScopedPool:true,explicitTransaction:true,firmableParentContext:true,automaticPeopleRecovery:true,expiredQueuedSettled:true,staleTerminalChildReconciled:true,jobAssociation:true,replayNoSecondStart:true,unscopedWriteRejected:true,researchOnlyStops:true,legacyCannotAdopt:true,poolContextReset:true,noExternalCalls:true,concurrentReplayCount:concurrent.length,startLatencyMs:timings,fixtureRetained:true}));
+}
+main().catch(error=>{console.error(error);process.exitCode=1}).finally(()=>base.end());

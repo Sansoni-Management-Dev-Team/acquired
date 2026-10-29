@@ -8,14 +8,16 @@ import { observeResearchDatabase, observeResearchRequest, researchJsonResponse }
 it('attributes the actual awaited timing write once without generating recursive spans', async () => {
  const log = vi.spyOn(console, 'info').mockImplementation(() => {});
  try {
-  const query = vi.fn().mockResolvedValue({ rows: [] });
+  const query = vi.fn().mockResolvedValue({ rows: [] }).mockResolvedValueOnce({ rows: [[null, 'org', 'creator']] });
   mocks.database = observeResearchDatabase(drizzle({ client: { query } as never }));
   await observeResearchRequest(new Request('https://example.com'), async () => {
    await saveResearchTimingSpans('00000000-0000-4000-8000-000000000001', 'org', [{ id:'00000000-0000-4000-8000-000000000002', step:'extract-1', segment:'extraction', startedAt:'2026-10-01T00:00:00.000Z', finishedAt:'2026-10-01T00:00:01.000Z', elapsedMs:1000, outcome:'succeeded' }]);
    return researchJsonResponse({ ok:true });
   });
-  expect(query).toHaveBeenCalledTimes(1);
-  const events=log.mock.calls.filter(([tag])=>tag==='research-db').map(([,body])=>JSON.parse(body));
+  expect(query).toHaveBeenCalledTimes(2);
+  const allEvents=log.mock.calls.filter(([tag])=>tag==='research-db').map(([,body])=>JSON.parse(body));
+  expect(allEvents.filter(event=>event.operation==='select').map(event=>event.event)).toEqual(['query_started','query_finished']);
+  const events=allEvents.filter(event=>event.operation==='update');
   expect(events.map(event=>event.event)).toEqual(['query_started','query_finished']);
   expect(events[0].queryId).toEqual(expect.any(String));
   expect(events[1].queryId).toBe(events[0].queryId);

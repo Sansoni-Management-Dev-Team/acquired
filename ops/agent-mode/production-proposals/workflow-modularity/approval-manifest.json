@@ -1,0 +1,50 @@
+{
+  "status": "proposed-not-applied",
+  "preparedAt": "2026-10-23T23:27:19.934247+00:00",
+  "sourceBase": "830cc4a",
+  "migrations": [
+    {
+      "file": "001-workflow-executions.proposed.sql",
+      "sha256": "e76724aff90bf4cfee2aeb2272444a72f073a6afddde635a328a7be0d680c014"
+    },
+    {
+      "file": "002-workflow-compatibility.proposed.sql",
+      "sha256": "e7702b78736fd95e5a7f14f13f4695bfe271e5d052c288558fb3cc04ab0d0c13"
+    },
+    {
+      "file": "003-workflow-admission.proposed.sql",
+      "sha256": "5730433f56aa4a6fc2ecf700b7801008b15ec52d2cc0d7b5a3728d22c58e80ba"
+    }
+  ],
+  "rehearsalTests": [
+    {
+      "file": "tests/001-execution-identity.test.sql",
+      "sha256": "836d2054848212f62cca7e9a00da6b094145249f35c397eda9de8b3a28c03573"
+    },
+    {
+      "file": "tests/002-research-only-guards.test.sql",
+      "sha256": "9cf18e1363171ce6b5596298614f5ede24bfe1b5646cfa100eed000efbc33737"
+    },
+    {
+      "file": "tests/003-admission.test.sql",
+      "sha256": "087e7d8c71ee2869801fca7d790850f9b1915fa1591b7e128ca2d6cbc6f263ed"
+    }
+  ],
+  "targets": {
+    "rehearsal": {
+      "container": "acquire-hosted-demo-rehearsal-postgres",
+      "network": "none",
+      "database": "acquire_hosted_demo_rehearsal",
+      "marker": "acquire-hosted-demo-rehearsal-only",
+      "systemIdentifier": "7699248227334438947"
+    },
+    "conditionalProduction": {
+      "project": "njasjqpztiteionfxxul",
+      "database": "postgres",
+      "systemIdentifier": "7678071634733212629",
+      "condition": "Exact rehearsal and compatibility/concurrency/security acceptance passes; fresh target/hash/predecessor/backup checks pass; feature remains inactive."
+    }
+  },
+  "approvalRequired": true,
+  "activationAuthorizedByThisPackage": false
+}

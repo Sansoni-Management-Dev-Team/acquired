@@ -1,8 +1,10 @@
+import {reportHostedDemoFailure} from './hosted-demo-diagnostic';
 import {businessSql,type BusinessClock} from '../../communications/packages/core/src/business-clock';
 import{ReplyProcessingPendingError}from'../../communications/packages/core/src/history-pending';
 import { createHash } from 'node:crypto';
 import { performance } from 'node:perf_hooks';
 import { types } from 'node:util';
+import{traceOperation,updateOperationTrace}from'../../communications/packages/core/src/operation-trace';
 import { assertSameBinding } from '../../communications/packages/contracts/src';
 import { lockAcquireSendGate } from './campaign-send-gate';
 import type { SqlClient } from '../../communications/packages/storage-postgres/src/webhook-repository';
@@ -29,6 +31,22 @@ export interface AcquireCoverageProjectorOptions {
     timeoutMs?: number;
 }
 const fail = (): never => { throw Error('Coverage projection unavailable'); };
+// Fixed boundary names only: SQL text, values and exception messages never
+// enter telemetry. Preserve the original query and its failure exactly once.
+function coverageSqlBoundary(text:string){
+ if(text.includes('to_regprocedure'))return'schema';
+ if(text.includes('communications_lock_send_gate'))return'gate';
+ if(text.includes('communications_lock_send_member'))return'member';
+ if(text.includes('pg_roles'))return'role';
+ if(text.includes('set_config'))return'scope';
+ if(text.includes('FROM public.communication_bindings'))return'binding';
+ if(text.includes('AS fresh'))return'freshness';
+ if(text.startsWith('SELECT observed_service_revision'))return'checkpoint_read';
+ if(text.startsWith('INSERT INTO public.communication_reply_monitors'))return'monitor_write';
+ if(text.startsWith('INSERT INTO public.communication_consumer_checkpoints'))return'checkpoint_write';
+ if(text==='COMMIT')return'commit';
+ return'setup';
+}
 function plain(v: unknown): Record<string, unknown> {
     if (types.isPromise(v)) {
         void Promise.prototype.then.call(v, () => undefined, () => undefined);
@@ -68,6 +86,7 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
     }
     return { async project(inputQuery) {
             let client: SqlClient | undefined, closed = false,appCommitAttempted=false;
+            let diagnosticBoundary='coverage.input';
             const controller = new AbortController(), deadline = performance.now() + timeout;
             let rejectStopped!: (e: Error) => void;
             const stopped = new Promise<never>((_, reject) => { rejectStopped = reject; });
@@ -97,6 +116,7 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
                 assertSameBinding(binding, query.binding);
                 if (!id(query.scope) || !date(query.since) || query.cursor !== null || query.refresh !== true)
                     fail();
+                diagnosticBoundary='coverage.proof';
                 await withCoverage(query, async (raw) => {
                     live();
                     const proof = plain(raw) as unknown as HeldCoverageProjection, coverage = structuredClone(plain(proof.coverage)) as unknown as Coverage;
@@ -111,6 +131,7 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
                     const bootstrap=async()=>{
                       for(let attempt=0;attempt<10;attempt++){
                         let serialization=false;
+                    diagnosticBoundary='coverage.connect';
                     client = await call(async () => {
                         const acquired = await connect();
                         if (closed || performance.now() >= deadline) {
@@ -126,14 +147,21 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
                                 fail();
                             inFlight++;
                             try {
-                                try{return await sql<Row>(text, values);}catch(error){if(error&&typeof error==='object'&&!types.isProxy(error)&&Object.getOwnPropertyDescriptor(error,'code')?.value==='40001')serialization=true;throw error;}
+                                diagnosticBoundary='coverage.sql.'+coverageSqlBoundary(text);
+                                return await traceOperation('acquire.coverage.sql.'+coverageSqlBoundary(text),{attempt:attempt+1},async()=>{try{return await sql<Row>(text, values);}catch(error){const code=error&&typeof error==='object'&&!types.isProxy(error)?Object.getOwnPropertyDescriptor(error,'code')?.value:undefined;if(code==='40001'||code==='55P03')serialization=true;updateOperationTrace({failureCode:code});reportHostedDemoFailure(diagnosticBoundary,error);throw error;}});
                             }
                             finally {
                                 inFlight--;
                             }
                         }) };
                     try{
-                    await tx.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+                    // The mandatory organization gate serializes every binding, monitor and
+                    // checkpoint writer; its global shared fence also excludes membership
+                    // changes. Read current committed policy only AFTER acquiring it.
+                    // A SERIALIZABLE snapshot taken by the role check predates gate
+                    // acquisition and repeatedly aborts when a prior writer commits.
+                    // The service proof stays held and is revalidated before COMMIT.
+                    await tx.query('BEGIN ISOLATION LEVEL READ COMMITTED');
                     await tx.query('SET LOCAL ROLE acquire_campaign_user');
                     const role = await tx.query('SELECT current_user AS role_name,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user');
                     if (role.rows.length !== 1 || role.rows[0].role_name !== 'acquire_campaign_user' || role.rows[0].rolsuper !== false || role.rows[0].rolbypassrls !== false)
@@ -186,7 +214,7 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
                         fail();
                     await tx.query('INSERT INTO public.communication_consumer_checkpoints(binding_id,organization_id,owner_user_id,subscriber_id,scope_digest,encrypted_cursor,cursor_key_version,observed_service_revision) VALUES($1,$2,$3,$4,$5,$6,$7,$8::bigint) ON CONFLICT(binding_id,subscriber_id,scope_digest) DO UPDATE SET encrypted_cursor=EXCLUDED.encrypted_cursor,cursor_key_version=EXCLUDED.cursor_key_version,observed_service_revision=EXCLUDED.observed_service_revision,updated_at=clock_timestamp()', [bindingId, binding.tenantId, binding.ownerId, subscriber, proof.scopeDigest, encrypted, keyVersion, proof.serviceRevision]);
                     await member();
-                    await call(revalidate);
+                    diagnosticBoundary='coverage.revalidate';await call(revalidate);
                     live();
                     appCommitAttempted=true;await tx.query('COMMIT');
                     live();
@@ -202,6 +230,7 @@ export function createAcquireCoverageProjector(input: AcquireCoverageProjectorOp
                 await Promise.race([work, stopped]);
             }
             catch(error) {
+                reportHostedDemoFailure(diagnosticBoundary,error);
                 if(error instanceof ReplyProcessingPendingError&&!appCommitAttempted&&!closed&&!controller.signal.aborted&&performance.now()<deadline)throw error;
                 fail();
             }

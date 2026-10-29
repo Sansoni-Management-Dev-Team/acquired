@@ -146,3 +146,20 @@ it.each(['valid','missing-business','changed-original'] as const)('maps verified
  const repo=createPostgresHistoryCheckpoints({...f.options,binding:b,record:r,businessClock:{now:()=>Date.parse(business)}});
  if(variant==='valid')expect(await repo.initialSync()).toMatchObject({completedAt:business,evidenceId:sync.evidenceId});else await expect(repo.initialSync()).rejects.toThrow();
 });
+
+it('failed-claim cleanup is fenced by token and never touches a completed or replacement scan',async()=>{
+ const f=fixture(),repo=createPostgresHistoryCheckpoints(f.options),ticket=(await repo.begin(query))!;
+ f.statements.length=0;
+ await repo.abandon!(ticket);
+ const claim=f.statements.find(s=>s.startsWith('UPDATE communications.history_refreshes'))!;
+ expect(claim).toContain('token_hash=$4');expect(claim).toContain('finished_at IS NULL');expect(claim).toContain('capture_revision=$5');
+ expect(f.statements.some(s=>s.includes('UPDATE communications.event_cursors'))).toBe(false);
+ expect(f.statements.some(s=>s.includes('advance_reply_barrier'))).toBe(false);
+});
+it('releases its failed lease and invalidates coverage in the same guarded transaction',async()=>{
+ const f=fixture(),repo=createPostgresHistoryCheckpoints(f.options),ticket=(await repo.begin(query))!,base=f.client.query.getMockImplementation()!;
+ f.client.query.mockImplementation(async sql=>sql.startsWith('UPDATE communications.history_refreshes')?{rows:[{connection_id:binding.connectionId}]}:base(sql));
+ f.statements.length=0;await repo.abandon!(ticket);
+ expect(f.statements.some(s=>s.includes('UPDATE communications.event_cursors'))).toBe(true);
+ expect(f.statements.at(-1)).toBe('COMMIT');
+});

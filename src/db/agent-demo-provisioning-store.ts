@@ -1,3 +1,5 @@
+import {acquisitionWorkflowContext} from '@/lib/acquisition-workflow-context';
+import {bindAgentWorkflowContext,resolveAgentWorkflowContext} from './agent-workflow-context';
 import type {Pool,PoolClient} from 'pg';
 import {z} from 'zod';
 import {agentActorSchema,agentRecordDigest,type AgentActor} from './agent-store';
@@ -24,11 +26,19 @@ export class AgentDemoProvisioningStore implements AgentDemoProvisioningPort{
    const result=await work(c);await c.query('COMMIT');return result;
   }catch(error){await c.query('ROLLBACK');throw error;}finally{c.release();}
  }
- private async ownedDemo(c:PoolClient,mandateId:string){
-  const m=(await c.query('SELECT m.id,x.mode,x.demo_id,x.created_by FROM mandates m LEFT JOIN agent_mandate_execution_modes x ON x.mandate_id=m.id AND x.organization_id=m.organization_id WHERE m.id=$1 AND m.organization_id=$2 FOR SHARE OF m',[uuid.parse(mandateId),this.actor.organizationId])).rows[0];
+ private async ownedDemo(c:PoolClient,mandateId:string,original?:string|null){
+  const ambient=acquisitionWorkflowContext();
+  if(ambient&&(ambient.organizationId!==this.actor.organizationId||ambient.ownerUserId!==this.actor.userId))throw new AgentDemoProvisioningError('Workflow actor scope changed.',403);
+  const selected=original!==undefined?original:ambient?.id;
+  const workflowId=selected===undefined?await resolveAgentWorkflowContext(c,this.actor,mandateId):selected;
+  if(selected!==undefined)await bindAgentWorkflowContext(c,this.actor,workflowId,mandateId);
+  const modes=workflowId?'agent_effective_execution_modes':'agent_mandate_execution_modes';
+  const m=(await c.query(`SELECT m.id,x.mode,x.demo_id,x.created_by FROM mandates m LEFT JOIN ${modes} x ON x.mandate_id=m.id AND x.organization_id=m.organization_id WHERE m.id=$1 AND m.organization_id=$2 FOR SHARE OF m`,[uuid.parse(mandateId),this.actor.organizationId])).rows[0];
   if(!m)throw new AgentDemoProvisioningError('Mandate unavailable.',404);
   if(m.mode!=='demo'||m.demo_id!==m.id)throw new AgentDemoProvisioningError('Real mandates do not use demo contacts.');
   if(m.created_by!==this.actor.userId)throw new AgentDemoProvisioningError('Only the demo owner can prepare its simulated contacts.',403);
+  if(workflowId){const w=(await c.query('SELECT preset,state FROM public.acquisition_workflow_executions WHERE id=$1',[workflowId])).rows[0];if(w?.preset!=='demo'||!['accepted','ready','outreach'].includes(w.state as string))throw new AgentDemoProvisioningError('This workflow cannot prepare simulated recipients.');}
+  return workflowId;
  }
  private async run(c:PoolClient,id?:string):Promise<Run>{
   const rows=(await c.query('SELECT * FROM agent_demo_runs WHERE organization_id=$1 AND owner_user_id=$2 AND run_id=$3 AND integration_id=$4 AND configuration_ref=$5 AND ($6::uuid IS NULL OR id=$6::uuid) FOR SHARE',[this.actor.organizationId,this.actor.userId,this.selection.runId,this.selection.integrationId,this.selection.configurationReference,id??null])).rows;
@@ -54,9 +64,9 @@ export class AgentDemoProvisioningStore implements AgentDemoProvisioningPort{
  async plan(mandateId:string,requestKey:string):Promise<AgentDemoPreparation|{kind:'complete';count:number}>{
   uuid.parse(mandateId);uuid.parse(requestKey);
   return this.transaction(async c=>{
-   await this.ownedDemo(c,mandateId);
+   const workflowId=await this.ownedDemo(c,mandateId),prefix=workflowId?'workflow_agent_demo_':'agent_demo_';
    await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',['demo-contact-request:'+requestKey]);
-   const prior=(await c.query('SELECT * FROM agent_demo_mapping_requests WHERE request_key=$1 FOR SHARE',[requestKey])).rows[0];
+   const prior=(await c.query(`SELECT * FROM ${prefix}mapping_requests WHERE request_key=$1 FOR SHARE`,[requestKey])).rows[0];
    if(prior&&(prior.organization_id!==this.actor.organizationId||prior.created_by!==this.actor.userId||prior.mandate_id!==mandateId))throw new AgentDemoProvisioningError('This request conflicts with another saved request.');
    const run=await this.run(c,prior?.demo_run_id);
    let manifest:AgentDemoParticipantsRequest;
@@ -65,32 +75,39 @@ export class AgentDemoProvisioningStore implements AgentDemoProvisioningPort{
     const people=(await c.query(`SELECT c.id AS "sourcePersonId",c.xmin::text AS "sourceRevision",public.agent_demo_contact_fingerprint(c.id) AS "sourceFingerprint"
      FROM contacts c WHERE c.organization_id=$1 AND c.fictionalised=false AND c.firmable_person_id IS NOT NULL AND coalesce(c.personal_data->>'doNotContact','false')='false'
      AND (c.mandate_id=$2 OR EXISTS(SELECT 1 FROM mandate_targets mt WHERE mt.organization_id=c.organization_id AND mt.mandate_id=$2 AND mt.target_id=c.target_id))
-     AND NOT EXISTS(SELECT 1 FROM agent_demo_contact_mappings d WHERE d.demo_id=$2 AND d.contact_id=c.id)
+     AND NOT EXISTS(SELECT 1 FROM ${prefix}contact_mappings d WHERE d.demo_id=$2 AND d.contact_id=c.id)
      ORDER BY c.id LIMIT 50 FOR SHARE OF c`,[this.actor.organizationId,mandateId])).rows as AgentDemoParticipantsRequest['people'];
     if(!people.length)throw new AgentDemoProvisioningError('No new researched contacts are ready. Complete people enrichment or review the existing demo contacts first.');
     manifest={version:1,demoId:mandateId,organizationId:this.actor.organizationId,userId:this.actor.userId,mandateId,requestKey,people};
-    await c.query('INSERT INTO agent_demo_mapping_requests(request_key,organization_id,mandate_id,demo_id,created_by,demo_run_id,manifest,input_digest) VALUES($1,$2,$3,$3,$4,$5,$6,$7)',[requestKey,this.actor.organizationId,mandateId,this.actor.userId,run.id,JSON.stringify(manifest),agentRecordDigest(manifest)]);
+    await c.query(`INSERT INTO ${prefix}mapping_requests(${workflowId?'workflow_execution_id,':''}request_key,organization_id,mandate_id,demo_id,created_by,demo_run_id,manifest,input_digest) VALUES(${workflowId?'$8,':''}$1,$2,$3,$3,$4,$5,$6,$7)`,[requestKey,this.actor.organizationId,mandateId,this.actor.userId,run.id,JSON.stringify(manifest),agentRecordDigest(manifest),...(workflowId?[workflowId]:[])]);
    }
    await this.assertSources(c,manifest);
-   const receipt=(await c.query('SELECT result FROM agent_demo_mapping_receipts WHERE request_key=$1',[requestKey])).rows[0];
+   const receipt=(await c.query(`SELECT result FROM ${prefix}mapping_receipts WHERE request_key=$1`,[requestKey])).rows[0];
    if(receipt)return {kind:'complete',count:receipt.result.mappings.length};
-   return {kind:'prepared',manifest,run:{id:run.id,runId:run.run_id,senders:run.senders}};
+   return {kind:'prepared',workflowExecutionId:workflowId,manifest,run:{id:run.id,runId:run.run_id,senders:run.senders}};
   });
  }
  async commit(prepared:AgentDemoPreparation,result:AgentDemoParticipantsResult):Promise<number>{
   const manifest=this.manifest(prepared.manifest,prepared.manifest.mandateId,prepared.manifest.requestKey);
   return this.transaction(async c=>{
-   await this.ownedDemo(c,manifest.mandateId);
-   const request=(await c.query('SELECT * FROM agent_demo_mapping_requests WHERE request_key=$1 AND organization_id=$2 AND created_by=$3 AND mandate_id=$4 FOR UPDATE',[manifest.requestKey,this.actor.organizationId,this.actor.userId,manifest.mandateId])).rows[0];
-   if(!request||request.demo_run_id!==prepared.run.id||request.input_digest!==agentRecordDigest(manifest)||agentRecordDigest(request.manifest)!==agentRecordDigest(manifest))throw new AgentDemoProvisioningError('The original demo preparation changed.');
+   const workflowId=await this.ownedDemo(c,manifest.mandateId,prepared.workflowExecutionId??null),prefix=workflowId?'workflow_agent_demo_':'agent_demo_';
+   const request=(await c.query(`SELECT * FROM ${prefix}mapping_requests WHERE request_key=$1 AND organization_id=$2 AND created_by=$3 AND mandate_id=$4 FOR UPDATE`,[manifest.requestKey,this.actor.organizationId,this.actor.userId,manifest.mandateId])).rows[0];
+   if(!request||(workflowId&&request.workflow_execution_id!==workflowId)||request.demo_run_id!==prepared.run.id||request.input_digest!==agentRecordDigest(manifest)||agentRecordDigest(request.manifest)!==agentRecordDigest(manifest))throw new AgentDemoProvisioningError('The original demo preparation changed.');
    const run=await this.run(c,request.demo_run_id);await this.assertSources(c,manifest);
    if(result.runId!==run.run_id||result.demoId!==manifest.demoId||result.mappings.length!==manifest.people.length)throw new AgentDemoProvisioningError('The demo mapping response differs from its original request.');
-   const prior=(await c.query('SELECT result FROM agent_demo_mapping_receipts WHERE request_key=$1',[manifest.requestKey])).rows[0];
+   const prior=(await c.query(`SELECT result FROM ${prefix}mapping_receipts WHERE request_key=$1`,[manifest.requestKey])).rows[0];
    if(prior){if(prior.result.mappingDigest!==result.mappingDigest||agentRecordDigest(prior.result.mappings)!==agentRecordDigest(result.mappings))throw new AgentDemoProvisioningError('The original demo mapping receipt differs.');return prior.result.mappings.length;}
-   await c.query('INSERT INTO agent_demo_mapping_receipts(request_key,organization_id,mandate_id,demo_id,created_by,demo_run_id,result,result_digest) VALUES($1,$2,$3,$3,$4,$5,$6,$7)',[manifest.requestKey,this.actor.organizationId,manifest.mandateId,this.actor.userId,run.id,JSON.stringify(result),agentRecordDigest(result)]);
+   await c.query(`INSERT INTO ${prefix}mapping_receipts(${workflowId?'workflow_execution_id,':''}request_key,organization_id,mandate_id,demo_id,created_by,demo_run_id,result,result_digest) VALUES(${workflowId?'$8,':''}$1,$2,$3,$3,$4,$5,$6,$7)`,[manifest.requestKey,this.actor.organizationId,manifest.mandateId,this.actor.userId,run.id,JSON.stringify(result),agentRecordDigest(result),...(workflowId?[workflowId]:[])]);
+   // Keep the same transaction, row triggers and immutable conflict checks.
+   // One insert/read pair avoids 100 network round trips for fifty people.
+   await c.query(`INSERT INTO ${prefix}contact_mappings(${workflowId?'workflow_execution_id,':''}organization_id,mandate_id,demo_id,created_by,contact_id,source_revision,source_fingerprint,demo_run_id,request_key,wire,mapping_digest)
+    SELECT ${workflowId?'$8,':''}$1,$2,$2,$3,(entry.wire->>'sourcePersonId')::uuid,entry.wire->>'sourceRevision',entry.wire->>'sourceFingerprint',$4,$5,entry.wire,$7
+    FROM jsonb_array_elements($6::jsonb) WITH ORDINALITY AS entry(wire,position) ORDER BY entry.position
+    ON CONFLICT(demo_id,contact_id) DO NOTHING`,[this.actor.organizationId,manifest.mandateId,this.actor.userId,run.id,manifest.requestKey,JSON.stringify(result.mappings),result.mappingDigest,...(workflowId?[workflowId]:[])]);
+   const recorded=(await c.query(`SELECT contact_id,demo_run_id,wire FROM ${prefix}contact_mappings WHERE demo_id=$1 AND contact_id=ANY($2::uuid[])`,[manifest.demoId,result.mappings.map(wire=>wire.sourcePersonId)])).rows;
+   if(recorded.length!==result.mappings.length||new Set(result.mappings.map(wire=>wire.sourcePersonId)).size!==result.mappings.length)throw new AgentDemoProvisioningError('The complete immutable demo identity set could not be verified.');
    for(const wire of result.mappings){
-    await c.query('INSERT INTO agent_demo_contact_mappings(organization_id,mandate_id,demo_id,created_by,contact_id,source_revision,source_fingerprint,demo_run_id,request_key,wire,mapping_digest) VALUES($1,$2,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT(demo_id,contact_id) DO NOTHING',[this.actor.organizationId,manifest.mandateId,this.actor.userId,wire.sourcePersonId,wire.sourceRevision,wire.sourceFingerprint,run.id,manifest.requestKey,JSON.stringify(wire),result.mappingDigest]);
-    const current=(await c.query('SELECT demo_run_id,wire FROM agent_demo_contact_mappings WHERE demo_id=$1 AND contact_id=$2',[manifest.demoId,wire.sourcePersonId])).rows[0];
+    const current=recorded.find(row=>row.contact_id===wire.sourcePersonId);
     if(current?.demo_run_id!==run.id||agentRecordDigest(current?.wire)!==agentRecordDigest(wire))throw new AgentDemoProvisioningError('A different immutable demo identity is already recorded.');
    }
    const content={text:`Prepared ${result.mappings.length} simulated contacts for this demo. The company and person research stays real. This preparation does not approve or send messages.`,details:{demoRunId:run.id,requestKey:manifest.requestKey,count:result.mappings.length,outreachReady:false}};

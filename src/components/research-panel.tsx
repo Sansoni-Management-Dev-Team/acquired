@@ -43,7 +43,7 @@ export function candidatesArrivedForRun(jobs: ResearchJob[], startedJobId: strin
     (job.config.discoveryCandidate || (job.config.newBusinessIds?.length || 0) > 0),
   );
 }
-export type ResearchPanelData = { timings?: Record<string, PipelineTimings & { coverage?: CompanyResearchCoverage }>; pendingEnrichment?: { jobId: string; runId?: string; targetId?: string; purpose?: string }[]; active?: boolean; results?: { jobId: string; businessDomains?: string[]; added: number; updated: number; people: number }[]; enabled: boolean; jobs: ResearchJob[]; peopleJobs?: ResearchJob[]; companyJobs?: ResearchJob[]; findings: SavedResearchFinding[]; evidence?: Record<string, import("@/domain/evidence-status").EvidenceCounts> };
+export type ResearchPanelData = { workflow?: {id:string;state:string;preset:string}; timings?: Record<string, PipelineTimings & { coverage?: CompanyResearchCoverage }>; pendingEnrichment?: { jobId: string; runId?: string; targetId?: string; purpose?: string }[]; active?: boolean; results?: { jobId: string; businessDomains?: string[]; added: number; updated: number; people: number }[]; enabled: boolean; jobs: ResearchJob[]; peopleJobs?: ResearchJob[]; companyJobs?: ResearchJob[]; findings: SavedResearchFinding[]; evidence?: Record<string, import("@/domain/evidence-status").EvidenceCounts> };
 type Data = ResearchPanelData;
 // Workspace memberships change with saved evidence/results or run lifecycle,
 // while page counters and stage messages belong to the local progress display.
@@ -78,6 +78,7 @@ export function ResearchPanel({
   brief,
   onResultsChanged,
   showStartAction = true,
+  showCompaniesLink = true,
   onCandidatesFound,
   hideProgress = false,
   startedRunId,
@@ -87,6 +88,7 @@ export function ResearchPanel({
   brief?: AcquisitionBrief;
   onResultsChanged: (data: ResearchPanelData, changed: boolean) => void;
   showStartAction?: boolean;
+  showCompaniesLink?: boolean;
   hideProgress?: boolean;
   onCandidatesFound?: () => void;
 }) {
@@ -118,6 +120,9 @@ export function ResearchPanel({
     }
   }, [mandateId]);
   useActivePolling(refresh, { active: Boolean(data.active), intervalMs: 5000 });
+  const managed=Boolean(data.workflow);
+  const workflowPending=Boolean(data.workflow&&['accepted','researching'].includes(data.workflow.state));
+  const actionsEnabled=showStartAction&&!managed;
   const active = [...data.jobs, ...(data.peopleJobs || []), ...(data.companyJobs || [])].find(
     (j) => !terminalResearchStates.includes(j.status),
   );
@@ -183,7 +188,7 @@ export function ResearchPanel({
     void act({ ...job.config, requestId: randomUuid(), seeds, approved: true, discover: false, budget });
   }
   if (hideProgress) return null;
-  if (!showStartAction && !loading && data.enabled && !currentJob) return null;
+  if (!showStartAction && !loading && data.enabled && !currentJob && !data.workflow) return null;
   return (
     <section className="mx-auto my-[8vh] w-full max-w-[620px] space-y-5">
       {loading ? (
@@ -192,7 +197,7 @@ export function ResearchPanel({
         <p>Website research is awaiting activation.</p>
       ) : (
         <>
-          {!active && showStartAction && (
+          {!active && actionsEnabled && (
             <div className="space-y-2">
               <button className={button} disabled={busy || !brief?.naturalLanguage.trim() && !brief?.criteria.find(c => c.key === "subsectors")?.value.trim()} onClick={() => void act({ requestId: randomUuid(), fromBrief: true }, undefined, Boolean(onCandidatesFound))}>
                 Find & research businesses
@@ -200,12 +205,16 @@ export function ResearchPanel({
               <p className="text-xs text-[var(--muted)]">AI uses the saved brief to plan searches. Research providers receive search terms, source URLs and public page content. Provider charges may apply.</p>
             </div>
           )}
+          {workflowPending&&!currentJob&&(showStartAction?<p role="status">Preparing your saved research run…</p>:<CompanyPipelineProgress detail="Preparing your saved research run…"/>)}
+          {data.workflow?.state==='failed'&&<p role="alert">Research could not finish. Your saved results are still available.</p>}
+          {data.workflow?.state==='cancelled'&&<p role="status">Research stopped. Your saved results are still available.</p>}
+          {data.workflow?.preset==='live-research-test'&&!workflowPending&&<p>Research-only run. No outreach will be sent.</p>}
           {currentJob && <div className="space-y-3" role="status">
-            <ResearchProgress mandateId={mandateId} job={currentJob} jobs={runJobs} count={newBusinessCount} identified={identifiedBusinessCount} active={Boolean(active)} enriching={enriching.length} coverage={runId ? data.timings?.[runId]?.coverage : undefined} peopleSaved={peopleSaved} />
-            {showStartAction && !isCompanyPipeline(currentJob) && currentJob.config.mode === "automatic" && <DiscoveryCandidateList jobs={candidateJobs} searching={Boolean(active)} />}
-            {showStartAction && <ResearchRunOutcome showSummary={false} status={currentJob.status} remaining={remainingFor(currentJob).length} active={Boolean(active)} canResume={!currentJob.config.purpose} busy={busy} onResume={() => resume(currentJob)} goal={currentJob.config.targetBusinesses} saved={newBusinessCount} />}
-            {showStartAction && (currentJob.status === "failed" || currentJob.status === "partial" || currentJob.status === "cancelled") && currentJob.message && <p className="break-words text-sm text-[var(--muted)]">{currentJob.message}</p>}
-            {showStartAction && searchHistory.length > 0 && <details className="rounded-lg border border-[var(--border)] p-3 text-sm">
+            <ResearchProgress showCompaniesLink={showCompaniesLink} mandateId={mandateId} job={currentJob} jobs={runJobs} count={newBusinessCount} identified={identifiedBusinessCount} active={Boolean(active)} enriching={enriching.length} coverage={runId ? data.timings?.[runId]?.coverage : undefined} peopleSaved={peopleSaved} />
+            {actionsEnabled && !isCompanyPipeline(currentJob) && currentJob.config.mode === "automatic" && <DiscoveryCandidateList jobs={candidateJobs} searching={Boolean(active)} />}
+            {actionsEnabled && <ResearchRunOutcome showSummary={false} status={currentJob.status} remaining={remainingFor(currentJob).length} active={Boolean(active)} canResume={!currentJob.config.purpose} busy={busy} onResume={() => resume(currentJob)} goal={currentJob.config.targetBusinesses} saved={newBusinessCount} />}
+            {actionsEnabled && (currentJob.status === "failed" || currentJob.status === "partial" || currentJob.status === "cancelled") && currentJob.message && <p className="break-words text-sm text-[var(--muted)]">{currentJob.message}</p>}
+            {actionsEnabled && searchHistory.length > 0 && <details className="rounded-lg border border-[var(--border)] p-3 text-sm">
               <summary className="min-h-12 cursor-pointer content-center">Search activity · {searchHistory.length} attempts</summary>
               <ol className="space-y-3 pt-2">{searchHistory.map((attempt, i) => <li key={`${i}:${attempt.query}`}>
                 <p className="font-medium">{attempt.query}</p>
@@ -214,10 +223,10 @@ export function ResearchPanel({
               </li>)}</ol>
               {searchStopReason && <p className="mt-3 text-[var(--muted)]">{searchStopReason}</p>}
             </details>}
-            {showStartAction && !active && !currentJob.config.purpose && currentJob.config.runtime?.attempts.some(a => a.status === "failed" || /extraction failed/i.test(a.reason)) && <button className={button} disabled={busy} onClick={() => retryFailed(currentJob)}>Retry failed pages</button>}
-            {showStartAction && active && <button className={button} disabled={busy} onClick={() => act({action:"cancel"}, active.id)}>Stop research</button>}
-            {showStartAction && active?.status === "queued" && <button className={button} disabled={busy} onClick={() => act({action:"retry-dispatch"}, active.id)}>Reconnect job</button>}
-            {(showStartAction ? [...data.jobs, ...(data.peopleJobs || []), ...(data.companyJobs || [])] : []).filter(job => job.id !== active?.id && !job.config.discoveryCandidate && !terminalResearchStates.includes(job.status)).map(job => <ActiveResearchJob key={job.id} job={job} busy={busy} onCancel={() => act({action:"cancel"}, job.id)} onRetry={() => act({action:"retry-dispatch"}, job.id)} />)}
+            {actionsEnabled && !active && !currentJob.config.purpose && currentJob.config.runtime?.attempts.some(a => a.status === "failed" || /extraction failed/i.test(a.reason)) && <button className={button} disabled={busy} onClick={() => retryFailed(currentJob)}>Retry failed pages</button>}
+            {actionsEnabled && active && <button className={button} disabled={busy} onClick={() => act({action:"cancel"}, active.id)}>Stop research</button>}
+            {actionsEnabled && active?.status === "queued" && <button className={button} disabled={busy} onClick={() => act({action:"retry-dispatch"}, active.id)}>Reconnect job</button>}
+            {(actionsEnabled ? [...data.jobs, ...(data.peopleJobs || []), ...(data.companyJobs || [])] : []).filter(job => job.id !== active?.id && !job.config.discoveryCandidate && !terminalResearchStates.includes(job.status)).map(job => <ActiveResearchJob key={job.id} job={job} busy={busy} onCancel={() => act({action:"cancel"}, job.id)} onRetry={() => act({action:"retry-dispatch"}, job.id)} />)}
           </div>}
 
         </>
@@ -461,8 +470,8 @@ export function ActiveResearchJob({ job, busy, onCancel, onRetry }: { job: Resea
   </div>;
 }
 
-export function ResearchProgress({ job, jobs = [job], active, enriching, mandateId, coverage, peopleSaved }: { job: ResearchJob; jobs?: ResearchJob[]; count: number; identified: number; active: boolean; enriching: number; mandateId?: string; coverage?: CompanyResearchCoverage; peopleSaved?: number }) {
-  if (isCompanyPipeline(job) || !job.config.purpose) return <CompanyPipelineProgress job={job} jobs={jobs} mandateId={mandateId} coverage={coverage} peopleSaved={peopleSaved} />;
+export function ResearchProgress({ job, jobs = [job], active, enriching, mandateId, coverage, peopleSaved, showCompaniesLink = true }: { job: ResearchJob; jobs?: ResearchJob[]; count: number; identified: number; active: boolean; enriching: number; mandateId?: string; coverage?: CompanyResearchCoverage; peopleSaved?: number; showCompaniesLink?: boolean }) {
+  if (isCompanyPipeline(job) || !job.config.purpose) return <CompanyPipelineProgress showCompaniesLink={showCompaniesLink} job={job} jobs={jobs} mandateId={mandateId} coverage={coverage} peopleSaved={peopleSaved} />;
   const running = jobs.filter(j => !terminalResearchStates.includes(j.status));
   const discovery = running.find(j => !j.config.purpose && !j.config.discoveryCandidate);
   const researching = running.filter(j => !j.config.purpose);

@@ -7,13 +7,13 @@ import {publishedTeamMembers,type PublishedTeamMember} from './company-team-evid
 export type {PublishedTeamMember,PublishedAccreditation,RelatedDomainAssociation};
 import { cloudflareSearchResults } from './cloudflare-web-search';
 import { readIdentityWebsite } from './abn-identity-resolver';
-import { providerJsonRequest } from './observability/provider-request';
+import { providerDiagnostics,providerJsonRequest } from './observability/provider-request';
 import { localReaderEndpoint } from '../../cloudflare/research/local-reader';
-import { ResearchProviderError } from '@/domain/research-provider-error';
+import { providerRetryDelay,ResearchProviderError } from '@/domain/research-provider-error';
 
 export type CompanyMissingField = 'description'|'company_emails'|'company_phones'|'year_founded'|'acn'|'website_address'|'employee_count'|'revenue'|'accreditation_contacts'|'team_members'|'accreditations';
 export type CompanyMissingFieldFact = {field:CompanyMissingField;value:unknown;sourceUrl:string;quote:string;capturedAt:string;scope?:string;currency?:string|null;period?:string|null;evidenceType:'published';reader:string;readStartedAt?:string;readElapsedMs?:number;association?:RelatedDomainAssociation};
-export type CompanyMissingFieldAttempt = {kind:'page'|'document'|'search';url?:string;field?:CompanyMissingField;status:'succeeded'|'failed'|'rejected';startedAt:string;elapsedMs:number;reason?:string;category?:string;query?:string;resultCount?:number};
+export type CompanyMissingFieldAttempt = {kind:'page'|'document'|'search';url?:string;field?:CompanyMissingField;status:'succeeded'|'failed'|'rejected'|'deferred';startedAt:string;elapsedMs:number;reason?:string;category?:string;retryAfterMs?:number;pageReadStarted?:boolean;query?:string;resultCount?:number};
 export type CompanyMissingFieldResearchResult = {facts:CompanyMissingFieldFact[];fields:Partial<Record<CompanyMissingField,{status:'reported'|'not_disclosed'|'research_incomplete';reason?:string}>>;attempts:CompanyMissingFieldAttempt[];registryContacts:AccreditationContact[];teamMembers?:PublishedTeamMember[];accreditations?:PublishedAccreditation[];relatedDomains?:RelatedDomainAssociation[]};
 export type MissingFieldPage = {url:string;html?:string;markdown?:string;truncated?:boolean;reader:string;onlyMainContent?:false};
 export type CompanyMissingFieldResearchInput = {name:string;website:string;missingFields:CompanyMissingField[];deadline?:number;jobId?:string;maxPages?:number;maxSearchQueries?:number;knownRegistryUrls?:string[];raw?:Record<string,unknown>};
@@ -23,6 +23,12 @@ export type CompanyMissingFieldResearchDependencies = {
  search?(query:string,field:CompanyMissingField,deadline:number):Promise<Array<{url:string;title?:string;snippet?:string}>>;
  now?:()=>number;
 };
+
+// These two reader responses reject admission before fetching the public page.
+// Origin failures and unknown 429s must still consume their actual read attempt.
+class MissingFieldReaderDeferred extends ResearchProviderError {
+ constructor(category:'reader_busy'|'domain_backoff',public readonly retryAfterMs:number){super(category,429);}
+}
 
 export function missingFieldSearchQuery(input:Pick<CompanyMissingFieldResearchInput,'name'|'website'>,field:CompanyMissingField) {
  const domain=researchDomain(input.website),terms:Record<CompanyMissingField,string>={description:'about company services',company_emails:'contact email',company_phones:'contact phone',year_founded:'about founded established',acn:'legal ACN',website_address:'contact address',employee_count:'employees workforce headcount',revenue:'annual revenue turnover currency financial year',accreditation_contacts:'NATA accreditation contact',accreditations:'NATA accreditation ISO standard',team_members:'team people staff scientists management'};
@@ -74,9 +80,28 @@ export function createCompanyMissingFieldResearch(deps:CompanyMissingFieldResear
   const enqueue=(url:string)=>{if(navigable(url)&&allowed(url)&&!visited.has(url)&&!queue.includes(url))queue.push(url);};
   const observed=(field:CompanyMissingField)=>facts.some(f=>f.field===field)||(field==='accreditation_contacts'&&registryContacts.length>0);
   const visit=async(url:string,readCeiling=maxPages,pageDeadline=deadline)=>{
-   if(visited.has(url))return;if(readCount>=readCeiling||now()>=pageDeadline){limited=true;return;}visited.add(url);readCount++;const at=now();
+   if(visited.has(url))return;if(readCount>=readCeiling||now()>=pageDeadline){limited=true;return;}const at=now();
    try{
-    let page:MissingFieldPage;try{page=await deps.readPage(url,pageDeadline);}catch{attempts.push({kind:'page',url,status:'failed',startedAt:new Date(at).toISOString(),elapsedMs:Math.max(0,now()-at),reason:'Initial public page read unavailable'});if(readCount>=readCeiling||now()>=pageDeadline)throw Error('Retry budget unavailable');readCount++;page=await deps.readPage(url,pageDeadline);}
+    let page:MissingFieldPage,startedFailures=0;
+    for(;;){
+     if(now()>=pageDeadline){limited=true;throw Error('Public page read deadline reached');}
+     readCount++;
+     try{page=await deps.readPage(url,pageDeadline);visited.add(url);break;}
+     catch(error){
+      if(error instanceof MissingFieldReaderDeferred){
+       readCount--;
+       attempts.push({kind:'page',url,status:'deferred',startedAt:new Date(at).toISOString(),elapsedMs:Math.max(0,now()-at),reason:'Public page read waiting for reader admission',category:error.category,retryAfterMs:error.retryAfterMs,pageReadStarted:false});
+       // Keep the same deadline and URL eligibility; admission is not a page read.
+       if(now()+error.retryAfterMs>=pageDeadline){limited=true;throw error;}
+       await new Promise(resolve=>setTimeout(resolve,error.retryAfterMs));
+       continue;
+      }
+      visited.add(url);
+      if(startedFailures++>0)throw error;
+      attempts.push({kind:'page',url,status:'failed',startedAt:new Date(at).toISOString(),elapsedMs:Math.max(0,now()-at),reason:'Initial public page read unavailable',...(error instanceof ResearchProviderError?{category:error.category}:{})});
+      if(readCount>=readCeiling||now()>=pageDeadline)throw error;
+     }
+    }
     if(!allowed(page.url)||!nataListingUrl(url)&&researchDomain(page.url)!==researchDomain(url))throw Error('Source redirected outside company identity');
     const capturedAt=new Date(now()).toISOString(),readStartedAt=new Date(at).toISOString(),readElapsedMs=Math.max(0,now()-at);const text=visibleHtml(page.html||page.markdown||'');
     if(researchDomain(page.url)===domain){identity.addresses!.push(...publishedCompanyAddresses(text));identity.phones!.push(...[...text.matchAll(/\b(?:P|Phone|Telephone)\s*[:.]?\s*(\+?\d[\d() -]{7,24})/gi)].map(m=>m[1]));identity.emails!.push(...[...text.matchAll(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi)].map(m=>m[0]));}
@@ -89,7 +114,7 @@ export function createCompanyMissingFieldResearch(deps:CompanyMissingFieldResear
     if(nataListingUrl(page.url)){const accreditation=parsePublishedAccreditation(page.html||'',page.url,domain,capturedAt,identity);if(accreditation&&requested.includes('accreditations')){accreditations.push(accreditation);facts.push({field:'accreditations',value:accreditation,sourceUrl:page.url,quote:accreditation.quote,capturedAt,evidenceType:'published',reader:page.reader,readStartedAt,readElapsedMs});}const contact=parseAccreditationContact(page.html||'',page.url,domain,capturedAt,identity);if(contact){registryContacts.push(contact);facts.push({field:'accreditation_contacts',value:contact,sourceUrl:page.url,quote:`Published ${contact.registry} accreditation contact`,capturedAt,evidenceType:'published',reader:page.reader,readStartedAt,readElapsedMs});}}
     for(const link of pageLinks(page))if(priority(link)<3||nataListingUrl(link))enqueue(link);
     attempts.push({kind:'page',url:page.url,status:'succeeded',startedAt:new Date(at).toISOString(),elapsedMs:Math.max(0,now()-at),...(page.truncated?{reason:'Full page truncated at bounded content limit'}:{})});if(page.truncated)limited=true;
-   }catch{attempts.push({kind:'page',url,status:'failed',startedAt:new Date(at).toISOString(),elapsedMs:Math.max(0,now()-at),reason:'Public page read unavailable'});}
+   }catch(error){attempts.push({kind:'page',url,status:'failed',startedAt:new Date(at).toISOString(),elapsedMs:Math.max(0,now()-at),reason:'Public page read unavailable',...(error instanceof ResearchProviderError?{category:error.category}:{}),...(error instanceof MissingFieldReaderDeferred?{retryAfterMs:error.retryAfterMs,pageReadStarted:false}:{})});}
   };
   const discoveryDeadline=Math.min(deadline,started+45000),initialReadCeiling=Math.min(3,Math.max(1,maxPages-2));
   await visit(home,initialReadCeiling,discoveryDeadline);
@@ -148,6 +173,11 @@ export function createMissingFieldCrawlReader(env:MissingFieldCrawlEnvironment={
   if(!local&&(new URL(endpoint).protocol!=='https:'||!secret))throw Error('Authenticated HTTPS Crawl4AI service required');
   const remaining=Math.min(40000,deadline-Date.now());if(remaining<=0)throw Error('Missing-field read deadline reached');
   const {response,data}=await providerJsonRequest<{url?:string;html?:string;markdown?:string;truncated?:boolean;only_main_content?:boolean}>(fetcher,endpoint,{method:'POST',headers:{'Content-Type':'application/json',...(!local?{authorization:`Bearer ${secret}`}:{})},body:JSON.stringify({url,only_main_content:false}),signal:AbortSignal.timeout(remaining),cache:'no-store'},{provider:'local-crawl4ai',operation:'company_missing_fields_full_page'});
+  if(!response.ok){
+   const {category}=providerDiagnostics(response.status,response.headers,data,'local-crawl4ai');
+   if(response.status===429&&(category==='reader_busy'||category==='domain_backoff'))throw new MissingFieldReaderDeferred(category,providerRetryDelay(response.headers.get('retry-after')));
+   throw new ResearchProviderError(category,response.status);
+  }
   if(!response.ok||!data.url||!publicResearchUrl(data.url)||data.only_main_content!==false||typeof data.html!=='string'||!data.html.trim())throw Error('Full-page Crawl4AI contract unavailable');
   return{url:data.url,html:data.html.slice(0,250000),markdown:data.markdown?.slice(0,100000),truncated:data.truncated===true,reader:local?'local-crawl4ai':'crawl4ai-http',onlyMainContent:false};
  };

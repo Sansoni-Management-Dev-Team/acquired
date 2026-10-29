@@ -2,6 +2,7 @@ import {buildAllDiscoveredCompanyPolicy} from '@/domain/research-discovery-polic
 import {emptyBrief} from '@/domain/acquisition';
 import { afterEach,beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
+  workflow: vi.fn(),
   session: vi.fn(),
   enabled: vi.fn(),
   worker: vi.fn(),
@@ -22,6 +23,8 @@ const mocks = vi.hoisted(() => ({
   schedule: vi.fn(),
   recoverStopped: vi.fn(),
 }));
+vi.mock('@/lib/acquisition-workflow-research',()=>({findMandateWorkflow:mocks.workflow}));
+vi.mock('@/lib/agent-runtime',()=>({agentPool:()=>({})}));
 vi.mock("@/db/client", () => ({ requireDb: () => ({ select: () => ({ from: () => ({ where: () => ({ limit: async () => [{ metadata: JSON.stringify({ researchSettings: { defaultTargetBusinesses: 30 } }) }] }) }) }) }) }));
 vi.mock("@/lib/brief-research", () => ({ generateBriefResearchScope: mocks.scope, briefResearchGeography: mocks.geography, briefResearchSources: mocks.sources }));
 vi.mock("@/lib/research-scheduler", () => ({ scheduleResearchRun: mocks.schedule }));
@@ -365,4 +368,28 @@ it('retains the exact saved V4 company-only policy on normal continuation',async
  mocks.get.mockResolvedValue({mandateId:id,status:'partial',seeds:[],config:{...body,workflow:'business',mode:'automatic',pipelineDesign:'hybrid-firmable-v1',targetBusinesses:20,companyDiscoveryPolicy:policy,includeCompanyPeople:false,includePhones:false,findPeople:false,companyOnly:true,runtime:{remaining:['https://remaining.example.com/'],visited:[],attempts:[]}}});mocks.findings.mockResolvedValue([]);
  expect((await POST(request({...body,continueFrom:jobId,includeCompanyPeople:true,includePhones:true}),context)).status).toBe(202);
  expect(mocks.create.mock.calls[0][3]).toMatchObject({companyDiscoveryPolicy:policy,companyOnly:true,includeCompanyPeople:false,includePhones:false,findPeople:false});
+});
+
+it("preserves the saved workflow identity for a managed continuation", async () => {
+ const {acquisitionWorkflowContext}=await import('@/lib/acquisition-workflow-context');
+ const workflowExecutionId='00000000-0000-4000-8000-000000000099';
+ mocks.get.mockResolvedValue({mandateId:id,organizationId:'org-a',createdBy:'user-a',workflowExecutionId,status:'partial',seeds:[],config:{...body,runtime:{remaining:['https://remaining.example.com/'],visited:[],attempts:[]}}});
+ mocks.findings.mockResolvedValue([]);
+ mocks.create.mockImplementation(async()=>{expect(acquisitionWorkflowContext()).toEqual({id:workflowExecutionId,organizationId:'org-a',ownerUserId:'user-a'});return{id:jobId,status:'queued'};});
+ expect((await POST(request({...body,continueFrom:jobId}),context)).status).toBe(202);
+});
+it("rejects a managed continuation owned by another user", async () => {
+ mocks.get.mockResolvedValue({mandateId:id,organizationId:'org-a',createdBy:'other',workflowExecutionId:'00000000-0000-4000-8000-000000000099',status:'partial',seeds:[],config:{...body,runtime:{remaining:['https://remaining.example.com/'],visited:[],attempts:[]}}});
+ expect((await POST(request({...body,continueFrom:jobId}),context)).status).toBe(404);
+ expect(mocks.create).not.toHaveBeenCalled();expect(mocks.worker).not.toHaveBeenCalled();
+});
+
+it.each(['accepted','researching','ready','failed','cancelled'])('reports saved workflow %s without losing initial polling',async state=>{
+ vi.stubEnv('ACQUISITION_WORKFLOW_SCHEMA_READY','true');
+ mocks.workflow.mockResolvedValue({id:jobId,state,preset:'live-research-test'});
+ mocks.list.mockResolvedValue([]);mocks.findings.mockResolvedValue([]);mocks.targetEvidence.mockResolvedValue([]);mocks.resultCounts.mockResolvedValue([]);
+ const result=await (await GET(new Request('https://app.example.com'),context)).json();
+ expect(result.workflow).toEqual({id:jobId,state,preset:'live-research-test'});
+ expect(result.active).toBe(['accepted','researching'].includes(state));
+ vi.unstubAllEnvs();
 });

@@ -13,10 +13,10 @@ import type {ConnectionBinding} from '../../communications/packages/contracts/sr
 export async function actorCommunicationsClient(actor:CampaignActor,options:{setupLane?:CommunicationsLane}={}):Promise<CommunicationsClient>{
  if(options.setupLane!==undefined&&!['primary','demo','testing','hosted'].includes(options.setupLane))throw Error('Unknown communications setup lane');
  if(process.env.COMMUNICATIONS_RUNTIME_ENABLED!=='true')throw Error('Communications runtime unavailable');
- await withCampaignDb(actor,async()=>undefined);
+ await withCampaignDb(actor,async()=>undefined,{readOnly:true});
  function construct(lane:CommunicationsLane){
   try{
-   if(lane==='hosted'){const descriptor=readHostedDemoCommunicationsDescriptor(process.env,actor),encoded=process.env.AGENT_HOSTED_DEMO_SERVICE_AUTH_KEY??'';if(!/^(?:[A-Za-z0-9_-]{43}|[a-f0-9]{64})$/.test(encoded))throw Error();const key=Buffer.from(encoded,encoded.length===64?'hex':'base64url');if(key.length!==32)throw Error();const signer=createScopedServiceAuth({key,audience:'communications',applicationId:'acquire',authorize:async()=>false});return new CommunicationsClient({baseUrl:descriptor.serviceOrigin,contractVersion:'1',apiKey:signer.issue(descriptor.actor),allowLoopbackHttp:false,timeoutMs:28000,hostedDemo:{capability:'hosted-demo',origin:descriptor.setupOrigin}});}
+   if(lane==='hosted'){const descriptor=readHostedDemoCommunicationsDescriptor(process.env,actor),encoded=process.env.AGENT_HOSTED_DEMO_SERVICE_AUTH_KEY??'';if(!/^(?:[A-Za-z0-9_-]{43}|[a-f0-9]{64})$/.test(encoded))throw Error();const key=Buffer.from(encoded,encoded.length===64?'hex':'base64url');if(key.length!==32)throw Error();const signer=createScopedServiceAuth({key,audience:'communications',applicationId:'acquire',issuedAtBackdateMs:1000,authorize:async()=>false});return new CommunicationsClient({baseUrl:descriptor.serviceOrigin,contractVersion:'1',apiKey:signer.issue(descriptor.actor),allowLoopbackHttp:false,timeoutMs:28000,submitTimeoutMs:55000,hostedDemo:{capability:'hosted-demo',origin:descriptor.setupOrigin}});}
    const env=lane==='testing'?readTestingCommunicationsEnvironment(process.env,actor):lane==='demo'?readDemoCommunicationsEnvironment(process.env):process.env;
    const encoded=env.COMMUNICATIONS_SCOPED_AUTH_KEY||'';if(!/^[A-Za-z0-9+/]{43}=$/.test(encoded))throw Error();const key=Buffer.from(encoded,'base64');if(key.length!==32||key.toString('base64')!==encoded)throw Error();
    const applicationId=env.COMMUNICATIONS_APPLICATION_ID||'acquire';const signer=createScopedServiceAuth({key,audience:'communications',applicationId,authorize:async()=>false});
@@ -41,7 +41,7 @@ export async function actorCommunicationsClient(actor:CampaignActor,options:{set
      await withCampaignDb(actor,async c=>{
       const saved=await c.query("SELECT id FROM public.communication_bindings WHERE application_id=$1 AND organization_id=$2 AND owner_user_id=$3 AND service_connection_id=$4 AND service_account_id=$5 AND generation=$6 AND channel=$7 AND platform=$8 AND backend=$9 AND authority='service'",[b.applicationId,b.tenantId,b.ownerId,b.connectionId,b.accountId,b.generation,b.channel,b.platform,b.backend]);
       if(saved.rows.length!==1)throw Error('Recorded hosted setup account unavailable');
-     });
+     },{readOnly:true});
      provisioningStatus=true;
     }
    }

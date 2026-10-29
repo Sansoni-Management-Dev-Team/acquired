@@ -1,3 +1,4 @@
+import {beforeTransportWrite} from '../../core/src/transport-boundary';
 import {businessNow,type BusinessClock} from '../../core/src/business-clock';
 import {createHash} from 'node:crypto';
 import { types } from 'node:util';
@@ -333,6 +334,8 @@ export function createUnipileV1EmailAdapter(options: UnipileV1EmailAdapterOption
                     payload.custom_headers!.push({ name: 'Reply-To', value: input.message.replyTo });
                 budget.check();
                 budget.writing = true;
+                await budget.call(()=>beforeTransportWrite(input.snapshot));
+                budget.check();
                 const result = copied(await budget.call(() => sendEmail(providerAccountId, payload, input.snapshot.key, { signal: budget.signal })));
                 if (!record(result))
                     return { status: 'unknown' };

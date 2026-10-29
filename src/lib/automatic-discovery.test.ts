@@ -1,4 +1,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
+// Scheduling scan assertions exclude timing persistence, which has separate
+// saved-job authority coverage in research-timing-workflow-context.test.ts.
+vi.mock('@/db/research-timing-repository', () => ({ saveResearchTimingSpans: async () => undefined }));
 const mocks = vi.hoisted(() => ({ get: vi.fn(), create: vi.fn(), cancelRun: vi.fn(), cancelDiscoveryCandidates: vi.fn(), where: vi.fn(), worker: vi.fn() }));
 vi.mock('@/db/client', () => ({ requireDb: () => ({ select: () => ({ from: () => ({ where: mocks.where }) }) }) }));
 vi.mock('@/db/research-repository', () => ({ ResearchRepository: class { get = mocks.get; create = mocks.create; cancelRun = mocks.cancelRun; cancelDiscoveryCandidates = mocks.cancelDiscoveryCandidates; } }));

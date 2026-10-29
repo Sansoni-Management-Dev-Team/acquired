@@ -530,13 +530,26 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
             fail();
     }
     function mutation(input: unknown, withOutcome: boolean) {
-        const raw = record(input, ['token', 'record', ...(withOutcome ? ['outcome'] : [])]);
+        const raw = record(input, ['token', 'record', ...(withOutcome ? ['outcome'] : [])], [withOutcome?'closeBeforeWrite':'transportBoundary']);
+        for(const k of ['closeBeforeWrite','transportBoundary'])if(raw[k]!==undefined&&raw[k]!==true)fail();
         if (!id(raw.token))
             fail();
         const provided = parsedRecord(raw.record);
-        return { token: raw.token, provided, ...(withOutcome ? { outcome: outcome(raw.outcome, provided.snapshot, base(provided)) } : {}) };
+        return { token: raw.token, provided, closeBeforeWrite:raw.closeBeforeWrite===true,transportBoundary:raw.transportBoundary===true, ...(withOutcome ? { outcome: outcome(raw.outcome, provided.snapshot, base(provided)) } : {}) };
     }
     return {
+        async startTransportWrite(input) {
+            const m=mutation(input,false);
+            await transaction(async c=>{
+                await tenant(c);if(!await generation(c,true))fail();await account(c);if(!await grant(c))fail();
+                const found=await row(c,m.provided.snapshot.key,true);if(!found)fail();
+                const current=read(found,m.provided.snapshot);
+                if(m.provided.state!=='dispatching'||!isDeepStrictEqual(base(current),base(m.provided)))fail();
+                await owned(c,found,m.token,'dispatching');
+                const changed=await c.query(`UPDATE communications.dispatch_transport_boundaries SET state='write_started',resolved_at=clock_timestamp() WHERE journal_id=$1 AND application_id=$2 AND tenant_id=$3 AND owner_id=$4 AND claim_token=$5 AND fencing_token=$6::bigint AND lease_owner_token=$7 AND state='prewrite' RETURNING journal_id`,[found.id,...scopes,m.token,found.fencing_token,worker]);
+                if(changed.rows.length!==1||!await grant(c))fail();await c.query('COMMIT');
+            });
+        },
         async readAdmission(input) {
             const snapshot = snap(input);
             return transaction(async (c) => {
@@ -594,7 +607,15 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
                     found = changed.rows[0];
                     original = read(found, snapshot);
                 }
-                if (found.quota_reserved !== false || original.state !== 'completed' || original.outcome.status === 'submitted') {
+                let closedBeforeWrite=false;
+                if(found.quota_reserved===true&&original.state==='completed'&&original.outcome.status!=='submitted'){
+                    const installed=await c.query("SELECT to_regclass('communications.dispatch_transport_boundaries') IS NOT NULL AS present");
+                    if(installed.rows[0]?.present===true){
+                        const proof=await c.query(`SELECT journal_id FROM communications.dispatch_transport_boundaries WHERE journal_id=$1 AND application_id=$2 AND tenant_id=$3 AND owner_id=$4 AND claim_token=$5 AND fencing_token=$6::bigint AND lease_owner_token=$7 AND state='closed_no_write' AND resolved_at IS NOT NULL FOR SHARE`,[found.id,...scopes,found.claim_token,found.fencing_token,found.lease_owner_token]);
+                        closedBeforeWrite=proof.rows.length===1;
+                    }
+                }
+                if ((found.quota_reserved !== false&&!closedBeforeWrite) || original.state !== 'completed' || original.outcome.status === 'submitted') {
                     await c.query('COMMIT');
                     return null;
                 }
@@ -765,6 +786,7 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
                         await owned(c, found, m.token);
                         if (!await grant(c) || !await generation(c, true))
                             fail();
+                        if(m.transportBoundary)await c.query(`INSERT INTO communications.dispatch_transport_boundaries(journal_id,application_id,tenant_id,owner_id,claim_token,fencing_token,lease_owner_token,state) VALUES($1,$2,$3,$4,$5,$6::bigint,$7,'prewrite')`,[found.id,...scopes,m.token,found.fencing_token,worker]);
                         const admissionId = randomUUID();
                         await c.query(`INSERT INTO communications.dispatch_admissions(id,journal_id,application_id,tenant_id,owner_id,connection_id,generation,account_id,operation_key,payload_digest,permit_id,intent_digest,claim_token,fencing_token,lease_owner_token,service_revision${options.businessClock?',business_admitted_at':''}) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::bigint,$15,$16::bigint${options.businessClock?','+businessSql(options.businessClock):''})`, [admissionId, found.id, ...scopes, fixed.connectionId, fixed.generation, fixed.accountId, current.snapshot.key, current.snapshot.payloadDigest, permit.permitId, permit.intentDigest, m.token, found.fencing_token, worker, revision]);
                         const changed = await c.query(`UPDATE communications.operation_journal SET state='dispatching',quota_reserved=true,updated_at=clock_timestamp() WHERE id=$1 AND state='claimed' AND claim_token=$2 AND claim_until>clock_timestamp() AND NOT quota_reserved AND EXISTS(SELECT 1 FROM communications.account_leases l WHERE l.account_id=communications.operation_journal.account_id AND l.owner_token=$3 AND l.fencing_token=communications.operation_journal.fencing_token AND l.expires_at>clock_timestamp()) RETURNING ${columns}`, [found.id, m.token, worker]);
@@ -798,6 +820,7 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
             let m: ReturnType<typeof mutation>;
             try {
                 m = mutation(input, true);
+                if(m.closeBeforeWrite&&['submitted','unknown'].includes(m.outcome!.status))fail();
                 if (m.outcome?.status === 'submitted' && !['dispatching', 'completed'].includes(m.provided.state))
                     fail();
             }
@@ -861,6 +884,12 @@ export function createPostgresDispatchJournal(inputOptions: PostgresDispatchJour
                         fail();
                     await c.query('COMMIT');
                     return completed;
+                }
+                if(m.closeBeforeWrite){
+                    if(current.state!=='dispatching'||wanted.status==='unknown')fail();
+                    await owned(c,found,m.token,'dispatching');
+                    const closed=await c.query(`UPDATE communications.dispatch_transport_boundaries SET state='closed_no_write',resolved_at=clock_timestamp() WHERE journal_id=$1 AND application_id=$2 AND tenant_id=$3 AND owner_id=$4 AND claim_token=$5 AND fencing_token=$6::bigint AND lease_owner_token=$7 AND state='prewrite' RETURNING journal_id`,[found.id,...scopes,m.token,found.fencing_token,worker]);
+                    if(closed.rows.length!==1)fail();
                 }
                 const encrypted = wanted.status === 'unknown' ? null : seal(current.snapshot, 'outcome', wanted);
                 const changed = await c.query(`UPDATE communications.operation_journal SET state=$5,outcome_status=$6,encrypted_outcome=$7,outcome_key_version=$8,updated_at=clock_timestamp() WHERE application_id=$1 AND tenant_id=$2 AND owner_id=$3 AND operation_key=$4 AND state=$10 AND claim_token=$9 AND quota_reserved=$11 AND ($12::boolean OR (claim_until>clock_timestamp() AND EXISTS(SELECT 1 FROM communications.account_leases l WHERE l.account_id=communications.operation_journal.account_id AND l.owner_token=communications.operation_journal.lease_owner_token AND l.fencing_token=communications.operation_journal.fencing_token AND l.expires_at>clock_timestamp()))) RETURNING ${columns}`, [...scopes, current.snapshot.key, target, wanted.status === 'unknown' ? null : wanted.status, encrypted?.json ?? null, encrypted?.version ?? null, m.token, current.state, current.state === 'dispatching', current.state === 'dispatching' && wanted.status === 'unknown']);

@@ -1,3 +1,4 @@
+import {withResearchJobWorkflow} from './acquisition-workflow-context';
 import {AcquisitionRepository} from '@/db/acquisition-repository';
 import {lockResearchPersistence} from './research-persistence-lock';
 import { contactCompanyEligible, contactDeadlineAdmits } from '@/domain/company-contact-policy';
@@ -10,7 +11,7 @@ import type { ResearchConfig } from '@/domain/research';
 import { researchWorker } from './research-service';
 import { recoverFirmableRefreshes } from './firmable-run-recovery';
 
-type Job = typeof researchJobs.$inferSelect;
+type Job = Omit<typeof researchJobs.$inferSelect,'workflowExecutionId'> & {workflowExecutionId?:string|null};
 type Database=ReturnType<typeof requireDb>;
 async function canonicalPeopleLock(tx:Database,job:Job){
  await lockResearchPersistence(tx,job.organizationId);
@@ -84,7 +85,9 @@ export async function tickCompanyPeople(job: Job, stopped = false) {
     const linkedIds = (lockedRoot.config as ResearchConfig).companyPeopleRunIds || [];
     const current = linkedIds.length ? await tx.select().from(firmableSyncRuns).where(and(eq(firmableSyncRuns.organizationId, job.organizationId), inArray(firmableSyncRuns.id, linkedIds))) : [];
     const progress = companyPeopleProgress(current);
-    await tx.update(researchJobs).set({ updatedAt: ['complete','partial','failed','cancelled'].includes(lockedRoot.status) ? lockedRoot.updatedAt : new Date(), config: sql`${researchJobs.config} || ${JSON.stringify({ companyPeopleProgress: progress })}::jsonb` }).where(eq(researchJobs.id, job.id));
+    // Counter maintenance must not impersonate progress by the company workflow.
+    // Keep its execution timestamp and terminal severity untouched.
+    await tx.update(researchJobs).set({ config: sql`${researchJobs.config} || ${JSON.stringify({ companyPeopleProgress: progress })}::jsonb` }).where(eq(researchJobs.id, job.id));
     return progress;
   });
 }
@@ -120,5 +123,5 @@ export async function queueCompanyPeople(job: Job, targetId: string, companyId: 
 /** All recovery entry points share the root's locked admission policy. */
 export async function recoverAutomaticCompanyPeople(organizationId: string, mandateId: string) {
   const roots = await requireDb().select().from(researchJobs).where(and(eq(researchJobs.organizationId, organizationId), eq(researchJobs.mandateId, mandateId), sql`jsonb_array_length(COALESCE(${researchJobs.config}->'companyPeopleRunIds', '[]'::jsonb)) > 0`, sql`${researchJobs.config}->>'parentJobId' IS NULL`));
-  for (const root of roots) await tickCompanyPeople(root);
+  for (const root of roots) await withResearchJobWorkflow(root,()=>tickCompanyPeople(root));
 }

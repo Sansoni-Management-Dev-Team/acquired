@@ -1,3 +1,4 @@
+import {markTransportBoundaryAdapter} from '../../core/src/transport-boundary';
 import {createLocalSyncEventVerifier,type LocalSyncEventsOptions} from '../../core/src/local-sync-event';
 import {businessNow,type BusinessClock} from '../../core/src/business-clock';
 import type { ConnectionManagementPort,ManagedConnection } from '../../contracts/src/management';
@@ -448,7 +449,7 @@ export function createConfiguredUnipileV1Runtime(options: ConfiguredUnipileV1Run
                 provider = createV1SocialRuntime({ connection: options.lookupOnly ? { ...connection, active: true } : connection, store, provider: fixed.provider, ownerReader: reader, businessClock:fixed.businessClock });
             if (options.lookupOnly)
                 return { ready: async (requested) => { assertSameBinding(b, requested); return { status: 'review', code: 'reconnect' }; }, submit: async (requested) => { assertSameBinding(b, requested.snapshot.binding); return { status: 'review', code: 'reconnect' }; }, lookup: provider.lookup };
-            return provider;
+            return markTransportBoundaryAdapter(provider);
         },
         async receiptDetails(requested, lookup, accepted) {
             const b = binding(scope({ applicationId: requested.applicationId, tenantId: requested.tenantId, ownerId: requested.ownerId }), requested);

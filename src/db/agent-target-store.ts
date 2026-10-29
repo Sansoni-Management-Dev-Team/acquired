@@ -1,3 +1,4 @@
+import {nativeControlReceiptSchema} from '@/domain/agent-execution';
 import type {AgentReviewContextOperation} from './agent-review-context';
 import {loadMandateExecutionContext} from '@/lib/mandate-execution-context';
 import {agentPersonChannelRecipientSchema} from '@/domain/agent-person-channel';
@@ -28,6 +29,24 @@ function allocationFailureCategory(cause:unknown):AllocationFailureCategory{
  return 'allocation_needs_review';
 }
 export class AgentTargetStore extends AgentResearchStore{
+ /** Historical completion is a receipt, not renewed authority. Read only the
+  * original owned command; never acquire today's workflow/send gate to replay it. */
+ async completedOutreachStart(threadId:string,mandateId:string,key:string){
+  const request='control:'+digest(z.string().trim().min(1).max(200).parse(key));
+  return this.transaction(async c=>{
+   const row=(await c.query(`SELECT o.name,o.state,o.input,o.input_digest,o.result
+    FROM agent_operations o JOIN agent_threads t ON t.id=o.thread_id
+    WHERE t.id=$1 AND t.mandate_id=$2 AND t.organization_id=$3 AND t.owner_user_id=$4
+     AND o.mandate_id=t.mandate_id AND o.organization_id=t.organization_id AND o.owner_user_id=t.owner_user_id
+     AND o.request_key=$5`,[uuid.parse(threadId),uuid.parse(mandateId),this.actor.organizationId,this.actor.userId,request])).rows[0];
+   if(!row)return null;
+   if(row.name!=='target.selection_plan'||row.state!=='complete')throw Error('Start key has different or unfinished work');
+   const input=z.object({mode:z.literal('channels'),policyRevision:z.number().int().positive()}).strict().parse(row.input);
+   if(row.input_digest!==digest({name:row.name,input}))throw Error('Saved Start command integrity changed');
+   return nativeControlReceiptSchema.parse(row.result);
+  },undefined,true);
+ }
+
  private async targetContext(c:PoolClient,t:AgentThread,ids?:string[]):Promise<AgentTargetContext>{
   const context=(await c.query('SELECT agent_owned_target_snapshot($1::uuid,$2::uuid[]) AS snapshot',[t.id,ids??null])).rows[0].snapshot;
   const guidance=await loadApprovedAgentGuidance(c,t,{categories:['qualification']});
@@ -98,17 +117,37 @@ export class AgentTargetStore extends AgentResearchStore{
   },authority);
  }
  protected async checkTargetSelectionGuidance(c:PoolClient,t:AgentThread,operationId:string){const op=(await c.query("SELECT input FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name='target.select'",[operationId,t.id])).rows[0];const current=await loadApprovedAgentGuidance(c,t,{categories:['qualification']});if(!op||digest(op.input.guidance??null)!==digest(current.items.length?current:null))throw new Error('Approved qualification guidance changed before allocation');}
- async allocateApprovedTargets(threadId:string,operationId:string,authority?:AgentExecutionFence){
+ /** Conversation receipts commit before this projection advances. Bind the recorded
+  * effect, never a later workflow selected for the same mandate. */
+ protected async markAllocatedWorkflowOutreach(c:PoolClient,op:{workflow_execution_id?:string|null;mandate_id?:string}){
+  if(!op.workflow_execution_id)return;
+  await this.bindOriginalWorkflow(c,op);
+  const row=(await c.query('SELECT state,revision,preset FROM acquisition_workflow_executions WHERE id=$1 AND organization_id=$2 AND owner_user_id=$3 AND mandate_id=$4',[op.workflow_execution_id,this.actor.organizationId,this.actor.userId,op.mandate_id])).rows[0];
+  if(!row)throw Error('Original allocation workflow unavailable');
+  if(row.preset==='live-research-test')throw Error('Research-only workflow cannot start outreach');
+  if(row.state==='outreach')return;
+  if(row.state!=='ready')throw Error('Original allocation workflow is not ready');
+  await c.query("SELECT * FROM public.acquisition_workflow_transition($1,$2,'outreach',NULL)",[op.workflow_execution_id,row.revision]);
+ }
+ async allocateApprovedTargets(threadId:string,operationId:string,authority?:AgentExecutionFence,continuation?:{reviewBatchId:string}){
+  if(continuation)uuid.parse(continuation.reviewBatchId);
   const plan=await this.nativeTransaction(async c=>{
    const t=await this.lockThread(c,threadId);await this.assertExecutionFence(c,t,authority);
    const op=(await c.query("SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name='target.select' AND state IN('approved','running','complete') FOR UPDATE",[uuid.parse(operationId),t.id])).rows[0];
-   if(!op)throw new Error('Approved target selection required');if(op.state==='complete')return {complete:true as const,result:op.result};
+   if(!op)throw new Error('Approved target selection required');if(op.state==='complete'){if(op.result?.allocated>0)await this.markAllocatedWorkflowOutreach(c,op);return {complete:true as const,result:op.result};}
    const value=op.input as ReturnType<typeof buildAgentTargetSelection>;if(digest({name:op.name,input:value})!==op.input_digest)throw new Error('Target proposal changed');
    if(value.delivery.mode==='local_sink'&&process.env.AGENT_LOCAL_SIMULATION_ENABLED!=='true')throw new Error('Explicit local simulation mode is disabled');
-   await c.query("UPDATE agent_operations SET state='running',updated_at=now() WHERE id=$1",[op.id]);return {complete:false as const,value,trace:{mandateId:t.mandate_id,threadId:t.id,operationId:op.id as string}};
+   if(continuation){
+    const batch=(await c.query("SELECT manifest FROM agent_review_batches WHERE id=$1 AND thread_id=$2 AND state='approved'",[continuation.reviewBatchId,t.id])).rows[0];
+    if(!batch||!z.array(z.object({operationId:uuid})).parse(batch.manifest).some(item=>item.operationId===op.id))throw Error('Allocation continuation requires the exact approved batch');
+   }
+   const prior=op.result?.allocationCheckpointVersion===1?z.array(z.object({contactId:uuid,status:z.enum(['allocated','needs_review']),conversationId:z.string().optional(),failureCategory:z.enum(['database_busy','allocation_timeout','authorization_changed','saved_context_conflict','allocation_needs_review']).optional()}).strict()).max(50).parse(op.result.results):[];
+   if(new Set(prior.map(item=>item.contactId)).size!==prior.length||prior.some(item=>!value.selected.some(contact=>contact.contactId===item.contactId)))throw Error('Allocation checkpoint differs from the reviewed contacts');
+   await c.query("UPDATE agent_operations SET state='running',updated_at=now() WHERE id=$1",[op.id]);return {complete:false as const,value,prior,trace:{mandateId:t.mandate_id,threadId:t.id,operationId:op.id as string}};
   });if(plan.complete)return plan.result;
-  const results:{contactId:string;status:string;conversationId?:string;failureCategory?:AllocationFailureCategory}[]=[];
-  for(const contact of plan.value.selected){
+  const results:{contactId:string;status:string;conversationId?:string;failureCategory?:AllocationFailureCategory}[]=[...plan.prior];
+  const remaining=plan.value.selected.filter(contact=>!results.some(result=>result.contactId===contact.contactId));
+  for(const contact of continuation?remaining.slice(0,1):remaining){
    try{if(plan.value.delivery.mode==='channels'){
     const result=await this.command(threadId,'target:'+operationId+':'+contact.contactId,'conversation.open_channels',{operationId,contactId:contact.contactId,sourceRevision:contact.sourceRevision},async(c,t)=>{await this.checkTargetSelectionGuidance(c,t,operationId);const row=(await c.query('SELECT public.agent_allocate_channel_target($1::uuid,$2::uuid,$3::uuid,$4) AS conversation',[t.id,operationId,contact.contactId,contact.sourceRevision])).rows[0].conversation;await this.emit(c,t,'conversation:'+row.id+':channels','conversation.reassess',{conversationId:row.id,epoch:row.epoch,reminderGeneration:row.reminderGeneration});return {id:row.id as string,revision:row.revision as number,status:'active'};},authority);
     results.push({contactId:contact.contactId,status:'allocated',conversationId:result.id});continue;
@@ -119,8 +158,17 @@ export class AgentTargetStore extends AgentResearchStore{
     try{console.warn(JSON.stringify({module:'agent-target-allocation',stage:'contact_allocation_failed',...plan.trace,category:failureCategory}));}catch{/* Diagnostics never change the saved allocation outcome. */}
    }
   }
-  return this.nativeTransaction(async c=>{const t=await this.lockThread(c,threadId);await this.assertExecutionFence(c,t,authority);const op=(await c.query("SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 FOR UPDATE",[operationId,t.id])).rows[0];if(op.state==='complete')return op.result;
+  return this.nativeTransaction(async c=>{const t=await this.lockThread(c,threadId);await this.assertExecutionFence(c,t,authority);const op=(await c.query("SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 FOR UPDATE",[operationId,t.id])).rows[0];if(op.state==='complete'){if(op.result?.allocated>0)await this.markAllocatedWorkflowOutreach(c,op);return op.result;}
    const result={results,allocated:results.filter(item=>item.status==='allocated').length,needsReview:results.filter(item=>item.status==='needs_review').length};
+   if(result.allocated>0)await this.markAllocatedWorkflowOutreach(c,op);
+   if(continuation&&results.length<plan.value.selected.length){
+    // The receipt for each contact is already durable. A crash before this
+    // checkpoint reuses that exact command; no outreach is sent here.
+    const checkpoint={...result,allocationCheckpointVersion:1,pending:true};
+    await c.query("UPDATE agent_operations SET result=$2,updated_at=now() WHERE id=$1",[op.id,JSON.stringify(checkpoint)]);
+    await this.emit(c,t,'target-allocation:'+op.id+':'+results.length,'review.approved',{reviewBatchId:continuation.reviewBatchId});
+    return checkpoint;
+   }
    await c.query("UPDATE agent_operations SET state='complete',result=$2,updated_at=now() WHERE id=$1",[op.id,JSON.stringify(result)]);await c.query("UPDATE agent_responsibilities SET milestone=$2,updated_at=now() WHERE id=$1",[plan.value.responsibilityId,result.needsReview?'target_allocation_review':'conversations_active']);
    await this.controlNotice(c,t,'target-result:'+op.id,`${result.allocated} contacts allocated to agent-managed conversations; ${result.needsReview} need individual review. No email was sent by this allocation.`,{operationId:op.id,...result});await this.emit(c,t,'target-allocated:'+op.id,'target.allocated',{operationId:op.id,...result});return result;
   });

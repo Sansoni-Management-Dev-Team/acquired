@@ -46,3 +46,19 @@ it('refreshes when a saved finding is attached to a company', async () => {
  const finding={id:'finding',jobId:'root',sourceUrl:'https://example.com',observedAt:'2026-09-30',evidence:{kind:'company',name:'Example',value:'Example',quote:'Example source quote',website:'https://example.com'}} as ResearchPanelData['findings'][number];
  expect(await observe([snapshot({findings:[finding]}),snapshot({findings:[{...finding,targetId:'target'}]})])).toEqual([false,true]);
 });
+it('shows accepted research before job admission and keeps managed terminal runs free of launch controls',async()=>{
+ const {act,create}=await import('react-test-renderer');
+ Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});
+ let renderer:ReturnType<typeof create>;
+ const values:ResearchPanelData[]=[snapshot({jobs:[],active:true,workflow:{id:'workflow',state:'accepted',preset:'live-research-test'}}),snapshot({jobs:[],active:false,workflow:{id:'workflow',state:'failed',preset:'live-research-test'}})];
+ vi.stubGlobal('fetch',vi.fn().mockImplementation(async()=>Response.json(values.shift())));
+ await act(async()=>{renderer=create(<ResearchPanel mandateId="mandate" onResultsChanged={()=>{}} />);});
+ await act(async()=>{await m.poll.mock.calls.at(-1)![0]();});
+ expect(JSON.stringify(renderer!.toJSON())).toContain('Preparing your saved research run');
+ expect(m.poll.mock.calls.at(-1)![1].active).toBe(true);
+ await act(async()=>{await m.poll.mock.calls.at(-1)![0]();});
+ expect(JSON.stringify(renderer!.toJSON())).toContain('Research could not finish');
+ expect(JSON.stringify(renderer!.toJSON())).not.toContain('Find & research businesses');
+ expect(m.poll.mock.calls.at(-1)![1].active).toBe(false);
+ await act(async()=>renderer!.unmount());
+});

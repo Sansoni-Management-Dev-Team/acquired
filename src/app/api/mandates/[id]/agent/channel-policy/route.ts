@@ -1,3 +1,4 @@
+import {readAgentSavedChannelPolicy} from '@/lib/agent-controls-runtime';
 import{z}from'zod';
 import{agentChannelPolicyInputSchema}from'@/domain/agent-person-channel';
 import{guardBrowserMutation}from'@/lib/browser-mutation';
@@ -6,9 +7,7 @@ const schema=agentChannelPolicyInputSchema.safeExtend({requestKey:z.string().uui
 /** Saved policy and bounded owned account choices. Reads never create a thread. */
 export async function GET(request:Request,context:AgentRequestContext){try{
  const scoped=await agentRequestScope(request,context);if(scoped instanceof Response)return scoped;
- if(process.env.AGENT_WORKER_SCOPE_MODE!=='registered')return Response.json({enabled:false,policy:null,accounts:[]},{headers:agentResponseHeaders});
- const value=scoped.thread?await scoped.store.channelPolicy(scoped.thread.id):await scoped.store.channelPolicyForMandate((await context.params).id);
- return Response.json({enabled:true,...value},{headers:agentResponseHeaders});
+ return Response.json(await readAgentSavedChannelPolicy(scoped,(await context.params).id),{headers:agentResponseHeaders});
 }catch(cause){return agentRequestFailure(cause);}}
 export async function POST(request:Request,context:AgentRequestContext){
  const denied=guardBrowserMutation(request);if(denied)return denied;

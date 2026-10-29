@@ -20,6 +20,11 @@ it('resolves exactly one owned recipient on demand and returns only the strict b
  expect((await f.handler(request('recipient',{...recipient,scope:{...recipient.scope,userId:'foreign'}}))).status).toBe(400);expect(f.resolveRecipient).toHaveBeenCalledOnce();
  f.resolveRecipient.mockResolvedValue({...projection,personalData:{email:'PRIVATE'}}as never);const invalid=await f.handler(request('recipient',recipient));expect(invalid.status).toBe(503);expect(await invalid.text()).not.toContain('PRIVATE');
 });
+it('returns 503 for an unavailable authorization database and 403 only for a verified denial',async()=>{
+ const f=setup();f.authorizeCurrent.mockRejectedValueOnce(Error('private pool failure'));
+ const unavailable=await f.handler(request('recipient',recipient));expect(unavailable.status).toBe(503);expect(await unavailable.json()).toEqual({error:'Hosted demo unavailable'});expect(f.resolveRecipient).not.toHaveBeenCalled();
+ f.authorizeCurrent.mockResolvedValueOnce(false);expect((await f.handler(request('recipient',recipient))).status).toBe(403);expect(f.resolveRecipient).not.toHaveBeenCalled();
+});
 it('delegates only strict authenticated authority commands and never accepts a caller scope or grant boolean',async()=>{
  const f=setup(),command={method:'prepared.get',snapshot:{binding,key:'original',operation:'message',payloadDigest:'a'.repeat(64)}};
  expect((await f.handler(request('authority',command))).status).toBe(200);expect(f.execute).toHaveBeenCalledExactlyOnceWith(command,expect.any(AbortSignal));
@@ -65,4 +70,12 @@ it('accepts the explicit container listening origin only through the configured 
 
 it('refuses an internal listener configuration that could admit another public authority',()=>{
  const f=setup();for(const proxyListenOrigin of ['https://foreign.example.invalid','https://0.0.0.0','http://0.0.0.0:3000','https://0.0.0.0:3000/path','https://user:secret@0.0.0.0:3000'])expect(()=>createHostedDemoRequestHandler({descriptor,key,authorizeCurrent:f.authorizeCurrent,authority:{execute:f.execute},resolveRecipient:f.resolveRecipient,proxyListenOrigin})).toThrow();
+});
+it('times authenticated authority access and response without logging untrusted bodies',async()=>{
+ const log=vi.spyOn(console,'info').mockImplementation(()=>{}),f=setup();
+ try{const command={method:'prepared.get',snapshot:{binding,key:'PRIVATE',operation:'message',payloadDigest:'a'.repeat(64)}};
+ await f.handler(request('authority',command));const rows=log.mock.calls.filter(x=>x[0]==='hosted-authority-callback').map(x=>JSON.parse(x[1] as string));
+ expect(rows).toEqual(expect.arrayContaining([expect.objectContaining({stage:'access',outcome:'complete'}),expect.objectContaining({stage:'response',httpStatus:200})]));expect(new Set(rows.map(x=>x.callbackId)).size).toBe(1);expect(JSON.stringify(rows)).not.toContain('PRIVATE');
+ log.mockClear();await f.handler(request('authority',command,{Authorization:'Bearer wrong'}));expect(log).not.toHaveBeenCalled();
+ }finally{log.mockRestore();}
 });

@@ -143,7 +143,7 @@ it('a stalled service-readback verifier cannot retain application authorization 
     expect(f.release).toHaveBeenLastCalledWith(expect.any(Error));
 });
 it('rejects content accessors without invoking them or entering application SQL', async () => { const f = fixture(), getter = vi.fn(() => message.recipient), raw = Object.defineProperty({ text: message.text }, 'recipient', { enumerable: true, get: getter }); await expect(f.repo.prepare({ source, message: raw as typeof message, coverageScopes: [{ bindingId: 'binding', scopeDigest: 'a'.repeat(64) }] })).rejects.toThrow('Send authority unavailable'); expect(getter).not.toHaveBeenCalled(); expect(f.query).not.toHaveBeenCalled(); });
-it('observes rejected nested input Promises under strict native Node without application SQL', () => { const script = String.raw `const fs=require('node:fs'),ts=require('typescript');require.extensions['.ts']=(m,f)=>m._compile(ts.transpileModule(fs.readFileSync(f,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,f);const {createAcquireSendAdmission}=require(process.argv[1]);let connects=0;const b={applicationId:'acquire',tenantId:'org',ownerId:'owner',connectionId:'connection',accountId:'physical',generation:1,channel:'whatsapp',platform:'whatsapp',backend:'unipile'};const repo=createAcquireSendAdmission({binding:b,bindingId:'binding',pool:{connect:async()=>{connects++;throw Error('Unexpected SQL');}},codec:{keyVersion:'fixture',encode(){},decode(){},digest(){}},verifyServiceAdmission:async()=>true});repo.prepare({source:{kind:'campaign'},message:{recipient:{kind:'phone',value:Promise.reject(Error('synthetic nested rejected value'))},text:'Hi'},coverageScopes:[]}).then(()=>process.exitCode=2,()=>setTimeout(()=>process.stdout.write(JSON.stringify({connects})),20));`; const result = spawnSync(process.execPath, ['--unhandled-rejections=strict', '-e', script, fileURLToPath(new URL('./campaign-send-admission.ts', import.meta.url))], { encoding: 'utf8', timeout: 3000 }); expect(result.status).toBe(0); expect(JSON.parse(result.stdout)).toEqual({ connects: 0 }); });
+it('observes rejected nested input Promises under strict native Node without application SQL', () => { const script = String.raw `const fs=require('node:fs'),ts=require('typescript');require.extensions['.ts']=(m,f)=>m._compile(ts.transpileModule(fs.readFileSync(f,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,f);const {createAcquireSendAdmission}=require(process.argv[1]);let connects=0;const b={applicationId:'acquire',tenantId:'org',ownerId:'owner',connectionId:'connection',accountId:'physical',generation:1,channel:'whatsapp',platform:'whatsapp',backend:'unipile'};const repo=createAcquireSendAdmission({binding:b,bindingId:'binding',pool:{connect:async()=>{connects++;throw Error('Unexpected SQL');}},codec:{keyVersion:'fixture',encode(){},decode(){},digest(){}},verifyServiceAdmission:async()=>true});repo.prepare({source:{kind:'campaign'},message:{recipient:{kind:'phone',value:Promise.reject(Error('synthetic nested rejected value'))},text:'Hi'},coverageScopes:[]}).then(()=>process.exitCode=2,()=>setTimeout(()=>process.stdout.write(JSON.stringify({connects})),20));`; const result = spawnSync(process.execPath, ['--unhandled-rejections=strict', '-e', script, fileURLToPath(new URL('./campaign-send-admission.ts', import.meta.url))], { encoding: 'utf8', timeout: 15000 }); expect(result.status).toBe(0); expect(JSON.parse(result.stdout)).toEqual({ connects: 0 }); });
 it('accepts repeated references to the same binding in an exact original conversation', async () => {
     const f = fixture(), content = { ...message, conversation: { binding, id: 'original-chat' } }, prepared = await f.repo.prepare({ source, message: content, coverageScopes: [{ bindingId: 'binding', scopeDigest: 'a'.repeat(64) }] }), shared = prepared.submission.snapshot.binding;
     const result = await f.repo.open({ record: { snapshot: prepared.submission.snapshot, recipient: message.recipient, conversation: { binding: shared, id: 'original-chat' }, state: 'claimed' }, claimToken: 'claim', serviceRevision: '1' }, new AbortController().signal);
@@ -291,13 +291,13 @@ it('reports only bounded server diagnostic stage and serialization SQLSTATE whil
  const repo=createAcquireSendAdmission({...f.options,diagnostic}as never);await expect(repo.prepare({source,message,coverageScopes:[{bindingId:'binding',scopeDigest:'a'.repeat(64)}]})).rejects.toThrow('Send authority unavailable');
  expect(diagnostic).toHaveBeenCalledWith({stage:'application.binding',outcome:'error',sqlState:'40001'});expect(JSON.stringify(diagnostic.mock.calls)).not.toContain('secret');expect(f.calls.some(sql=>sql.startsWith('INSERT INTO public.communication_dispatch_intents'))).toBe(false);
 });
-it('retries only known-rollback bootstrap40001 at most ten times with bounded backoff and fresh authority',async()=>{
- const f=fixture(),old=f.query.getMockImplementation()!,connect=vi.spyOn(f.options.pool,'connect');let conflicts=0;f.query.mockImplementation(async(sql,v)=>{if(sql.startsWith('SELECT public.communications_lock_send_gate')&&conflicts++<4)throw Object.assign(Error('serialization'),{code:'40001'});return old(sql,v);});
+it.each(['40001','55P03'])('retries only known-rollback bootstrap%s at most ten times with bounded backoff and fresh authority',async code=>{
+ const f=fixture(),old=f.query.getMockImplementation()!,connect=vi.spyOn(f.options.pool,'connect');let conflicts=0;f.query.mockImplementation(async(sql,v)=>{if(sql.startsWith('SELECT public.communications_lock_send_gate')&&conflicts++<4)throw Object.assign(Error('serialization'),{code});return old(sql,v);});
  const repo=createAcquireSendAdmission(f.options);expect(await repo.getPreparedIntent({sourceKind:'agent',sourceId:'missing'})).toBeNull();expect(connect).toHaveBeenCalledTimes(5);expect(f.calls.filter(s=>s==='BEGIN ISOLATION LEVEL SERIALIZABLE')).toHaveLength(5);expect(f.calls.filter(s=>s==='ROLLBACK')).toHaveLength(4);expect(f.release).toHaveBeenCalledWith(expect.any(Error));
- const all=fixture(),prior=all.query.getMockImplementation()!,connectAll=vi.spyOn(all.options.pool,'connect');all.query.mockImplementation(async(sql,v)=>{if(sql.startsWith('SELECT public.communications_lock_send_gate'))throw Object.assign(Error('serialization'),{code:'40001'});return prior(sql,v);});await expect(createAcquireSendAdmission(all.options).getPreparedIntent({sourceKind:'agent',sourceId:'missing'})).rejects.toThrow('Send authority unavailable');expect(connectAll).toHaveBeenCalledTimes(10);expect(all.calls.some(s=>s.startsWith('INSERT INTO'))).toBe(false);
+ const all=fixture(),prior=all.query.getMockImplementation()!,connectAll=vi.spyOn(all.options.pool,'connect');all.query.mockImplementation(async(sql,v)=>{if(sql.startsWith('SELECT public.communications_lock_send_gate'))throw Object.assign(Error('serialization'),{code});return prior(sql,v);});await expect(createAcquireSendAdmission(all.options).getPreparedIntent({sourceKind:'agent',sourceId:'missing'})).rejects.toThrow('Send authority unavailable');expect(connectAll).toHaveBeenCalledTimes(10);expect(all.calls.some(s=>s.startsWith('INSERT INTO'))).toBe(false);
 });
-it('never retries nonserialization, post-bootstrap reads, COMMIT uncertainty or cancellation',async()=>{
- for(const boundary of ['other-code','after-bootstrap','commit','cancel']as const){const f=fixture(),old=f.query.getMockImplementation()!,connect=vi.spyOn(f.options.pool,'connect'),controller=new AbortController();f.query.mockImplementation(async(sql,v)=>{const fail=boundary==='other-code'||boundary==='cancel'?sql.startsWith('SELECT public.communications_lock_send_gate'):boundary==='commit'?sql==='COMMIT':sql.includes('FROM public.communication_dispatch_intents');if(fail){if(boundary==='cancel')controller.abort();throw Object.assign(Error('private'),{code:boundary==='other-code'?'40P01':'40001'});}return old(sql,v);});const repo=createAcquireSendAdmission(f.options);if(boundary==='cancel')expect(await repo.open({record:{snapshot:{binding,key:'original',operation:'message',payloadDigest:'a'.repeat(64)},recipient:message.recipient,state:'claimed'},claimToken:'claim',serviceRevision:'1'},controller.signal)).toMatchObject({kind:'blocked'});else await expect(repo.getPreparedIntent({sourceKind:'agent',sourceId:'missing'})).rejects.toThrow('Send authority unavailable');expect(connect,boundary).toHaveBeenCalledTimes(1);expect(f.calls.some(s=>s.startsWith('INSERT INTO'))).toBe(false);}
+it.each(['40001','55P03'])('never retries unclassified errors, post-bootstrap %s, COMMIT uncertainty or cancellation',async code=>{
+ for(const boundary of ['other-code','after-bootstrap','commit','cancel']as const){const f=fixture(),old=f.query.getMockImplementation()!,connect=vi.spyOn(f.options.pool,'connect'),controller=new AbortController();f.query.mockImplementation(async(sql,v)=>{const fail=boundary==='other-code'||boundary==='cancel'?sql.startsWith('SELECT public.communications_lock_send_gate'):boundary==='commit'?sql==='COMMIT':sql.includes('FROM public.communication_dispatch_intents');if(fail){if(boundary==='cancel')controller.abort();throw Object.assign(Error('private'),{code:boundary==='other-code'?'40P01':code});}return old(sql,v);});const repo=createAcquireSendAdmission(f.options);if(boundary==='cancel')expect(await repo.open({record:{snapshot:{binding,key:'original',operation:'message',payloadDigest:'a'.repeat(64)},recipient:message.recipient,state:'claimed'},claimToken:'claim',serviceRevision:'1'},controller.signal)).toMatchObject({kind:'blocked'});else await expect(repo.getPreparedIntent({sourceKind:'agent',sourceId:'missing'})).rejects.toThrow('Send authority unavailable');expect(connect,boundary).toHaveBeenCalledTimes(1);expect(f.calls.some(s=>s.startsWith('INSERT INTO'))).toBe(false);}
 });
 it('retains one absolute bootstrap deadline across serialization attempts',async()=>{
  const f=fixture(),old=f.query.getMockImplementation()!,connect=vi.spyOn(f.options.pool,'connect');f.query.mockImplementation(async(sql,v)=>{if(sql.startsWith('SELECT public.communications_lock_send_gate')){await new Promise(r=>setTimeout(r,18));throw Object.assign(Error('serialization'),{code:'40001'});}return old(sql,v);});await expect(createAcquireSendAdmission({...f.options,timeoutMs:30}).getPreparedIntent({sourceKind:'agent',sourceId:'missing'})).rejects.toThrow('Send authority unavailable');expect(connect.mock.calls.length).toBeLessThanOrEqual(2);
@@ -372,4 +372,70 @@ it.each(['disabled','throwing'] as const)('keeps final coverage rejection unchan
   if(mode==='disabled')expect(trace).not.toHaveBeenCalled();else expect(trace).toHaveBeenCalledTimes(1);
   expect(f.calls.some(sql=>sql.startsWith('INSERT INTO public.communication_dispatch_permits'))).toBe(false);
  }finally{trace.mockRestore();vi.unstubAllEnvs();}
+});
+
+it.each(['stale revision','missing checkpoint'] as const)('final held admission rejects %s even after advisory scope preparation',async reason=>{
+ const f=fixture(),original=f.query.getMockImplementation()!;
+ f.query.mockImplementation(async(sql,values)=>{
+  if(sql.includes('communication_reply_monitors')){
+   expect(sql).toContain('p.observed_service_revision>=$7::bigint');
+   expect(values?.[6]).toBe('8186');
+   // PostgreSQL evaluates the exact sealed vector against the service-held
+   // revision; earlier advisory hints never substitute for this decision.
+   return {rows:[{ready:false,matched_scope_rows:reason==='missing checkpoint'?0:1}]};
+  }
+  return original(sql,values);
+ });
+ const prepared=await f.repo.prepare({source,message,coverageScopes:[{bindingId:'binding',scopeDigest:'a'.repeat(64)}]});
+ const result=await f.repo.open({record:{snapshot:prepared.submission.snapshot,recipient:message.recipient,state:'claimed'},claimToken:'claim',serviceRevision:'8186'},new AbortController().signal);
+ expect(result).toEqual({kind:'blocked',outcome:{status:'waiting',code:'incomplete'}});
+ expect(f.calls.some(sql=>sql.startsWith('INSERT INTO public.communication_dispatch_permits'))).toBe(false);
+});
+it('logs an exact intent workflow guard rejection without leaking SQL or changing the public preparation error',async()=>{
+ const f=fixture(),original=f.query.getMockImplementation()!,log=vi.spyOn(console,'warn').mockImplementation(()=>{});
+ f.query.mockImplementation(async(sql,values)=>{if(sql.startsWith('INSERT INTO public.communication_dispatch_intents'))throw Object.assign(Error('Exact active outreach workflow required for new dispatch'),{code:'P0001',detail:'PRIVATE SQL body recipient@example.invalid'});return original(sql,values);});
+ try{
+  const repo=createAcquireSendAdmission(f.options as never);await expect(repo.prepare({source,message,coverageScopes:[{bindingId:'binding',scopeDigest:'a'.repeat(64)}]})).rejects.toThrow('Send authority unavailable');
+  const events=log.mock.calls.filter(call=>call[0]==='communications-admission-failure').map(call=>JSON.parse(call[1] as string));
+  expect(events).toContainEqual(expect.objectContaining({stage:'application.intent',category:'workflow_dispatch_guard_rejected',sqlState:'P0001',submission:'not_attempted_by_this_prepare',automaticResend:false}));
+  expect(JSON.stringify(events)).not.toMatch(/PRIVATE|recipient@|Exact active/);expect(f.query.mock.calls.filter(([sql])=>sql.startsWith('INSERT INTO public.communication_dispatch_intents'))).toHaveLength(1);
+ }finally{log.mockRestore();}
+});
+it('accepts an authenticated terminal prewrite review proof through existing resolution without preparing a replacement',async()=>{
+ const f=fixture(),first=await f.repo.prepare({source,message,coverageScopes:[{bindingId:'binding',scopeDigest:'a'.repeat(64)}]});
+ // Service owns the quota/boundary verification; the application receives the
+ // unchanged authenticated proof contract, not an untrusted quota flag.
+ const prove=vi.fn(async()=>({snapshot:first.submission.snapshot,journalId:'original-instrumented-journal',outcome:{status:'review',code:'protocol'},evidenceDigest:'b'.repeat(64),keyVersion:'service-proof'}));
+ const repo=createAcquireSendAdmission({...f.options,proveNoSubmission:prove});f.calls.length=0;
+ const resolution=await repo.resolveNoSubmission!(first.submission.snapshot);expect(resolution).toMatchObject({intentId:first.intentId,operationKey:first.submission.snapshot.key});expect(await repo.resolveNoSubmission!(first.submission.snapshot)).toEqual(resolution);expect(f.intents).toHaveLength(1);expect(f.calls.some(sql=>sql.includes('quota_buckets'))).toBe(false);
+});
+
+it.each([true,false])('sets actor and optional runtime scope in one statement before authority locks (registered=%s)',async registered=>{
+ vi.stubEnv('AGENT_WORKER_SCOPE_MODE',registered?'registered':'global');vi.stubEnv('AGENT_WORKER_RUNTIME_ID','hosted-session-test');
+ try{
+  const f=fixture();await expect(f.repo.getPreparedIntent({sourceKind:'agent',sourceId:'operation'})).resolves.toBeNull();
+  const settings=f.query.mock.calls.filter(([sql])=>sql.includes('set_config'));
+  expect(settings).toHaveLength(1);
+  expect(settings[0][0]).toContain("set_config('app.acquire_org',$3,true)");
+  expect(settings[0][1]?.slice(2,4)).toEqual(['org','owner']);
+  if(registered){expect(settings[0][0]).toContain("set_config('app.acquire_runtime_id',$5,true)");expect(settings[0][1]?.slice(4)).toEqual(['hosted-session-test','false']);}
+  else{expect(settings[0][0]).not.toContain('app.acquire_runtime_id');expect(settings[0][1]).toHaveLength(4);}
+  expect(f.calls[0]).toBe('BEGIN ISOLATION LEVEL SERIALIZABLE');
+  expect(f.calls.indexOf('SET LOCAL ROLE acquire_campaign_user')).toBeLessThan(f.calls.indexOf(settings[0][0]));
+  expect(f.calls.findIndex(sql=>sql.includes('pg_roles'))).toBeLessThan(f.calls.indexOf(settings[0][0]));
+  expect(f.calls.indexOf(settings[0][0])).toBeLessThan(f.calls.findIndex(sql=>sql.includes('communications_lock_send_gate')));
+  expect(f.calls.some(sql=>sql.includes('communications_lock_send_member'))).toBe(true);
+  expect(f.calls.at(-1)).toBe('COMMIT');
+ }finally{vi.unstubAllEnvs();}
+});
+it('uses the explicit held-session budget only for open and never renews it at permit creation',async()=>{
+ const f=fixture(),p=await f.repo.prepare({source,message,coverageScopes:[{bindingId:'binding',scopeDigest:'a'.repeat(64)}]});
+ vi.useFakeTimers();try{
+ const original=f.query.getMockImplementation()!;let delay=true;f.query.mockImplementation(async(sql,args)=>{if(delay&&sql.includes('FROM public.communication_dispatch_intents')){delay=false;await new Promise(r=>setTimeout(r,25000));}return original(sql,args);});
+ const repo=createAcquireSendAdmission({...f.options,heldSessionTimeoutMs:45000});
+ const pending=repo.open({record:{snapshot:p.submission.snapshot,recipient:message.recipient,state:'claimed'},claimToken:'claim',serviceRevision:'1'},new AbortController().signal);
+ await vi.advanceTimersByTimeAsync(25000);const held=await pending;expect(held.kind).toBe('held');if(held.kind!=='held')throw Error('Expected held');
+ await vi.advanceTimersByTimeAsync(20001);expect(f.release).toHaveBeenLastCalledWith(expect.any(Error));
+ await expect(held.permit.commit({permitId:held.permit.permitId,intentDigest:held.permit.intentDigest,journalId:'journal',admissionId:'admission',snapshot:p.submission.snapshot,fencingToken:'1',serviceRevision:'1'},new AbortController().signal)).rejects.toThrow();
+ }finally{vi.useRealTimers();}
 });

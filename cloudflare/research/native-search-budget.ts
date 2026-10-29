@@ -25,7 +25,7 @@ export function nativeSearchBudgetFetch(env:Env,context:NativeFirmableContext,ph
   const url=new URL(String(input));if(url.username||url.password||url.hash||init?.body!==undefined&&init.body!==null&&typeof init.body!=='string')throw new ServiceError(403,'native_search_upstream_not_allowed');
   let provider:'search'|'page'|undefined;
   if(env.LOCAL_DEVELOPMENT==='true'){
-   for(const engine of['duckduckgo','google']){const endpoint=localSearchEndpoint(env,engine);if(endpoint&&url.origin+url.pathname===endpoint&&(!init?.method||init.method==='GET'))provider='search';}
+   for(const engine of['duckduckgo','google',...(env.LOCAL_SEARCH_ENGINE==='bing'?['bing']:[])]){const endpoint=localSearchEndpoint(env,engine);if(endpoint&&url.origin+url.pathname===endpoint&&(!init?.method||init.method==='GET'))provider='search';}
    if(url.href===localReaderEndpoint(env)&&init?.method==='POST')provider='page';
   }else if(env.CF_ACCOUNT_ID&&url.href===`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-rendering/markdown`&&init?.method==='POST')provider='page';
   if(!provider)throw new ServiceError(403,'native_search_upstream_not_allowed');

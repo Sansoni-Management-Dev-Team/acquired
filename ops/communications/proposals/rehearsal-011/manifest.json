@@ -1,0 +1,35 @@
+{
+  "status": "approved-applied-rehearsal-and-conditional-production",
+  "container": "acquire-hosted-demo-rehearsal-postgres",
+  "network": "none",
+  "systemIdentifier": "7699248227334438947",
+  "database": "acquire_communications_rehearsal",
+  "marker": "acquire-communications-rehearsal-only",
+  "files": {
+    "000-create-target.proposed.sql": "c16271efc04950ab347fad4494831cdb1421163d2eb99078fe8fa796c5a2adf3",
+    "001-service-schema-only.proposed.sql": "a7ad4e1fb6734dfc14b780cce90b96e455dd4646888c7beda96bb4c6f2252380",
+    "011-dispatch-transport-boundary.proposed.sql": "d1a792bbb1351a8b37149f87634a047b561780c6deb1cc8f6f73c1dde0b50eff"
+  },
+  "appliedAt": "2026-10-24",
+  "production": {
+    "database": "acquire_communications",
+    "systemIdentifier": "7696498816558297120",
+    "sha256": "4b7523eef65e35c6491a8de29489a264824234c3f3fcd23a105a40916d44f3ba",
+    "schemaDrift": false,
+    "committed": true,
+    "boundaryRows": 0,
+    "forceRls": true,
+    "lockWaits": 0,
+    "idleTransactions": 0
+  },
+  "tests": {
+    "runner": "scripts/test-transport-boundary-rehearsal.ts",
+    "passed": 2,
+    "failed": 0,
+    "scenarios": [
+      "Actual restricted-role atomic admission, irreversibility, no retroactive proof, retained quota",
+      "Two-session close-first and gate-first contention; losing writer refused"
+    ]
+  },
+  "privateEvidence": ".local-data/workflow-modularity/production-next/"
+}

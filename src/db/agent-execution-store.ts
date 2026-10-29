@@ -1,3 +1,5 @@
+import {runDurationSql,dispatchRunSql,operationLeaseSql} from './agent-dispatch-budget';
+import {AcquisitionWorkflowStore} from './acquisition-workflow-store';
 import {agentChannelMessageSqlNames} from './agent-operation-sql';
 import type {AgentTransactionPreset} from './agent-read-budget';
 import {z} from 'zod';
@@ -29,12 +31,20 @@ export class AgentExecutionStore extends AgentRuntimeRegistryStore{
    return {id:account.id as string,revision:account.revision as number,status:'configured'};
   });
  }
- protected async nativeTransaction<T>(work:(c:PoolClient)=>Promise<T>,preset?:AgentTransactionPreset){
+ protected async nativeTransaction<T>(work:(c:PoolClient)=>Promise<T>,preset?:AgentTransactionPreset,readOnly=false){
   return this.transaction(async c=>{
    const installed=(await c.query("SELECT to_regprocedure('public.agent_person_keys(text,uuid)') IS NOT NULL AS installed")).rows[0]?.installed;
    if(installed!==true)throw new Error('Native execution control schema has not been approved and installed');
    return work(c);
-  },preset);
+  },preset,readOnly);
+ }
+ /** A newly admitted reviewed dispatch gets its frozen operation budget once.
+  * Existing running operations never have their lease renewed by another call. */
+ protected async constrainNativeOperationLease(c:PoolClient,operationId:string,authority:AgentExecutionFence,started:boolean){
+  await c.query(`UPDATE agent_operations o SET lease_until=LEAST(
+   CASE WHEN $3::boolean AND ${dispatchRunSql('r')} THEN o.updated_at+${operationLeaseSql('r')} ELSE o.lease_until END,
+   r.created_at+${runDurationSql('r')},r.lease_until)
+   FROM agent_runs r WHERE o.id=$1 AND r.id=$2 AND o.thread_id=r.thread_id`,[operationId,authority.runId,started]);
  }
  protected async emit(c:PoolClient,t:AgentThread,key:string,kind:string,value:unknown,availableAt?:string){
   const data=payload(value);
@@ -57,11 +67,12 @@ export class AgentExecutionStore extends AgentRuntimeRegistryStore{
  protected async assertExecutionFence(c:PoolClient,t:AgentThread,authority?:AgentExecutionFence,stepKey?:string){
   if(!authority)return;
   uuid.parse(authority.runId);uuid.parse(authority.eventId);uuid.parse(authority.leaseOwner);z.string().regex(/^\d+$/).parse(authority.fence);
-  const row=(await c.query(`SELECT r.id,r.usage,e.kind,r.created_at+interval '45 seconds'>clock_timestamp() AS within_duration FROM agent_runs r JOIN agent_events e ON e.id=r.trigger_event_id
+  const row=(await c.query(`SELECT r.id,r.usage,e.kind,e.workflow_execution_id,e.mandate_id,r.created_at+${runDurationSql('r')}>clock_timestamp() AS within_duration FROM agent_runs r JOIN agent_events e ON e.id=r.trigger_event_id
    WHERE r.id=$1 AND e.id=$2 AND r.thread_id=$3 AND e.thread_id=$3 AND r.state='running' AND e.state='leased'
    AND r.lease_owner=$4 AND e.lease_owner=$4 AND r.fence=$5::bigint AND e.fence=$5::bigint
    AND r.lease_until>clock_timestamp() AND e.lease_until>clock_timestamp() FOR UPDATE OF r,e`,[authority.runId,authority.eventId,t.id,authority.leaseOwner,authority.fence])).rows[0];
   if(!row||!await this.eventIsEligible(c,t.id,row.kind))throw new Error('Agent event authority expired or changed');
+  await this.bindOriginalWorkflow(c,row);
   if(!row.within_duration)throw new AgentRunLimitError('run_duration_limit');
   if(stepKey){
    const step=digest(stepKey),steps=z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(32).parse(row.usage?.nativeSteps??[]);
@@ -84,15 +95,24 @@ export class AgentExecutionStore extends AgentRuntimeRegistryStore{
    await this.emit(c,t,'command:'+command.id,'control.changed',{commandId:command.id,name,result});return result;
   });
  }
+ async markWorkflowOutreach(id:string){
+  const store=new AcquisitionWorkflowStore(this.pool,this.actor),execution=await store.read(id);
+  if(!execution)throw Error('Workflow unavailable');
+  if(execution.preset==='live-research-test')throw Error('Research-only workflow cannot start outreach');
+  if(execution.state==='outreach')return;
+  if(execution.state!=='ready')throw Error('Workflow is not ready for outreach');
+  try{await store.transition(id,execution.revision,'outreach');}catch(error){if((await store.read(id))?.state!=='outreach')throw error;}
+ }
  async executionState(threadId:string){
   return this.nativeTransaction(async c=>{
-   const t=await this.thread(c,threadId),mandate=(await c.query("SELECT xmin::text AS revision,coalesce((SELECT mode FROM agent_mandate_execution_modes WHERE mandate_id=mandates.id AND organization_id=mandates.organization_id),'real') AS execution_mode FROM mandates WHERE id=$1 AND organization_id=$2",[t.mandate_id,t.organization_id])).rows[0];
+   const t=await this.thread(c,threadId),mandate=(await c.query(`SELECT xmin::text AS revision,coalesce((SELECT mode FROM ${this.workflowModeTable(c)} WHERE mandate_id=mandates.id AND organization_id=mandates.organization_id),'real') AS execution_mode FROM mandates WHERE id=$1 AND organization_id=$2`,[t.mandate_id,t.organization_id])).rows[0];
    if(!mandate)throw new Error('Mandate not found');
    const responsibility=(await c.query('SELECT * FROM agent_responsibilities WHERE thread_id=$1',[t.id])).rows[0];
    const conversations=(await c.query(`SELECT id,contact_id,recipient_email,delivery_mode,driver_kind,phase,epoch::text,revision,engagement,next_wakeup_at,
     responsibility_id,human_user_id,sequence_enrolment_id,sequence_runtime,driver_generation,pending_driver,pause_reason,binding_digest,history_complete,history_observed_at,
     (history_complete AND history_observed_at BETWEEN ${this.businessSql()}-interval '5 minutes' AND ${this.businessSql()}) AS history_coverage_fresh,
     agent_context_revision(id) AS context_revision FROM agent_conversations WHERE thread_id=$1 ORDER BY created_at,id LIMIT 200`,[t.id])).rows;
+   const workflowExecutionId=this.workflowId(c),workflow=workflowExecutionId?(await c.query('SELECT preset,state FROM acquisition_workflow_executions WHERE id=$1',[workflowExecutionId])).rows[0]:null;
    const mode=mandate.execution_mode as 'real'|'demo';
    const demoContacts=mode==='demo'?(await c.query('SELECT public.agent_demo_execution_readiness($1::uuid) AS readiness',[t.id])).rows[0]?.readiness:undefined;
    // Inspect the latest batch only: an old partial result must not obscure a
@@ -111,7 +131,7 @@ export class AgentExecutionStore extends AgentRuntimeRegistryStore{
     AND r.revision::text=o.result->>'revision' AND r.mandate_revision=$2
     AND (o.input->>'mode'<>'channels' OR p.revision::text=o.input->>'policyRevision')
    ) AS selection_empty`,[t.id,mandate.revision])).rows[0]?.selection_empty===true;
-   return {mandateRevision:mandate.revision as string,executionMode:mode,...(demoContacts?{demoContacts}:{}),...(contactAllocation?{contactAllocation}:{}),...(selectionEmpty?{contactSelectionEmpty:true}:{}),responsibility,conversations:await this.executionChannelProgress(c,t,conversations)};
+   return {mandateRevision:mandate.revision as string,executionMode:mode,...(workflow?{workflowExecutionId:workflowExecutionId!,workflowPreset:workflow.preset as 'demo'|'live'|'live-research-test'}:{}),...(demoContacts?{demoContacts}:{}),...(contactAllocation?{contactAllocation}:{}),...(selectionEmpty?{contactSelectionEmpty:true}:{}),responsibility,conversations:await this.executionChannelProgress(c,t,conversations)};
   });
  }
  protected async executionChannelProgress<T extends Record<string,unknown>>(_c:PoolClient,_t:AgentThread,conversations:T[]):Promise<T[]>{void _c;void _t;return conversations;}
@@ -188,12 +208,21 @@ export class AgentExecutionStore extends AgentRuntimeRegistryStore{
    return {id:conversation.id as string,revision:1,status:'active',epoch:1};
   },authority);
  }
+ /** Eligibility is not decision or send authority. Full context is loaded after history. */
+ async nativeConversationEligibility(threadId:string,conversationId:string){
+  return this.nativeTransaction(async c=>{
+   const t=await this.thread(c,threadId);
+   const row=(await c.query(`SELECT c.epoch,c.reminder_generation,c.driver_kind,c.phase,c.delivery_mode,EXISTS(SELECT 1 FROM agent_responsibilities r WHERE r.id=c.responsibility_id AND r.thread_id=c.thread_id AND r.state IN ('ready','waiting')) AS supervision_active FROM agent_conversations c WHERE c.id=$1 AND c.thread_id=$2`,[conversationId,t.id])).rows[0];
+   if(!row)throw Error('Conversation not found');
+   return {epoch:Number(row.epoch),reminderGeneration:row.reminder_generation,driver:row.driver_kind,phase:row.phase,deliveryMode:row.delivery_mode,supervisionActive:row.supervision_active};
+  },undefined,true);
+ }
  async conversation(threadId:string,conversationId:string){
   uuid.parse(conversationId);
   return this.nativeTransaction(async c=>{
    const t=await this.thread(c,threadId);
    const row=(await c.query('SELECT c.*,agent_context_revision(c.id) AS context_revision FROM agent_conversations c WHERE c.id=$1 AND c.thread_id=$2',[conversationId,t.id])).rows[0];
    if(!row)throw new Error('Conversation not found');return row;
-  });
+  },undefined,true);
  }
 }

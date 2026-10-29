@@ -1,3 +1,4 @@
+import {types} from 'node:util';
 import {sql} from 'drizzle-orm';
 import {AcquireCommandError} from '@/domain/acquire-commands';
 import {refreshCompanyMembershipProjectionBatches} from '@/db/company-membership-projection-store';
@@ -20,5 +21,13 @@ export async function refreshCompanyProjectionsAfterChange(database:CompanyIdent
 }
 /** Run before entering the actor's SHARED control transaction, never from GET. */
 export async function refreshCompanyProjectionsBeforeNativeControl(actor:Actor,mandateId:string){
- try{return await refreshCompanyProjections(requireDb(),actor,{mandateId});}catch{throw new AcquireCommandError('Company evidence needs a current refresh before starting or resuming supervision. Your saved changes remain confirmed; refresh and explicitly try again.',409);}
+ const started=performance.now();
+ try{return await refreshCompanyProjections(requireDb(),actor,{mandateId});}catch(cause){
+  const field=(key:string)=>cause&&typeof cause==='object'&&!types.isProxy(cause)?Object.getOwnPropertyDescriptor(cause,key)?.value:undefined;
+  const code=field('code'),sqlState=typeof code==='string'&&['57014','55P03','40001','40P01','42501','P0001'].includes(code)?code:undefined;
+  const category=field('message')==='Company projection refresh exceeded its bounded transaction; refresh is still required'?'batch_deadline':sqlState==='57014'?'query_cancelled':sqlState==='55P03'?'lock_unavailable':sqlState?'database_error':'unavailable';
+  const count=(key:string)=>Number.isSafeInteger(field(key))&&field(key)>=0&&field(key)<=1000?field(key):undefined;
+  console.info('company-projection-refresh',{timestamp:new Date().toISOString(),stage:'before_native_control',mandateId:/^[a-f0-9-]{36}$/.test(mandateId)?mandateId:undefined,category,sqlState,sourceCount:count('sourceCount'),examinedCount:count('examinedCount'),durationMs:Math.round(performance.now()-started)});
+  throw Object.assign(new AcquireCommandError('Company evidence needs a current refresh before starting or resuming supervision. Your saved changes remain confirmed; refresh and explicitly try again.',409),{cause});
+ }
 }

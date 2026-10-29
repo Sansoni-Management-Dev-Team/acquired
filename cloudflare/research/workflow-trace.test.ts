@@ -24,8 +24,8 @@ it.each(['control-start','f-control'])('restores persisted trace from replayed %
   const body=init?.body?JSON.parse(String(init.body)):undefined;calls.push({url,body,headers:new Headers(init?.headers)});
   return Response.json(!init?.body?live:body.action==='e-plan'?[]:{ok:true});
  });
- vi.mocked(runResearch).mockImplementation(async(steps,services)=>{await steps.do('control-start',services.control);await services.progress({status:'complete',revision:1,pages:0,modelCalls:0,message:'Done'});});
- vi.mocked(runHybridCompanyPipeline).mockImplementation(async deps=>{await deps.checkpoint('f-plan',deps.plan);await deps.checkpoint('f-finish',()=>deps.finish({saved:0}));return undefined as never;});
+ vi.mocked(runResearch).mockImplementation(async(steps,services)=>{await steps.do('ordinary-check',async context=>{expect(context).toBeUndefined();return true;});await steps.do('control-start',async context=>{expect(context).toBeUndefined();return services.control();});await services.progress({status:'complete',revision:1,pages:0,modelCalls:0,message:'Done'});});
+ vi.mocked(runHybridCompanyPipeline).mockImplementation(async deps=>{await deps.checkpoint('firmable-attempt-contract',async attempt=>{expect(attempt).toBe(0);return true;});await deps.checkpoint('f-plan',deps.plan);await deps.checkpoint('f-finish',()=>deps.finish({saved:0}));return undefined as never;});
  const step={do:vi.fn(async(name:string,_options:unknown,run:()=>Promise<unknown>)=>name===checkpoint?JSON.stringify(saved):run()),sleep:vi.fn()};
  const workflow=new AcquireResearch({} as never,{SERVICE_SECRET:'test-only',APP_ORIGIN:'http://127.0.0.1:3000',LOCAL_DEVELOPMENT:'true'} as never);
  await workflow.run({payload:{jobId:id}} as never,step as never);

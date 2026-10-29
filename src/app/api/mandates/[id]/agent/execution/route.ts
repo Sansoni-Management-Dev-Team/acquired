@@ -1,7 +1,10 @@
+import {readAgentControlsRuntime} from '@/lib/agent-controls-runtime';
+import {wakeNativeAgentAfterCommit} from '@/lib/agent-native-wake';
 import {refreshCompanyProjectionsBeforeNativeControl} from '@/lib/company-projection-refresh';
 import {z} from 'zod';
 import {guardBrowserMutation} from '@/lib/browser-mutation';
-import {nativeAgentEnabled} from '@/lib/agent-runtime';
+import {findMandateWorkflow} from '@/lib/acquisition-workflow-research';
+import {agentPool,nativeAgentEnabled} from '@/lib/agent-runtime';
 import {initializeAgentChannelDefaults} from '@/lib/agent-start-outreach';
 import {agentDriverSchema} from '@/domain/agent-ownership';
 import {agentDemoPreparationReadiness,agentDemoProvisioningConfiguration} from '@/lib/agent-demo-configuration';
@@ -18,6 +21,7 @@ const inputSchema=z.discriminatedUnion('action',[
  z.object({action:z.literal('handover_commit'),requestKey:uuid,...ownership}).strict(),
  z.object({action:z.literal('resume_held'),requestKey:uuid,...ownership,reason:z.string().trim().min(5).max(2000)}).strict(),
  z.object({action:z.literal('refresh_held_history'),requestKey:uuid,...ownership}).strict(),
+ z.object({action:z.literal('recheck_delivery'),requestKey:uuid,...ownership}).strict(),
  z.object({action:z.literal('refresh_review_history'),requestKey:uuid,...ownership}).strict(),
  z.object({action:z.literal('reassess_conversation'),requestKey:uuid,...ownership,reason:z.string().trim().min(5).max(2000)}).strict(),
  z.object({action:z.literal('adopt_sequence'),requestKey:uuid,enrolmentId:uuid,expectedVersionId:uuid}).strict(),
@@ -27,13 +31,23 @@ const inputSchema=z.discriminatedUnion('action',[
 export async function GET(request:Request,context:Context){
  try{
   const data=await scope(request,context);if(data instanceof Response)return data;
-  const state=data.thread?await data.store.executionState(data.thread.id):null;
+  const controls=request.headers.get('X-Acquire-Control-Snapshot')==='1'
+   ?await data.store.controlsSnapshot((await context.params).id,data.thread?.id):undefined;
+  const savedState=controls?controls.state:data.thread?await data.store.executionState(data.thread.id):null;
+  // Research-only workflows run without an outreach thread. Display their lifecycle
+  // read-only; demo/live workflows remain eligible for Start only when ready.
+  const mandateId=(await context.params).id;
+  const workflow=!data.thread&&data.actor&&data.mandate
+   ?await findMandateWorkflow(agentPool(),data.actor,mandateId):undefined;
+  const owned=workflow&&(workflow.state==='ready'||workflow.preset==='live-research-test')&&workflow.mandateId===mandateId&&workflow.organizationId===data.actor.organizationId&&workflow.ownerUserId===data.actor.userId?workflow:undefined;
+  const state=savedState??(owned?{executionMode:owned.preset==='demo'?'demo' as const:'real' as const,workflowPreset:owned.preset,workflowExecutionId:owned.id,workflowState:owned.state,mandateRevision:data.mandate!.revision,responsibility:null,conversations:[],demoContacts:undefined}:null);
   const config=agentDemoProvisioningConfiguration();
   const readiness=agentDemoPreparationReadiness(config,data.actor);
   // Existing prepared recipients retain their saved service and account bindings.
   const selectedTesting=process.env.AGENT_DEMO_TARGET==='testing'&&state?.executionMode==='demo'&&!state.demoContacts?.prepared;
   const demoService=selectedTesting?{communicationsApi:'https://127.0.0.1:5991',...readiness,...(!readiness.ready?{message:'The testing service on 5991 is not ready for this mandate yet. Your saved companies and people are available; simulated outreach has not started.'}:{})}:undefined;
-  return Response.json({enabled:nativeAgentEnabled(),state,mandateRevision:data.mandate?.revision,demoPreparationEnabled:readiness.ready,demoService},{headers});
+  const runtime=controls?await readAgentControlsRuntime(data,mandateId):undefined;
+  return Response.json({enabled:nativeAgentEnabled(),state,mandateRevision:data.mandate?.revision,demoPreparationEnabled:readiness.ready,demoService,...(controls?{controls:{...controls,state,runtime}}:{})},{headers});
  }catch(cause){return failure(cause);}
 }
 
@@ -57,6 +71,7 @@ export async function POST(request:Request,context:Context){
    :action==='handover_commit'?await data.store.commitConversationHandover(thread.id,requestKey,input)
    :action==='resume_held'?await data.store.resumeHeldConversation(thread.id,requestKey,input)
    :action==='refresh_held_history'?await data.store.requestHeldHistoryRefresh(thread.id,requestKey,input)
+   :action==='recheck_delivery'?await data.store.recheckDeliveryOutcome(thread.id,requestKey,input)
    :action==='refresh_review_history'?await data.store.requestConversationReviewHistory(thread.id,requestKey,input)
    :action==='reassess_conversation'?await data.store.reassessConversationAfterReview(thread.id,requestKey,input)
    :action==='adopt_sequence'?await data.store.adoptSequenceConversation(thread.id,requestKey,input)
@@ -64,6 +79,7 @@ export async function POST(request:Request,context:Context){
   if(action==='start'||action==='resume')try{await initializeAgentChannelDefaults(data.store,thread.id,requestKey);}catch{
    console.info('agent-channel-defaults',JSON.stringify({module:'agent-channel-defaults',mandateId:(await context.params).id,stage:'settings_not_ready',timestamp:new Date().toISOString()}));
   }
+  if(['start','resume','resume_held','refresh_held_history','refresh_review_history','reassess_conversation','recheck_delivery'].includes(action))wakeNativeAgentAfterCommit();
   return Response.json({result},{headers});
  }catch(cause){return failure(cause);}
 }

@@ -11,6 +11,24 @@ import{assertSameBinding,type ConnectionBinding,type DeliveryOutcome}from'../../
 const uuid=z.string().uuid();
 /** Invitation actions are distinct from sent messages and always require HIL. */
 export class AgentInvitationStore extends AgentChannelStore{
+ async activitySnapshot(threadId:string,includeGuidance:boolean){
+  return this.readBundle(async()=>({
+   records:await this.messages(threadId),
+   batches:await this.listReviewBatches(threadId,{pendingOnly:true}),
+   guidance:includeGuidance?await this.listGuidance(threadId):[],
+  }));
+ }
+ /** Fixed database-only projections share one ownership gate. No provider calls,
+  * account mutations, drafts, sends or authorization caches are allowed here. */
+ async controlsSnapshot(mandateId:string,threadId?:string){
+  return this.readBundle(async()=>({
+   state:threadId?await this.executionState(threadId):null,
+   inbox:await this.handoffInbox(mandateId),
+   grants:threadId?await this.listAuthorityGrants(threadId):[],
+   targetOptions:await this.targetDeliveryOptions(mandateId),
+  }));
+ }
+
  protected override async assertInvitationResumeHistory(c:PoolClient,t:AgentThread,row:Record<string,unknown>,proof:Record<string,unknown>){
   const input=z.object({routeId:uuid,bindingDigest:z.string().regex(/^[a-f0-9]{64}$/)}).passthrough().parse(proof.input),result=z.object({delivery:z.object({status:z.enum(['submitted','not_submitted']),effect:z.literal('invitation').optional(),providerOperationId:z.string().optional(),intentId:z.string().optional()}).passthrough()}).passthrough().parse(proof.result);
   const positive=result.delivery.status==='submitted';if(positive&&(result.delivery.effect!=='invitation'||!result.delivery.providerOperationId||!result.delivery.intentId))throw Error('Original invitation action receipt required');
@@ -49,20 +67,38 @@ export class AgentInvitationStore extends AgentChannelStore{
   const t=await this.thread(c,threadId);await this.lockConversation(c,t,conversationId);
   return !!(await c.query(`SELECT id FROM agent_operations WHERE thread_id=$1 AND conversation_id=$2 AND name IN(${agentNativeDispatchSqlNames}) AND input->>'contextRevision'=$3 AND state IN('proposed','approved','running','uncertain') AND (state<>'proposed' OR EXISTS(SELECT 1 FROM agent_review_batches b WHERE b.thread_id=$1 AND b.state='pending' AND b.manifest @> jsonb_build_array(jsonb_build_object('operationId',agent_operations.id)))) LIMIT 1`,[t.id,conversationId,contextRevision])).rowCount;
  });}
- override async channelDispatchRecord(threadId:string,operationId:string){
+ override async channelDispatchRecord(threadId:string,operationId:string,options:{includeOriginalAccount?:boolean}={}){
   const invitation=await this.nativeTransaction(async c=>{const t=await this.thread(c,threadId),op=(await c.query("SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name='linkedin.invitation'",[uuid.parse(operationId),t.id])).rows[0];if(!op)return null;
    const conversation=await this.lockConversation(c,t,op.conversation_id),route=await this.nativeOperationRoute(c,t,op);if(!route||route.channel!=='linkedin')throw Error('Original reviewed invitation route required');
    return {conversation,operation:op,route,submitted:op.state==='complete'&&op.result?.delivery?.status==='submitted',notSubmitted:op.state==='failed'&&op.result?.delivery?.status==='not_submitted',effect:'invitation' as const};});
-  return invitation??super.channelDispatchRecord(threadId,operationId);
+  return invitation??super.channelDispatchRecord(threadId,operationId,options);
+ }
+ /** Server-created, invocation-only advisory snapshot. No provider IO runs in
+  * the bundle and the single-use closure grants no authority of its own. */
+ async dispatchPreparationSnapshot(threadId:string,operationId:string,conversationId:string){
+  uuid.parse(operationId);uuid.parse(conversationId);
+  const snapshot=await this.readBundle(async()=>{
+   const dispatch=await this.channelDispatchRecord(threadId,operationId,{includeOriginalAccount:true});
+   if(dispatch.conversation.id!==conversationId)throw Error('Original dispatch conversation changed');
+   const history=await this.historyAccountSnapshot(threadId,conversationId);
+   const preBegin=await this.preBeginHistoryRetryProof(threadId,operationId,conversationId);
+   return {dispatch,history,preBegin};
+  });
+  const expected=snapshot.dispatch.route?{id:snapshot.dispatch.route.id,bindingDigest:snapshot.dispatch.route.bindingDigest}:null;
+  const routed=expected!==null&&snapshot.dispatch.operation.name!=='linkedin.invitation';let consumed=false;
+  return {...snapshot,begin:async(authority?:AgentExecutionFence,delegation?:{id:string;revision:number})=>{
+   if(consumed)throw Error('Dispatch preparation already consumed');consumed=true;
+   return routed?this.beginNativeRoutedCommunicationsMessage(threadId,operationId,authority,delegation,expected!):this.beginNativeCommunicationsMessage(threadId,operationId,authority,delegation);
+  }};
  }
  override async beginNativeCommunicationsMessage(threadId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number}){
-  const record=await this.channelDispatchRecord(threadId,operationId);if(record.operation.name!=='linkedin.invitation')return super.beginNativeCommunicationsMessage(threadId,operationId,authority,delegation);
+  const record=await this.channelDispatchRecord(threadId,operationId);if(record.operation.name!=='linkedin.invitation')return record.route?this.beginNativeRoutedCommunicationsMessage(threadId,operationId,authority,delegation):this.beginNativeCommunicationsEmail(threadId,operationId,authority,delegation);
   if(delegation)throw Error('LinkedIn invitations require exact human review');
   return this.nativeTransaction(async c=>{const t=await this.lockThread(c,threadId);await this.assertExecutionFence(c,t,authority,'invitation-authority:'+operationId);
    const op=(await c.query("SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name='linkedin.invitation' FOR UPDATE",[operationId,t.id])).rows[0];if(!op||op.input.requiresHumanReview!==true)throw Error('Exact human-reviewed invitation required');
    const route=await this.nativeOperationRoute(c,t,op);if(!route||route.channel!=='linkedin')throw Error('Original reviewed invitation route required');
    let row=await this.lockConversation(c,t,op.conversation_id),running=op;if(op.state!=='running')({row,running}=await this.prepareNativeEmailAuthority(c,t,op,undefined,route));
-   if(authority)await c.query("UPDATE agent_operations o SET lease_until=LEAST(o.lease_until,r.created_at+interval '45 seconds',r.lease_until) FROM agent_runs r WHERE o.id=$1 AND r.id=$2",[op.id,authority.runId]);
+   if(authority)await this.constrainNativeOperationLease(c,op.id,authority,op.state!=='running');
    if((await c.query('SELECT agent_operation_authorised($1::uuid) AS allowed',[op.id])).rows[0]?.allowed!==true)throw Error('Current invitation authority or policy unavailable');
    await this.emitOperational(c,t,'provider-reconcile:'+op.id,'linkedin.reconcile',{operationId:op.id},new Date(Date.now()+30000).toISOString());
    return {operationId:op.id as string,conversationId:row.id as string,routeId:route.id,epoch:Number(row.epoch),fence:String(running.fence),bindingId:route.bindingId,recipient:route.recipient,channel:'linkedin' as const,subject:'',body:op.input.body as string,effect:'invitation' as const};

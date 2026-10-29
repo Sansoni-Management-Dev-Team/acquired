@@ -1,3 +1,4 @@
+import {withResearchJobWorkflow} from '@/lib/acquisition-workflow-context';
 import {observeInitialResearchProgress} from '@/lib/agent-initial-research-observer';
 import {nativeResearchRequestClassSchema} from '@/lib/agent-research-provider-request';
 import{executeNativeFieldsResearch,finishNativeFieldsResearch}from'@/lib/agent-fields-execution';
@@ -39,7 +40,7 @@ import { and, eq, notInArray, sql } from "drizzle-orm";
 import { requireDb } from "@/db/client";
 import { directorySource } from "@/domain/discovery-sources";
 import { mandateTargets, researchJobs, researchFindings, targets } from "@/db/schema";
-import { researchExecutionSelection, ResearchRepository } from "@/db/research-repository";
+import { researchExecutionProgressAt, researchExecutionSelection, ResearchRepository } from "@/db/research-repository";
 import { AcquisitionRepository } from "@/db/acquisition-repository";
 import { OrganizationRepository } from "@/db/repositories";
 import { createTargetDataProvider } from "@/adapters/provider-mode";
@@ -65,12 +66,12 @@ async function getJob(request: Request, jobId: string, lean = false,action='cont
   if (!z.string().uuid().safeParse(jobId).success) return null;
   const job = (
     await requireDb()
-      .select(lean ? {
+      .select({... (lean ? {
         ...researchExecutionSelection,
         nativeAgentJob:sql<boolean>`${researchJobs.config} ? 'nativeAgent'`,
         nativeAgentSnapshot:sql<ResearchConfig['nativeAgent']>`${researchJobs.config}->'nativeAgent'`,
         config: sql<ResearchConfig>`jsonb_build_object('researchRunId', ${researchJobs.config}->'researchRunId', 'budget', ${researchJobs.config}->'budget', 'automaticDeadline', ${researchJobs.config}->'automaticDeadline', 'newBusinessIds', ${researchJobs.config}->'newBusinessIds', 'performanceFlags', ${researchJobs.config}->'performanceFlags', 'discoveryCandidate', ${researchJobs.config}->'discoveryCandidate', 'parallelDiscovery', ${researchJobs.config}->'parallelDiscovery', 'companyBackgroundResearch', ${researchJobs.config}->'companyBackgroundResearch')`,
-      } : researchExecutionSelection)
+      } : researchExecutionSelection), ...(action==='control'?{executionUpdatedAt:researchExecutionProgressAt}:{})})
       .from(researchJobs)
       .where(eq(researchJobs.id, jobId))
       .limit(1)
@@ -103,7 +104,7 @@ async function getResearchControl(
   if (!job) return researchJsonResponse({ error: "Not available" }, { status: 403 });
   setResearchDatabaseContext({ ...jobTraceContext(job), organizationId: job.organizationId });
   configureResearchTelemetry(researchPerformanceFlags(job.config as ResearchConfig).telemetryBatching);
-  return researchJsonResponse(await controlSnapshot(job, !lean), { headers: { "Cache-Control": "no-store" } });
+  return withResearchJobWorkflow(job,async()=>researchJsonResponse(await controlSnapshot(job, !lean), { headers: { "Cache-Control": "no-store" } }));
 }
 async function runEvidence(job: NonNullable<Awaited<ReturnType<typeof getJob>>>) {
   const config = job.config as ResearchConfig;
@@ -128,7 +129,7 @@ async function controlSnapshot(job: NonNullable<Awaited<ReturnType<typeof getJob
   return {
     traceContext: jobTraceContext(job),
     status: root?.status === "cancelled" ? "cancelled" : job.status,
-    updatedAt: job.updatedAt.toISOString(), crawlId: job.crawlId, config: { ...(config.discoveryCandidate || config.parallelDiscovery ? { ...config, newBusinessIds: (root?.config as ResearchConfig | undefined)?.newBusinessIds || [] } : config), pipelineTiming: undefined }, seeds: job.seeds,
+    updatedAt: job.updatedAt.toISOString(), executionUpdatedAt: job.executionUpdatedAt?.toISOString(), crawlId: job.crawlId, config: { ...(config.discoveryCandidate || config.parallelDiscovery ? { ...config, newBusinessIds: (root?.config as ResearchConfig | undefined)?.newBusinessIds || [] } : config), pipelineTiming: undefined }, seeds: job.seeds,
     deadline: config.companyBackgroundResearch ? config.automaticDeadline || Infinity : Math.min(job.createdAt.getTime() + config.budget.maxMinutes * 60000, (root?.config as ResearchConfig | undefined)?.automaticDeadline || Infinity),
     ...(includeFindings && (config.targetId || (config.parallelBusinessResearch && config.researchTask === 'field' && config.companyDomain)) ? { findings: (await runEvidence(job)).map(f => f.evidence) } : {}),
   };
@@ -164,6 +165,9 @@ async function postResearchCallback(
   const job = await getJob(request, jobId,false,typeof payload?.action==='string'?payload.action:'progress');
   if (!job) return researchJsonResponse({ error: "Not available" }, { status: 403 });
   setResearchDatabaseContext({ ...jobTraceContext(job), organizationId: job.organizationId });
+  return withResearchJobWorkflow(job,()=>applyResearchCallback(job,jobId,payload));
+}
+async function applyResearchCallback(job:NonNullable<Awaited<ReturnType<typeof getJob>>>,jobId:string,payload:Awaited<ReturnType<typeof researchRequestJson>>){
   configureResearchTelemetry(researchPerformanceFlags(job.config as ResearchConfig).telemetryBatching);
   const repo = new ResearchRepository(job.organizationId);
   if(payload?.action==='native-fields-plan'){const meta=(job.config as ResearchConfig).nativeAgent!,plan=await agentStore({organizationId:job.organizationId,userId:job.createdBy}).nativeFieldsPlan(meta.threadId,meta.operationId);return researchJsonResponse({targetIds:plan.selected.map(c=>c.targetId)});}

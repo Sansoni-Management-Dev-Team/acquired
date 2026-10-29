@@ -20,7 +20,7 @@ export async function GET(request:Request,context:AgentRequestContext){
    if(conversation.id!==parsed.data.conversationId)throw Error('Conversation changed');
    return Response.json({conversationId:conversation.id,history:savedHistory(conversation)},{headers:agentResponseHeaders});
   }
-  const record=await scope.store.channelDispatchRecord(scope.thread.id,parsed.data.operationId),op=record.operation;
+  const record=await scope.store.operationDisplayRecord(scope.thread.id,parsed.data.operationId),op=record.operation;
   const raw=op.result?.delivery,delivery=raw&&['submitted','unknown','not_submitted'].includes(raw.status)?{status:raw.status,...Object.fromEntries(['effect','submittedAt','providerMessageId','providerOperationId','intentId'].flatMap(key=>typeof raw[key]==='string'?[[key,raw[key]]]:[]))}:null;
   return Response.json({operationId:op.id,name:op.name,state:op.state,conversationId:record.conversation.id,phase:record.conversation.phase,...(typeof record.conversation.pause_reason==='string'?{pauseReason:record.conversation.pause_reason}:{}),...(record.route?{routeId:record.route.id,channel:record.route.channel}:{}),delivery,...(parsed.data.include==='history'?{history:savedHistory(record.conversation)}:{})},{headers:agentResponseHeaders});
  }catch(error){return agentRequestFailure(error);}

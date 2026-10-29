@@ -1,5 +1,6 @@
+import {mapFirmableProfile} from '@/adapters/firmable-company-mapper';
 import { describe, expect, it } from "vitest";
-import { criterion, emptyBrief, initialAssessment } from "./acquisition";
+import { criterion, emptyBrief, initialAssessment, briefToMandate } from "./acquisition";
 import { reviewMandateFit } from "./mandate-fit";
 import type { SavedResearchFinding } from "./research";
 import { seedTargets } from "@/test/fixtures/scoring-targets";
@@ -11,7 +12,7 @@ function brief() {
   Object.assign(criterion(b, "revenue"), { value: "$1m–$5m", state: "specified", confirmed: true });
   return b;
 }
-function finding(kind: "headcount" | "revenue" | "location" | "product" | "person", value: string, currency: string | null = null): SavedResearchFinding {
+function finding(kind: "headcount" | "revenue" | "location" | "product" | "person" | "capability", value: string, currency: string | null = null): SavedResearchFinding {
   return { id: value, targetId: target.id, jobId: "job", observedAt: "2026-09-30T00:00:00Z", confidence: 90, sourceUrl: "https://example.com/profile", evidence: { kind, name: kind, value, quote: "Published company profile", website: "https://example.com", factMetadata: { sourceKind: "company_website", basis: "reported", scope: "unspecified", currency, identityNote: null, period: null } } };
 }
 describe("mandate fit review matrix", () => {
@@ -140,4 +141,25 @@ it('compares sourced revenue intervals only with confirmed AUD', () => {
   const fit=reviewMandateFit(brief(),target,initialAssessment,[finding('revenue','$1M - $10M','AUD')]);
   expect(fit.rows.find(r=>r.key==='revenue')?.status).toBe('potential');
   expect(reviewMandateFit(brief(),target,initialAssessment,[finding('revenue','$1M - $10M','USD')]).score).toBeNull();
+});
+
+it('explains scoped provider matches with the actual Australian workforce, footprint and revenue assumptions',()=>{
+ const b=emptyBrief();for(const [key,value]of [['geography','QLD'],['headcount','25–100'],['revenue','AUD 5000000–18000000']]as const)Object.assign(criterion(b,key),{state:'specified',value,importance:'requirement'});
+ const provider={name:'Synthetic Pump Services',website:'https://pump.example.test',hq_country:'AU',revenue:'$5M - $10M',region:{AU:{employee_count:60,address:{state:'Victoria'},locations:[{name:'Queensland, QLD'}]}}};
+ const t=mapFirmableProfile(provider,briefToMandate(b),'synthetic-org');
+ const fit=reviewMandateFit(b,t,initialAssessment);
+ expect(fit.score).toBe(50);
+ expect(fit.rows.find(r=>r.key==='headcount')?.reason).toContain('60 Australian employees');
+ expect(fit.rows.find(r=>r.key==='geography')?.reason).toContain('QLD');
+ expect(fit.rows.find(r=>r.key==='geography')?.reason).toContain('VIC');
+ expect(fit.rows.find(r=>r.key==='revenue')?.reason).toContain('$5M - $10M');
+ expect(fit.rows.find(r=>r.key==='revenue')?.reason).toContain('assumed');
+ expect(fit.rows.every(r=>!r.reason.startsWith('Scoped provider evidence'))).toBe(true);
+});
+it('uses company-specific service research when the broad provider industry does not establish subsector fit',()=>{
+ const b=emptyBrief();Object.assign(criterion(b,'subsectors'),{state:'specified',value:'Water treatment equipment servicing',confirmed:false});
+ const t=mapFirmableProfile({name:'Synthetic Pump Services',website:'https://pump.example.test',industries:['Industrial equipment wholesale'],region:{AU:{employee_count:60,address:{state:'Queensland'}}}},briefToMandate(b),'synthetic-org');
+ const f=finding('capability','Water treatment equipment servicing');
+ const fit=reviewMandateFit(b,t,initialAssessment,[f]);expect(fit.rows[0].status).toBe('potential');expect(fit.rows[0].reason).toContain('Water treatment equipment servicing');expect(fit.rows[0].sources).toContain(f.sourceUrl);
+ f.evidence.factMetadata!.identityNote='Ambiguous company';expect(reviewMandateFit(b,t,initialAssessment,[f]).rows[0].status).toBe('unknown');
 });

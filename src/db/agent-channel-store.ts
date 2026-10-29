@@ -95,18 +95,18 @@ export class AgentChannelStore extends AgentChatStore{
   const canConfigureBudgets=(await c.query("SELECT 1 FROM member WHERE organization_id=$1 AND user_id=$2 AND role IN('owner','admin')",[this.actor.organizationId,this.actor.userId])).rowCount===1;
   return {mandateId,policy,accounts,canConfigureBudgets};
  }
- async channelPolicy(threadId:string){const defaults=await readManagedDefaults(this.actor);return this.nativeTransaction(async c=>{const t=await this.thread(c,threadId);return this.policyProjection(c,t.mandate_id,t.id,defaults);});}
+ async channelPolicy(threadId:string){const defaults=await readManagedDefaults(this.actor);return this.nativeTransaction(async c=>{const t=await this.thread(c,threadId);return this.policyProjection(c,t.mandate_id,t.id,defaults);},undefined,true);}
  /** The prepared recipient run is the source of demo routing defaults, never
   * whichever test account happens to appear first or be globally selected. */
  async demoOutreachAccounts(threadId:string){return this.nativeTransaction(async c=>{
   const t=await this.thread(c,threadId);
   const runs=(await c.query(`SELECT DISTINCT run.id,run.senders FROM public.agent_demo_runs run
-   JOIN public.agent_demo_contact_mappings mapping ON mapping.demo_run_id=run.id AND mapping.organization_id=run.organization_id AND mapping.created_by=run.owner_user_id
-   JOIN public.agent_mandate_execution_modes mode ON mode.mandate_id=mapping.mandate_id AND mode.organization_id=mapping.organization_id AND mode.demo_id=mapping.demo_id
+   JOIN public.${this.workflowId(c)?'agent_effective_demo_contact_mappings':'agent_demo_contact_mappings'} mapping ON mapping.demo_run_id=run.id AND mapping.organization_id=run.organization_id AND mapping.created_by=run.owner_user_id
+   JOIN public.${this.workflowModeTable(c)} mode ON mode.mandate_id=mapping.mandate_id AND mode.organization_id=mapping.organization_id AND mode.demo_id=mapping.demo_id
    WHERE mapping.mandate_id=$1 AND mapping.organization_id=$2 AND mapping.created_by=$3 AND mode.mode='demo' AND mode.created_by=$3`,[t.mandate_id,t.organization_id,t.owner_user_id])).rows;
   if(runs.length!==1)throw Error('One saved demo recipient run is required');
   return z.array(z.object({channel:z.enum(['email','whatsapp','linkedin']),bindingId:uuid,bindingDigest:z.string().regex(/^[a-f0-9]{64}$/)})).length(3).parse(runs[0].senders);
- });}
+ },undefined,true);}
  /** Read-only timing exception. Final SQL admission independently rechecks the
   * same exact registered demo run; this supplies no approval or provider authority. */
  async testingSendWindowExempt(threadId:string,routeId:string){
@@ -123,8 +123,9 @@ export class AgentChannelStore extends AgentChatStore{
   uuid.parse(mandateId);const defaults=await readManagedDefaults(this.actor);return this.nativeTransaction(async c=>{
    const mandate=(await c.query('SELECT id FROM mandates WHERE id=$1 AND organization_id=$2',[mandateId,this.actor.organizationId])).rows[0];if(!mandate)throw Error('Mandate not found');
    const t=(await c.query('SELECT id FROM agent_threads WHERE mandate_id=$1 AND organization_id=$2 AND owner_user_id=$3',[mandateId,this.actor.organizationId,this.actor.userId])).rows[0];
+   await this.bindMandateWorkflow(c,mandateId);
    return this.policyProjection(c,mandateId,t?.id,defaults);
-  });
+  },undefined,true);
  }
  async saveChannelPolicy(threadId:string,key:string,raw:unknown){
   const input=agentChannelPolicyInputSchema.parse(raw);
@@ -164,13 +165,27 @@ export class AgentChannelStore extends AgentChatStore{
    return {id:saved.id as string,revision:saved.revision as number,status:'channel_registered'};
   });
  }
- protected async channelRows(c:PoolClient,t:AgentThread,conversationId:string){
-  const row=await this.lockConversation(c,t,conversationId);
+ protected async channelRows(c:PoolClient,t:AgentThread,conversationId:string,readOnly=false){
+  const row=readOnly?(await c.query('SELECT id FROM agent_conversations WHERE id=$1 AND thread_id=$2',[conversationId,t.id])).rows[0]:await this.lockConversation(c,t,conversationId);
+  if(!row)throw Error('Conversation not found');
   const installed=(await c.query("SELECT to_regclass('public.agent_conversation_channels') IS NOT NULL AS installed")).rows[0]?.installed===true;
   if(!installed)return [];
-  return (await c.query('SELECT r.*,p.revision AS policy_revision FROM agent_conversation_channels r JOIN agent_channel_policies p ON p.thread_id=$2 WHERE r.conversation_id=$1 ORDER BY array_position(p.channel_order,r.channel),r.id',[row.id,t.id])).rows.map(r=>({id:r.id as string,conversationId:r.conversation_id as string,channel:r.channel as 'email'|'whatsapp'|'linkedin',bindingId:r.binding_id as string,bindingDigest:r.binding_digest as string,recipient:{kind:r.recipient_kind as 'email'|'phone'|'linkedin_profile',value:r.recipient_value as string},identityRevision:r.identity_revision as string,revision:r.revision as number,policyRevision:r.policy_revision as number,history:r.history as unknown[],historyComplete:r.history_complete as boolean,historyRevision:r.history_revision as string,historyObservedAt:r.history_observed_at?new Date(r.history_observed_at).toISOString():null,nextAllowedAt:r.next_allowed_at?new Date(r.next_allowed_at).toISOString():null,coldCancelledAt:r.cold_cancelled_at?new Date(r.cold_cancelled_at).toISOString():null}));
+  const relationshipSelect=readOnly?'x.observed_at':'NULL::timestamptz';
+  const relationshipJoin=readOnly?" LEFT JOIN agent_linkedin_relationships x ON x.route_id=r.id AND x.binding_digest=r.binding_digest AND x.identity_revision=r.identity_revision AND x.status<>'unknown'":'';
+  return (await c.query(`SELECT r.*,p.revision AS policy_revision,${relationshipSelect} AS relationship_observed_at FROM agent_conversation_channels r JOIN agent_channel_policies p ON p.thread_id=$2${relationshipJoin} WHERE r.conversation_id=$1 ORDER BY array_position(p.channel_order,r.channel),r.id`,[row.id,t.id])).rows.map(r=>({id:r.id as string,conversationId:r.conversation_id as string,channel:r.channel as 'email'|'whatsapp'|'linkedin',bindingId:r.binding_id as string,bindingDigest:r.binding_digest as string,recipient:{kind:r.recipient_kind as 'email'|'phone'|'linkedin_profile',value:r.recipient_value as string},identityRevision:r.identity_revision as string,revision:r.revision as number,policyRevision:r.policy_revision as number,history:r.history as unknown[],historyComplete:r.history_complete as boolean,historyRevision:r.history_revision as string,historyObservedAt:r.history_observed_at?new Date(r.history_observed_at).toISOString():null,relationshipObservedAt:r.relationship_observed_at?new Date(r.relationship_observed_at).toISOString():null,nextAllowedAt:r.next_allowed_at?new Date(r.next_allowed_at).toISOString():null,coldCancelledAt:r.cold_cancelled_at?new Date(r.cold_cancelled_at).toISOString():null}));
  }
- async channelRoutes(threadId:string,conversationId:string){return this.nativeTransaction(async c=>{const t=await this.thread(c,threadId);return this.channelRows(c,t,uuid.parse(conversationId));});}
+ /** Original account metadata for one history refresh; never dispatch authority. */
+ async historyAccountSnapshot(threadId:string,conversationId:string){
+  return this.nativeTransaction(async c=>{
+   const t=await this.thread(c,threadId);
+   const conversation=(await c.query('SELECT * FROM agent_conversations WHERE id=$1 AND thread_id=$2',[uuid.parse(conversationId),t.id])).rows[0];
+   if(!conversation)throw Error('Conversation not found');
+   const accounts=(await c.query(`SELECT b.* FROM communication_bindings b WHERE b.organization_id=$1 AND b.owner_user_id=$2 AND b.id IN (SELECT binding_id FROM agent_conversation_channels WHERE conversation_id=$3 AND thread_id=$4)`,[t.organization_id,t.owner_user_id,conversation.id,t.id])).rows;
+   const routes=await this.channelRows(c,t,conversation.id,true);
+   return {conversation,accounts,routes};
+  },undefined,true);
+ }
+ async channelRoutes(threadId:string,conversationId:string){return this.nativeTransaction(async c=>{const t=await this.thread(c,threadId);return this.channelRows(c,t,uuid.parse(conversationId),true);},undefined,true);}
  async ingestChannelHistory(threadId:string,conversationId:string,routeId:string,raw:unknown){
   uuid.parse(routeId);return this.nativeTransaction(async c=>{
    const t=await this.lockThread(c,threadId),person=await this.lockConversation(c,t,conversationId);

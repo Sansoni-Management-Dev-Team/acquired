@@ -21,3 +21,10 @@ it('requires explicit registered multichannel profile without any global pilot m
  expect(localSimulatorTestPolicy(multi)).toBe(true);
  for(const patch of [{AGENT_WORKER_MANDATE_ID:env.AGENT_WORKER_MANDATE_ID},{AGENT_WORKER_SCOPE_MODE:'exact'},{AGENT_WORKER_RUNTIME_ID:'other'},{COMMUNICATIONS_INTEGRATION_ID:env.COMMUNICATIONS_INTEGRATION_ID},{COMMUNICATIONS_SERVICE_URL:env.COMMUNICATIONS_SERVICE_URL}])expect(()=>localSimulatorTestPolicy({...multi,...patch})).toThrow();
 });
+
+import {isolatedPolicyEnv,isolatedPolicyDescriptor} from './agent-isolated-test-policy.test-fixture';
+it('permits the exact independent workspace only with validated descriptor and local database',()=>{
+ expect(localSimulatorTestPolicy(isolatedPolicyEnv)).toBe(true);
+ for(const patch of [{NODE_ENV:'production'},{AGENT_WORKER_RUNTIME_ID:'another-runtime'},{AGENT_WORKER_MANDATE_ID:env.AGENT_WORKER_MANDATE_ID},{AGENT_WORKER_SCOPE_MODE:'exact'},{AGENT_WORKER_REQUIRE_MANDATE_SCOPE:'false'},{DATABASE_URL:'postgresql://local@remote.invalid/acquire_agent_mode'},{COMMUNICATIONS_SERVICE_URL:'https://127.0.0.1:5791'},{AGENT_TESTING_COMMUNICATIONS_ENABLED:'false'},{AGENT_TESTING_COMMUNICATIONS_ENV_JSON:'{}'}])expect(()=>localSimulatorTestPolicy({...isolatedPolicyEnv,...patch})).toThrow();
+ for(const change of [{runId:'agent-deep-other',integrationId:'sim-agent-deep-other',configurationReference:'sim-agent-deep-other-v1'},{actor:{...isolatedPolicyDescriptor.actor,ownerId:'foreign'}},{actor:{...isolatedPolicyDescriptor.actor,tenantId:'foreign'}},{capabilities:{dynamicRecipients:false,recipientContextLookup:true}}])expect(()=>localSimulatorTestPolicy({...isolatedPolicyEnv,AGENT_TESTING_COMMUNICATIONS_DESCRIPTOR_JSON:JSON.stringify({...isolatedPolicyDescriptor,...change})})).toThrow();
+});

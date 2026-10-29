@@ -1,0 +1,54 @@
+{
+  "status": "approved-applied-rehearsal-and-production",
+  "verifiedReadOnlyAt": "2026-10-24",
+  "production": {
+    "project": "njasjqpztiteionfxxul",
+    "database": "postgres",
+    "systemIdentifier": "7678071634733212629",
+    "originalWorkflowReaderAbsent": true
+  },
+  "rehearsal": {
+    "container": "acquire-hosted-demo-rehearsal-postgres",
+    "network": "none",
+    "database": "acquire_hosted_demo_rehearsal",
+    "marker": "acquire-hosted-demo-rehearsal-only",
+    "systemIdentifier": "7699248227334438947",
+    "originalWorkflowReaderAbsent": true,
+    "requiredGrantRolesPresent": true
+  },
+  "predecessorsIdenticalAcrossBothTargets": {
+    "agent_channel_communications_change(jsonb)": "de971f1976ad57eb737b890b527b6616",
+    "agent_communications_change(uuid,text,text,text,text,text,timestamp with time zone,boolean)": "0882119b8fe00e71c69d354df5d0282f"
+  },
+  "files": [
+    {
+      "productionFile": "005-communications-workflow-context.proposed.sql",
+      "productionSha256": "e61332a165e2acedd2f30c54a052e890ac6bd0433b297c106697799b10255327",
+      "rehearsalFile": "rehearsal/005-communications-workflow-context.proposed.sql",
+      "rehearsalSha256": "fca5884a472e15e1282ccbccf837bb7e7ea1bafa50c2ec9149e3161a00897823",
+      "difference": "Only exact database identity/marker guard; function definitions and grants byte-identical"
+    },
+    {
+      "productionFile": "006-incoming-workflow-context.proposed.sql",
+      "productionSha256": "fab78d886accd19d2b7c443df047bc51c1e1cdc5cfb45fbc3eb8581aae1762c9",
+      "rehearsalFile": "rehearsal/006-incoming-workflow-context.proposed.sql",
+      "rehearsalSha256": "a4861be47094082cc73e044aab3853b2fddd02d7a9416d8c407e20b1ef4ed191",
+      "difference": "Only exact database identity/marker guard; function definitions and grants byte-identical"
+    }
+  ],
+  "order": [
+    "005",
+    "006"
+  ],
+  "productionCondition": "Apply exact approved production files only after exact rehearsal variants pass original-scope and incoming-reply regression checks. New transport recovery schema is not included.",
+  "appliedAt": "2026-10-24",
+  "verification": {
+    "originalSource": "Actual acquire_campaign_user: original execution, legacy null clearing, no-gate/unowned/foreign denial; rollback-only",
+    "incoming": "Both ingress functions: 3 conversations, 2 original executions and 1 legacy null; dedup and caller scope preserved; rollback-only",
+    "productionInstalledHashes": {
+      "agent_channel_communications_change(jsonb)": "91fc6699087b8df34adcf96530324803",
+      "agent_communications_change(uuid,text,text,text,text,text,timestamp with time zone,boolean)": "c806be9a0a9d86cc506d5be697f45862"
+    },
+    "privateEvidence": ".local-data/workflow-modularity/production-next/"
+  }
+}

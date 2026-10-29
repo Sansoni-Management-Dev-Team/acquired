@@ -25,3 +25,12 @@ it('uses the normal reply consumer and returns exact service ACK metadata only a
  const f=fixtures();ports.apply.mockImplementation(async(input,signal)=>{expect(await ports.consumer!.authenticateDelivery(input,signal)).toBe(true);return{status:'applied',decision:'review'};});expect(await f.bridge.deliverEvents(f.event,new AbortController().signal)).toEqual({binding,subscriberId:f.event.subscriberId,eventId:'1',fingerprint:f.event.payload.fingerprint,status:'committed'});
  expect(f.serviceRequest).toHaveBeenCalledWith('/v1/hosted-demo/events/revalidate',{proofDigest:hostedProofDigest(f.event),sessionId:f.event.sessionId,binding,subscriberId:f.event.subscriberId,eventId:f.event.eventId,fingerprint:f.event.payload.fingerprint},expect.any(AbortSignal));expect(ports.consumer!.resolveIdentity).toBeTypeOf('function');expect(ports.consumer!.resolveUnrelated).toBeTypeOf('function');
 });
+it('reports service revalidation separately from projector refusal without leaking its error',async()=>{
+ vi.stubEnv('AGENT_VERBOSE_LOGGING','true');const log=vi.spyOn(console,'warn').mockImplementation(()=>{}),f=fixtures();f.serviceRequest.mockRejectedValue(Error('PRIVATE callback details'));
+ ports.project.mockImplementation(async query=>ports.coverage!.withCoverage(query,async()=>{}));
+ try{await expect(f.bridge.projectCoverage(f.proof,new AbortController().signal)).rejects.toThrow('Hosted proof unavailable');expect(log).toHaveBeenCalledWith('hosted-demo-failure',JSON.stringify({boundary:'bridge.revalidate'}));expect(JSON.stringify(log.mock.calls)).not.toContain('PRIVATE');}finally{log.mockRestore();vi.unstubAllEnvs();}
+});
+it('distinguishes an authenticated verified:false response from transport failure',async()=>{
+ vi.stubEnv('AGENT_VERBOSE_LOGGING','true');const log=vi.spyOn(console,'warn').mockImplementation(()=>{}),f=fixtures();f.serviceRequest.mockResolvedValue({verified:false});ports.project.mockImplementation(async query=>ports.coverage!.withCoverage(query,async()=>{}));
+ try{await expect(f.bridge.projectCoverage(f.proof,new AbortController().signal)).rejects.toThrow('Hosted proof unavailable');expect(log).toHaveBeenCalledWith('hosted-demo-revalidation',JSON.stringify({boundary:'coverage.revalidate',outcome:'verification_refused'}));}finally{log.mockRestore();vi.unstubAllEnvs();}
+});

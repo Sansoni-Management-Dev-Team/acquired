@@ -6,10 +6,12 @@ import {providerFailure} from '../../src/domain/research-provider-error';
 
 // Local development searches through an OpenSERP container on OrbStack. Its
 // DuckDuckGo results carry full snippets, unlike the HTML endpoint we render.
-export type LocalSearchEnv = { LOCAL_DEVELOPMENT?: string; LOCAL_SEARCH_URL?: string };
+export type LocalSearchEnv = { LOCAL_DEVELOPMENT?: string; LOCAL_SEARCH_URL?: string; LOCAL_SEARCH_ENGINE?: string };
 
 export function localSearchEndpoint(env: LocalSearchEnv, engine = "duckduckgo") {
   if (env.LOCAL_DEVELOPMENT !== "true" || !env.LOCAL_SEARCH_URL) return null;
+  if (env.LOCAL_SEARCH_ENGINE !== undefined && env.LOCAL_SEARCH_ENGINE !== "bing") throw new Error("Unsupported local search engine");
+  if (!["duckduckgo", "google", ...(env.LOCAL_SEARCH_ENGINE === "bing" ? ["bing"] : [])].includes(engine)) throw new Error("Unsupported local search engine");
   const base = new URL(env.LOCAL_SEARCH_URL);
   if (base.protocol !== "http:" || base.hostname !== "127.0.0.1" || base.username || base.password || base.search || base.hash) throw new Error("Local search must use OrbStack on http://127.0.0.1");
   return new URL(`/${engine}/search`, base).href;
@@ -38,7 +40,7 @@ export async function localSearch(env: LocalSearchEnv, query: string, context: R
   const trace=safeResearchTrace(context);
   // DuckDuckGo first; when its headless session times out, Google answers the same query more slowly.
   let lastError: unknown;
-  for (const engine of context.engine === "google" ? ["google", "duckduckgo"] : ["duckduckgo", "google"]) {
+  for (const engine of context.engine === "google" ? ["google", "duckduckgo"] : env.LOCAL_SEARCH_ENGINE === "bing" ? ["bing"] : ["duckduckgo", "google"]) {
     const url = new URL(localSearchEndpoint(env, engine)!);
     url.searchParams.set("text", query);
     url.searchParams.set("limit", "10");

@@ -1,0 +1,10 @@
+import {describe,it,expect,vi} from 'vitest';
+import {bindCommunicationsWorkflowContext} from './communications-workflow-context';
+const actor={organizationId:'org',userId:'owner'},id='11111111-1111-4111-8111-111111111111';
+function tx(row:Record<string,unknown>={workflow_execution_id:id,execution_id:id,organization_id:'org',owner_user_id:'owner',mandate_id:'mandate',execution_mandate_id:'mandate'},installed=true){return {query:vi.fn(async(sql:string,_values?:unknown[])=>sql.includes('to_regclass')?{rows:[{installed}]}:sql.includes('set_config')?{rows:[]}:{rows:[row]})};}
+describe('persisted communications workflow scope',()=>{
+ it.each([{kind:'agent',operationId:'op'},{kind:'campaign',attemptId:'attempt',enrolmentId:'enrolment'},{kind:'draft',messageId:'message'}])('binds original %j execution and captured actor before effects',async source=>{const db=tx();await bindCommunicationsWorkflowContext(db,actor,source as never);expect(db.query.mock.calls.at(-1)?.[0]).toContain("set_config('app.acquire_workflow_execution'");expect(db.query.mock.calls.at(-1)?.[1]).toEqual(['org','owner',id]);expect(db.query.mock.calls[1][0]).not.toContain('ORDER BY');});
+ it('explicitly clears stale ambient execution for legacy source',async()=>{const db=tx({execution_id:null});await bindCommunicationsWorkflowContext(db,actor,{kind:'agent',operationId:'op'} as never);expect(db.query.mock.calls.at(-1)?.[1]).toEqual(['org','owner','']);});
+ it('preserves schema-absent legacy with explicit empty context',async()=>{const db=tx(undefined,false);await bindCommunicationsWorkflowContext(db,actor,{kind:'agent',operationId:'op'} as never);expect(db.query).toHaveBeenCalledTimes(2);expect(db.query.mock.calls.at(-1)?.[1]).toEqual(['org','owner','']);});
+ it('rejects unavailable or malformed original workflow proof',async()=>{for(const execution_id of [undefined,'foreign']){const db=tx({execution_id});await expect(bindCommunicationsWorkflowContext(db,actor,{kind:'agent',operationId:'op'} as never)).rejects.toThrow();expect(db.query.mock.calls.some(c=>c[0].includes('set_config'))).toBe(false);}});
+});

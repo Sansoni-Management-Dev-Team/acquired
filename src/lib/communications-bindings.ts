@@ -45,5 +45,5 @@ export async function readManagedDefaults(actor:CampaignActor):Promise<Array<{ch
  return withCampaignDb(actor,async client=>{
   const {rows}=await client.query<{channel:string;connection_id:string;generation:number;account_id:string}>(`SELECT b.channel,b.service_connection_id AS connection_id,b.generation,b.service_account_id AS account_id FROM public.communication_defaults d JOIN public.communication_bindings b ON b.id=d.binding_id AND b.organization_id=d.organization_id AND b.owner_user_id=d.owner_user_id AND b.channel=d.channel WHERE d.organization_id=$1 AND d.owner_user_id=$2 AND b.application_id='acquire' AND b.authority='service' AND b.backend='unipile'`,[actor.organizationId,actor.userId]);
   return rows.map(row=>({channel:row.channel,connectionId:row.connection_id,generation:row.generation,accountId:row.account_id}));
- });
+ },{readOnly:true});
 }

@@ -6,7 +6,7 @@ import type { ResearchConfig } from "../../../src/domain/research";
 import type { ResearchServices } from "../../../src/domain/research-runner";
 import { automaticContinuation } from "../../../src/domain/research-continuation";
 import { researchFetch } from "../local-policy";
-import {buildAllDiscoveredCompanyPolicy,buildCompanyDiscoveryPolicy,reviewedCompanyDiscoveryPolicy} from '../../../src/domain/research-discovery-policy';
+import {buildAllDiscoveredCompanyPolicy,buildAllDiscoveredCompanyPeoplePolicy,buildCompanyDiscoveryPolicy,reviewedCompanyDiscoveryPolicy} from '../../../src/domain/research-discovery-policy';
 
 type Progress = Parameters<ResearchServices["progress"]>[0];
 const bindings = env as unknown as Parameters<typeof worker.fetch>[1];
@@ -238,13 +238,19 @@ it("terminates an unresponsive workflow only after checking fresh saved progress
   const terminate = vi.fn().mockResolvedValue(undefined);
   const recoveryBindings = { ...bindings, RESEARCH: { get: vi.fn().mockResolvedValue({ terminate }) } } as unknown as typeof bindings;
   let updatedAt = new Date(Date.now() - 11 * 60000).toISOString();
-  vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ status: "crawling", updatedAt }));
+  let executionUpdatedAt: string | undefined;
+  vi.spyOn(globalThis, "fetch").mockImplementation(async () => Response.json({ status: "crawling", updatedAt, executionUpdatedAt }));
   const request = () => new Request(`http://worker/jobs/${id}`, {
     method: "POST", headers: { authorization: "Bearer replay-only", "Content-Type": "application/json" },
     body: JSON.stringify({ action: "recover-stalled" }),
   });
   expect(await (await worker.fetch(request(), recoveryBindings)).json()).toEqual({ recovered: true });
   expect(terminate).toHaveBeenCalledOnce();
+  // The root's own row can be old while scoped company callbacks advance.
+  executionUpdatedAt = new Date().toISOString();
+  expect(await (await worker.fetch(request(), recoveryBindings)).json()).toEqual({ recovered: false });
+  expect(terminate).toHaveBeenCalledOnce();
+  executionUpdatedAt = undefined;
   updatedAt = new Date().toISOString();
   expect(await (await worker.fetch(request(), recoveryBindings)).json()).toEqual({ recovered: false });
   expect(terminate).toHaveBeenCalledOnce();
@@ -464,6 +470,27 @@ it('loads server-verified continuation candidates in a fresh Workflow and perfor
  expect(t.callbacks.filter(c=>c.action==='f-continuation-plan')).toHaveLength(1);expect(t.callbacks.some(c=>['e-plan','d-search','e-search','provider-reserve'].includes(String(c.action)))).toBe(false);expect(t.callbacks.filter(c=>['d-company','e-company'].includes(String(c.action)))).toEqual([expect.objectContaining({action:'d-company',row:firmableRow,candidateKey:'firmable:f222',expectedDomain:'',sources:['firmable']}),expect.objectContaining({action:'e-company',row:webRow,candidateKey:'domain:continued.example.com',expectedDomain:'continued.example.com',sources:['web']})]);expect(t.callbacks).toContainEqual(expect.objectContaining({action:'f-finish',result:expect.objectContaining({saved:2,searches:0,continuation:{version:1,sourceRootId,sourceDigest}})}));
  expect(JSON.parse(await instance.waitForStepResult({name:'f-continuation-plan'}) as string)).toMatchObject({sourceRootId,sourceDigest});expect(JSON.parse(await instance.waitForStepResult({name:'f-company-firmable:f222'}) as string)).toMatchObject({ok:true});expect(t.requests.some(url=>url.endsWith('/crawl'))).toBe(false);
 });
+it('sends the V5 candidate identity required by the app for both discovery sources',async()=>{
+ const t=replay();Object.assign(t.config,{mode:'automatic',workflow:'business',discover:true,pipelineDesign:'hybrid-firmable-v1',researchRunId:t.id,automaticDeadline:Date.now()+600000,companyIdentityPolicyVersion:1,companyDiscoveryPolicy:buildAllDiscoveredCompanyPeoplePolicy(),includeCompanyPeople:true,includePhones:false,findPeople:false});
+ const original=vi.mocked(globalThis.fetch).getMockImplementation()!;
+ vi.spyOn(globalThis,'fetch').mockImplementation(async(input,init)=>{
+  const url=String(input instanceof Request?input.url:input);
+  if(url.endsWith(`/api/research/internal/${t.id}`)&&init?.body){
+   const p=JSON.parse(String(init.body));
+   if(p.action==='e-search')return Response.json({ok:true,rows:[{domain:'web-only.example.com',name:'Web company',website:'https://web-only.example.com'}]});
+   if(['d-company','e-company'].includes(p.action)){
+    const expected=p.action==='d-company'?`firmable:${p.row.id}`:`domain:${p.row.domain}`;
+    if(p.candidateKey!==expected)return Response.json({error:'Company candidate identity differs from discovery'},{status:500});
+   }
+  }
+  return original(input,init);
+ });
+ await using instance=await introspectWorkflowInstance(bindings.RESEARCH,t.id);await instance.modify(m=>m.disableSleeps());await bindings.RESEARCH.create({id:t.id,params:{jobId:t.id}});await instance.waitForStatus('complete');
+ expect(t.callbacks.filter(c=>['d-company','e-company'].includes(String(c.action)))).toEqual(expect.arrayContaining([expect.objectContaining({action:'d-company',candidateKey:'firmable:f000000000001'}),expect.objectContaining({action:'e-company',candidateKey:'domain:web-only.example.com'})]));
+ expect(t.callbacks).toContainEqual(expect.objectContaining({action:'f-finish',result:expect.objectContaining({saved:2,failed:0})}));
+ expect(t.callbacks.some(c=>c.action==='f-fail')).toBe(false);
+});
+
 it.each([2,3,4])('uses first-pass supplemental web queries only for V4, preserving V%s retry behavior',async version=>{
  const t=replay();Object.assign(t.config,{mode:'automatic',workflow:'business',discover:true,pipelineDesign:'hybrid-firmable-v1',researchRunId:t.id,automaticDeadline:Date.now()+600000,companyDiscoveryPolicy:version===4?buildAllDiscoveredCompanyPolicy():version===3?buildCompanyDiscoveryPolicy():reviewedCompanyDiscoveryPolicy,...(version===2?{nativeAgent:{version:1}}:{})});
  const original=vi.mocked(globalThis.fetch).getMockImplementation()!,searches:Record<string,unknown>[]=[];

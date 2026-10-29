@@ -1,3 +1,5 @@
+const wake=vi.hoisted(()=>vi.fn());
+vi.mock('@/lib/agent-native-wake',()=>({wakeNativeAgentAfterCommit:wake}));
 import {beforeEach,expect,it,vi} from 'vitest';
 const mocks=vi.hoisted(()=>({session:vi.fn(),execute:vi.fn(),store:vi.fn(),find:vi.fn(),list:vi.fn(),decide:vi.fn(),edit:vi.fn()}));
 vi.mock('@/lib/auth',()=>({auth:{api:{getSession:mocks.session}}}));
@@ -41,3 +43,5 @@ it('records automatic demo approval attribution without changing the exact revie
  expect(mocks.decide).toHaveBeenCalledWith('owned-thread',batchId,1,[item],'approved','automatic_demo');
  expect((await POST(request({...input,approvalSource:'anything'}),context)).status).toBe(400);
 });
+
+it('wakes only after approved review commit, never rejection or uncertain commit response',async()=>{mocks.decide.mockRejectedValueOnce(Error('ambiguous commit response'));expect((await POST(request(),context)).status).toBe(409);expect(wake).not.toHaveBeenCalled();expect((await POST(request({...input,decision:'rejected'}),context)).status).toBe(200);expect(wake).not.toHaveBeenCalled();expect((await POST(request(),context)).status).toBe(200);expect(wake).toHaveBeenCalledOnce();});

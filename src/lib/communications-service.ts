@@ -7,7 +7,7 @@ import {assertSameBinding,type ConnectionBinding,type Coverage} from '../../comm
 import type {configureAcquireCommunications} from './communications-configuration';
 import {createCommunicationsService} from '../../communications/services/api/src/service';
 /** This trusted host can be deployed separately; startup checks storage and never creates it. */
-export async function createAcquireCommunicationsService(configured:ReturnType<typeof configureAcquireCommunications>,options?:{aroundRequest?:CommunicationsAroundRequest}){
+export async function createAcquireCommunicationsService(configured:ReturnType<typeof configureAcquireCommunications>,options?:{aroundRequest?:CommunicationsAroundRequest;historyMaintenance?:'external'}){
  if(!await configured.unipile.store.preflight())throw Error('Communications storage is not ready');
  const host=configured.host,unipile=configured.unipile,webhooks=host.createWebhooks();
  const businessScope=configured.businessScope?captureCommunicationsSubject(configured.businessScope):undefined;
@@ -40,7 +40,7 @@ export async function createAcquireCommunicationsService(configured:ReturnType<t
     // Refresh service-owned history even before a mailbox is selected as an
     // application default. The source persists checkpoints/events atomically;
     // app consumption remains a separate guarded step and may have no binding.
-    if(!attemptedRefresh&&binding.channel==='email'&&connection.status==='connected'&&(historyCooldown.get(identity)??0)<=now){
+    if(options?.historyMaintenance!=='external'&&!attemptedRefresh&&binding.channel==='email'&&connection.status==='connected'&&(historyCooldown.get(identity)??0)<=now){
      try{
       const source=await host.history(binding),query={binding,scope:'account',since:new Date(business-300000).toISOString(),cursor:null,refresh:true};
       const proof:Coverage|null=await source.repository.coverage(query);

@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useState } from "react";
+import Link from "next/link";
+import { mandateCompaniesHref } from "@/domain/mandate-navigation";
 import { ResearchPanel, type ResearchPanelData } from "./research-panel";
 import { researchRoot, isCompanyPipeline, companyPipelineState } from "./company-pipeline-state";
 import { terminalResearchStates } from "@/domain/research";
@@ -36,22 +37,13 @@ export function companyDiscoveryHasRetainedResults(data: ResearchPanelData, star
 }
 
 export function CompanyDiscoveryLoading({ mandateId, startedJobId }: { mandateId: string; startedJobId?: string }) {
-  const router = useRouter();
-  const navigated = useRef(false);
-  const targetsHref = `/mandates/${mandateId}?tab=targets`;
-  useEffect(() => {
-    router.prefetch(targetsHref);
-  }, [router, targetsHref]);
-  const onResults = useCallback(async (data: ResearchPanelData) => {
-    if (navigated.current) return;
-    // Completion must leave the loading screen even when no new companies were
-    // saved. The companies page loads its own results and empty state.
-    if (companyDiscoveryComplete(data, startedJobId) || companyDiscoveryHasRetainedResults(data, startedJobId)) {
-      navigated.current = true;
-      router.push(targetsHref);
-      return;
-    }
-  }, [startedJobId, router, targetsHref]);
+  const [hasSavedCompanies, setHasSavedCompanies] = useState(false);
+  const onResults = useCallback((data: ResearchPanelData) => {
+    setHasSavedCompanies(firstBatchCompanyIds(data, startedJobId).length > 0);
+  }, [startedJobId]);
 
-  return <ResearchPanel mandateId={mandateId} startedRunId={startedJobId} showStartAction={false} onResultsChanged={onResults} />;
+  return <>
+    <ResearchPanel mandateId={mandateId} startedRunId={startedJobId} showStartAction={false} showCompaniesLink={false} onResultsChanged={onResults} />
+    {hasSavedCompanies && <div className="mb-8 text-center"><Link prefetch={false} href={mandateCompaniesHref(mandateId)} className="inline-flex min-h-11 items-center rounded-lg bg-[var(--accent)] px-5 py-3 text-sm font-semibold text-[var(--on-accent)]">View companies</Link></div>}
+  </>;
 }

@@ -1,3 +1,4 @@
+import {withResearchJobWorkflow} from '@/lib/acquisition-workflow-context';
 import { companyPeopleProgress } from '@/domain/company-people-progress';
 import { selectCompanyContacts } from '@/domain/company-contact-policy';
 import { and, asc, desc, eq, inArray, isNotNull, lt, lte, max, notInArray, or, sql } from "drizzle-orm";
@@ -218,19 +219,25 @@ export class FirmableHistoryRepository {
       const personIds = [...new Set([...candidates.map(person => person.id), ...observations.flatMap(row => row.personId ? [row.personId] : [])])];
       const counts = await history.profileProgress(runId, personIds);
       await tx.update(firmableSyncRuns).set({ profilesFound: counts.found, profilesSaved: counts.saved, profilesFailed: counts.failed }).where(eq(firmableSyncRuns.id, runId));
-      return counts;
+      return {counts,organizationId:run.organizationId};
     });
     // Reconcile parent aggregate after releasing the run lock. Root-before-run
     // admission and run-before-root reconciliation cannot then deadlock.
-    if (result) await this.database.transaction(async tx => {
-      const roots = await tx.select().from(researchJobs).where(sql`COALESCE(${researchJobs.config}->'companyPeopleRunIds', '[]'::jsonb) @> ${JSON.stringify([runId])}::jsonb`).for('update');
-      for (const root of roots) {
+    if (result) {
+      // Bound the JSON membership search to the owning tenant. Each root keeps
+      // its original workflow identity, including explicit legacy null.
+      const roots = await this.database.select().from(researchJobs).where(and(eq(researchJobs.organizationId,result.organizationId),sql`COALESCE(${researchJobs.config}->'companyPeopleRunIds', '[]'::jsonb) @> ${JSON.stringify([runId])}::jsonb`));
+      for (const original of roots) await withResearchJobWorkflow(original,()=>this.database.transaction(async tx=>{
+        const [root]=await tx.select().from(researchJobs).where(and(eq(researchJobs.id,original.id),eq(researchJobs.organizationId,result.organizationId))).for('update');
+        if(!root)return;
+        if(root.workflowExecutionId!==original.workflowExecutionId||root.createdBy!==original.createdBy)throw Error('Original research workflow changed');
         const ids = (root.config as { companyPeopleRunIds: string[] }).companyPeopleRunIds;
-        const runs = await tx.select().from(firmableSyncRuns).where(inArray(firmableSyncRuns.id, ids));
-        await tx.update(researchJobs).set({ config: sql`${researchJobs.config} || ${JSON.stringify({ companyPeopleProgress: companyPeopleProgress(runs) })}::jsonb` }).where(eq(researchJobs.id, root.id));
-      }
-    });
-    return result;
+        if(!ids?.includes(runId))return;
+        const runs = await tx.select().from(firmableSyncRuns).where(and(eq(firmableSyncRuns.organizationId,result.organizationId),inArray(firmableSyncRuns.id,ids)));
+        await tx.update(researchJobs).set({config:sql`${researchJobs.config} || ${JSON.stringify({companyPeopleProgress:companyPeopleProgress(runs)})}::jsonb`}).where(and(eq(researchJobs.id,root.id),eq(researchJobs.organizationId,result.organizationId)));
+      }));
+    }
+    return result?.counts;
   }
 
   async recordObservation(runId: string, observation: FirmableHttpObservation, options: { retainPersonalData: boolean }) {

@@ -1,9 +1,9 @@
 import React from 'react';
 import {afterEach,expect,it,vi} from 'vitest';
 vi.mock('next/link',()=>({default:({children,...props}:React.AnchorHTMLAttributes<HTMLAnchorElement>)=><a {...props}>{children}</a>}));
-const activity=vi.hoisted(()=>({apply:undefined as undefined|((value:unknown)=>void)}));
+const activity=vi.hoisted(()=>({apply:undefined as undefined|((value:unknown)=>void),saved:undefined as undefined|(()=>Promise<void>)}));
 vi.mock('@/lib/agent-activity-poller',()=>({startAgentActivityPolling:(options:{apply:(value:unknown)=>void})=>{activity.apply=options.apply;return()=>{};}}));
-vi.mock('./agent-controls-panel',()=>({AgentControlsPanel:({children}:{children?:(setup:React.ReactNode)=>React.ReactNode})=> <><div>Agent toolbar</div>{children?.(<div>Inline account setup request</div>)}</>}));
+vi.mock('./agent-controls-panel',()=>({AgentControlsPanel:({children,onActionSaved}:{children?:(setup:React.ReactNode)=>React.ReactNode;onActionSaved?:()=>Promise<void>})=>{activity.saved=onActionSaved;return <><div>Agent toolbar</div>{children?.(<div>Inline account setup request</div>)}</>}}));
 vi.mock('./company-identity-reviews',()=>({CompanyIdentityReviews:()=>null}));
 vi.mock('./agent-review-cards',async importOriginal=>({...await importOriginal<typeof import('./agent-review-cards')>(),AgentReviewCards:()=>null}));
 vi.mock('./agent-saved-results',()=>({AgentSavedResults:()=> <div>Saved results inline</div>}));
@@ -17,7 +17,39 @@ import {CompanyIdentityReviews} from './company-identity-reviews';
 import {AgentBriefReview} from './agent-brief-review';
 import type {AgentSnapshot} from '@/domain/agent-mode';
 const initial:AgentSnapshot={mandate:{id:'56cb6d9e-e530-46a0-a98b-294193049536',name:'A saved mandate',description:'Saved buyer criteria'},scope:'research-only',research:{total:3,queued:0,active:0,complete:3,needsReview:0,cancelled:0},jobs:[],links:{brief:'/saved/brief',companies:'/saved/companies'}};
+it('retains the saved welcome once above research progress after refresh and suppresses the duplicate setup greeting',async()=>{
+ vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);const fetcher=vi.fn();vi.stubGlobal('fetch',fetcher);
+ const{create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;
+ const content='Hi, I’m Acquire.\n\nYou’re looking for Australian packaging companies.';
+ const conversation={threadId:'saved-thread',messages:[{id:'saved-welcome',role:'assistant' as const,noticeKind:'welcome' as const,content},{id:'progress',role:'assistant' as const,content:'Company discovery is running.'}]};
+ try{for(let visit=0;visit<2;visit++){
+  await act(()=>{tree=create(<AgentWorkspace initial={{...initial,initialResearch:{requestId:initial.mandate.id,status:'queued',source:'live'}}} conversation={conversation}/>);});
+  const transcript=tree!.root.findByProps({role:'log','aria-label':'Conversation messages'});
+  expect(transcript.findAllByType('div').filter(node=>node.props['data-chat-message-id']==='saved-welcome')).toHaveLength(1);
+  const visible=JSON.stringify(tree!.toJSON());expect(visible.match(/Hi, I’m Acquire\./g)).toHaveLength(1);
+  expect(visible.indexOf('Hi, I’m Acquire.')).toBeLessThan(visible.indexOf('Company discovery is running.'));
+  expect(tree!.root.findByType(AgentControlsPanel).props.welcomeSaved).toBe(true);expect(fetcher).not.toHaveBeenCalled();
+  await act(()=>tree!.unmount());tree=undefined;
+ }}finally{if(tree)await act(()=>tree!.unmount());vi.unstubAllGlobals();}
+});
 afterEach(()=>vi.unstubAllGlobals());
+it('uses the existing chat workspace and welcome for a pending mandate without polling or starting work',async()=>{
+ vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);const fetcher=vi.fn(),start=vi.fn();vi.stubGlobal('fetch',fetcher);
+ const{create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;
+ try{
+  await act(()=>{tree=create(<AgentWorkspace initial={initial} preparation={{onStart:start,busy:false,researchOnly:true}}/>);});
+  const chat=tree!.root.findByProps({'aria-label':'Mandate conversation'});
+  expect(JSON.stringify(tree!.toJSON())).toContain('Hi, I’m Acquire.');
+  const transcript=chat.findByProps({role:'log'});
+  const welcome=chat.findByProps({'aria-label':'Welcome to Acquire'});
+  expect(transcript.findByProps({'aria-label':'Welcome to Acquire'})).toBe(welcome);
+  const button=welcome.findByType('button');expect(button.props.children).toBe('Start');
+  expect(tree!.root.findByProps({id:'agent-question'}).props.disabled).toBe(true);
+  expect(tree!.root.findAllByType(AgentControlsPanel)).toHaveLength(0);
+  expect(fetcher).not.toHaveBeenCalled();expect(start).not.toHaveBeenCalled();
+  await act(()=>button.props.onClick());expect(start).toHaveBeenCalledOnce();expect(fetcher).not.toHaveBeenCalled();
+ }finally{if(tree)await act(()=>tree!.unmount());}
+});
 it('keeps a typed chat draft when context is opened and closed without starting work',async()=>{
  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);const fetcher=vi.fn();vi.stubGlobal('fetch',fetcher);
  const {create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;
@@ -145,7 +177,7 @@ it('brings the current action below a new chat answer while retaining the same l
 it('approves only the displayed snapshot in order and stops at the first changed review',async()=>{
  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('requestAnimationFrame',vi.fn());
  const batches=Array.from({length:3},(_,i)=>({id:'batch-'+i,revision:1,state:'pending' as const,stale:false,manifest:[{operationId:'op-'+i,revision:1,digest:'a'.repeat(64),contextRevision:'current'}],operations:[{id:'op-'+i,name:'email.reply',revision:1,state:'proposed',input:{body:'A reply.',recipientKey:'email:owner@example.invalid'}}]}));
- const posted:unknown[]=[];vi.stubGlobal('fetch',vi.fn(async(url:string,options?:RequestInit)=>{if(options?.method==='POST'){posted.push(JSON.parse(options.body as string));return Response.json(posted.length===2?{error:'Changed'}:{batch:{}},{status:posted.length===2?409:200});}return Response.json(url.endsWith('/reviews')?{batches:[]}:{...initial,conversation:{messages:[]}});}));
+ const posted:unknown[]=[];vi.stubGlobal('fetch',vi.fn(async(url:string,options?:RequestInit)=>{if(options?.method==='POST'){posted.push(JSON.parse(options.body as string));return Response.json(posted.length===2?{error:'Changed'}:{batch:{}},{status:posted.length===2?409:200});}return Response.json(url.endsWith('/activity')?{conversation:{messages:[]},batches:[],guidance:[]}:url.endsWith('/reviews')?{batches:[]}:{...initial,conversation:{messages:[]}});}));
  const {create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;
  try{await act(()=>{tree=create(<AgentWorkspace initial={initial} conversation={{threadId:'saved-thread',messages:[]}}/>);});await act(()=>activity.apply!({conversation:{messages:[]},batches,guidance:[]}));let result:unknown;await act(async()=>{result=await tree!.root.findByType(AgentMessageReviewQueue).props.onApproveAll(batches);});expect(result).toBe(false);expect(posted).toEqual(batches.slice(0,2).map(batch=>({action:'decide',batchId:batch.id,revision:1,items:batch.manifest,decision:'approved'})));expect(tree!.root.findByProps({role:'alert'}).children.join('')).toContain('Approval stopped');
  }finally{if(tree)await act(()=>tree!.unmount());}
@@ -156,4 +188,26 @@ it('keeps context focused on the brief and hides empty demo diagnostics and sequ
  try{await act(()=>{tree=create(<AgentWorkspace initial={{...initial,initialResearch:{requestId:'cached',source:'cached',status:'complete'}}} learningEnabled conversation={{threadId:'thread',messages:[]}}/>);});
  const text=JSON.stringify(tree!.toJSON());expect(text).toContain('Saved buyer criteria');expect(text).not.toContain('Jobs recorded');expect(text).not.toContain('Open sequence builder');expect(text).not.toContain('Saved guidance (0)');
  }finally{if(tree)await act(()=>tree!.unmount());}
+});
+
+it.each([200,503])('keeps a review unconfirmed when its HTTP response is empty, without leaking a parser error (status=%s)',async status=>{
+ vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);vi.stubGlobal('requestAnimationFrame',vi.fn());const fetcher=vi.fn().mockImplementation(async()=>new Response('',{status}));vi.stubGlobal('fetch',fetcher);
+ const batch={id:'batch',revision:1,state:'pending' as const,stale:false,manifest:[{operationId:'op',revision:1,digest:'a'.repeat(64)}],operations:[{id:'op',name:'email.reply',revision:1,state:'proposed',input:{body:'Saved draft.'}}]};
+ const{create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;
+ try{await act(()=>{tree=create(<AgentWorkspace initial={initial} conversation={{threadId:'saved-thread',messages:[]}}/>);});await act(()=>activity.apply!({conversation:{messages:[]},batches:[batch],guidance:[]}));let result:unknown;
+  await act(async()=>{result=await tree!.root.findByType(AgentMessageReviewQueue).props.onEdit(batch,'op',1,'Keep this human edit.');});
+  expect(result).toBe(false);const text=JSON.stringify(tree!.toJSON());expect(text).not.toContain('Unexpected end');expect(text).toContain('Could not confirm the response. Check saved progress before retrying.');expect(fetcher).toHaveBeenCalledOnce();
+ }finally{if(tree)await act(()=>tree!.unmount());}
+});
+
+it('refreshes saved chat actions through the single bundled activity read',async()=>{
+ vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT',true);const fetcher=vi.fn(async(url:string)=>Response.json(url.endsWith('/activity')?{conversation:{messages:[]},batches:[],guidance:[]}:url.endsWith('/reviews')?{batches:[]}:{...initial,conversation:{messages:[]}}));vi.stubGlobal('fetch',fetcher);
+ const{create,act}=await import('react-test-renderer');let tree:ReturnType<typeof create>|undefined;try{await act(()=>{tree=create(<AgentWorkspace initial={initial} conversation={{threadId:'saved-thread',messages:[]}}/>);});fetcher.mockClear();await act(async()=>{await activity.saved!();});expect(fetcher).toHaveBeenCalledOnce();expect(fetcher.mock.calls[0][0]).toBe('/api/mandates/'+initial.mandate.id+'/agent/activity');}finally{if(tree)await act(()=>tree!.unmount());}
+});
+
+
+it('keeps the chat footer neutral when workflow policy has not loaded',async()=>{
+ const {renderToStaticMarkup}=await import('react-dom/server');
+ const html=renderToStaticMarkup(<AgentWorkspace initial={initial} conversation={{threadId:'saved-thread',messages:[]}}/>);
+ expect(html).toContain('Saved to this mandate');expect(html).not.toContain('Human approval by default');expect(html).not.toContain('A human sends the booking link');
 });

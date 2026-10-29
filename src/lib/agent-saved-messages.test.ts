@@ -3,6 +3,12 @@ import {savedAgentMessages} from './agent-saved-messages';
 import {groupAgentChatNotices} from '@/components/agent-chat-notices';
 const text='You reviewed a person’s exact channel and account. Provider identity and full history must still be verified before outreach.';
 const id='00000000-0000-4000-8000-000000000001',other='00000000-0000-4000-8000-000000000002';
+it('marks the saved admission welcome without hiding it or trusting an ordinary model/user greeting',()=>{
+ const row={id:'welcome',role:'assistant',request_key:`initial-welcome:v1:${id}`,content:{text:'Hi, I’m Acquire.\n\nOriginal saved brief.',details:{executionId:id}}};
+ expect(savedAgentMessages([row])[0]).toMatchObject({id:'welcome',noticeKind:'welcome',content:row.content.text});
+ expect(groupAgentChatNotices(savedAgentMessages([row]))).toEqual([{kind:'message',message:expect.objectContaining({noticeKind:'welcome'})}]);
+ for(const invalid of [{...row,role:'user'},{...row,request_key:'turn:assistant'},{...row,content:{...row.content,details:{executionId:other}}}])expect(savedAgentMessages([invalid])[0]).not.toHaveProperty('noticeKind');
+});
 function notice(){return {id:'message',role:'assistant',request_key:'channel-route:'+id,content:{text,details:{conversationId:other,routeId:id,channel:'whatsapp',bindingId:other,policyRevision:1,recipient:'PRIVATE_ROUTE',bindingDigest:'PRIVATE_BINDING'}}};}
 it('marks only the saved exact channel-route notice while never exposing internal provenance or route details',()=>{
  const rows=[notice()];expect(savedAgentMessages(rows)).toEqual([{id:'message',role:'assistant',content:text,noticeKind:'contact_channel_reviewed'}]);expect(JSON.stringify(savedAgentMessages(rows))).not.toMatch(/PRIVATE|request_key|details|bindingId|routeId/);
@@ -53,4 +59,10 @@ it('preserves repeated user/model text, changed results and a new attempt after 
  expect(savedAgentMessages([{...a,request_key:'turn:model'},{...b,request_key:'turn:another'}])).toHaveLength(2);
  expect(savedAgentMessages([{...a,role:'user'},{...b,role:'user'}])).toHaveLength(2);
  const malformed={...a,content:{...a.content,details:{}}};expect(savedAgentMessages([malformed])[0].content).toBe(a.content.text);
+});
+it('exposes only durable event-review correlation IDs, never guessed failure certainty',()=>{
+ const row={id:'failure',role:'assistant',request_key:`event-review:${id}:2`,content:{text:'Background work was interrupted.',triggerEventId:id,runId:other,stage:'PRIVATE_STAGE',operationId:'PRIVATE_OPERATION'},lead:{id,name:'Example'}};
+ expect(savedAgentMessages([row])[0]).toHaveProperty('failure',{eventId:id,runId:other});
+ for(const invalid of [{...row,role:'user'},{...row,request_key:`event-review:${other}:2`},{...row,content:{...row.content,runId:'bad'}},{...row,request_key:'turn:'+id}])expect(savedAgentMessages([invalid])[0]).not.toHaveProperty('failure');
+ expect(JSON.stringify(savedAgentMessages([row]))).not.toContain('PRIVATE');
 });

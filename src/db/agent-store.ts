@@ -1,6 +1,12 @@
+import {approvedDispatchEvent,dispatchRunLimits,legacyRunLimits,runDurationSql,runDurationMs} from './agent-dispatch-budget';
+import {agentNativeDispatchSqlNames} from './agent-operation-sql';
+import {acquisitionWorkflowContext,withAcquisitionWorkflowContext} from '@/lib/acquisition-workflow-context';
+import {bindAgentWorkflowContext,resolveAgentWorkflowContext} from './agent-workflow-context';
+import {AsyncLocalStorage} from 'node:async_hooks';
 import {loadAgentReviewPeople} from './agent-review-people';
 import {insertAgentReviewBatch,persistAgentReviewDecision} from './agent-review-ledger';
 import {agentRecordDigest as digest} from '@/lib/agent-record-digest';
+import {agentJson as json,openAgentThread,appendAgentMessage} from './agent-message-persistence';
 import {checkAgentResearchMandateReviewContext,type AgentReviewContextOperation} from './agent-review-context';
 import {isAgentReviewableOperation,isAgentEditableMessageOperation} from '@/domain/agent-operation-classifications';
 import{installAgentBusinessTimeSql}from'@/lib/agent-business-time-sql';
@@ -18,22 +24,29 @@ export const agentActorSchema = z.object({ organizationId: z.string().min(1).max
 export type AgentActor = z.infer<typeof agentActorSchema>;
 const uuid = z.string().uuid();
 const key = z.string().trim().min(1).max(200);
-function json(value: unknown) {
-  const parsed = z.json().parse(value);
-  if (Buffer.byteLength(JSON.stringify(parsed)) > 60_000) throw new Error('Agent payload exceeds the bounded storage limit');
-  return parsed;
-}
 export type AgentThread = { id: string; organization_id: string; mandate_id: string; owner_user_id: string; revision: number };
-export type AgentEvent = { id: string; thread_id: string; mandate_id?:string; kind: string; payload: unknown; lease_owner: string; fence: string; attempts: number };
+export type AgentEvent = { id: string; thread_id: string; mandate_id?:string; created_at?:Date|string; workflow_execution_id?:string|null; kind: string; payload: unknown; lease_owner: string; fence: string; attempts: number };
 
-export type AgentStoreOptions={businessTime?:{context:AgentBusinessTimeContext;scope:AgentBusinessTimeScope}};
+export type AgentStoreOptions={workflowExecutionId?:string|null;businessTime?:{context:AgentBusinessTimeContext;scope:AgentBusinessTimeScope}};
 
 /** Server-owned scope. This class does not accept credentials, execute tools or send. */
 export class AgentStore {
+  private readonly workflowClients=new WeakMap<PoolClient,{id:string|null;mandateId?:string}>();
+  private readonly workflowExecutionId?:string|null;
+  private readonly readClient = new AsyncLocalStorage<{client:PoolClient;active:boolean}>();
+  /** Only fixed read projections may use this bundle; provider work stays outside.
+   * Context is per store/actor and expires before the outer transaction settles. */
+  protected readBundle<T>(work:()=>Promise<T>):Promise<T>{
+    return this.transaction(client=>{
+      const scope={client,active:true};
+      return this.readClient.run(scope,async()=>{try{return await work();}finally{scope.active=false;}});
+    });
+  }
   protected actor: AgentActor;
   protected readonly businessTime?:AgentBusinessTimeContext;
-  constructor(private pool: Pick<Pool, 'connect'>, actor: AgentActor, options:AgentStoreOptions={}) {
+  constructor(protected pool: Pick<Pool, 'connect'>, actor: AgentActor, options:AgentStoreOptions={}) {
     this.actor = agentActorSchema.parse(actor);
+    this.workflowExecutionId=options.workflowExecutionId===undefined?undefined:options.workflowExecutionId===null?null:uuid.parse(options.workflowExecutionId);
     const time=options.businessTime;
     if(time){
       if(time.scope.organizationId!==this.actor.organizationId||time.scope.userId!==this.actor.userId)throw Error('Agent business time scope unavailable');
@@ -53,10 +66,15 @@ export class AgentStore {
     if(!Number.isFinite(instant)||instant>this.businessNow())throw Error('Business reconciliation anchor unavailable');
     return new Date(instant);
   }
-  protected async transaction<T>(work: (client: PoolClient) => Promise<T>,preset?:AgentTransactionPreset) {
+  protected async transaction<T>(work: (client: PoolClient) => Promise<T>,preset?:AgentTransactionPreset,readOnly=false) {
+    const bundled=this.readClient.getStore();
+    if(bundled){
+      if(!bundled.active||preset!==undefined)throw new Error('Invalid nested agent read transaction');
+      return work(bundled.client);
+    }
     const client = await this.pool.connect();
     try {
-      await client.query('BEGIN');
+      await client.query(readOnly?'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY':'BEGIN');
       if(preset!==undefined)await installAgentReadBudget(client,preset);
       await client.query('SET LOCAL ROLE acquire_agent_user');
       const role = (await client.query('SELECT current_user AS name,rolsuper,rolbypassrls FROM pg_roles WHERE rolname=current_user')).rows[0];
@@ -70,40 +88,72 @@ export class AgentStore {
         if(typeof installed!=='boolean')throw Error('Agent business clock availability is unknown');
         if(installed)await client.query('SELECT public.local_simulator_business_now()');
       }
-      // Optional until the separately approved native-control migration exists.
-      // Once installed, use the shared gate BEFORE taking membership/row locks.
-      const gate=(await client.query("SELECT to_regprocedure('public.agent_lock_send_gate()') IS NOT NULL AS installed")).rows[0];
-      if(typeof gate?.installed!=='boolean')throw new Error('Agent gate availability is unknown');
-      if(gate.installed)await client.query('SELECT public.agent_lock_send_gate()');
-      const member = await client.query('SELECT agent_lock_member() AS allowed');
+      // Read projections use a consistent snapshot, RLS and current membership.
+      // PostgreSQL forbids writes; mutation/admission transactions retain the gate.
+      if(!readOnly){
+        const gate=(await client.query("SELECT to_regprocedure('public.agent_lock_send_gate()') IS NOT NULL AS installed")).rows[0];
+        if(typeof gate?.installed!=='boolean')throw new Error('Agent gate availability is unknown');
+        if(gate.installed)await client.query('SELECT public.agent_lock_send_gate()');
+      }
+      const member=readOnly?await client.query("SELECT EXISTS(SELECT 1 FROM member WHERE organization_id=$1 AND user_id=$2) AS allowed",[this.actor.organizationId,this.actor.userId]):await client.query('SELECT agent_lock_member() AS allowed');
       if (!member.rows[0]?.allowed) throw new Error('Agent actor is no longer a member');
+      const workflow=acquisitionWorkflowContext();
+      if(workflow&&(workflow.organizationId!==this.actor.organizationId||workflow.ownerUserId!==this.actor.userId))throw Error('Workflow actor scope changed');
+      const workflowId=workflow?workflow.id:this.workflowExecutionId;
+      if(workflowId!==undefined){await bindAgentWorkflowContext(client,this.actor,workflowId);this.workflowClients.set(client,{id:workflowId});}
       const result = await work(client);
       await client.query('COMMIT'); return result;
     } catch (error) { await client.query('ROLLBACK'); throw error; }
-    finally { client.release(); }
+    finally { this.workflowClients.delete(client);client.release(); }
   }
   protected async thread(client: PoolClient, id: string): Promise<AgentThread> {
     const row = (await client.query<AgentThread>('SELECT * FROM agent_threads WHERE id=$1',[uuid.parse(id)])).rows[0];
     if (!row) throw new Error('Agent thread not found');
+    await this.bindMandateWorkflow(client,row.mandate_id);
     return row;
   }
+  /** Read projection and new-command scope also exists before a chat thread. */
+  protected async bindMandateWorkflow(client:PoolClient,mandateId:string){
+    const original=this.workflowClients.get(client);
+    if(!original){const id=await resolveAgentWorkflowContext(client,this.actor,mandateId);this.workflowClients.set(client,{id,mandateId});}
+    else if(original.id!==null&&original.mandateId!==mandateId){await bindAgentWorkflowContext(client,this.actor,original.id,mandateId);original.mandateId=mandateId;}
+  }
+  /** Async request scope follows the persisted event/effect, never a thread's later execution. */
+  withWorkflowExecution<T>(id:string|null,work:()=>Promise<T>){return withAcquisitionWorkflowContext({id,organizationId:this.actor.organizationId,ownerUserId:this.actor.userId},work);}
+  protected async bindOriginalWorkflow(client:PoolClient,row:{workflow_execution_id?:string|null;mandate_id?:string}){
+    if(!Object.prototype.hasOwnProperty.call(row,'workflow_execution_id'))return; // pre-expansion compatibility
+    const id=row.workflow_execution_id??null;
+    await bindAgentWorkflowContext(client,this.actor,id,row.mandate_id);
+    this.workflowClients.set(client,{id,mandateId:row.mandate_id});
+  }
+  protected workflowId(client:PoolClient){return this.workflowClients.get(client)?.id??null;}
+  protected workflowModeTable(client:PoolClient){return this.workflowClients.get(client)?.id?'agent_effective_execution_modes':'agent_mandate_execution_modes';}
+  /** Saved display data only: no context digest, row lock or sending authority. */
+  async operationDisplayRecord(threadId:string,operationId:string){
+    uuid.parse(threadId);uuid.parse(operationId);
+    return this.transaction(async c=>{
+      const row=(await c.query(`SELECT
+        jsonb_build_object('id',o.id,'name',o.name,'state',o.state,'result',o.result) AS operation,
+        jsonb_build_object('id',c.id,'phase',c.phase,'pause_reason',c.pause_reason,
+          'history_complete',c.history_complete,'history_observed_at',c.history_observed_at,'history',c.history) AS conversation,
+        CASE WHEN r.id IS NULL THEN NULL ELSE jsonb_build_object('id',r.id,'channel',r.channel) END AS route
+        FROM agent_operations o
+        INNER JOIN agent_threads t ON t.id=o.thread_id AND o.organization_id=t.organization_id AND o.owner_user_id=t.owner_user_id AND o.mandate_id=t.mandate_id
+        INNER JOIN agent_conversations c ON c.id=o.conversation_id AND c.thread_id=t.id AND c.organization_id=t.organization_id AND c.owner_user_id=t.owner_user_id AND c.mandate_id=t.mandate_id
+        LEFT JOIN agent_conversation_channels r ON r.id::text=o.input->>'routeId' AND r.conversation_id=c.id AND r.thread_id=t.id AND r.organization_id=t.organization_id AND r.owner_user_id=t.owner_user_id AND r.mandate_id=t.mandate_id
+        WHERE o.id=$1 AND t.id=$2 AND t.organization_id=$3 AND t.owner_user_id=$4
+          AND o.name IN(${agentNativeDispatchSqlNames})`,[operationId,threadId,this.actor.organizationId,this.actor.userId])).rows[0];
+      if(!row)throw Error('Owned operation display unavailable');
+      return {operation:row.operation,conversation:row.conversation,route:row.route};
+    },undefined,true);
+  }
   async openThread(mandateId: string): Promise<AgentThread> {
-    return this.transaction(async c => {
-      const values=[this.actor.organizationId,uuid.parse(mandateId),this.actor.userId];
-      await c.query(`INSERT INTO agent_threads(organization_id,mandate_id,owner_user_id)
-        SELECT $1,$2,$3 FROM mandates WHERE id=$2 AND organization_id=$1
-        ON CONFLICT(organization_id,mandate_id,owner_user_id) DO NOTHING`,values);
-      const row=(await c.query<AgentThread>('SELECT * FROM agent_threads WHERE organization_id=$1 AND mandate_id=$2 AND owner_user_id=$3',values)).rows[0];
-      if (!row) throw new Error('Mandate not found'); return row;
-    });
+    return this.transaction(c => openAgentThread(c,this.actor,mandateId));
   }
   async appendMessage(threadId: string, requestKey: string, role: 'user'|'assistant', content: unknown) {
     return this.transaction(async c => {
-      const t=await this.thread(c,threadId); const request=key.parse(requestKey); const value=json(content); const hash=digest({role:z.enum(['user','assistant']).parse(role),content:value});
-      await c.query(`INSERT INTO agent_messages(thread_id,organization_id,mandate_id,owner_user_id,request_key,role,content,content_digest)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(thread_id,request_key) DO NOTHING`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,request,role,JSON.stringify(value),hash]);
-      const row=(await c.query('SELECT * FROM agent_messages WHERE thread_id=$1 AND request_key=$2',[t.id,request])).rows[0];
-      if (row.content_digest!==hash) throw new Error('Idempotency key reused with different message'); return row;
+      const t=await this.thread(c,threadId);
+      return appendAgentMessage(c,t,requestKey,role,content);
     });
   }
   async messages(threadId: string, limit=100) {
@@ -200,22 +250,22 @@ export class AgentStore {
   }
   async claimEvent(workerId: string, leaseMs=30_000,mandateId?:string): Promise<AgentEvent|undefined> {
     uuid.parse(workerId);z.number().int().min(100).max(60_000).parse(leaseMs);if(mandateId!==undefined)uuid.parse(mandateId);
-    return this.transaction(async c => {const eligible=await this.eventEligibilityPredicate(c);return (await c.query<AgentEvent>(`WITH due AS (
-      SELECT id FROM agent_events e WHERE ${eligible} AND available_at<=${this.businessSql()}${this.businessTime?" AND (e.operational_not_before_at IS NULL OR e.operational_not_before_at<=clock_timestamp())":''} AND (state='pending' OR (state='leased' AND lease_until<=clock_timestamp()))
-      AND ($3::uuid IS NULL OR e.mandate_id=$3::uuid)
-      AND NOT EXISTS(SELECT 1 FROM agent_runs r WHERE r.thread_id=e.thread_id AND r.state='running' AND (r.lease_until IS NULL OR r.lease_until>clock_timestamp()))
-      -- Receipt lookup can clear the physical-account barrier for queued sends.
-      -- A bounded scheduling credit preserves aging: it cannot starve older work.
-      ORDER BY CASE WHEN e.kind IN ('email.reconcile','whatsapp.reconcile','linkedin.reconcile')
-        THEN e.available_at-interval '60 seconds' ELSE e.available_at END,e.available_at,e.id
-      FOR UPDATE SKIP LOCKED LIMIT 1)
-      UPDATE agent_events e SET state='leased',lease_owner=$1,lease_until=clock_timestamp()+($2::int*interval '1 millisecond'),fence=fence+1,attempts=attempts+1
-      FROM due WHERE e.id=due.id RETURNING e.*`,[workerId,leaseMs,mandateId??null])).rows[0];});
+    return this.transaction(async c => {
+      const eligible=await this.eventEligibilityPredicate(c);
+      const event=(await c.query<AgentEvent>(`SELECT e.* FROM agent_events e WHERE ${eligible} AND available_at<=${this.businessSql()}${this.businessTime?" AND (e.operational_not_before_at IS NULL OR e.operational_not_before_at<=clock_timestamp())":''}
+       AND (state='pending' OR (state='leased' AND lease_until<=clock_timestamp())) AND ($1::uuid IS NULL OR e.mandate_id=$1::uuid)
+       AND NOT EXISTS(SELECT 1 FROM agent_runs r WHERE r.thread_id=e.thread_id AND r.state='running' AND (r.lease_until IS NULL OR r.lease_until>clock_timestamp()))
+       ORDER BY CASE WHEN e.kind IN ('email.reconcile','whatsapp.reconcile','linkedin.reconcile') THEN e.available_at-interval '60 seconds' ELSE e.available_at END,e.available_at,e.id
+       FOR UPDATE SKIP LOCKED LIMIT 1`,[mandateId??null])).rows[0];
+      if(!event)return undefined;
+      await this.bindOriginalWorkflow(c,event);
+      return (await c.query<AgentEvent>(`UPDATE agent_events SET state='leased',lease_owner=$1,lease_until=clock_timestamp()+($2::int*interval '1 millisecond'),fence=fence+1,attempts=attempts+1 WHERE id=$3 RETURNING *`,[workerId,leaseMs===60000&&await approvedDispatchEvent(c,event)?dispatchRunLimits.eventLeaseMs:leaseMs,event.id])).rows[0];
+    });
   }
   async completeEvent(eventId: string, workerId: string, fence: string) {
     uuid.parse(eventId);uuid.parse(workerId);z.string().regex(/^\d+$/).parse(fence);
-    return this.transaction(async c => !!(await c.query(`UPDATE agent_events SET state='done',lease_owner=NULL,lease_until=NULL
-      WHERE id=$1 AND state='leased' AND lease_owner=$2 AND fence=$3::bigint AND lease_until>clock_timestamp() RETURNING id`,[eventId,workerId,fence])).rowCount);
+    return this.transaction(async c => {const original=(await c.query('SELECT * FROM agent_events WHERE id=$1',[eventId])).rows[0];if(original)await this.bindOriginalWorkflow(c,original);return !!(await c.query(`UPDATE agent_events SET state='done',lease_owner=NULL,lease_until=NULL
+      WHERE id=$1 AND state='leased' AND lease_owner=$2 AND fence=$3::bigint AND lease_until>clock_timestamp() RETURNING id`,[eventId,workerId,fence])).rowCount;});
   }
   protected async lockThread(c:PoolClient,id:string){
     const thread=await this.thread(c,id);
@@ -238,26 +288,29 @@ export class AgentStore {
     uuid.parse(event.id);uuid.parse(event.thread_id);uuid.parse(event.lease_owner);z.string().regex(/^\d+$/).parse(event.fence);
     return [event.id,event.thread_id,event.lease_owner,event.fence];
   }
-  async beginEventRun(event:AgentEvent):Promise<{kind:'started';runId:string}|{kind:'busy'}|{kind:'lost'}>{
+  async beginEventRun(event:AgentEvent):Promise<{kind:'started';runId:string;deadlineAt?:string;durationMs?:number}|{kind:'busy'}|{kind:'lost'}>{
     const identity=this.eventIdentity(event);
     return this.transaction(async c=>{
       const t=await this.lockThread(c,event.thread_id);
       const current=(await c.query("SELECT * FROM agent_events WHERE id=$1 AND thread_id=$2 AND lease_owner=$3 AND fence=$4::bigint AND state='leased' AND lease_until>clock_timestamp() FOR UPDATE",identity)).rows[0];
       if(!current||!await this.eventIsEligible(c,t.id,current.kind))return {kind:'lost'};
-      const prior=(await c.query("SELECT id FROM agent_runs WHERE trigger_event_id=$1 AND state='running' AND lease_owner=$2 AND fence=$3::bigint AND lease_until>clock_timestamp()",[event.id,event.lease_owner,event.fence])).rows[0];
-      if(prior)return {kind:'started',runId:prior.id};
+      const prior=(await c.query("SELECT id,created_at,lease_until,model_config FROM agent_runs WHERE trigger_event_id=$1 AND state='running' AND lease_owner=$2 AND fence=$3::bigint AND lease_until>clock_timestamp()",[event.id,event.lease_owner,event.fence])).rows[0];
+      if(prior){const durationMs=current.kind==='review.approved'?runDurationMs(prior.model_config?.nativeLimits):45000;return {kind:'started',runId:prior.id,durationMs,deadlineAt:new Date(Math.min(new Date(prior.created_at).getTime()+durationMs,new Date(prior.lease_until).getTime()-10000)).toISOString()};}
       await c.query("UPDATE agent_runs SET state='uncertain',stop_reason='interrupted_event',updated_at=now() WHERE thread_id=$1 AND state='running' AND lease_until<=clock_timestamp()",[t.id]);
       if((await c.query("SELECT id FROM agent_runs WHERE thread_id=$1 AND state='running'",[t.id])).rowCount)return {kind:'busy'};
-      const run=(await c.query(`INSERT INTO agent_runs(thread_id,organization_id,mandate_id,owner_user_id,trigger_event_id,state,lease_owner,lease_until,fence,model_config)
-       VALUES($1,$2,$3,$4,$5,'running',$6,$7,$8::bigint,'{"nativeLimits":{"version":1,"maxToolSteps":32,"maxDurationMs":45000}}'::jsonb) RETURNING id`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,event.id,event.lease_owner,current.lease_until,event.fence])).rows[0];
-      return {kind:'started',runId:run.id};
+      // Transaction-start now() includes lock waits before a run exists. Start
+      // its duration at insertion; retain the original event lease unchanged.
+      const limits=await approvedDispatchEvent(c,current)?dispatchRunLimits:legacyRunLimits;
+      const run=(await c.query(`INSERT INTO agent_runs(thread_id,organization_id,mandate_id,owner_user_id,trigger_event_id,state,lease_owner,lease_until,fence,model_config,created_at)
+       VALUES($1,$2,$3,$4,$5,'running',$6,$7,$8::bigint,$9::jsonb,clock_timestamp()) RETURNING id,created_at,lease_until`,[t.id,t.organization_id,t.mandate_id,t.owner_user_id,event.id,event.lease_owner,current.lease_until,event.fence,JSON.stringify({nativeLimits:limits})])).rows[0];
+      return {kind:'started',runId:run.id,durationMs:limits.maxDurationMs,deadlineAt:new Date(Math.min(new Date(run.created_at).getTime()+limits.maxDurationMs,new Date(run.lease_until).getTime()-10000)).toISOString()};
     });
   }
   async eventRunCurrent(runId:string,event:AgentEvent){
     uuid.parse(runId);const identity=this.eventIdentity(event);
     return this.transaction(async c=>{const eligible=await this.eventEligibilityPredicate(c);return !!(await c.query(`SELECT r.id FROM agent_runs r JOIN agent_events e ON e.id=r.trigger_event_id
       WHERE ${eligible} AND e.id=$1 AND e.thread_id=$2 AND e.lease_owner=$3 AND e.fence=$4::bigint AND e.state='leased' AND e.lease_until>clock_timestamp()
-      AND r.id=$5 AND r.state='running' AND r.lease_owner=e.lease_owner AND r.fence=e.fence AND r.lease_until>clock_timestamp() AND r.created_at>clock_timestamp()-interval '45 seconds'`,[...identity,runId])).rowCount;});
+      AND r.id=$5 AND r.state='running' AND r.lease_owner=e.lease_owner AND r.fence=e.fence AND r.lease_until>clock_timestamp() AND r.created_at+${runDurationSql('r')}>clock_timestamp()`,[...identity,runId])).rowCount;},undefined,true);
   }
   async deferEvent(event:AgentEvent,wakeAt:string){
     const identity=this.eventIdentity(event);z.string().datetime({offset:true}).parse(wakeAt);
@@ -267,6 +320,8 @@ export class AgentStore {
   }
   async finishEventRun(runId:string,event:AgentEvent,raw:AgentEventOutcome){
     uuid.parse(runId);const identity=this.eventIdentity(event),outcome=agentEventOutcomeSchema.parse(raw);
+    // Validate operational retry horizons at receipt, before lock/checkout waits.
+    const receivedAt=new Date().toISOString();
     if(outcome.kind==='defer'&&outcome.timeBasis==='business'&&!this.businessTime)throw Error('Selected business clock required');
     return this.transaction(async c=>{
       const t=await this.lockThread(c,event.thread_id);
@@ -276,7 +331,8 @@ export class AgentStore {
       if(!current)return false;
       if(outcome.kind==='defer'){
         const business=outcome.timeBasis==='business',basis=business?this.businessSql():'clock_timestamp()';
-        const due=(await c.query(`SELECT $1::timestamptz>${basis} AND $1::timestamptz<=${basis}+interval '30 days' AS allowed`,[outcome.wakeAt])).rows[0];
+        const lower=business?basis:'$2::timestamptz';
+        const due=(await c.query(`SELECT $1::timestamptz>${lower} AND $1::timestamptz<=${basis}+interval '30 days' AS allowed`,business?[outcome.wakeAt]:[outcome.wakeAt,receivedAt])).rows[0];
         if(!due.allowed)throw new Error('Reassessment is outside the allowed horizon');
         if(business){
           // The current event/run is already locked and its lease is real. Only
@@ -299,6 +355,9 @@ export class AgentStore {
   protected async currentReviewOperations(c:PoolClient,t:AgentThread,manifest:AgentReviewItem[]){
     const rows=(await c.query('SELECT * FROM agent_operations WHERE thread_id=$1 AND id=ANY($2::uuid[]) ORDER BY id FOR UPDATE',[t.id,manifest.map(item=>item.operationId)])).rows;
     if(rows.length!==manifest.length)throw new Error('Review operation not found');
+    const workflowIds=new Set(rows.filter(row=>row.workflow_execution_id!==undefined).map(row=>row.workflow_execution_id));
+    if(workflowIds.size>1)throw new Error('Review operations belong to different workflow executions');
+    if(rows[0])await this.bindOriginalWorkflow(c,rows[0]);
     for(const item of manifest){
       const op=rows.find(row=>row.id===item.operationId)!;
       if(!isAgentReviewableOperation(op.name))throw new Error('Operation is not reviewable');
@@ -360,7 +419,7 @@ export class AgentStore {
       const t=await this.lockThread(c,threadId);
       if(approvalSource!==undefined){
         z.literal('automatic_demo').parse(approvalSource);
-        const mode=(await c.query('SELECT mode FROM agent_mandate_execution_modes WHERE mandate_id=$1 AND organization_id=$2',[t.mandate_id,t.organization_id])).rows[0]?.mode;
+        const mode=(await c.query(`SELECT mode FROM ${this.workflowModeTable(c)} WHERE mandate_id=$1 AND organization_id=$2`,[t.mandate_id,t.organization_id])).rows[0]?.mode;
         if(mode!=='demo'||decision!=='approved')throw new Error('Automatic demo attribution requires an approved demo review');
       }
       const batch=(await c.query('SELECT * FROM agent_review_batches WHERE id=$1 AND thread_id=$2 FOR UPDATE',[batchId,t.id])).rows[0];
@@ -380,6 +439,7 @@ export class AgentStore {
       const t=await this.lockThread(c,threadId);
       const op=(await c.query('SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 FOR UPDATE',[operationId,t.id])).rows[0];
       if(!op||!isAgentReviewableOperation(op.name)||op.state!=='proposed'||op.revision!==revision)throw new Error('Operation changed or unavailable');
+      await this.bindOriginalWorkflow(c,op);
       return (await c.query('UPDATE agent_operations SET input=$2,input_digest=$3,revision=revision+1,updated_at=now() WHERE id=$1 RETURNING *',[op.id,JSON.stringify(value),digest({name:op.name,input:value})])).rows[0];
     });
   }
@@ -437,7 +497,7 @@ export class AgentStore {
     });
   }
   async findThread(mandateId:string):Promise<AgentThread|undefined>{
-    return this.transaction(async c=>(await c.query<AgentThread>('SELECT * FROM agent_threads WHERE organization_id=$1 AND mandate_id=$2 AND owner_user_id=$3',[this.actor.organizationId,uuid.parse(mandateId),this.actor.userId])).rows[0]);
+    return this.transaction(async c=>(await c.query<AgentThread>('SELECT * FROM agent_threads WHERE organization_id=$1 AND mandate_id=$2 AND owner_user_id=$3',[this.actor.organizationId,uuid.parse(mandateId),this.actor.userId])).rows[0],undefined,true);
   }
   async beginConversationTurn(threadId:string,requestKey:string,text:string):Promise<{kind:'started'|'busy'|'complete'|'failed';operationId:string;messageId?:string;text?:string}>{
     const request=key.parse(requestKey),question=z.string().trim().min(1).max(5000).parse(text);
@@ -474,6 +534,7 @@ export class AgentStore {
       await c.query('SELECT id FROM agent_threads WHERE id=$1 FOR UPDATE',[identity.thread_id]);
       const op=(await c.query("SELECT * FROM agent_operations WHERE id=$1 AND name='conversation.answer' AND state='running' AND lease_until>clock_timestamp() FOR UPDATE",[operationId])).rows[0];
       if(!op)throw new Error('Conversation turn is no longer active');
+      await this.bindOriginalWorkflow(c,op);
       const t=await this.thread(c,op.thread_id);
       if(references.length){
         const current=(await c.query("SELECT id,revision FROM agent_operations WHERE thread_id=$1 AND name='guidance.memory' AND state='approved' AND id=ANY($2::uuid[])",[t.id,references.map(item=>item.id)])).rows;

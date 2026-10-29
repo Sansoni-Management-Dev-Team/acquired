@@ -87,3 +87,14 @@ it.each([true,false])('uses an explicit scoped driver and retains real membershi
  if(allowed)expect(await result).toBe(42);else await expect(result).rejects.toThrow('Campaign owner is no longer');
  expect(connect).toHaveBeenCalledOnce();expect(mock.connect).not.toHaveBeenCalled();expect(mock.query).toHaveBeenCalledWith('SET LOCAL ROLE acquire_campaign_user');expect(callback).toHaveBeenCalledTimes(allowed?1:0);
 });
+
+it('uses a database-enforced read-only transaction for owned metadata without taking the send gate',async()=>{
+ vi.stubEnv('COMMUNICATIONS_RUNTIME_ENABLED','true');
+ await withCampaignDb({organizationId:'org',userId:'owner'},async c=>{await c.query('SELECT id FROM communication_bindings');},{readOnly:true});
+ const sql=mock.query.mock.calls.map(([q])=>q);
+ expect(sql[0]).toBe('BEGIN READ ONLY');expect(sql.some(q=>String(q).includes('send_gate'))).toBe(false);
+ expect(sql).toContain('SET LOCAL ROLE acquire_campaign_user');expect(sql).toContainEqual(expect.stringContaining('SELECT 1 FROM member'));expect(sql.at(-1)).toBe('COMMIT');
+});
+it('still refuses nonmembers in the read-only metadata path',async()=>{
+ member=false;const callback=vi.fn();await expect(withCampaignDb({organizationId:'org',userId:'owner'},callback,{readOnly:true})).rejects.toThrow('no longer');expect(callback).not.toHaveBeenCalled();expect(mock.query).toHaveBeenLastCalledWith('ROLLBACK');
+});

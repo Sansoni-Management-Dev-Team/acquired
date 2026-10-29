@@ -1,7 +1,9 @@
 import {beforeEach,expect,it,vi} from 'vitest';
-const m=vi.hoisted(()=>({enabled:vi.fn(),query:vi.fn(),append:vi.fn(),ensure:vi.fn()}));
+const m=vi.hoisted(()=>({enabled:vi.fn(),query:vi.fn(),append:vi.fn(),ensure:vi.fn(),workflow:vi.fn(),read:vi.fn()}));
 vi.mock('./agent-runtime',()=>({durableAgentEnabled:m.enabled,agentPool:()=>({query:m.query}),agentStore:()=>({appendMessage:m.append})}));
 vi.mock('./agent-initial-research',()=>({ensureInitialMandateResearch:m.ensure}));
+vi.mock('./acquisition-workflow-research',()=>({ensureWorkflowResearch:m.workflow}));
+vi.mock('@/db/acquisition-workflow-store',()=>({AcquisitionWorkflowStore:class{read=m.read}}));
 import {observeInitialResearchProgress,observeScheduledInitialResearch} from './agent-initial-research-observer';
 const id='00000000-0000-4000-8000-000000000001',thread='00000000-0000-4000-8000-000000000002';
 const job={id,organizationId:'org',mandateId:id,createdBy:'actor',config:{}};
@@ -60,4 +62,13 @@ it('corrects the old terminal summary once with saved candidate count and saniti
 it('continues normal progress events for research explicitly started from the welcome screen',async()=>{
  m.query.mockImplementation(async(sql:string,args:unknown[])=>({rows:sql.includes('AS initial_research')?[{...row(),initial_research:{...row().initial_research,startOn:'chat'}}]:sql.startsWith('SELECT content FROM agent_messages')?(messages.has(String(args[1]))?[{content:messages.get(String(args[1]))}]:[]):[]}));
  expect(await observeInitialResearchProgress(job)).toEqual({messages:2});
+});
+
+it('projects the original managed research execution without enabling outreach or legacy messages',async()=>{
+ const execution={id,mandateId:id,preset:'live-research-test'};m.read.mockResolvedValue(execution);m.enabled.mockReturnValue(false);
+ await observeInitialResearchProgress({...job,workflowExecutionId:id});
+ expect(m.read).toHaveBeenCalledWith(id);expect(m.workflow).toHaveBeenCalledWith(expect.anything(),{organizationId:'org',userId:'actor'},execution);expect(m.append).not.toHaveBeenCalled();
+});
+it('rejects a managed completion whose original execution belongs to another mandate',async()=>{
+ m.read.mockResolvedValue({id,mandateId:thread});m.workflow.mockClear();await observeInitialResearchProgress({...job,workflowExecutionId:id});expect(m.workflow).not.toHaveBeenCalled();
 });

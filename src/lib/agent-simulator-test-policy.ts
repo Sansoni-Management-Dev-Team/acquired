@@ -1,7 +1,18 @@
+import {readTestingCommunicationsDescriptor} from './communications-testing-environment';
 /** Server configuration only. SQL admission independently requires an unexpired operator policy. */
 export function localSimulatorTestPolicy(env:Record<string,string|undefined>):boolean{
  const flag=env.AGENT_MODE_SIMULATOR_TEST_POLICY;if(flag===undefined||flag==='false')return false;
  try{
+  if(env.AGENT_WORKER_RUNTIME_ID==='acquire-isolated-20261024'){
+   if(flag!=='true'||env.NODE_ENV!=='development'||env.AGENT_MODE_COMMUNICATIONS_MODE!=='simulator'||env.AGENT_WORKER_SCOPE_MODE!=='registered'||env.AGENT_WORKER_REQUIRE_MANDATE_SCOPE!=='true'||env.AGENT_WORKER_MANDATE_ID!==undefined)throw Error();
+   const d=readTestingCommunicationsDescriptor(env,{organizationId:'tznAqSOpz3XjLKZFwvgY9m1rJNTQa9ef',userId:'2BgUnimhvgfiCHJjspTL4zH8qG7kx9Ch'});
+   if(d.runId!=='agent-deep-isolated-20261024'||!d.capabilities.dynamicRecipients||!d.capabilities.recipientContextLookup)throw Error();
+   const exact={COMMUNICATIONS_APPLICATION_ID:'acquire',COMMUNICATIONS_RUNTIME_ENABLED:'true',COMMUNICATIONS_INTEGRATION_ID:d.integrationId,COMMUNICATIONS_PROVIDER_CONFIGURATION_REFERENCE:d.configurationReference,COMMUNICATIONS_LOCAL_SIMULATOR_ORIGIN:d.providerOrigin,COMMUNICATIONS_SERVICE_URL:d.serviceOrigin,COMMUNICATIONS_REDIRECT_ORIGIN:d.serviceOrigin,COMMUNICATIONS_SETUP_NOTIFY_URL:d.serviceOrigin+'/v1/setup/notify'};
+   for(const [key,value]of Object.entries(exact))if(env[key]!==value)throw Error();
+   if(![d.providerOrigin,d.providerOrigin+'/',d.providerOrigin+'/api/v1',d.providerOrigin+'/api/v1/'].includes(env.UNIPILE_API_URL??''))throw Error();
+   for(const key of ['DATABASE_URL','COMMUNICATIONS_DATABASE_URL']){const db=new URL(env[key]??'');if(!['postgres:','postgresql:'].includes(db.protocol)||!(db.hostname==='postgres'&&db.port==='5432'||db.hostname==='127.0.0.1'&&db.port==='5437')||db.pathname!=='/acquire_agent_mode'||db.search||db.hash)throw Error();}
+   return true;
+  }
   if(env.AGENT_WORKER_SCOPE_MODE!==undefined&&!['exact','registered'].includes(env.AGENT_WORKER_SCOPE_MODE))throw Error();
   const registered=env.AGENT_WORKER_SCOPE_MODE==='registered';
   if(registered&&(env.AGENT_WORKER_RUNTIME_ID!=='agent-multichannel-20261017'||env.AGENT_WORKER_MANDATE_ID!==undefined))throw Error();

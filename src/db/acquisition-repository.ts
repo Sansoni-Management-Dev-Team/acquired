@@ -1,5 +1,6 @@
 import {refreshCompanyProjectionsAfterChange} from '@/lib/company-projection-refresh';
 import { readableStoredBrief } from "@/domain/stored-brief";
+import {loadMandateResearchStatuses} from './mandate-research-status';
 import { and, desc, eq, getTableColumns, inArray, sql } from "drizzle-orm";
 import { requireDb } from "./client";
 import { coverageRuns, mandates, mandateTargets, targets, valuationObservations, organization, researchFindings, signals } from "./schema";
@@ -16,10 +17,11 @@ export class AcquisitionRepository {
   constructor(private org: string, private db = requireDb()) { if (!org) throw new Error("Organisation required"); }
   async listMandates(): Promise<MandateView[]> {
     const rows = await this.db.select({...getTableColumns(mandates),revision:sql<string>`xmin::text`}).from(mandates).where(eq(mandates.organizationId, this.org)).orderBy(desc(mandates.createdAt));
+    const researchStatuses=await loadMandateResearchStatuses(this.db,this.org,rows.map(row=>row.id));
     return rows.map(row => {
       const parsed = briefSchema.safeParse(readableStoredBrief((row.filters as Record<string, unknown>).brief));
       const brief = parsed.success ? parsed.data : { ...emptyBrief(), name: row.confirmation?.slice(0, 80) || "Imported mandate — review required", naturalLanguage: row.naturalLanguage };
-      return { id: row.id, brief, createdAt: row.createdAt.toISOString(), revision:row.revision };
+      return { id: row.id, brief, createdAt: row.createdAt.toISOString(), revision:row.revision,researchStatus:researchStatuses.get(row.id) };
     });
   }
   async getMandate(id: string): Promise<MandateView | undefined> {

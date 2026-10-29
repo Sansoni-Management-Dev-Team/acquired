@@ -1,0 +1,45 @@
+--- a/testing/agent-simulator/hosted-communications-runtime-entry.test.ts
++++ b/testing/agent-simulator/hosted-communications-runtime-entry.test.ts
+@@ -1,3 +1,6 @@
++const dispatch=vi.hoisted(()=>({submit:vi.fn(async()=>({status:'submitted'}))}));
++vi.mock('../../communications/packages/core/src/dispatch',()=>({createDispatchCoordinator:()=>({submit:dispatch.submit})}));
++vi.mock('../../communications/packages/storage-postgres/src/dispatch-journal',()=>({createPostgresDispatchJournal:()=>({})}));
+ import {expect,it,vi,afterEach} from 'vitest';
+ import {performance} from 'node:perf_hooks';
+ it.each(['/v1/connections/status','/v1/hosted-demo/history/read','/v1/submit'])('authenticates %s without renewing a grant behind a live proof lock',async url=>{
+@@ -8,7 +11,7 @@
+ import type {ConnectionBinding,EventQuery} from '../../communications/packages/contracts/src';
+ const f=vi.hoisted(()=>({coverage:vi.fn(async(query:EventQuery)=>({binding:query.binding,scope:'account',from:'1970-01-01T00:00:00.000Z',through:new Date().toISOString(),observedAt:new Date().toISOString(),complete:true,initialSyncComplete:true,invalidated:false}) as unknown),webhook:vi.fn(async()=>({status:'idle'})),preflight:vi.fn(async()=>true),grant:vi.fn(async()=>true),service:vi.fn(()=>({server:{},close:vi.fn(async()=>{})})),managedStatus:vi.fn(),observation:vi.fn(),api:undefined as unknown,runtimeOptions:undefined as unknown,requireGrant:vi.fn(async()=>{}),hasCurrentGrant:vi.fn(async()=>true),resolve:vi.fn(async(_binding:ConnectionBinding,_current?:boolean)=>{void _binding;void _current;return null as unknown;}),revisions:['3','3','3'] as string[],project:vi.fn(async()=>{}),readConversation:vi.fn(async()=>({messages:[],complete:true})),list:vi.fn(async()=>[] as unknown[]),query:vi.fn(async()=>({rows:[]} as {rows:unknown[]}))}));
+ vi.mock('../../communications/packages/adapter-unipile/src/v1-runtime-env',()=>({readConfiguredUnipileV1Environment:()=>({scopedAuthKey:Buffer.alloc(32,7),options:{hostedDemo:{capability:'hosted-demo',origin:'https://acquire-simulator.mlai.au'},applicationId:'acquire',integrationId:'sim-hosted-run',providerConfigurationReference:'sim-hosted-run-v1',vault:{activeVersion:'v1',keys:[{version:'v1',encryptionKey:Buffer.alloc(32,1),digestKey:Buffer.alloc(32,2)}]},callbackKey:Buffer.alloc(32,3),provider:{baseUrl:'https://acquire-simulator.mlai.au/api/v1'}}})}));
+-vi.mock('../../communications/packages/adapter-unipile/src/v1-runtime',()=>({createConfiguredUnipileV1Runtime:(options:unknown)=>{f.runtimeOptions=options;return({status:f.managedStatus,store:{preflight:f.preflight,list:f.list,resolve:f.resolve,requireGrant:f.requireGrant,hasCurrentGrant:f.hasCurrentGrant,refreshSignedGrant:f.grant},authorizeSignedScope:f.grant,createWebhookRuntime:()=>({ingress:{},runOne:f.webhook})});}}));
++vi.mock('../../communications/packages/adapter-unipile/src/v1-runtime',()=>({createConfiguredUnipileV1Runtime:(options:unknown)=>{f.runtimeOptions=options;return({dispatchOptions:async()=>({}),providerFactory:async()=>({}),status:f.managedStatus,store:{preflight:f.preflight,list:f.list,resolve:f.resolve,requireGrant:f.requireGrant,hasCurrentGrant:f.hasCurrentGrant,refreshSignedGrant:f.grant},authorizeSignedScope:f.grant,createWebhookRuntime:()=>({ingress:{},runOne:f.webhook})});}}));
+ vi.mock('../../communications/packages/adapter-unipile/src/v1-history-runtime',()=>({createConfiguredUnipileV1History:async(options:{binding:unknown})=>({readAgentConversation:f.readConversation,refresh:f.project,repository:{coverage:f.coverage,scopeDigest:()=> 'a'.repeat(64),withCoverage:async(query:unknown,work:(proof:unknown)=>Promise<unknown>)=>work({coverage:{binding:options.binding,scope:'account',from:'1970-01-01T00:00:00.000Z',through:new Date().toISOString(),observedAt:new Date().toISOString(),complete:true,initialSyncComplete:true,invalidated:false},scopeDigest:'a'.repeat(64),serviceRevision:f.revisions.shift(),signal:new AbortController().signal,revalidate:vi.fn(async()=>{})})}})}));
+ vi.mock('../../communications/packages/core/src/outbox-delivery',()=>({createOutboxDeliveryWorker:()=>({run:async()=>({status:'idle'})})}));
+ vi.mock('../../communications/services/api/src/service',()=>({createCommunicationsService:(options:unknown)=>{f.api=(options as {api:unknown}).api;return f.service();}}));
+@@ -84,3 +87,13 @@
+  const b=expectedBindings[0];f.resolve.mockImplementation(async binding=>connected(binding));f.observation.mockResolvedValue(true);f.managedStatus.mockRejectedValueOnce(Error('Provider status observation waits behind held proof'));
+  const host=await createHostedCommunicationsService({pool,env:{},application:application(),providerOrigin:origin,subjects:[scope]});try{const api=f.api as {management:{status:(s:unknown,b:ConnectionBinding)=>Promise<unknown>}};await expect(api.management.status(scope,b)).resolves.toMatchObject({binding:b,active:true,status:'connected',readiness:{status:'ready'}});expect(f.managedStatus).not.toHaveBeenCalled();}finally{await host.close();}
+ });
++
++it('submits only after all sealed scopes refresh and project under the retained history turn',async()=>{
++ const app=application(),scopes=expectedBindings.map(binding=>({binding,scopeDigest:'a'.repeat(64)}));
++ app.authorityForScope.mockReturnValue({open:vi.fn(),getPreparedCoverage:vi.fn(async()=>scopes),describePreparedCoverage:vi.fn()});
++ f.resolve.mockImplementation(async b=>connected(b));f.revisions=['13','13','13'];
++ app.projectCoverage.mockImplementation(async()=>{expect(f.project).toHaveBeenCalledTimes(3);});
++ dispatch.submit.mockClear();dispatch.submit.mockImplementationOnce(async()=>{expect(app.projectCoverage).toHaveBeenCalledTimes(3);return{status:'submitted'};});
++ const host=await createHostedCommunicationsService({pool,env:{},application:app,providerOrigin:origin,subjects:[scope]});
++ try{const api=f.api as {resolveAdapter:(record:unknown)=>Promise<{submit:(input:unknown)=>Promise<unknown>}>};const adapter=await api.resolveAdapter({binding:expectedBindings[0]});expect(await adapter.submit({snapshot:{binding:expectedBindings[0]}})).toEqual({status:'submitted'});expect(dispatch.submit).toHaveBeenCalledOnce();}finally{await host.close();}
++});
+--- /dev/null
++++ b/testing/agent-simulator/hosted-submit-coverage.test.ts
+@@ -0,0 +1,10 @@
++import {expect,it,vi} from 'vitest';
++import {prepareHostedSubmitCoverage} from './hosted-submit-coverage';
++it('refreshes every exact scope before projecting the final shared revision',async()=>{
++ let revision=10;const scopes=['email','whatsapp','linkedin'],projected:number[]=[],calls:string[]=[];
++ await prepareHostedSubmitCoverage(scopes,async scope=>{calls.push('refresh:'+scope);revision++;},async scope=>{calls.push('project:'+scope);projected.push(revision);return String(revision);});
++ expect(projected).toEqual([13,13,13]);expect(calls).toEqual(scopes.map(s=>'refresh:'+s).concat(scopes.map(s=>'project:'+s)));
++});
++it('refuses a changed revision during projection and does not return to dispatch',async()=>{const refresh=vi.fn(async()=>{}),project=vi.fn().mockResolvedValueOnce('13').mockResolvedValueOnce('14');await expect(prepareHostedSubmitCoverage(['a','b','c'],refresh,project)).rejects.toThrow('changed');expect(project).toHaveBeenCalledTimes(2);});
++it('does not project or submit after any refresh fails',async()=>{const refresh=vi.fn().mockResolvedValueOnce(undefined).mockRejectedValueOnce(Error('incomplete')),project=vi.fn();await expect(prepareHostedSubmitCoverage(['a','b'],refresh,project)).rejects.toThrow('incomplete');expect(project).not.toHaveBeenCalled();});
++it('rejects empty coverage and preserves projection failures',async()=>{await expect(prepareHostedSubmitCoverage([],vi.fn(),vi.fn())).rejects.toThrow('unavailable');await expect(prepareHostedSubmitCoverage(['a'],async()=>{},async()=>{throw Error('revoked');})).rejects.toThrow('revoked');});

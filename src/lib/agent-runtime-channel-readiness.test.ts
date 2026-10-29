@@ -1,3 +1,4 @@
+import type{ConnectionBinding}from'../../communications/packages/contracts/src';
 import{it,expect,vi}from'vitest';
 vi.mock('server-only',()=>({}));
 import{createAgentChannelReadiness}from'./agent-runtime-channel-readiness';
@@ -10,4 +11,22 @@ it('preserves explicit sender selection when owned accounts exist instead of rep
  const rows=await read(actor,[{...channel,bindingId:null,generationDigest:null,reason:'choose_recorded_account'}]);
  expect(rows).toEqual([{...channel,bindingId:null,generationDigest:null,ready:false,readiness:'setup_required',reason:'choose_recorded_account'}]);expect(load).not.toHaveBeenCalled();expect(status).not.toHaveBeenCalled();
  const missing=await read(actor,[{...channel,bindingId:null,reason:'recorded_account_missing'}]);expect(missing[0]).toMatchObject({ready:false,readiness:'setup_required',reason:'recorded_account_missing'});
+});
+it('loads the three owned bindings once and creates one status client per uncached request',async()=>{
+ const bindings=[binding,{...binding,channel:'whatsapp' as const,platform:'whatsapp' as const},{...binding,channel:'linkedin' as const,platform:'linkedin' as const}];
+ const channels=bindings.map((b,i)=>({...channel,channel:b.channel,bindingId:String(i)}));
+ const loadBinding=vi.fn(async()=>{throw Error('Per-channel database fan-out');});
+ const loadBindings=vi.fn(async()=>new Map(bindings.map((b,i)=>[String(i),b])));
+ const status=vi.fn(async(b:ConnectionBinding)=>({binding:b,status:'connected',capabilities:{messaging:{send:true},events:{read:true,history:true}}}));
+ const connectionStatusForActor=vi.fn(async()=>status);
+ const read=createAgentChannelReadiness({loadBinding,loadBindings,connectionStatus:vi.fn(),connectionStatusForActor});
+ expect((await read(actor,channels)).every(row=>row.ready)).toBe(true);expect(loadBindings).toHaveBeenCalledOnce();expect(loadBinding).not.toHaveBeenCalled();expect(connectionStatusForActor).toHaveBeenCalledOnce();expect(status).toHaveBeenCalledTimes(3);
+ await read(actor,channels);expect(loadBindings).toHaveBeenCalledTimes(2);expect(connectionStatusForActor).toHaveBeenCalledOnce();
+});
+it('rejects foreign batched bindings and never creates a provider client when binding reads fail',async()=>{
+ const client=vi.fn();
+ const foreign=createAgentChannelReadiness({loadBindings:async()=>new Map([['owned',{...binding,ownerId:'another-user'}]]),connectionStatusForActor:client});
+ expect((await foreign(actor,[channel]))[0]).toMatchObject({ready:false,readiness:'verification_required'});
+ const failed=createAgentChannelReadiness({loadBindings:async()=>{throw Error('private database details');},connectionStatusForActor:client});
+ expect((await failed(actor,[channel]))[0]).toMatchObject({ready:false,readiness:'unavailable'});expect(client).not.toHaveBeenCalled();
 });

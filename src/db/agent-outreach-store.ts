@@ -3,7 +3,7 @@ import {agentChannelMessageSqlNames,agentLegacyEmailSqlNames,agentNativeDispatch
 import {z} from 'zod';
 import type {PoolClient} from 'pg';
 import type {AgentThread} from './agent-store';
-import type {AgentExecutionFence} from './agent-execution-store';
+import {recordedAgentBindingDigest,type AgentExecutionFence} from './agent-execution-store';
 import {AgentLifecycleStore} from './agent-lifecycle-store';
 import {agentRecordDigest as digest} from './agent-store';
 import {resolveDemoBuyerProfile} from '@/lib/agent-demo-buyer-profile';
@@ -207,7 +207,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
   // A server-stamped fictional buyer is scoped to this exact saved demo. Real
   // mandates continue to use the protected organisation disclosure projection.
   const scenario=(await c.query(`/* demo-buyer-profile-context */ SELECT m.id,m.provenance,mode.mode AS execution_mode,mode.demo_id
-   FROM mandates m JOIN agent_mandate_execution_modes mode ON mode.mandate_id=m.id AND mode.organization_id=m.organization_id
+   FROM mandates m JOIN ${this.workflowModeTable(c)} mode ON mode.mandate_id=m.id AND mode.organization_id=m.organization_id
    WHERE m.id=$1 AND m.organization_id=$2 AND mode.mode='demo' AND mode.demo_id=m.id`,[t.mandate_id,t.organization_id])).rows[0];
   const profile=scenario?resolveDemoBuyerProfile({executionMode:scenario.execution_mode,demoId:scenario.demo_id,mandateId:t.mandate_id,provenance:scenario.provenance}):null;
   return profile?{...facts,buyerProfile:publicBuyerProfile(profile)}:facts;
@@ -304,7 +304,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
     batch=(await c.query("SELECT id FROM agent_review_batches WHERE thread_id=$1 AND state='approved' AND manifest @> $2::jsonb ORDER BY created_at,id LIMIT 1",[t.id,JSON.stringify([item])])).rows[0];
     if(!batch)throw new Error('Exact approved review batch required');
    }else if(op.state!=='proposed')throw new Error('Delegated work must be a current unapproved proposal');
-   const running=(await c.query("UPDATE agent_operations SET state='running',fence=fence+1,lease_until=clock_timestamp()+interval '30 seconds',updated_at=now() WHERE id=$1 RETURNING *",[op.id])).rows[0];
+   const running=(await c.query("UPDATE agent_operations SET state='running',fence=fence+1,lease_until=clock_timestamp()+interval '30 seconds',updated_at=clock_timestamp() WHERE id=$1 RETURNING *",[op.id])).rows[0];
    const scopeKeys=['organization:sends','user:'+t.owner_user_id+':sends','mandate:'+t.mandate_id+':sends'];
    if(route)scopeKeys.push('binding:'+route.bindingDigest+':sends');
    const accounts=(await c.query("SELECT DISTINCT ON(scope_key) id,scope_key FROM agent_budget_accounts WHERE organization_id=$1 AND unit='sends' AND scope_key=ANY($2::text[]) AND window_start<=clock_timestamp() AND window_end>clock_timestamp() ORDER BY scope_key,window_start DESC,id",[t.organization_id,scopeKeys])).rows;
@@ -322,13 +322,19 @@ export class AgentOutreachStore extends AgentLifecycleStore{
  async beginNativeCommunicationsMessage(threadId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number}){
   const record=await this.channelDispatchRecord(threadId,operationId);
   if(!record.route)return this.beginNativeCommunicationsEmail(threadId,operationId,authority,delegation);
+  return this.beginNativeRoutedCommunicationsMessage(threadId,operationId,authority,delegation);
+ }
+ /** Internal dispatch branch only. The earlier snapshot chooses a path; every
+  * source, route and authority is read and checked again under the final lock. */
+ protected async beginNativeRoutedCommunicationsMessage(threadId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number},expectedRoute?:{id:string;bindingDigest:string}){
   return this.nativeTransaction(async c=>{
    const t=await this.lockThread(c,threadId);await this.assertExecutionFence(c,t,authority,'message-authority:'+operationId);
    const op=(await c.query('SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 FOR UPDATE',[uuid.parse(operationId),t.id])).rows[0];
    const route=await this.nativeOperationRoute(c,t,op);if(!route)throw Error('The original reviewed message route is required');
+   if(expectedRoute&&(route.id!==expectedRoute.id||route.bindingDigest!==expectedRoute.bindingDigest))throw Error('Original dispatch route changed before final admission');
    let row=await this.lockConversation(c,t,op.conversation_id),running=op;
    if(op.state!=='running')({row,running}=await this.prepareNativeEmailAuthority(c,t,op,delegation,route));
-   if(authority)await c.query("UPDATE agent_operations o SET lease_until=LEAST(o.lease_until,r.created_at+interval '45 seconds',r.lease_until) FROM agent_runs r WHERE o.id=$1 AND r.id=$2",[op.id,authority.runId]);
+   if(authority)await this.constrainNativeOperationLease(c,op.id,authority,op.state!=='running');
    if((await c.query('SELECT agent_operation_authorised($1::uuid) AS allowed',[op.id])).rows[0]?.allowed!==true)throw Error('Current native channel authority or policy unavailable');
    await this.emitOperational(c,t,'provider-reconcile:'+op.id,route.channel+'.reconcile',{operationId:op.id},new Date(Date.now()+30000).toISOString());
    return {operationId:op.id as string,conversationId:row.id as string,routeId:route.id,epoch:Number(row.epoch),fence:String(running.fence),bindingId:route.bindingId,recipient:route.recipient,channel:route.channel,subject:op.input.subject as string,body:op.input.body as string};
@@ -355,12 +361,30 @@ export class AgentOutreachStore extends AgentLifecycleStore{
    return result===true;
   });
  }
- async channelDispatchRecord(threadId:string,operationId:string){
+ /** Capture account metadata only for this dispatch invocation, inside the
+  * existing actor/member-fenced transaction. This is not send authority. */
+ async channelDispatchRecord(threadId:string,operationId:string,options:{includeOriginalAccount?:boolean}={}){
   uuid.parse(operationId);return this.nativeTransaction(async c=>{
    const t=await this.thread(c,threadId),op=(await c.query(`SELECT * FROM agent_operations WHERE id=$1 AND thread_id=$2 AND name IN(${agentChannelMessageSqlNames})`,[operationId,t.id])).rows[0];
-   if(!op)throw Error('Owned native message operation unavailable');const conversation=await this.lockConversation(c,t,op.conversation_id),route=await this.nativeOperationRoute(c,t,op);
+   if(!op)throw Error('Owned native message operation unavailable');
+   // The dispatch snapshot needs owned identity/account metadata, not a context
+   // digest. History ingestion, begin and final source admission still compute
+   // and check their fresh context independently. Other callers keep the digest.
+   const conversation=options.includeOriginalAccount===true?(await c.query('SELECT c.* FROM agent_conversations c WHERE c.id=$1 AND c.thread_id=$2 FOR UPDATE',[uuid.parse(op.conversation_id),t.id])).rows[0]:await this.lockConversation(c,t,op.conversation_id);
+   if(!conversation)throw Error('Conversation not found');
+   const route=await this.nativeOperationRoute(c,t,op);
    if(!route){if(!isAgentLegacyEmailOperation(op.name))throw Error('Social messages require their original reviewed route');await this.assertLegacyAgentEmail(c,t);}
-   return {conversation,operation:op,route,submitted:op.state==='complete'&&op.result?.delivery?.status==='submitted',notSubmitted:op.state==='failed'&&op.result?.delivery?.status==='not_submitted'};
+   let originalAccount:Record<string,unknown>|undefined;
+   if(options.includeOriginalAccount===true){
+    const bindingId=route?.bindingId??conversation.binding_id,bindingDigest=route?.bindingDigest??conversation.binding_digest,channel=route?.channel??'email';
+    if(conversation.delivery_mode!=='communications'||typeof bindingId!=='string')throw Error('Recorded native communications account required');
+    const rows=(await c.query("SELECT * FROM public.communication_bindings WHERE id=$1 AND organization_id=$2 AND owner_user_id=$3 AND application_id='acquire' AND authority='service' AND backend='unipile'",[bindingId,this.actor.organizationId,this.actor.userId])).rows;
+    const saved=rows[0];
+    if(rows.length!==1||saved.id!==bindingId||saved.organization_id!==this.actor.organizationId||saved.owner_user_id!==this.actor.userId||saved.application_id!=='acquire'||saved.authority!=='service'||saved.backend!=='unipile'||saved.channel!==channel||recordedAgentBindingDigest(saved)!==bindingDigest)throw Error('Original native account changed');
+    const value:ConnectionBinding={applicationId:saved.application_id,tenantId:saved.organization_id,ownerId:saved.owner_user_id,connectionId:saved.service_connection_id,accountId:saved.service_account_id,generation:saved.generation,channel:saved.channel,platform:saved.platform,backend:saved.backend};assertSameBinding(value,value);
+    originalAccount=saved;
+   }
+   return {conversation,operation:op,route,submitted:op.state==='complete'&&op.result?.delivery?.status==='submitted',notSubmitted:op.state==='failed'&&op.result?.delivery?.status==='not_submitted',...(originalAccount?{originalAccount}:{})};
   });
  }
  async beginNativeCommunicationsEmail(threadId:string,operationId:string,authority?:AgentExecutionFence,delegation?:{id:string;revision:number}){
@@ -374,7 +398,7 @@ export class AgentOutreachStore extends AgentLifecycleStore{
    if(conversation.delivery_mode!=='communications')throw new Error('The recorded communications delivery mode is required');
    let row=conversation,running=op;
    if(op.state!=='running')({row,running}=await this.prepareNativeEmailAuthority(c,t,op,delegation));
-   if(authority)await c.query("UPDATE agent_operations o SET lease_until=LEAST(o.lease_until,r.created_at+interval '45 seconds',r.lease_until) FROM agent_runs r WHERE o.id=$1 AND r.id=$2",[op.id,authority.runId]);
+   if(authority)await this.constrainNativeOperationLease(c,op.id,authority,op.state!=='running');
    if((await c.query('SELECT agent_operation_authorised($1::uuid) AS allowed',[op.id])).rows[0]?.allowed!==true)throw new Error('Current native sending authority or policy unavailable');
    await this.emitOperational(c,t,'provider-reconcile:'+op.id,'email.reconcile',{operationId:op.id},new Date(Date.now()+30000).toISOString());
    return {operationId:op.id as string,conversationId:row.id as string,epoch:Number(row.epoch),fence:String(running.fence),bindingId:row.binding_id as string,recipient:row.recipient_email as string,subject:op.input.subject as string,body:op.input.body as string,contextRevision:row.context_revision as string,inputDigest:op.input_digest as string};

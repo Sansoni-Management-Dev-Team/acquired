@@ -105,12 +105,12 @@ export function parseRemoteAuthorityResponse(input:RemoteAuthorityRequest,raw:un
  * Every request is single-attempt; a lost COMMIT response remains uncertain. */
 export function createRemoteApplicationAuthority(options:{scope:AccessScope;request:RemoteAuthorityTransport;now?:()=>number;timeoutMs?:number}):HeldApplicationAdmission&{getPreparedCoverage(snapshot:OperationSnapshot):Promise<PreparedRemoteCoverage[]>;describePreparedCoverage(snapshot:OperationSnapshot):Promise<HeldApplicationPermit['coverageScopes']>}{
  const actor=scope(options.scope),timeout=options.timeoutMs??5000,now=options.now??Date.now,transport=options.request;
- if(typeof transport!=='function'||typeof now!=='function'||!Number.isSafeInteger(timeout)||timeout<1||timeout>20000)fail();
- async function call(input:RemoteAuthorityRequest,signal:AbortSignal):Promise<RemoteAuthorityResponse>{
+ if(typeof transport!=='function'||typeof now!=='function'||!Number.isSafeInteger(timeout)||timeout<1||timeout>30000)fail();
+ async function call(input:RemoteAuthorityRequest,signal:AbortSignal,deadline=Number.POSITIVE_INFINITY):Promise<RemoteAuthorityResponse>{
   const request=parseRemoteAuthorityRequest(input,actor),controller=new AbortController();if(signal.aborted)fail();
   let rejectStopped!:(e:Error)=>void;const stopped=new Promise<never>((_,reject)=>{rejectStopped=reject;});
   const abort=()=>{controller.abort();rejectStopped(Error('Remote application authority unavailable'));};
-  signal.addEventListener('abort',abort,{once:true});const timer=setTimeout(abort,timeout);
+  signal.addEventListener('abort',abort,{once:true});const timer=setTimeout(abort,Math.max(1,Math.min(timeout,deadline-now())));
   try{if(signal.aborted)abort();const response=await Promise.race([Promise.resolve().then(()=>{if(controller.signal.aborted)fail();return transport(structuredClone(request),controller.signal);}),stopped]);if(controller.signal.aborted||signal.aborted)fail();return parseRemoteAuthorityResponse(request,response,actor,{now:now()});}
   catch{return fail();}
   finally{clearTimeout(timer);signal.removeEventListener('abort',abort);controller.abort();}
@@ -128,7 +128,7 @@ export function createRemoteApplicationAuthority(options:{scope:AccessScope;requ
      if(parsed.permitId!==result.permit.permitId||parsed.intentDigest!==result.permit.intentDigest||parsed.serviceRevision!==input.challenge.serviceRevision)fail();
      if(state==='committed'){if(!isDeepStrictEqual(original,parsed))fail();return'committed';}
      if(state!=='held'||signal.aborted||commitSignal.aborted||now()>=Date.parse(result.expiresAt))fail();state='committing';original=parsed;
-     try{await call({method:'session.commit',sessionId:result.sessionId,receipt:parsed},commitSignal);if(signal.aborted||commitSignal.aborted||state as string==='aborted'||now()>=Date.parse(result.expiresAt))fail();state='committed';return'committed';}catch{if(state as string!=='aborted')state='uncertain';return fail();}
+     try{await call({method:'session.commit',sessionId:result.sessionId,receipt:parsed},commitSignal,Date.parse(result.expiresAt));if(signal.aborted||commitSignal.aborted||state as string==='aborted'||now()>=Date.parse(result.expiresAt))fail();state='committed';return'committed';}catch{if(state as string!=='aborted')state='uncertain';return fail();}
     },
     abort(){return aborting??=(async()=>{if(state==='committed'||state==='aborted')return;state='aborted';await call({method:'session.abort',sessionId:result.sessionId},new AbortController().signal);})();},
    }};

@@ -9,7 +9,7 @@ function fixture(cause:unknown){
  const store=new AgentTargetStore({}as never,{organizationId:'fixture-org',userId:'fixture-owner'});
  const plan={delivery:{mode:'channels',policyRevision:1},responsibilityId:'fixture-responsibility',selected:[{contactId:ids.contact,sourceRevision:'a'.repeat(64)},{contactId:ids.other,sourceRevision:'b'.repeat(64)}]};
  const op={id:ids.operation,name:'target.select',state:'approved',input:plan,input_digest:agentRecordDigest({name:'target.select',input:plan})};
- const query=vi.fn(async(sql:string)=>({rows:sql.startsWith('SELECT * FROM agent_operations')?[op]:[]}));
+ const query=vi.fn(async(sql:string):Promise<{rows:Record<string,unknown>[]}>=>({rows:sql.startsWith('SELECT * FROM agent_operations')?[op]:sql.startsWith('SELECT manifest')?[{manifest:[{operationId:ids.operation}]}]:[]}));
  const internal=store as unknown as {nativeTransaction:<T>(fn:(c:PoolClient)=>Promise<T>)=>Promise<T>;lockThread:()=>Promise<unknown>;assertExecutionFence:()=>Promise<void>;command:(...args:unknown[])=>Promise<unknown>;controlNotice:(...args:unknown[])=>Promise<void>;emit:(...args:unknown[])=>Promise<void>};
  vi.spyOn(internal,'nativeTransaction').mockImplementation(fn=>fn({query}as unknown as PoolClient));
  vi.spyOn(internal,'lockThread').mockResolvedValue({id:ids.thread,mandate_id:ids.mandate,organization_id:'fixture-org',owner_user_id:'fixture-owner'});
@@ -17,7 +17,7 @@ function fixture(cause:unknown){
  const allocation=vi.spyOn(internal,'command').mockRejectedValueOnce(cause).mockResolvedValueOnce({id:'fixture-conversation'});
  vi.spyOn(internal,'controlNotice').mockResolvedValue();vi.spyOn(internal,'emit').mockResolvedValue();
  const log=vi.spyOn(console,'warn').mockImplementation(()=>{});
- return{store,allocation,query,log};
+ return{store,allocation,query,log,op,internal};
 }
 afterEach(()=>vi.restoreAllMocks());
 
@@ -46,4 +46,64 @@ it('ignores hostile error accessors and keeps diagnostics from changing the allo
  f.log.mockImplementation(()=>{throw new Error('logging unavailable');});
  const result=await f.store.allocateApprovedTargets(ids.thread,ids.operation);
  expect(result).toMatchObject({allocated:1,needsReview:1,results:[{failureCategory:'allocation_needs_review'},{status:'allocated'}]});
+});
+
+
+it('checkpoints one reviewed contact and queues the remaining allocation without extending the worker lease',async()=>{
+ const f=fixture(new Error('contact needs review'));
+ const result=await f.store.allocateApprovedTargets(ids.thread,ids.operation,undefined,{reviewBatchId:ids.other});
+ expect(f.allocation).toHaveBeenCalledTimes(1);
+ expect(result).toMatchObject({pending:true,results:[{contactId:ids.contact,status:'needs_review'}]});
+ expect(f.query.mock.calls.some(([sql])=>/SET state='complete'/.test(sql))).toBe(false);
+ expect(f.internal.emit).toHaveBeenCalledWith(expect.anything(),expect.anything(),'target-allocation:'+ids.operation+':1','review.approved',{reviewBatchId:ids.other});
+});
+
+it('resumes a checkpoint without attempting its already processed contact again',async()=>{
+ const f=fixture(new Error('unused'));
+ Object.assign(f.op,{state:'running',result:{allocationCheckpointVersion:1,results:[{contactId:ids.contact,status:'needs_review',failureCategory:'database_busy'}]}});
+ f.allocation.mockReset().mockResolvedValue({id:'remaining-conversation'});
+ const result=await f.store.allocateApprovedTargets(ids.thread,ids.operation,undefined,{reviewBatchId:ids.other});
+ expect(f.allocation).toHaveBeenCalledTimes(1);expect(f.allocation.mock.calls[0][1]).toContain(ids.other);
+ expect(result).toMatchObject({allocated:1,needsReview:1});expect(result.pending).toBeUndefined();
+ expect(f.internal.emit).not.toHaveBeenCalledWith(expect.anything(),expect.anything(),expect.anything(),'review.approved',expect.anything());
+});
+it('does not checkpoint or enqueue a continuation after its execution fence is lost',async()=>{
+ const f=fixture(new Error('contact needs review'));
+ vi.mocked(f.internal.assertExecutionFence).mockResolvedValueOnce().mockRejectedValueOnce(new Error('expired fence'));
+ await expect(f.store.allocateApprovedTargets(ids.thread,ids.operation,undefined,{reviewBatchId:ids.other})).rejects.toThrow('expired fence');
+ expect(f.internal.emit).not.toHaveBeenCalled();expect(f.query.mock.calls.some(([sql])=>/SET result=/.test(sql))).toBe(false);
+});
+it('refuses a checkpoint containing contacts outside the approved selection',async()=>{
+ const f=fixture(new Error('unused'));Object.assign(f.op,{result:{allocationCheckpointVersion:1,results:[{contactId:ids.thread,status:'allocated',conversationId:'foreign'}]}});
+ await expect(f.store.allocateApprovedTargets(ids.thread,ids.operation,undefined,{reviewBatchId:ids.other})).rejects.toThrow('checkpoint differs');expect(f.allocation).not.toHaveBeenCalled();
+});
+
+it('advances the original workflow only after a committed allocation, before its continuation checkpoint',async()=>{
+ const f=fixture(new Error('unused')),execution=ids.mandate;Object.assign(f.op,{workflow_execution_id:execution,mandate_id:ids.mandate});
+ const bind=vi.spyOn(f.store as unknown as {bindOriginalWorkflow:(c:PoolClient,op:unknown)=>Promise<void>},'bindOriginalWorkflow').mockResolvedValue(undefined);
+ const previous=f.query.getMockImplementation()!;f.query.mockImplementation(async(sql:string)=>sql.startsWith('SELECT state,revision,preset FROM acquisition_workflow_executions')?{rows:[{state:'ready',revision:3,preset:'demo'}]}:previous(sql));
+ f.allocation.mockReset().mockResolvedValue({id:'committed-conversation'});
+ await f.store.allocateApprovedTargets(ids.thread,ids.operation,undefined,{reviewBatchId:ids.other});
+ expect(bind).toHaveBeenCalledWith(expect.anything(),f.op);
+ const calls=f.query.mock.calls as unknown as [string,unknown[]][];const transition=calls.findIndex(([sql])=>sql.includes('acquisition_workflow_transition'));
+ expect(transition).toBeGreaterThan(-1);expect(calls[transition][1]).toEqual([execution,3]);
+ expect(transition).toBeLessThan(calls.findIndex(([sql])=>sql.includes('SET result=')));
+});
+it('does not advance a workflow when every contact fails allocation',async()=>{
+ const f=fixture(new Error('unused'));Object.assign(f.op,{workflow_execution_id:ids.mandate});f.allocation.mockReset().mockRejectedValue(Error('failure'));
+ await f.store.allocateApprovedTargets(ids.thread,ids.operation);
+ expect(f.query.mock.calls.some(([sql])=>sql.includes('acquisition_workflow_transition'))).toBe(false);
+});
+it('recovers a completed allocation projection without reallocating contacts and preserves its original execution',async()=>{
+ const f=fixture(new Error('unused'));Object.assign(f.op,{state:'complete',workflow_execution_id:ids.other,mandate_id:ids.mandate,result:{allocated:1,needsReview:0}});
+ vi.spyOn(f.store as unknown as {bindOriginalWorkflow:(c:PoolClient,op:unknown)=>Promise<void>},'bindOriginalWorkflow').mockResolvedValue();
+ const previous=f.query.getMockImplementation()!;f.query.mockImplementation(async(sql:string)=>sql.startsWith('SELECT state,revision,preset FROM acquisition_workflow_executions')?{rows:[{state:'ready',revision:2,preset:'demo'}]}:previous(sql));
+ await expect(f.store.allocateApprovedTargets(ids.thread,ids.operation)).resolves.toEqual({allocated:1,needsReview:0});expect(f.allocation).not.toHaveBeenCalled();
+ expect(f.query).toHaveBeenCalledWith(expect.stringContaining('acquisition_workflow_transition'),[ids.other,2]);
+});
+it('leaves an already-outreach execution unchanged on allocation replay',async()=>{
+ const f=fixture(new Error('unused'));Object.assign(f.op,{state:'complete',workflow_execution_id:ids.other,mandate_id:ids.mandate,result:{allocated:1}});
+ vi.spyOn(f.store as unknown as {bindOriginalWorkflow:(c:PoolClient,op:unknown)=>Promise<void>},'bindOriginalWorkflow').mockResolvedValue();
+ const previous=f.query.getMockImplementation()!;f.query.mockImplementation(async(sql:string)=>sql.startsWith('SELECT state,revision,preset FROM acquisition_workflow_executions')?{rows:[{state:'outreach',revision:4,preset:'demo'}]}:previous(sql));
+ await f.store.allocateApprovedTargets(ids.thread,ids.operation);expect(f.query.mock.calls.some(([sql])=>sql.includes('acquisition_workflow_transition'))).toBe(false);
 });

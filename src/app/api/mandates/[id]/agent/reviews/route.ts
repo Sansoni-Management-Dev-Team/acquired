@@ -1,3 +1,4 @@
+import {wakeNativeAgentAfterCommit} from '@/lib/agent-native-wake';
 import {z} from 'zod';
 import {guardBrowserMutation} from '@/lib/browser-mutation';
 import {reviewItemSchema} from '@/domain/agent-authority';
@@ -23,6 +24,7 @@ export async function POST(request:Request,context:Context){
   const batch=value.action==='decide'
    ?await data.store.decideReviewBatch(data.thread.id,value.batchId,value.revision,value.items,value.decision,...(value.approvalSource?[value.approvalSource] as const:[]))
    :await data.store.editEmailReview(data.thread.id,value.batchId,value.operationId,value.revision,value.body);
+  if(value.action==='decide'&&value.decision==='approved')wakeNativeAgentAfterCommit();
   return Response.json({batch},{headers});
  }catch(cause){return failure(cause);}
 }

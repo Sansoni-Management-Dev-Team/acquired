@@ -191,3 +191,40 @@ Partial channel-history ingestion can invalidate the original retry generation. 
 ### 21 October 2026 — simplified Start and settings
 
 Saved-data agent demos now open with a welcome and, after3seconds, their mandate summary and Start. Start uses the existing authenticated demo endpoint to prepare recipients, choose the exact saved simulator-run accounts and propose contact review. It does not approve contacts/messages; existing Auto-approve choices apply separately. New live agent mandates wait for Start before ordinary company research begins. Agent mode remains available in both the create page and its loading form. Cached demo settings show only a concise account/timing summary and a link to global Settings; Context shows the brief/useful guidance. No migration or restart was needed. Detailed evidence/limits: latest P4.4/P5 progress entry in `docs/communications/progress.md`.
+
+## Existing app5437 source alignment (24 October 2026)
+
+Append `compose.aligned.yml` **last**, after the existing local, multichannel,
+demos and testing overlays. It changes only dependency/cache mount sources for
+`dependencies`, `app` and `agent`. Compose merges mounts by container target:
+`/install/node_modules` and `/workspace/node_modules` use the new
+`agent-aligned-node-modules` volume; app/agent `.next` uses `agent-aligned-next`.
+The old communications/research dependency volume, database volume, namespace
+owner, transport bridges, environment, CA mounts and source mounts are preserved.
+Do not rebuild/retag the shared development image, delete volumes, or recreate
+namespace owners/communications services as part of this alignment.
+
+The existing `acquire-agent-mode:dev` image was inspected: its build history
+installs `pnpm@11.8.0`, matching both the Dockerfile and current package-manager
+pin. The normal installer uses the latest source's frozen lockfile. Installation
+must target the new dependency volume before restarting app/agent; retain the
+original volume for still-running services and rollback.
+
+Controlled cutover: stop only app/agent, preserve the dirty source snapshot and
+local configuration, update source to reviewed main, install `dependencies`
+with all five overlays and `--no-build --no-deps`, then recreate only app/agent
+with the same overlays and `--no-build --no-deps`. Never run a broad `down`,
+`up --build`, volume prune, or migration replay. Existing immutable app5437
+bindings, recipient mappings and saved operations are reused.
+
+Static validation (no containers started, no environment-file values printed):
+
+```sh
+node --test ops/agent-mode/compose-aligned.test.mjs
+```
+
+The test runs `docker compose config --no-env-resolution` for both compositions
+and proves every unchanged service remains identical, all other mounts remain
+identical, and the PostgreSQL volume is unchanged. Red: missing overlay failed;
+green: this structural test passed. Runtime installation, namespace reachability
+and normal send/reply acceptance are separate cutover checks.

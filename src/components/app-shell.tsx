@@ -32,7 +32,7 @@ function SidebarRouteSync({ update }: { update: React.Dispatch<React.SetStateAct
     const key=JSON.stringify([session.scope,selected]);
     if((entry?.scope!==session.scope||!entry.mandates.some(m=>m.id===selected))&&requested.current!==key){requested.current=key;void cache.refresh(true);}
   },[selected,entry,session]);
-  const tab = pathname.endsWith("/agent") ? "agent" : pathname.endsWith("/people") ? "people" : pathname.endsWith("/outreach/sequences") ? "sequences" : searchParams.get("tab") === "targets" || pathname.includes("/targets/") ? "targets" : "brief";
+  const tab = pathname.endsWith("/agent") ? "agent" : pathname.endsWith("/people") ? "people" : pathname.endsWith("/outreach/sequences") ? "sequences" : pathname.endsWith("/companies") || ["targets", "search", "search enrich"].includes(searchParams.get("tab") || "") || pathname.includes("/targets/") ? "targets" : "brief";
   useEffect(() => {
     update(current => JSON.stringify({ ...JSON.parse(current), selected, tab }));
   }, [selected, tab, update]);

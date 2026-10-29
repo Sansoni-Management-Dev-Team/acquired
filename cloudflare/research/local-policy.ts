@@ -4,6 +4,7 @@ import { callbackOrigin } from "./callback-origin";
 export type LocalPolicyEnv = LocalReaderEnv & {
   APP_ORIGIN?: string;
   LOCAL_SEARCH_URL?: string;
+  LOCAL_SEARCH_ENGINE?: string;
   LOCAL_RESEARCH_POLICY?: string;
 };
 
@@ -22,7 +23,7 @@ export function researchFetch(env: LocalPolicyEnv, fetcher: typeof fetch = fetch
     const allowed = !url.username && !url.password && (
       (url.origin === app && (url.pathname.startsWith("/api/research/internal/") || url.pathname.startsWith("/api/firmable/internal/"))) ||
       url.href === localReaderEndpoint(env) ||
-      (!productionPolicy(env) && url.origin === "http://127.0.0.1:7000" && /^\/(duckduckgo|google)\/search$/.test(url.pathname)) ||
+      (!productionPolicy(env) && url.origin === "http://127.0.0.1:7000" && (/^\/(duckduckgo|google)\/search$/.test(url.pathname) || env.LOCAL_SEARCH_ENGINE === "bing" && url.pathname === "/bing/search")) ||
       url.href === "https://openrouter.ai/api/v1/chat/completions" ||
       url.href === "https://api.openai.com/v1/chat/completions"
     );

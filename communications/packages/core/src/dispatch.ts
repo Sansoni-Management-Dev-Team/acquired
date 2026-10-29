@@ -1,3 +1,4 @@
+import {runWithTransportBoundary,supportsTransportBoundaryAdapter} from './transport-boundary';
 import{reportDispatchDiagnostic,type DispatchDiagnosticPort}from'./dispatch-diagnostic';
 import { isDeepStrictEqual, types } from "node:util";
 import { assertOperationMatches, assertSameBinding, assertSubmissionReceiptMatches, ContractError } from "../../contracts/src";
@@ -21,12 +22,15 @@ export type BeginDispatchDecision = { kind: "admitted"; record: DispatchRecord }
  * These port types alone provide no database durability, concurrency, lease, quota or grant proof. */
 export interface DispatchJournalPort {
   claim(input: { snapshot: OperationSnapshot; recipient: CanonicalIdentity } & DispatchMetadata): Promise<ClaimDecision>;
-  beginDispatch(input: { token: string; record: DispatchRecord }): Promise<BeginDispatchDecision>;
-  complete(input: { token: string; record: DispatchRecord; outcome: DeliveryOutcome }): Promise<DispatchRecord>;
+  beginDispatch(input: { token: string; record: DispatchRecord; transportBoundary?:true }): Promise<BeginDispatchDecision>;
+  startTransportWrite?(input:{token:string;record:DispatchRecord}):Promise<void>;
+  complete(input: { token: string; record: DispatchRecord; outcome: DeliveryOutcome; closeBeforeWrite?:true }): Promise<DispatchRecord>;
   get(snapshot: OperationSnapshot): Promise<DispatchRecord | null>;
   reconcile(input: { record: DispatchRecord; outcome: DeliveryOutcome }): Promise<DispatchRecord>;
 }
 export interface DispatchCoordinatorOptions {
+  /** Trusted instrumented adapter composition only; never a public request option. */
+  transportBoundary?:boolean;
   diagnostic?:DispatchDiagnosticPort;
   /** Trusted server composition only: a committed tracking ACK and authenticated,
    * read-verified association must identify the original email. No caller ID/search.
@@ -148,12 +152,16 @@ export function createDispatchCoordinator(expectedBinding: ConnectionBinding, ad
   const complete = Function.prototype.bind.call(journal.complete,journal) as DispatchJournalPort['complete'];
   const get = Function.prototype.bind.call(journal.get,journal) as DispatchJournalPort['get'];
   const reconcile = Function.prototype.bind.call(journal.reconcile,journal) as DispatchJournalPort['reconcile'];
-  let recover: DispatchCoordinatorOptions['recoverUnknownEmail'], recoveryTimeout: number;
+  let recover: DispatchCoordinatorOptions['recoverUnknownEmail'], recoveryTimeout: number, instrumented=false;
+  const startTransportWrite=journal.startTransportWrite?.bind(journal);
   try {
     if (!options || types.isProxy(options) || Object.getPrototypeOf(options)!==Object.prototype) fail();
     const d=Object.getOwnPropertyDescriptors(options);
-    if(Reflect.ownKeys(d).some(k=>typeof k!=='string'||!['recoverUnknownEmail','recoveryTimeoutMs','diagnostic'].includes(k)||!('value'in d[k]))) fail();
+    if(Reflect.ownKeys(d).some(k=>typeof k!=='string'||!['recoverUnknownEmail','recoveryTimeoutMs','diagnostic','transportBoundary'].includes(k)||!('value'in d[k]))) fail();
     for(const descriptor of Object.values(d))if(types.isPromise(descriptor.value)){void Promise.prototype.then.call(descriptor.value,undefined,()=>{});fail();}
+    if(d.transportBoundary?.value!==undefined&&typeof d.transportBoundary.value!=='boolean')fail();
+    instrumented=d.transportBoundary?.value===true;
+    if(instrumented&&(!startTransportWrite||!supportsTransportBoundaryAdapter(adapter)))fail();
     const fn=d.recoverUnknownEmail?.value;if(d.diagnostic?.value!==undefined&&typeof d.diagnostic.value!=='function')fail();
     recoveryTimeout=d.recoveryTimeoutMs?.value??10000;
     if(fn!==undefined&&(typeof fn!=='function'||types.isProxy(fn))||!Number.isSafeInteger(recoveryTimeout)||recoveryTimeout<1||recoveryTimeout>10000)fail();
@@ -185,9 +193,9 @@ export function createDispatchCoordinator(expectedBinding: ConnectionBinding, ad
     }catch{return unknown();}finally{clearTimeout(timer!);controller.abort();}
   }
 
-  async function persist(token: string, record: DispatchRecord, outcome: DeliveryOutcome): Promise<DeliveryOutcome> {
+  async function persist(token: string, record: DispatchRecord, outcome: DeliveryOutcome, closeBeforeWrite=false): Promise<DeliveryOutcome> {
     try {
-      const result = structuredClone(await complete(structuredClone({ token, record, outcome })));
+      const result = structuredClone(await complete(structuredClone({ token, record, outcome, ...(closeBeforeWrite?{closeBeforeWrite:true as const}:{}) })));
       assertRecord(result, record.snapshot, record.recipient, record);
       if (record.message && !isDeepStrictEqual(result.message, record.message)) return unknown();
       if ((outcome.status === "unknown" ? result.state !== "unknown" : result.state !== "completed") || !isDeepStrictEqual(result.outcome, outcome)) return unknown();
@@ -223,18 +231,23 @@ export function createDispatchCoordinator(expectedBinding: ConnectionBinding, ad
       if (!readiness(preflight)){reportDispatchDiagnostic(options.diagnostic,'coordinator.preflight','blocked');return persist(decision.token, decision.record, unknown());}
       if (preflight.status !== "ready") return persist(decision.token, decision.record, preflight);
       let admission: BeginDispatchDecision;
-      try { admission = structuredClone(await beginDispatch(structuredClone({ token: decision.token, record: decision.record }))); }
+      try { admission = structuredClone(await beginDispatch(structuredClone({ token: decision.token, record: decision.record, ...(instrumented?{transportBoundary:true as const}:{}) }))); }
       catch(error) {reportDispatchDiagnostic(options.diagnostic,'coordinator.begin','error',error);return unknown(); }
       if (admission?.kind === "blocked") return block(admission.outcome, input.snapshot, input.message.recipient) ? persist(decision.token, decision.record, admission.outcome) : unknown();
       if (admission?.kind !== "admitted"){reportDispatchDiagnostic(options.diagnostic,'coordinator.begin','blocked');return unknown();}
       try { assertRecord(admission.record, input.snapshot, input.message.recipient, input.message); } catch(error) {reportDispatchDiagnostic(options.diagnostic,'coordinator.admitted_record','error',error);return unknown(); }
       if (admission.record.state !== "dispatching") return unknown();
-      let outcome: DeliveryOutcome;
-      try {
+      const invoke=async():Promise<DeliveryOutcome>=>{try {
         const observed = structuredClone(await adapterSubmit(structuredClone(input)));
-        outcome = validOutcome(observed, input.snapshot, input.message.recipient, undefined, input.message.conversation) ? observed : unknown();
-      } catch { outcome = unknown(); }
-      return persist(decision.token, admission.record, outcome);
+        return validOutcome(observed,input.snapshot,input.message.recipient,undefined,input.message.conversation)?observed:unknown();
+      }catch{return unknown();}};
+      if(!instrumented)return persist(decision.token,admission.record,await invoke());
+      const observed=await runWithTransportBoundary(input.snapshot,()=>startTransportWrite!({token:decision.token,record:admission.record}),invoke);
+      if(observed.writeStarted)return persist(decision.token,admission.record,observed.value);
+      // A purported submitted receipt without the mandatory write gate is not proof.
+      if(observed.value.status==='submitted')return persist(decision.token,admission.record,unknown());
+      const terminal=observed.value.status==='unknown'?{status:'review' as const,code:'protocol' as const}:observed.value;
+      return persist(decision.token,admission.record,terminal,true);
     },
     async lookup(request) {
       const input = structuredClone(request);

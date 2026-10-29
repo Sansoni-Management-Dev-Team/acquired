@@ -9,6 +9,7 @@ import { SidebarRegistration } from "./app-shell";
 import { HomeMandateCreate } from "./home-mandate-create";
 import { useCachedMandates,useSelectedMandate } from "./use-cached-mandates";
 import { mandateTabHref } from "@/domain/mandate-navigation";
+import {mandateResearchStatusLabels,type MandateResearchStatus} from "@/domain/mandate-research-status";
 
 function CacheNotice({ loaded, error, retry }: { loaded: boolean; error: string; retry: () => void }) {
   if (error) return <p role="alert" className="text-sm text-[var(--muted)]">{error} <button type="button" onClick={retry} className="underline underline-offset-4">Retry</button></p>;
@@ -16,14 +17,34 @@ function CacheNotice({ loaded, error, retry }: { loaded: boolean; error: string;
   return null;
 }
 
-export function CachedMandateCreate({ agentModeEnabled = false, nativeAgentEnabled = false }: { agentModeEnabled?: boolean; nativeAgentEnabled?: boolean } = {}) {
+export function CachedMandateCreate({ agentModeEnabled = false, nativeAgentEnabled = false, sharedWorkflowEnabled = false }: { agentModeEnabled?: boolean; nativeAgentEnabled?: boolean; sharedWorkflowEnabled?: boolean } = {}) {
   const cache = useCachedMandates();
-  return <><SidebarRegistration value={{ mandates: cache.mandates.map(m => ({ id: m.id, name: m.brief.name })), tab: "brief" }} /><HomeMandateCreate nativeAgentEnabled={nativeAgentEnabled} agentModeEnabled={agentModeEnabled} mandates={cache.mandates} recentStatus={<CacheNotice {...cache} />} recentLoaded={cache.loaded} /></>;
+  return <><SidebarRegistration value={{ mandates: cache.mandates.map(m => ({ id: m.id, name: m.brief.name })), tab: "brief" }} /><HomeMandateCreate sharedWorkflowEnabled={sharedWorkflowEnabled} nativeAgentEnabled={nativeAgentEnabled} agentModeEnabled={agentModeEnabled} mandates={cache.mandates} recentStatus={<CacheNotice {...cache} />} recentLoaded={cache.loaded} /></>;
+}
+
+function ResearchStatus({status}:{status?:MandateResearchStatus}) {
+  const label=status?mandateResearchStatusLabels[status]:'—';
+  const dot=status==='complete'?'bg-emerald-500':status==='running'?'bg-blue-500':status==='partial'?'bg-amber-500':status==='failed'?'bg-red-500':'bg-[var(--muted)]';
+  return <span aria-label={`Research status: ${status?label:'unavailable'}`} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--panel-raised)] px-2.5 py-1 text-xs font-medium text-[var(--foreground)]"><span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${dot}`}/>{label}</span>;
 }
 
 export function CachedMandatesPage() {
   const cache = useCachedMandates();
-  return <div className="space-y-6 p-5 sm:p-8"><SidebarRegistration value={{ mandates: cache.mandates.map(m => ({ id: m.id, name: m.brief.name })), tab: "brief" }} /><h1 className="text-3xl font-semibold">Acquisition mandates</h1><p className="text-[var(--muted)]">Keep each acquisition brief, target universe and pipeline separate.</p><Link className="inline-block rounded bg-[var(--accent)] px-4 py-2 text-[var(--on-accent)]" href="/">Create a mandate</Link><CacheNotice {...cache} /><div className="grid gap-4 md:grid-cols-2">{cache.mandates.map(m => <Link key={m.id} className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5 hover:border-[var(--accent)]" onClick={()=>useMandateCache.getState().selectMandate(m.id)} href={`/mandates/${m.id}`}><h2 className="text-lg font-semibold">{m.brief.name}</h2><p className="mt-2 text-xs text-[var(--muted)]">Created <BrowserLocalTime value={m.createdAt} /></p><p className="mt-3 text-sm text-[var(--muted)]">{m.brief.criteria.filter(c => c.state === "unknown").length} unanswered criteria · Open workspace</p></Link>)}</div>{cache.loaded && !cache.mandates.length && <p className="text-sm text-[var(--muted)]">Create your first mandate to review a brief and build its target universe.</p>}</div>;
+  return <div className="space-y-6 p-5 sm:p-8">
+    <SidebarRegistration value={{ mandates: cache.mandates.map(m => ({ id: m.id, name: m.brief.name })), tab: "brief" }} />
+    <h1 className="text-3xl font-semibold">Acquisition mandates</h1>
+    <p className="text-[var(--muted)]">Keep each acquisition brief, target universe and pipeline separate.</p>
+    <Link className="inline-block rounded bg-[var(--accent)] px-4 py-2 text-[var(--on-accent)]" href="/">Create a mandate</Link>
+    <CacheNotice {...cache} />
+    <div className="grid gap-4 md:grid-cols-2">{cache.mandates.map(m =>
+      <Link key={m.id} className="rounded-xl border border-[var(--border)] bg-[var(--panel)] p-5 hover:border-[var(--accent)]" onClick={()=>useMandateCache.getState().selectMandate(m.id)} href={`/mandates/${encodeURIComponent(m.id)}?tab=search+enrich`}>
+        <div className="flex flex-wrap items-start justify-between gap-3"><h2 className="min-w-0 flex-1 text-lg font-semibold">{m.brief.name}</h2><ResearchStatus status={m.researchStatus}/></div>
+        <p className="mt-2 text-xs text-[var(--muted)]">Created <BrowserLocalTime value={m.createdAt} /></p>
+        <p className="mt-3 text-sm text-[var(--muted)]">{m.brief.criteria.filter(c => c.state === "unknown").length} unanswered criteria · View research</p>
+      </Link>
+    )}</div>
+    {cache.loaded && !cache.mandates.length && <p className="text-sm text-[var(--muted)]">Create your first mandate to review a brief and build its target universe.</p>}
+  </div>;
 }
 
 const sectionLabels = { brief: "Brief", targets: "Companies", people: "People", sequences: "Sequences" };

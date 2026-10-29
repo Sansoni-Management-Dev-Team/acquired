@@ -46,15 +46,16 @@ export async function refreshCompanyMembershipProjectionsInTransaction(c:Company
  if(!(await c.query('SELECT 1 FROM mandates WHERE id=$1 AND organization_id=$2 FOR SHARE',[scope.mandateId,actor.organizationId])).rowCount)throw Error('Company projection mandate unavailable');
  const ids=(await c.query('SELECT target_id FROM mandate_targets WHERE organization_id=$1 AND mandate_id=$2 AND ($3::uuid[] IS NULL OR target_id=ANY($3::uuid[])) ORDER BY target_id LIMIT 50',[actor.organizationId,scope.mandateId,targetIds])).rows;
  const until=Date.now()+3000,results=[];
- for(const row of ids){if(Date.now()>=until)throw Error('Company projection refresh exceeded its bounded transaction; refresh is still required');results.push(await publishCompanyMembershipProjection(c,actor,{mandateId:scope.mandateId,targetId:row.target_id}));}
+ for(const row of ids){if(Date.now()>=until)throw Object.assign(Error('Company projection refresh exceeded its bounded transaction; refresh is still required'),{sourceCount:ids.length,examinedCount:results.length});results.push(await publishCompanyMembershipProjection(c,actor,{mandateId:scope.mandateId,targetId:row.target_id}));}
  return{published:results.filter(r=>r.published).length,examined:results.length};
 }
 export type CompanyProjectionTransaction=<T>(work:(c:CompanyProjectionSqlClient)=>Promise<T>)=>Promise<T>;
 /** Enumerate no more than1000 accepted memberships, then release authority
- * between50-member batches. Any later source change remains SQL-fenced. */
+ * after each target. WAN round trips must not exhaust a multi-target transaction
+ * and roll back completed projections. Later source changes remain SQL-fenced. */
 export async function refreshCompanyMembershipProjectionBatches(transaction:CompanyProjectionTransaction,rawActor:Actor,scope:{mandateId:string;targetIds?:string[]}){
  const actor=actorSchema.parse(rawActor);z.string().uuid().parse(scope.mandateId);
- if(scope.targetIds)return transaction(c=>refreshCompanyMembershipProjectionsInTransaction(c,actor,{mandateId:scope.mandateId,targetIds:scope.targetIds!}));
+ if(scope.targetIds){const ids=[...new Set(z.array(uuid).max(50).parse(scope.targetIds))];let published=0,examined=0;for(const targetId of ids){const result=await transaction(c=>refreshCompanyMembershipProjectionsInTransaction(c,actor,{mandateId:scope.mandateId,targetIds:[targetId]}));published+=result.published;examined+=result.examined;}if(!ids.length)return transaction(c=>refreshCompanyMembershipProjectionsInTransaction(c,actor,{mandateId:scope.mandateId,targetIds:[]}));return{published,examined};}
  const targetIds=await transaction(async c=>{
   await assertPublisher(c,actor);
   if(!(await c.query('SELECT 1 FROM mandates WHERE id=$1 AND organization_id=$2 FOR SHARE',[scope.mandateId,actor.organizationId])).rowCount)throw Error('Company projection mandate unavailable');
@@ -64,7 +65,7 @@ export async function refreshCompanyMembershipProjectionBatches(transaction:Comp
   if(ids.length>1000)throw Error('Company projection refresh exceeds1000 accepted memberships; select a bounded subset');return ids;
  });
  let published=0,examined=0;
- for(let i=0;i<targetIds.length;i+=50){const result=await transaction(c=>refreshCompanyMembershipProjectionsInTransaction(c,actor,{mandateId:scope.mandateId,targetIds:targetIds.slice(i,i+50)}));published+=result.published;examined+=result.examined;}
+ for(let i=0;i<targetIds.length;i++){const result=await transaction(c=>refreshCompanyMembershipProjectionsInTransaction(c,actor,{mandateId:scope.mandateId,targetIds:[targetIds[i]]}));published+=result.published;examined+=result.examined;}
  return{published,examined};
 }
 /** Explicit normal command preflight, never called from a SHARED actor TX. */

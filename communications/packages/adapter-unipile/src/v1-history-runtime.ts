@@ -20,11 +20,12 @@ import { createUnipileV1HistoryOutboundNormalizer } from './v1-history-outbound'
 import { createPostgresHistoryCheckpoints } from '../../storage-postgres/src/history-checkpoints';
 import { createPostgresHistoryAliases } from '../../storage-postgres/src/history-aliases';
 import { createJournalOutboundVerifier } from '../../storage-postgres/src/journal-outbound';
-import { createHistoryBackfillWorker } from '../../core/src/history-backfill';
+import { createHistoryBackfillWorker,refreshInvalidatedHistory } from '../../core/src/history-backfill';
 import type { HistoryCheckpointCodec } from '../../storage-postgres/src/history-checkpoint-codec';
 import type { SqlPool, WebhookEventRepositoryCodec, WebhookRepositoryCodec } from '../../storage-postgres/src/webhook-repository';
 import { plain, opaque, unavailable, portMethod } from './v1-read-guard';
 export interface ConfiguredHistoryOptions {
+    historyTurn?<T>(work:()=>Promise<T>,signal?:AbortSignal):Promise<T>;
     businessClock?:BusinessClock;
     binding: ConnectionBinding;
     runtime: ConfiguredUnipileV1Runtime;
@@ -136,7 +137,7 @@ export async function createConfiguredUnipileV1History(options: ConfiguredHistor
             const common={source:{now:()=>businessNow(options.businessClock),record,transport:historyTransport,resolveCurrent:current,initialSync:(_record:RecordedLifecycleConnection,signal:AbortSignal)=>repository.initialSync(signal),availableFrom,...(b.channel!=='email'?{eventAccountInfo:{ownerProviderId:ownerProvider,product}}:{})},transport,since:input.since,signal:input.signal,async readAndCommit(observedSource:ReturnType<typeof createUnipileV1HistorySource>,query:EventQuery){
                 let captured:EventPage|undefined;
                 const backfill=createHistoryBackfillWorker({repository,source:{async read(q,request){captured=await observedSource.read(q,request);return captured;}}});
-                const committed=await backfill.refresh(query,{signal:input.signal});
+                const committed=await refreshInvalidatedHistory(()=>backfill.refresh(query,{signal:input.signal}),input.signal);
                 if(committed.status==='busy'&&!input.signal?.aborted)throw new HistoryRefreshBusyError(b);
                 if(committed.status!=='complete'||!captured)unavailable();
                 return captured;
@@ -150,5 +151,5 @@ export async function createConfiguredUnipileV1History(options: ConfiguredHistor
             return readUnipileAgentSocialHistory({...common,recipient:input.recipient});
         }, refresh(query: EventQuery, request?: {
             signal?: AbortSignal;
-        }) { return worker.refresh(query, request); } };
+        }) { return options.historyTurn?options.historyTurn(()=>worker.refresh(query,request),request?.signal):worker.refresh(query, request); } };
 }

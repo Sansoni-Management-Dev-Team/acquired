@@ -1,3 +1,4 @@
+import {withResearchJobWorkflow} from '@/lib/acquisition-workflow-context';
 import { outreachEmail } from "@/domain/outreach-contact";
 import { mergePeopleSearchLeads } from "@/domain/people-search-results";
 import { and, desc, eq, sql } from "drizzle-orm";
@@ -74,9 +75,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!seed) return Response.json({ error: "Add and review the company website in its worksheet first" }, { status: 409 });
   let config: ResearchConfig = { purpose: "people", targetedFollowup: true, maxPeopleSearches: 2, targetId: id, companyName: c.member.target.companyName, companyDomain: new URL(seed).hostname.replace(/^www\./, ""), seeds: [seed], searchTerms: ["owner founder director management team contact"], geography: "Australia", discover: true, approved: true, strategy: "investigate", budget: { maxPages: 5, maxDomains: 3, maxModelCalls: 5, maxMinutes: 10 } };
   const repo = new ResearchRepository(c.org);
+  let savedWorkflowJob: {workflowExecutionId:string;organizationId:string;createdBy:string}|undefined;
   if (input.data.continueFrom) {
     const previous = await repo.get(input.data.continueFrom);
     const saved = previous?.config as ResearchConfig | undefined;
+    if(previous?.workflowExecutionId){
+      if(previous.createdBy!==c.session.user.id)return Response.json({error:'Job not found'},{status:404});
+      savedWorkflowJob={workflowExecutionId:previous.workflowExecutionId,organizationId:c.org,createdBy:previous.createdBy};
+    }
     if (!previous || previous.mandateId !== c.mandateId || saved?.purpose !== "people" || saved.targetId !== id || saved.companyDomain !== config.companyDomain || !terminalResearchStates.includes(previous.status)) return Response.json({ error: "No completed people research to continue for this company" }, { status: 409 });
     const retry = (saved.runtime?.attempts || []).filter(a => a.status !== "read").map(a => a.url);
     const remaining = uniqueResearchUrls([...retry, ...(saved.runtime?.remaining || [])]);
@@ -85,8 +91,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   }
   const prior = await repo.get(input.data.requestId);
   if (prior && (prior.mandateId !== c.mandateId || (prior.config as ResearchConfig).targetId !== id || (prior.config as ResearchConfig).purpose !== "people")) return Response.json({ error: "Request ID belongs to another job" }, { status: 409 });
+  if(prior?.workflowExecutionId){
+    if(prior.createdBy!==c.session.user.id)return Response.json({error:'Job not found'},{status:404});
+    if(savedWorkflowJob&&savedWorkflowJob.workflowExecutionId!==prior.workflowExecutionId)return Response.json({error:'Request ID belongs to another workflow'},{status:409});
+    savedWorkflowJob={workflowExecutionId:prior.workflowExecutionId,organizationId:c.org,createdBy:prior.createdBy};
+  }
   try {
-    const job = await repo.create(input.data.requestId, c.mandateId, c.session.user.id, config);
+    const requestId=input.data.requestId;
+    const create=()=>repo.create(requestId, c.mandateId, c.session.user.id, config);
+    const job = await (savedWorkflowJob?withResearchJobWorkflow(savedWorkflowJob,create):create());
     if (!terminalResearchStates.includes(job.status)) await researchWorker(`/jobs/${job.id}`, "POST");
     return Response.json({ jobId: job.id }, { status: 202 });
   } catch {

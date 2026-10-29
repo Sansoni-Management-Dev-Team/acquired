@@ -155,7 +155,7 @@ export type ValuationObservation = z.infer<typeof valuationSchema>;
 export function indicativeMultiple(o: ValuationObservation) { return o.price / o.earnings; }
 export type CoverageSource = { name: string; status: "searched" | "partial" | "failed" | "not-configured"; discovered: number; unique: number; overlap: number; checkedAt: string; note: string };
 export type CoverageRun = { id: string; sources: CoverageSource[]; createdAt: string };
-export type MandateView = { id: string; brief: AcquisitionBrief; createdAt: string; revision?: string; companyProjectionRefresh?:CompanyProjectionRefreshResult };
+export type MandateView = { id: string; brief: AcquisitionBrief; createdAt: string; revision?: string; companyProjectionRefresh?:CompanyProjectionRefreshResult; researchStatus?:import('./mandate-research-status').MandateResearchStatus };
 export type MembershipView = { researchFindings?: import("./research").SavedResearchFinding[]; target: RankedTarget; assessment: Assessment; accreditations: Accreditation[]; version: number };
 
 /** Explicit diligence states; a populated profile is not a finance review. */
