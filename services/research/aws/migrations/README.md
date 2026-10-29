@@ -39,3 +39,12 @@ Close temporary forwarding sessions after verification.
 Static verification: the PostgreSQL parser accepts both artifacts (8 and161
 top-level statements). No SQL execution/rehearsal is claimed. A separate rehearsal
 would also need specific approval under AGENTS.md.
+
+## Approval receipt — 30 October 2026
+
+The user specifically approved both artifacts and the exact app Aurora target in
+the manifest by answering yes to the explicit execution request. Their hashes
+and bytes remain unchanged. Execution is pending renewal of the expired acquire
+AWS SSO session. Neither artifact has been applied. Do not confuse recorded
+approval with successful application; application/postcheck evidence is still
+required.
