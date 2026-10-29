@@ -9,7 +9,12 @@
         "protocol": "tcp"
       }
     ],
-    "environment": [],
+    "environment": [
+      {
+        "name": "HOSTNAME",
+        "value": "0.0.0.0"
+      }
+    ],
     "secrets": [],
     "environmentFiles": [
       {
