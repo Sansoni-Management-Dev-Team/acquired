@@ -64,3 +64,8 @@ it.each(["failed", "partial"])("presents %s website research as unavailable deta
   expect(html).toContain("Some company details are not available yet.");
   for (const removed of ["Website research failed", "Website research is partial", "another read", "provider match unavailable"]) expect(html).not.toContain(removed);
 });
+it('shows provider-covered and irrelevant supplemental fields without claiming data is missing',()=>{
+ const initial=member();initial.target.sourceData={...initial.target.sourceData,backgroundResearch:{version:1,jobId:'job',updatedAt:'2026-10-27T00:00:00Z',attempts:[],registryContactsSaved:0,fields:{description:{status:'already_available',observations:[]},accreditations:{status:'not_required',observations:[]}}}};
+ const html=renderToStaticMarkup(<CompanyInfoSummary member={initial}/>);
+ expect(html).toContain('Available from saved company data.');expect(html).toContain('Not required for this mandate.');expect(html).not.toContain('Not available yet.');
+});

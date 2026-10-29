@@ -1,0 +1,49 @@
+{
+  "name": "Aged care software support — National",
+  "brief": "Seeking to acquire an established aged care software support business in National. Target annual revenue of AUD 3,000,000–12,000,000, EBITDA of AUD 500,000–2,500,000, approximately 18–85 employees. Prefer subscription revenue and implementation services. All details are fictional testing assumptions to review before research or outreach.",
+  "searchTerms": [
+    "\"aged care\" software support",
+    "\"aged care\" software implementation"
+  ],
+  "geography": "National",
+  "criteria": {
+    "country": "Australia",
+    "annualRevenueAud": {
+      "min": 3000000,
+      "max": 12000000
+    },
+    "ebitdaAud": {
+      "min": 500000,
+      "max": 2500000
+    },
+    "employees": {
+      "min": 18,
+      "max": 85
+    },
+    "preferences": [
+      "subscription revenue",
+      "implementation services"
+    ]
+  },
+  "budget": {
+    "maxPages": 3,
+    "maxDomains": 3,
+    "maxMinutes": 6,
+    "maxModelCalls": 3
+  },
+  "maxSearchQueries": 2,
+  "sourceRelevanceGroups": [
+    [
+      "aged care",
+      "elder care",
+      "residential care",
+      "home care"
+    ],
+    [
+      "software",
+      "platform",
+      "implementation",
+      "technology"
+    ]
+  ]
+}

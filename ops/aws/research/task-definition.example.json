@@ -1,0 +1,196 @@
+{
+  "family": "acquire-research-develop",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
+  "runtimePlatform": {
+    "cpuArchitecture": "X86_64",
+    "operatingSystemFamily": "LINUX"
+  },
+  "cpu": "2048",
+  "memory": "8192",
+  "executionRoleArn": "arn:aws:iam::352329340196:role/REPLACE_WITH_RESEARCH_EXECUTION_ROLE",
+  "taskRoleArn": "arn:aws:iam::352329340196:role/REPLACE_WITH_RESEARCH_TASK_ROLE",
+  "volumes": [],
+  "containerDefinitions": [
+    {
+      "name": "research",
+      "image": "REPLACE_WITH_PUBLISHED_IMAGE_DIGEST",
+      "essential": true,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/acquire-research-develop",
+          "awslogs-region": "ap-southeast-2",
+          "awslogs-stream-prefix": "research"
+        }
+      },
+      "command": [
+        "node",
+        "dist/server.mjs"
+      ],
+      "portMappings": [
+        {
+          "containerPort": 8787,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        {
+          "name": "RESEARCH_DEPLOYMENT",
+          "value": "aws-uat"
+        },
+        {
+          "name": "RESEARCH_APP_ORIGIN",
+          "value": "http://127.0.0.1:3100"
+        },
+        {
+          "name": "RESEARCH_SEARCH_PROVIDER",
+          "value": "local"
+        },
+        {
+          "name": "RESEARCH_READER_PROVIDER",
+          "value": "crawl4ai"
+        },
+        {
+          "name": "RESEARCH_AI_PROVIDER",
+          "value": "openai"
+        },
+        {
+          "name": "OPENAI_RESEARCH_MODEL",
+          "value": "gpt-6-luna"
+        },
+        {
+          "name": "OPENAI_RESEARCH_FALLBACK_MODEL",
+          "value": "gpt-5.6-luna"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "RESEARCH_DATABASE_URL",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:352329340196:secret:REPLACE_WITH_RESEARCH_SECRET_ARN:RESEARCH_DATABASE_URL::"
+        },
+        {
+          "name": "RESEARCH_SERVICE_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:352329340196:secret:REPLACE_WITH_RESEARCH_SECRET_ARN:RESEARCH_SERVICE_SECRET::"
+        },
+        {
+          "name": "OPENAI_API_KEY",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:352329340196:secret:REPLACE_WITH_RESEARCH_SECRET_ARN:OPENAI_API_KEY::"
+        }
+      ],
+      "stopTimeout": 120,
+      "healthCheck": {
+        "command": [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8787/health/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+        ],
+        "interval": 15,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 90
+      },
+      "dependsOn": [
+        {
+          "containerName": "callback",
+          "condition": "START"
+        },
+        {
+          "containerName": "reader",
+          "condition": "HEALTHY"
+        },
+        {
+          "containerName": "search",
+          "condition": "START"
+        }
+      ]
+    },
+    {
+      "name": "callback",
+      "image": "REPLACE_WITH_PUBLISHED_IMAGE_DIGEST",
+      "essential": true,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/acquire-research-develop",
+          "awslogs-region": "ap-southeast-2",
+          "awslogs-stream-prefix": "callback"
+        }
+      },
+      "command": [
+        "node",
+        "dist/aws-relay.mjs"
+      ],
+      "environment": [
+        {
+          "name": "RESEARCH_DEPLOYMENT",
+          "value": "aws-uat"
+        }
+      ],
+      "secrets": [
+        {
+          "name": "RESEARCH_SERVICE_SECRET",
+          "valueFrom": "arn:aws:secretsmanager:ap-southeast-2:352329340196:secret:REPLACE_WITH_RESEARCH_SECRET_ARN:RESEARCH_SERVICE_SECRET::"
+        }
+      ]
+    },
+    {
+      "name": "reader",
+      "image": "REPLACE_WITH_PUBLISHED_IMAGE_DIGEST",
+      "essential": true,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/acquire-research-develop",
+          "awslogs-region": "ap-southeast-2",
+          "awslogs-stream-prefix": "reader"
+        }
+      },
+      "environment": [
+        {
+          "name": "CRAWL4AI_PORT",
+          "value": "18083"
+        },
+        {
+          "name": "CRAWL4AI_CONCURRENCY",
+          "value": "2"
+        }
+      ],
+      "healthCheck": {
+        "command": [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18083/health', timeout=2)"
+        ],
+        "interval": 15,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 90
+      }
+    },
+    {
+      "name": "search",
+      "image": "karust/openserp@sha256:4f818504237074390e582625b4e8cfca7a6ab04ebf6ae9dc59cafb029de63c72",
+      "essential": true,
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/acquire-research-develop",
+          "awslogs-region": "ap-southeast-2",
+          "awslogs-stream-prefix": "search"
+        }
+      },
+      "command": [
+        "serve",
+        "-a",
+        "127.0.0.1",
+        "-p",
+        "7000"
+      ]
+    }
+  ]
+}

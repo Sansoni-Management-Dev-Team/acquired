@@ -4,18 +4,13 @@ import { useCallback, useState } from "react";
 import Link from "next/link";
 import { mandateCompaniesHref } from "@/domain/mandate-navigation";
 import { ResearchPanel, type ResearchPanelData } from "./research-panel";
-import { researchRoot, isCompanyPipeline, companyPipelineState } from "./company-pipeline-state";
-import { terminalResearchStates } from "@/domain/research";
+import { researchRoot, isCompanyPipeline, companyPipelineState, companyResearchProgressState } from "./company-pipeline-state";
 
 export function companyDiscoveryComplete(data: ResearchPanelData, startedJobId?: string) {
   const root = researchRoot(data.jobs, startedJobId);
   if (!root) return false;
-  if (isCompanyPipeline(root) && root.config.parallelResearchSettled) return companyPipelineState(root, [...data.jobs, ...(data.companyJobs || []), ...(data.peopleJobs || [])]).settled;
-  if (root.status !== "complete") return false;
-  const runId = root.config.researchRunId || root.id;
-  return [...data.jobs, ...(data.companyJobs || []), ...(data.peopleJobs || [])]
-    .filter(job => job.id === root.id || job.id === runId || job.config.researchRunId === runId || job.config.parentJobId === runId)
-    .every(job => terminalResearchStates.includes(job.status));
+  const state=companyResearchProgressState(root,[...data.jobs,...(data.companyJobs||[]),...(data.peopleJobs||[])]);
+  return root.status==='complete'&&state.settled&&!state.hasIssues;
 }
 
 // Saved records scoped to this run, excluding queued leads and earlier searches.

@@ -1,3 +1,4 @@
+import{companyMandateScope}from'@/domain/company-web-research-policy';
 import type {AgentReviewContextOperation} from './agent-review-context';
 import {buildHybridCompanyContinuationSource,hybridCompanyContinuationSchema,selectHybridCompanyContinuation,type HybridCompanyContinuationReview} from '@/domain/hybrid-company-continuation';
 import{researchPhaseExposure,researchPhaseFunding}from'@/lib/agent-research-budget';
@@ -257,7 +258,10 @@ export class AgentResearchStore extends AgentHandoffStore{
  private async fieldsSnapshot(c:PoolClient,t:AgentThread,sourceRootId:string,targetIds?:string[],operationId?:string){
   const installed=(await c.query("SELECT to_regprocedure('public.agent_fields_company_snapshot(uuid,uuid,uuid[],uuid)') IS NOT NULL AS installed")).rows[0]?.installed;if(installed!==true)throw Error('Public company field research is not available yet. No new field research was started.');
   const snapshot=(await c.query('SELECT public.agent_fields_company_snapshot($1,$2,$3::uuid[],$4::uuid) AS snapshot',[t.id,z.string().uuid().parse(sourceRootId),targetIds??null,operationId??null])).rows[0].snapshot,guidance=await loadApprovedAgentGuidance(c,t,{categories:['qualification']});
-  return{...snapshot,companies:await Promise.all(snapshot.companies.map(nativeFieldsCompany)),...(guidance.items.length?{guidance}:{})}as{mandateRevision:string;responsibilityId:string;responsibilityRevision:number;sourceRootId:string;companies:Awaited<ReturnType<typeof nativeFieldsCompany>>[];guidance?:AgentFieldsPlan['guidance']};
+  const mandate=(await c.query('SELECT filters FROM mandates WHERE id=$1 AND organization_id=$2',[t.mandate_id,t.organization_id])).rows[0];
+  if(!mandate)throw Error('Public field mandate unavailable');
+  const scope=companyMandateScope(mandate.filters);
+  return{...snapshot,companies:await Promise.all(snapshot.companies.map((company:Parameters<typeof nativeFieldsCompany>[0])=>nativeFieldsCompany(company,scope))),...(guidance.items.length?{guidance}:{})}as{mandateRevision:string;responsibilityId:string;responsibilityRevision:number;sourceRootId:string;companies:Awaited<ReturnType<typeof nativeFieldsCompany>>[];guidance?:AgentFieldsPlan['guidance']};
  }
  async proposeFieldsResearch(threadId:string,key:string,sourceRootId:string,authority?:AgentExecutionFence){
   const receipt=await this.command(threadId,key,'fields.plan',{sourceRootId:z.string().uuid().parse(sourceRootId)},async(c,t,commandId)=>{

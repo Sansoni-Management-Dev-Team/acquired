@@ -7,6 +7,16 @@ import {runHybridCompanyPipeline,hybridCompanyPartialResult,type HybridCompany} 
 const web=(domain:string)=>({domain,name:domain,website:`https://${domain}`,discovery:{url:`https://${domain}`,title:domain,snippet:'cleaning'}});
 const firm=(domain:string,id:string)=>({id,name:domain,website:`https://${domain}`});
 const checkpoint=async<T>(_n:string,fn:()=>Promise<T>)=>fn();
+it('uses web discovery only after a genuine shortfall in saved company profiles',async()=>{
+ const webSearch=vi.fn(async()=>({rows:[web('extra.example')],ok:true})),profile=vi.fn(async()=>({ok:true,saved:true,matched:true}));
+ const result=await runHybridCompanyPipeline({checkpoint,now:()=>1000000,control:async()=>true,plan:async()=>[{query:'additional companies',page:1}],firmableSearch:async()=>({records:[firm('first.example','f1'),firm('second.example','f2')],totalCompany:2}),webSearch,profile,finish:vi.fn()},{deadline:Infinity,maxCompanies:800,concurrency:2,discoveryPolicy:buildAllDiscoveredCompanyPeoplePolicy(),firmableFirst:true,desiredCompanies:2});
+ expect(result.saved).toBe(2);expect(webSearch).not.toHaveBeenCalled();expect(result.searchFailed).toBe(0);expect(result.stopReason).toBe('exhausted');
+});
+it('fills a company shortfall without interrupting the existing profile queue',async()=>{
+ const webSearch=vi.fn(async()=>({rows:[web('extra.example')],ok:true}));
+ const result=await runHybridCompanyPipeline({checkpoint,now:()=>0,control:async()=>true,plan:async()=>[{query:'additional companies',page:1}],firmableSearch:async()=>({records:[firm('first.example','f1')],totalCompany:1}),webSearch,profile:async()=>({ok:true,saved:true,matched:true}),finish:vi.fn()},{deadline:Infinity,maxCompanies:800,concurrency:2,discoveryPolicy:buildAllDiscoveredCompanyPeoplePolicy(),firmableFirst:true,desiredCompanies:2});
+ expect(result.saved).toBe(2);expect(webSearch).toHaveBeenCalledOnce();
+});
 it.each([2,3])('balances labelled AU staff bands only for newly reviewed v3, preserving v%s selection',async(version)=>{
  const rows=Array.from({length:175},(_,i)=>({...firm(`band${i}.example`,`f${i}`),au_employee_count:i<72?3:2}));
  const policy={...reviewedCompanyDiscoveryPolicy,...(version===3?{version:3,profileSelection:{strategy:'labelled_au_staff_bands',requestedHeadcount:{min:30,max:80},unknownBands:'retain_after_labelled',qualification:'profile_required'}}:{})} as CompanyDiscoveryPolicy;

@@ -1,5 +1,6 @@
 "use client";
 import type {AcquisitionWorkflowState} from "@/domain/acquisition-workflow";
+import { providerNeutralText } from "@/domain/provider-display";
 import {readAgentStatus} from '@/lib/agent-read-request';
 import {loadAgentControls} from '@/lib/agent-controls-load';
 import {readJsonResponse} from '@/lib/read-json-response';
@@ -683,7 +684,7 @@ export function AgentControlsPanel({
         )}
         {!data.configuration.researchConfigured && (
           <p>
-            New company research needs a configured metered Firmable service and
+            New company research needs a configured metered Company data service and
             approved research limits. Existing synthetic contacts can be used
             without live research.
           </p>
@@ -939,7 +940,7 @@ export function AgentControlsPanel({
         </AgentWelcome>}
         {error && (
           <p role="alert" className="text-sm">
-            {error}
+            {providerNeutralText(error)}
           </p>
         )}
       </>
@@ -1041,7 +1042,7 @@ export function AgentControlsPanel({
         )}
         {error && (
           <p role="alert" className="text-sm text-[var(--status-red)]">
-            {error}
+            {providerNeutralText(error)}
           </p>
         )}
       </section>
@@ -1681,7 +1682,7 @@ export function AgentControlsPanel({
             role="alert"
             className="px-5 py-2 text-sm text-[var(--status-red)]"
           >
-            {error}
+            {providerNeutralText(error)}
           </p>
         )}
       </section>

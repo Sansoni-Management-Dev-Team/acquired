@@ -6,6 +6,7 @@ import type {AcquisitionWorkflowExecution,AcquisitionWorkflowState} from '@/doma
 import type {InitialMandateResearchView} from '@/domain/agent-mode';
 import type {ResearchConfig} from '@/domain/research';
 import {initialResearchOutcome} from '@/domain/initial-research-outcome';
+import {initialResearchStatus,initialResearchSummarySql} from './initial-research-status';
 import {startMandateResearch} from './start-mandate-research';
 import {withAcquisitionWorkflowContext} from './acquisition-workflow-context';
 
@@ -16,6 +17,7 @@ async function context(pool:Pool,rawActor:AgentActor,execution:AcquisitionWorkfl
  if(execution.organizationId!==actor.organizationId||execution.ownerUserId!==actor.userId)throw Error('Owned workflow unavailable');
  const row=(await pool.query(`SELECT w.*,m.xmin::text AS mandate_revision,
   j.id AS job_id,j.workflow_execution_id AS job_workflow_execution_id,j.status AS job_status,j.config AS job_config,
+  ${initialResearchSummarySql},
   EXISTS(SELECT 1 FROM research_jobs child WHERE child.workflow_execution_id=w.id AND child.organization_id=w.organization_id AND child.mandate_id=w.mandate_id AND child.created_by=w.owner_user_id AND child.id<>w.id AND child.config->>'researchRunId'=w.id::text AND child.status IN('complete','partial','cancelled') AND child.config->'nativeAgent' IS NULL AND child.config->'companyPeopleProgress'->>'settled'='false') AS pending_child_people,
   (SELECT count(*)::int FROM mandate_targets mt WHERE mt.mandate_id=m.id AND mt.organization_id=m.organization_id) AS company_count,
   (SELECT count(DISTINCT c.id)::int FROM contacts c JOIN mandate_targets mt ON mt.target_id=c.target_id AND mt.organization_id=c.organization_id WHERE mt.mandate_id=m.id AND mt.organization_id=m.organization_id) AS people_count
@@ -34,7 +36,7 @@ function project(row:Record<string,unknown>):WorkflowResearchView{
  if(source==='cached')return {requestId,source,status:companies>0&&people>0?'complete':'conflict',candidates:companies,companies,people};
  if(!row.job_id)return {requestId,source,status:'awaiting_start',companies,people};
  const config=(row.job_config??{}) as ResearchConfig;
- const status=['complete','partial'].includes(String(row.job_status))&&config.companyPeopleProgress?.settled===false?'extracting':String(row.job_status);
+ const status=initialResearchStatus(String(row.job_status),config,row.research_summary as Parameters<typeof initialResearchStatus>[2]);
  return {requestId,source,jobId:String(row.job_id),status,...initialResearchOutcome({status,config,companies,people})};
 }
 export async function readWorkflowResearch(pool:Pool,actor:AgentActor,execution:AcquisitionWorkflowExecution):Promise<WorkflowResearchView>{return project(await context(pool,actor,execution));}

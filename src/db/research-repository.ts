@@ -53,7 +53,7 @@ export const researchExecutionProgressAt = sql<Date>`GREATEST(${researchJobs.upd
    AND company_progress.config->>'researchTask' = 'company'
 ))`.mapWith(researchJobs.updatedAt);
 export const researchExecutionSelection = { ...getTableColumns(researchJobs), config: sql<ResearchJobRow['config']>`${researchJobs.config} - 'pipelineTiming' - 'scheduling'` };
-export const researchControlConfig = sql<ResearchJobRow['config']>`jsonb_build_object('researchRunId', ${researchJobs.config}->'researchRunId', 'budget', ${researchJobs.config}->'budget', 'automaticDeadline', ${researchJobs.config}->'automaticDeadline', 'newBusinessIds', ${researchJobs.config}->'newBusinessIds', 'performanceFlags', ${researchJobs.config}->'performanceFlags')`;
+export const researchControlConfig = sql<ResearchJobRow['config']>`jsonb_build_object('completionPolicy', ${researchJobs.config}->'completionPolicy', 'researchRunId', ${researchJobs.config}->'researchRunId', 'budget', ${researchJobs.config}->'budget', 'automaticDeadline', ${researchJobs.config}->'automaticDeadline', 'newBusinessIds', ${researchJobs.config}->'newBusinessIds', 'performanceFlags', ${researchJobs.config}->'performanceFlags')`;
 // Review screens need retry attempts and remaining URLs, but never saved HTML/markdown.
 const researchReviewConfig = sql`CASE WHEN ${researchJobs.config} ? 'runtime' THEN jsonb_set(${researchJobs.config} - 'scheduling' - 'discoverySourceCandidates' - 'pipelineTiming', '{runtime}', (${researchJobs.config}->'runtime') - 'pendingPage' - 'bufferedPage') ELSE ${researchJobs.config} - 'scheduling' - 'discoverySourceCandidates' - 'pipelineTiming' END`;
 // Search-history display uses query, reason and counts. Raw result snippets are

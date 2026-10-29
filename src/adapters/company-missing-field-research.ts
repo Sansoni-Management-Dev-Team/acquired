@@ -1,3 +1,5 @@
+import {COMPANY_FIELD_ATTEMPT_MS} from '@/domain/research-completion';
+import {providerCompanyFields} from '@/domain/company-web-research-policy';
 import { visibleHtml } from '@/domain/abn-resolution.mjs';
 import { observedCompanyFacts,parseHeadcount } from '@/domain/company-facts';
 import { publicResearchUrl,researchDomain,type ResearchConfig } from '@/domain/research';
@@ -14,9 +16,10 @@ import { providerRetryDelay,ResearchProviderError } from '@/domain/research-prov
 export type CompanyMissingField = 'description'|'company_emails'|'company_phones'|'year_founded'|'acn'|'website_address'|'employee_count'|'revenue'|'accreditation_contacts'|'team_members'|'accreditations';
 export type CompanyMissingFieldFact = {field:CompanyMissingField;value:unknown;sourceUrl:string;quote:string;capturedAt:string;scope?:string;currency?:string|null;period?:string|null;evidenceType:'published';reader:string;readStartedAt?:string;readElapsedMs?:number;association?:RelatedDomainAssociation};
 export type CompanyMissingFieldAttempt = {kind:'page'|'document'|'search';url?:string;field?:CompanyMissingField;status:'succeeded'|'failed'|'rejected'|'deferred';startedAt:string;elapsedMs:number;reason?:string;category?:string;retryAfterMs?:number;pageReadStarted?:boolean;query?:string;resultCount?:number};
-export type CompanyMissingFieldResearchResult = {facts:CompanyMissingFieldFact[];fields:Partial<Record<CompanyMissingField,{status:'reported'|'not_disclosed'|'research_incomplete';reason?:string}>>;attempts:CompanyMissingFieldAttempt[];registryContacts:AccreditationContact[];teamMembers?:PublishedTeamMember[];accreditations?:PublishedAccreditation[];relatedDomains?:RelatedDomainAssociation[]};
+export type CompanyMissingFieldCheckpoint={version:1;revision?:number;facts:CompanyMissingFieldFact[];attempts:CompanyMissingFieldAttempt[];registryContacts:AccreditationContact[];teamMembers:PublishedTeamMember[];accreditations:PublishedAccreditation[];relatedDomains:RelatedDomainAssociation[];visited:string[];queue:string[];searched:CompanyMissingField[];readCount:number;queries:number;discoveryComplete:boolean;identity:CompanyAssociationIdentity;personEmails:string[]};
+export type CompanyMissingFieldResearchResult = {resumeRevision?:number;checkpoint?:CompanyMissingFieldCheckpoint;budgetExhausted?:boolean;usage?:{pages:number;searches:number};continuation?:CompanyMissingFieldCheckpoint;retryAfterMs?:number;facts:CompanyMissingFieldFact[];fields:Partial<Record<CompanyMissingField,{status:'reported'|'not_disclosed'|'research_incomplete'|'already_available'|'not_required';reason?:string}>>;attempts:CompanyMissingFieldAttempt[];registryContacts:AccreditationContact[];teamMembers?:PublishedTeamMember[];accreditations?:PublishedAccreditation[];relatedDomains?:RelatedDomainAssociation[]};
 export type MissingFieldPage = {url:string;html?:string;markdown?:string;truncated?:boolean;reader:string;onlyMainContent?:false};
-export type CompanyMissingFieldResearchInput = {name:string;website:string;missingFields:CompanyMissingField[];deadline?:number;jobId?:string;maxPages?:number;maxSearchQueries?:number;knownRegistryUrls?:string[];raw?:Record<string,unknown>};
+export type CompanyMissingFieldResearchInput = {name:string;website:string;missingFields:CompanyMissingField[];resumable?:boolean;resume?:CompanyMissingFieldCheckpoint;deadline?:number;jobId?:string;maxPages?:number;maxSearchQueries?:number;knownRegistryUrls?:string[];mandateScope?:string;raw?:Record<string,unknown>};
 export type CompanyMissingFieldResearchDependencies = {
  readPage(url:string,deadline:number):Promise<MissingFieldPage>;
  readDocument?(url:string,deadline:number):Promise<{url:string;text:string;truncated?:boolean}>;
@@ -30,8 +33,9 @@ class MissingFieldReaderDeferred extends ResearchProviderError {
  constructor(category:'reader_busy'|'domain_backoff',public readonly retryAfterMs:number){super(category,429);}
 }
 
-export function missingFieldSearchQuery(input:Pick<CompanyMissingFieldResearchInput,'name'|'website'>,field:CompanyMissingField) {
+export function missingFieldSearchQuery(input:Pick<CompanyMissingFieldResearchInput,'name'|'website'|'mandateScope'>,field:CompanyMissingField) {
  const domain=researchDomain(input.website),terms:Record<CompanyMissingField,string>={description:'about company services',company_emails:'contact email',company_phones:'contact phone',year_founded:'about founded established',acn:'legal ACN',website_address:'contact address',employee_count:'employees workforce headcount',revenue:'annual revenue turnover currency financial year',accreditation_contacts:'NATA accreditation contact',accreditations:'NATA accreditation ISO standard',team_members:'team people staff scientists management'};
+ if((field==='accreditation_contacts'||field==='accreditations')&&input.mandateScope!==undefined&&!/\bNATA\b/i.test(input.mandateScope))return `site:${domain} ${input.mandateScope.match(/\bISO(?:\/IEC)?\s*\d{4,5}\b/i)?.[0]||'licence certification accreditation'}${field==='accreditation_contacts'?' contact':''}`;
  return (field==='accreditation_contacts'||field==='accreditations')?`site:nata.com.au/accredited-organisation/ "${domain}" accreditation contact`:`site:${domain} ${terms[field]}`;
 }
 const navigable=(url:string)=>! /\.(?:css|js|mjs|json|xml|png|jpe?g|gif|svg|webp|ico|woff2?|ttf|eot|map|pdf|zip)(?:$|[?#])/i.test(url)&&! /\/(?:wp-content|wp-includes)\//i.test(url);
@@ -73,10 +77,16 @@ function pageFacts(page:MissingFieldPage,input:CompanyMissingFieldResearchInput,
 
 export function createCompanyMissingFieldResearch(deps:CompanyMissingFieldResearchDependencies) {
  return async(input:CompanyMissingFieldResearchInput):Promise<CompanyMissingFieldResearchResult>=>{
-  const now=deps.now||Date.now,started=now(),deadline=Math.min(input.deadline??Infinity,started+110000),maxPages=Math.max(1,Math.min(8,input.maxPages??8)),maxQueries=Math.max(0,Math.min(4,input.maxSearchQueries??4));
+  const provided=providerCompanyFields(input.raw||{},input.mandateScope);
+  const retained=Object.fromEntries(input.missingFields.filter(field=>provided.has(field)).map(field=>[field,{status:'already_available' as const,reason:'Already available in company data; web research skipped'}]));
+  input={...input,missingFields:[...new Set(input.missingFields)].filter(field=>!provided.has(field))};
+  if(!input.missingFields.length)return{facts:[],fields:retained,attempts:[],registryContacts:[]};
+  const now=deps.now||Date.now,started=now(),deadline=Math.min(input.deadline??Infinity,started+(input.resumable?COMPANY_FIELD_ATTEMPT_MS:110000)),maxPages=Math.max(1,Math.min(8,input.maxPages??8)),maxQueries=Math.max(0,Math.min(4,input.maxSearchQueries??4));
   const home=publicResearchUrl(input.website);if(!home)throw Error('Valid public company website required');
-  const domain=researchDomain(home),requested=[...new Set(input.missingFields)],facts:CompanyMissingFieldFact[]=[],attempts:CompanyMissingFieldAttempt[]=[],registryContacts:AccreditationContact[]=[],visited=new Set<string>(),queue:string[]=[],searched=new Set<CompanyMissingField>();const relatedDomains:RelatedDomainAssociation[]=[],teamMembers:PublishedTeamMember[]=[],accreditations:PublishedAccreditation[]=[],identity:CompanyAssociationIdentity={name:input.name,domain,addresses:[],phones:[],emails:[]},personEmails=new Set<string>();let readCount=0,limited=false;
-  const allowed=(url:string)=>Boolean(publicResearchUrl(url)&&(researchDomain(url)===domain||relatedDomains.some(a=>a.domain===researchDomain(url))||nataListingUrl(url)&&requested.some(f=>['accreditation_contacts','accreditations','team_members'].includes(f))));
+  const prior=input.resumable?input.resume:undefined;
+  const domain=researchDomain(home),requested=[...new Set(input.missingFields)],facts:CompanyMissingFieldFact[]=[...(prior?.facts||[])],attempts:CompanyMissingFieldAttempt[]=[...(prior?.attempts||[])],registryContacts:AccreditationContact[]=[...(prior?.registryContacts||[])],visited=new Set<string>(prior?.visited),queue:string[]=[...(prior?.queue||[])],searched=new Set<CompanyMissingField>(prior?.searched);const relatedDomains:RelatedDomainAssociation[]=[...(prior?.relatedDomains||[])],teamMembers:PublishedTeamMember[]=[...(prior?.teamMembers||[])],accreditations:PublishedAccreditation[]=[...(prior?.accreditations||[])],identity:CompanyAssociationIdentity=prior?.identity||{name:input.name,domain,addresses:[],phones:[],emails:[]},personEmails=new Set<string>(prior?.personEmails);let readCount=prior?.readCount||0,queries=prior?.queries||0,limited=false,discoveryComplete=prior?.discoveryComplete||false;
+  const nataScope=input.mandateScope===undefined||/\bNATA\b/i.test(input.mandateScope);
+  const allowed=(url:string)=>Boolean(publicResearchUrl(url)&&(researchDomain(url)===domain||relatedDomains.some(a=>a.domain===researchDomain(url))||nataScope&&nataListingUrl(url)&&requested.some(f=>['accreditation_contacts','accreditations','team_members'].includes(f))));
   const enqueue=(url:string)=>{if(navigable(url)&&allowed(url)&&!visited.has(url)&&!queue.includes(url))queue.push(url);};
   const observed=(field:CompanyMissingField)=>facts.some(f=>f.field===field)||(field==='accreditation_contacts'&&registryContacts.length>0);
   const visit=async(url:string,readCeiling=maxPages,pageDeadline=deadline)=>{
@@ -120,7 +130,7 @@ export function createCompanyMissingFieldResearch(deps:CompanyMissingFieldResear
   await visit(home,initialReadCeiling,discoveryDeadline);
   const registryUrls=[...(input.knownRegistryUrls||[]),...accreditationSourceUrls(input.raw||{})];for(const url of registryUrls)if(nataListingUrl(url))enqueue(url);
   for(const url of queue.filter(url=>nataListingUrl(url)))if(readCount<Math.max(1,maxPages-2)&&now()<deadline){queue.splice(queue.indexOf(url),1);await visit(url,Math.max(1,maxPages-2));}
-  if(deps.readDocument&&now()<discoveryDeadline&&requested.some(field=>!observed(field))){
+  if(!discoveryComplete&&deps.readDocument&&now()<discoveryDeadline&&requested.some(field=>!observed(field))){
    const documents=[new URL('/robots.txt',home).href,new URL('/sitemap.xml',home).href],seen=new Set<string>();
    for(let n=0;n<documents.length&&n<4&&now()<discoveryDeadline;n++){
     const url=documents[n];if(seen.has(url)||!allowed(url))continue;seen.add(url);const at=now();
@@ -131,11 +141,13 @@ export function createCompanyMissingFieldResearch(deps:CompanyMissingFieldResear
     }catch{attempts.push({kind:'document',url,status:'failed',startedAt:new Date(at).toISOString(),elapsedMs:Math.max(0,now()-at),reason:'Discovery document unavailable'});}
    }
   }
+  if(now()<discoveryDeadline)discoveryComplete=true;
   queue.sort((a,b)=>priority(a)-priority(b));
   while(queue.length&&readCount<initialReadCeiling&&now()<discoveryDeadline)await visit(queue.shift()!,initialReadCeiling,discoveryDeadline);
-  const order:CompanyMissingField[]=['company_emails','accreditation_contacts','accreditations','team_members','company_phones','description','year_founded','acn','website_address','employee_count','revenue'];let queries=0;
+  if(prior)while(queue.length&&readCount<maxPages&&now()<deadline&&requested.some(field=>!observed(field)))await visit(queue.shift()!);
+  const order:CompanyMissingField[]=['company_emails','accreditation_contacts','accreditations','team_members','company_phones','description','year_founded','acn','website_address','employee_count','revenue'];
   for(const field of order.filter(field=>requested.includes(field))){
-   if(observed(field))continue;
+   if(observed(field)||searched.has(field))continue;
    if(!deps.search||queries>=maxQueries||now()>=deadline||readCount>=maxPages){limited=true;continue;}
    const search=async(query:string)=>{
     if(!deps.search||queries>=maxQueries||now()>=deadline){limited=true;return [];}
@@ -145,7 +157,7 @@ export function createCompanyMissingFieldResearch(deps:CompanyMissingFieldResear
    };
    const results=await search(missingFieldSearchQuery(input,field));
    // Failure and empty-result responses both permit the bounded official-name fallback.
-   if(!results.length&&['accreditation_contacts','accreditations'].includes(field)&&queries<maxQueries&&now()<deadline)results.push(...await search(registryNameSearchQuery(input,identity.addresses)));
+   if(nataScope&&!results.length&&['accreditation_contacts','accreditations'].includes(field)&&queries<maxQueries&&now()<deadline)results.push(...await search(registryNameSearchQuery(input,identity.addresses)));
    // Search text selects URLs only; source facts require a subsequent document read.
    const candidates=new Set(results.slice(0,6).map(result=>result.url));for(const result of results.slice(0,6))enqueue(result.url);
    if(field==='team_members')for(const association of relatedDomains){if(queries>=maxQueries||now()>=deadline)break;for(const result of (await search(`site:${association.domain} team people scientists staff`)).slice(0,6)){candidates.add(result.url);enqueue(result.url);}}
@@ -153,10 +165,13 @@ export function createCompanyMissingFieldResearch(deps:CompanyMissingFieldResear
 
   }
   for(let i=facts.length-1;i>=0;i--)if(facts[i].field==='company_emails'&&typeof facts[i].value==='string'&&personEmails.has(String(facts[i].value).toLowerCase()))facts.splice(i,1);
-  const incomplete=limited||queue.length>0||now()>=deadline||attempts.some(a=>a.status==='failed');
+  const incomplete=input.resumable?queue.length>0||requested.some(field=>!observed(field)&&!searched.has(field))||attempts.some(a=>a.status==='failed'&&a.pageReadStarted!==false):limited||queue.length>0||now()>=deadline||attempts.some(a=>a.status==='failed');
   const fields:CompanyMissingFieldResearchResult['fields']={};for(const field of requested)fields[field]=observed(field)?{status:'reported'}:incomplete||!searched.has(field)?{status:'research_incomplete',reason:'Field remains unresolved after bounded retrieval; source/read/budget coverage incomplete'}:{status:'not_disclosed',reason:'No published value found on retrieved pages and field-specific search sources'};
   const uniqueFacts=[...new Map(facts.filter(f=>f.field!=='company_emails'||typeof f.value!=='string'||!personEmails.has(f.value.toLowerCase())).map(f=>[JSON.stringify([f.field,f.value,f.sourceUrl]),f])).values()];
-  return{facts:uniqueFacts,fields,attempts,teamMembers,accreditations,relatedDomains,registryContacts:[...new Map(registryContacts.map(c=>[`${c.sourceUrl}:${c.name}`,c])).values()]};
+  const pending=requested.some(field=>!observed(field)&&!searched.has(field)),canResume=input.resumable&&now()>=deadline&&readCount<maxPages&&(pending&&queries<maxQueries||queue.length>0);
+  const checkpoint:CompanyMissingFieldCheckpoint|undefined=input.resumable&&(pending||queue.length>0)?{version:1,revision:(prior?.revision||0)+1,facts:uniqueFacts,attempts,teamMembers,accreditations,relatedDomains,registryContacts,visited:[...visited],queue,searched:[...searched],readCount,queries,discoveryComplete,identity,personEmails:[...personEmails]}:undefined;
+  const continuation=canResume?checkpoint:undefined,budgetExhausted=Boolean(checkpoint&&!canResume&&(readCount>=maxPages||queries>=maxQueries));
+  return{...(input.resumable?{resumeRevision:prior?.revision||0,checkpoint,budgetExhausted,usage:{pages:readCount,searches:queries}}:{}),...(continuation?{continuation,retryAfterMs:attempts.filter(a=>a.status==='deferred').at(-1)?.retryAfterMs||1000}:{}),facts:uniqueFacts,fields:{...retained,...fields},attempts,teamMembers,accreditations,relatedDomains,registryContacts:[...new Map(registryContacts.map(c=>[`${c.sourceUrl}:${c.name}`,c])).values()]};
  };
 }
 

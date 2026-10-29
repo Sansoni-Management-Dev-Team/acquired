@@ -1,0 +1,5 @@
+**
+!services
+!services/research
+!services/research/aws
+!services/research/aws/rds-ca.pem

@@ -1,3 +1,4 @@
+import {completesWorkItems} from '../../src/domain/research-completion';
 import {researchTraceHeaders,researchTraceRequestHeaders,safeResearchTrace,type ResearchTraceContext} from '../../src/domain/research-trace-context';
 import {nativeSearchContext,nativeSearchBudgetFetch} from './native-search-budget';
 import { createResearchAi } from "../../src/adapters/ai/research-provider";
@@ -72,6 +73,7 @@ interface Env extends FirmableSessionEnv {
   LOCAL_RESEARCH_BENCHMARK?: string;
   LOCAL_SEARCH_URL?: string;
   LOCAL_SEARCH_ENGINE?: string;
+  LOCAL_SEARCH_REGION?: string;
   CRAWL4AI_URL?: string;
   CRAWL4AI_SECRET?: string;
   RESEARCH_PIPELINE_DESIGN?: string;
@@ -226,10 +228,11 @@ export class AcquireResearch extends WorkflowEntrypoint<
         const prior = stateCache?.value;
         const fresh = await callback(this.env, id, undefined, requestBudget, Boolean(prior)) as ResearchControl;
         stateCache = { value: prior ? mergeResearchControl(prior, fresh) : fresh, at: Date.now() };
+        if(completesWorkItems(stateCache.value.config))stateCache.value.deadline=Infinity;
         adoptTrace(stateCache.value);
       }
       telemetryBatching ??= researchPerformanceFlags(stateCache.value.config).telemetryBatching;
-      const stopReason = requestBudgetStop(requestBudget.used, !productionPolicy(this.env), true);
+      const stopReason = completesWorkItems(stateCache.value.config)?undefined:requestBudgetStop(requestBudget.used, !productionPolicy(this.env), true);
       return stopReason ? { ...stateCache.value, deadline: 0, stopReason } : stateCache.value;
     };
     const checkpoint = async <T>(name: string, run: (firmableAttempt?:number) => Promise<T>, retry = true): Promise<T> => {
@@ -279,7 +282,13 @@ export class AcquireResearch extends WorkflowEntrypoint<
     if (pipelineControl.config.companyBackgroundResearch) {
       if (["complete", "partial", "failed", "cancelled"].includes(pipelineControl.status)) return { stopped: true };
       try {
-        return await checkpoint("company-background-research", () => callback(this.env, id, { action: "company-background-research" }, requestBudget));
+        if(!completesWorkItems(pipelineControl.config))return await checkpoint('company-background-research',()=>callback(this.env,id,{action:'company-background-research'},requestBudget));
+        for(let attempt=0;;attempt++){
+          stateCache=undefined;if((await control()).status==='cancelled')return{stopped:true};
+          const result=await checkpoint(`company-background-attempt-${attempt}`,()=>callback(this.env,id,{action:'company-background-research'},requestBudget)) as {deferred?:boolean;retryAfterMs?:number};
+          if(!result.deferred)return result;
+          await step.sleep(`company-background-wait-${attempt}`,result.retryAfterMs||1000);
+        }
       } finally {
         await timing.flush(32);
       }
@@ -311,7 +320,7 @@ export class AcquireResearch extends WorkflowEntrypoint<
           if(searchAttempt<searchAttempts-1)await step.sleep(`f-search-retry-${index}-${searchAttempt}`,'3 seconds');
         }
         return {rows:[],ok:false};
-      },profile:(company,firmableAttempt)=>callback(this.env,id,{action:company.firmableRow?'d-company':'e-company',row:company.firmableRow||company.webRow,expectedDomain:company.domain,...(company.candidateKey?{candidateKey:company.candidateKey}:{}),sources:company.sources,...(firmableAttempt?{firmableAttempt}:{})},requestBudget) as Promise<{ok:boolean;matched?:boolean}>,finish:result=>callback(this.env,id,{action:'f-finish',result},requestBudget)},{deadline:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:(initial.config.companyDiscoveryPolicy?.version===4||initial.config.companyDiscoveryPolicy?.version===5)?initial.config.companyDiscoveryPolicy.maxProfiledCompanies:initial.config.nativeAgent||initial.config.companyDiscoveryPolicy?.version===3?Math.min(initial.config.targetBusinesses||20,20):100,concurrency:2,traceContext:safeResearchTrace(requestBudget.traceContext),...(initial.config.companyDiscoveryPolicy&&(initial.config.nativeAgent||initial.config.companyDiscoveryPolicy.version>=3)?{discoveryPolicy:initial.config.companyDiscoveryPolicy}:{}),...(continuation?{continuation}:{})});}
+      },profile:(company,firmableAttempt)=>callback(this.env,id,{action:company.firmableRow?'d-company':'e-company',row:company.firmableRow||company.webRow,expectedDomain:company.domain,...(company.candidateKey?{candidateKey:company.candidateKey}:{}),sources:company.sources,...(firmableAttempt?{firmableAttempt}:{})},requestBudget) as Promise<{ok:boolean;matched?:boolean}>,finish:result=>callback(this.env,id,{action:'f-finish',result},requestBudget)},{firmableFirst:completesWorkItems(initial.config),desiredCompanies:initial.config.targetBusinesses,deadline:completesWorkItems(initial.config)?Infinity:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:(initial.config.companyDiscoveryPolicy?.version===4||initial.config.companyDiscoveryPolicy?.version===5)?initial.config.companyDiscoveryPolicy.maxProfiledCompanies:initial.config.nativeAgent||initial.config.companyDiscoveryPolicy?.version===3?Math.min(initial.config.targetBusinesses||20,20):100,concurrency:2,traceContext:safeResearchTrace(requestBudget.traceContext),...(initial.config.companyDiscoveryPolicy&&(initial.config.nativeAgent||initial.config.companyDiscoveryPolicy.version>=3)?{discoveryPolicy:initial.config.companyDiscoveryPolicy}:{}),...(continuation?{continuation}:{})});}
       catch(error){await checkpoint('f-fail',()=>callback(this.env,id,{action:'f-fail',result:{...(hybridCompanyPartialResult(error)??{}),error:error instanceof Error?error.message:'F failed'}},requestBudget));return {failed:true};}
       finally{await timing.flush(32);}
     }
@@ -331,13 +340,13 @@ export class AcquireResearch extends WorkflowEntrypoint<
           if(searchAttempt<2)await step.sleep(`e-search-retry-${index}-${searchAttempt}`,'3 seconds');
         }
         return {rows:[],ok:false};
-      },profile:(row,firmableAttempt)=>callback(this.env,id,{action:'e-company',row,...(firmableAttempt?{firmableAttempt}:{})},requestBudget) as Promise<{ok:boolean;matched?:boolean}>,finish:result=>callback(this.env,id,{action:'e-finish',result},requestBudget)},{deadline:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:100,concurrency:2});}
+      },profile:(row,firmableAttempt)=>callback(this.env,id,{action:'e-company',row,...(firmableAttempt?{firmableAttempt}:{})},requestBudget) as Promise<{ok:boolean;matched?:boolean}>,finish:result=>callback(this.env,id,{action:'e-finish',result},requestBudget)},{deadline:completesWorkItems(initial.config)?Infinity:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:100,concurrency:2});}
       catch(error){await checkpoint('e-fail',()=>callback(this.env,id,{action:'e-fail',result:{error:error instanceof Error?error.message:'E failed'}},requestBudget));return {failed:true};}
       finally{await timing.flush(32);}
     }
     if(isFirmableCompanyRoot(pipelineControl.config,id)) {
       const initial=await checkpoint('d-control',control);
-      try {return await runFirmableCompanyPipeline({checkpoint,now:()=>Date.now(),search:(from:number,interpreted?:FirmableFilters,firmableAttempt?:number)=>callback(this.env,id,{action:'d-search',from,interpreted,...(firmableAttempt?{firmableAttempt}:{})},requestBudget) as Promise<CompanySearchPage>,profile:(row,firmableAttempt)=>callback(this.env,id,{action:'d-company',row,...(firmableAttempt?{firmableAttempt}:{})},requestBudget) as Promise<{ok:boolean}>,finish:result=>callback(this.env,id,{action:'d-finish',result},requestBudget)},{deadline:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:initial.config.nativeAgent?Math.min(initial.config.targetBusinesses||20,20):100,pageSize:initial.config.nativeAgent?Math.min(initial.config.targetBusinesses||20,20):100,concurrency:2});}
+      try {return await runFirmableCompanyPipeline({checkpoint,now:()=>Date.now(),search:(from:number,interpreted?:FirmableFilters,firmableAttempt?:number)=>callback(this.env,id,{action:'d-search',from,interpreted,...(firmableAttempt?{firmableAttempt}:{})},requestBudget) as Promise<CompanySearchPage>,profile:(row,firmableAttempt)=>callback(this.env,id,{action:'d-company',row,...(firmableAttempt?{firmableAttempt}:{})},requestBudget) as Promise<{ok:boolean}>,finish:result=>callback(this.env,id,{action:'d-finish',result},requestBudget)},{deadline:completesWorkItems(initial.config)?Infinity:initial.config.automaticDeadline||Date.now()+600000,maxCompanies:initial.config.nativeAgent?Math.min(initial.config.targetBusinesses||20,20):100,pageSize:initial.config.nativeAgent?Math.min(initial.config.targetBusinesses||20,20):100,concurrency:2});}
       catch(error){await checkpoint('d-fail',()=>callback(this.env,id,{action:'d-fail',result:{error:error instanceof Error?error.message:'D failed'}},requestBudget));return {failed:true};}
     }
     const ai = createResearchAi(this.env, {
@@ -547,10 +556,18 @@ export class FirmableRefresh extends WorkflowEntrypoint<Env, { runId: string; ma
   async run(event: WorkflowEvent<{ runId: string; mandateId: string }>, step: WorkflowStep) {
     const { runId, mandateId } = event.payload;
     const checkpoint = async <T>(name: string, body: unknown): Promise<T> => {
-      const serialized = await step.do(name, {
-        retries: { limit: 2, delay: "10 seconds", backoff: "exponential" },
-        timeout: "90 seconds",
-      }, async () => JSON.stringify(await firmableCallback<T>(this.env, runId, body)));
+      let serialized:string;
+      for(let attempt=0;;attempt++){
+        const label=attempt?`${name}-cooldown-${attempt}`:name;
+        serialized=await step.do(label,{
+          retries:{limit:2,delay:'10 seconds',backoff:'exponential'},timeout:'90 seconds',
+        },async()=>{try{return JSON.stringify(await firmableCallback<T>(this.env,runId,body));}catch(error){if(error instanceof FirmableCooldown)return 'firmable-cooldown:'+error.retryAfterMs;throw error;}});
+        if(!serialized.startsWith('firmable-cooldown:'))break;
+        const state=await researchFetch(this.env)(`${callbackOrigin(this.env.APP_ORIGIN,this.env.LOCAL_DEVELOPMENT==='true')}/api/firmable/internal/${runId}`,{headers:{authorization:`Bearer ${this.env.SERVICE_SECRET}`},signal:AbortSignal.timeout(10000)});
+        if(!state.ok)throw Error('Company contact control unavailable');
+        if(['failed','cancelled','partial','complete'].includes((await state.json() as {status:string}).status))return{failed:true} as T;
+        await step.sleep(`${label}-wait`,Number(serialized.slice('firmable-cooldown:'.length)));
+      }
       const result = JSON.parse(serialized);
       // Terminal provider failures are acknowledged and persisted by the app.
       // Check outside step.do so replaying the step never retries the provider.
@@ -730,9 +747,16 @@ const worker = {
     const id = match[1];
     if (request.method === "POST") {
       const payload = await request.json().catch(() => null) as { action?: string } | null;
+      if(payload?.action==='resume'){
+        const state=await callback(env,id) as ResearchControl;
+        if(!completesWorkItems(state.config)||state.config.nativeAgent||['complete','partial','failed','cancelled'].includes(state.status))return Response.json({recovered:false},{status:409});
+        const instance=await env.RESEARCH.get(id),status=await instance.status() as {recoverable?:boolean};
+        if(!status.recoverable)return Response.json({recovered:false});
+        await instance.restart();return Response.json({recovered:true});
+      }
       if (payload?.action === "recover-stalled") {
         const state = await callback(env, id) as { status: string; updatedAt?: string; executionUpdatedAt?: string };
-        if (!stalledResearch(state)) return Response.json({ recovered: false });
+        if (completesWorkItems((state as {config?:ResearchConfig}).config||{})||!stalledResearch(state)) return Response.json({ recovered: false });
         await (await env.RESEARCH.get(id)).terminate();
         console.info("research-diagnostic", JSON.stringify({ event: "stalled_workflow_terminated", jobId: id, lastProgress: state.executionUpdatedAt ?? state.updatedAt }));
         return Response.json({ recovered: true });

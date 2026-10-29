@@ -8,13 +8,14 @@ export type CompanySummary = {
   accreditations: string[]; researchStatus: string;
   hasHeadcount: boolean; hasRevenue: boolean; hasPerson: boolean;
   fit: ReturnType<typeof reviewMandateFit>;
+  fitResearchState?: 'pending' | 'incomplete' | 'ready';
 };
 export type CompanyListQuery = { search: string; stage: string; research: string; data: string; accreditation: string; page: number };
 export const defaultCompanyListQuery: CompanyListQuery = { search: '', stage: 'all', research: 'all', data: 'all', accreditation: '', page: 1 };
 export const COMPANY_PAGE_SIZE = 25;
 export type CompanyEnrichment = { id: string; targetId: string; name: string; status: string; message: string; profilesFound: number; profilesSaved: number; profilesFailed: number };
 export type CompanyList = { mandate: MandateView; revision: string; active: boolean; hasResearch: boolean; rows: CompanySummary[]; total: number; page: number; pages: number; enrichment?: CompanyEnrichment[] };
-export type CompanyStatusJob = { status: string; targetId?: string; companyDomain?: string; newBusinessIds?: string[]; seeds: string[] };
+export type CompanyStatusJob = { status: string; purpose?: string; automaticDeadline?: number; companyBackgroundResearch?: unknown; targetId?: string; companyDomain?: string; newBusinessIds?: string[]; seeds: string[] };
 
 export function summariseCompany(member: MembershipView, mandate: MandateView, jobs: CompanyStatusJob[], hasContact: boolean): CompanySummary {
   const { target } = member;
@@ -22,11 +23,21 @@ export function summariseCompany(member: MembershipView, mandate: MandateView, j
   const findings = member.researchFindings || [];
   const has = (kind: string) => findings.some(f => f.evidence.kind === kind);
   const researching = jobs.some(j => !terminalResearchStates.includes(j.status) && (j.targetId === target.id || j.newBusinessIds?.includes(target.id) || Boolean(target.domain && (j.companyDomain === target.domain || j.seeds.some(url => researchDomain(url) === target.domain)))));
+  const companyJobs=jobs.filter(j=>j.purpose!=='people'&&(j.targetId===target.id||j.newBusinessIds?.includes(target.id)||Boolean(target.domain&&(j.companyDomain===target.domain||j.seeds.some(url=>researchDomain(url)===target.domain)))));
+  const pending=companyJobs.filter(j=>!terminalResearchStates.includes(j.status));
+  // Queued background fields receive their execution budget on dispatch; the
+  // initial queue timestamp is not an admission deadline for that phase.
+  const waitingForData=pending.some(job=>{
+    if(job.status==='queued'&&job.companyBackgroundResearch)return true;
+    return !job.automaticDeadline||job.automaticDeadline>Date.now();
+  });
+  const interrupted=pending.length>0||['partial','failed','cancelled'].includes(companyJobs[0]?.status||'');
+  const fitResearchState:NonNullable<CompanySummary['fitResearchState']>=waitingForData?'pending':interrupted?'incomplete':'ready';
   return { id: target.id, name: target.companyName, domain: target.domain, sector: target.sector.value || '', stage: fit.eligibility.status === "excluded" ? "excluded" : member.assessment.stage,
     accreditations: member.accreditations.map(a => `${a.issuer} ${a.scope}`),
     researchStatus: businessResearchStatus(target.domain, findings.map(f => f.evidence), researching),
     hasHeadcount: target.headcount.value !== null || has('headcount'), hasRevenue: target.revenue.value !== null || has('revenue'), hasPerson: hasContact || has('person'),
-    fit };
+    fit,fitResearchState };
 }
 
 export function companyListPage(rows: CompanySummary[], query: CompanyListQuery) {

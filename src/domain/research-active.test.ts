@@ -3,6 +3,12 @@ import { researchActive, researchJobRunning, STALE_RESEARCH_JOB_MS } from "./res
 
 const now = 1_000_000;
 describe("researchActive", () => {
+  it('keeps owned finite work active regardless of age and settles from its jobs and people queue',()=>{
+    const config={completionPolicy:'work-items' as const,companyPeopleProgress:{settled:false}};
+    expect(researchActive([{status:'extracting',updatedAt:new Date(0),config}],now)).toBe(true);
+    expect(researchActive([{status:'complete',config}],now)).toBe(true);
+    expect(researchActive([{status:'complete',config:{...config,companyPeopleProgress:{settled:true}}}],now)).toBe(false);
+  });
   it("is false when there are no jobs", () => {
     expect(researchActive([], now)).toBe(false);
   });

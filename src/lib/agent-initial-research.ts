@@ -10,6 +10,7 @@ import {startMandateResearch} from './start-mandate-research';
 import {attachCachedDemoResearch,cachedDemoResearchSelectionSchema} from './cached-demo-research';
 import {initialResearchOutcome} from '@/domain/initial-research-outcome';
 import type {ResearchConfig} from '@/domain/research';
+import {initialResearchStatus,initialResearchSummarySql} from './initial-research-status';
 
 const intentSchema=z.object({version:z.literal(1),requestId:z.string().uuid(),creationRevision:z.string().regex(/^\d{1,30}$/),source:z.enum(['cached','live']).optional(),startOn:z.literal('chat').optional(),presentation:z.enum(['agent','workspace']).optional(),cachedDemo:z.object({selection:cachedDemoResearchSelectionSchema}).strict().optional()}).strict().refine(value=>value.source!=='cached'||Boolean(value.cachedDemo));
 /** This association comes only from an immutable creation receipt, never a URL,
@@ -19,6 +20,7 @@ async function initialContext(pool:Pool,rawActor:AgentActor,mandateId:string){
  const row=(await pool.query(`SELECT m.filters,m.xmin::text AS revision,a.metadata,
    t.id AS thread_id,r.state AS responsibility_state,r.mandate_revision,
    j.id AS job_id,j.status AS job_status,j.created_by AS job_created_by,(j.config ? 'nativeAgent') AS native_root,j.config AS job_config,
+   ${initialResearchSummarySql},
    (SELECT count(*)::int FROM mandate_targets mt WHERE mt.mandate_id=m.id AND mt.organization_id=m.organization_id) AS company_count,
    (SELECT count(*)::int FROM mandate_targets mt WHERE mt.mandate_id=m.id AND mt.organization_id=m.organization_id AND mt.target_id::text IN (SELECT jsonb_array_elements_text(coalesce(a.metadata->'initialResearch'->'cachedDemo'->'selection'->'targetIds','[]'::jsonb)))) AS cached_company_count,
    (SELECT count(DISTINCT p.id)::int FROM contacts p JOIN mandate_targets mt ON mt.target_id=p.target_id AND mt.organization_id=p.organization_id WHERE mt.mandate_id=m.id AND mt.organization_id=m.organization_id) AS people_count
@@ -41,7 +43,9 @@ function view(context:NonNullable<Awaited<ReturnType<typeof initialContext>>>):I
  if(intent.source==='cached'&&intent.cachedDemo)return {requestId:intent.requestId,source:'cached',status:Number(row.cached_company_count??0)>=intent.cachedDemo.selection.companyCount?'complete':'queued',candidates:intent.cachedDemo.selection.companyCount,companies,people};
  if(intent.startOn==='chat'&&!row.job_id&&!row.responsibility_state)return {requestId:intent.requestId,source:'live',status:'awaiting_start'};
  if(row.job_id&&(row.job_created_by!==actor.userId||row.native_root))return {requestId:intent.requestId,status:'conflict'};
- return {requestId:intent.requestId,status:row.job_status??(row.responsibility_state&&!['ready','waiting'].includes(row.responsibility_state)?row.responsibility_state==='paused'?'paused':'cancelled':row.revision!==intent.creationRevision?'brief_changed':'queued'),...(row.job_id?{jobId:row.job_id,source:'live' as const,...initialResearchOutcome({status:row.job_status,config:(row.job_config??{}) as ResearchConfig,companies,people})}:{})};
+ const config=(row.job_config??{}) as ResearchConfig;
+ const status=row.job_id?initialResearchStatus(row.job_status,config,row.research_summary):row.responsibility_state&&!['ready','waiting'].includes(row.responsibility_state)?row.responsibility_state==='paused'?'paused':'cancelled':row.revision!==intent.creationRevision?'brief_changed':'queued';
+ return {requestId:intent.requestId,status,...(row.job_id?{jobId:row.job_id,source:'live' as const,...initialResearchOutcome({status,config,companies,people})}:{})};
 }
 /** Read-only projection. Displaying the chat must never schedule research. */
 export async function readInitialMandateResearch(pool:Pool,actor:AgentActor,mandateId:string):Promise<InitialMandateResearchView|undefined>{

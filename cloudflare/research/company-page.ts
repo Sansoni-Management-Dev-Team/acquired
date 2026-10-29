@@ -29,7 +29,13 @@ export async function companyPage(request: Request, env: CompanyPageEnv, fetcher
       method: 'POST', headers: { 'Content-Type': 'application/json', ...(!local ? { authorization: `Bearer ${env.CRAWL4AI_SECRET}` } : {}) },
       body: JSON.stringify({ url, only_main_content: false }), signal: AbortSignal.timeout(35000), redirect: 'manual',
     });
-    if (!response.ok) { await response.body?.cancel(); return Response.json({ error: 'Company page reader unavailable', upstreamStatus: response.status }, { status: 503 }); }
+    if (!response.ok) {
+      if(response.status===429){
+        const body=await response.json().catch(()=>null) as {category?:unknown}|null;
+        if(body?.category==='reader_busy'||body?.category==='domain_backoff')return Response.json({error:'Company page reader temporarily unavailable',category:body.category},{status:429,headers:{'Retry-After':response.headers.get('retry-after')||'1','Cache-Control':'no-store'}});
+      }else await response.body?.cancel();
+      return Response.json({ error: 'Company page reader unavailable', upstreamStatus: response.status }, { status: 503 });
+    }
     const reader = response.body?.getReader();
     if (!reader) throw Error('Missing response');
     const chunks: Uint8Array[] = []; let bytes = 0;

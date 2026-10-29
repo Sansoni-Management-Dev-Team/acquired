@@ -14,7 +14,7 @@ export function hybridCompanyPartialResult(error:unknown):Row|undefined{return e
 export type HybridCompany={candidateKey?:string;domain:string;sources:('firmable'|'web')[];firmableRow?:Row;webRow?:WebCompany};
 /** Two discovery producers and one bounded enrichment queue. The first Firmable
  * page indexes known IDs before web matching, avoiding duplicate profile reads. */
-export async function runHybridCompanyPipeline(deps:{checkpoint:<T>(name:string,fn:(firmableAttempt?:number)=>Promise<T>)=>Promise<T>;now:()=>number;control:()=>Promise<boolean>;plan:()=>Promise<WebQuery[]>;firmableSearch:(from?:number,interpreted?:FirmableFilters,firmableAttempt?:number)=>Promise<CompanySearchPage>;webSearch:(query:WebQuery,index:number)=>Promise<{rows:WebCompany[];ok:boolean;category?:string}>;profile:(company:HybridCompany,firmableAttempt?:number)=>Promise<CompanyProfileOutcome>;beforeFinish?:()=>Promise<unknown>;finish:(result:Row)=>Promise<unknown>},options:{deadline:number;maxCompanies:number;concurrency:number;discoveryPolicy?:CompanyDiscoveryPolicy;traceContext?:ResearchTraceContext;continuation?:HybridCompanyContinuation}){
+export async function runHybridCompanyPipeline(deps:{checkpoint:<T>(name:string,fn:(firmableAttempt?:number)=>Promise<T>)=>Promise<T>;now:()=>number;control:()=>Promise<boolean>;plan:()=>Promise<WebQuery[]>;firmableSearch:(from?:number,interpreted?:FirmableFilters,firmableAttempt?:number)=>Promise<CompanySearchPage>;webSearch:(query:WebQuery,index:number)=>Promise<{rows:WebCompany[];ok:boolean;category?:string}>;profile:(company:HybridCompany,firmableAttempt?:number)=>Promise<CompanyProfileOutcome>;beforeFinish?:()=>Promise<unknown>;finish:(result:Row)=>Promise<unknown>},options:{deadline:number;firmableFirst?:boolean;desiredCompanies?:number;maxCompanies:number;concurrency:number;discoveryPolicy?:CompanyDiscoveryPolicy;traceContext?:ResearchTraceContext;continuation?:HybridCompanyContinuation}){
  const trace=safeResearchTrace(options.traceContext),began=Date.now();
  const log=(stage:string,fields:Row={})=>console.info('research-pipeline',JSON.stringify({...trace,module:'hybrid-company-pipeline',stage,policyVersion:options.discoveryPolicy?.version??1,...fields}));
  const policy=options.discoveryPolicy?companyDiscoveryPolicySchema.parse(options.discoveryPolicy):undefined,allDiscovered=policy?.version===4||policy?.version===5;
@@ -23,7 +23,7 @@ export async function runHybridCompanyPipeline(deps:{checkpoint:<T>(name:string,
  const continuation=options.continuation?validateHybridCompanyContinuation(options.continuation):undefined;
  if(continuation&&(!allDiscovered||trace.jobId===continuation.sourceRootId))throw Error('Saved candidates require a fresh reviewed V4 execution root');
  const plan=continuation?[]:await deps.checkpoint('f-plan',deps.plan),selected=new Map<string,HybridCompany>(),knownFirmable=new Map<string,Row>(),seenWeb=new Set<string>(),queue:HybridCompany[]=[],overflow:HybridCompany[]=[];
- const quota=Math.floor(options.maxCompanies/2);let firmableReportedTotal=0,firmableTruncated=false,webTruncated=false;let samplingBlockedReason:string|undefined;let profileSampling:ReturnType<typeof balanceFirmableStaffBands>['summary']|undefined;let firmablePages=0,firmableSampledRows=0,firmableSelected=0,webSelected=0,producersDone=0,searches=0,searchFailed=0,discoveryFailed=0,saved=0,matched=0,identityReviewRequired=0,skipped=0,failed=0,stopReason='exhausted';let started=0;
+ const quota=Math.floor(options.maxCompanies/2);let firmableReportedTotal=0,firmableTruncated=false,webTruncated=false;let samplingBlockedReason:string|undefined;let profileSampling:ReturnType<typeof balanceFirmableStaffBands>['summary']|undefined;let firmablePages=0,firmableSampledRows=0,firmableSelected=0,webSelected=0,producersDone=0,searches=0,searchFailed=0,discoveryFailed=0,saved=0,matched=0,identityReviewRequired=0,skipped=0,failed=0,stopReason='exhausted';let started=0,activeProfiles=0;
  const outcomes=new Map<string,'saved'|'review'|'skipped'|'known_failed'|'interrupted'|'not_started'>();
  let webStopCategory:string|undefined;
  let fatal=false,fatalError:unknown;
@@ -87,9 +87,14 @@ export async function runHybridCompanyPipeline(deps:{checkpoint:<T>(name:string,
  }catch{discoveryFailed++;}finally{producersDone++;wake();}})();
  const webProducer=(async()=>{try{
   if(continuation)return;
+  if(options.firmableFirst){
+   await firmableProducer;
+   while(await running()&&(queue.some(company=>Boolean(company.firmableRow))||activeProfiles>0))await wait();
+   if(saved>=(options.desiredCompanies||20)){webStopCategory='firmable_target_met';return;}
+  }
   const sampledWeb:WebCompany[][]=[];
   for(const [index,query]of (policy?plan.slice(0,policy.maxWebQueries):plan).entries()){
-   if(!await running()||(!policy&&(webSelected>=quota||selected.size>=options.maxCompanies)))break;
+   if(!await running()||options.firmableFirst&&saved+queue.length+activeProfiles>=(options.desiredCompanies||20)||(!policy&&(webSelected>=quota||selected.size>=options.maxCompanies)))break;
    let result:{rows:WebCompany[];ok:boolean;category?:string};
    try{result=await deps.checkpoint(`f-web-search-${index}`,()=>deps.webSearch(query,index));}
    catch(error){if(!policy)throw error;searches++;searchFailed++;discoveryFailed++;break;}
@@ -97,14 +102,14 @@ export async function runHybridCompanyPipeline(deps:{checkpoint:<T>(name:string,
    if(allDiscovered&&!result.ok&&['native_budget_admission_required','native_provider_reconciliation_required'].includes(result.category??'')){
     webStopCategory=result.category;break;
    }
-   if(policy){const maxRows=(policy.version===4||policy.version===5)?policy.maxWebRowsPerQuery:100;if(result.rows.length>maxRows)webTruncated=true;sampledWeb.push(result.rows.slice(0,maxRows));}
+   if(policy){const maxRows=(policy.version===4||policy.version===5)?policy.maxWebRowsPerQuery:100;if(result.rows.length>maxRows)webTruncated=true;const rows=result.rows.slice(0,maxRows);if(options.firmableFirst)for(const row of rows)addWeb(row);else sampledWeb.push(rows);}
    else for(const row of result.rows)addWeb(row);
   }
   if(allDiscovered)await firmableProducer;
-  if(policy)for(let round=0;round<Math.max(0,...sampledWeb.map(rows=>rows.length));round++)for(const rows of sampledWeb){const row=rows[round];if(row)addWeb(row);}
+  if(policy&&!options.firmableFirst)for(let round=0;round<Math.max(0,...sampledWeb.map(rows=>rows.length));round++)for(const rows of sampledWeb){const row=rows[round];if(row)addWeb(row);}
  }catch{discoveryFailed++;}finally{producersDone++;wake();}})();
  await firmableProducer;
- const consume=async()=>{for(;;){if(!await running())return;const company=queue.shift();if(company){const ordinal=++started;if(allDiscovered)outcomes.set(company.candidateKey??company.domain,'interrupted');const result=await deps.checkpoint(`f-company-${company.candidateKey??company.domain}`,attempt=>attempt?deps.profile(company,attempt):deps.profile(company));const disposition=companyProfileDisposition(result);if(allDiscovered)outcomes.set(company.candidateKey??company.domain,disposition==='failed'?'known_failed':disposition);if(allDiscovered)log('profile.result',{candidateOrdinal:ordinal,origins:company.sources,disposition});if(disposition==='saved'){saved++;if(result.matched)matched++;}else if(disposition==='review')identityReviewRequired++;else if(disposition==='skipped')skipped++;else failed++;continue;}
+ const consume=async()=>{for(;;){if(!await running()){wake();return;}const company=queue.shift();if(company){const ordinal=++started;activeProfiles++;if(allDiscovered)outcomes.set(company.candidateKey??company.domain,'interrupted');const result=await deps.checkpoint(`f-company-${company.candidateKey??company.domain}`,attempt=>attempt?deps.profile(company,attempt):deps.profile(company));const disposition=companyProfileDisposition(result);if(allDiscovered)outcomes.set(company.candidateKey??company.domain,disposition==='failed'?'known_failed':disposition);if(allDiscovered)log('profile.result',{candidateOrdinal:ordinal,origins:company.sources,disposition});if(disposition==='saved'){saved++;if(result.matched)matched++;}else if(disposition==='review')identityReviewRequired++;else if(disposition==='skipped')skipped++;else failed++;activeProfiles--;wake();continue;}
   if(producersDone===2){for(const company of overflow){if(selected.size>=options.maxCompanies)break;if(selected.has(company.domain))continue;selected.set(company.domain,company);queue.push(company);}overflow.length=0;if(queue.length)continue;return;}
   await wait();
  }};
@@ -114,7 +119,7 @@ export async function runHybridCompanyPipeline(deps:{checkpoint:<T>(name:string,
  // retrying them. Report the first error only after every branch is quiescent.
  await Promise.allSettled([webProducer,...Array.from({length:options.concurrency},()=>consume().catch(error=>{if(!fatal){fatal=true;fatalError=error;}wake();throw error;}))]);
  if(fatal&&allDiscovered)stopReason='interrupted';
- if(allDiscovered&&webStopCategory&&stopReason==='exhausted')stopReason=webStopCategory==='native_budget_admission_required'?'web_budget_limited':'web_reconciliation_required';
+ if(allDiscovered&&webStopCategory&&['native_budget_admission_required','native_provider_reconciliation_required'].includes(webStopCategory)&&stopReason==='exhausted')stopReason=webStopCategory==='native_budget_admission_required'?'web_budget_limited':'web_reconciliation_required';
  if(!allDiscovered&&selected.size>=options.maxCompanies&&stopReason==='exhausted')stopReason='candidate_limit';
  const selection=[...selected.values()].map(c=>({... (c.candidateKey?{candidateKey:c.candidateKey}:{}),domain:c.domain,sources:c.sources,firmableId:c.firmableRow?.id||null,...(allDiscovered?{outcome:outcomes.get(c.candidateKey??c.domain)??'not_started'}:{})}));
  const interrupted=[...outcomes.values()].filter(value=>value==='interrupted').length;

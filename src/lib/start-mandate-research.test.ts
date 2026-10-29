@@ -16,6 +16,11 @@ beforeEach(()=>{
  mocks.create.mockResolvedValue({id:requestId,status:'queued'});mocks.ready.mockResolvedValue(true);mocks.active.mockResolvedValue(false);
 });
 describe('shared mandate research application action',()=>{
+ it('launches finite company work without an elapsed-run cancellation deadline',async()=>{
+  await startMandateResearch(actor,mandateId,{requestId,fromBrief:true});
+  const config=mocks.create.mock.calls[0][3];
+  expect(config.automaticDeadline).toBeUndefined();expect(config.completionPolicy).toBe('work-items');
+ });
  it('starts saved-brief research for the trusted actor without an HTTP or session dependency',async()=>{
   expect(await startMandateResearch(actor,mandateId,{requestId,fromBrief:true})).toEqual({status:202,body:{jobId:requestId}});
   expect(mocks.create).toHaveBeenCalledWith(requestId,mandateId,actor.userId,expect.objectContaining({researchRunId:requestId,targetBusinesses:20,includeCompanyPeople:true,includePhones:false,findPeople:false,companyDiscoveryPolicy:expect.objectContaining({version:5})}));

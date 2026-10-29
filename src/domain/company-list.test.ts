@@ -33,3 +33,13 @@ it('places government entities below eligible companies regardless of numeric fi
   government.fit.score=100; company.fit.score=25;
   expect(companyListPage([government,company],defaultCompanyListQuery).rows.map(r=>r.id)).toEqual(['2','1']);
 });
+it('distinguishes pending company data from unrelated people work and expired company requests',()=>{
+ const target=rankTarget(seedTargets[0],defaultMandate),member={target,assessment:initialAssessment,version:1,accreditations:[]},mandate={id:'mandate',brief:emptyBrief(),createdAt:'2026-09-30'};
+ expect(summariseCompany(member,mandate,[{status:'reading',targetId:target.id,seeds:[],purpose:'firmographics'}],false).fitResearchState).toBe('pending');
+ expect(summariseCompany(member,mandate,[{status:'reading',targetId:target.id,seeds:[],purpose:'people'}],false).fitResearchState).toBe('ready');
+ expect(summariseCompany(member,mandate,[{status:'queued',targetId:target.id,seeds:[],purpose:'firmographics',automaticDeadline:Date.now()-1000}],false).fitResearchState).toBe('incomplete');
+});
+it('keeps independent background company research loading while it waits for its execution budget',()=>{
+ const target=rankTarget(seedTargets[0],defaultMandate),member={target,assessment:initialAssessment,version:1,accreditations:[]},mandate={id:'mandate',brief:emptyBrief(),createdAt:'2026-09-30'};
+ expect(summariseCompany(member,mandate,[{status:'queued',targetId:target.id,seeds:[],purpose:'firmographics',companyBackgroundResearch:{version:1},automaticDeadline:Date.now()-1000}],false).fitResearchState).toBe('pending');
+});

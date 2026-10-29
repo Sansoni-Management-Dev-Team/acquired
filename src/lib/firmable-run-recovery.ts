@@ -19,9 +19,7 @@ export async function recoverFirmableRefreshes(history: Pick<FirmableHistoryRepo
     try {
       const worker = await researchWorker(`/firmable/${run.id}`, "GET", undefined, 4_000) as { status?: string };
       if (["complete", "errored", "terminated"].includes(worker.status || "")) await history.failRun(run.id, "Company data refresh ended before it could report completion. Start a new refresh to retry.");
-    } catch {
-      if (now - run.updatedAt.getTime() >= 600_000) await history.failRun(run.id, "Company data refresh timed out. Start a new refresh to retry; saved data remains available.");
-    }
+    } catch { /* Unreachable status is not proof that the worker lost ownership. */ }
   }));
 }
 

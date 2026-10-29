@@ -1,12 +1,21 @@
 import {beforeEach,expect,it,vi} from 'vitest';
-const m=vi.hoisted(()=>({db:null as unknown,persist:vi.fn(),transaction:vi.fn(),selections:[]as unknown[][]}));
+const m=vi.hoisted(()=>({db:null as unknown,persist:vi.fn(),worker:vi.fn(),transaction:vi.fn(),selections:[]as unknown[][]}));
+vi.mock('./research-service',()=>({researchWorker:m.worker}));
 vi.mock('@/db/client',()=>({requireDb:()=>m.db}));
 vi.mock('./company-background-research',()=>({COMPANY_BACKGROUND_BUDGET:{maxDurationMs:30000},persistCompanyBackgroundResult:m.persist}));
 import {recoverCompanyBackground} from './company-background-dispatch';
 beforeEach(()=>{
- vi.resetAllMocks();m.selections=[];m.transaction.mockImplementation(async(work:(tx:unknown)=>Promise<unknown>,options?:{accessMode?:string})=>options?.accessMode==='read only'?work(m.db):[]);
+ vi.resetAllMocks();m.worker.mockResolvedValue({status:'errored'});m.selections=[];m.transaction.mockImplementation(async(work:(tx:unknown)=>Promise<unknown>,options?:{accessMode?:string})=>options?.accessMode==='read only'?work(m.db):[]);
  const query=()=>{const rows=m.selections.shift()||[];return{from:()=>({where:()=>({limit:async()=>rows})})};};
  m.db={select:query,selectDistinct:query,transaction:m.transaction};
+});
+it.each(['running','waiting','queued'])('keeps an old background job whose worker still owns it (%s)',async status=>{
+ m.selections=[[{id:'original-job',organizationId:'org',createdBy:'owner',workflowExecutionId:null,config:{companyBackgroundResearch:{fields:['year_founded']}}}],[]];m.worker.mockResolvedValue({status});
+ await recoverCompanyBackground();expect(m.worker).toHaveBeenCalledWith('/jobs/original-job','GET',undefined,4000);expect(m.persist).not.toHaveBeenCalled();
+});
+it('does not fail background work when its worker ownership cannot be checked',async()=>{
+ m.selections=[[{id:'original-job',organizationId:'org',createdBy:'owner',workflowExecutionId:null,config:{companyBackgroundResearch:{fields:['year_founded']}}}],[]];m.worker.mockRejectedValue(Error('Temporarily unavailable'));
+ await recoverCompanyBackground();expect(m.persist).not.toHaveBeenCalled();
 });
 it('retains saved evidence and original stalled-job identities while recording incomplete public fields',async()=>{
  m.selections=[[{id:'original-job',organizationId:'org',createdBy:'owner',workflowExecutionId:null,config:{companyBackgroundResearch:{fields:['founded']}}}],[]];

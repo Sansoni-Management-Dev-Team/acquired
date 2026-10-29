@@ -5,11 +5,11 @@ import type{requireDb}from'@/db/client';
 import type{ResearchConfig}from'@/domain/research';
 /** Projection uses the same normal-workspace field planner. No values or
  * criteria are inferred, and published personal contacts remain another phase. */
-export async function nativeFieldsCompany(raw:{targetId:string;name:string;domain:string;sourceRevision:string;blockedReasons:string[];companyIdentityPolicyVersion?:1;target:Record<string,unknown>}){
+export async function nativeFieldsCompany(raw:{targetId:string;name:string;domain:string;sourceRevision:string;blockedReasons:string[];companyIdentityPolicyVersion?:1;target:Record<string,unknown>},scope=''){
  const{planCompanyBackgroundScope}=await import('./company-background-research');
  const row=Object.fromEntries(Object.entries(raw.target).map(([key,value])=>[key.replace(/_([a-z])/g,(_,c:string)=>c.toUpperCase()),value]))as typeof targets.$inferSelect;
- const target=targetRecordToRankedTarget(row,[]),scope=planCompanyBackgroundScope(target);
- return{targetId:raw.targetId,name:raw.name,domain:raw.domain,sourceRevision:raw.sourceRevision,blockedReasons:raw.blockedReasons,...(raw.companyIdentityPolicyVersion===1?{companyIdentityPolicyVersion:1 as const}:{}),missingFields:scope.fields,verifyAbn:scope.verifyAbn};
+ const target=targetRecordToRankedTarget(row,[]),plan=planCompanyBackgroundScope(target,scope);
+ return{targetId:raw.targetId,name:raw.name,domain:raw.domain,sourceRevision:raw.sourceRevision,blockedReasons:raw.blockedReasons,...(raw.companyIdentityPolicyVersion===1?{companyIdentityPolicyVersion:1 as const}:{}),missingFields:plan.fields,verifyAbn:plan.verifyAbn};
 }
 /** Must run in the evidence transaction with the target already locked. */
 export async function assertNativeFieldsPersistence(db:Pick<ReturnType<typeof requireDb>,'execute'>,job:{id:string;organizationId:string;mandateId:string;createdBy:string;config:unknown}){

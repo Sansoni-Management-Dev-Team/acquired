@@ -4,7 +4,7 @@ import { requireDb } from './client';
 import { researchJobs } from './schema';
 import { AcquisitionRepository } from './acquisition-repository';
 import { loadWorkspaceContacts } from './firmable-read-model';
-import { researchActive, type ResearchConfig } from '@/domain/research';
+import { researchActive, terminalResearchStates, type ResearchConfig } from '@/domain/research';
 import { companyListPage, summariseCompany, type CompanyList, type CompanyListQuery, type CompanyEnrichment } from '@/domain/company-list';
 
 export class CompanyListRepository {
@@ -15,7 +15,7 @@ export class CompanyListRepository {
     if (!mandate) return null;
     // Progress checks transfer only fields needed for activity and company association.
     const jobs = await this.db.select({ id: researchJobs.id, status: researchJobs.status, updatedAt: researchJobs.updatedAt,
-      config: sql<ResearchConfig>`jsonb_build_object('mode', ${researchJobs.config}->'mode', 'purpose', ${researchJobs.config}->'purpose', 'discoveryCandidate', ${researchJobs.config}->'discoveryCandidate', 'automaticDeadline', ${researchJobs.config}->'automaticDeadline', 'targetId', ${researchJobs.config}->'targetId', 'companyDomain', ${researchJobs.config}->'companyDomain', 'newBusinessIds', ${researchJobs.config}->'newBusinessIds')`,
+      config: sql<ResearchConfig>`jsonb_build_object('mode', ${researchJobs.config}->'mode', 'purpose', ${researchJobs.config}->'purpose', 'discoveryCandidate', ${researchJobs.config}->'discoveryCandidate', 'automaticDeadline', ${researchJobs.config}->'automaticDeadline', 'companyBackgroundResearch', ${researchJobs.config}->'companyBackgroundResearch', 'targetId', ${researchJobs.config}->'targetId', 'companyDomain', ${researchJobs.config}->'companyDomain', 'newBusinessIds', ${researchJobs.config}->'newBusinessIds')`,
       seeds: researchJobs.seeds,
     }).from(researchJobs).where(and(eq(researchJobs.organizationId, this.org), eq(researchJobs.mandateId, id))).orderBy(sql`${researchJobs.createdAt} DESC`);
     // Hash dependencies inside PostgreSQL: unchanged polls never transfer findings,
@@ -43,9 +43,10 @@ export class CompanyListRepository {
     const rows = Array.isArray(result) ? result : (result as { rows: { revision: string }[] }).rows;
     const activeEnrichment = await this.db.execute(sql`SELECT r.id,r.target_id AS "targetId",t.company_name AS name,r.status,r.message,r.profiles_found AS "profilesFound",r.profiles_saved AS "profilesSaved",r.profiles_failed AS "profilesFailed" FROM public.firmable_sync_runs r JOIN public.mandate_targets m ON m.target_id=r.target_id AND m.organization_id=r.organization_id JOIN public.targets t ON t.id=m.target_id AND t.organization_id=m.organization_id WHERE m.organization_id=${this.org} AND m.mandate_id=${id} AND r.status IN ('queued','running') ORDER BY r.created_at DESC`);
     const enrichmentRows = (Array.isArray(activeEnrichment) ? activeEnrichment : (activeEnrichment as { rows: CompanyEnrichment[] }).rows) as CompanyEnrichment[];
-    const active = researchActive(jobs) || enrichmentRows.length > 0;
-    const signatureJobs = jobs.map(j => ({ status: j.status, config: j.config, seeds: j.seeds }));
-    const revision = createHash('sha256').update(JSON.stringify([rows[0]?.revision, mandate, signatureJobs, query])).digest('hex');
+    const backgroundPending=jobs.some(job=>job.config.companyBackgroundResearch&&!terminalResearchStates.includes(job.status));
+    const active = researchActive(jobs) || backgroundPending || enrichmentRows.length > 0;
+    const signatureJobs = jobs.map(j => ({ status: j.status, config: j.config, seeds: j.seeds, deadlineReached: Boolean(j.config.automaticDeadline&&j.config.automaticDeadline<=Date.now()) }));
+    const revision = createHash('sha256').update(JSON.stringify(['fit-research-state-v2',rows[0]?.revision, mandate, signatureJobs, query])).digest('hex');
     if (previous === revision) return { unchanged: true, active, revision };
     const memberships = await repo.memberships(id);
     const contacts = await loadWorkspaceContacts(this.db, this.org, memberships);

@@ -35,7 +35,7 @@ async function getMandateResearch(
   if (!(await new AcquisitionRepository(org).getMandate(id)))
     return researchJsonResponse({ error: "Mandate not found" }, { status: 404 });
   const workflow = process.env.ACQUISITION_WORKFLOW_ENABLED==='true'||process.env.ACQUISITION_WORKFLOW_SCHEMA_READY==='true' ? await findMandateWorkflow(agentPool(),{organizationId:org,userId:session.user.id},id) : undefined;
-  const workflowPending=workflow&&['accepted','researching'].includes(workflow.state);
+  let workflowPending=workflow&&['accepted','researching'].includes(workflow.state);
   const repo = new ResearchRepository(org);
   const [initialJobs, findings, results, targetEvidence] = await Promise.all([
     repo.listReview(id),
@@ -44,6 +44,7 @@ async function getMandateResearch(
     repo.targetEvidence(id),
   ]);
   const jobs = initialJobs;
+  if(jobs.some(job=>job.id===workflow?.id&&(job.config as ResearchConfig).completionPolicy==='work-items'))workflowPending=false;
   const evidence: Record<string, EvidenceCounts> = {};
   for (const targetId of new Set([...targetEvidence.map(f => f.targetId!), ...jobs.flatMap(j => (j.config as ResearchConfig).targetId ? [(j.config as ResearchConfig).targetId!] : [])])) {
     const own = jobs.filter(j => (j.config as ResearchConfig).targetId === targetId);
@@ -90,7 +91,7 @@ async function getMandateResearch(
   // Keep high-volume span events in the database; polling clients receive summaries.
   const publicJobs = jobs.map(job => ({ ...job,
     discovery: companyDiscoveryProgress(job.config as ResearchConfig),
-    config: { ...projectCompanyDiscoveryConfig(job.config as ResearchConfig), pipelineTiming: undefined },
+    config: { ...projectCompanyDiscoveryConfig(job.config as ResearchConfig), companyBackgroundCheckpoint:undefined,companyBackgroundAbnLookup:undefined,pipelineTiming: undefined },
   }));
   return researchJsonResponse(
     { enabled: true, workflow:workflow?{id:workflow.id,state:workflow.state,preset:workflow.preset}:undefined, timings, pendingEnrichment, active: Boolean(workflowPending)||researchActive(jobs.map(j => ({ status: j.status, updatedAt: j.updatedAt, config: j.config as ResearchConfig }))), results, evidence, jobs: publicJobs.filter(j => !(j.config as ResearchConfig).purpose), companyJobs: publicJobs.filter(j => (j.config as ResearchConfig).purpose === "firmographics"), peopleJobs: publicJobs.filter(j => (j.config as ResearchConfig).purpose === "people" && (j.config as ResearchConfig).parentJobId), findings: findings.filter(f => (f.evidence as { kind?: string }).kind !== "person") },
