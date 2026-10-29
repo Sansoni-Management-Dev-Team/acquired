@@ -90,12 +90,12 @@ jobs:
           ENV_FILES_BUCKET: ${{ env.PROJECT }}-env-files-${{ env.ENVIRONMENT }}
           ENV_FILE_PREFIX: ${{ env.PROJECT }}
       
-      - name: Register Backend Task Definition
+      - name: Register Task Definition
         id: register
         uses: Sansoni-Management-Dev-Team/devops-github-workflows/register-task-definition@main
         with:
           family: ${{ env.PROJECT_NAME }}
-          taskdef-path: backend/taskdef.json
+          taskdef-path: taskdef.json
           cpu: "256"
           memory: "1024"
           execution-role-arn: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/${{ env.PROJECT }}-ecs-task-execution-${{ env.ENVIRONMENT }}
