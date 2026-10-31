@@ -7,7 +7,9 @@ export function appEnvironment(secret,{researchEnabled='false',researchUrl=''}={
   const db=new URL('postgresql://placeholder');
   db.username=secret.ACQUIRE_DATABASE_USERNAME;db.password=secret.ACQUIRE_DATABASE_PASSWORD;
   if(!/^[a-z0-9.-]+$/.test(secret.ACQUIRE_DATABASE_HOST))throw Error('Invalid database host');
-  db.hostname=secret.ACQUIRE_DATABASE_HOST;db.port='5432';db.pathname='/acquire';
+  const databaseName=secret.ACQUIRE_DATABASE_NAME===undefined?'acquire':secret.ACQUIRE_DATABASE_NAME;
+  if(typeof databaseName!=='string'||!/^[a-z][a-z0-9_]{0,62}$/.test(databaseName))throw Error('Invalid database name');
+  db.hostname=secret.ACQUIRE_DATABASE_HOST;db.port='5432';db.pathname='/'+databaseName;
   if(researchEnabled==='true'){
     if(!/^http:\/\/[a-z0-9.-]+\.internal:8787$/.test(researchUrl))throw Error('Research requires a private UAT service endpoint');
     if(typeof secret.RESEARCH_SERVICE_SECRET!=='string'||secret.RESEARCH_SERVICE_SECRET.length<32)throw Error('Missing UAT research service secret');
