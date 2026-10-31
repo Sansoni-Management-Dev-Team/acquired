@@ -9,7 +9,24 @@
         "protocol": "tcp"
       }
     ],
-    "environment": [],
+    "environment": [
+      {
+        "name": "AGENT_MODE_EXPLORATION_ENABLED",
+        "value": "true"
+      },
+      {
+        "name": "AGENT_DURABLE_STATE_ENABLED",
+        "value": "true"
+      },
+      {
+        "name": "AGENT_NATIVE_EXECUTION_ENABLED",
+        "value": "true"
+      },
+      {
+        "name": "ACQUISITION_WORKFLOW_ENABLED",
+        "value": "true"
+      }
+    ],
     "secrets": [
       {
         "name": "DATABASE_SSL_CA",

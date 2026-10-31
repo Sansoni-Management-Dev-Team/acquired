@@ -12,6 +12,8 @@ Plane module: [AWS migration — infrastructure, preparation and cutover](https:
 
 ### October 31 — imported UAT database and login handoff
 
+**Subsequent approved activation:** The user requested all four UI/workflow gates enabled in UAT. The checked-in ECS task template now sets `AGENT_MODE_EXPLORATION_ENABLED`, `AGENT_DURABLE_STATE_ENABLED`, `AGENT_NATIVE_EXECUTION_ENABLED` and `ACQUISITION_WORKFLOW_ENABLED` to `true`, so both the reviewed rollout and future GitHub deployments retain them. This is task configuration only: no migrations, background-worker registration, communications activation or outreach sends are included. Native background processing still requires its separate runtime configuration. Verify authenticated Agent mode and Testing controls after rollout without submitting a mandate or replaying imported operations.
+
 The approved October 30 snapshot was restored into `acquire_supabase_import_20261030`: 112 application tables and 87,490 rows passed content checks, with post-commit identity and tenant-role checks recorded privately. The UAT app still uses the original `acquire` database. The requested user's account, password credential and three memberships exist only in the imported database; recent authentication logs report `User not found`.
 
 The environment generator now accepts optional `ACQUIRE_DATABASE_NAME` in the existing application secret; omission preserves `acquire`. Set it to `acquire_supabase_import_20261030` only as part of the reviewed UAT connection switch, regenerate the private S3 environment file, and roll the app service using the existing image. Preserve the authentication key and all unrelated settings. The research worker uses the app's callback API and its own DBOS database; that database stays separate.
