@@ -16,3 +16,16 @@ test('environment serialization rejects line injection without exposing credenti
  const value='sensitive\nINJECTED=true';
  assert.throws(()=>appEnvironment({...secret,OPENAI_API_KEY:value}),error=>!error.message.includes('sensitive')&&/OPENAI_API_KEY/.test(error.message));
 });
+test('database selection defaults to acquire and honors the configured import database',()=>{
+ const database=values=>new URL(appEnvironment(values).split('\n').find(line=>line.startsWith('DATABASE_URL=')).slice(13));
+ assert.equal(database(secret).pathname,'/acquire');
+ const configured=database({...secret,ACQUIRE_DATABASE_NAME:'acquire_supabase_import_20261030'});
+ assert.equal(configured.pathname,'/acquire_supabase_import_20261030');
+ assert.equal(configured.hostname,secret.ACQUIRE_DATABASE_HOST);
+ assert.equal(decodeURIComponent(configured.password),secret.ACQUIRE_DATABASE_PASSWORD);
+});
+test('database selection rejects malformed names without exposing supplied values',()=>{
+ for(const value of ['',null,123,'acquire/other','acquire?sslmode=disable','acquire\nINJECTED=true','a'.repeat(64)]){
+  assert.throws(()=>appEnvironment({...secret,ACQUIRE_DATABASE_NAME:value}),error=>error.message==='Invalid database name');
+ }
+});
